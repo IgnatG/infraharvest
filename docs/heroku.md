@@ -32,17 +32,17 @@ The imported configuration cannot build & launch apps in a new place. To launch 
 export HEROKU_API_KEY=<token>
 
 # All team's apps
-./terraformer import heroku --resources=app --team=<NAME>
+./infraharvest import heroku --resources=app --team=<NAME>
 
 # Specific app(s), by UUID
-./terraformer import heroku --resources=app --filter=app=<ID>
-./terraformer import heroku --resources=app --filter=app=<ID>:<ID2>:<ID3>
+./infraharvest import heroku --resources=app --filter=app=<ID>
+./infraharvest import heroku --resources=app --filter=app=<ID>:<ID2>:<ID3>
 
 # Output directory
-./terraformer import heroku --resources=app --filter=app=<ID> --path-pattern='{output}/{provider}/<DIRECTORY NAME>'
+./infraharvest import heroku --resources=app --filter=app=<ID> --path-pattern='{output}/{provider}/<DIRECTORY NAME>'
 
 # All enabled features of HEROKU_API_KEY's Heroku account
-./terraformer import heroku --resources=account_feature
+./infraharvest import heroku --resources=account_feature
 ```
 
 Heroku Terraformer resources with the terraform-provider-heroku resources they import:

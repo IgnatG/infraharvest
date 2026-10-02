@@ -40,7 +40,7 @@ export DATADOG_API_KEY=Datadog API key. More information on this at https://docs
 export DATADOG_HOST=Datadog API host i.e. https://api.datadoghq.eu which can be found at https://docs.datadoghq.com/getting_started/site/#access-the-datadog-site
 export DATADOG_APP_KEY=Datadog APP key. More information on this at https://docs.datadoghq.com/account_management/api-app-keys/ 
 
-./terraformer import datadog --resources=* 
+./infraharvest import datadog --resources=* 
 ```
 
 You can also specify only certain kinds of resources to import as well, i.e. `--resources=dashboard`.
@@ -63,20 +63,20 @@ Filtering based on Tags follows the convention `--filter="Name=tags;Value='your 
 
 ```bash
 # Import monitors based on multiple tags
-./terraformer import datadog --resources=monitor --filter="Name=tags;Value='foo:bar'" --filter="Name=tags;Value='env:production'"
+./infraharvest import datadog --resources=monitor --filter="Name=tags;Value='foo:bar'" --filter="Name=tags;Value='env:production'"
 
 # Import monitor where tag doesn't include colon
-./terraformer import datadog --resources=monitor --filter="Name=tags;Value=anExampleTag"
+./infraharvest import datadog --resources=monitor --filter="Name=tags;Value=anExampleTag"
 ```
 
 Filtering based on resource ID:
 
 ```bash
 # Import dashboard based on the dashboard ID
-./terraformer import datadog --resources=dashboard --filter=dashboard=some-id
+./infraharvest import datadog --resources=dashboard --filter=dashboard=some-id
 
 # Import based on multiple resource IDs
- ./terraformer import datadog --resources=monitor --filter=monitor=id1:id2:id4
+ ./infraharvest import datadog --resources=monitor --filter=monitor=id1:id2:id4
 ```
 
 Tag filters are order specific. For example, if your monitor has tags (in the order) `atag: atagvalue`, `foo:bar` but you filter for `--filter="Name=tags;Value='foo:bar'" --filter="Name=tags;Value='atag: atagvalue'"`, the monitor would not be imported.

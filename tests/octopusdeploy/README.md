@@ -34,7 +34,7 @@ terraform apply --auto-approve
 Import them back with `terraformer`:
 
 ```bash
-terraformer import octopusdeploy \
+infraharvest import octopusdeploy \
   --server "http://localhost:8081" \
   --apikey "API-YVLL2ML1XRIBUU8GKJKEMXKPWQ" \
   -r accounts,environments,feeds,libraryvariablesets,lifecycles,projects,projectgroups,projecttriggers,tagsets

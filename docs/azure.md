@@ -45,9 +45,9 @@ export ARM_USE_OIDC=true
 # Using deprecated ADAL authentication for throubleshooting
 export ARM_USE_ADAL=true
 
-./terraformer import azure -r resource_group
-./terraformer import azure -R my_resource_group -r virtual_network,resource_group
-./terraformer import azure -r resource_group --filter=resource_group=/subscriptions/<Subscription id>/resourceGroups/<RGNAME>
+./infraharvest import azure -r resource_group
+./infraharvest import azure -R my_resource_group -r virtual_network,resource_group
+./infraharvest import azure -r resource_group --filter=resource_group=/subscriptions/<Subscription id>/resourceGroups/<RGNAME>
 ```
 
 ## List of supported Azure resources

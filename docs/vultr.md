@@ -4,7 +4,7 @@ Example:
 
 ```
 export VULTR_API_KEY=[VULTR_API_KEY]
-./terraformer import vultr -r server
+./infraharvest import vultr -r server
 ```
 
 List of supported Vultr resources:

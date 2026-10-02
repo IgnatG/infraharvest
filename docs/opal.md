@@ -38,7 +38,7 @@ export OPAL_AUTH_TOKEN=Your token from https://app.opal.dev/settings#api
 # If you are running an on-prem installation, you will need to provide a base url as well:
 # export OPAL_BASE_URL=Your token from https://my.opal.com
 
-./terraformer import opal --resources=* --path-pattern {output}/{provider}
+./infraharvest import opal --resources=* --path-pattern {output}/{provider}
 ```
 
 You can also specify only certain kinds of resources to import as well, i.e. `--resources=owner`.

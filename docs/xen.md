@@ -7,7 +7,7 @@ Example:
 ```
 ## Warning! You should not expose your xenorchestra creds through your bash history. Export them to your shell in a safe way when doing this for real!
 
-XOA_URL=ws://your-xenorchestra-domain XOA_USER=username XOA_PASSWORD=password terraformer import xenorchestra -r=acl
+XOA_URL=ws://your-xenorchestra-domain XOA_USER=username XOA_PASSWORD=password infraharvest import xenorchestra -r=acl
 ```
 
 List of supported xenorchestra resources:

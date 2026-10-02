@@ -4,8 +4,8 @@
 Example:
 
 ```
- terraformer import aws --resources=vpc,subnet --connect=true --regions=eu-west-1 --profile=prod
- terraformer import aws --resources=vpc,subnet --filter=vpc=vpc_id1:vpc_id2:vpc_id3 --regions=eu-west-1
+ infraharvest import aws --resources=vpc,subnet --connect=true --regions=eu-west-1 --profile=prod
+ infraharvest import aws --resources=vpc,subnet --filter=vpc=vpc_id1:vpc_id2:vpc_id3 --regions=eu-west-1
 ```
 
 #### Profiles support
@@ -13,12 +13,12 @@ Example:
 AWS configuration including environmental variables, shared credentials file (\~/.aws/credentials), and shared config file (\~/.aws/config) will be loaded by the tool by default. To use a specific profile, you can use the following command:
 
 ```
-terraformer import aws --resources=vpc,subnet --regions=eu-west-1 --profile=prod
+infraharvest import aws --resources=vpc,subnet --regions=eu-west-1 --profile=prod
 ```
 
 You can also provide no regions when importing resources:
 ```
-terraformer import aws --resources=cloudfront --profile=prod
+infraharvest import aws --resources=cloudfront --profile=prod
 ```
 In that case terraformer will not know with which region resources are associated with and will not assume any region. That scenario is useful in case of global resources (e.g. CloudFront distributions or Route 53 records) and when region is passed implicitly through environmental variables or metadata service.
 
@@ -26,7 +26,7 @@ Examples to import other resources-
 
  * Security Group-
 ```
-terraformer import aws --resources=sg --regions=us-east-1
+infraharvest import aws --resources=sg --regions=us-east-1
 ```
 
 
@@ -377,21 +377,21 @@ List of global AWS services:
 Attribute filters allow filtering across different resource types by its attributes.
 
 ```
-terraformer import aws --resources=ec2_instance,ebs --filter="Name=tags.costCenter;Value=20000:'20001:1'" --regions=eu-west-1
+infraharvest import aws --resources=ec2_instance,ebs --filter="Name=tags.costCenter;Value=20000:'20001:1'" --regions=eu-west-1
 ```
 Will only import AWS EC2 instances along with EBS volumes annotated with tag `costCenter` with values `20000` or `20001:1`. Attribute filters are by default applicable to all resource types although it's possible to specify to what resource type a given filter should be applicable to by providing `Type=<type>` parameter. For example:
 ```
-terraformer import aws --resources=ec2_instance,ebs --filter=Type=ec2_instance;Name=tags.costCenter;Value=20000:'20001:1' --regions=eu-west-1
+infraharvest import aws --resources=ec2_instance,ebs --filter=Type=ec2_instance;Name=tags.costCenter;Value=20000:'20001:1' --regions=eu-west-1
 ```
 Will work as same as example above with a change the filter will be applicable only to `ec2_instance` resources.
 
 Few more examples - How to import ec2 instance based on instance name and id
 ```
-terraformer import aws --resources=ec2_instance --filter="Name=tags.Name;Value=Terraformer" --regions=us-east-1
+infraharvest import aws --resources=ec2_instance --filter="Name=tags.Name;Value=Terraformer" --regions=us-east-1
 ```
 This command imports ec2 instance having name as Terraformer.
 ```
-terraformer import aws --resources=ec2_instance --filter="Name=id;Value=i-0xxxxxxxxx" --regions=us-east-1
+infraharvest import aws --resources=ec2_instance --filter="Name=id;Value=i-0xxxxxxxxx" --regions=us-east-1
 ```
 This command imports ec2 instance having instance-id as i-0xxxxxxxxx.
 

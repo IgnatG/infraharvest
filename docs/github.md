@@ -3,10 +3,10 @@
 Example:
 
 ```
- ./terraformer import github --owner=YOUR_ORGANIZATION --resources=repositories --token=YOUR_TOKEN // or GITHUB_TOKEN in env
- ./terraformer import github --owner=YOUR_ORGANIZATION --resources=repositories --filter=repository=id1:id2:id4 --token=YOUR_TOKEN // or GITHUB_TOKEN in env
+ ./infraharvest import github --owner=YOUR_ORGANIZATION --resources=repositories --token=YOUR_TOKEN // or GITHUB_TOKEN in env
+ ./infraharvest import github --owner=YOUR_ORGANIZATION --resources=repositories --filter=repository=id1:id2:id4 --token=YOUR_TOKEN // or GITHUB_TOKEN in env
 
-  ./terraformer import github --owner=YOUR_ORGANIZATION --resources=repositories --base-url=https://your-enterprise-github-url
+  ./infraharvest import github --owner=YOUR_ORGANIZATION --resources=repositories --base-url=https://your-enterprise-github-url
 ```
 
 Supports only organizational resources. List of supported resources:

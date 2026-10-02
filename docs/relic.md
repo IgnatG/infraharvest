@@ -3,7 +3,7 @@
 Example:
 
 ```
-./terraformer import newrelic -r alert,infra,synthetics --api-key=NRAK-XXXXXXXX --account-id=XXXXX
+./infraharvest import newrelic -r alert,infra,synthetics --api-key=NRAK-XXXXXXXX --account-id=XXXXX
 ```
 
 List of supported New Relic resources:

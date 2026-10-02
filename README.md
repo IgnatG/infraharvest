@@ -138,7 +138,7 @@ Filters are a way to choose which resources `terraformer` imports. It's possible
 
 Use `Type` when you need to filter only one of several types of resources. Multiple filters can be combined when importing different resource types. An example would be importing all AWS security groups from a specific AWS VPC:
 ```
-terraformer import aws -r sg,vpc --filter Type=sg;Name=vpc_id;Value=VPC_ID --filter Type=vpc;Name=id;Value=VPC_ID
+infraharvest import aws -r sg,vpc --filter Type=sg;Name=vpc_id;Value=VPC_ID --filter Type=vpc;Name=id;Value=VPC_ID
 ```
 Notice how the `Name` is different for `sg` than it is for `vpc`.
 
@@ -159,7 +159,7 @@ Filtering is based on Terraform resource ID patterns. To find valid ID patterns 
 Example usage:
 
 ```
-terraformer import aws --resources=vpc,subnet --filter=vpc=myvpcid --regions=eu-west-1
+infraharvest import aws --resources=vpc,subnet --filter=vpc=myvpcid --regions=eu-west-1
 ```
 Will only import the vpc with id `myvpcid`. This form of filters can help when it's necessary to select resources by its identifiers.
 
@@ -170,7 +170,7 @@ It is possible to filter by specific field name only. It can be used e.g. when y
 Example usage:
 
 ```
-terraformer import aws --resources=s3 --filter="Name=tags.Abc" --regions=eu-west-1
+infraharvest import aws --resources=s3 --filter="Name=tags.Abc" --regions=eu-west-1
 ```
 Will only import the s3 resources that have tag `Abc`. This form of filters can help when the field values are not important from filtering perspective.
 
@@ -181,7 +181,7 @@ It is possible to filter by a field that contains a dot.
 Example usage:
 
 ```
-terraformer import aws --resources=s3 --filter="Name=tags.Abc.def" --regions=eu-west-1
+infraharvest import aws --resources=s3 --filter="Name=tags.Abc.def" --regions=eu-west-1
 ```
 Will only import the s3 resources that have tag `Abc.def`.
 
@@ -192,7 +192,7 @@ The `plan` command generates a planfile that contains all the resources set to b
 The rest of subcommands and parameters are identical to the `import` command.
 
 ```
-$ terraformer plan google --resources=networks,firewall --projects=my-project --regions=europe-west1-d
+$ infraharvest plan google --resources=networks,firewall --projects=my-project --regions=europe-west1-d
 (snip)
 
 Saving planfile to generated/google/my-project/terraformer/plan.json
@@ -201,7 +201,7 @@ Saving planfile to generated/google/my-project/terraformer/plan.json
 After reviewing/customizing the planfile, begin the import by running `import plan`.
 
 ```
-$ terraformer import plan generated/google/my-project/terraformer/plan.json
+$ infraharvest import plan generated/google/my-project/terraformer/plan.json
 ```
 
 ### Resource structure
