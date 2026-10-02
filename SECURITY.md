@@ -1,4 +1,8 @@
-To report a security issue, please use http://g.co/vulnz. We use
-http://g.co/vulnz for our intake, and do coordination and disclosure here on
-GitHub (including using GitHub Security Advisory). The Google Security Team will
-respond within 5 working days of your report on g.co/vulnz.
+# Security policy
+
+Please report vulnerabilities privately through this repository's
+**Security → Report a vulnerability** form (GitHub private vulnerability
+reporting). Don't open a public issue.
+
+Include the affected version or commit, how to reproduce the issue, and its
+impact. You'll get an acknowledgement within 5 working days.
