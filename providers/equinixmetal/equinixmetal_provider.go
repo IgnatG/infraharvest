@@ -18,7 +18,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 type EquinixMetalProvider struct { //nolint

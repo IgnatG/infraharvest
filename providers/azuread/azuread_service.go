@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/manicminer/hamilton/auth"
 	"github.com/manicminer/hamilton/environments"
 	"github.com/manicminer/hamilton/msgraph"

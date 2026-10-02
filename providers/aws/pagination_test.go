@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // Each fake API below serves two pages. The second page is returned when the

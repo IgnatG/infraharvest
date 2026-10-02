@@ -15,12 +15,14 @@
 package cmd
 
 import (
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 
 func NewCmdRoot() *cobra.Command {
 	cmd := &cobra.Command{
+		Use:           "infraharvest",
+		Short:         "Import existing infrastructure into Terraform code",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,

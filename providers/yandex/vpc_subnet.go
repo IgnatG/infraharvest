@@ -17,7 +17,7 @@ package yandex
 import (
 	"context"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/yandex-cloud/go-genproto/yandex/cloud/vpc/v1"
 	ycsdk "github.com/yandex-cloud/go-sdk"
 )

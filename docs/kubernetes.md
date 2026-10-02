@@ -3,8 +3,8 @@
 Example:
 
 ```
- terraformer import kubernetes --resources=deployments,services,storageclasses
- terraformer import kubernetes --resources=deployments,services,storageclasses --filter=deployment=name1:name2:name3
+ infraharvest import kubernetes --resources=deployments,services,storageclasses
+ infraharvest import kubernetes --resources=deployments,services,storageclasses --filter=deployment=name1:name2:name3
 ```
 
 All Kubernetes resources that are currently supported by the Kubernetes provider, are also supported by this module. Here is the list of resources which are currently supported by Kubernetes provider v.1.4:

@@ -3,7 +3,7 @@ package grafana
 import (
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	gapi "github.com/grafana/grafana-api-golang-client"
 )
 

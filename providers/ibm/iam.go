@@ -19,7 +19,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	bluemix "github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/iampap/iampapv1"
 	"github.com/IBM-Cloud/bluemix-go/api/iamuum/iamuumv2"
@@ -28,6 +27,7 @@ import (
 	"github.com/IBM/go-sdk-core/core"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 type IAMGenerator struct {

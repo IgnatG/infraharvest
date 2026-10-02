@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 var (

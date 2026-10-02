@@ -7,7 +7,7 @@ import (
 
 	"github.com/opsgenie/opsgenie-go-sdk-v2/user"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 type UserGenerator struct {

@@ -18,7 +18,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
 

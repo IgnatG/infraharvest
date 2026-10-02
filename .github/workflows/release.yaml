@@ -27,6 +27,9 @@ jobs:
             echo "::error::version must look like v1.2.3 or v1.2.3-rc.1, got '$VERSION'"
             exit 1
           fi
+      # Ubuntu runners have ~14 GB free, too little for this module's dependencies.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -38,20 +41,20 @@ jobs:
       - name: Test
         run: go test ./...
       - name: Build for linux/amd64
-        run: go build -trimpath -o terraformer-all-linux-amd64
+        run: go build -trimpath -o infraharvest-all-linux-amd64
       - name: Build for linux/arm64
-        run: GOOS=linux GOARCH=arm64 go build -trimpath -o terraformer-all-linux-arm64
+        run: GOOS=linux GOARCH=arm64 go build -trimpath -o infraharvest-all-linux-arm64
       - name: Build for mac
-        run: GOOS=darwin go build -trimpath -o terraformer-all-darwin-amd64
+        run: GOOS=darwin go build -trimpath -o infraharvest-all-darwin-amd64
       - name: Build for mac Apple Silicon
-        run: GOOS=darwin GOARCH=arm64 go build -trimpath -o terraformer-all-darwin-arm64
+        run: GOOS=darwin GOARCH=arm64 go build -trimpath -o infraharvest-all-darwin-arm64
       - name: Build for windows/amd64
-        run: GOOS=windows GOARCH=amd64 go build -trimpath -o terraformer-all-windows-amd64.exe
+        run: GOOS=windows GOARCH=amd64 go build -trimpath -o infraharvest-all-windows-amd64.exe
       - name: Build for all providers
         run: go run build/multi-build/main.go
 
       - name: Write checksums
-        run: sha256sum terraformer-* > SHA256SUMS
+        run: sha256sum infraharvest-* > SHA256SUMS
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign checksums
         run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
@@ -65,4 +68,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes \
-            terraformer-* SHA256SUMS SHA256SUMS.sigstore.json
+            infraharvest-* SHA256SUMS SHA256SUMS.sigstore.json

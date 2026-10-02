@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	cf "github.com/cloudflare/cloudflare-go"
 )
 

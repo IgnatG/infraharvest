@@ -23,8 +23,8 @@ export CTP_TOKEN_URL=token_url # default: https://auth.sphere.io
 Run terraformer
 
 ```bash
-./terraformer plan commercetools -r=types # Only planning
-./terraformer import commercetools -r=types # Import commercetools types
+./infraharvest plan commercetools -r=types # Only planning
+./infraharvest import commercetools -r=types # Import commercetools types
 ```
 
 List of supported [commercetools](https://commercetools.com/de/) resources:

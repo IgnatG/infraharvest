@@ -19,12 +19,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	bluemix "github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	v1 "github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 const (

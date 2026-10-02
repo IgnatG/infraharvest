@@ -17,8 +17,8 @@ import (
 	"errors"
 	"os"
 
-	okta_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/okta"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	okta_terraforming "github.com/IgnatG/infraharvest/providers/okta"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

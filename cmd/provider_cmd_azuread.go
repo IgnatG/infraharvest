@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	azuread "github.com/GoogleCloudPlatform/terraformer/providers/azuread"
+	azuread "github.com/IgnatG/infraharvest/providers/azuread"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

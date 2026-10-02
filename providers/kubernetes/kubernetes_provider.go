@@ -25,8 +25,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
+	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/pkg/errors"
