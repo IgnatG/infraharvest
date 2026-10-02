@@ -16,7 +16,10 @@ package terraformutils
 
 import (
 	"bytes"
+	"fmt"
 	"log"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
@@ -65,8 +68,15 @@ func PrintTfState(resources []Resource) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func RefreshResources(resources []*Resource, provider *providerwrapper.ProviderWrapper, slowProcessingResources [][]*Resource) ([]*Resource, error) {
-	refreshedResources := []*Resource{}
+// RefreshResources refreshes resources in parallel and returns the ones that
+// refreshed. Each resource that could not be refreshed is left out and
+// reported in failures, sorted for stable output.
+func RefreshResources(resources []*Resource, provider StateRefresher, slowProcessingResources [][]*Resource) (refreshedResources []*Resource, failures []error) {
+	total := len(resources)
+	for _, resourceGroup := range slowProcessingResources {
+		total += len(resourceGroup)
+	}
+	errs := make(chan error, total)
 	input := make(chan *Resource, len(resources))
 	var wg sync.WaitGroup
 	poolSize := 15
@@ -77,7 +87,7 @@ func RefreshResources(resources []*Resource, provider *providerwrapper.ProviderW
 	close(input)
 
 	for i := 0; i < poolSize; i++ {
-		go RefreshResourceWorker(input, &wg, provider)
+		go RefreshResourceWorker(input, &wg, provider, errs)
 	}
 
 	spInputs := []chan *Resource{}
@@ -91,32 +101,34 @@ func RefreshResources(resources []*Resource, provider *providerwrapper.ProviderW
 
 	for i := 0; i < len(spInputs); i++ {
 		wg.Add(len(slowProcessingResources[i]))
-		go RefreshResourceWorker(spInputs[i], &wg, provider)
+		go RefreshResourceWorker(spInputs[i], &wg, provider, errs)
 	}
 
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		failures = append(failures, err)
+	}
+	sortErrors(failures)
+
 	for _, r := range resources {
 		if r.InstanceState != nil && r.InstanceState.ID != "" {
 			refreshedResources = append(refreshedResources, r)
-		} else {
-			log.Printf("ERROR: Unable to refresh resource %s", r.ResourceName)
 		}
 	}
-
 	for _, resourceGroup := range slowProcessingResources {
-		for i := range resourceGroup {
-			r := resourceGroup[i]
+		for _, r := range resourceGroup {
 			if r.InstanceState != nil && r.InstanceState.ID != "" {
 				refreshedResources = append(refreshedResources, r)
-			} else {
-				log.Printf("ERROR: Unable to refresh resource %s", r.ResourceName)
 			}
 		}
 	}
-	return refreshedResources, nil
+	return refreshedResources, failures
 }
 
-func RefreshResourcesByProvider(providersMapping *ProvidersMapping, providerWrapper *providerwrapper.ProviderWrapper) error {
+// RefreshResourcesByProvider refreshes every resource in the mapping and
+// keeps the ones that refreshed. It returns one error per resource dropped.
+func RefreshResourcesByProvider(providersMapping *ProvidersMapping, refresher StateRefresher) []error {
 	allResources := providersMapping.ShuffleResources()
 	slowProcessingResources := make(map[ProviderGenerator][]*Resource)
 	regularResources := []*Resource{}
@@ -138,21 +150,24 @@ func RefreshResourcesByProvider(providersMapping *ProvidersMapping, providerWrap
 		spResourcesList = append(spResourcesList, slowProcessingResources[p])
 	}
 
-	refreshedResources, err := RefreshResources(regularResources, providerWrapper, spResourcesList)
-	if err != nil {
-		return err
-	}
-
+	refreshedResources, failures := RefreshResources(regularResources, refresher, spResourcesList)
 	providersMapping.SetResources(refreshedResources)
-	return nil
+	return failures
 }
 
-func RefreshResourceWorker(input chan *Resource, wg *sync.WaitGroup, provider *providerwrapper.ProviderWrapper) {
+func RefreshResourceWorker(input <-chan *Resource, wg *sync.WaitGroup, provider StateRefresher, errs chan<- error) {
 	for r := range input {
 		log.Println("Refreshing state...", r.InstanceInfo.Id)
-		r.Refresh(provider)
+		if err := r.Refresh(provider); err != nil {
+			errs <- fmt.Errorf("refresh %s: %w", r.InstanceInfo.Id, err)
+		}
 		wg.Done()
 	}
+}
+
+// sortErrors orders errors by message so that reports are deterministic.
+func sortErrors(errs []error) {
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 }
 
 func IgnoreKeys(resourcesTypes []string, p *providerwrapper.ProviderWrapper) map[string][]string {
@@ -199,6 +214,7 @@ func FilterCleanup(s *Service, isInitial bool) {
 		return
 	}
 	var newListOfResources []Resource
+	seen := map[string]struct{}{}
 	for _, resource := range s.Resources {
 		allPredicatesTrue := true
 		for _, filter := range s.Filter {
@@ -206,18 +222,10 @@ func FilterCleanup(s *Service, isInitial bool) {
 				allPredicatesTrue = allPredicatesTrue && filter.Filter(resource)
 			}
 		}
-		if allPredicatesTrue && !ContainsResource(newListOfResources, resource) {
+		if _, duplicate := seen[resource.InstanceInfo.Id]; allPredicatesTrue && !duplicate {
+			seen[resource.InstanceInfo.Id] = struct{}{}
 			newListOfResources = append(newListOfResources, resource)
 		}
 	}
 	s.Resources = newListOfResources
-}
-
-func ContainsResource(s []Resource, e Resource) bool {
-	for _, a := range s {
-		if a.InstanceInfo.Id == e.InstanceInfo.Id {
-			return true
-		}
-	}
-	return false
 }

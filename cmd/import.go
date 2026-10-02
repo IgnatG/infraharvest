@@ -14,12 +14,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
-	"os"
+	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/GoogleCloudPlatform/terraformer/terraformutils/terraformerstring"
 
@@ -54,6 +54,7 @@ type ImportOptions struct {
 	NoSort        bool
 	RetryCount    int
 	RetrySleepMs  int
+	AllowPartial  bool
 }
 
 const DefaultPathPattern = "{output}/{provider}/{service}/"
@@ -94,23 +95,35 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 	defer providerWrapper.Kill()
 	providerMapping := terraformutils.NewProvidersMapping(provider)
 
-	err = initAllServicesResources(providerMapping, options, args, providerWrapper)
+	failures, err := initAllServicesResources(providerMapping, options, args, providerWrapper)
 	if err != nil {
 		return err
 	}
 
-	err = terraformutils.RefreshResourcesByProvider(providerMapping, providerWrapper)
-	if err != nil {
-		return err
-	}
-
-	providerMapping.ConvertTFStates(providerWrapper)
+	failures = append(failures, terraformutils.RefreshResourcesByProvider(providerMapping, providerWrapper)...)
+	failures = append(failures, providerMapping.ConvertTFStates(providerWrapper)...)
 	// change structs with additional data for each resource
-	providerMapping.CleanupProviders()
+	failures = append(failures, providerMapping.CleanupProviders()...)
 
-	err = importFromPlan(providerMapping, options, args)
+	if err := importFromPlan(providerMapping, options, args); err != nil {
+		return err
+	}
+	return checkFailures(failures, options.AllowPartial)
+}
 
-	return err
+// checkFailures reports services and resources that could not be imported.
+// The output written so far is incomplete, so this is an error unless the
+// user accepted partial output with --allow-partial.
+func checkFailures(failures []error, allowPartial bool) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	err := fmt.Errorf("%d services or resources could not be imported:\n%w", len(failures), errors.Join(failures...))
+	if allowPartial {
+		log.Printf("WARNING: output is incomplete (--allow-partial is set). %v", err)
+		return nil
+	}
+	return fmt.Errorf("%w\noutput is incomplete; rerun with --allow-partial to accept partial output", err)
 }
 
 func initOptionsAndWrapper(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) (*providerwrapper.ProviderWrapper, ImportOptions, error) {
@@ -149,22 +162,20 @@ func initOptionsAndWrapper(provider terraformutils.ProviderGenerator, options Im
 	return providerWrapper, options, nil
 }
 
-func initAllServicesResources(providersMapping *terraformutils.ProvidersMapping, options ImportOptions, args []string, providerWrapper *providerwrapper.ProviderWrapper) error {
-	numOfResources := len(options.Resources)
-	var wg sync.WaitGroup
-	wg.Add(numOfResources)
-
+// initAllServicesResources lists the resources of every requested service.
+// A service that fails is left out and reported in failures; err is set
+// only when the provider itself cannot be initialised.
+func initAllServicesResources(providersMapping *terraformutils.ProvidersMapping, options ImportOptions, args []string, providerWrapper *providerwrapper.ProviderWrapper) (failures []error, err error) {
 	var failedServices []string
 
 	for _, service := range options.Resources {
 		serviceProvider := providersMapping.AddServiceToProvider(service)
-		err := serviceProvider.Init(args)
-		if err != nil {
-			return err
+		if err := serviceProvider.Init(args); err != nil {
+			return nil, err
 		}
-		err = initServiceResources(service, serviceProvider, options, providerWrapper)
-		if err != nil {
+		if err := initServiceResources(service, serviceProvider, options, providerWrapper); err != nil {
 			failedServices = append(failedServices, service)
+			failures = append(failures, fmt.Errorf("service %s: %w", service, err))
 		}
 	}
 
@@ -172,7 +183,7 @@ func initAllServicesResources(providersMapping *terraformutils.ProvidersMapping,
 	providersMapping.RemoveServices(failedServices)
 	providersMapping.ProcessResources(false)
 
-	return nil
+	return failures, nil
 }
 
 func importFromPlan(providerMapping *terraformutils.ProvidersMapping, options ImportOptions, args []string) error {
@@ -279,7 +290,7 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 		} else {
 			log.Println(provider.GetName() + " save tfstate for " + serviceName)
 		}
-		if err := os.WriteFile(path+"/terraform.tfstate", tfStateFile, os.ModePerm); err != nil {
+		if err := terraformutils.WriteSecretFile(path+"/terraform.tfstate", tfStateFile); err != nil {
 			return err
 		}
 	}
@@ -299,7 +310,7 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 					}
 					variables["data"]["terraform_remote_state"][k] = map[string]interface{}{
 						"backend": "gcs",
-						"config":  bucket.BucketGetTfData(strings.ReplaceAll(path, serviceName, k)),
+						"config":  bucket.BucketGetTfData(Path(options.PathPattern, provider.GetName(), k, options.PathOutput)),
 					}
 				}
 			} else {
@@ -307,10 +318,14 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 					if _, exist := importedResource[k]; !exist {
 						continue
 					}
+					statePath, err := relativeStatePath(path, Path(options.PathPattern, provider.GetName(), k, options.PathOutput))
+					if err != nil {
+						return err
+					}
 					variables["data"]["terraform_remote_state"][k] = map[string]interface{}{
 						"backend": "local",
 						"config": map[string]interface{}{
-							"path": strings.Repeat("../", strings.Count(path, "/")) + strings.ReplaceAll(path, serviceName, k) + "terraform.tfstate",
+							"path": statePath,
 						},
 					}
 				}
@@ -356,6 +371,16 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 		}
 	}
 	return nil
+}
+
+// relativeStatePath returns the path of the local state file in stateDir,
+// relative to fromDir, using the forward slashes Terraform expects.
+func relativeStatePath(fromDir, stateDir string) (string, error) {
+	rel, err := filepath.Rel(fromDir, filepath.Join(stateDir, "terraform.tfstate"))
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 func Path(pathPattern, providerName, serviceName, output string) string {
@@ -407,4 +432,5 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.StringVarP(&options.Output, "output", "O", "hcl", "output format hcl or json")
 	flag.IntVarP(&options.RetryCount, "retry-number", "n", 5, "number of retries to perform when refresh fails")
 	flag.IntVarP(&options.RetrySleepMs, "retry-sleep-ms", "m", 300, "time in ms to sleep between retries")
+	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "exit 0 when some services or resources fail to import, leaving them out of the output")
 }

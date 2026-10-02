@@ -15,13 +15,13 @@
 package terraformutils
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
+	"github.com/hashicorp/terraform/providers"
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -122,15 +122,31 @@ func NewSimpleResource(id, resourceName, resourceType, provider string, allowEmp
 	)
 }
 
-func (r *Resource) Refresh(provider *providerwrapper.ProviderWrapper) {
-	var err error
+// StateRefresher reads the live state of a resource from its provider.
+type StateRefresher interface {
+	Refresh(info *terraform.InstanceInfo, state *terraform.InstanceState) (*terraform.InstanceState, error)
+}
+
+// SchemaProvider returns the schema of a provider's resource types.
+type SchemaProvider interface {
+	GetSchema() *providers.GetSchemaResponse
+}
+
+// Refresh replaces the resource's state with its live state. It returns an
+// error if the provider could not read the resource or returned no state.
+func (r *Resource) Refresh(provider StateRefresher) error {
 	if r.SlowQueryRequired {
 		time.Sleep(200 * time.Millisecond)
 	}
-	r.InstanceState, err = provider.Refresh(r.InstanceInfo, r.InstanceState)
+	state, err := provider.Refresh(r.InstanceInfo, r.InstanceState)
+	r.InstanceState = state
 	if err != nil {
-		log.Println(err)
+		return err
 	}
+	if state == nil || state.ID == "" {
+		return errors.New("provider returned no state: the resource may have been deleted, or its ID cannot be read")
+	}
+	return nil
 }
 
 func (r Resource) GetIDKey() string {
@@ -159,7 +175,11 @@ func (r *Resource) ParseTFstate(parser Flatmapper, impliedType cty.Type) error {
 	return nil
 }
 
-func (r *Resource) ConvertTFstate(provider *providerwrapper.ProviderWrapper) error {
+func (r *Resource) ConvertTFstate(provider SchemaProvider) error {
+	resourceSchema, ok := provider.GetSchema().ResourceTypes[r.InstanceInfo.Type]
+	if !ok {
+		return fmt.Errorf("provider schema has no resource type %s", r.InstanceInfo.Type)
+	}
 	ignoreKeys := []*regexp.Regexp{}
 	for _, pattern := range r.IgnoreKeys {
 		ignoreKeys = append(ignoreKeys, regexp.MustCompile(pattern))
@@ -171,9 +191,7 @@ func (r *Resource) ConvertTFstate(provider *providerwrapper.ProviderWrapper) err
 		}
 	}
 	parser := NewFlatmapParser(r.InstanceState.Attributes, ignoreKeys, allowEmptyValues)
-	schema := provider.GetSchema()
-	impliedType := schema.ResourceTypes[r.InstanceInfo.Type].Block.ImpliedType()
-	return r.ParseTFstate(parser, impliedType)
+	return r.ParseTFstate(parser, resourceSchema.Block.ImpliedType())
 }
 
 func (r *Resource) ServiceName() string {

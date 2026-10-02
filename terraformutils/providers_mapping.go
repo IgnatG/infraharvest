@@ -1,12 +1,10 @@
 package terraformutils
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"reflect"
-	"time"
-
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
 )
 
 type ProvidersMapping struct {
@@ -52,7 +50,7 @@ func (p *ProvidersMapping) AddServiceToProvider(service string) ProviderGenerato
 }
 
 func (p *ProvidersMapping) GetServices() []string {
-	services := make([]string, len(p.Services))
+	services := make([]string, 0, len(p.Services))
 	for service := range p.Services {
 		services = append(services, service)
 	}
@@ -76,7 +74,6 @@ func (p *ProvidersMapping) ShuffleResources() []*Resource {
 	for resource := range p.Resources {
 		resources = append(resources, resource)
 	}
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(resources), func(i, j int) { resources[i], resources[j] = resources[j], resources[i] })
 
 	return resources
@@ -146,13 +143,17 @@ func (p *ProvidersMapping) GetResourcesByService() map[string][]Resource {
 	return mapping
 }
 
-func (p *ProvidersMapping) ConvertTFStates(providerWrapper *providerwrapper.ProviderWrapper) {
+// ConvertTFStates converts each resource's state to configuration. A resource
+// that fails to convert is dropped and reported in the returned errors.
+func (p *ProvidersMapping) ConvertTFStates(schemaProvider SchemaProvider) []error {
+	var failures []error
 	for resource := range p.Resources {
-		err := resource.ConvertTFstate(providerWrapper)
-		if err != nil {
-			log.Printf("failed to convert resources %s because of error %s", resource.InstanceInfo.Id, err)
+		if err := resource.ConvertTFstate(schemaProvider); err != nil {
+			failures = append(failures, fmt.Errorf("convert %s: %w", resource.InstanceInfo.Id, err))
+			delete(p.Resources, resource)
 		}
 	}
+	sortErrors(failures)
 
 	resourcesGroupsByProviders := map[ProviderGenerator][]Resource{}
 	for resource := range p.Resources {
@@ -166,16 +167,21 @@ func (p *ProvidersMapping) ConvertTFStates(providerWrapper *providerwrapper.Prov
 	for provider := range p.Providers {
 		provider.GetService().SetResources(resourcesGroupsByProviders[provider])
 	}
-
+	return failures
 }
 
-func (p *ProvidersMapping) CleanupProviders() {
+// CleanupProviders runs each service's post-refresh cleanup and post-convert
+// hook. It returns one error per service whose hook failed; that service's
+// output may be missing the hook's adjustments.
+func (p *ProvidersMapping) CleanupProviders() []error {
+	var failures []error
 	for provider := range p.Providers {
 		provider.GetService().PostRefreshCleanup()
-		err := provider.GetService().PostConvertHook()
-		if err != nil {
-			log.Printf("failed run PostConvertHook because of error %s", err)
+		if err := provider.GetService().PostConvertHook(); err != nil {
+			failures = append(failures, fmt.Errorf("post-convert hook for service %s: %w", p.providerToService[provider], err))
 		}
 	}
 	p.ProcessResources(true)
+	sortErrors(failures)
+	return failures
 }
