@@ -19,8 +19,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	restclient "k8s.io/client-go/rest"
@@ -141,14 +139,7 @@ func initClientAndConfig() (*restclient.Config, clientcmd.ClientConfig, error) {
 	// resolve kubeconfig location, prioritizing the --config global flag,
 	// then the value of the KUBECONFIG env var (if any), and defaulting
 	// to ~/.kube/config as a last resort.
-	home := os.Getenv("HOME")
-	if runtime.GOOS == "windows" {
-		home = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
-		if home == "" {
-			home = os.Getenv("USERPROFILE")
-		}
-	}
-	kubeconfig := filepath.Join(home, ".kube", "config")
+	kubeconfig := clientcmd.RecommendedHomeFile // ~/.kube/config, resolved as kubectl does
 
 	kubeconfigEnv := os.Getenv("KUBECONFIG")
 	if len(kubeconfigEnv) > 0 {

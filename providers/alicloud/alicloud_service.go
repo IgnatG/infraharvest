@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"runtime"
+	"path/filepath"
 
 	"github.com/GoogleCloudPlatform/terraformer/providers/alicloud/connectivity"
 	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
@@ -74,16 +74,14 @@ func (s *AliCloudService) LoadClientFromProfile() (*connectivity.AliyunClient, e
 
 // LoadConfigFromProfile Loads profile from ~/.aliyun/config.json
 func LoadConfigFromProfile(profileName string) (*connectivity.Config, error) {
-	// Set the path depending on OS from where to pull the config.json
-	profilePath := ""
-	if runtime.GOOS == "windows" {
-		profilePath = fmt.Sprintf("%s/.aliyun/config.json", os.Getenv("USERPROFILE"))
-	} else {
-		profilePath = fmt.Sprintf("%s/.aliyun/config.json", os.Getenv("HOME"))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
 	}
+	profilePath := filepath.Join(home, ".aliyun", "config.json")
 
 	// Make sure the profile exists
-	_, err := os.Stat(profilePath)
+	_, err = os.Stat(profilePath)
 	if os.IsNotExist(err) {
 		return nil, err
 	}
