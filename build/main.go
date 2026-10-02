@@ -31,7 +31,7 @@ func main() {
 		}
 	}
 	// move files for deleted providers
-	err = os.MkdirAll(packageCmdPath+"/tmp", os.ModePerm)
+	err = os.MkdirAll(packageCmdPath+"/tmp", 0o755)
 	if err != nil {
 		log.Println(err)
 	}
@@ -61,7 +61,7 @@ func main() {
 		newRootCodeLines[i] = line
 	}
 	newRootCode := strings.Join(newRootCodeLines, "\n")
-	err = os.WriteFile(packageCmdPath+"/root.go", []byte(newRootCode), os.ModePerm)
+	err = os.WriteFile(packageCmdPath+"/root.go", []byte(newRootCode), 0o644)
 	if err != nil {
 		log.Println(err)
 	}
@@ -77,7 +77,7 @@ func main() {
 	fmt.Println(outb.String())
 
 	// revert code and files
-	err = os.WriteFile(packageCmdPath+"/root.go", rootCode, os.ModePerm)
+	err = os.WriteFile(packageCmdPath+"/root.go", rootCode, 0o644)
 	if err != nil {
 		log.Println(err)
 	}

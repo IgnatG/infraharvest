@@ -14,6 +14,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -113,17 +114,16 @@ func ExportPlanFile(plan *ImportPlan, path, filename string) error {
 	planfilePath := filepath.Join(path, filename)
 	log.Println("Saving planfile to", planfilePath)
 
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
+	if err := os.MkdirAll(path, terraformutils.DirPerm); err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(planfilePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	enc := json.NewEncoder(f)
+	// The plan holds every resource's attributes, so it is as sensitive as state.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", "\t")
-	return enc.Encode(plan)
+	if err := enc.Encode(plan); err != nil {
+		return err
+	}
+	return terraformutils.WriteSecretFile(planfilePath, buf.Bytes())
 }

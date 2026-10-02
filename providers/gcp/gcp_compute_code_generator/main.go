@@ -204,12 +204,12 @@ func main() {
 			}
 			rootPath, _ := os.Getwd()
 			currentPath := rootPath + pathForGenerateFiles
-			err = os.MkdirAll(currentPath, os.ModePerm)
+			err = os.MkdirAll(currentPath, 0o755)
 			if err != nil {
 				log.Print(resource, err)
 				continue
 			}
-			err = os.WriteFile(currentPath+"/"+resource+"_gen.go", codeFormat(tpl.Bytes()), os.ModePerm)
+			err = os.WriteFile(currentPath+"/"+resource+"_gen.go", codeFormat(tpl.Bytes()), 0o644)
 			if err != nil {
 				log.Print(resource, err)
 				continue
@@ -227,7 +227,7 @@ func main() {
 		log.Print(err)
 	}
 	rootPath, _ := os.Getwd()
-	err = os.WriteFile(rootPath+pathForGenerateFiles+"compute.go", codeFormat(tpl.Bytes()), os.ModePerm)
+	err = os.WriteFile(rootPath+pathForGenerateFiles+"compute.go", codeFormat(tpl.Bytes()), 0o644)
 	if err != nil {
 		log.Println(err)
 	}
