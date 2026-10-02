@@ -51,75 +51,87 @@ func (g *IotGenerator) InitResources() error {
 }
 
 func (g *IotGenerator) loadThingTypes(svc *iot.Client) error {
-	output, err := svc.ListThingTypes(context.TODO(), &iot.ListThingTypesInput{})
-	if err != nil {
-		return err
-	}
-	for _, thingType := range output.ThingTypes {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*thingType.ThingTypeName,
-			*thingType.ThingTypeName,
-			"aws_iot_thing_type",
-			"aws",
-			map[string]string{
-				"name": *thingType.ThingTypeName,
-			},
-			iotAllowEmptyValues,
-			map[string]interface{}{},
-		))
+	p := iot.NewListThingTypesPaginator(svc, &iot.ListThingTypesInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		for _, thingType := range page.ThingTypes {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*thingType.ThingTypeName,
+				*thingType.ThingTypeName,
+				"aws_iot_thing_type",
+				"aws",
+				map[string]string{
+					"name": *thingType.ThingTypeName,
+				},
+				iotAllowEmptyValues,
+				map[string]interface{}{},
+			))
+		}
 	}
 	return nil
 }
 
 func (g *IotGenerator) loadThings(svc *iot.Client) error {
-	output, err := svc.ListThings(context.TODO(), &iot.ListThingsInput{})
-	if err != nil {
-		return err
-	}
-	for _, thing := range output.Things {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*thing.ThingName,
-			*thing.ThingName,
-			"aws_iot_thing",
-			"aws",
-			map[string]string{
-				"name": *thing.ThingName,
-			},
-			iotAllowEmptyValues,
-			map[string]interface{}{},
-		))
+	p := iot.NewListThingsPaginator(svc, &iot.ListThingsInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		for _, thing := range page.Things {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*thing.ThingName,
+				*thing.ThingName,
+				"aws_iot_thing",
+				"aws",
+				map[string]string{
+					"name": *thing.ThingName,
+				},
+				iotAllowEmptyValues,
+				map[string]interface{}{},
+			))
+		}
 	}
 	return nil
 }
 
 func (g *IotGenerator) loadTopicRules(svc *iot.Client) error {
-	output, err := svc.ListTopicRules(context.TODO(), &iot.ListTopicRulesInput{})
-	if err != nil {
-		return err
-	}
-	for _, rule := range output.Rules {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*rule.RuleName,
-			*rule.RuleName,
-			"aws_iot_topic_rule",
-			"aws",
-			iotAllowEmptyValues))
+	p := iot.NewListTopicRulesPaginator(svc, &iot.ListTopicRulesInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		for _, rule := range page.Rules {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*rule.RuleName,
+				*rule.RuleName,
+				"aws_iot_topic_rule",
+				"aws",
+				iotAllowEmptyValues))
+		}
 	}
 	return nil
 }
 
 func (g *IotGenerator) loadRoleAliases(svc *iot.Client) error {
-	output, err := svc.ListRoleAliases(context.TODO(), &iot.ListRoleAliasesInput{})
-	if err != nil {
-		return err
-	}
-	for _, roleAlias := range output.RoleAliases {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			roleAlias,
-			roleAlias,
-			"aws_iot_role_alias",
-			"aws",
-			iotAllowEmptyValues))
+	p := iot.NewListRoleAliasesPaginator(svc, &iot.ListRoleAliasesInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		for _, roleAlias := range page.RoleAliases {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				roleAlias,
+				roleAlias,
+				"aws_iot_role_alias",
+				"aws",
+				iotAllowEmptyValues))
+		}
 	}
 	return nil
 }

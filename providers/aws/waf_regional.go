@@ -74,193 +74,217 @@ func (g *WafRegionalGenerator) InitResources() error {
 }
 
 func (g *WafRegionalGenerator) loadWebACL(svc *wafregional.Client) error {
-	output, err := svc.ListWebACLs(context.TODO(), &wafregional.ListWebACLsInput{})
-	if err != nil {
-		return err
-	}
-	for _, acl := range output.WebACLs {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*acl.WebACLId,
-			*acl.Name+"_"+(*acl.WebACLId)[0:8],
-			"aws_wafregional_web_acl",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListWebACLs(context.TODO(), &wafregional.ListWebACLsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, acl := range output.WebACLs {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*acl.WebACLId,
+				*acl.Name+"_"+(*acl.WebACLId)[0:8],
+				"aws_wafregional_web_acl",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadByteMatchSet(svc *wafregional.Client) error {
-	output, err := svc.ListByteMatchSets(context.TODO(), &wafregional.ListByteMatchSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, byteMatchSet := range output.ByteMatchSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*byteMatchSet.ByteMatchSetId,
-			*byteMatchSet.Name+"_"+(*byteMatchSet.ByteMatchSetId)[0:8],
-			"aws_wafregional_byte_match_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListByteMatchSets(context.TODO(), &wafregional.ListByteMatchSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, byteMatchSet := range output.ByteMatchSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*byteMatchSet.ByteMatchSetId,
+				*byteMatchSet.Name+"_"+(*byteMatchSet.ByteMatchSetId)[0:8],
+				"aws_wafregional_byte_match_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadGeoMatchSet(svc *wafregional.Client) error {
-	output, err := svc.ListGeoMatchSets(context.TODO(), &wafregional.ListGeoMatchSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, matchSet := range output.GeoMatchSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*matchSet.GeoMatchSetId,
-			*matchSet.Name+"_"+(*matchSet.GeoMatchSetId)[0:8],
-			"aws_wafregional_geo_match_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListGeoMatchSets(context.TODO(), &wafregional.ListGeoMatchSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, matchSet := range output.GeoMatchSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*matchSet.GeoMatchSetId,
+				*matchSet.Name+"_"+(*matchSet.GeoMatchSetId)[0:8],
+				"aws_wafregional_geo_match_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadIPSet(svc *wafregional.Client) error {
-	output, err := svc.ListIPSets(context.TODO(), &wafregional.ListIPSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, IPSet := range output.IPSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*IPSet.IPSetId,
-			*IPSet.Name+"_"+(*IPSet.IPSetId)[0:8],
-			"aws_wafregional_ipset",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListIPSets(context.TODO(), &wafregional.ListIPSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, IPSet := range output.IPSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*IPSet.IPSetId,
+				*IPSet.Name+"_"+(*IPSet.IPSetId)[0:8],
+				"aws_wafregional_ipset",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadRateBasedRules(svc *wafregional.Client) error {
-	output, err := svc.ListRateBasedRules(context.TODO(), &wafregional.ListRateBasedRulesInput{})
-	if err != nil {
-		return err
-	}
-	for _, rule := range output.Rules {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*rule.RuleId,
-			*rule.Name+"_"+(*rule.RuleId)[0:8],
-			"aws_wafregional_rate_based_rule",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRateBasedRules(context.TODO(), &wafregional.ListRateBasedRulesInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range output.Rules {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*rule.RuleId,
+				*rule.Name+"_"+(*rule.RuleId)[0:8],
+				"aws_wafregional_rate_based_rule",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadRegexMatchSets(svc *wafregional.Client) error {
-	output, err := svc.ListRegexMatchSets(context.TODO(), &wafregional.ListRegexMatchSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, regexMatchSet := range output.RegexMatchSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*regexMatchSet.RegexMatchSetId,
-			*regexMatchSet.Name+"_"+(*regexMatchSet.RegexMatchSetId)[0:8],
-			"aws_wafregional_regex_match_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRegexMatchSets(context.TODO(), &wafregional.ListRegexMatchSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, regexMatchSet := range output.RegexMatchSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*regexMatchSet.RegexMatchSetId,
+				*regexMatchSet.Name+"_"+(*regexMatchSet.RegexMatchSetId)[0:8],
+				"aws_wafregional_regex_match_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadRegexPatternSets(svc *wafregional.Client) error {
-	output, err := svc.ListRegexPatternSets(context.TODO(), &wafregional.ListRegexPatternSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, regexPatternSet := range output.RegexPatternSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*regexPatternSet.RegexPatternSetId,
-			*regexPatternSet.Name+"_"+(*regexPatternSet.RegexPatternSetId)[0:8],
-			"aws_wafregional_regex_pattern_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRegexPatternSets(context.TODO(), &wafregional.ListRegexPatternSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, regexPatternSet := range output.RegexPatternSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*regexPatternSet.RegexPatternSetId,
+				*regexPatternSet.Name+"_"+(*regexPatternSet.RegexPatternSetId)[0:8],
+				"aws_wafregional_regex_pattern_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadWafRules(svc *wafregional.Client) error {
-	output, err := svc.ListRules(context.TODO(), &wafregional.ListRulesInput{})
-	if err != nil {
-		return err
-	}
-	for _, rule := range output.Rules {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*rule.RuleId,
-			*rule.Name+"_"+(*rule.RuleId)[0:8],
-			"aws_wafregional_rule",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRules(context.TODO(), &wafregional.ListRulesInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range output.Rules {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*rule.RuleId,
+				*rule.Name+"_"+(*rule.RuleId)[0:8],
+				"aws_wafregional_rule",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadWafRuleGroups(svc *wafregional.Client) error {
-	output, err := svc.ListRuleGroups(context.TODO(), &wafregional.ListRuleGroupsInput{})
-	if err != nil {
-		return err
-	}
-	for _, ruleGroup := range output.RuleGroups {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*ruleGroup.RuleGroupId,
-			*ruleGroup.Name+"_"+(*ruleGroup.RuleGroupId)[0:8],
-			"aws_wafregional_rule_group",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRuleGroups(context.TODO(), &wafregional.ListRuleGroupsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, ruleGroup := range output.RuleGroups {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*ruleGroup.RuleGroupId,
+				*ruleGroup.Name+"_"+(*ruleGroup.RuleGroupId)[0:8],
+				"aws_wafregional_rule_group",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadSizeConstraintSets(svc *wafregional.Client) error {
-	output, err := svc.ListSizeConstraintSets(context.TODO(), &wafregional.ListSizeConstraintSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, sizeConstraintSet := range output.SizeConstraintSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*sizeConstraintSet.SizeConstraintSetId,
-			*sizeConstraintSet.Name+"_"+(*sizeConstraintSet.SizeConstraintSetId)[0:8],
-			"aws_wafregional_size_constraint_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListSizeConstraintSets(context.TODO(), &wafregional.ListSizeConstraintSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, sizeConstraintSet := range output.SizeConstraintSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*sizeConstraintSet.SizeConstraintSetId,
+				*sizeConstraintSet.Name+"_"+(*sizeConstraintSet.SizeConstraintSetId)[0:8],
+				"aws_wafregional_size_constraint_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadSQLInjectionMatchSets(svc *wafregional.Client) error {
-	output, err := svc.ListSqlInjectionMatchSets(context.TODO(), &wafregional.ListSqlInjectionMatchSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, sqlInjectionMatchSet := range output.SqlInjectionMatchSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*sqlInjectionMatchSet.SqlInjectionMatchSetId,
-			*sqlInjectionMatchSet.Name+"_"+(*sqlInjectionMatchSet.SqlInjectionMatchSetId)[0:8],
-			"aws_wafregional_sql_injection_match_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListSqlInjectionMatchSets(context.TODO(), &wafregional.ListSqlInjectionMatchSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, sqlInjectionMatchSet := range output.SqlInjectionMatchSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*sqlInjectionMatchSet.SqlInjectionMatchSetId,
+				*sqlInjectionMatchSet.Name+"_"+(*sqlInjectionMatchSet.SqlInjectionMatchSetId)[0:8],
+				"aws_wafregional_sql_injection_match_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *WafRegionalGenerator) loadXSSMatchSet(svc *wafregional.Client) error {
-	output, err := svc.ListXssMatchSets(context.TODO(), &wafregional.ListXssMatchSetsInput{})
-	if err != nil {
-		return err
-	}
-	for _, xssMatchSet := range output.XssMatchSets {
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*xssMatchSet.XssMatchSetId,
-			*xssMatchSet.Name+"_"+(*xssMatchSet.XssMatchSetId)[0:8],
-			"aws_wafregional_xss_match_set",
-			"aws",
-			wafAllowEmptyValues))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListXssMatchSets(context.TODO(), &wafregional.ListXssMatchSetsInput{NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, xssMatchSet := range output.XssMatchSets {
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				*xssMatchSet.XssMatchSetId,
+				*xssMatchSet.Name+"_"+(*xssMatchSet.XssMatchSetId)[0:8],
+				"aws_wafregional_xss_match_set",
+				"aws",
+				wafAllowEmptyValues))
+		}
+		return output.NextMarker, nil
+	})
 }

@@ -53,11 +53,13 @@ func (g *BudgetsGenerator) InitResources() error {
 		return err
 	}
 
-	output, err := budgetsSvc.DescribeBudgets(context.TODO(), &budgets.DescribeBudgetsInput{AccountId: account})
-	if err != nil {
-		return err
+	p := budgets.NewDescribeBudgetsPaginator(budgetsSvc, &budgets.DescribeBudgetsInput{AccountId: account})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		g.Resources = append(g.Resources, g.createResources(page.Budgets, account)...)
 	}
-
-	g.Resources = g.createResources(output.Budgets, account)
 	return nil
 }

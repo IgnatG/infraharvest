@@ -64,33 +64,35 @@ func (g *Wafv2Generator) InitResources() error {
 }
 
 func (g *Wafv2Generator) loadWebACL(svc *wafv2.Client) error {
-	output, err := svc.ListWebACLs(context.TODO(), &wafv2.ListWebACLsInput{Scope: g.scope})
-	if err != nil {
-		return err
-	}
-	for _, acl := range output.WebACLs {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*acl.Id,
-			*acl.Name+"_"+(*acl.Id)[0:8],
-			"aws_wafv2_web_acl",
-			"aws",
-			map[string]string{
-				"name":  *acl.Name,
-				"scope": string(g.scope),
-			},
-			wafv2AllowEmptyValues,
-			map[string]interface{}{},
-		))
-		if g.scope == types.ScopeRegional {
-			// cloudfront associations are not listed here since they should to defined in
-			// aws_cloudfront_distribution resource instead
-			err = g.loadWebACLAssociations(svc, acl.ARN)
-			if err != nil {
-				return err
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListWebACLs(context.TODO(), &wafv2.ListWebACLsInput{Scope: g.scope, NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, acl := range output.WebACLs {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*acl.Id,
+				*acl.Name+"_"+(*acl.Id)[0:8],
+				"aws_wafv2_web_acl",
+				"aws",
+				map[string]string{
+					"name":  *acl.Name,
+					"scope": string(g.scope),
+				},
+				wafv2AllowEmptyValues,
+				map[string]interface{}{},
+			))
+			if g.scope == types.ScopeRegional {
+				// cloudfront associations are not listed here since they should to defined in
+				// aws_cloudfront_distribution resource instead
+				err = g.loadWebACLAssociations(svc, acl.ARN)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
-	}
-	return nil
+		return output.NextMarker, nil
+	})
 }
 
 func (g *Wafv2Generator) loadWebACLAssociations(svc *wafv2.Client, webACLArn *string) error {
@@ -119,89 +121,97 @@ func (g *Wafv2Generator) loadWebACLAssociations(svc *wafv2.Client, webACLArn *st
 }
 
 func (g *Wafv2Generator) loadIPSet(svc *wafv2.Client) error {
-	output, err := svc.ListIPSets(context.TODO(), &wafv2.ListIPSetsInput{Scope: g.scope})
-	if err != nil {
-		return err
-	}
-	for _, IPSet := range output.IPSets {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*IPSet.Id,
-			*IPSet.Name+"_"+(*IPSet.Id)[0:8],
-			"aws_wafv2_ip_set",
-			"aws",
-			map[string]string{
-				"name":  *IPSet.Name,
-				"scope": string(g.scope),
-			},
-			wafv2AllowEmptyValues,
-			map[string]interface{}{},
-		))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListIPSets(context.TODO(), &wafv2.ListIPSetsInput{Scope: g.scope, NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, IPSet := range output.IPSets {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*IPSet.Id,
+				*IPSet.Name+"_"+(*IPSet.Id)[0:8],
+				"aws_wafv2_ip_set",
+				"aws",
+				map[string]string{
+					"name":  *IPSet.Name,
+					"scope": string(g.scope),
+				},
+				wafv2AllowEmptyValues,
+				map[string]interface{}{},
+			))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *Wafv2Generator) loadRegexPatternSets(svc *wafv2.Client) error {
-	output, err := svc.ListRegexPatternSets(context.TODO(), &wafv2.ListRegexPatternSetsInput{Scope: g.scope})
-	if err != nil {
-		return err
-	}
-	for _, regexPatternSet := range output.RegexPatternSets {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*regexPatternSet.Id,
-			*regexPatternSet.Name+"_"+(*regexPatternSet.Id)[0:8],
-			"aws_wafv2_regex_pattern_set",
-			"aws",
-			map[string]string{
-				"name":  *regexPatternSet.Name,
-				"scope": string(g.scope),
-			},
-			wafv2AllowEmptyValues,
-			map[string]interface{}{},
-		))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRegexPatternSets(context.TODO(), &wafv2.ListRegexPatternSetsInput{Scope: g.scope, NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, regexPatternSet := range output.RegexPatternSets {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*regexPatternSet.Id,
+				*regexPatternSet.Name+"_"+(*regexPatternSet.Id)[0:8],
+				"aws_wafv2_regex_pattern_set",
+				"aws",
+				map[string]string{
+					"name":  *regexPatternSet.Name,
+					"scope": string(g.scope),
+				},
+				wafv2AllowEmptyValues,
+				map[string]interface{}{},
+			))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *Wafv2Generator) loadWafRuleGroups(svc *wafv2.Client) error {
-	output, err := svc.ListRuleGroups(context.TODO(), &wafv2.ListRuleGroupsInput{Scope: g.scope})
-	if err != nil {
-		return err
-	}
-	for _, ruleGroup := range output.RuleGroups {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*ruleGroup.Id,
-			*ruleGroup.Name+"_"+(*ruleGroup.Id)[0:8],
-			"aws_wafv2_rule_group",
-			"aws",
-			map[string]string{
-				"arn":   *ruleGroup.ARN,
-				"name":  *ruleGroup.Name,
-				"scope": string(g.scope),
-			},
-			wafv2AllowEmptyValues,
-			map[string]interface{}{},
-		))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListRuleGroups(context.TODO(), &wafv2.ListRuleGroupsInput{Scope: g.scope, NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, ruleGroup := range output.RuleGroups {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*ruleGroup.Id,
+				*ruleGroup.Name+"_"+(*ruleGroup.Id)[0:8],
+				"aws_wafv2_rule_group",
+				"aws",
+				map[string]string{
+					"arn":   *ruleGroup.ARN,
+					"name":  *ruleGroup.Name,
+					"scope": string(g.scope),
+				},
+				wafv2AllowEmptyValues,
+				map[string]interface{}{},
+			))
+		}
+		return output.NextMarker, nil
+	})
 }
 
 func (g *Wafv2Generator) loadWebACLLoggingConfiguration(svc *wafv2.Client) error {
-	output, err := svc.ListLoggingConfigurations(context.TODO(), &wafv2.ListLoggingConfigurationsInput{Scope: g.scope})
-	if err != nil {
-		return err
-	}
-	for _, logConfig := range output.LoggingConfigurations {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			*logConfig.ResourceArn,
-			*logConfig.ResourceArn,
-			"aws_wafv2_web_acl_logging_configuration",
-			"aws",
-			map[string]string{
-				"resource_arn": *logConfig.ResourceArn,
-			},
-			wafv2AllowEmptyValues,
-			map[string]interface{}{},
-		))
-	}
-	return nil
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListLoggingConfigurations(context.TODO(), &wafv2.ListLoggingConfigurationsInput{Scope: g.scope, NextMarker: marker})
+		if err != nil {
+			return nil, err
+		}
+		for _, logConfig := range output.LoggingConfigurations {
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				*logConfig.ResourceArn,
+				*logConfig.ResourceArn,
+				"aws_wafv2_web_acl_logging_configuration",
+				"aws",
+				map[string]string{
+					"resource_arn": *logConfig.ResourceArn,
+				},
+				wafv2AllowEmptyValues,
+				map[string]interface{}{},
+			))
+		}
+		return output.NextMarker, nil
+	})
 }

@@ -34,24 +34,30 @@ func (g *Cloud9Generator) InitResources() error {
 		return e
 	}
 	svc := cloud9.NewFromConfig(config)
-	output, err := svc.ListEnvironments(context.TODO(), &cloud9.ListEnvironmentsInput{})
-	if err != nil {
-		return err
-	}
-	for _, environmentID := range output.EnvironmentIds {
-		details, _ := svc.DescribeEnvironmentStatus(context.TODO(), &cloud9.DescribeEnvironmentStatusInput{
-			EnvironmentId: &environmentID,
-		})
-		if details.Status == types.EnvironmentStatusError ||
-			details.Status == types.EnvironmentStatusDeleting {
-			continue
+	p := cloud9.NewListEnvironmentsPaginator(svc, &cloud9.ListEnvironmentsInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
 		}
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			environmentID,
-			environmentID,
-			"aws_cloud9_environment_ec2",
-			"aws",
-			cloud9AllowEmptyValues))
+		for _, environmentID := range page.EnvironmentIds {
+			details, err := svc.DescribeEnvironmentStatus(context.TODO(), &cloud9.DescribeEnvironmentStatusInput{
+				EnvironmentId: &environmentID,
+			})
+			if err != nil {
+				return err
+			}
+			if details.Status == types.EnvironmentStatusError ||
+				details.Status == types.EnvironmentStatusDeleting {
+				continue
+			}
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				environmentID,
+				environmentID,
+				"aws_cloud9_environment_ec2",
+				"aws",
+				cloud9AllowEmptyValues))
+		}
 	}
 	return nil
 }

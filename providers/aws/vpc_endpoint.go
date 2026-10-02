@@ -20,6 +20,7 @@ import (
 	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 var VpcEndpointAllowEmptyValues = []string{"tags."}
@@ -28,9 +29,9 @@ type VpcEndpointGenerator struct {
 	AWSService
 }
 
-func (g *VpcEndpointGenerator) createResources(vpceps *ec2.DescribeVpcEndpointsOutput) []terraformutils.Resource {
+func (g *VpcEndpointGenerator) createResources(vpcEndpoints []types.VpcEndpoint) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	for _, vpcEndpoint := range vpceps.VpcEndpoints {
+	for _, vpcEndpoint := range vpcEndpoints {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			StringValue(vpcEndpoint.VpcEndpointId),
 			StringValue(vpcEndpoint.VpcEndpointId),
@@ -51,10 +52,13 @@ func (g *VpcEndpointGenerator) InitResources() error {
 		return e
 	}
 	svc := ec2.NewFromConfig(config)
-	vpceps, err := svc.DescribeVpcEndpoints(context.TODO(), &ec2.DescribeVpcEndpointsInput{})
-	if err != nil {
-		return err
+	p := ec2.NewDescribeVpcEndpointsPaginator(svc, &ec2.DescribeVpcEndpointsInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		g.Resources = append(g.Resources, g.createResources(page.VpcEndpoints)...)
 	}
-	g.Resources = g.createResources(vpceps)
 	return nil
 }

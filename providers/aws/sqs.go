@@ -39,30 +39,33 @@ func (g *SqsGenerator) InitResources() error {
 	}
 	svc := sqs.NewFromConfig(config)
 
-	listQueuesInput := sqs.ListQueuesInput{}
+	// ListQueues returns a NextToken only when MaxResults is set; without
+	// it the API silently stops at 1,000 queues.
+	listQueuesInput := sqs.ListQueuesInput{MaxResults: aws.Int32(1000)}
 
 	sqsPrefix, hasPrefix := os.LookupEnv("SQS_PREFIX")
 	if hasPrefix {
 		listQueuesInput.QueueNamePrefix = aws.String(sqsPrefix)
 	}
 
-	queuesList, err := svc.ListQueues(context.TODO(), &listQueuesInput)
+	p := sqs.NewListQueuesPaginator(svc, &listQueuesInput)
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return err
+		}
+		for _, queueURL := range page.QueueUrls {
+			urlParts := strings.Split(queueURL, "/")
+			queueName := urlParts[len(urlParts)-1]
 
-	if err != nil {
-		return err
-	}
-
-	for _, queueURL := range queuesList.QueueUrls {
-		urlParts := strings.Split(queueURL, "/")
-		queueName := urlParts[len(urlParts)-1]
-
-		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			queueURL,
-			queueName,
-			"aws_sqs_queue",
-			"aws",
-			sqsAllowEmptyValues,
-		))
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+				queueURL,
+				queueName,
+				"aws_sqs_queue",
+				"aws",
+				sqsAllowEmptyValues,
+			))
+		}
 	}
 
 	return nil
