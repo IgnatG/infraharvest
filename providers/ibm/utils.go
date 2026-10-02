@@ -28,7 +28,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/http"
 	"github.com/IBM-Cloud/bluemix-go/rest"
 	"github.com/IBM-Cloud/bluemix-go/session"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/IBM-Cloud/bluemix-go/api/resource/resourcev2/managementv2"
 )
@@ -64,14 +64,12 @@ func fetchUserDetails(sess *session.Session, generation int) (*UserConfig, error
 		bluemixToken = config.IAMAccessToken
 	}
 
-	token, err := jwt.Parse(bluemixToken, func(token *jwt.Token) (interface{}, error) {
-		return "", nil
-	})
-	// TODO validate with key
-	if err != nil && !strings.Contains(err.Error(), "key is of invalid type") {
+	// The token comes from the user's own login and is only read to identify
+	// the account, so its signature is not verified here.
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(bluemixToken, claims); err != nil {
 		return &user, err
 	}
-	claims := token.Claims.(jwt.MapClaims)
 	if email, ok := claims["email"]; ok {
 		user.userEmail = email.(string)
 	}

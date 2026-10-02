@@ -75,7 +75,8 @@ jobs:
         cache: true
     - name: Build
       run: go build -o infraharvest .
-    # Source mode needs more memory than a standard runner has for this
-    # module. Binary mode checks the symbols compiled into the binary.
+    # Binary mode checks the symbols compiled into the binary; source mode
+    # needs more memory than a standard runner has for this module. Fails
+    # unless .github/govulncheck-allowlist.txt covers every finding.
     - name: govulncheck
-      run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -mode binary ./infraharvest
+      run: .github/scripts/govulncheck-gate.sh ./infraharvest

@@ -2,6 +2,8 @@ module github.com/IgnatG/infraharvest
 
 go 1.26.0
 
+toolchain go1.27.1
+
 require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/logging v1.13.1
@@ -113,7 +115,6 @@ require (
 	github.com/ddelnano/terraform-provider-xenorchestra/client v0.0.0-20210401070256-0d721c6762ef
 	github.com/denisenkom/go-mssqldb v0.10.0 // indirect
 	github.com/denverdino/aliyungo v0.0.0-20200327235253-d59c209c7e93
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/digitalocean/godo v1.83.0
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/duosecurity/duo_api_golang v0.0.0-20201112143038-0e07e9f869e3 // indirect
@@ -121,6 +122,7 @@ require (
 	github.com/fastly/go-fastly/v7 v7.0.0
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/gocql/gocql v0.0.0-20210707082121-9a3953d1826d // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-github/v35 v35.1.0
 	github.com/gophercloud/gophercloud v1.0.0
 	github.com/grafana/grafana-api-golang-client v0.0.0-20210218192924-9ccd2365d2a6
@@ -318,14 +320,14 @@ require (
 	go.mongodb.org/mongo-driver v1.17.7 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/grpc v1.83.1 // indirect
+	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/auth0.v5 v5.21.1
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
@@ -375,6 +377,7 @@ require (
 	github.com/clbanning/mxj v1.8.4 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/emicklei/go-restful v2.16.0+incompatible // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
