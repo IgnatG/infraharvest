@@ -10,6 +10,10 @@ on:
     - master
     - legacy
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write # reviewdog posts lint findings as review comments

@@ -36,7 +36,7 @@ jobs:
           go-version-file: go.mod
           cache: false # never restore a cache into a release build
       - name: Test
-        run: go build ./... && go test ./...
+        run: go test ./...
       - name: Build for linux/amd64
         run: go build -trimpath -o terraformer-all-linux-amd64
       - name: Build for linux/arm64
