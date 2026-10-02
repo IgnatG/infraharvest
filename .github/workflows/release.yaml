@@ -3,37 +3,66 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Bump Version
+        description: Release tag (e.g. v0.8.31)
         required: true
+
+permissions:
+  contents: read
+
 jobs:
   tagged-release:
     name: "Tagged Release"
     runs-on: "ubuntu-latest"
+    permissions:
+      contents: write      # create the release
+      id-token: write      # keyless cosign signing and provenance
+      attestations: write  # build provenance
+    env:
+      VERSION: ${{ github.event.inputs.version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Validate version
+        run: |
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like v1.2.3 or v1.2.3-rc.1, got '$VERSION'"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false # never restore a cache into a release build
       - name: Test
-        run: go build -v && go test ./...
+        run: go build ./... && go test ./...
       - name: Build for linux/amd64
-        run: go build -o terraformer-all-linux-amd64
+        run: go build -trimpath -o terraformer-all-linux-amd64
       - name: Build for linux/arm64
-        run: GOOS=linux GOARCH=arm64 go build -o terraformer-all-linux-arm64
+        run: GOOS=linux GOARCH=arm64 go build -trimpath -o terraformer-all-linux-arm64
       - name: Build for mac
-        run: GOOS=darwin go build -o terraformer-all-darwin-amd64
+        run: GOOS=darwin go build -trimpath -o terraformer-all-darwin-amd64
       - name: Build for mac Apple Silicon
-        run: GOOS=darwin GOARCH=arm64 go build -o terraformer-all-darwin-arm64
+        run: GOOS=darwin GOARCH=arm64 go build -trimpath -o terraformer-all-darwin-arm64
+      - name: Build for windows/amd64
+        run: GOOS=windows GOARCH=amd64 go build -trimpath -o terraformer-all-windows-amd64.exe
       - name: Build for all providers
         run: go run build/multi-build/main.go
 
-      - uses: "marvinpinto/action-automatic-releases@latest"
+      - name: Write checksums
+        run: sha256sum terraformer-* > SHA256SUMS
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign checksums
+        run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: ${{ github.event.inputs.version }}
-          prerelease: false
-          files: |
-            terraformer-*
+          subject-checksums: SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes \
+            terraformer-* SHA256SUMS SHA256SUMS.sigstore.json
