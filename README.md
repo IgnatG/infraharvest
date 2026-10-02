@@ -2,6 +2,8 @@
 
 > **Work in progress.** infraharvest is being built on top of [Terraformer](https://github.com/GoogleCloudPlatform/terraformer), which Google archived on 16 March 2026. The code is still Terraformer's and works as documented below, and is being modernised step by step.
 
+Licensed under [AGPL-3.0](LICENSE). Terraformer code keeps its Apache-2.0 licence and attribution; see [NOTICE](NOTICE).
+
 The rest of this README is Terraformer's documentation.
 
 A CLI tool that generates `tf`/`json` and `tfstate` files based on existing infrastructure
