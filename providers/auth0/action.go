@@ -15,7 +15,7 @@
 package auth0
 
 import (
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"gopkg.in/auth0.v5/management"
 )
 

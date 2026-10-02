@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 func TestExportPlanFileIsOwnerOnlyAndLoadable(t *testing.T) {

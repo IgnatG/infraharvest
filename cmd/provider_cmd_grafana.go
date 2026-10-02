@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	"github.com/GoogleCloudPlatform/terraformer/providers/grafana"
+	"github.com/IgnatG/infraharvest/providers/grafana"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

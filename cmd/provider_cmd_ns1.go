@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	ns1_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/ns1"
+	ns1_terraforming "github.com/IgnatG/infraharvest/providers/ns1"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

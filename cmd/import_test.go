@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
+	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
 
 func TestCheckFailures(t *testing.T) {

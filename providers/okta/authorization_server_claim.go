@@ -15,7 +15,7 @@
 package okta
 
 import (
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/okta/okta-sdk-golang/v2/okta"
 )
 

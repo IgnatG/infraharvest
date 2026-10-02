@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/terraformerstring"
+	"github.com/IgnatG/infraharvest/terraformutils/terraformerstring"
 
 	"github.com/zclconf/go-cty/cty"
 
@@ -271,7 +271,7 @@ func explainHandshakeError(providerName, providerFilePath string, err error) err
 	if !strings.Contains(err.Error(), "Incompatible API version with plugin") {
 		return err
 	}
-	return fmt.Errorf("provider %s (%s) uses a plugin protocol terraformer cannot load (it supports only protocol 5); "+
+	return fmt.Errorf("provider %s (%s) uses a plugin protocol infraharvest cannot load (it supports only protocol 5); "+
 		"install a provider release that still serves protocol 5 (see the provider's docs page): %w",
 		providerName, providerFilePath, err)
 }

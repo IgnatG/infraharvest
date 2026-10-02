@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	equinixmetal_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/equinixmetal"
+	equinixmetal_terraforming "github.com/IgnatG/infraharvest/providers/equinixmetal"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

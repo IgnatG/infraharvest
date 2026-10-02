@@ -17,8 +17,8 @@ import (
 	"errors"
 	"os"
 
-	commercetools_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/commercetools"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	commercetools_terraforming "github.com/IgnatG/infraharvest/providers/commercetools"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

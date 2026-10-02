@@ -3,7 +3,7 @@ package octopusdeploy
 import (
 	"strings"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/OctopusDeploy/go-octopusdeploy/octopusdeploy"
 )
 

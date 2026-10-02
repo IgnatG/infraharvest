@@ -17,7 +17,7 @@ package openstack
 import (
 	"os"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
 )
 

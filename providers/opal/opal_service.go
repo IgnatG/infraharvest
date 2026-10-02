@@ -19,7 +19,7 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/opalsecurity/opal-go"
 )
 

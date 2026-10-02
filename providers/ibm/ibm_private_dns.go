@@ -19,13 +19,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/resource/resourcev1/catalog"
 	"github.com/IBM-Cloud/bluemix-go/api/resource/resourcev2/controllerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
 	"github.com/IBM/go-sdk-core/v3/core"
 	dns "github.com/IBM/networking-go-sdk/dnssvcsv1"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // privateDNSTemplateGenerator ...

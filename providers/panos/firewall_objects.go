@@ -15,7 +15,7 @@
 package panos
 
 import (
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/PaloAltoNetworks/pango"
 )
 

@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	ibm_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/ibm"
+	ibm_terraforming "github.com/IgnatG/infraharvest/providers/ibm"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

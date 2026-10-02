@@ -19,9 +19,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	"github.com/IBM/go-sdk-core/v4/core"
 	tg "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // TGGenerator ...

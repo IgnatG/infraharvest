@@ -16,8 +16,8 @@ package cmd
 import (
 	"strconv"
 
-	kubernetes_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/kubernetes"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	kubernetes_terraforming "github.com/IgnatG/infraharvest/providers/kubernetes"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

@@ -17,9 +17,9 @@ import (
 	"errors"
 	"os"
 
-	auth0_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/auth0"
+	auth0_terraforming "github.com/IgnatG/infraharvest/providers/auth0"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

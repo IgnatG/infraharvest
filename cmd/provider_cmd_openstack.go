@@ -16,8 +16,8 @@ package cmd
 import (
 	"log"
 
-	openstack_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/openstack"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	openstack_terraforming "github.com/IgnatG/infraharvest/providers/openstack"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

@@ -17,9 +17,9 @@ package cmd
 import (
 	"os"
 
-	rabbitmq_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/rabbitmq"
+	rabbitmq_terraforming "github.com/IgnatG/infraharvest/providers/rabbitmq"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

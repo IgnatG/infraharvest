@@ -17,7 +17,7 @@ package cloudflare
 import (
 	"errors"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 type CloudflareProvider struct { //nolint

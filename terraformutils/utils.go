@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
+	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 
 	"github.com/hashicorp/terraform/terraform"
 )

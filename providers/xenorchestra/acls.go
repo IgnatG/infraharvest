@@ -14,7 +14,7 @@
 package xenorchestra
 
 import (
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/ddelnano/terraform-provider-xenorchestra/client"
 )
 

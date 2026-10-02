@@ -14,7 +14,7 @@
 
 package datadog
 
-import "github.com/GoogleCloudPlatform/terraformer/terraformutils"
+import "github.com/IgnatG/infraharvest/terraformutils"
 
 type DatadogService struct { //nolint
 	terraformutils.Service

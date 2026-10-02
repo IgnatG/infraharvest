@@ -20,8 +20,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/GoogleCloudPlatform/terraformer/providers/alicloud/connectivity"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/providers/alicloud/connectivity"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // AliCloudService Service struct for AliCloud

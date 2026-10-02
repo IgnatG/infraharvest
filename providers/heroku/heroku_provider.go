@@ -17,7 +17,7 @@ package heroku
 import (
 	"errors"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 type HerokuProvider struct { //nolint

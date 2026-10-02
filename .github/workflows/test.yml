@@ -34,7 +34,7 @@ jobs:
     # tests/* program, each a full binary with all providers, and fills the
     # runner's disk. `go test ./...` compiles every package anyway.
     - name: Build
-      run: go build -o terraformer .
+      run: go build -o infraharvest .
     - name: Test
       run: go test ./...
 
@@ -66,8 +66,8 @@ jobs:
         go-version-file: go.mod
         cache: true
     - name: Build
-      run: go build -o terraformer .
+      run: go build -o infraharvest .
     # Source mode needs more memory than a standard runner has for this
     # module. Binary mode checks the symbols compiled into the binary.
     - name: govulncheck
-      run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -mode binary ./terraformer
+      run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -mode binary ./infraharvest

@@ -18,8 +18,8 @@ import (
 	"errors"
 	"os"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
+	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 	"github.com/zclconf/go-cty/cty"
 )
 

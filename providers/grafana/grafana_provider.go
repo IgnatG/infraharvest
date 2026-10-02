@@ -18,7 +18,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
 )

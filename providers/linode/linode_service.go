@@ -17,7 +17,7 @@ package linode
 import (
 	"net/http"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/linode/linodego"
 	"golang.org/x/oauth2"
 )

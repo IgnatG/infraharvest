@@ -17,7 +17,7 @@ package auth0
 import (
 	"encoding/base64"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"gopkg.in/auth0.v5/management"
 )
 

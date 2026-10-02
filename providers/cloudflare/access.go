@@ -17,7 +17,7 @@ package cloudflare
 import (
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	cf "github.com/cloudflare/cloudflare-go"
 )
 

@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	fastly_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/fastly"
+	fastly_terraforming "github.com/IgnatG/infraharvest/providers/fastly"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

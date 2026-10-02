@@ -14,8 +14,8 @@
 package cmd
 
 import (
-	mikrotik_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/mikrotik"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	mikrotik_terraforming "github.com/IgnatG/infraharvest/providers/mikrotik"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

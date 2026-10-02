@@ -1,4 +1,4 @@
-module github.com/GoogleCloudPlatform/terraformer
+module github.com/IgnatG/infraharvest
 
 go 1.26.0
 

@@ -18,9 +18,9 @@ import (
 	"log"
 	"strings"
 
-	yandex_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/yandex"
+	yandex_terraforming "github.com/IgnatG/infraharvest/providers/yandex"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

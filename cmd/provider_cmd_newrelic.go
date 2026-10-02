@@ -14,9 +14,9 @@
 package cmd
 
 import (
-	newrelic_terraforming "github.com/GoogleCloudPlatform/terraformer/providers/newrelic"
+	newrelic_terraforming "github.com/IgnatG/infraharvest/providers/newrelic"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 

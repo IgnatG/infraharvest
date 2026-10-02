@@ -17,7 +17,7 @@ package linode
 import (
 	"context"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/linode/linodego"
 )
 

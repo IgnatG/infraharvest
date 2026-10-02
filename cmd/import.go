@@ -21,14 +21,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/terraformerstring"
+	"github.com/IgnatG/infraharvest/terraformutils/terraformerstring"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/providerwrapper"
+	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 
 	"github.com/spf13/pflag"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils/terraformoutput"
+	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils/terraformoutput"
 
 	"github.com/spf13/cobra"
 )
@@ -200,7 +200,7 @@ func importFromPlan(providerMapping *terraformutils.ProvidersMapping, options Im
 	}
 
 	if options.Plan {
-		path := Path(options.PathPattern, providerMapping.GetBaseProvider().GetName(), "terraformer", options.PathOutput)
+		path := Path(options.PathPattern, providerMapping.GetBaseProvider().GetName(), "infraharvest", options.PathOutput)
 		return ExportPlanFile(plan, path, "plan.json")
 	}
 

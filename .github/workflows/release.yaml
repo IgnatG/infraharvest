@@ -38,20 +38,20 @@ jobs:
       - name: Test
         run: go test ./...
       - name: Build for linux/amd64
-        run: go build -trimpath -o terraformer-all-linux-amd64
+        run: go build -trimpath -o infraharvest-all-linux-amd64
       - name: Build for linux/arm64
-        run: GOOS=linux GOARCH=arm64 go build -trimpath -o terraformer-all-linux-arm64
+        run: GOOS=linux GOARCH=arm64 go build -trimpath -o infraharvest-all-linux-arm64
       - name: Build for mac
-        run: GOOS=darwin go build -trimpath -o terraformer-all-darwin-amd64
+        run: GOOS=darwin go build -trimpath -o infraharvest-all-darwin-amd64
       - name: Build for mac Apple Silicon
-        run: GOOS=darwin GOARCH=arm64 go build -trimpath -o terraformer-all-darwin-arm64
+        run: GOOS=darwin GOARCH=arm64 go build -trimpath -o infraharvest-all-darwin-arm64
       - name: Build for windows/amd64
-        run: GOOS=windows GOARCH=amd64 go build -trimpath -o terraformer-all-windows-amd64.exe
+        run: GOOS=windows GOARCH=amd64 go build -trimpath -o infraharvest-all-windows-amd64.exe
       - name: Build for all providers
         run: go run build/multi-build/main.go
 
       - name: Write checksums
-        run: sha256sum terraformer-* > SHA256SUMS
+        run: sha256sum infraharvest-* > SHA256SUMS
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign checksums
         run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
@@ -65,4 +65,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes \
-            terraformer-* SHA256SUMS SHA256SUMS.sigstore.json
+            infraharvest-* SHA256SUMS SHA256SUMS.sigstore.json

@@ -20,9 +20,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	"github.com/IBM/go-sdk-core/v4/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // InstanceGroupGenerator ...

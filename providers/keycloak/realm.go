@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
+	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/mrparkers/terraform-provider-keycloak/keycloak"
 )
 

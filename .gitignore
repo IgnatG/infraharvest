@@ -1,6 +1,9 @@
 .idea
 generated
 terraformer*
+/infraharvest
+/infraharvest-*
+/infraharvest.exe
 cmd/tmp
 .DS_Store
 .terraform
