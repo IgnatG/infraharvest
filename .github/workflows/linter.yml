@@ -1,10 +1,9 @@
 name: linter
 
+# Lint only lines changed by a pull request. The legacy code has ~400
+# findings from current linters that are not worth fixing before the
+# rewrite replaces it, but new code must be clean.
 on:
-  push:
-    branches:
-    - master
-    - legacy
   pull_request:
     branches:
     - master
@@ -33,3 +32,7 @@ jobs:
         go_version_file: go.mod
         github_token: ${{ secrets.GITHUB_TOKEN }}
         tool_name: golangci-lint
+        golangci_lint_version: v2.14.0
+        reporter: github-pr-review
+        filter_mode: added
+        fail_level: error

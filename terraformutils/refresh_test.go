@@ -15,7 +15,7 @@ import (
 // "gone" and an error for everything else.
 type fakeRefresher struct{}
 
-func (fakeRefresher) Refresh(info *terraform.InstanceInfo, state *terraform.InstanceState) (*terraform.InstanceState, error) {
+func (fakeRefresher) Refresh(_ *terraform.InstanceInfo, state *terraform.InstanceState) (*terraform.InstanceState, error) {
 	switch {
 	case strings.HasPrefix(state.ID, "ok"):
 		return &terraform.InstanceState{ID: state.ID, Attributes: map[string]string{"id": state.ID}}, nil
