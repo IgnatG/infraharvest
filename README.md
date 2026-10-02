@@ -119,6 +119,10 @@ Flags:
   -n, --retry-number          number of retries to perform if refresh fails
   -m, --retry-sleep-ms        time in ms to sleep between retries
       --allow-partial         exit 0 when some services or resources fail to import (default false)
+      --engine string         legacy, or terraform: generate configuration with Terraform from
+                              import blocks; no state is written (default "legacy")
+      --terraform-path string Terraform binary for --engine=terraform (default: terraform on
+                              PATH if >= 1.5, else the latest release, downloaded and verified)
 
 Use " import [provider] [command] --help" for more information about a command.
 ```
