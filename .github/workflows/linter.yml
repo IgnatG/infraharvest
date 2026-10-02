@@ -1,13 +1,11 @@
 name: linter
 
-# Lint only lines changed by a pull request. The legacy code has ~400
-# findings from current linters that are not worth fixing before the
-# rewrite replaces it, but new code must be clean.
+# Lint only lines changed by a pull request. The inherited Terraformer code
+# has ~400 findings from current linters; fix them as code is touched,
+# and keep new code clean.
 on:
   pull_request:
-    branches:
-    - master
-    - legacy
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

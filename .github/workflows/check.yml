@@ -1,0 +1,46 @@
+name: check
+
+# On-demand vet and test of selected packages, so checks run on GitHub
+# instead of a developer laptop:
+#   gh workflow run check --ref <branch> -f packages="./pkg/..." -f os=ubuntu-latest
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Space-separated Go package patterns
+        required: true
+        default: ./...
+      os:
+        description: Runner
+        type: choice
+        options: [ubuntu-latest, windows-latest, macos-latest]
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ${{ inputs.os }}
+    env:
+      PACKAGES: ${{ inputs.packages }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Validate packages
+        run: |
+          if ! [[ "$PACKAGES" =~ ^[A-Za-z0-9_./\ -]+$ ]]; then
+            echo "::error::packages may contain only letters, digits, '_', '.', '/', '-' and spaces"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet $PACKAGES
+      - name: Test
+        run: go test $PACKAGES
