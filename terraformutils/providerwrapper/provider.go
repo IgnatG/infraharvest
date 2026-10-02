@@ -20,6 +20,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+	goversion "github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform/configs/configschema"
 	tfplugin "github.com/hashicorp/terraform/plugin"
 	"github.com/hashicorp/terraform/providers"
@@ -49,7 +51,7 @@ const DefaultPluginVendorDirV12 = "terraform.d/plugins/" + pluginMachineName
 const pluginMachineName = runtime.GOOS + "_" + runtime.GOARCH
 
 type ProviderWrapper struct {
-	Provider     *tfplugin.GRPCProvider
+	Provider     providers.Interface
 	client       *plugin.Client
 	rpcClient    plugin.ClientProtocol
 	providerName string
@@ -75,9 +77,13 @@ func NewProviderWrapper(providerName string, providerConfig cty.Value, verbose b
 		}
 	}
 
-	err := p.initProvider(verbose)
-
-	return p, err
+	if err := p.initProvider(verbose); err != nil {
+		if p.client != nil {
+			p.client.Kill()
+		}
+		return nil, err
+	}
+	return p, nil
 }
 
 func (p *ProviderWrapper) Kill() {
@@ -191,7 +197,7 @@ func (p *ProviderWrapper) Refresh(info *terraform.InstanceInfo, state *terraform
 			ID:       state.ID,
 		})
 		if importResponse.Diagnostics.HasErrors() {
-			return nil, resp.Diagnostics.Err()
+			return nil, fmt.Errorf("read failed: %w; import fallback failed: %w", resp.Diagnostics.Err(), importResponse.Diagnostics.Err())
 		}
 		if len(importResponse.ImportedResources) == 0 {
 			return nil, errors.New("not able to import resource for a given ID")
@@ -233,7 +239,7 @@ func (p *ProviderWrapper) initProvider(verbose bool) error {
 		})
 	p.rpcClient, err = p.client.Client()
 	if err != nil {
-		return err
+		return explainHandshakeError(p.providerName, providerFilePath, err)
 	}
 	raw, err := p.rpcClient.Dispense(tfplugin.ProviderPluginName)
 	if err != nil {
@@ -246,12 +252,28 @@ func (p *ProviderWrapper) initProvider(verbose bool) error {
 	if err != nil {
 		return err
 	}
-	p.Provider.Configure(providers.ConfigureRequest{
+	resp := p.Provider.Configure(providers.ConfigureRequest{
 		TerraformVersion: version.Version,
 		Config:           config,
 	})
+	if resp.Diagnostics.HasErrors() {
+		return fmt.Errorf("configure provider %s: %w", p.providerName, resp.Diagnostics.Err())
+	}
 
 	return nil
+}
+
+// explainHandshakeError makes go-plugin's protocol mismatch error actionable.
+// Terraformer embeds Terraform 0.12, which only speaks plugin protocol 5, so
+// provider releases built for protocol 6 cannot be loaded. go-plugin v1.4.4
+// reports this only as an untyped error, hence the match on its message.
+func explainHandshakeError(providerName, providerFilePath string, err error) error {
+	if !strings.Contains(err.Error(), "Incompatible API version with plugin") {
+		return err
+	}
+	return fmt.Errorf("provider %s (%s) uses a plugin protocol terraformer cannot load (it supports only protocol 5); "+
+		"install a provider release that still serves protocol 5 (see the provider's docs page): %w",
+		providerName, providerFilePath, err)
 }
 
 func getProviderFileName(providerName string) (string, error) {
@@ -261,8 +283,9 @@ func getProviderFileName(providerName string) (string, error) {
 	}
 	providerFilePath, err := getProviderFileNameV13andV14(defaultDataDir, providerName)
 	if err != nil || providerFilePath == "" {
-		providerFilePath, err = getProviderFileNameV13andV14(os.Getenv("HOME")+string(os.PathSeparator)+
-			".terraform.d", providerName)
+		if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			providerFilePath, err = getProviderFileNameV13andV14(filepath.Join(home, ".terraform.d"), providerName)
+		}
 	}
 	if err != nil || providerFilePath == "" {
 		return getProviderFileNameV12(providerName)
@@ -270,43 +293,39 @@ func getProviderFileName(providerName string) (string, error) {
 	return providerFilePath, nil
 }
 
+// getProviderFileNameV13andV14 returns the binary of the highest installed
+// version of the provider in the registry layout under prefix, or "" if no
+// version has a binary for this platform.
 func getProviderFileNameV13andV14(prefix, providerName string) (string, error) {
 	// Read terraform v14 file path
-	registryDir := prefix + string(os.PathSeparator) + "providers" + string(os.PathSeparator) +
-		"registry.terraform.io"
-	providerDirs, err := os.ReadDir(registryDir)
+	registryDir := filepath.Join(prefix, "providers", "registry.terraform.io")
+	namespaceDirs, err := os.ReadDir(registryDir)
 	if err != nil {
 		// Read terraform v13 file path
-		registryDir = prefix + string(os.PathSeparator) + "plugins" + string(os.PathSeparator) +
-			"registry.terraform.io"
-		providerDirs, err = os.ReadDir(registryDir)
+		registryDir = filepath.Join(prefix, "plugins", "registry.terraform.io")
+		namespaceDirs, err = os.ReadDir(registryDir)
 		if err != nil {
 			return "", err
 		}
 	}
 	providerFilePath := ""
-	for _, providerDir := range providerDirs {
-		pluginPath := registryDir + string(os.PathSeparator) + providerDir.Name() +
-			string(os.PathSeparator) + providerName
-		dirs, err := os.ReadDir(pluginPath)
+	var highest *goversion.Version
+	for _, namespaceDir := range namespaceDirs {
+		pluginPath := filepath.Join(registryDir, namespaceDir.Name(), providerName)
+		versionDirs, err := os.ReadDir(pluginPath)
 		if err != nil {
 			continue
 		}
-		for _, dir := range dirs {
-			if !dir.IsDir() {
+		for _, versionDir := range versionDirs {
+			if !versionDir.IsDir() {
 				continue
 			}
-			for _, dir := range dirs {
-				fullPluginPath := pluginPath + string(os.PathSeparator) + dir.Name() +
-					string(os.PathSeparator) + runtime.GOOS + "_" + runtime.GOARCH
-				files, err := os.ReadDir(fullPluginPath)
-				if err == nil {
-					for _, file := range files {
-						if strings.HasPrefix(file.Name(), "terraform-provider-"+providerName) {
-							providerFilePath = fullPluginPath + string(os.PathSeparator) + file.Name()
-						}
-					}
-				}
+			v, err := goversion.NewVersion(versionDir.Name())
+			if err != nil || (highest != nil && !v.GreaterThan(highest)) {
+				continue
+			}
+			if binary := findProviderBinary(filepath.Join(pluginPath, versionDir.Name(), pluginMachineName), providerName); binary != "" {
+				highest, providerFilePath = v, binary
 			}
 		}
 	}
@@ -318,25 +337,63 @@ func getProviderFileNameV12(providerName string) (string, error) {
 	if defaultDataDir == "" {
 		defaultDataDir = DefaultDataDir
 	}
-	pluginPath := defaultDataDir + string(os.PathSeparator) + "plugins" + string(os.PathSeparator) + runtime.GOOS + "_" + runtime.GOARCH
-	files, err := os.ReadDir(pluginPath)
-	if err != nil {
-		pluginPath = os.Getenv("HOME") + string(os.PathSeparator) + "." + DefaultPluginVendorDirV12
-		files, err = os.ReadDir(pluginPath)
-		if err != nil {
+	pluginPath := filepath.Join(defaultDataDir, "plugins", pluginMachineName)
+	if _, err := os.Stat(pluginPath); err != nil {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return "", errors.Join(err, homeErr)
+		}
+		pluginPath = filepath.Join(home, "."+DefaultPluginVendorDirV12)
+		if _, err := os.Stat(pluginPath); err != nil {
 			return "", err
 		}
 	}
-	providerFilePath := ""
+	return findProviderBinary(pluginPath, providerName), nil
+}
+
+// findProviderBinary returns the highest-versioned binary of the provider in
+// dir, or "" if there is none. Binaries are named
+// terraform-provider-NAME[_vX.Y.Z[_xN]][.exe]; unversioned ones rank lowest.
+func findProviderBinary(dir, providerName string) string {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	binary := ""
+	var highest *goversion.Version
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
-		if strings.HasPrefix(file.Name(), "terraform-provider-"+providerName) {
-			providerFilePath = pluginPath + string(os.PathSeparator) + file.Name()
+		v, ok := providerBinaryVersion(file.Name(), providerName)
+		if !ok {
+			continue
+		}
+		if binary == "" || (v != nil && (highest == nil || v.GreaterThan(highest))) {
+			binary, highest = filepath.Join(dir, file.Name()), v
 		}
 	}
-	return providerFilePath, nil
+	return binary
+}
+
+// providerBinaryVersion reports whether fileName is a binary of the provider
+// and returns its version, or nil if the name carries none.
+func providerBinaryVersion(fileName, providerName string) (*goversion.Version, bool) {
+	rest, found := strings.CutPrefix(strings.TrimSuffix(fileName, ".exe"), "terraform-provider-"+providerName)
+	if !found {
+		return nil, false
+	}
+	if rest == "" {
+		return nil, true
+	}
+	if !strings.HasPrefix(rest, "_") {
+		return nil, false // a different provider, e.g. awscc when looking for aws
+	}
+	v, err := goversion.NewVersion(strings.Split(rest[1:], "_")[0])
+	if err != nil {
+		return nil, true
+	}
+	return v, true
 }
 
 func GetProviderVersion(providerName string) string {
