@@ -55,6 +55,8 @@ type ImportOptions struct {
 	RetryCount    int
 	RetrySleepMs  int
 	AllowPartial  bool
+	Engine        string
+	TerraformPath string
 }
 
 const DefaultPathPattern = "{output}/{provider}/{service}/"
@@ -87,6 +89,13 @@ func newImportCmd() *cobra.Command {
 }
 
 func Import(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
+	switch options.Engine {
+	case engineLegacy, "":
+	case engineTerraform:
+		return importWithTerraform(provider, options, args)
+	default:
+		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, engineLegacy, engineTerraform)
+	}
 
 	providerWrapper, options, err := initOptionsAndWrapper(provider, options, args)
 	if err != nil {
@@ -131,7 +140,19 @@ func initOptionsAndWrapper(provider terraformutils.ProviderGenerator, options Im
 	if err != nil {
 		return nil, options, err
 	}
+	options = resolveServices(provider, options)
 
+	providerWrapper, err := providerwrapper.NewProviderWrapper(provider.GetName(), provider.GetConfig(), options.Verbose, map[string]int{"retryCount": options.RetryCount, "retrySleepMs": options.RetrySleepMs})
+	if err != nil {
+		return nil, options, err
+	}
+
+	return providerWrapper, options, nil
+}
+
+// resolveServices expands "*" to every supported service and drops excluded
+// services.
+func resolveServices(provider terraformutils.ProviderGenerator, options ImportOptions) ImportOptions {
 	if terraformerstring.ContainsString(options.Resources, "*") {
 		log.Println("Attempting an import of ALL resources in " + provider.GetName())
 		options.Resources = providerServices(provider)
@@ -153,13 +174,7 @@ func initOptionsAndWrapper(provider terraformutils.ProviderGenerator, options Im
 		}
 		options.Resources = localSlice
 	}
-
-	providerWrapper, err := providerwrapper.NewProviderWrapper(provider.GetName(), provider.GetConfig(), options.Verbose, map[string]int{"retryCount": options.RetryCount, "retrySleepMs": options.RetrySleepMs})
-	if err != nil {
-		return nil, options, err
-	}
-
-	return providerWrapper, options, nil
+	return options
 }
 
 // initAllServicesResources lists the resources of every requested service.
@@ -222,7 +237,11 @@ func initServiceResources(service string, provider terraformutils.ProviderGenera
 		return err
 	}
 
-	provider.GetService().PopulateIgnoreKeys(providerWrapper)
+	// Ignore keys come from the provider schema, which only the legacy engine
+	// loads; the Terraform engine runs without a provider wrapper.
+	if providerWrapper != nil {
+		provider.GetService().PopulateIgnoreKeys(providerWrapper)
+	}
 	provider.GetService().InitialCleanup()
 	log.Println(provider.GetName() + " done importing " + service)
 
@@ -433,4 +452,6 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.IntVarP(&options.RetryCount, "retry-number", "n", 5, "number of retries to perform when refresh fails")
 	flag.IntVarP(&options.RetrySleepMs, "retry-sleep-ms", "m", 300, "time in ms to sleep between retries")
 	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "exit 0 when some services or resources fail to import, leaving them out of the output")
+	flag.StringVar(&options.Engine, "engine", engineLegacy, "legacy, or terraform: generate configuration with Terraform from import blocks (no state written)")
+	flag.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform binary for --engine=terraform (default: terraform on PATH if >= 1.5, else the latest release, downloaded and verified)")
 }
