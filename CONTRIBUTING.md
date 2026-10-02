@@ -1,28 +1,43 @@
-# How to Contribute
+# Contributing
 
-We'd love to accept your patches and contributions to this project. There are
-just a few small guidelines you need to follow.
+## Workflow
 
-## Contributor License Agreement
+- Branch from `main` and open a pull request. CI runs on every pull request.
+- Keep pull requests focused. A bug fix includes a test that fails without the fix.
 
-Contributions to this project must be accompanied by a Contributor License
-Agreement. You (or your employer) retain the copyright to your contribution;
-this simply gives us permission to use and redistribute your contributions as
-part of the project. Head over to <https://cla.developers.google.com/> to see
-your current agreements on file or to sign a new one.
+## Commit messages
 
-You generally only need to submit a CLA once, so if you've already submitted one
-(even if it was for a different project), you probably don't need to do it
-again.
+Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-## Code reviews
+```text
+fix(aws): paginate ListQueues
+feat(selection): add tag filters
+ci: pin actions to commit SHAs
+```
 
-All submissions, including submissions by project members, require review. We
-use GitHub pull requests for this purpose. Consult
-[GitHub Help](https://help.github.com/articles/about-pull-requests/) for more
-information on using pull requests.
+Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `build`, `chore`.
 
-## Community Guidelines
+## Checks
 
-This project follows
-[Google's Open Source Community Guidelines](https://opensource.google.com/conduct/).
+CI on each pull request:
+
+- `go mod tidy -diff`, a build of the binary and `go test ./...` on Linux and macOS.
+- Tests of OS-sensitive packages on Windows.
+- `govulncheck` in binary mode.
+- golangci-lint on changed lines.
+
+The module is large (44 providers), so building or testing all of it needs several GB of RAM. To check selected packages on GitHub instead of locally:
+
+```sh
+gh workflow run check --ref <branch> -f packages="./terraformutils/... ./providers/aws/..." -f os=ubuntu-latest
+gh run watch
+```
+
+## Dependencies
+
+- Pin GitHub Actions to a full commit SHA, with the version in a trailing comment.
+- Dependabot proposes updates weekly.
+
+## Licence
+
+By contributing, you agree that your contributions are licensed under the repository's licence (see [LICENSE](LICENSE)).
