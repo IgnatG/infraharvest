@@ -147,6 +147,12 @@ func TestAWSRoundTrip(t *testing.T) {
 	if !referencedVPC {
 		t.Errorf("no %s refers to the VPC", engine.GeneratedFileName)
 	}
+	// The state and logs buckets have the same shape: one generated module,
+	// called twice; the plans above check that changes nothing.
+	modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "s3_bucket_*", "main.tf"))
+	if err != nil || len(modules) == 0 {
+		t.Errorf("no generated S3 bucket module under %s (%v)", engine.ModulesDirName, err)
+	}
 	seeded := map[string]int{}
 	for _, r := range state {
 		seeded[r.Type]++

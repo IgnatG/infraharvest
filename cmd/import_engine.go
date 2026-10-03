@@ -122,6 +122,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	resourcesByService, childFailures := withChildImports(provider, selected)
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, root)
+	opts.ModulesDir = filepath.Join(options.PathOutput, engine.ModulesDirName)
 	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
 
 	run.used = true

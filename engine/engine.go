@@ -103,6 +103,9 @@ type Options struct {
 	// in state, which import can't set and the plan check (see runGate)
 	// lets change.
 	StateOnly map[string][]string
+	// ModulesDir, if set, is where Generate puts local modules for clusters
+	// of resources that repeat with the same shape (see modularize).
+	ModulesDir string
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
