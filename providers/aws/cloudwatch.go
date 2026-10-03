@@ -54,13 +54,12 @@ func (g *CloudWatchGenerator) InitResources() error {
 }
 
 func (g *CloudWatchGenerator) createMetricAlarms(cloudwatchSvc *cloudwatch.Client) error {
-	var nextToken *string
-	for {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
 		output, err := cloudwatchSvc.DescribeAlarms(context.TODO(), &cloudwatch.DescribeAlarmsInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, metricAlarm := range output.MetricAlarms {
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
@@ -70,22 +69,17 @@ func (g *CloudWatchGenerator) createMetricAlarms(cloudwatchSvc *cloudwatch.Clien
 				"aws",
 				cloudwatchAllowEmptyValues))
 		}
-		nextToken = output.NextToken
-		if nextToken == nil {
-			break
-		}
-	}
-	return nil
+		return output.NextToken, nil
+	})
 }
 
 func (g *CloudWatchGenerator) createDashboards(cloudwatchSvc *cloudwatch.Client) error {
-	var nextToken *string
-	for {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
 		output, err := cloudwatchSvc.ListDashboards(context.TODO(), &cloudwatch.ListDashboardsInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, dashboardEntry := range output.DashboardEntries {
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
@@ -95,22 +89,17 @@ func (g *CloudWatchGenerator) createDashboards(cloudwatchSvc *cloudwatch.Client)
 				"aws",
 				cloudwatchAllowEmptyValues))
 		}
-		nextToken = output.NextToken
-		if nextToken == nil {
-			break
-		}
-	}
-	return nil
+		return output.NextToken, nil
+	})
 }
 
 func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.Client) error {
-	var listRulesNextToken *string
-	for {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
 		output, err := cloudwatcheventsSvc.ListRules(context.TODO(), &cloudwatchevents.ListRulesInput{
-			NextToken: listRulesNextToken,
+			NextToken: nextToken,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, rule := range output.Rules {
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
@@ -119,41 +108,37 @@ func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.
 				"aws_cloudwatch_event_rule",
 				"aws",
 				cloudwatchAllowEmptyValues))
-
-			var listTargetsNextToken *string
-			for {
-				targetResponse, err := cloudwatcheventsSvc.ListTargetsByRule(context.TODO(), &cloudwatchevents.ListTargetsByRuleInput{
-					Rule:      rule.Name,
-					NextToken: listTargetsNextToken,
-				})
-				if err != nil {
-					return err
-				}
-				for _, target := range targetResponse.Targets {
-					targetRef := *rule.Name + "/" + *target.Id
-					g.Resources = append(g.Resources, terraformutils.NewResource(
-						targetRef,
-						targetRef,
-						"aws_cloudwatch_event_target",
-						"aws",
-						map[string]string{
-							"rule":      *rule.Name,
-							"target_id": *target.Id,
-						},
-						cloudwatchAllowEmptyValues,
-						map[string]interface{}{}))
-				}
-				listTargetsNextToken = output.NextToken
-				if listTargetsNextToken == nil {
-					break
-				}
+			if err := g.createTargets(cloudwatcheventsSvc, rule.Name); err != nil {
+				return nil, err
 			}
 		}
-		listRulesNextToken = output.NextToken
-		if listRulesNextToken == nil {
-			break
-		}
-	}
+		return output.NextToken, nil
+	})
+}
 
-	return nil
+func (g *CloudWatchGenerator) createTargets(cloudwatcheventsSvc *cloudwatchevents.Client, ruleName *string) error {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
+		output, err := cloudwatcheventsSvc.ListTargetsByRule(context.TODO(), &cloudwatchevents.ListTargetsByRuleInput{
+			Rule:      ruleName,
+			NextToken: nextToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, target := range output.Targets {
+			targetRef := *ruleName + "/" + *target.Id
+			g.Resources = append(g.Resources, terraformutils.NewResource(
+				targetRef,
+				targetRef,
+				"aws_cloudwatch_event_target",
+				"aws",
+				map[string]string{
+					"rule":      *ruleName,
+					"target_id": *target.Id,
+				},
+				cloudwatchAllowEmptyValues,
+				map[string]interface{}{}))
+		}
+		return output.NextToken, nil
+	})
 }

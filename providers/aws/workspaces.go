@@ -70,11 +70,10 @@ func (g *WorkspacesGenerator) loadWorkspaces(svc *workspaces.Client) error {
 }
 
 func (g *WorkspacesGenerator) loadWorkspacesIPGroup(svc *workspaces.Client) error {
-	var nextToken *string
-	for {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
 		response, err := svc.DescribeIpGroups(context.TODO(), &workspaces.DescribeIpGroupsInput{NextToken: nextToken})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, ipGroup := range response.Result {
 			groupID := StringValue(ipGroup.GroupId)
@@ -85,10 +84,6 @@ func (g *WorkspacesGenerator) loadWorkspacesIPGroup(svc *workspaces.Client) erro
 				"aws",
 				workspacesAllowEmptyValues))
 		}
-		nextToken = response.NextToken
-		if nextToken == nil {
-			break
-		}
-	}
-	return nil
+		return response.NextToken, nil
+	})
 }

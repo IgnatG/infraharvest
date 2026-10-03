@@ -86,18 +86,18 @@ func (g *AlbGenerator) loadLBListener(svc *elasticloadbalancingv2.Client, loadBa
 }
 
 func (g *AlbGenerator) loadLBListenerRule(svc *elasticloadbalancingv2.Client, listenerArn *string) error {
-	var marker *string
-	for {
+	// The SDK has no paginator for DescribeRules.
+	return paginateByMarker(func(marker *string) (*string, error) {
 		lsrs, err := svc.DescribeRules(context.TODO(), &elasticloadbalancingv2.DescribeRulesInput{
 			ListenerArn: listenerArn,
 			Marker:      marker,
 			PageSize:    aws.Int32(400)},
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, lsr := range lsrs.Rules {
-			if !*lsr.IsDefault {
+			if !aws.ToBool(lsr.IsDefault) {
 				resourceName := *lsr.RuleArn
 				g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 					resourceName,
@@ -108,12 +108,8 @@ func (g *AlbGenerator) loadLBListenerRule(svc *elasticloadbalancingv2.Client, li
 				))
 			}
 		}
-		marker = lsrs.NextMarker
-		if marker == nil {
-			break
-		}
-	}
-	return nil
+		return lsrs.NextMarker, nil
+	})
 }
 
 func (g *AlbGenerator) loadLBListenerCertificate(svc *elasticloadbalancingv2.Client, loadBalancer *types.Listener) error {
@@ -126,7 +122,8 @@ func (g *AlbGenerator) loadLBListenerCertificate(svc *elasticloadbalancingv2.Cli
 	for _, lc := range lcs.Certificates {
 		certificateArn := *lc.CertificateArn
 		listenerCertificateID := *loadBalancer.ListenerArn + "_" + certificateArn
-		if certificateArn == *loadBalancer.Certificates[0].CertificateArn { // discard default certificate
+		// The default certificate belongs to the listener itself.
+		if len(loadBalancer.Certificates) > 0 && certificateArn == aws.ToString(loadBalancer.Certificates[0].CertificateArn) {
 			continue
 		}
 		g.Resources = append(g.Resources, terraformutils.NewResource(

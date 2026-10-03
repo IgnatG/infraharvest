@@ -30,12 +30,12 @@ type DirectConnectGenerator struct {
 }
 
 func (g *DirectConnectGenerator) getDirectConnectGateways(svc *directconnect.Client) error {
-	input := &directconnect.DescribeDirectConnectGatewaysInput{}
-	for {
-		// Fetch a page of results
-		output, err := svc.DescribeDirectConnectGateways(context.TODO(), input)
+	return paginateByMarker(func(nextToken *string) (*string, error) {
+		output, err := svc.DescribeDirectConnectGateways(context.TODO(), &directconnect.DescribeDirectConnectGatewaysInput{
+			NextToken: nextToken,
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// Process each DirectConnect Gateway
@@ -48,16 +48,8 @@ func (g *DirectConnectGenerator) getDirectConnectGateways(svc *directconnect.Cli
 				dxAllowEmptyValues,
 			))
 		}
-
-		// Check if there are more pages
-		if output.NextToken == nil {
-			break
-		}
-
-		// Update the input token for the next page
-		input.NextToken = output.NextToken
-	}
-	return nil
+		return output.NextToken, nil
+	})
 }
 
 func (g *DirectConnectGenerator) getDirectConnectConnections(svc *directconnect.Client) error {

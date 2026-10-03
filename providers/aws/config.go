@@ -70,9 +70,7 @@ func (g *ConfigGenerator) addConfigurationRecorders(svc *configservice.Client) (
 }
 
 func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configurationRecorderRefs []string) error {
-	var nextToken *string
-
-	for {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
 		configRules, err := svc.DescribeConfigRules(
 			context.TODO(),
 			&configservice.DescribeConfigRulesInput{
@@ -80,7 +78,7 @@ func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configuratio
 			})
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, configRule := range configRules.ConfigRules {
 			name := *configRule.ConfigRuleName
@@ -96,12 +94,8 @@ func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configuratio
 				},
 			))
 		}
-		nextToken = configRules.NextToken
-		if nextToken == nil {
-			break
-		}
-	}
-	return nil
+		return configRules.NextToken, nil
+	})
 }
 
 func (g *ConfigGenerator) addDeliveryChannels(svc *configservice.Client, configurationRecorderRefs []string) error {
