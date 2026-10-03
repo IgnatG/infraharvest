@@ -299,10 +299,11 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	return imported
 }
 
-// stateOnlyArguments are arguments the AWS provider keeps only in state and
-// uses when it deletes a resource. They are null after an import, so the
-// first apply records their defaults without calling AWS.
-// The AWS provider's own import tests ignore the same arguments.
+// stateOnlyArguments are arguments AWS doesn't report, so they are null
+// after an import and the plan sets the provider's defaults: settings the
+// provider keeps only in state (used when it deletes a resource, for
+// example), and settings that don't apply to the resource's kind. The AWS
+// provider's own import tests ignore the same arguments.
 var stateOnlyArguments = map[string][]string{
 	"aws_ecs_service":           {"wait_for_steady_state"},
 	"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
