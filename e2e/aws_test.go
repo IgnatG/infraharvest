@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -203,16 +204,38 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	}
 	imported := map[string]int{}
 	for _, rc := range plan.ResourceChanges {
-		switch {
-		case rc.Change.Importing == nil:
+		if rc.Change.Importing == nil {
 			t.Errorf("%s: %s is planned to %v instead of imported", dir, rc.Address, rc.Change.Actions)
-		case !rc.Change.Actions.NoOp():
-			t.Errorf("%s: %s (import ID %q) is imported with changes: %v %s", dir, rc.Address, rc.Change.Importing.ID, rc.Change.Actions, changedAttributes(rc.Change.Before, rc.Change.After))
-		default:
-			imported[rc.Type]++
+			continue
 		}
+		if !rc.Change.Actions.NoOp() {
+			changed := changedAttributes(rc.Change.Before, rc.Change.After)
+			if !rc.Change.Actions.Update() || !stateOnly(rc.Type, changed) {
+				t.Errorf("%s: %s (import ID %q) is imported with changes: %v %v", dir, rc.Address, rc.Change.Importing.ID, rc.Change.Actions, changed)
+				continue
+			}
+		}
+		imported[rc.Type]++
 	}
 	return imported
+}
+
+// stateOnlyArguments are arguments the AWS provider keeps only in state and
+// uses when it deletes a resource. They are null after an import, so the
+// first apply records their defaults without calling AWS.
+var stateOnlyArguments = map[string][]string{
+	"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
+}
+
+// stateOnly reports whether every changed attribute is a state-only argument
+// of resourceType.
+func stateOnly(resourceType string, changed map[string]string) bool {
+	for name := range changed {
+		if !slices.Contains(stateOnlyArguments[resourceType], name) {
+			return false
+		}
+	}
+	return true
 }
 
 func isLoopback(endpoint string) bool {
@@ -237,16 +260,16 @@ func sortedKeys(m map[string]int) []string {
 	return keys
 }
 
-// changedAttributes lists the top-level attributes a planned update changes.
-func changedAttributes(before, after interface{}) []string {
+// changedAttributes maps each top-level attribute a planned update changes
+// to "before -> after".
+func changedAttributes(before, after interface{}) map[string]string {
 	b, _ := before.(map[string]interface{})
 	a, _ := after.(map[string]interface{})
-	var changed []string
+	changed := map[string]string{}
 	for k, v := range a {
 		if !reflect.DeepEqual(b[k], v) {
-			changed = append(changed, fmt.Sprintf("%s: %v -> %v", k, b[k], v))
+			changed[k] = fmt.Sprintf("%v -> %v", b[k], v)
 		}
 	}
-	sort.Strings(changed)
 	return changed
 }
