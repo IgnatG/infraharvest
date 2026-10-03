@@ -47,6 +47,7 @@ type Terraform interface {
 	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
 	ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error)
 	ShowPlanFile(ctx context.Context, planPath string, opts ...tfexec.ShowOption) (*tfjson.Plan, error)
+	FormatCheck(ctx context.Context, opts ...tfexec.FormatOption) (bool, []string, error)
 	SetStdout(w io.Writer)
 }
 
@@ -81,6 +82,8 @@ type Result struct {
 	Secrets []Secret
 	// Rejected are the resources left out of the configuration.
 	Rejected []Rejection
+	// Gate is the result of the verification gate (see runGate).
+	Gate Gate
 }
 
 // Options configure Generate.
@@ -96,6 +99,10 @@ type Options struct {
 	// DefaultTags, if set, lets Generate move the tags every resource shares
 	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags
+	// StateOnly names, per resource type, arguments the provider keeps only
+	// in state, which import can't set and the plan check (see runGate)
+	// lets change.
+	StateOnly map[string][]string
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
@@ -155,11 +162,19 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	} else if err != nil {
 		return nil, err
 	}
-	// Leaving out what other resources manage moves the lines the errors
-	// point at, so plan again.
-	if omitted, err := omitArguments(generated, opts.Omit); err != nil {
+	// Terraform writes resources in the order its graph walk reaches them,
+	// which differs between runs: sort them, so the same estate always gives
+	// the same files. Sorting and leaving out what other resources manage
+	// move the lines the errors point at, so plan again.
+	sorted, err := sortResources(generated)
+	if err != nil {
 		return nil, err
-	} else if omitted {
+	}
+	omitted, err := omitArguments(generated, opts.Omit)
+	if err != nil {
+		return nil, err
+	}
+	if sorted || omitted {
 		if diags, _, err = plan(ctx, tf); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
@@ -222,6 +237,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		if !leftOut[imp.Type+"."+imp.Name] {
 			result.Imported = append(result.Imported, imp)
 		}
+	}
+	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts.StateOnly); err != nil {
+		return nil, err
 	}
 	return result, os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
 }

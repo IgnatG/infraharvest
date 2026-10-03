@@ -105,6 +105,8 @@ type Directory struct {
 	Imported []Resource `json:"imported"`
 	LeftOut  []LeftOut  `json:"left_out,omitempty"`
 	Secrets  []Secret   `json:"secrets,omitempty"`
+	// Checks are the verification gate's results.
+	Checks []Check `json:"checks,omitempty"`
 	// Error is why nothing in the directory was imported.
 	Error string `json:"error,omitempty"`
 }
@@ -128,6 +130,14 @@ type Secret struct {
 	Variable  string `json:"variable"`
 	Address   string `json:"address"`
 	Attribute string `json:"attribute"`
+}
+
+// Check is one check of the verification gate on a directory: formatted,
+// valid, planning only imports, free of secrets, deterministic.
+type Check struct {
+	Name    string   `json:"name"`
+	Passed  bool     `json:"passed"`
+	Details []string `json:"details,omitempty"`
 }
 
 // Skipped counts resources of a type infraharvest doesn't import.
@@ -201,9 +211,22 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 }
 
 // Incomplete reports whether something listed wasn't imported, other than
-// types infraharvest doesn't import.
+// types infraharvest doesn't import, or a directory failed a check.
 func (r *Report) Incomplete() bool {
-	return len(r.Failures) > 0 || r.Totals.LeftOut > 0 || r.Totals.Failed > 0
+	return len(r.Failures) > 0 || r.Totals.LeftOut > 0 || r.Totals.Failed > 0 || len(r.FailedChecks()) > 0
+}
+
+// FailedChecks lists the failed checks as "directory: check: details".
+func (r *Report) FailedChecks() []string {
+	var failed []string
+	for _, d := range r.Directories {
+		for _, c := range d.Checks {
+			if !c.Passed {
+				failed = append(failed, fmt.Sprintf("%s: %s: %s", d.Path, c.Name, strings.Join(c.Details, "; ")))
+			}
+		}
+	}
+	return failed
 }
 
 func resourceType(address string) string {
@@ -313,6 +336,11 @@ func (r *Report) Markdown() string {
 	for _, f := range r.Failures {
 		failures = append(failures, "- "+f)
 	}
+	var checks []string
+	for _, f := range r.FailedChecks() {
+		checks = append(checks, "- "+f)
+	}
+	section("Failed checks", "These directories were generated, but failed a check of the verification gate. Each directory's README lists its checks.", checks)
 	section("Failed directories", "Nothing in these directories was imported.", dirErrors)
 	section("Failed services", "These services couldn't be listed.", failures)
 	return b.String()

@@ -50,8 +50,8 @@ func TestGenerateOmitsArguments(t *testing.T) {
 		}
 	}
 	// Leaving arguments out moves lines, so the errors are planned for again.
-	if strings.Join(tf.calls, ",") != "init,plan,plan,plan,show" {
-		t.Errorf("calls: got %v, want [init plan plan plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,plan,plan,show,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan plan plan show fmt validate plan show]", tf.calls)
 	}
 }
 
