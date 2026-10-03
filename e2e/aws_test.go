@@ -130,6 +130,9 @@ func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) map[s
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Seeding failures are usually emulator gaps; Terraform's output names them.
+	tf.SetStdout(os.Stdout)
+	tf.SetStderr(os.Stderr)
 	if err := tf.Init(ctx); err != nil {
 		t.Fatalf("seed: terraform init: %v", err)
 	}
