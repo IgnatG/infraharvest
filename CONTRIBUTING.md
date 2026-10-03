@@ -24,6 +24,7 @@ CI on each pull request:
 - `go mod tidy -diff`, a build of the binary and `go test ./...` on Linux and macOS.
 - Tests of OS-sensitive packages on Windows.
 - `govulncheck` in binary mode.
+- An end-to-end AWS import against the Floci emulator ([e2e/README.md](e2e/README.md)).
 - golangci-lint on changed lines.
 
 The module is large (44 providers), so building or testing all of it needs several GB of RAM. To check selected packages on GitHub instead of locally:

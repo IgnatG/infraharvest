@@ -22,6 +22,16 @@ infraharvest import aws --resources=cloudfront --profile=prod
 ```
 In that case terraformer will not know with which region resources are associated with and will not assume any region. That scenario is useful in case of global resources (e.g. CloudFront distributions or Route 53 records) and when region is passed implicitly through environmental variables or metadata service.
 
+#### Local emulators
+
+infraharvest and Terraform read the standard `AWS_ENDPOINT_URL` variable, so you can try an import against a local emulator such as [Floci](https://github.com/floci-io/floci) without an AWS account:
+
+```sh
+docker run --rm -d -p 127.0.0.1:4566:4566 floci/floci
+export AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+infraharvest import aws --engine=terraform --resources=sqs,sns --regions=us-east-1 --profile=
+```
+
 Examples to import other resources-
 
  * Security Group-

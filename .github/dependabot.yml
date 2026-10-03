@@ -12,6 +12,14 @@ updates:
     cooldown:
       default-days: 1
 
+  # The Floci emulator image the end-to-end tests run against.
+  - package-ecosystem: docker-compose
+    directory: /e2e
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
