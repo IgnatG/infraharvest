@@ -42,6 +42,11 @@ resource "aws_route_table" "public" {
   }
 }
 
+resource "aws_route_table_association" "a" {
+  subnet_id      = aws_subnet.a.id
+  route_table_id = aws_route_table.public.id
+}
+
 resource "aws_security_group" "web" {
   name        = "${local.name}-web"
   description = "HTTPS from the private network"
