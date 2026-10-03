@@ -52,6 +52,19 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	if err := checkTerraformEngineOptions(options); err != nil {
 		return err
 	}
+	// Commands share one run across their Import calls (see withEngineRun);
+	// a call on its own finishes its own.
+	run := activeRun
+	if run == nil {
+		run = newEngineRun()
+		return run.finish(importInto(run, provider, options, args))
+	}
+	return importInto(run, provider, options, args)
+}
+
+// importInto imports into run. It returns an error only if the import
+// couldn't run; what couldn't be imported goes into run.
+func importInto(run *engineRun, provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
 	binary := engineBinary(options.Engine)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -84,6 +97,46 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 
 	resourcesByService, childFailures := withChildImports(provider, mapping.GetResourcesByService())
 	failures = append(failures, childFailures...)
+	opts := engineOptions(provider, root)
+	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
+
+	run.used = true
+	run.options = options
+	run.report.Manifest = report.Manifest{
+		Tool:     report.Component{Name: "infraharvest", Version: version},
+		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
+		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version},
+	}
+	for _, f := range failures {
+		run.report.Failures = append(run.report.Failures, f.Error())
+	}
+	run.failures = append(run.failures, failures...)
+	for typ, n := range skipped {
+		run.skipped[typ] += n
+	}
+	for typ, n := range discoveredByType(resourcesByService) {
+		run.discovered[typ] += n
+	}
+
+	dirs := make([]string, 0, len(byDir))
+	for dir := range byDir {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
+		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &run.lock)
+		if err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		run.addDirectory(dir, byDir[dir], result, err)
+	}
+	run.report.Provider.Version = engine.LockedVersion(run.lock, run.report.Provider.Source)
+	return nil
+}
+
+// engineOptions configures engine.Generate for provider's directories.
+func engineOptions(provider terraformutils.ProviderGenerator, root *rootFiles) engine.Options {
 	opts := engine.Options{Config: root.files}
 	if withOmitted, ok := provider.(terraformutils.ProviderWithOmittedArguments); ok {
 		opts.Omit = withOmitted.OmittedArguments()
@@ -95,81 +148,42 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 		attribute, block, reserved := withDefaultTags.DefaultTags()
 		opts.DefaultTags = &engine.DefaultTags{Provider: provider.GetName(), Attribute: attribute, Block: block, ReservedPrefix: reserved}
 	}
-	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
-	rep := &report.Report{Manifest: report.Manifest{
-		Tool:     report.Component{Name: "infraharvest", Version: version},
-		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
-		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version},
-	}}
-	for _, f := range failures {
-		rep.Failures = append(rep.Failures, f.Error())
-	}
-	for typ, n := range skipped {
-		rep.Skipped = append(rep.Skipped, report.Skipped{Type: typ, Count: n, Reason: "Terraform can't import this resource type"})
-	}
+	return opts
+}
 
-	dirs := make([]string, 0, len(byDir))
-	for dir := range byDir {
-		dirs = append(dirs, dir)
+// addDirectory records what Generate did in dir, or err if it failed.
+func (r *engineRun) addDirectory(dir string, imports []engine.Import, result *engine.Result, err error) {
+	reported := report.Directory{Path: relativePath(r.options.PathOutput, dir)}
+	if err != nil {
+		r.failures = append(r.failures, fmt.Errorf("%s: %w", dir, err))
+		reported.Error = err.Error()
+		for _, imp := range imports {
+			r.failed[imp.Type]++
+		}
+		r.report.Directories = append(r.report.Directories, reported)
+		return
 	}
-	sort.Strings(dirs)
-	// Every directory requires the same provider. Reusing the first lock
-	// file pins one provider version for the whole import, and lets
-	// Terraform install it from the plugin cache, which it only does for
-	// providers a lock file records.
-	var lock []byte
-	failed := map[string]int{}
-	for _, dir := range dirs {
-		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &lock)
-		reported := report.Directory{Path: relativePath(options.PathOutput, dir)}
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			failures = append(failures, fmt.Errorf("%s: %w", dir, err))
-			reported.Error = err.Error()
-			for _, imp := range byDir[dir] {
-				failed[imp.Type]++
-			}
-			rep.Directories = append(rep.Directories, reported)
-			continue
-		}
-		reported.Imported = make([]report.Resource, 0, len(result.Imported))
-		for _, imp := range result.Imported {
-			reported.Imported = append(reported.Imported, report.Resource{Address: imp.Type + "." + imp.Name, ID: imp.ID})
-		}
-		for _, r := range result.Rejected {
-			failures = append(failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, r.Address, engine.RejectedFileName, strings.Join(r.Errors, "; ")))
-			reported.LeftOut = append(reported.LeftOut, report.LeftOut{Address: r.Address, ID: r.ID, Errors: r.Errors})
-		}
-		for _, s := range result.Secrets {
-			reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
-		}
-		for _, c := range result.Gate {
-			reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
-			if !c.Passed {
-				failures = append(failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
-			}
-		}
-		if len(result.Secrets) > 0 {
-			log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)
-		}
-		rep.Directories = append(rep.Directories, reported)
+	reported.Imported = make([]report.Resource, 0, len(result.Imported))
+	for _, imp := range result.Imported {
+		reported.Imported = append(reported.Imported, report.Resource{Address: imp.Type + "." + imp.Name, ID: imp.ID})
 	}
-
-	rep.Provider.Version = engine.LockedVersion(lock, rep.Provider.Source)
-	rep.Finish(discoveredByType(resourcesByService), failed, options.AllowPartial)
-	if err := rep.WriteFiles(options.PathOutput); err != nil {
-		return err
+	for _, rej := range result.Rejected {
+		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))
+		reported.LeftOut = append(reported.LeftOut, report.LeftOut{Address: rej.Address, ID: rej.ID, Errors: rej.Errors})
 	}
-	log.Printf("%s: imported %d of %d resources; report in %s", provider.GetName(), rep.Totals.Imported, rep.Totals.Discovered, filepath.Join(options.PathOutput, report.Dir, "report.md"))
-	if options.Output == outputJSON {
-		if err := rep.WriteJSON(os.Stdout); err != nil {
-			return err
+	for _, s := range result.Secrets {
+		reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
+	}
+	for _, c := range result.Gate {
+		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
+		if !c.Passed {
+			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
 		}
 	}
-	return checkFailures(failures, options.AllowPartial)
+	if len(result.Secrets) > 0 {
+		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)
+	}
+	r.report.Directories = append(r.report.Directories, reported)
 }
 
 // discoveredByType counts the listed resources by type.
