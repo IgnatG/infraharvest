@@ -27,6 +27,7 @@ type Secret struct {
 	Attribute string // attribute it sets, e.g. value or block[1].password
 
 	schemaPath []string // block types and attribute name, e.g. [block password]
+	ty         cty.Type // from the provider schema; cty.NilType if unknown
 }
 
 // secretAttribute is an attribute Terraform generated as

@@ -118,6 +118,7 @@ type fakeTerraform struct {
 	plans       []fakePlan               // returned by successive plans; then clean
 	validations []*tfjson.ValidateOutput // returned by successive validations; then valid
 	schemas     *tfjson.ProviderSchemas
+	shown       *tfjson.Plan // returned by ShowPlanFile; empty if nil
 	calls       []string
 }
 
@@ -182,6 +183,14 @@ func (f *fakeTerraform) ProvidersSchema(context.Context) (*tfjson.ProviderSchema
 	return f.schemas, nil
 }
 
+func (f *fakeTerraform) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.Plan, error) {
+	f.calls = append(f.calls, "show")
+	if f.shown == nil {
+		return &tfjson.Plan{}, nil
+	}
+	return f.shown, nil
+}
+
 func (f *fakeTerraform) SetStdout(io.Writer) {}
 
 func readFile(t *testing.T, dir, name string) string {
@@ -203,8 +212,8 @@ func TestGenerate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan" {
-		t.Errorf("calls: got %v, want [init plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,plan,show" {
+		t.Errorf("calls: got %v, want [init plan plan show]", tf.calls)
 	}
 	for _, name := range []string{VersionsFileName, ProvidersFileName, ImportsFileName, GeneratedFileName, ReadmeFileName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
@@ -322,8 +331,8 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
 	}
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan" {
-		t.Errorf("calls: got %v, want [init plan validate plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate plan plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
@@ -363,8 +372,8 @@ func TestGenerateRepairsAndReplans(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan" {
-		t.Errorf("calls: got %v, want [init plan validate validate plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "multivalue") || !strings.Contains(got, `name = "example.internal"`) {
 		t.Errorf("zero value not removed or file not formatted:\n%s", got)
@@ -385,8 +394,8 @@ func TestGenerateLeavesOutWhatRepairCannotFix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan" {
-		t.Errorf("calls: got %v, want [init plan validate plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate plan plan show]", tf.calls)
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Address != "aws_route53_record.a" {
 		t.Errorf("want aws_route53_record.a left out, got %+v", result.Rejected)
@@ -432,8 +441,8 @@ func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan" {
-		t.Errorf("calls: got %v, want [init plan validate validate plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "rotation_period_in_days") {
 		t.Errorf("rejected zero value not removed:\n%s", got)
@@ -473,12 +482,12 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The secret error needs no repair and no new plan: the plan can't run
-	// without the variable, so validation checks the result.
-	if strings.Join(tf.calls, ",") != "init,plan,schema,validate" {
-		t.Errorf("calls: got %v, want [init plan schema validate]", tf.calls)
+	// The secret error needs no repair. Validation checks the variable;
+	// post-processing plans with a placeholder value for it.
+	if strings.Join(tf.calls, ",") != "init,plan,schema,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan schema validate plan show]", tf.calls)
 	}
-	wantSecrets := []Secret{{Variable: "aws_ssm_parameter_app_env_value", Address: "aws_ssm_parameter.app_env", Attribute: "value", schemaPath: []string{"value"}}}
+	wantSecrets := []Secret{{Variable: "aws_ssm_parameter_app_env_value", Address: "aws_ssm_parameter.app_env", Attribute: "value", schemaPath: []string{"value"}, ty: cty.String}}
 	if !reflect.DeepEqual(result.Secrets, wantSecrets) {
 		t.Errorf("secrets: got %+v, want %+v", result.Secrets, wantSecrets)
 	}
