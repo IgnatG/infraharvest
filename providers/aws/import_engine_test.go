@@ -33,18 +33,7 @@ func TestImportID(t *testing.T) {
 }
 
 // Trimmed from what Terraform 1.16 and the AWS provider 6.67 generate.
-const generatedConfig = `resource "aws_route53_record" "soa" {
-  multivalue_answer_routing_policy = false
-  name                             = "example.internal"
-  set_identifier                   = null
-}
-
-resource "aws_route53_record" "weighted" {
-  multivalue_answer_routing_policy = true
-  set_identifier                   = "a"
-}
-
-resource "aws_route_table" "public" {
+const generatedConfig = `resource "aws_route_table" "public" {
   route = [{
     cidr_block      = "0.0.0.0/0"
     gateway_id      = "igw-1"
@@ -59,17 +48,7 @@ resource "aws_sqs_queue" "jobs" {
 }
 `
 
-const fixedConfig = `resource "aws_route53_record" "soa" {
-  name           = "example.internal"
-  set_identifier = null
-}
-
-resource "aws_route53_record" "weighted" {
-  multivalue_answer_routing_policy = true
-  set_identifier                   = "a"
-}
-
-resource "aws_route_table" "public" {
+const fixedConfig = `resource "aws_route_table" "public" {
   route = [{
     cidr_block      = "0.0.0.0/0"
     gateway_id      = "igw-1"
@@ -99,7 +78,7 @@ func TestFixGeneratedConfig(t *testing.T) {
 	if got := string(hclwrite.Format(f.Bytes())); got != fixedConfig {
 		t.Errorf("got:\n%s\nwant:\n%s", got, fixedConfig)
 	}
-	if len(fixed) != 2 || fixed[0] != "soa" || fixed[1] != "public" {
-		t.Errorf("reported fixed blocks %v, want [soa public]", fixed)
+	if len(fixed) != 1 || fixed[0] != "public" {
+		t.Errorf("reported fixed blocks %v, want [public]", fixed)
 	}
 }

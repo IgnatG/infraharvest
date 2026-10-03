@@ -15,9 +15,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // Files the engine writes into each output directory.
@@ -31,6 +31,7 @@ const (
 type Terraform interface {
 	Init(ctx context.Context, opts ...tfexec.InitOption) error
 	Plan(ctx context.Context, opts ...tfexec.PlanOption) (bool, error)
+	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
 }
 
 // NewTerraform returns a Terraform runner for dir that shares downloaded
@@ -62,9 +63,9 @@ type Fixup func(resourceType string, body *hclwrite.Body) bool
 
 // Generate writes providers and imports into dir, then runs Terraform to
 // generate the configuration of every imported resource into generated.tf.
-// If fixup (optional) changes the generated configuration, Generate plans
-// again to check the result. It refuses to overwrite an existing
-// generated.tf.
+// If Terraform rejects what it generated, Generate repairs it (see repair),
+// using fixup if not nil, and plans again. It refuses to overwrite an
+// existing generated.tf.
 func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, imports []Import, fixup Fixup) error {
 	if len(imports) == 0 {
 		return errors.New("no resources to import")
@@ -91,49 +92,24 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 		return fmt.Errorf("terraform init: %w", err)
 	}
 	// Plan reports changes because every import is pending; only errors matter.
-	// Terraform writes generated.tf even when the generated configuration is
-	// invalid, so fixups can still repair it.
-	_, planErr := tf.Plan(ctx, tfexec.GenerateConfigOut(GeneratedFileName))
-	if planErr != nil {
-		planErr = fmt.Errorf("terraform plan: %w", planErr)
+	_, err = tf.Plan(ctx, tfexec.GenerateConfigOut(GeneratedFileName))
+	if err == nil {
+		return nil
 	}
-	if fixup == nil {
+	planErr := fmt.Errorf("terraform plan: %w", err)
+	// Terraform writes generated.tf even when the configuration it generated
+	// is invalid. Repair it and plan again.
+	repaired, err := repair(ctx, tf, generated, fixup)
+	switch {
+	case errors.Is(err, fs.ErrNotExist), err == nil && !repaired:
 		return planErr
-	}
-	fixed, err := fixGenerated(generated, fixup)
-	if errors.Is(err, fs.ErrNotExist) {
-		return planErr
-	}
-	if err != nil || !fixed {
+	case err != nil:
 		return errors.Join(planErr, err)
 	}
 	if _, err := tf.Plan(ctx); err != nil {
 		return fmt.Errorf("terraform plan of the repaired configuration: %w", err)
 	}
 	return nil
-}
-
-// fixGenerated applies fixup to every resource block in path and rewrites the
-// file if anything changed.
-func fixGenerated(path string, fixup Fixup) (bool, error) {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
-	}
-	f, diags := hclwrite.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return false, fmt.Errorf("parse %s: %w", path, diags)
-	}
-	fixed := false
-	for _, block := range f.Body().Blocks() {
-		if block.Type() == "resource" && len(block.Labels()) == 2 && fixup(block.Labels()[0], block.Body()) {
-			fixed = true
-		}
-	}
-	if !fixed {
-		return false, nil
-	}
-	return true, os.WriteFile(path, hclwrite.Format(f.Bytes()), 0o644)
 }
 
 // environ returns the current environment as a map.

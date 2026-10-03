@@ -4,8 +4,6 @@
 package aws
 
 import (
-	"strings"
-
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
@@ -27,28 +25,15 @@ func (AWSProvider) ImportID(r terraformutils.Resource) (string, bool) {
 }
 
 // FixGeneratedConfig repairs configuration the AWS provider generates but
-// then rejects.
+// then rejects, where the engine's generic repair can't: it only removes
+// whole attributes.
 func (AWSProvider) FixGeneratedConfig(resourceType string, body *hclwrite.Body) bool {
-	switch resourceType {
-	case "aws_route53_record":
-		// Generated as the default false, which requires set_identifier.
-		return removeIfLiteral(body, "multivalue_answer_routing_policy", "false")
-	case "aws_route_table":
+	if resourceType == "aws_route_table" {
 		// Each route lists every target argument, the unused ones as "",
 		// which fails CIDR validation; null means unset.
 		return emptyStringsToNull(body, "route")
 	}
 	return false
-}
-
-// removeIfLiteral removes attribute name if its expression is literal.
-func removeIfLiteral(body *hclwrite.Body, name, literal string) bool {
-	attr := body.GetAttribute(name)
-	if attr == nil || strings.TrimSpace(string(attr.Expr().BuildTokens(nil).Bytes())) != literal {
-		return false
-	}
-	body.RemoveAttribute(name)
-	return true
 }
 
 // emptyStringsToNull replaces every "" in attribute name's expression with null.

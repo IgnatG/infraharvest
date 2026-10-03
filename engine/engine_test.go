@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 func TestImportsFile(t *testing.T) {
@@ -92,10 +93,21 @@ func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
 // fakeTerraform records calls. Like Terraform, a plan with
 // -generate-config-out writes generated.tf even when it then fails.
 type fakeTerraform struct {
-	dir       string
-	generated string  // generated.tf content; a comment if empty
-	planErrs  []error // returned by successive plans
-	calls     []string
+	dir         string
+	generated   string                   // generated.tf content; a comment if empty
+	planErrs    []error                  // returned by successive plans
+	validations []*tfjson.ValidateOutput // returned by successive validations; then valid
+	calls       []string
+}
+
+func (f *fakeTerraform) Validate(context.Context) (*tfjson.ValidateOutput, error) {
+	f.calls = append(f.calls, "validate")
+	if len(f.validations) == 0 {
+		return &tfjson.ValidateOutput{Valid: true}, nil
+	}
+	out := f.validations[0]
+	f.validations = f.validations[1:]
+	return out, nil
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
@@ -209,8 +221,8 @@ func TestGenerateRepairsAndReplans(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,plan" {
-		t.Errorf("calls: got %v, want [init plan plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan" {
+		t.Errorf("calls: got %v, want [init plan validate plan]", tf.calls)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
@@ -232,13 +244,45 @@ func TestGenerateReportsErrorsAfterRepair(t *testing.T) {
 	}
 }
 
+func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		generated: `resource "aws_kms_key" "a" {
+  description             = "app"
+  rotation_period_in_days = 0
+}
+`,
+		planErrs: []error{errors.New("expected rotation_period_in_days to be in the range (90 - 2560), got 0")},
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{
+			errorAt(3, "expected rotation_period_in_days to be in the range (90 - 2560), got 0", ""),
+		}}},
+	}
+
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_kms_key", Name: "a", ID: "k"}}, nil)
+	if err != nil {
+		t.Fatalf("want the repaired configuration to plan, got %v", err)
+	}
+
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan]", tf.calls)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, GeneratedFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "rotation_period_in_days") {
+		t.Errorf("rejected zero value not removed:\n%s", got)
+	}
+}
+
 func TestGenerateSkipsReplanWithoutRepairs(t *testing.T) {
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, planErrs: []error{errors.New("Cannot import non-existent remote object")}}
 
 	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, dropMultivalue)
 
-	if err == nil || !strings.Contains(err.Error(), "terraform plan: Cannot import") || len(tf.calls) != 2 {
+	if err == nil || !strings.Contains(err.Error(), "terraform plan: Cannot import") || strings.Join(tf.calls, ",") != "init,plan,validate" {
 		t.Errorf("want the first plan's error and no second plan, got err=%v calls=%v", err, tf.calls)
 	}
 }
