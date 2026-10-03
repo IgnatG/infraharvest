@@ -32,6 +32,7 @@ import (
 	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/providers/aws"
 	"github.com/IgnatG/infraharvest/report"
+	"github.com/IgnatG/infraharvest/selection"
 )
 
 // awsServices are the infraharvest services that import what
@@ -70,10 +71,13 @@ func TestAWSRoundTrip(t *testing.T) {
 
 	state := seed(ctx, t, execPath, filepath.Join(cache, "plugins"))
 
-	out := importAWS(ctx, t, engineName, execPath)
+	out := importAWS(ctx, t, engineName, execPath, "--all")
 
-	// G7: importing the unchanged estate again gives the same files.
-	again := importAWS(ctx, t, engineName, execPath)
+	// discover lists everything into a selection file; importing what it
+	// selects must give the same files as --all, and importing the
+	// unchanged estate again the same files (G7).
+	selectionFile := discoverAWS(ctx, t, state)
+	again := importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile)
 	if first, second := outputFiles(t, out), outputFiles(t, again); !reflect.DeepEqual(first, second) {
 		for name, content := range first {
 			if second[name] != content {
@@ -416,11 +420,11 @@ func e2eEngine(t *testing.T) (string, engine.Binary) {
 
 // importAWS runs infraharvest import aws with engineName on the services
 // testdata/aws covers, into a new directory it returns.
-func importAWS(ctx context.Context, t *testing.T, engineName, execPath string) string {
+func importAWS(ctx context.Context, t *testing.T, engineName, execPath string, selectionArgs ...string) string {
 	t.Helper()
 	out := t.TempDir()
 	root := cmd.NewCmdRoot()
-	root.SetArgs([]string{
+	root.SetArgs(append([]string{
 		"import", "aws",
 		"--engine=" + engineName,
 		"--terraform-path=" + execPath,
@@ -431,7 +435,7 @@ func importAWS(ctx context.Context, t *testing.T, engineName, execPath string) s
 		// Keep going after a failed directory so one run reports every
 		// problem; the checks on coverage.json still fail the test.
 		"--allow-partial",
-	})
+	}, selectionArgs...))
 	if err := root.ExecuteContext(ctx); cmd.ExitCode(err) != report.ExitOK && cmd.ExitCode(err) != report.ExitPartial {
 		t.Fatalf("infraharvest import: %v", err)
 	}
@@ -490,4 +494,47 @@ func emulatorGapsOnly(details []string) bool {
 		}
 	}
 	return true
+}
+
+// discoverAWS lists the services testdata/aws covers into a selection file
+// and checks it includes every resource the test created.
+func discoverAWS(ctx context.Context, t *testing.T, created []*tfjson.StateResource) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	root := cmd.NewCmdRoot()
+	root.SetArgs([]string{
+		"discover", "aws",
+		"--regions=us-east-1",
+		"--resources=" + strings.Join(awsServices, ","),
+		"--selection=" + path,
+	})
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("infraharvest discover: %v", err)
+	}
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded := 0
+	for _, r := range f.Resources {
+		if !r.Include {
+			excluded++
+			t.Logf("excluded by default: %s %s (%s)", r.Type, r.ID, r.Reason)
+		}
+	}
+	for _, r := range created {
+		id, ok := r.AttributeValues["id"].(string)
+		if !ok {
+			continue
+		}
+		for _, listed := range f.Resources {
+			if listed.Type == r.Type && listed.ID == id && !listed.Include {
+				t.Errorf("discover excludes %s %s, which the test created: %s", r.Type, id, listed.Reason)
+			}
+		}
+	}
+	if excluded == 0 {
+		t.Error("discover excluded nothing, though the emulator's default VPC exists")
+	}
+	return path
 }

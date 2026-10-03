@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/report"
+	"github.com/IgnatG/infraharvest/selection"
 )
 
 // engineRun collects what the Import calls of one command do with
@@ -28,7 +29,11 @@ type engineRun struct {
 	// lock is the first dependency lock file, shared by every directory
 	// (see generateDir).
 	lock []byte
-	used bool
+	// selection is the selection file the import follows, if any.
+	selection *selection.File
+	// listed are the resources discover lists into a selection file.
+	listed []selection.Resource
+	used   bool
 }
 
 // activeRun is the run of the provider command being executed, if any.
@@ -56,6 +61,15 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 func (r *engineRun) finish(err error) error {
 	if !r.used {
 		return err
+	}
+	if r.options.Discover {
+		if writeErr := r.writeSelection(); writeErr != nil {
+			return errors.Join(err, writeErr)
+		}
+		if err != nil {
+			return err
+		}
+		return checkFailures(r.failures, r.options.AllowPartial)
 	}
 	for typ, n := range r.skipped {
 		r.report.Skipped = append(r.report.Skipped, report.Skipped{Type: typ, Count: n, Reason: "Terraform can't import this resource type"})

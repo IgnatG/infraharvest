@@ -1,0 +1,144 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package cmd
+
+import (
+	"errors"
+	"log"
+
+	"github.com/IgnatG/infraharvest/report"
+	"github.com/IgnatG/infraharvest/selection"
+	"github.com/IgnatG/infraharvest/terraformutils"
+)
+
+// DefaultSelectionFile is where discover writes the selection file unless
+// --selection says otherwise.
+const DefaultSelectionFile = "selection.yaml"
+
+// checkSelectionOptions makes an import say what to import: a selection
+// file, or --all. An import without either could bring a whole account
+// under Terraform by accident.
+func checkSelectionOptions(options ImportOptions) error {
+	switch {
+	case options.Discover:
+		if options.All {
+			return errors.New("discover lists everything; --all is for import")
+		}
+		return nil
+	case options.Selection != "" && options.All:
+		return errors.New("use either --selection or --all")
+	case options.Selection == "" && !options.All:
+		return selection.ErrNoSelection
+	}
+	return nil
+}
+
+// excludedByDefault asks the provider which listed resources it leaves out
+// unless told otherwise, by "type lister-ID".
+func excludedByDefault(provider terraformutils.ProviderGenerator, listed map[string][]terraformutils.Resource) (map[string]string, error) {
+	withDefaults, ok := provider.(terraformutils.ProviderWithSelectionDefaults)
+	if !ok {
+		return nil, nil
+	}
+	var all []terraformutils.Resource
+	for _, resources := range listed {
+		all = append(all, resources...)
+	}
+	return withDefaults.ExcludedByDefault(all)
+}
+
+// selectionFile loads the selection file once per run; nil for --all.
+func (r *engineRun) selectionFile(path string) (*selection.File, error) {
+	if path == "" {
+		return nil, nil
+	}
+	if r.selection == nil {
+		f, err := selection.Load(path)
+		if err != nil {
+			return nil, err
+		}
+		r.selection = f
+	}
+	return r.selection, nil
+}
+
+// selectResources keeps the listed resources to import and records the
+// others as excluded. A resource the selection file lists follows it; one
+// it doesn't list follows the provider's defaults, then the file's rules
+// and defaults. With no file (--all), the provider's defaults decide.
+func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource, defaults map[string]string, f *selection.File, importID func(terraformutils.Resource) (string, bool)) map[string][]terraformutils.Resource {
+	selected := make(map[string][]terraformutils.Resource, len(listed))
+	for service, resources := range listed {
+		for _, res := range resources {
+			id, importable := importID(res)
+			if !importable {
+				// importsByDir leaves it out and counts it.
+				selected[service] = append(selected[service], res)
+				continue
+			}
+			typ := res.InstanceInfo.Type
+			reason, excluded := defaults[typ+" "+res.InstanceState.ID]
+			var d selection.Decision
+			switch {
+			case f != nil && f.Has(typ, id):
+				d = f.Decide(typ, id, listedName(res.ResourceName))
+			case excluded:
+				d = selection.Decision{Reason: reason}
+			case f != nil:
+				d = f.Decide(typ, id, listedName(res.ResourceName))
+			default:
+				d = selection.Decision{Include: true}
+			}
+			if d.Include {
+				selected[service] = append(selected[service], res)
+				continue
+			}
+			r.discovered[typ]++
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason})
+		}
+	}
+	return selected
+}
+
+// addDiscovered adds the listed resources Terraform can import to the
+// selection file discover writes, included unless the provider's defaults
+// exclude them.
+func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, defaults map[string]string, importID func(terraformutils.Resource) (string, bool)) {
+	for _, resources := range listed {
+		for _, res := range resources {
+			id, importable := importID(res)
+			if !importable {
+				continue
+			}
+			reason := defaults[res.InstanceInfo.Type+" "+res.InstanceState.ID]
+			r.listed = append(r.listed, selection.Resource{
+				Type:    res.InstanceInfo.Type,
+				ID:      id,
+				Name:    listedName(res.ResourceName),
+				Include: reason == "",
+				Reason:  reason,
+			})
+		}
+	}
+}
+
+// writeSelection writes what discover listed.
+func (r *engineRun) writeSelection() error {
+	path := r.options.Selection
+	if path == "" {
+		path = DefaultSelectionFile
+	}
+	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: r.listed}
+	if err := f.Save(path); err != nil {
+		return err
+	}
+	excluded := 0
+	for _, res := range r.listed {
+		if !res.Include {
+			excluded++
+		}
+	}
+	log.Printf("listed %d resources into %s, %d of them excluded by default; review it, then import with --engine=terraform --selection %s", len(r.listed), path, excluded, path)
+	return nil
+}

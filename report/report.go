@@ -77,6 +77,7 @@ type Coverage struct {
 	Types       []TypeCount   `json:"types"`
 	Directories []Directory   `json:"directories"`
 	Skipped     []Skipped     `json:"skipped,omitempty"`
+	Excluded    []Excluded    `json:"excluded,omitempty"`
 	Failures    []string      `json:"failures,omitempty"`
 	Totals      CoverageTotal `json:"totals"`
 }
@@ -95,6 +96,7 @@ type CoverageTotal struct {
 	Imported   int `json:"imported"`
 	LeftOut    int `json:"left_out"`
 	Skipped    int `json:"skipped"`
+	Excluded   int `json:"excluded"`
 	Failed     int `json:"failed"`
 }
 
@@ -140,6 +142,13 @@ type Check struct {
 	Details []string `json:"details,omitempty"`
 }
 
+// Excluded is a listed resource the selection left out.
+type Excluded struct {
+	Type   string `json:"type"`
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
 // Skipped counts resources of a type infraharvest doesn't import.
 type Skipped struct {
 	Type   string `json:"type"`
@@ -154,6 +163,12 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	r.SchemaVersion = SchemaVersion
 	sort.Slice(r.Directories, func(i, j int) bool { return r.Directories[i].Path < r.Directories[j].Path })
 	sort.Slice(r.Skipped, func(i, j int) bool { return r.Skipped[i].Type < r.Skipped[j].Type })
+	sort.Slice(r.Excluded, func(i, j int) bool {
+		if r.Excluded[i].Type != r.Excluded[j].Type {
+			return r.Excluded[i].Type < r.Excluded[j].Type
+		}
+		return r.Excluded[i].ID < r.Excluded[j].ID
+	})
 	sort.Strings(r.Failures)
 
 	byType := map[string]*CoverageTotal{}
@@ -171,6 +186,9 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	}
 	for _, s := range r.Skipped {
 		count(s.Type).Skipped += s.Count
+	}
+	for _, e := range r.Excluded {
+		count(e.Type).Excluded++
 	}
 	for i := range r.Directories {
 		d := &r.Directories[i]
@@ -197,6 +215,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		r.Totals.Imported += c.Imported
 		r.Totals.LeftOut += c.LeftOut
 		r.Totals.Skipped += c.Skipped
+		r.Totals.Excluded += c.Excluded
 		r.Totals.Failed += c.Failed
 	}
 
@@ -297,13 +316,13 @@ func (r *Report) Markdown() string {
 	b.WriteString(".\n\n")
 
 	t := r.Totals
-	b.WriteString("| Discovered | Imported | Left out | Not importable | Failed |\n|---|---|---|---|---|\n")
-	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d |\n", t.Discovered, t.Imported, t.LeftOut, t.Skipped, t.Failed)
+	b.WriteString("| Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|\n")
+	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d |\n", t.Discovered, t.Imported, t.Excluded, t.LeftOut, t.Skipped, t.Failed)
 
 	if len(r.Types) > 0 {
-		b.WriteString("\n## By type\n\n| Type | Discovered | Imported | Left out | Not importable | Failed |\n|---|---|---|---|---|---|\n")
+		b.WriteString("\n## By type\n\n| Type | Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|---|\n")
 		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.LeftOut, c.Skipped, c.Failed)
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.Excluded, c.LeftOut, c.Skipped, c.Failed)
 		}
 	}
 
@@ -332,6 +351,11 @@ func (r *Report) Markdown() string {
 		skipped = append(skipped, fmt.Sprintf("- `%s` (%d): %s", s.Type, s.Count, s.Reason))
 	}
 	section("Not importable", "infraharvest doesn't import these resource types.", skipped)
+	var excluded []string
+	for _, e := range r.Excluded {
+		excluded = append(excluded, fmt.Sprintf("- `%s` `%s`: %s", e.Type, e.ID, e.Reason))
+	}
+	section("Excluded", "The selection left these resources out.", excluded)
 	var failures []string
 	for _, f := range r.Failures {
 		failures = append(failures, "- "+f)

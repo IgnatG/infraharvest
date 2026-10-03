@@ -52,6 +52,9 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	if err := checkTerraformEngineOptions(options); err != nil {
 		return err
 	}
+	if err := checkSelectionOptions(options); err != nil {
+		return err
+	}
 	// Commands share one run across their Import calls (see withEngineRun);
 	// a call on its own finishes its own.
 	run := activeRun
@@ -78,6 +81,23 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	if err != nil {
 		return err
 	}
+	listed := mapping.GetResourcesByService()
+	defaults, err := excludedByDefault(provider, listed)
+	if err != nil {
+		failures = append(failures, fmt.Errorf("default selection: %w", err))
+	}
+	if options.Discover {
+		run.used = true
+		run.options = options
+		run.failures = append(run.failures, failures...)
+		run.addDiscovered(listed, defaults, importIDFunc(provider))
+		return nil
+	}
+	chosen, err := run.selectionFile(options.Selection)
+	if err != nil {
+		return err
+	}
+	selected := run.selectResources(listed, defaults, chosen, importIDFunc(provider))
 
 	cacheDir, err := infraharvestCacheDir()
 	if err != nil {
@@ -95,7 +115,8 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		return err
 	}
 
-	resourcesByService, childFailures := withChildImports(provider, mapping.GetResourcesByService())
+	// Children follow their parent: only selected resources have them.
+	resourcesByService, childFailures := withChildImports(provider, selected)
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, root)
 	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))

@@ -127,6 +127,20 @@ Flags:
 
 Use " import [provider] [command] --help" for more information about a command.
 ```
+#### Choosing what to import
+
+With `--engine=terraform` or `tofu`, an import must say what it imports, so a whole account never comes under Terraform by accident:
+
+```
+infraharvest discover aws --resources=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
+# review selection.yaml: set include to false to leave a resource out
+infraharvest import aws --engine=terraform --resources=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
+```
+
+`discover` lists every resource it finds into the selection file, each marked included or not. By default it leaves out resources AWS creates and manages itself, with the reason: the default VPC with its subnets, route tables and internet gateway, default security groups and network ACLs, service-linked roles, and the log groups Lambda creates. You can include any of them by setting `include: true`. Rules in the file (`exclude: { type: aws_cloudwatch_log_group, id: "/aws/lambda/*" }`) decide resources it doesn't list, such as ones created since. A bucket's configuration resources (versioning, encryption, ...) follow the bucket.
+
+`--all` imports everything the default selection includes, without a file. The report lists what was excluded and why.
+
 #### Output of `--engine=terraform`
 
 Each output directory gets:
