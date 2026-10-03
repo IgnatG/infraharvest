@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -21,27 +23,11 @@ import (
 const maxRepairRounds = 5
 
 // repair makes the configuration Terraform generated into path valid where
-// that is safe: it applies the provider's fixup (optional), then removes the
-// attributes validation rejects (see removeRejected) until the configuration
-// validates or nothing more can be removed. It reports whether it changed
-// the file.
-func repair(ctx context.Context, tf Terraform, path string, fixup Fixup) (bool, error) {
+// that is safe: it fixes what validation rejects (see removeRejected) until
+// the configuration validates or nothing more can be fixed. It reports
+// whether it changed the file.
+func repair(ctx context.Context, tf Terraform, path string) (bool, error) {
 	repaired := false
-	if fixup != nil {
-		changed, err := rewrite(path, func(f *hclwrite.File, _ *hclsyntax.Body) bool {
-			changed := false
-			for _, block := range f.Body().Blocks() {
-				if block.Type() == "resource" && len(block.Labels()) == 2 && fixup(block.Labels()[0], block.Body()) {
-					changed = true
-				}
-			}
-			return changed
-		})
-		if err != nil {
-			return false, err
-		}
-		repaired = changed
-	}
 	for range maxRepairRounds {
 		out, err := tf.Validate(ctx)
 		if err != nil {
@@ -87,33 +73,59 @@ type attribute struct {
 	zero  bool            // whether its value is 0, false, "" or empty
 }
 
-var conflictPartner = regexp.MustCompile(`conflicts with ([A-Za-z0-9_]+)`)
+// conflictPartners finds the other arguments an argument conflicts with:
+// "conflicts with availability_zone" or "only one of `subnet_mapping,subnets`
+// can be specified".
+var conflictPartners = regexp.MustCompile("conflicts with ([A-Za-z0-9_]+)|only one of `([A-Za-z0-9_,]+)` can be specified")
 
-// removeRejected removes attributes that validation errors in filename point
-// at, where removing them keeps the meaning of the configuration:
+// missingArgument finds the path of a required argument a nested block
+// lacks: The argument "target_failover.0.on_unhealthy" is required.
+var missingArgument = regexp.MustCompile(`The argument "([A-Za-z0-9_.]+)" is required`)
+
+// removeRejected edits what validation errors in filename point at, where
+// that keeps the meaning of the configuration:
 //
-//   - an attribute set to its zero value (0, false, "" or empty), which
-//     providers treat like unset: generated configuration lists every
+//   - it removes an attribute set to its zero value (0, false, "" or empty),
+//     which providers treat like unset: generated configuration lists every
 //     optional argument, including ones the provider then rejects, such as
 //     a 0 outside an allowed range or a false that requires other arguments;
-//   - the later attribute of a conflicting pair, both of which Terraform
-//     generated from the same remote value (availability_zone and
-//     availability_zone_id, for example).
+//   - it removes one of two conflicting arguments, both of which Terraform
+//     generated from the same remote value: the later attribute of a pair
+//     (availability_zone_id after availability_zone), or an attribute that
+//     conflicts with a nested block (subnets with subnet_mapping blocks);
+//   - it turns "" into null inside a rejected attribute that holds objects,
+//     such as a network ACL's ingress rules, where Terraform writes "" for
+//     unset strings that the provider then validates;
+//   - it removes a nested block missing a required argument when all of its
+//     arguments are null, which means the block is unset.
 //
-// It reports whether it removed anything.
+// It reports whether it changed anything.
 func removeRejected(f *hclwrite.File, syntax *hclsyntax.Body, filename string, diags []tfjson.Diagnostic) bool {
 	attrs := collectAttributes(syntax, f.Body(), nil)
 	type rejection struct {
-		attr   *attribute
-		detail string
+		attr    *attribute
+		message string
 	}
 	var rejected []rejection
+	var emptyBlocks []*nestedBlock
 	for _, d := range diags {
 		if d.Severity != tfjson.DiagnosticSeverityError || d.Range == nil || filepath.Base(d.Range.Filename) != filename {
 			continue
 		}
+		if m := missingArgument.FindStringSubmatch(d.Detail); m != nil {
+			if b := blockByPath(syntax, f.Body(), d.Range.Start.Line, m[1]); b != nil && b.isNull() {
+				emptyBlocks = append(emptyBlocks, b)
+			}
+			continue
+		}
 		if a := attributeAt(attrs, d.Range.Start.Line); a != nil {
-			rejected = append(rejected, rejection{a, d.Detail})
+			rejected = append(rejected, rejection{a, d.Summary + ": " + d.Detail})
+		}
+	}
+	changed := false
+	for _, b := range emptyBlocks {
+		if b.parent.RemoveBlock(b.write) {
+			changed = true
 		}
 	}
 	// Zero values first, so a conflict with a removed attribute is resolved.
@@ -127,19 +139,69 @@ func removeRejected(f *hclwrite.File, syntax *hclsyntax.Body, filename string, d
 		if removed[r.attr] {
 			continue
 		}
-		m := conflictPartner.FindStringSubmatch(r.detail)
-		if m == nil {
+		if conflicts(attrs, r.attr, r.message, removed) {
+			removed[r.attr] = true
 			continue
 		}
-		partner := sibling(attrs, r.attr, m[1])
-		if partner != nil && !removed[partner] && partner.rng.Start.Line < r.attr.rng.Start.Line {
-			removed[r.attr] = true
+		if strings.Contains(r.message, `""`) && emptyStringsToNull(r.attr.body, r.attr.name) {
+			changed = true
 		}
 	}
 	for a := range removed {
 		a.body.RemoveAttribute(a.name)
 	}
-	return len(removed) > 0
+	return changed || len(removed) > 0
+}
+
+// conflicts reports whether message says a conflicts with an argument it
+// should give way to: an attribute before it in the same body that stays,
+// or a nested block.
+func conflicts(attrs []*attribute, a *attribute, message string, removed map[*attribute]bool) bool {
+	for _, m := range conflictPartners.FindAllStringSubmatch(message, -1) {
+		partners := []string{m[1]}
+		if m[2] != "" {
+			partners = strings.Split(m[2], ",")
+		}
+		for _, name := range partners {
+			if name == a.name {
+				continue
+			}
+			if partner := sibling(attrs, a, name); partner != nil && !removed[partner] && partner.rng.Start.Line < a.rng.Start.Line {
+				return true
+			}
+			for _, b := range a.block.Blocks {
+				if b.Type == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// emptyStringsToNull replaces every "" in attribute name's expression with
+// null.
+func emptyStringsToNull(body *hclwrite.Body, name string) bool {
+	attr := body.GetAttribute(name)
+	if attr == nil {
+		return false
+	}
+	tokens := attr.Expr().BuildTokens(nil)
+	fixed := make(hclwrite.Tokens, 0, len(tokens))
+	changed := false
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i].Type == hclsyntax.TokenOQuote && i+1 < len(tokens) && tokens[i+1].Type == hclsyntax.TokenCQuote {
+			fixed = append(fixed, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("null"), SpacesBefore: tokens[i].SpacesBefore})
+			i++
+			changed = true
+			continue
+		}
+		fixed = append(fixed, tokens[i])
+	}
+	if changed {
+		body.SetAttributeRaw(name, fixed)
+	}
+	return changed
 }
 
 // collectAttributes lists the attributes of a body and its nested blocks.
@@ -161,6 +223,78 @@ func collectAttributes(syntax *hclsyntax.Body, body *hclwrite.Body, attrs []*att
 		}
 	}
 	return attrs
+}
+
+// nestedBlock is a block inside a resource, in both trees.
+type nestedBlock struct {
+	typ    string
+	parent *hclwrite.Body // the body to remove it from
+	write  *hclwrite.Block
+	syntax *hclsyntax.Block
+}
+
+// blockByPath returns the nested block that holds the argument at path
+// ("target_failover.0.on_unhealthy") in the top-level block spanning line.
+func blockByPath(syntax *hclsyntax.Body, body *hclwrite.Body, line int, path string) *nestedBlock {
+	segments := strings.Split(path, ".")
+	writeBlocks := body.Blocks()
+	for i, top := range syntax.Blocks {
+		if i >= len(writeBlocks) || !spans(top.Range(), line) {
+			continue
+		}
+		var found *nestedBlock
+		syntaxBody, writeBody := top.Body, writeBlocks[i].Body()
+		for s := 0; s < len(segments)-1; s++ {
+			index := 0
+			if s+1 < len(segments)-1 {
+				if n, err := strconv.Atoi(segments[s+1]); err == nil {
+					index = n
+				}
+			}
+			if _, err := strconv.Atoi(segments[s]); err == nil {
+				continue
+			}
+			found = nil
+			seen := 0
+			inner := writeBody.Blocks()
+			for j, b := range syntaxBody.Blocks {
+				if b.Type != segments[s] || j >= len(inner) {
+					continue
+				}
+				if seen == index {
+					found = &nestedBlock{typ: b.Type, parent: writeBody, write: inner[j], syntax: b}
+					break
+				}
+				seen++
+			}
+			if found == nil {
+				return nil
+			}
+			syntaxBody, writeBody = found.syntax.Body, found.write.Body()
+		}
+		return found
+	}
+	return nil
+}
+
+// isNull reports whether every argument in the block, and in the blocks it
+// nests, is null.
+func (b *nestedBlock) isNull() bool {
+	return nullBody(b.syntax.Body)
+}
+
+func nullBody(body *hclsyntax.Body) bool {
+	for _, a := range body.Attributes {
+		if v, diags := a.Expr.Value(nil); diags.HasErrors() || !v.IsNull() {
+			return false
+		}
+	}
+	for _, b := range body.Blocks {
+		if !nullBody(b.Body) {
+			return false
+		}
+	}
+	return true
 }
 
 // attributeAt returns the innermost attribute whose source spans line.

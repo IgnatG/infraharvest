@@ -15,7 +15,6 @@
 package terraformutils
 
 import (
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -42,14 +41,6 @@ type ProviderWithSource interface {
 // false for resource types Terraform can't import.
 type ProviderWithImportIDs interface {
 	ImportID(r Resource) (id string, ok bool)
-}
-
-// ProviderWithConfigFixups repairs one resource block of the configuration
-// Terraform generates (--engine=terraform) where the provider's generator
-// is known to write invalid configuration. It reports whether it changed
-// anything.
-type ProviderWithConfigFixups interface {
-	FixGeneratedConfig(resourceType string, body *hclwrite.Body) bool
 }
 
 type Provider struct {

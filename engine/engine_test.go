@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/hashicorp/go-version"
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
@@ -179,7 +178,7 @@ func TestGenerate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "aws", "sqs")
 	tf := &fakeTerraform{dir: dir}
 
-	result, err := Generate(context.Background(), tf, dir, []byte("# providers\n"), []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
+	result, err := Generate(context.Background(), tf, dir, []byte("# providers\n"), []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +226,7 @@ func TestGenerateRefusesToOverwrite(t *testing.T) {
 	}
 	tf := &fakeTerraform{dir: dir}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
+	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
 
 	if err == nil || len(tf.calls) != 0 {
 		t.Errorf("want an error before running Terraform, got err=%v calls=%v", err, tf.calls)
@@ -238,7 +237,7 @@ func TestGenerateReportsTerraformFailures(t *testing.T) {
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{err: errors.New("Failed to load plugin schemas")}}}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
+	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
 
 	if err == nil || !strings.Contains(err.Error(), "terraform plan: Failed to load plugin schemas") {
 		t.Errorf("want the plan error, got %v", err)
@@ -253,7 +252,7 @@ func TestGenerateFailsOnDirectoryErrors(t *testing.T) {
 		{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration", Range: &tfjson.Range{Filename: ProvidersFileName, Start: tfjson.Pos{Line: 1}}},
 	}}}}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
+	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
 
 	if err == nil || !strings.Contains(err.Error(), "providers.tf:1: Invalid provider configuration") {
 		t.Errorf("want the directory error, got %v", err)
@@ -285,7 +284,7 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	}
 	imports := []Import{{Type: "aws_sqs_queue", Name: "a", ID: "gone"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}}
 
-	result, err := Generate(context.Background(), tf, dir, nil, imports, nil)
+	result, err := Generate(context.Background(), tf, dir, nil, imports)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,29 +319,26 @@ const invalidGenerated = `resource "aws_route53_record" "tfer--a" {
 }
 `
 
-// dropMultivalue stands in for a provider fixup.
-func dropMultivalue(resourceType string, body *hclwrite.Body) bool {
-	if resourceType != "aws_route53_record" || body.GetAttribute("multivalue_answer_routing_policy") == nil {
-		return false
-	}
-	body.RemoveAttribute("multivalue_answer_routing_policy")
-	return true
-}
-
 func TestGenerateRepairsAndReplans(t *testing.T) {
 	dir := t.TempDir()
-	tf := &fakeTerraform{dir: dir, generated: invalidGenerated, plans: []fakePlan{{diags: []tfjson.Diagnostic{errorAt(3, "Missing required argument", "")}}}}
+	rejected := errorAt(3, "Invalid combination of arguments", `"multivalue_answer_routing_policy": all of `+"`multivalue_answer_routing_policy,set_identifier`"+` must be specified`)
+	tf := &fakeTerraform{
+		dir:         dir,
+		generated:   invalidGenerated,
+		plans:       []fakePlan{{diags: []tfjson.Diagnostic{rejected}}},
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
+	}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "tfer--a", ID: "Z1_example.internal_A"}}, dropMultivalue)
+	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "tfer--a", ID: "Z1_example.internal_A"}})
 	if err != nil {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan" {
-		t.Errorf("calls: got %v, want [init plan validate plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "multivalue") || !strings.Contains(got, `name = "example.internal"`) {
-		t.Errorf("fixup not applied or file not formatted:\n%s", got)
+		t.Errorf("zero value not removed or file not formatted:\n%s", got)
 	}
 	if len(result.Rejected) != 0 {
 		t.Errorf("want nothing left out, got %+v", result.Rejected)
@@ -353,16 +349,15 @@ func TestGenerateLeavesOutWhatRepairCannotFix(t *testing.T) {
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, generated: invalidGenerated, plans: []fakePlan{
 		{diags: []tfjson.Diagnostic{errorAt(2, "Invalid record name", "")}},
-		{diags: []tfjson.Diagnostic{errorAt(2, "Invalid record name", "")}},
 	}}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "tfer--a", ID: "x"}}, dropMultivalue)
+	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "tfer--a", ID: "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan" {
-		t.Errorf("calls: got %v, want [init plan validate plan plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan" {
+		t.Errorf("calls: got %v, want [init plan validate plan]", tf.calls)
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Address != "aws_route53_record.tfer--a" {
 		t.Errorf("want aws_route53_record.tfer--a left out, got %+v", result.Rejected)
@@ -382,7 +377,7 @@ func TestGenerateGivesUpAfterMaxRounds(t *testing.T) {
 	// Each plan reports another import that fails.
 	imports := []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}, {Type: "aws_sqs_queue", Name: "c", ID: "c"}, {Type: "aws_sqs_queue", Name: "d", ID: "d"}}
 
-	_, err := Generate(context.Background(), tf, dir, nil, imports, nil)
+	_, err := Generate(context.Background(), tf, dir, nil, imports)
 
 	if err == nil || !strings.Contains(err.Error(), "Cannot import") {
 		t.Errorf("want the remaining error, got %v", err)
@@ -403,7 +398,7 @@ func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
 		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
 	}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_kms_key", Name: "a", ID: "k"}}, nil)
+	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_kms_key", Name: "a", ID: "k"}})
 	if err != nil {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
@@ -444,7 +439,7 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 		schemas: ssmSchemas,
 	}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_ssm_parameter", Name: "tfer--app-env", ID: "/app/env"}}, nil)
+	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_ssm_parameter", Name: "tfer--app-env", ID: "/app/env"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +484,7 @@ func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
 		schemas:     ssmSchemas,
 	}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_ssm_parameter", Name: "tfer--app-env", ID: "/app/env"}}, nil)
+	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_ssm_parameter", Name: "tfer--app-env", ID: "/app/env"}})
 	if err != nil {
 		t.Fatal(err)
 	}

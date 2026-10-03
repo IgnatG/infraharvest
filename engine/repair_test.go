@@ -112,3 +112,104 @@ func TestRemoveRejectedLeavesOtherErrors(t *testing.T) {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
 }
+
+// Shaped like what Terraform generates for an ALB, a target group and a
+// network ACL in the AWS emulator, with the validation errors it reports.
+const conflictingBlocksConfig = `resource "aws_lb" "a" {
+  name    = "web"
+  subnets = ["subnet-1", "subnet-2"]
+  subnet_mapping {
+    subnet_id = "subnet-1"
+  }
+  subnet_mapping {
+    subnet_id = "subnet-2"
+  }
+}
+
+resource "aws_lb_target_group" "b" {
+  name = "web"
+  stickiness {
+    enabled = false
+  }
+  target_failover {
+    on_deregistration = null
+    on_unhealthy      = null
+  }
+  target_group_health {
+    dns_failover {
+      minimum_healthy_targets_count = null
+    }
+  }
+}
+
+resource "aws_network_acl" "c" {
+  ingress = [{
+    cidr_block      = "10.0.0.0/8"
+    ipv6_cidr_block = ""
+    rule_no         = 100
+  }]
+  vpc_id = "vpc-1"
+}
+`
+
+func TestRemoveRejectedBlocksAndObjects(t *testing.T) {
+	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	if err := os.WriteFile(path, []byte(conflictingBlocksConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	onlyOne := "only one of `subnet_mapping,subnets` can be specified, but `subnet_mapping,subnets` were specified."
+	diags := []tfjson.Diagnostic{
+		errorAt(4, "Invalid combination of arguments", `"subnet_mapping": `+onlyOne),
+		errorAt(3, "Invalid combination of arguments", `"subnets": `+onlyOne),
+		errorAt(18, "Missing required argument", `The argument "target_failover.0.on_deregistration" is required, but no definition was found.`),
+		errorAt(18, "Missing required argument", `The argument "target_failover.0.on_unhealthy" is required, but no definition was found.`),
+		errorAt(29, `"" is not a valid CIDR block: invalid CIDR address: `, ""),
+	}
+
+	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
+		return removeRejected(f, syntax, GeneratedFileName, diags)
+	})
+	if err != nil || !changed {
+		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"subnets", "target_failover", `""`} {
+		if strings.Contains(string(got), removed) {
+			t.Errorf("%s not removed:\n%s", removed, got)
+		}
+	}
+	for _, kept := range []string{"subnet_mapping {", "stickiness {", "dns_failover {", "ipv6_cidr_block = null", `cidr_block      = "10.0.0.0/8"`} {
+		if !strings.Contains(string(got), kept) {
+			t.Errorf("%s not kept:\n%s", kept, got)
+		}
+	}
+}
+
+// A nested block with a value isn't unset: removing it would change the
+// configuration.
+func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	config := `resource "aws_lb_target_group" "b" {
+  target_failover {
+    on_deregistration = "rebalance"
+    on_unhealthy      = null
+  }
+}
+`
+	if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diags := []tfjson.Diagnostic{errorAt(2, "Missing required argument", `The argument "target_failover.0.on_unhealthy" is required, but no definition was found.`)}
+
+	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
+		return removeRejected(f, syntax, GeneratedFileName, diags)
+	})
+
+	if err != nil || changed {
+		t.Errorf("want no change, got changed=%v err=%v", changed, err)
+	}
+}
