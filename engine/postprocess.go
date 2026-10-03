@@ -6,8 +6,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -99,29 +97,13 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 	return false, backup.restore()
 }
 
-// planValues plans with vars into a plan file and returns the plan's
-// change summary and each resource's imported attribute values, by
-// address. It returns no summary if the configuration doesn't plan. The
-// plan file holds secret values: it lives in a private temporary
-// directory, removed before planValues returns.
+// planValues plans with vars and returns the plan's change summary and
+// each resource's imported attribute values, by address. It returns no
+// summary if the configuration doesn't plan.
 func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*changeSummary, map[string]map[string]any, error) {
-	tmp, err := os.MkdirTemp("", "infraharvest-plan-")
-	if err != nil {
+	p, summary, _, err := showPlanWithSummary(ctx, tf, vars)
+	if err != nil || p == nil {
 		return nil, nil, err
-	}
-	defer os.RemoveAll(tmp)
-	planFile := filepath.Join(tmp, "plan")
-	opts := append(append([]tfexec.PlanOption(nil), vars...), tfexec.Out(planFile))
-	diags, summary, err := plan(ctx, tf, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("terraform plan: %w", err)
-	}
-	if len(diags) > 0 || summary == nil {
-		return nil, nil, nil
-	}
-	p, err := tf.ShowPlanFile(ctx, planFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("terraform show: %w", err)
 	}
 	values := map[string]map[string]any{}
 	for _, rc := range p.ResourceChanges {

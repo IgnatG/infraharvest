@@ -60,6 +60,14 @@ type ProviderWithOmittedArguments interface {
 	OmittedArguments() map[string][]string
 }
 
+// ProviderWithStateOnlyArguments names, per resource type, arguments the
+// provider keeps only in state: AWS doesn't report them, so they are unset
+// after an import and the first apply records their defaults without
+// calling the cloud. The verification gate lets plans change them.
+type ProviderWithStateOnlyArguments interface {
+	StateOnlyArguments() map[string][]string
+}
+
 // ProviderWithDefaultTags describes how the provider applies tags to every
 // resource, for --engine=terraform to move the tags all resources share
 // into the provider configuration: the resources' tags attribute, the

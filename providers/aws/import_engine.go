@@ -54,3 +54,15 @@ func (AWSProvider) OmittedArguments() map[string][]string {
 func (AWSProvider) DefaultTags() (attribute, block, reservedPrefix string) {
 	return "tags", "default_tags", "aws:"
 }
+
+// StateOnlyArguments are arguments the AWS provider keeps only in state:
+// settings it uses when it deletes or updates a resource, and settings that
+// don't apply to every kind of a resource. Import leaves them unset; the
+// provider's own import tests ignore them too.
+func (AWSProvider) StateOnlyArguments() map[string][]string {
+	return map[string][]string{
+		"aws_ecs_service":           {"wait_for_steady_state"},
+		"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
+		"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
+	}
+}

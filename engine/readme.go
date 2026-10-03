@@ -72,6 +72,25 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
 	}
+	if len(result.Gate) > 0 {
+		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had placeholder values in the plan.\n\n| Check | Result |\n|---|---|\n")
+		for _, c := range result.Gate {
+			status := "passed"
+			if !c.Passed {
+				status = "**failed**"
+			}
+			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
+		}
+		var details []string
+		for _, c := range result.Gate {
+			for _, d := range c.Details {
+				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
+			}
+		}
+		if len(details) > 0 {
+			b.WriteString("\n" + strings.Join(details, "\n") + "\n")
+		}
+	}
 	return []byte(b.String())
 }
 

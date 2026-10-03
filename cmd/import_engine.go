@@ -88,6 +88,9 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	if withOmitted, ok := provider.(terraformutils.ProviderWithOmittedArguments); ok {
 		opts.Omit = withOmitted.OmittedArguments()
 	}
+	if withStateOnly, ok := provider.(terraformutils.ProviderWithStateOnlyArguments); ok {
+		opts.StateOnly = withStateOnly.StateOnlyArguments()
+	}
 	if withDefaultTags, ok := provider.(terraformutils.ProviderWithDefaultTags); ok {
 		attribute, block, reserved := withDefaultTags.DefaultTags()
 		opts.DefaultTags = &engine.DefaultTags{Provider: provider.GetName(), Attribute: attribute, Block: block, ReservedPrefix: reserved}
@@ -142,6 +145,12 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 		}
 		for _, s := range result.Secrets {
 			reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
+		}
+		for _, c := range result.Gate {
+			reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
+			if !c.Passed {
+				failures = append(failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
+			}
 		}
 		if len(result.Secrets) > 0 {
 			log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)

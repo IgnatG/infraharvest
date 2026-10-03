@@ -164,6 +164,18 @@ The `report/` directory of the output records the import:
 
 Reports hold no timestamps or absolute paths, so importing an unchanged estate produces the same files. With `--output json`, the whole report is also printed to stdout as one JSON document (`schema_version` 1); logs always go to stderr.
 
+After generating a directory, infraharvest runs its verification gate on it and records the results in the directory's README and in `coverage.json`:
+
+| Check | Passes when |
+|---|---|
+| G1 format | `terraform fmt` has nothing to change |
+| G2 validate | `terraform validate` passes |
+| G3 plan | The plan imports every resource and changes nothing else. Secret variables get placeholder values for this plan, so the arguments they set may change, and so may arguments the provider keeps only in state (for example a Secrets Manager secret's `recovery_window_in_days`) |
+| G6 secrets | No written file contains a value the provider marks sensitive, or a credential such as an AWS access key or a private key |
+| G7 determinism | The configuration calls no function whose result changes between runs, such as `timestamp()` |
+
+A failed check counts like a resource that couldn't be imported (exit code 1, or 3 with `--allow-partial`).
+
 Exit codes:
 
 | Code | Meaning |
