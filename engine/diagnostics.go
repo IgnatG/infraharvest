@@ -19,18 +19,45 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
-// plan runs terraform plan and returns its error diagnostics. It returns an
-// error only when Terraform failed without reporting any, for example when
-// it couldn't start or ctx was cancelled.
-func plan(ctx context.Context, tf Terraform, opts ...tfexec.PlanOption) ([]tfjson.Diagnostic, error) {
+// changeSummary counts the changes a plan has besides imports.
+type changeSummary struct {
+	Add    int `json:"add"`
+	Change int `json:"change"`
+	Remove int `json:"remove"`
+}
+
+// plan runs terraform plan and returns its error diagnostics and its change
+// summary, which is nil if Terraform reported none, as when the plan fails.
+// It returns an error only when Terraform failed without reporting any
+// diagnostics, for example when it couldn't start or ctx was cancelled.
+func plan(ctx context.Context, tf Terraform, opts ...tfexec.PlanOption) ([]tfjson.Diagnostic, *changeSummary, error) {
 	var out bytes.Buffer
 	_, err := tf.PlanJSON(ctx, &out, opts...)
 	tf.SetStdout(io.Discard) // PlanJSON leaves out as the output of later commands
 	diags := errorDiagnostics(parseUIDiagnostics(out.Bytes()))
 	if err != nil && len(diags) == 0 {
-		return nil, err
+		return nil, nil, err
 	}
-	return diags, nil
+	return diags, parseChangeSummary(out.Bytes()), nil
+}
+
+// parseChangeSummary returns the change summary in Terraform's
+// machine-readable UI output, or nil.
+func parseChangeSummary(out []byte) *changeSummary {
+	var summary *changeSummary
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		var msg struct {
+			Type    string        `json:"type"`
+			Changes changeSummary `json:"changes"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &msg) == nil && msg.Type == "change_summary" {
+			changes := msg.Changes
+			summary = &changes
+		}
+	}
+	return summary
 }
 
 // parseUIDiagnostics returns the diagnostics in Terraform's machine-readable

@@ -9,8 +9,8 @@ import (
 )
 
 // omitArguments removes from the resources in path the arguments omit
-// names for their type, whether written as attributes or as blocks. It
-// reports whether it removed anything.
+// names for their type, or under "*" for every type, whether written as
+// attributes or as blocks. It reports whether it removed anything.
 func omitArguments(path string, omit map[string][]string) (bool, error) {
 	if len(omit) == 0 {
 		return false, nil
@@ -22,7 +22,8 @@ func omitArguments(path string, omit map[string][]string) (bool, error) {
 				continue
 			}
 			body := block.Body()
-			for _, name := range omit[block.Labels()[0]] {
+			names := append(append([]string(nil), omit["*"]...), omit[block.Labels()[0]]...)
+			for _, name := range names {
 				if body.RemoveAttribute(name) != nil {
 					changed = true
 				}

@@ -25,12 +25,6 @@ var s3BucketArguments = []string{
 	"server_side_encryption_configuration", "versioning", "website",
 }
 
-// OmittedArguments leaves the deprecated arguments out of generated
-// aws_s3_bucket configuration; see s3BucketArguments.
-func (AWSProvider) OmittedArguments() map[string][]string {
-	return map[string][]string{"aws_s3_bucket": s3BucketArguments}
-}
-
 // s3NotConfigured are the error codes S3 answers with when a bucket has no
 // configuration of the kind asked for. NotImplemented means the endpoint
 // doesn't support the feature, so there is nothing to import either.

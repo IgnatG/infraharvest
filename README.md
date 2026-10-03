@@ -143,6 +143,13 @@ Each output directory gets:
 
 Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud.
 
+Repeated values move into `locals.tf`:
+
+- **Shared tags:** tags every resource in a directory shares become `local.tags`. On AWS they are applied through the provider's `default_tags`, and each resource keeps only its other tags. Because AWS records every tag in `tags_all`, the move is kept only if a new plan shows no extra changes. Directories with secret variables can't be planned that way, so their tags stay where they are.
+- **Repeated identifiers:** IDs and ARNs used three or more times (`vpc_id = "vpc-0abc1234"`) become locals named after the argument that uses them (`local.vpc_id`).
+
+AWS resources don't repeat `region` (the provider's) or the computed `tags_all`.
+
 S3 buckets are imported split, as the AWS provider recommends: each part of a bucket's configuration it has (versioning, encryption, lifecycle, CORS, website, logging, public access block, ownership controls, transfer acceleration, requester pays, object lock, replication, policy) is its own resource, and the bucket's deprecated inline arguments are left out. ACLs aren't imported yet.
 
 The `report/` directory of the output records the import:
