@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // hclFile is a configuration file parsed twice: as an editable tree, and as
@@ -76,6 +77,7 @@ func (f *hclFile) resourceAt(line int) string {
 // importBlock is a top-level import block in both trees.
 type importBlock struct {
 	to     string // address of the resource it imports into
+	id     string // the import ID, if a literal
 	write  *hclwrite.Block
 	syntax *hclsyntax.Block
 }
@@ -100,7 +102,13 @@ func (f *hclFile) imports() []importBlock {
 		if !ok {
 			continue
 		}
-		imports = append(imports, importBlock{to: traversal.RootName() + "." + step.Name, write: blocks[i], syntax: b})
+		id := ""
+		if idAttr, ok := b.Body.Attributes["id"]; ok {
+			if v, diags := idAttr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
+				id = v.AsString()
+			}
+		}
+		imports = append(imports, importBlock{to: traversal.RootName() + "." + step.Name, id: id, write: blocks[i], syntax: b})
 	}
 	return imports
 }

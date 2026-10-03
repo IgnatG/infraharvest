@@ -72,6 +72,9 @@ func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, erro
 
 // Result is what Generate leaves for the user to finish.
 type Result struct {
+	// Imported are the resources the configuration imports, with the
+	// labels Generate gave them.
+	Imported []Import
 	// Secrets are the variables to set before planning.
 	Secrets []Secret
 	// Rejected are the resources left out of the configuration.
@@ -184,7 +187,16 @@ func Generate(ctx context.Context, tf Terraform, dir string, config map[string][
 			return nil, err
 		}
 	}
-	return result, os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(imports, result), 0o644)
+	leftOut := map[string]bool{}
+	for _, r := range result.Rejected {
+		leftOut[r.Address] = true
+	}
+	for _, imp := range imports {
+		if !leftOut[imp.Type+"."+imp.Name] {
+			result.Imported = append(result.Imported, imp)
+		}
+	}
+	return result, os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors

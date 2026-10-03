@@ -135,7 +135,7 @@ resource "aws_vpc" "b" {
 		t.Fatal(err)
 	}
 
-	if want := []Rejection{{Address: "aws_vpc.a", Errors: []string{"Bad CIDR"}}}; !reflect.DeepEqual(got, want) {
+	if want := []Rejection{{Address: "aws_vpc.a", ID: "vpc-a", Errors: []string{"Bad CIDR"}}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 	wantRejected := `# aws_vpc.a was left out:

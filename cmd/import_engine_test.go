@@ -24,7 +24,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory per service", func(t *testing.T) {
 		options := ImportOptions{PathPattern: DefaultPathPattern, PathOutput: "out"}
 
-		got := importsByDir("aws", options, resources, listerID)
+		got, _ := importsByDir("aws", options, resources, listerID)
 
 		want := map[string][]engine.Import{
 			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/1/orders"}},
@@ -38,7 +38,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory for a pattern without {service}", func(t *testing.T) {
 		options := ImportOptions{PathPattern: "{output}/{provider}/", PathOutput: "out"}
 
-		got := importsByDir("aws", options, resources, listerID)
+		got, _ := importsByDir("aws", options, resources, listerID)
 
 		if len(got) != 1 || len(got[filepath.Join("out", "aws")]) != 2 {
 			t.Errorf("want both resources in out/aws, got %v", got)
@@ -63,13 +63,16 @@ func TestImportsByDirUsesImportIDs(t *testing.T) {
 	}
 	options := ImportOptions{PathPattern: "{output}/{provider}/", PathOutput: "out"}
 
-	got := importsByDir("aws", options, resources, importID)
+	got, skipped := importsByDir("aws", options, resources, importID)
 
 	want := map[string][]engine.Import{
 		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "a", ID: "subnet-1/rtb-1"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+	if !reflect.DeepEqual(skipped, map[string]int{"aws_main_route_table_association": 1}) {
+		t.Errorf("skipped: got %v", skipped)
 	}
 }
 
@@ -124,14 +127,19 @@ func TestCheckTerraformEngineOptions(t *testing.T) {
 	if err := checkTerraformEngineOptions(defaults); err != nil {
 		t.Errorf("defaults must be accepted, got %v", err)
 	}
+	withJSON := defaults
+	withJSON.Output = outputJSON
+	if err := checkTerraformEngineOptions(withJSON); err != nil {
+		t.Errorf("--output json must be accepted, got %v", err)
+	}
 
 	bad := defaults
-	bad.State, bad.Output, bad.Compact = "bucket", "json", true
+	bad.State, bad.Output, bad.Compact = "bucket", "yaml", true
 	err := checkTerraformEngineOptions(bad)
 	if err == nil {
 		t.Fatal("want an error for unsupported options")
 	}
-	for _, want := range []string{"--state bucket", "--output json", "--compact"} {
+	for _, want := range []string{"--state bucket", "--output yaml", "--compact"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}

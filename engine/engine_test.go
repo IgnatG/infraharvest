@@ -308,7 +308,7 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []Rejection{{Address: "aws_sqs_queue.a", Errors: []string{"Cannot import non-existent remote object", "Configuration for import target does not exist"}}}
+	want := []Rejection{{Address: "aws_sqs_queue.a", ID: "gone", Errors: []string{"Cannot import non-existent remote object", "Configuration for import target does not exist"}}}
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
 	}
