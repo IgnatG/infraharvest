@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/engine"
+	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
@@ -25,6 +26,14 @@ const (
 	engineLegacy    = "legacy"
 	engineTerraform = "terraform"
 	engineTofu      = "tofu"
+)
+
+// Values of --output. With the legacy engine they choose the format of the
+// generated files; with Terraform or OpenTofu, json prints the import report
+// (see package report) on stdout.
+const (
+	outputHCL  = "hcl"
+	outputJSON = "json"
 )
 
 // engineBinary is the binary --engine runs.
@@ -65,7 +74,7 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	if err != nil {
 		return err
 	}
-	config, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider))
+	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider))
 	if err != nil {
 		return err
 	}
@@ -73,7 +82,20 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 		return err
 	}
 
-	byDir := importsByDir(provider.GetName(), options, mapping.GetResourcesByService(), importIDFunc(provider))
+	resourcesByService := mapping.GetResourcesByService()
+	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
+	rep := &report.Report{Manifest: report.Manifest{
+		Tool:     report.Component{Name: "infraharvest", Version: version},
+		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
+		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version},
+	}}
+	for _, f := range failures {
+		rep.Failures = append(rep.Failures, f.Error())
+	}
+	for typ, n := range skipped {
+		rep.Skipped = append(rep.Skipped, report.Skipped{Type: typ, Count: n, Reason: "Terraform can't import this resource type"})
+	}
+
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)
@@ -84,28 +106,73 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	// Terraform install it from the plugin cache, which it only does for
 	// providers a lock file records.
 	var lock []byte
+	failed := map[string]int{}
 	for _, dir := range dirs {
 		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), config, byDir[dir], &lock)
+		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), root.files, byDir[dir], &lock)
+		reported := report.Directory{Path: relativePath(options.PathOutput, dir)}
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			failures = append(failures, fmt.Errorf("%s: %w", dir, err))
+			reported.Error = err.Error()
+			for _, imp := range byDir[dir] {
+				failed[imp.Type]++
+			}
+			rep.Directories = append(rep.Directories, reported)
 			continue
+		}
+		reported.Imported = make([]report.Resource, 0, len(result.Imported))
+		for _, imp := range result.Imported {
+			reported.Imported = append(reported.Imported, report.Resource{Address: imp.Type + "." + imp.Name, ID: imp.ID})
 		}
 		for _, r := range result.Rejected {
 			failures = append(failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, r.Address, engine.RejectedFileName, strings.Join(r.Errors, "; ")))
+			reported.LeftOut = append(reported.LeftOut, report.LeftOut{Address: r.Address, ID: r.ID, Errors: r.Errors})
+		}
+		for _, s := range result.Secrets {
+			reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
 		}
 		if len(result.Secrets) > 0 {
-			names := make([]string, 0, len(result.Secrets))
-			for _, s := range result.Secrets {
-				names = append(names, s.Variable)
-			}
-			log.Printf("%s: set these secret variables before planning (see %s): %s", dir, engine.VariablesFileName, strings.Join(names, ", "))
+			log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)
+		}
+		rep.Directories = append(rep.Directories, reported)
+	}
+
+	rep.Provider.Version = engine.LockedVersion(lock, rep.Provider.Source)
+	rep.Finish(discoveredByType(resourcesByService), failed, options.AllowPartial)
+	if err := rep.WriteFiles(options.PathOutput); err != nil {
+		return err
+	}
+	log.Printf("%s: imported %d of %d resources; report in %s", provider.GetName(), rep.Totals.Imported, rep.Totals.Discovered, filepath.Join(options.PathOutput, report.Dir, "report.md"))
+	if options.Output == outputJSON {
+		if err := rep.WriteJSON(os.Stdout); err != nil {
+			return err
 		}
 	}
 	return checkFailures(failures, options.AllowPartial)
+}
+
+// discoveredByType counts the listed resources by type.
+func discoveredByType(resourcesByService map[string][]terraformutils.Resource) map[string]int {
+	discovered := map[string]int{}
+	for _, resources := range resourcesByService {
+		for _, r := range resources {
+			discovered[r.InstanceInfo.Type]++
+		}
+	}
+	return discovered
+}
+
+// relativePath returns dir relative to the output directory, with forward
+// slashes, so reports don't depend on where or on which OS they ran.
+func relativePath(outputDir, dir string) string {
+	rel, err := filepath.Rel(outputDir, dir)
+	if err != nil {
+		rel = dir
+	}
+	return filepath.ToSlash(rel)
 }
 
 // generateDir runs engine.Generate in dir, seeding it with *lock if set and
@@ -130,12 +197,20 @@ func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, conf
 	return result, err
 }
 
+// rootFiles are the files every output directory starts with, and the
+// versions they pin.
+type rootFiles struct {
+	files         map[string][]byte // versions.tf and providers.tf
+	engineVersion string
+	provider      engine.Provider // Version is the constraint
+}
+
 // rootConfig renders versions.tf and providers.tf for every output
 // directory: required_version within the major release of the Terraform or
 // OpenTofu at execPath, and the provider pinned to its newest minor release
 // line in registry (the engine's default registry), unless its source names
 // another. A registryURL replaces the registry, for tests.
-func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider) (map[string][]byte, error) {
+func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider) (*rootFiles, error) {
 	engineVersion, err := engine.BinaryVersion(ctx, execPath)
 	if err != nil {
 		return nil, err
@@ -149,9 +224,13 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	if err != nil {
 		return nil, err
 	}
-	return map[string][]byte{
-		engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engineVersion), p),
-		engine.ProvidersFileName: providers,
+	return &rootFiles{
+		files: map[string][]byte{
+			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engineVersion), p),
+			engine.ProvidersFileName: providers,
+		},
+		engineVersion: engineVersion.String(),
+		provider:      p,
 	}, nil
 }
 
@@ -178,7 +257,7 @@ func checkTerraformEngineOptions(options ImportOptions) error {
 	if options.State != DefaultState {
 		unsupported = append(unsupported, "--state "+options.State)
 	}
-	if options.Output != "hcl" {
+	if options.Output != outputHCL && options.Output != outputJSON {
 		unsupported = append(unsupported, "--output "+options.Output)
 	}
 	if options.Compact {
@@ -191,9 +270,9 @@ func checkTerraformEngineOptions(options ImportOptions) error {
 }
 
 // importsByDir groups resources into import blocks per output directory,
-// following --path-pattern like the legacy engine. It leaves out, and logs,
-// resources Terraform can't import.
-func importsByDir(providerName string, options ImportOptions, resourcesByService map[string][]terraformutils.Resource, importID func(terraformutils.Resource) (string, bool)) map[string][]engine.Import {
+// following --path-pattern like the legacy engine. It leaves out, logs and
+// counts by type resources Terraform can't import.
+func importsByDir(providerName string, options ImportOptions, resourcesByService map[string][]terraformutils.Resource, importID func(terraformutils.Resource) (string, bool)) (map[string][]engine.Import, map[string]int) {
 	byDir := map[string][]engine.Import{}
 	skipped := map[string]int{}
 	for service, resources := range resourcesByService {
@@ -219,7 +298,7 @@ func importsByDir(providerName string, options ImportOptions, resourcesByService
 	for _, typ := range types {
 		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", providerName, skipped[typ], typ)
 	}
-	return byDir
+	return byDir, skipped
 }
 
 // importIDFunc returns how to get a resource's import ID: the provider's

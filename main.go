@@ -23,13 +23,16 @@ import (
 	"github.com/IgnatG/infraharvest/cmd"
 )
 
+// TerraformerWriter writes log messages to stderr, so stdout carries only
+// results (--output json), and hides the provider plugins' trace and debug
+// messages.
 type TerraformerWriter struct {
 	io.Writer
 }
 
 func (t TerraformerWriter) Write(p []byte) (n int, err error) {
 	if !strings.Contains(string(p), "[TRACE]") && !strings.Contains(string(p), "[DEBUG]") { // hide TF GRPC client log messages
-		return os.Stdout.Write(p)
+		return os.Stderr.Write(p)
 	}
 	return len(p), nil
 }
@@ -38,6 +41,6 @@ func main() {
 	log.SetOutput(TerraformerWriter{})
 	if err := cmd.Execute(); err != nil {
 		log.Println(err)
-		os.Exit(1)
+		os.Exit(cmd.ExitCode(err))
 	}
 }

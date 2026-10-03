@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
@@ -29,9 +31,28 @@ func TestCheckFailures(t *testing.T) {
 	if !errors.Is(err, failures[0]) {
 		t.Error("error should wrap each failure")
 	}
+	if code := ExitCode(err); code != report.ExitIncomplete {
+		t.Errorf("exit code without --allow-partial: got %d, want %d", code, report.ExitIncomplete)
+	}
 
-	if err := checkFailures(failures, true); err != nil {
-		t.Errorf("failures with --allow-partial: want nil, got %v", err)
+	partial := checkFailures(failures, true)
+	if code := ExitCode(partial); code != report.ExitPartial {
+		t.Errorf("exit code with --allow-partial: got %d, want %d (%v)", code, report.ExitPartial, partial)
+	}
+}
+
+func TestExitCode(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{nil, report.ExitOK},
+		{errors.New("no credentials"), report.ExitCouldNotRun},
+		{fmt.Errorf("wrapped: %w", &ExitError{Code: report.ExitPartial, Err: errors.New("partial")}), report.ExitPartial},
+	} {
+		if got := ExitCode(tc.err); got != tc.want {
+			t.Errorf("ExitCode(%v): got %d, want %d", tc.err, got, tc.want)
+		}
 	}
 }
 

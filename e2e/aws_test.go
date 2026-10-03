@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/cmd"
 	"github.com/IgnatG/infraharvest/engine"
+	"github.com/IgnatG/infraharvest/report"
 )
 
 // awsServices are the infraharvest services that import what
@@ -80,11 +82,22 @@ func TestAWSRoundTrip(t *testing.T) {
 		// problem; the checks below still fail the test.
 		"--allow-partial",
 	})
-	if err := root.ExecuteContext(ctx); err != nil {
-		t.Fatalf("infraharvest import: %v", err)
+	// A partial import (exit code 3) still has output to check below.
+	if err := root.ExecuteContext(ctx); cmd.ExitCode(err) != report.ExitOK {
+		if cmd.ExitCode(err) != report.ExitPartial {
+			t.Fatalf("infraharvest import: %v", err)
+		}
+		t.Errorf("infraharvest import: %v", err)
 	}
 
 	readFile(t, filepath.Join(out, ".gitignore"))
+	var coverage report.Report
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || coverage.ExitCode != report.ExitOK {
+		t.Errorf("coverage.json: %+v, exit code %d", coverage.Totals, coverage.ExitCode)
+	}
 	imported := map[string]int{}
 	var lock string
 	for _, dir := range generatedDirs(t, out) {

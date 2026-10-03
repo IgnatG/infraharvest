@@ -1,0 +1,319 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package report describes what an import did: what it found, what it
+// imported, what it left out and why, and the versions it used. It writes
+// the report directory of the output (coverage.json, manifest.json and
+// report.md) and the JSON of --output json.
+//
+// Reports hold no timestamps or absolute paths, so an import of an
+// unchanged estate produces the same report.
+package report
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// SchemaVersion is the version of the JSON documents. It changes only
+// when a field is removed or changes meaning.
+const SchemaVersion = 1
+
+// Exit codes of an import.
+const (
+	// ExitOK: everything listed was imported.
+	ExitOK = 0
+	// ExitIncomplete: something couldn't be imported and --allow-partial
+	// isn't set.
+	ExitIncomplete = 1
+	// ExitCouldNotRun: the import couldn't run, for example without
+	// credentials or a Terraform binary.
+	ExitCouldNotRun = 2
+	// ExitPartial: something couldn't be imported and --allow-partial is
+	// set; the output has the rest.
+	ExitPartial = 3
+)
+
+// Dir is the directory of the output the report files go into.
+const Dir = "report"
+
+// Report is what one import did.
+type Report struct {
+	SchemaVersion int `json:"schema_version"`
+	Manifest
+	Coverage
+	ExitCode int `json:"exit_code"`
+}
+
+// Manifest records the versions an import used.
+type Manifest struct {
+	Tool     Component `json:"tool"`
+	Engine   Component `json:"engine"`
+	Provider Provider  `json:"provider"`
+}
+
+// Component is a program and its version.
+type Component struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// Provider is the provider the generated configuration requires.
+type Provider struct {
+	Source     string `json:"source"`
+	Constraint string `json:"constraint"`
+	// Version is the version the lock file records, if any directory got
+	// as far as terraform init.
+	Version string `json:"version,omitempty"`
+}
+
+// Coverage records what an import found and what became of it.
+type Coverage struct {
+	Types       []TypeCount   `json:"types"`
+	Directories []Directory   `json:"directories"`
+	Skipped     []Skipped     `json:"skipped,omitempty"`
+	Failures    []string      `json:"failures,omitempty"`
+	Totals      CoverageTotal `json:"totals"`
+}
+
+// TypeCount counts the resources of one type.
+type TypeCount struct {
+	Type string `json:"type"`
+	CoverageTotal
+}
+
+// CoverageTotal counts resources by outcome. Discovered is everything the
+// listers found; each one was imported, left out, skipped, or lost to a
+// failure.
+type CoverageTotal struct {
+	Discovered int `json:"discovered"`
+	Imported   int `json:"imported"`
+	LeftOut    int `json:"left_out"`
+	Skipped    int `json:"skipped"`
+	Failed     int `json:"failed"`
+}
+
+// Directory is one output directory.
+type Directory struct {
+	// Path is relative to the output directory, with forward slashes.
+	Path     string     `json:"path"`
+	Imported []Resource `json:"imported"`
+	LeftOut  []LeftOut  `json:"left_out,omitempty"`
+	Secrets  []Secret   `json:"secrets,omitempty"`
+	// Error is why nothing in the directory was imported.
+	Error string `json:"error,omitempty"`
+}
+
+// Resource is an imported resource.
+type Resource struct {
+	Address string `json:"address"`
+	ID      string `json:"id"`
+}
+
+// LeftOut is a resource Terraform couldn't import or generate valid
+// configuration for.
+type LeftOut struct {
+	Address string   `json:"address"`
+	ID      string   `json:"id"`
+	Errors  []string `json:"errors"`
+}
+
+// Secret is a variable to set before planning.
+type Secret struct {
+	Variable  string `json:"variable"`
+	Address   string `json:"address"`
+	Attribute string `json:"attribute"`
+}
+
+// Skipped counts resources of a type infraharvest doesn't import.
+type Skipped struct {
+	Type   string `json:"type"`
+	Count  int    `json:"count"`
+	Reason string `json:"reason"`
+}
+
+// Finish sorts the report, counts it, and sets the exit code. discovered
+// counts what the listers found, by type; failed counts resources in
+// directories that failed, by type.
+func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
+	r.SchemaVersion = SchemaVersion
+	sort.Slice(r.Directories, func(i, j int) bool { return r.Directories[i].Path < r.Directories[j].Path })
+	sort.Slice(r.Skipped, func(i, j int) bool { return r.Skipped[i].Type < r.Skipped[j].Type })
+	sort.Strings(r.Failures)
+
+	byType := map[string]*CoverageTotal{}
+	count := func(t string) *CoverageTotal {
+		if byType[t] == nil {
+			byType[t] = &CoverageTotal{}
+		}
+		return byType[t]
+	}
+	for t, n := range discovered {
+		count(t).Discovered += n
+	}
+	for t, n := range failed {
+		count(t).Failed += n
+	}
+	for _, s := range r.Skipped {
+		count(s.Type).Skipped += s.Count
+	}
+	for i := range r.Directories {
+		d := &r.Directories[i]
+		sort.Slice(d.Imported, func(a, b int) bool { return d.Imported[a].Address < d.Imported[b].Address })
+		sort.Slice(d.LeftOut, func(a, b int) bool { return d.LeftOut[a].Address < d.LeftOut[b].Address })
+		for _, res := range d.Imported {
+			count(resourceType(res.Address)).Imported++
+		}
+		for _, res := range d.LeftOut {
+			count(resourceType(res.Address)).LeftOut++
+		}
+	}
+	types := make([]string, 0, len(byType))
+	for t := range byType {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	r.Types = make([]TypeCount, 0, len(types))
+	r.Totals = CoverageTotal{}
+	for _, t := range types {
+		c := *byType[t]
+		r.Types = append(r.Types, TypeCount{Type: t, CoverageTotal: c})
+		r.Totals.Discovered += c.Discovered
+		r.Totals.Imported += c.Imported
+		r.Totals.LeftOut += c.LeftOut
+		r.Totals.Skipped += c.Skipped
+		r.Totals.Failed += c.Failed
+	}
+
+	switch {
+	case !r.Incomplete():
+		r.ExitCode = ExitOK
+	case allowPartial:
+		r.ExitCode = ExitPartial
+	default:
+		r.ExitCode = ExitIncomplete
+	}
+}
+
+// Incomplete reports whether something listed wasn't imported, other than
+// types infraharvest doesn't import.
+func (r *Report) Incomplete() bool {
+	return len(r.Failures) > 0 || r.Totals.LeftOut > 0 || r.Totals.Failed > 0
+}
+
+func resourceType(address string) string {
+	t, _, _ := strings.Cut(address, ".")
+	return t
+}
+
+// WriteFiles writes coverage.json, manifest.json and report.md into the
+// report directory under outputDir.
+func (r *Report) WriteFiles(outputDir string) error {
+	dir := filepath.Join(outputDir, Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	coverage, err := marshal(struct {
+		SchemaVersion int `json:"schema_version"`
+		Coverage
+		ExitCode int `json:"exit_code"`
+	}{r.SchemaVersion, r.Coverage, r.ExitCode})
+	if err != nil {
+		return err
+	}
+	manifest, err := marshal(struct {
+		SchemaVersion int `json:"schema_version"`
+		Manifest
+	}{r.SchemaVersion, r.Manifest})
+	if err != nil {
+		return err
+	}
+	for name, content := range map[string][]byte{
+		"coverage.json": coverage,
+		"manifest.json": manifest,
+		"report.md":     []byte(r.Markdown()),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteJSON writes the whole report as one JSON document.
+func (r *Report) WriteJSON(w io.Writer) error {
+	content, err := marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(content)
+	return err
+}
+
+func marshal(v any) ([]byte, error) {
+	content, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(content, '\n'), nil
+}
+
+// Markdown renders the report for people.
+func (r *Report) Markdown() string {
+	var b strings.Builder
+	b.WriteString("# Import report\n\n")
+	fmt.Fprintf(&b, "%s %s, %s %s, provider `%s` %s", r.Tool.Name, r.Tool.Version, r.Engine.Name, r.Engine.Version, r.Provider.Source, r.Provider.Constraint)
+	if r.Provider.Version != "" {
+		fmt.Fprintf(&b, " (%s)", r.Provider.Version)
+	}
+	b.WriteString(".\n\n")
+
+	t := r.Totals
+	b.WriteString("| Discovered | Imported | Left out | Not importable | Failed |\n|---|---|---|---|---|\n")
+	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d |\n", t.Discovered, t.Imported, t.LeftOut, t.Skipped, t.Failed)
+
+	if len(r.Types) > 0 {
+		b.WriteString("\n## By type\n\n| Type | Discovered | Imported | Left out | Not importable | Failed |\n|---|---|---|---|---|---|\n")
+		for _, c := range r.Types {
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.LeftOut, c.Skipped, c.Failed)
+		}
+	}
+
+	var leftOut, secrets, dirErrors []string
+	for _, d := range r.Directories {
+		for _, l := range d.LeftOut {
+			leftOut = append(leftOut, fmt.Sprintf("- `%s` in `%s`: %s", l.Address, d.Path, strings.Join(l.Errors, "; ")))
+		}
+		for _, s := range d.Secrets {
+			secrets = append(secrets, fmt.Sprintf("- `%s` in `%s`: %s of `%s`", s.Variable, d.Path, s.Attribute, s.Address))
+		}
+		if d.Error != "" {
+			dirErrors = append(dirErrors, fmt.Sprintf("- `%s`: %s", d.Path, d.Error))
+		}
+	}
+	section := func(title, intro string, lines []string) {
+		if len(lines) == 0 {
+			return
+		}
+		fmt.Fprintf(&b, "\n## %s\n\n%s\n\n%s\n", title, intro, strings.Join(lines, "\n"))
+	}
+	section("Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", leftOut)
+	section("Secrets to set", "Set these variables before planning: Terraform doesn't write secret values into the configuration it generates.", secrets)
+	var skipped []string
+	for _, s := range r.Skipped {
+		skipped = append(skipped, fmt.Sprintf("- `%s` (%d): %s", s.Type, s.Count, s.Reason))
+	}
+	section("Not importable", "infraharvest doesn't import these resource types.", skipped)
+	var failures []string
+	for _, f := range r.Failures {
+		failures = append(failures, "- "+f)
+	}
+	section("Failed directories", "Nothing in these directories was imported.", dirErrors)
+	section("Failed services", "These services couldn't be listed.", failures)
+	return b.String()
+}

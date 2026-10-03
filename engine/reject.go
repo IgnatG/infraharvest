@@ -20,6 +20,7 @@ import (
 // any generated configuration are in rejected.hcl, under its errors.
 type Rejection struct {
 	Address string
+	ID      string // the import ID
 	Errors  []string
 }
 
@@ -39,8 +40,10 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 		resources[r.address] = r.write
 	}
 	importBlocks := map[string]*hclwrite.Block{}
+	ids := map[string]string{}
 	for _, imp := range imports.imports() {
 		importBlocks[imp.to] = imp.write
+		ids[imp.to] = imp.id
 	}
 
 	addresses := make([]string, 0, len(errs))
@@ -56,7 +59,7 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 				messages = append(messages, m)
 			}
 		}
-		rejections = append(rejections, Rejection{Address: addr, Errors: messages})
+		rejections = append(rejections, Rejection{Address: addr, ID: ids[addr], Errors: messages})
 
 		if out.Len() > 0 {
 			out.WriteString("\n")

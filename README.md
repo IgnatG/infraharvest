@@ -143,6 +143,25 @@ Each output directory gets:
 
 Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud.
 
+The `report/` directory of the output records the import:
+
+| File | Contents |
+|---|---|
+| `coverage.json` | What the listers found, by type and directory, and what became of it: imported, left out (with Terraform's errors), not importable, or lost to a failed directory or service. Also the secret variables to set |
+| `manifest.json` | The versions used: infraharvest, Terraform or OpenTofu, and the provider (constraint and locked version) |
+| `report.md` | The same, for people |
+
+Reports hold no timestamps or absolute paths, so importing an unchanged estate produces the same files. With `--output json`, the whole report is also printed to stdout as one JSON document (`schema_version` 1); logs always go to stderr.
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | Everything found was imported (types Terraform can't import aside) |
+| 1 | Something couldn't be imported, and `--allow-partial` isn't set |
+| 2 | The import couldn't run, for example without credentials or a Terraform binary |
+| 3 | Something couldn't be imported, `--allow-partial` is set, and the output has the rest |
+
 When the configuration Terraform generates doesn't validate, infraharvest fixes what Terraform rejects where that doesn't change its meaning, then plans again. It removes arguments that are unset in effect (zero values), arguments that duplicate another one (`subnets` next to `subnet_mapping` blocks), and nested blocks whose arguments are all null. Inside objects, it writes `null` for unset strings that Terraform generated as `""`.
 
 #### Permissions

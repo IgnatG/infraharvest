@@ -6,17 +6,16 @@ package engine
 import "testing"
 
 func TestReadmeFile(t *testing.T) {
-	imports := []Import{
-		{Type: "aws_ssm_parameter", Name: "token", ID: "/app/token"},
-		{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"},
-		{Type: "aws_sqs_queue", Name: "gone", ID: "q2"},
-	}
 	result := &Result{
+		Imported: []Import{
+			{Type: "aws_ssm_parameter", Name: "token", ID: "/app/token"},
+			{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"},
+		},
 		Secrets:  []Secret{{Variable: "aws_ssm_parameter_token_value", Address: "aws_ssm_parameter.token", Attribute: "value"}},
 		Rejected: []Rejection{{Address: "aws_sqs_queue.gone", Errors: []string{"Cannot import non-existent remote object"}}},
 	}
 
-	got := string(readmeFile(imports, result))
+	got := string(readmeFile(result))
 
 	want := "# Imported resources\n\n" +
 		"infraharvest generated this configuration for 2 existing resources:\n\n" +

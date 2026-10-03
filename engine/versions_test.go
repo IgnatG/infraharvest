@@ -61,3 +61,24 @@ func TestLatestProviderVersionErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestLockedVersion(t *testing.T) {
+	lock := []byte(`# This file is maintained automatically by "terraform init".
+provider "registry.terraform.io/hashicorp/aws" {
+  version     = "6.67.0"
+  constraints = "~> 6.67"
+  hashes = [
+    "h1:abc=",
+  ]
+}
+`)
+	if got := LockedVersion(lock, "registry.terraform.io/hashicorp/aws"); got != "6.67.0" {
+		t.Errorf("got %q, want 6.67.0", got)
+	}
+	if got := LockedVersion(lock, "registry.opentofu.org/hashicorp/aws"); got != "" {
+		t.Errorf("another registry's provider: got %q, want none", got)
+	}
+	if got := LockedVersion(nil, "registry.terraform.io/hashicorp/aws"); got != "" {
+		t.Errorf("no lock file: got %q, want none", got)
+	}
+}

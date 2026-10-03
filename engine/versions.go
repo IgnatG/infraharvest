@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-version"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // DefaultRegistry is the registry provider sources without a host use.
@@ -86,4 +89,25 @@ func LatestProviderVersion(ctx context.Context, client *http.Client, baseURL, so
 		return nil, fmt.Errorf("look up %s versions: %s lists no releases", source, url)
 	}
 	return latest, nil
+}
+
+// LockedVersion returns the version of the provider at source
+// (host/namespace/type) that a dependency lock file records, or "" if it
+// records none.
+func LockedVersion(lock []byte, source string) string {
+	file, diags := hclsyntax.ParseConfig(lock, LockFileName, hcl.InitialPos)
+	if diags.HasErrors() {
+		return ""
+	}
+	for _, b := range file.Body.(*hclsyntax.Body).Blocks {
+		if b.Type != "provider" || len(b.Labels) != 1 || !strings.EqualFold(b.Labels[0], source) {
+			continue
+		}
+		if attr, ok := b.Body.Attributes["version"]; ok {
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && !v.IsNull() {
+				return v.AsString()
+			}
+		}
+	}
+	return ""
 }

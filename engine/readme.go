@@ -32,19 +32,12 @@ override.tf.json
 // readmeFile describes a directory Generate wrote: what it imports, the
 // secret variables to set, what was left out, and the steps to take it
 // under management.
-func readmeFile(imports []Import, result *Result) []byte {
-	rejected := map[string]bool{}
-	for _, r := range result.Rejected {
-		rejected[r.Address] = true
-	}
+func readmeFile(result *Result) []byte {
 	types := map[string]int{}
-	total := 0
-	for _, imp := range imports {
-		if !rejected[imp.Type+"."+imp.Name] {
-			types[imp.Type]++
-			total++
-		}
+	for _, imp := range result.Imported {
+		types[imp.Type]++
 	}
+	total := len(result.Imported)
 	names := make([]string, 0, len(types))
 	for t := range types {
 		names = append(names, t)

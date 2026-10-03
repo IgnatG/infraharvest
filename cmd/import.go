@@ -27,6 +27,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/IgnatG/infraharvest/terraformutils/terraformoutput"
 
@@ -121,18 +122,41 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 }
 
 // checkFailures reports services and resources that could not be imported.
-// The output written so far is incomplete, so this is an error unless the
-// user accepted partial output with --allow-partial.
+// The output written so far is incomplete: the error exits with
+// report.ExitPartial if the user accepted that with --allow-partial, else
+// with report.ExitIncomplete.
 func checkFailures(failures []error, allowPartial bool) error {
 	if len(failures) == 0 {
 		return nil
 	}
 	err := fmt.Errorf("%d services or resources could not be imported:\n%w", len(failures), errors.Join(failures...))
 	if allowPartial {
-		log.Printf("WARNING: output is incomplete (--allow-partial is set). %v", err)
-		return nil
+		return &ExitError{Code: report.ExitPartial, Err: fmt.Errorf("output is incomplete (--allow-partial is set): %w", err)}
 	}
-	return fmt.Errorf("%w\noutput is incomplete; rerun with --allow-partial to accept partial output", err)
+	return &ExitError{Code: report.ExitIncomplete, Err: fmt.Errorf("%w\noutput is incomplete; rerun with --allow-partial to accept partial output", err)}
+}
+
+// ExitError ends the program with Code. See package report for the codes.
+type ExitError struct {
+	Code int
+	Err  error
+}
+
+func (e *ExitError) Error() string { return e.Err.Error() }
+
+func (e *ExitError) Unwrap() error { return e.Err }
+
+// ExitCode returns the code the program exits with after err: 0 for nil,
+// an ExitError's code, or report.ExitCouldNotRun for any other error.
+func ExitCode(err error) int {
+	if err == nil {
+		return report.ExitOK
+	}
+	var exitErr *ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.Code
+	}
+	return report.ExitCouldNotRun
 }
 
 func initOptionsAndWrapper(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) (*providerwrapper.ProviderWrapper, ImportOptions, error) {
@@ -448,7 +472,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.StringSliceVarP(&options.Filter, "filter", "f", []string{}, sampleFilters)
 	flag.BoolVarP(&options.Verbose, "verbose", "v", false, "")
 	flag.BoolVarP(&options.NoSort, "no-sort", "S", false, "set to disable sorting of HCL")
-	flag.StringVarP(&options.Output, "output", "O", "hcl", "output format hcl or json")
+	flag.StringVarP(&options.Output, "output", "O", outputHCL, "hcl or json. Legacy engine: format of the generated files. Terraform or OpenTofu engine: json prints the import report as JSON on stdout")
 	flag.IntVarP(&options.RetryCount, "retry-number", "n", 5, "number of retries to perform when refresh fails")
 	flag.IntVarP(&options.RetrySleepMs, "retry-sleep-ms", "m", 300, "time in ms to sleep between retries")
 	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "exit 0 when some services or resources fail to import, leaving them out of the output")
