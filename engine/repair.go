@@ -6,7 +6,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 
@@ -69,22 +68,14 @@ func repair(ctx context.Context, tf Terraform, path string, fixup Fixup) (bool, 
 // edit reports a change. edit gets the file both as an editable tree and as
 // a syntax tree with source positions; their blocks are in the same order.
 func rewrite(path string, edit func(f *hclwrite.File, syntax *hclsyntax.Body) bool) (bool, error) {
-	src, err := os.ReadFile(path)
+	f, err := loadHCL(path)
 	if err != nil {
 		return false, err
 	}
-	f, diags := hclwrite.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return false, fmt.Errorf("parse %s: %w", path, diags)
-	}
-	syntax, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return false, fmt.Errorf("parse %s: %w", path, diags)
-	}
-	if !edit(f, syntax.Body.(*hclsyntax.Body)) {
+	if !edit(f.file, f.syntax) {
 		return false, nil
 	}
-	return true, os.WriteFile(path, hclwrite.Format(f.Bytes()), 0o644)
+	return true, f.save()
 }
 
 // attribute is an attribute of the generated configuration, in both trees.

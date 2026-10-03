@@ -20,7 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/cmd"
 	"github.com/IgnatG/infraharvest/engine"
@@ -30,7 +34,7 @@ import (
 // testdata/aws creates.
 var awsServices = []string{
 	"dynamodb", "ecr", "iam", "igw", "kinesis", "kms", "logs", "route53",
-	"route_table", "secretsmanager", "sg", "sns", "sqs", "subnet", "vpc",
+	"route_table", "secretsmanager", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
 }
 
 // TestAWSRoundTrip creates resources in an AWS emulator, imports them with
@@ -57,7 +61,7 @@ func TestAWSRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	seeded := seed(ctx, t, execPath, filepath.Join(cache, "plugins"))
+	state := seed(ctx, t, execPath, filepath.Join(cache, "plugins"))
 
 	out := t.TempDir()
 	root := cmd.NewCmdRoot()
@@ -78,10 +82,24 @@ func TestAWSRoundTrip(t *testing.T) {
 	}
 
 	imported := map[string]int{}
+	var lock string
 	for _, dir := range generatedDirs(t, out) {
-		for typ, n := range checkNoChanges(ctx, t, dir, execPath, filepath.Join(cache, "plugins")) {
+		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
+			t.Errorf("%s: resources left out:\n%s", dir, rejected)
+		}
+		// One provider version for the whole import.
+		if content := readFile(t, filepath.Join(dir, engine.LockFileName)); lock == "" {
+			lock = content
+		} else if content != lock {
+			t.Errorf("%s: %s differs from the other directories'", dir, engine.LockFileName)
+		}
+		for typ, n := range checkNoChanges(ctx, t, dir, execPath, filepath.Join(cache, "plugins"), secretValues(t, dir, state)) {
 			imported[typ] += n
 		}
+	}
+	seeded := map[string]int{}
+	for _, r := range state {
+		seeded[r.Type]++
 	}
 	for _, typ := range sortedKeys(seeded) {
 		if imported[typ] < seeded[typ] {
@@ -119,9 +137,8 @@ func isolateAWSConfig(t *testing.T) {
 	}
 }
 
-// seed applies testdata/aws and returns how many resources of each type it
-// created.
-func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) map[string]int {
+// seed applies testdata/aws and returns the resources it created.
+func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) []*tfjson.StateResource {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join("testdata", "aws", "main.tf")
@@ -151,13 +168,72 @@ func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) map[s
 	if err != nil {
 		t.Fatalf("seed: terraform show: %v", err)
 	}
-	created := map[string]int{}
+	var created []*tfjson.StateResource
 	for _, r := range state.Values.RootModule.Resources {
-		if r.Mode == "managed" {
-			created[r.Type]++
+		if r.Mode == tfjson.ManagedResourceMode {
+			created = append(created, r)
 		}
 	}
 	return created
+}
+
+// secretValues sets the secret variables of the configuration generated in
+// dir to the values the test created. It finds each value by the resource
+// type and name of the resource that uses the variable.
+func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []tfexec.PlanOption {
+	t.Helper()
+	path := filepath.Join(dir, engine.GeneratedFileName)
+	file, diags := hclsyntax.ParseConfig([]byte(readFile(t, path)), path, hcl.InitialPos)
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+	var vars []tfexec.PlanOption
+	for _, block := range file.Body.(*hclsyntax.Body).Blocks {
+		if block.Type != "resource" {
+			continue
+		}
+		name := ""
+		if attr, ok := block.Body.Attributes["name"]; ok {
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
+				name = v.AsString()
+			}
+		}
+		for attrName, attr := range block.Body.Attributes {
+			traversal, ok := attr.Expr.(*hclsyntax.ScopeTraversalExpr)
+			if !ok || traversal.Traversal.RootName() != "var" || len(traversal.Traversal) != 2 {
+				continue
+			}
+			variable := traversal.Traversal[1].(hcl.TraverseAttr).Name
+			value, ok := createdValue(created, block.Labels[0], name, attrName)
+			if !ok {
+				t.Errorf("%s: no created %s named %q with a %s for variable %s", dir, block.Labels[0], name, attrName, variable)
+				continue
+			}
+			vars = append(vars, tfexec.Var(variable+"="+value))
+		}
+	}
+	return vars
+}
+
+// createdValue returns the string attribute of the created resource of
+// resourceType called name.
+func createdValue(created []*tfjson.StateResource, resourceType, name, attribute string) (string, bool) {
+	for _, r := range created {
+		if r.Type == resourceType && r.AttributeValues["name"] == name {
+			value, ok := r.AttributeValues[attribute].(string)
+			return value, ok
+		}
+	}
+	return "", false
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
 }
 
 // generatedDirs returns every directory under out with a generated.tf.
@@ -185,16 +261,17 @@ func generatedDirs(t *testing.T, out string) []string {
 	return dirs
 }
 
-// checkNoChanges plans dir and reports every resource that is not an import
-// without changes. It returns how many resources of each type it imports.
-func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCache string) map[string]int {
+// checkNoChanges plans dir with vars and reports every resource that is not
+// an import without changes. It returns how many resources of each type it
+// imports.
+func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCache string, vars []tfexec.PlanOption) map[string]int {
 	t.Helper()
 	tf, err := engine.NewTerraform(dir, execPath, pluginCache)
 	if err != nil {
 		t.Fatal(err)
 	}
 	planFile := filepath.Join(t.TempDir(), "e2e.tfplan")
-	if _, err := tf.Plan(ctx, tfexec.Out(planFile)); err != nil {
+	if _, err := tf.Plan(ctx, append(vars, tfexec.Out(planFile))...); err != nil {
 		t.Errorf("%s: terraform plan of the generated configuration: %v", dir, err)
 		return nil
 	}
