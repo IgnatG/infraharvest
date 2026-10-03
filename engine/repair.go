@@ -66,11 +66,13 @@ func rewrite(path string, edit func(f *hclwrite.File, syntax *hclsyntax.Body) bo
 
 // attribute is an attribute of the generated configuration, in both trees.
 type attribute struct {
-	name  string
-	body  *hclwrite.Body  // the body to remove it from
-	block *hclsyntax.Body // the body it belongs to, to find its siblings
-	rng   hcl.Range       // its source range
-	zero  bool            // whether its value is 0, false, "" or empty
+	name   string
+	parent string          // type of the block it is in, e.g. resource or subnet_mapping
+	body   *hclwrite.Body  // the body to remove it from
+	block  *hclsyntax.Body // the body it belongs to, to find its siblings
+	rng    hcl.Range       // its source range
+	zero   bool            // whether its value is 0, false, "" or empty
+	empty  bool            // whether its value is ""
 }
 
 // conflictPartners finds the other arguments an argument conflicts with:
@@ -99,9 +101,12 @@ var missingArgument = regexp.MustCompile(`The argument "([A-Za-z0-9_.]+)" is req
 //   - it removes a nested block missing a required argument when all of its
 //     arguments are null, which means the block is unset.
 //
+// An error that points at a resource rather than an attribute (see
+// rejectedIn) is applied to the attributes its message names.
+//
 // It reports whether it changed anything.
 func removeRejected(f *hclwrite.File, syntax *hclsyntax.Body, filename string, diags []tfjson.Diagnostic) bool {
-	attrs := collectAttributes(syntax, f.Body(), nil)
+	attrs := collectAttributes(syntax, f.Body(), "", nil)
 	type rejection struct {
 		attr    *attribute
 		message string
@@ -118,8 +123,15 @@ func removeRejected(f *hclwrite.File, syntax *hclsyntax.Body, filename string, d
 			}
 			continue
 		}
+		message := d.Summary + ": " + d.Detail
 		if a := attributeAt(attrs, d.Range.Start.Line); a != nil {
-			rejected = append(rejected, rejection{a, d.Summary + ": " + d.Detail})
+			rejected = append(rejected, rejection{a, message})
+			continue
+		}
+		// Errors about set elements and attributes written as blocks point at
+		// the resource, not the attribute; their message names it.
+		for _, a := range rejectedIn(attrs, resourceRange(syntax, d.Range.Start.Line), message) {
+			rejected = append(rejected, rejection{a, message})
 		}
 	}
 	changed := false
@@ -151,6 +163,49 @@ func removeRejected(f *hclwrite.File, syntax *hclsyntax.Body, filename string, d
 		a.body.RemoveAttribute(a.name)
 	}
 	return changed || len(removed) > 0
+}
+
+// attributePath finds the argument an SDK validation message names, such as
+// "expected subnet_mapping.0.ipv6_address to contain a valid IPv6 address".
+var attributePath = regexp.MustCompile(`\b([a-z0-9_]+)\.[0-9]+\.([a-z0-9_]+)\b`)
+
+// rejectedIn returns the attributes in rng, a resource's source range, that
+// an error pointing at the resource is about: the arguments its message
+// names by path (block.N.argument, in any block of that type, since
+// elements of a set have no stable index), or, for an error about "", the
+// arguments set to "". OpenTofu writes "" for unset strings in nested
+// blocks, which the provider then validates.
+func rejectedIn(attrs []*attribute, rng *hcl.Range, message string) []*attribute {
+	if rng == nil {
+		return nil
+	}
+	paths := attributePath.FindAllStringSubmatch(message, -1)
+	var found []*attribute
+	for _, a := range attrs {
+		if !spans(*rng, a.rng.Start.Line) {
+			continue
+		}
+		for _, p := range paths {
+			if a.parent == p[1] && a.name == p[2] {
+				found = append(found, a)
+			}
+		}
+		if len(paths) == 0 && a.empty && strings.Contains(message, `""`) {
+			found = append(found, a)
+		}
+	}
+	return found
+}
+
+// resourceRange returns the source range of the top-level block spanning
+// line.
+func resourceRange(syntax *hclsyntax.Body, line int) *hcl.Range {
+	for _, b := range syntax.Blocks {
+		if rng := b.Range(); spans(rng, line) {
+			return &rng
+		}
+	}
+	return nil
 }
 
 // conflicts reports whether message says a conflicts with an argument it
@@ -205,21 +260,24 @@ func emptyStringsToNull(body *hclwrite.Body, name string) bool {
 }
 
 // collectAttributes lists the attributes of a body and its nested blocks.
-func collectAttributes(syntax *hclsyntax.Body, body *hclwrite.Body, attrs []*attribute) []*attribute {
+func collectAttributes(syntax *hclsyntax.Body, body *hclwrite.Body, parent string, attrs []*attribute) []*attribute {
 	for name, a := range syntax.Attributes {
 		v, diags := a.Expr.Value(nil)
+		known := !diags.HasErrors()
 		attrs = append(attrs, &attribute{
-			name:  name,
-			body:  body,
-			block: syntax,
-			rng:   a.SrcRange,
-			zero:  !diags.HasErrors() && isZero(v),
+			name:   name,
+			parent: parent,
+			body:   body,
+			block:  syntax,
+			rng:    a.SrcRange,
+			zero:   known && isZero(v),
+			empty:  known && !v.IsNull() && v.Type() == cty.String && v.AsString() == "",
 		})
 	}
 	blocks := body.Blocks()
 	for i, b := range syntax.Blocks {
 		if i < len(blocks) {
-			attrs = collectAttributes(b.Body, blocks[i].Body(), attrs)
+			attrs = collectAttributes(b.Body, blocks[i].Body(), b.Type, attrs)
 		}
 	}
 	return attrs
