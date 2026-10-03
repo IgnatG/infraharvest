@@ -88,7 +88,7 @@ func readmeFile(result *Result) []byte {
 			}
 		}
 		if len(details) > 0 {
-			b.WriteString("\n" + strings.Join(details, "\n") + "\n")
+			fmt.Fprintf(&b, "\n%s\n", strings.Join(details, "\n"))
 		}
 	}
 	return []byte(b.String())
