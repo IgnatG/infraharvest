@@ -81,10 +81,22 @@ type Result struct {
 	Rejected []Rejection
 }
 
-// Generate writes config (file contents by name, such as versions.tf and
-// providers.tf) and an import block per resource into dir, then runs
-// Terraform to generate the configuration of every imported resource into
-// generated.tf. Resource names become labels (see Label). If Terraform
+// Options configure Generate.
+type Options struct {
+	// Config are files to write besides imports.tf, such as versions.tf and
+	// providers.tf, by name.
+	Config map[string][]byte
+	// Omit names, per resource type, arguments to leave out of the generated
+	// configuration because another imported resource manages them, such as
+	// an S3 bucket's versioning. They must be computed, so that leaving them
+	// out changes no plan.
+	Omit map[string][]string
+}
+
+// Generate writes opts.Config and an import block per resource into dir,
+// then runs Terraform to generate the configuration of every imported
+// resource into generated.tf, without the arguments opts.Omit names.
+// Resource names become labels (see Label). If Terraform
 // rejects what it generated, Generate repairs it (see repair) and plans
 // again. Resources it still can't plan are left out (see Rejection). Secret
 // values Terraform doesn't write into the configuration become sensitive
@@ -93,7 +105,7 @@ type Result struct {
 //
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf.
-func Generate(ctx context.Context, tf Terraform, dir string, config map[string][]byte, imports []Import) (*Result, error) {
+func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, opts Options) (*Result, error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -112,7 +124,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, config map[string][
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
-	for name, content := range config {
+	for name, content := range opts.Config {
 		files[name] = content
 	}
 	for name, content := range files {
@@ -137,6 +149,15 @@ func Generate(ctx context.Context, tf Terraform, dir string, config map[string][
 		return nil, fmt.Errorf("terraform plan: %w", diagnosticsError(diags))
 	} else if err != nil {
 		return nil, err
+	}
+	// Leaving out what other resources manage moves the lines the errors
+	// point at, so plan again.
+	if omitted, err := omitArguments(generated, opts.Omit); err != nil {
+		return nil, err
+	} else if omitted {
+		if diags, err = plan(ctx, tf); err != nil {
+			return nil, fmt.Errorf("terraform plan: %w", err)
+		}
 	}
 
 	result := &Result{}

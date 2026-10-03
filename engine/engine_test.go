@@ -188,7 +188,7 @@ func TestGenerate(t *testing.T) {
 	tf := &fakeTerraform{dir: dir}
 
 	config := map[string][]byte{VersionsFileName: []byte("# versions\n"), ProvidersFileName: []byte("# providers\n")}
-	result, err := Generate(context.Background(), tf, dir, config, []Import{{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}})
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}}, Options{Config: config})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestGenerateRefusesToOverwrite(t *testing.T) {
 	}
 	tf := &fakeTerraform{dir: dir}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}})
+	_, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}}, Options{})
 
 	if err == nil || len(tf.calls) != 0 {
 		t.Errorf("want an error before running Terraform, got err=%v calls=%v", err, tf.calls)
@@ -256,7 +256,7 @@ func TestGenerateReportsTerraformFailures(t *testing.T) {
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{err: errors.New("Failed to load plugin schemas")}}}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}})
+	_, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}}, Options{})
 
 	if err == nil || !strings.Contains(err.Error(), "terraform plan: Failed to load plugin schemas") {
 		t.Errorf("want the plan error, got %v", err)
@@ -271,7 +271,7 @@ func TestGenerateFailsOnDirectoryErrors(t *testing.T) {
 		{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration", Range: &tfjson.Range{Filename: ProvidersFileName, Start: tfjson.Pos{Line: 1}}},
 	}}}}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}})
+	_, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}}, Options{})
 
 	if err == nil || !strings.Contains(err.Error(), "providers.tf:1: Invalid provider configuration") {
 		t.Errorf("want the directory error, got %v", err)
@@ -303,7 +303,7 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	}
 	imports := []Import{{Type: "aws_sqs_queue", Name: "a", ID: "gone"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}}
 
-	result, err := Generate(context.Background(), tf, dir, nil, imports)
+	result, err := Generate(context.Background(), tf, dir, imports, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestGenerateRepairsAndReplans(t *testing.T) {
 		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
 	}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "a", ID: "Z1_example.internal_A"}})
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_route53_record", Name: "a", ID: "Z1_example.internal_A"}}, Options{})
 	if err != nil {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
@@ -370,7 +370,7 @@ func TestGenerateLeavesOutWhatRepairCannotFix(t *testing.T) {
 		{diags: []tfjson.Diagnostic{errorAt(2, "Invalid record name", "")}},
 	}}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "a", ID: "x"}})
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_route53_record", Name: "a", ID: "x"}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestGenerateGivesUpAfterMaxRounds(t *testing.T) {
 	// Each plan reports another import that fails.
 	imports := []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}, {Type: "aws_sqs_queue", Name: "c", ID: "c"}, {Type: "aws_sqs_queue", Name: "d", ID: "d"}}
 
-	_, err := Generate(context.Background(), tf, dir, nil, imports)
+	_, err := Generate(context.Background(), tf, dir, imports, Options{})
 
 	if err == nil || !strings.Contains(err.Error(), "Cannot import") {
 		t.Errorf("want the remaining error, got %v", err)
@@ -417,7 +417,7 @@ func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
 		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
 	}
 
-	_, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_kms_key", Name: "a", ID: "k"}})
+	_, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_kms_key", Name: "a", ID: "k"}}, Options{})
 	if err != nil {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
@@ -458,7 +458,7 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 		schemas: ssmSchemas,
 	}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: "/app/env"}})
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: "/app/env"}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +503,7 @@ func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
 		schemas:     ssmSchemas,
 	}
 
-	result, err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: "/app/env"}})
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: "/app/env"}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
