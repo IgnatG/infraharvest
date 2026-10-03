@@ -468,7 +468,8 @@ func outputFiles(t *testing.T, out string) map[string]string {
 var gateChange = regexp.MustCompile(`^(\S+): update \((.*)\)$`)
 
 // emulatorGapsOnly reports whether every change a failed plan check
-// details only sets arguments the emulator leaves out (see emulatorGaps).
+// details only sets arguments the emulator leaves out (see emulatorGaps),
+// along with arguments the provider keeps only in state.
 func emulatorGapsOnly(details []string) bool {
 	for _, d := range details {
 		if strings.Contains(d, "only state-only or secret arguments change") {
@@ -480,7 +481,7 @@ func emulatorGapsOnly(details []string) bool {
 		}
 		typ, _, _ := strings.Cut(m[1], ".")
 		for _, a := range strings.Split(m[2], ", ") {
-			if !slices.Contains(emulatorGaps[typ], a) {
+			if !slices.Contains(emulatorGaps[typ], a) && !slices.Contains(stateOnlyArguments[typ], a) {
 				return false
 			}
 		}

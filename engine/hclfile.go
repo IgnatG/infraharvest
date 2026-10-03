@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -134,4 +136,36 @@ func (f *hclFile) importAddresses() map[string]bool {
 
 func spans(rng hcl.Range, line int) bool {
 	return rng.Start.Line <= line && line <= rng.End.Line
+}
+
+// sortResources rewrites the file with its blocks ordered by address, and
+// reports whether that changed it. Terraform writes generated
+// configuration in the order its graph walk reaches the resources, which
+// differs between runs. Comments directly above a block move with it;
+// anything else between blocks is dropped.
+func sortResources(path string) (bool, error) {
+	f, err := loadHCL(path)
+	if err != nil {
+		return false, err
+	}
+	before := hclwrite.Format(f.file.Bytes())
+	blocks := f.file.Body().Blocks()
+	if len(blocks) == 0 {
+		return false, nil
+	}
+	key := func(b *hclwrite.Block) string { return b.Type() + " " + strings.Join(b.Labels(), ".") }
+	sort.SliceStable(blocks, func(i, j int) bool { return key(blocks[i]) < key(blocks[j]) })
+	sorted := hclwrite.NewEmptyFile()
+	for i, b := range blocks {
+		f.file.Body().RemoveBlock(b)
+		if i > 0 {
+			sorted.Body().AppendNewline()
+		}
+		sorted.Body().AppendBlock(b)
+	}
+	f.file = sorted
+	if bytes.Equal(before, hclwrite.Format(sorted.Bytes())) {
+		return false, nil
+	}
+	return true, f.save()
 }

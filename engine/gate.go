@@ -134,7 +134,7 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 			check.Changes = append(check.Changes, change)
 			continue
 		}
-		change.Attributes = changedAttributes(rc.Change.Before, rc.Change.After)
+		change.Attributes = changedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown)
 		allowed := append(append([]string(nil), stateOnly[rc.Type]...), secretArguments[rc.Address]...)
 		explained := true
 		for _, a := range change.Attributes {
@@ -160,18 +160,46 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 }
 
 // changedAttributes returns the top-level attributes that differ between
-// before and after, sorted.
-func changedAttributes(before, after any) []string {
+// before and after, or that will only be known after apply, sorted.
+func changedAttributes(before, after, afterUnknown any) []string {
 	b, _ := before.(map[string]any)
 	a, _ := after.(map[string]any)
+	unknown, _ := afterUnknown.(map[string]any)
 	var changed []string
 	for k, v := range a {
 		if !reflect.DeepEqual(b[k], v) {
 			changed = append(changed, k)
 		}
 	}
+	for k, u := range unknown {
+		if containsTrue(u) && !slices.Contains(changed, k) {
+			changed = append(changed, k)
+		}
+	}
 	sort.Strings(changed)
 	return changed
+}
+
+// containsTrue reports whether an after_unknown value marks anything
+// unknown.
+func containsTrue(v any) bool {
+	switch u := v.(type) {
+	case bool:
+		return u
+	case map[string]any:
+		for _, sub := range u {
+			if containsTrue(sub) {
+				return true
+			}
+		}
+	case []any:
+		for _, sub := range u {
+			if containsTrue(sub) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sensitiveValues returns the string values the plan marks sensitive in
