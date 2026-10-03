@@ -66,6 +66,9 @@ func TestAWSRoundTrip(t *testing.T) {
 		"--resources=" + strings.Join(awsServices, ","),
 		"--path-pattern={output}/{provider}/",
 		"--path-output=" + out,
+		// Keep going after a failed directory so one run reports every
+		// problem; the checks below still fail the test.
+		"--allow-partial",
 	})
 	if err := root.ExecuteContext(ctx); err != nil {
 		t.Fatalf("infraharvest import: %v", err)
@@ -113,8 +116,8 @@ func isolateAWSConfig(t *testing.T) {
 	}
 }
 
-// seed applies testdata/aws, destroys it when the test ends, and returns
-// how many resources of each type it created.
+// seed applies testdata/aws and returns how many resources of each type it
+// created.
 func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) map[string]int {
 	t.Helper()
 	dir := t.TempDir()
@@ -136,13 +139,8 @@ func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) map[s
 	if err := tf.Init(ctx); err != nil {
 		t.Fatalf("seed: terraform init: %v", err)
 	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if err := tf.Destroy(ctx); err != nil {
-			t.Errorf("seed: terraform destroy: %v", err)
-		}
-	})
+	// No destroy: the emulator keeps everything in memory, and Floci can't
+	// delete some resources (ECR repositories hang). Restart it to reset.
 	if err := tf.Apply(ctx); err != nil {
 		t.Fatalf("seed: terraform apply: %v", err)
 	}

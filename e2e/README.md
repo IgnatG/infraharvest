@@ -18,6 +18,8 @@ AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws -v ./e2e/
 docker compose -f e2e/compose.yaml down
 ```
 
+The test doesn't delete what it creates, so restart Floci (`down`, then `up`) before running it again.
+
 The test uses test credentials and empty AWS config files, and refuses any `AWS_ENDPOINT_URL` other than localhost, so it never touches a real account.
 
 To cover another service, add its resources to `testdata/aws/main.tf` and its infraharvest service name to `awsServices` in `aws_test.go`. Check Floci [supports the service](https://github.com/floci-io/floci/tree/main/docs/services) first.
