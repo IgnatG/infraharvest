@@ -24,4 +24,9 @@ The test uses test credentials and empty AWS config files, and refuses any `AWS_
 
 To cover another service, add its resources to `testdata/aws/main.tf` and its infraharvest service name to `awsServices` in `aws_test.go`. Check Floci [supports the service](https://github.com/floci-io/floci/tree/main/docs/services) first.
 
+Not covered yet:
+
+- **Services Floci runs in Docker containers:** EC2 instances, Lambda, RDS and ElastiCache. The test would need the Docker socket mounted into Floci.
+- **Lambda functions in general:** the generated configuration can't include the function code, so it doesn't validate until you add the package.
+
 An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so this doesn't replace a check against a real account.

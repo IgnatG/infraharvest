@@ -33,8 +33,10 @@ import (
 // awsServices are the infraharvest services that import what
 // testdata/aws creates.
 var awsServices = []string{
-	"dynamodb", "ecr", "iam", "igw", "kinesis", "kms", "logs", "route53",
-	"route_table", "secretsmanager", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
+	"alb", "cloudwatch", "dynamodb", "ebs", "ecr", "ecs", "eip", "iam", "igw",
+	"kinesis", "kms", "logs", "nacl", "nat", "route53", "route_table", "s3",
+	"secretsmanager", "sfn", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
+	"vpc_endpoint",
 }
 
 // TestAWSRoundTrip creates resources in an AWS emulator, imports them with
