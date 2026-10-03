@@ -107,7 +107,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 		return errors.Join(planErr, err)
 	}
 	if _, err := tf.Plan(ctx); err != nil {
-		return fmt.Errorf("terraform plan of the repaired configuration: %w", err)
+		// The first plan's errors explain resources it generated nothing for.
+		return errors.Join(planErr, fmt.Errorf("terraform plan of the repaired configuration: %w", err))
 	}
 	return nil
 }
