@@ -100,6 +100,9 @@ func TestAWSRoundTrip(t *testing.T) {
 	}
 	imported := map[string]int{}
 	var lock string
+	// The VPC ID repeats across the network resources, so it must become a
+	// local; the plans below check the lift changes nothing.
+	liftedVPC := false
 	for _, dir := range generatedDirs(t, out) {
 		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
@@ -112,6 +115,9 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("%s: legacy tfer-- resource names", dir)
 		}
 		readFile(t, filepath.Join(dir, engine.ReadmeFileName))
+		if locals, err := os.ReadFile(filepath.Join(dir, engine.LocalsFileName)); err == nil && strings.Contains(string(locals), "vpc_id") {
+			liftedVPC = true
+		}
 		// One provider version for the whole import.
 		if content := readFile(t, filepath.Join(dir, engine.LockFileName)); lock == "" {
 			lock = content
@@ -121,6 +127,9 @@ func TestAWSRoundTrip(t *testing.T) {
 		for typ, n := range checkNoChanges(ctx, t, dir, execPath, filepath.Join(cache, "plugins"), secretValues(t, dir, state)) {
 			imported[typ] += n
 		}
+	}
+	if !liftedVPC {
+		t.Errorf("no %s with local.vpc_id", engine.LocalsFileName)
 	}
 	seeded := map[string]int{}
 	for _, r := range state {
