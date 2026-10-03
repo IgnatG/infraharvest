@@ -8,7 +8,7 @@ These tests run infraharvest against local cloud emulators, so they need no clou
 
 1. Terraform creates the resources in [`testdata/aws`](testdata/aws/main.tf) in Floci.
 2. `infraharvest import aws --engine=terraform` imports them.
-3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
+3. Terraform plans the generated configuration, with the secret variables set to the values from step 1. Every resource must be an import with no changes, no resource may be left out (`rejected.hcl`), and every resource type created in step 1 must be imported.
 
 Run it locally (needs Docker and Terraform >= 1.5; compiling uses a few GB of RAM):
 
@@ -23,7 +23,5 @@ The test doesn't delete what it creates, so restart Floci (`down`, then `up`) be
 The test uses test credentials and empty AWS config files, and refuses any `AWS_ENDPOINT_URL` other than localhost, so it never touches a real account.
 
 To cover another service, add its resources to `testdata/aws/main.tf` and its infraharvest service name to `awsServices` in `aws_test.go`. Check Floci [supports the service](https://github.com/floci-io/floci/tree/main/docs/services) first.
-
-Not covered yet: SSM parameters. Terraform doesn't write sensitive values into generated configuration, so an imported parameter needs its value filled in by hand.
 
 An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so this doesn't replace a check against a real account.

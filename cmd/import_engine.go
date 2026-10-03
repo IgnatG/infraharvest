@@ -66,20 +66,55 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
+	// Every directory requires the same provider. Reusing the first lock
+	// file pins one provider version for the whole import, and lets
+	// Terraform install it from the plugin cache, which it only does for
+	// providers a lock file records.
+	var lock []byte
 	for _, dir := range dirs {
 		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		tf, err := engine.NewTerraform(dir, execPath, filepath.Join(cacheDir, "plugins"))
-		if err == nil {
-			err = engine.Generate(ctx, tf, dir, providerHCL, byDir[dir], fixup)
-		}
+		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), providerHCL, byDir[dir], fixup, &lock)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			failures = append(failures, fmt.Errorf("%s: %w", dir, err))
+			continue
+		}
+		for _, r := range result.Rejected {
+			failures = append(failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, r.Address, engine.RejectedFileName, strings.Join(r.Errors, "; ")))
+		}
+		if len(result.Secrets) > 0 {
+			names := make([]string, 0, len(result.Secrets))
+			for _, s := range result.Secrets {
+				names = append(names, s.Variable)
+			}
+			log.Printf("%s: set these secret variables before planning (see %s): %s", dir, engine.VariablesFileName, strings.Join(names, ", "))
 		}
 	}
 	return checkFailures(failures, options.AllowPartial)
+}
+
+// generateDir runs engine.Generate in dir, seeding it with *lock if set and
+// keeping its lock file in *lock otherwise.
+func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, providerHCL []byte, imports []engine.Import, fixup engine.Fixup, lock *[]byte) (*engine.Result, error) {
+	tf, err := engine.NewTerraform(dir, execPath, pluginCacheDir)
+	if err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(dir, engine.LockFileName)
+	if *lock != nil {
+		if err := os.WriteFile(lockPath, *lock, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	result, err := engine.Generate(ctx, tf, dir, providerHCL, imports, fixup)
+	if *lock == nil {
+		if content, readErr := os.ReadFile(lockPath); readErr == nil {
+			*lock = content
+		}
+	}
+	return result, err
 }
 
 // checkTerraformEngineOptions rejects legacy options the Terraform engine

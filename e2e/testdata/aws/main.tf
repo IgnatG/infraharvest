@@ -128,6 +128,20 @@ resource "aws_secretsmanager_secret" "db" {
   name = "${local.name}-db"
 }
 
+# Terraform doesn't write parameter values into the configuration it
+# generates; infraharvest turns them into variables the test then sets.
+resource "aws_ssm_parameter" "endpoint" {
+  name  = "/${local.name}/endpoint"
+  type  = "String"
+  value = "https://api.${local.name}.internal"
+}
+
+resource "aws_ssm_parameter" "token" {
+  name  = "/${local.name}/token"
+  type  = "SecureString"
+  value = "not-a-real-secret"
+}
+
 resource "aws_route53_zone" "internal" {
   name = "${local.name}.internal"
 }

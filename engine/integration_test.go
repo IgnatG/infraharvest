@@ -38,9 +38,12 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Generate(ctx, tf, dir, providers, []Import{{Type: "random_string", Name: "tfer--example", ID: "s3cr3tvalue"}}, nil)
+	result, err := Generate(ctx, tf, dir, providers, []Import{{Type: "random_string", Name: "tfer--example", ID: "s3cr3tvalue"}}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(result.Secrets) != 0 || len(result.Rejected) != 0 {
+		t.Errorf("want nothing left to do, got %+v", result)
 	}
 
 	generated, err := os.ReadFile(filepath.Join(dir, GeneratedFileName))
