@@ -146,7 +146,7 @@ func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.
 	})
 	target := func(argument, value string) (referenceTarget, bool) {
 		t, ok := index[value]
-		if !ok || t.address == address || !(referenceable(value) || namedAfter(argument, t.address)) {
+		if !ok || t.address == address || (!referenceable(value) && !namedAfter(argument, t.address)) {
 			return referenceTarget{}, false
 		}
 		return t, g.add(address, t.address)
