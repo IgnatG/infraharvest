@@ -302,8 +302,10 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 // stateOnlyArguments are arguments the AWS provider keeps only in state and
 // uses when it deletes a resource. They are null after an import, so the
 // first apply records their defaults without calling AWS.
+// The AWS provider's own import tests ignore the same arguments.
 var stateOnlyArguments = map[string][]string{
 	"aws_ecs_service":           {"wait_for_steady_state"},
+	"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
 	"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
 }
 
@@ -313,6 +315,8 @@ var stateOnlyArguments = map[string][]string{
 var emulatorGaps = map[string][]string{
 	// DescribeServices has no deploymentConfiguration.
 	"aws_ecs_service": {"deployment_maximum_percent", "deployment_minimum_healthy_percent"},
+	// DescribeTargetGroupAttributes has no target_group_health.* keys.
+	"aws_lb_target_group": {"target_group_health"},
 }
 
 // stateOnly reports whether every changed attribute is a state-only argument
