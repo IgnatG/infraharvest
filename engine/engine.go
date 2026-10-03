@@ -32,10 +32,12 @@ type Terraform interface {
 }
 
 // NewTerraform returns a Terraform runner for dir that shares downloaded
-// providers through pluginCacheDir.
+// providers through pluginCacheDir. It creates both directories.
 func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, error) {
-	if err := os.MkdirAll(pluginCacheDir, 0o755); err != nil {
-		return nil, err
+	for _, d := range []string{dir, pluginCacheDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return nil, err
+		}
 	}
 	tf, err := tfexec.NewTerraform(dir, execPath)
 	if err != nil {

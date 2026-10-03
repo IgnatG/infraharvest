@@ -127,6 +127,24 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
+// Output directories such as generated/aws/sqs don't exist before the
+// first import into them.
+func TestNewTerraformCreatesDirs(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "generated", "aws", "sqs")
+	cache := filepath.Join(base, "cache", "plugins")
+
+	if _, err := NewTerraform(dir, os.Args[0], cache); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, d := range []string{dir, cache} {
+		if info, err := os.Stat(d); err != nil || !info.IsDir() {
+			t.Errorf("%s not created: %v", d, err)
+		}
+	}
+}
+
 func TestGenerateRefusesToOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, GeneratedFileName), []byte("mine"), 0o644); err != nil {
