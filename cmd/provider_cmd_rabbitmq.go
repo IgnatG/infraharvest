@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || rabbitmq
+
 package cmd
 
 import (
@@ -55,4 +57,8 @@ func newCmdRabbitMQImporter(options ImportOptions) *cobra.Command {
 
 func newRabbitMQProvider() terraformutils.ProviderGenerator {
 	return &rabbitmq_terraforming.RBTProvider{}
+}
+
+func init() {
+	registerProvider("rabbitmq", newCmdRabbitMQImporter, newRabbitMQProvider)
 }

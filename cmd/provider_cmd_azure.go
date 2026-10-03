@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || azure
+
 package cmd
 
 import (
@@ -43,4 +46,8 @@ func newCmdAzureImporter(options ImportOptions) *cobra.Command {
 
 func newAzureProvider() terraformutils.ProviderGenerator {
 	return &azure_terraforming.AzureProvider{}
+}
+
+func init() {
+	registerProvider("azure", newCmdAzureImporter, newAzureProvider)
 }

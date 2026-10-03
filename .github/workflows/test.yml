@@ -117,3 +117,30 @@ jobs:
         done
     - name: Policy JSON
       run: jq empty permissions/aws/deny-data-reads.json
+
+
+  # `-tags minimal,<provider>` builds only the named providers; check the
+  # registry works with none and with one.
+  build-tags:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: No providers
+      run: |
+        go vet -tags minimal ./cmd/
+        go build -tags minimal -o infraharvest-none .
+        ./infraharvest-none import --help
+    - name: AWS only
+      run: |
+        go build -tags minimal,aws -o infraharvest-aws .
+        ./infraharvest-aws import aws --help > /dev/null
+        if ./infraharvest-aws import google --help 2>/dev/null | grep -q "Import current state to Terraform configuration from Google"; then
+          echo "::error::google should not be compiled into a minimal,aws build"; exit 1
+        fi

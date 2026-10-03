@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || auth0
+
 package cmd
 
 import (
@@ -57,4 +60,8 @@ func newCmdAuth0Importer(options ImportOptions) *cobra.Command {
 
 func newAuth0Provider() terraformutils.ProviderGenerator {
 	return &auth0_terraforming.Auth0Provider{}
+}
+
+func init() {
+	registerProvider("auth0", newCmdAuth0Importer, newAuth0Provider)
 }

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || keycloak
+
 package cmd
 
 import (
@@ -104,4 +106,8 @@ func newCmdKeycloakImporter(options ImportOptions) *cobra.Command {
 
 func newKeycloakProvider() terraformutils.ProviderGenerator {
 	return &keycloak_terraforming.KeycloakProvider{}
+}
+
+func init() {
+	registerProvider("keycloak", newCmdKeycloakImporter, newKeycloakProvider)
 }

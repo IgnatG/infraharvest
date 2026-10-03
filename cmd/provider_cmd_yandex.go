@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || yandex
+
 package cmd
 
 import (
@@ -56,4 +58,8 @@ func newCmdYandexImporter(options ImportOptions) *cobra.Command {
 
 func newYandexProvider() terraformutils.ProviderGenerator {
 	return &yandex_terraforming.YandexProvider{}
+}
+
+func init() {
+	registerProvider("yandex", newCmdYandexImporter, newYandexProvider)
 }

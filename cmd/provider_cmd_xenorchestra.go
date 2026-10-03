@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || xenorchestra
+
 package cmd
 
 import (
@@ -41,4 +44,8 @@ func newCmdXenorchestraImporter(options ImportOptions) *cobra.Command {
 
 func newXenorchestraProvider() terraformutils.ProviderGenerator {
 	return &xenorchestra_terraforming.XenorchestraProvider{}
+}
+
+func init() {
+	registerProvider("xenorchestra", newCmdXenorchestraImporter, newXenorchestraProvider)
 }

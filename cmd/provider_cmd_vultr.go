@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || vultr
+
 package cmd
 
 import (
@@ -42,4 +45,8 @@ func newCmdVultrImporter(options ImportOptions) *cobra.Command {
 
 func newVultrProvider() terraformutils.ProviderGenerator {
 	return &vultr_terraforming.VultrProvider{}
+}
+
+func init() {
+	registerProvider("vultr", newCmdVultrImporter, newVultrProvider)
 }

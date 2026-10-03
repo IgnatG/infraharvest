@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || grafana
+
 package cmd
 
 import (
@@ -41,4 +44,8 @@ func newCmdGrafanaImporter(options ImportOptions) *cobra.Command {
 
 func newGrafanaProvider() terraformutils.ProviderGenerator {
 	return &grafana.GrafanaProvider{}
+}
+
+func init() {
+	registerProvider("grafana", newCmdGrafanaImporter, newGrafanaProvider)
 }

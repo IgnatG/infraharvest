@@ -254,10 +254,10 @@ sudo mv terraformer-${PROVIDER}-darwin-amd64 /usr/local/bin/terraformer
 3. Add the exe file path to path variable
 
 **From source**
-1.  Run `git clone <terraformer repo> && cd terraformer/`
+1.  Run `git clone https://github.com/IgnatG/infraharvest.git && cd infraharvest/`
 2.  Run `go mod download`
-3.  Run `go build -v` for all providers OR build with one provider
-`go run build/main.go {google,aws,azure,kubernetes,etc}`
+3.  Run `go build -o infraharvest .` for all providers, or build only the providers you need:
+`go build -tags minimal,aws,google -o infraharvest .` (provider names as in `infraharvest import <provider>`)
 
 #### Terraform Providers
 

@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || alicloud
+
 package cmd
 
 import (
@@ -51,4 +54,8 @@ func newCmdAliCloudImporter(options ImportOptions) *cobra.Command {
 
 func newAliCloudProvider() terraformutils.ProviderGenerator {
 	return &alicloud_terraforming.AliCloudProvider{}
+}
+
+func init() {
+	registerProvider("alicloud", newCmdAliCloudImporter, newAliCloudProvider)
 }

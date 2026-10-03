@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || mackerel
+
 package cmd
 
 import (
@@ -43,4 +45,8 @@ func newCmdMackerelImporter(options ImportOptions) *cobra.Command {
 
 func newMackerelProvider() terraformutils.ProviderGenerator {
 	return &mackerel_terraforming.MackerelProvider{}
+}
+
+func init() {
+	registerProvider("mackerel", newCmdMackerelImporter, newMackerelProvider)
 }

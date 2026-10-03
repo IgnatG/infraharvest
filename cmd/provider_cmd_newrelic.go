@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || newrelic
+
 package cmd
 
 import (
@@ -48,4 +51,8 @@ func newCmdNewRelicImporter(options ImportOptions) *cobra.Command {
 
 func newNewRelicProvider() terraformutils.ProviderGenerator {
 	return &newrelic_terraforming.NewRelicProvider{}
+}
+
+func init() {
+	registerProvider("newrelic", newCmdNewRelicImporter, newNewRelicProvider)
 }

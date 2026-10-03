@@ -39,111 +39,20 @@ func Execute() error {
 }
 
 func providerImporterSubcommands() []func(options ImportOptions) *cobra.Command {
-	return []func(options ImportOptions) *cobra.Command{
-		// Major Cloud
-		newCmdGoogleImporter,
-		newCmdAwsImporter,
-		newCmdAzureImporter,
-		newCmdAliCloudImporter,
-		newCmdIbmImporter,
-		// Cloud
-		newCmdDigitalOceanImporter,
-		newCmdEquinixMetalImporter,
-		newCmdHerokuImporter,
-		newCmdLaunchDarklyImporter,
-		newCmdLinodeImporter,
-		newCmdOpenStackImporter,
-		newCmdTencentCloudImporter,
-		newCmdVultrImporter,
-		newCmdYandexImporter,
-		newCmdIonosCloudImporter,
-		// Infrastructure Software
-		newCmdKubernetesImporter,
-		newCmdOctopusDeployImporter,
-		newCmdRabbitMQImporter,
-		// Network
-		newCmdMyrasecImporter,
-		newCmdCloudflareImporter,
-		newCmdFastlyImporter,
-		newCmdNs1Importer,
-		newCmdPanosImporter,
-		// VCS
-		newCmdAzureDevOpsImporter,
-		newCmdAzureADImporter,
-		newCmdGithubImporter,
-		newCmdGitLabImporter,
-		// Monitoring & System Management
-		newCmdDatadogImporter,
-		newCmdNewRelicImporter,
-		newCmdMackerelImporter,
-		newCmdGrafanaImporter,
-		newCmdPagerDutyImporter,
-		newCmdOpsgenieImporter,
-		newCmdHoneycombioImporter,
-		newCmdOpalImporter,
-		// Community
-		newCmdKeycloakImporter,
-		newCmdLogzioImporter,
-		newCmdCommercetoolsImporter,
-		newCmdMikrotikImporter,
-		newCmdXenorchestraImporter,
-		newCmdGmailfilterImporter,
-		newCmdVaultImporter,
-		newCmdOktaImporter,
-		newCmdAuth0Importer,
+	var commands []func(options ImportOptions) *cobra.Command
+	for _, name := range registeredProviders() {
+		commands = append(commands, providerRegistry[name].newCmd)
 	}
+	return commands
 }
 
+// providerGenerators maps each provider's Terraform name to its generator,
+// for loading plan files.
 func providerGenerators() map[string]func() terraformutils.ProviderGenerator {
-	list := make(map[string]func() terraformutils.ProviderGenerator)
-	for _, providerGen := range []func() terraformutils.ProviderGenerator{
-		// Major Cloud
-		newGoogleProvider,
-		newAWSProvider,
-		newAzureProvider,
-		newAliCloudProvider,
-		newIbmProvider,
-		// Cloud
-		newDigitalOceanProvider,
-		newEquinixMetalProvider,
-		newFastlyProvider,
-		newHerokuProvider,
-		newLaunchDarklyProvider,
-		newLinodeProvider,
-		newNs1Provider,
-		newOpenStackProvider,
-		newTencentCloudProvider,
-		newVultrProvider,
-		// Infrastructure Software
-		newKubernetesProvider,
-		newOctopusDeployProvider,
-		newRabbitMQProvider,
-		// Network
-		newMyrasecProvider,
-		newCloudflareProvider,
-		// VCS
-		newAzureDevOpsProvider,
-		newAzureADProvider,
-		newGitHubProvider,
-		newGitLabProvider,
-		// Monitoring & System Management
-		newDataDogProvider,
-		newNewRelicProvider,
-		newPagerDutyProvider,
-		newHoneycombioProvider,
-		newOpalProvider,
-		// Community
-		newKeycloakProvider,
-		newLogzioProvider,
-		newCommercetoolsProvider,
-		newMikrotikProvider,
-		newXenorchestraProvider,
-		newGmailfilterProvider,
-		newVaultProvider,
-		newOktaProvider,
-		newAuth0Provider,
-	} {
-		list[providerGen().GetName()] = providerGen
+	generators := make(map[string]func() terraformutils.ProviderGenerator)
+	for _, name := range registeredProviders() {
+		newProvider := providerRegistry[name].newProvider
+		generators[newProvider().GetName()] = newProvider
 	}
-	return list
+	return generators
 }

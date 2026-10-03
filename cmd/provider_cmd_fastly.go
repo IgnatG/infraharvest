@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || fastly
+
 package cmd
 
 import (
@@ -42,4 +45,8 @@ func newCmdFastlyImporter(options ImportOptions) *cobra.Command {
 
 func newFastlyProvider() terraformutils.ProviderGenerator {
 	return &fastly_terraforming.FastlyProvider{}
+}
+
+func init() {
+	registerProvider("fastly", newCmdFastlyImporter, newFastlyProvider)
 }
