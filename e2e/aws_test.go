@@ -347,6 +347,9 @@ var emulatorGaps = map[string][]string{
 	"aws_ecs_service": {"deployment_maximum_percent", "deployment_minimum_healthy_percent"},
 	// DescribeTargetGroupAttributes has no target_group_health.* keys.
 	"aws_lb_target_group": {"target_group_health"},
+	// Unverified: the plan marks these computed attributes unknown after an
+	// import. Check on a real account (sandbox, P0-04) whether AWS does too.
+	"aws_nat_gateway": {"regional_nat_gateway_address", "secondary_allocation_ids", "secondary_private_ip_addresses"},
 }
 
 // stateOnly reports whether every changed attribute is a state-only argument

@@ -136,9 +136,18 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 		}
 		change.Attributes = changedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown)
 		allowed := append(append([]string(nil), stateOnly[rc.Type]...), secretArguments[rc.Address]...)
+		// A placeholder secret value also makes what the provider computes
+		// from it unknown, such as an SSM parameter's version.
+		placeholderChanged := false
+		for _, a := range change.Attributes {
+			if slices.Contains(secretArguments[rc.Address], a) {
+				placeholderChanged = true
+			}
+		}
+		unknown := unknownAttributes(rc.Change.AfterUnknown)
 		explained := true
 		for _, a := range change.Attributes {
-			if !slices.Contains(allowed, a) {
+			if !slices.Contains(allowed, a) && (!placeholderChanged || !slices.Contains(unknown, a)) {
 				explained = false
 			}
 		}
@@ -178,6 +187,19 @@ func changedAttributes(before, after, afterUnknown any) []string {
 	}
 	sort.Strings(changed)
 	return changed
+}
+
+// unknownAttributes returns the top-level attributes after_unknown marks
+// as known only after apply.
+func unknownAttributes(afterUnknown any) []string {
+	unknown, _ := afterUnknown.(map[string]any)
+	var names []string
+	for k, u := range unknown {
+		if containsTrue(u) {
+			names = append(names, k)
+		}
+	}
+	return names
 }
 
 // containsTrue reports whether an after_unknown value marks anything

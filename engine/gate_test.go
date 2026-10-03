@@ -33,6 +33,8 @@ func TestPlanCheck(t *testing.T) {
 		{"imports only", []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}, true},
 		{"state-only argument", []*tfjson.ResourceChange{change("aws_secretsmanager_secret.db", update, map[string]any{"name": "db"}, map[string]any{"name": "db", "recovery_window_in_days": 30.0})}, true},
 		{"placeholder secret", []*tfjson.ResourceChange{change("aws_ssm_parameter.p", update, map[string]any{"value": "real"}, map[string]any{"value": "placeholder"})}, true},
+		{"placeholder secret and what it makes unknown", []*tfjson.ResourceChange{withUnknown(change("aws_ssm_parameter.p", update, map[string]any{"value": "real", "version": 1.0}, map[string]any{"value": "placeholder"}), "version")}, true},
+		{"unknown without a secret", []*tfjson.ResourceChange{withUnknown(change("aws_nat_gateway.n", update, map[string]any{}, map[string]any{}), "secondary_allocation_ids")}, false},
 		{"real change", []*tfjson.ResourceChange{change("aws_vpc.main", update, map[string]any{"cidr_block": "10.0.0.0/16"}, map[string]any{"cidr_block": "10.1.0.0/16"})}, false},
 		{"create", []*tfjson.ResourceChange{change("aws_vpc.extra", tfjson.Actions{tfjson.ActionCreate}, nil, map[string]any{})}, false},
 	} {
@@ -148,4 +150,14 @@ func TestRunGate(t *testing.T) {
 	if !gate.Passed() {
 		t.Errorf("want every check passed: %+v", gate)
 	}
+}
+
+// withUnknown marks attributes of rc as known only after apply.
+func withUnknown(rc *tfjson.ResourceChange, attributes ...string) *tfjson.ResourceChange {
+	unknown := map[string]any{}
+	for _, a := range attributes {
+		unknown[a] = true
+	}
+	rc.Change.AfterUnknown = unknown
+	return rc
 }
