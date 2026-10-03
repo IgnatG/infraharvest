@@ -66,9 +66,9 @@ func useFakeAPI(t *testing.T, handle func(apiCall) string) {
 		HTTPClient:  &fakeAPI{handle: handle},
 		Retryer:     func() aws.Retryer { return aws.NopRetryer{} },
 	}
-	previous := configCache
-	configCache = &cfg
-	t.Cleanup(func() { configCache = previous })
+	previous := testConfig
+	testConfig = &cfg
+	t.Cleanup(func() { testConfig = previous })
 }
 
 // resourceIDs returns the IDs of the resources of resourceType.

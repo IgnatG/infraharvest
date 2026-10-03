@@ -18,6 +18,7 @@ import (
 	"context"
 	"os"
 	"regexp"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
@@ -34,11 +35,26 @@ type AWSService struct { //nolint
 
 var awsVariable = regexp.MustCompile(`(\${[0-9A-Za-z:]+})`)
 
-var configCache *aws.Config
+// configKey identifies an SDK config: one import can cover several regions,
+// global services included.
+type configKey struct{ region, profile string }
+
+var (
+	configsMu sync.Mutex
+	configs   = map[configKey]aws.Config{}
+	// testConfig, when set, is returned for every region and profile.
+	testConfig *aws.Config
+)
 
 func (s *AWSService) generateConfig() (aws.Config, error) {
-	if configCache != nil {
-		return *configCache, nil
+	if testConfig != nil {
+		return *testConfig, nil
+	}
+	key := configKey{region: s.GetArgs()["region"].(string), profile: s.GetArgs()["profile"].(string)}
+	configsMu.Lock()
+	defer configsMu.Unlock()
+	if cfg, ok := configs[key]; ok {
+		return cfg, nil
 	}
 
 	baseConfig, e := s.buildBaseConfig()
@@ -66,7 +82,7 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 			os.Setenv("AWS_SESSION_TOKEN", creds.SessionToken)
 		}
 	}
-	configCache = &baseConfig
+	configs[key] = baseConfig
 	return baseConfig, nil
 }
 
