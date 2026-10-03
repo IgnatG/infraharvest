@@ -53,14 +53,14 @@ func TestExcludedByDefault(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"aws_vpc vpc-default":                      reasonDefaultVPC,
-		"aws_subnet subnet-default-a":              reasonDefaultNetwork,
-		"aws_route_table rtb-default":              reasonDefaultNetwork,
-		"aws_internet_gateway igw-default":         reasonDefaultNetwork,
-		"aws_security_group sg-default-own":        reasonDefaultSG,
-		"aws_security_group_rule sgrule-1":         reasonDefaultSG,
-		"aws_default_network_acl acl-1":            reasonDefaultNACL,
-		"aws_iam_role AWSServiceRoleForECS":        reasonServiceLinked,
+		"aws_vpc vpc-default":                     reasonDefaultVPC,
+		"aws_subnet subnet-default-a":             reasonDefaultNetwork,
+		"aws_route_table rtb-default":             reasonDefaultNetwork,
+		"aws_internet_gateway igw-default":        reasonDefaultNetwork,
+		"aws_security_group sg-default-own":       reasonDefaultSG,
+		"aws_security_group_rule sgrule-1":        reasonDefaultSG,
+		"aws_default_network_acl acl-1":           reasonDefaultNACL,
+		"aws_iam_role AWSServiceRoleForECS":       reasonServiceLinked,
 		"aws_cloudwatch_log_group /aws/lambda/fn": reasonLambdaLogGroups,
 	}
 	if !reflect.DeepEqual(excluded, want) {

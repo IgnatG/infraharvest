@@ -41,7 +41,7 @@ var listedForSelection = map[string][]terraformutils.Resource{
 		terraformutils.NewSimpleResource("vpc-default", "vpc-default", "aws_vpc", "aws", nil),
 		terraformutils.NewSimpleResource("vpc-0abc1234", "vpc-0abc1234", "aws_vpc", "aws", nil),
 	},
-	"s3": {terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws", nil)},
+	"s3":          {terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws", nil)},
 	"route_table": {terraformutils.NewSimpleResource("rtbassoc-1", "main", "aws_main_route_table_association", "aws", nil)},
 }
 

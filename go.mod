@@ -464,6 +464,7 @@ require (
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/tat v1.0.392
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/tcaplusdb v1.0.392
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/vpc v1.0.392
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 replace gopkg.in/jarcoal/httpmock.v1 => github.com/jarcoal/httpmock v1.0.5
