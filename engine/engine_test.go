@@ -417,16 +417,18 @@ func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
 }
 
 const ssmGenerated = `resource "aws_ssm_parameter" "tfer--app-env" {
-  name  = "/app/env"
-  type  = "SecureString"
-  value = null # sensitive
+  name     = "/app/env"
+  type     = "SecureString"
+  value    = null # sensitive
+  value_wo = null # sensitive
 }
 `
 
 var ssmSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
 	"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
 		"aws_ssm_parameter": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
-			"value": {AttributeType: cty.String, Optional: true, Sensitive: true},
+			"value":    {AttributeType: cty.String, Optional: true, Sensitive: true},
+			"value_wo": {AttributeType: cty.String, Optional: true, Sensitive: true, WriteOnly: true},
 		}}},
 	}},
 }}
@@ -456,8 +458,13 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 	if !reflect.DeepEqual(result.Secrets, wantSecrets) {
 		t.Errorf("secrets: got %+v, want %+v", result.Secrets, wantSecrets)
 	}
-	if got := readFile(t, dir, GeneratedFileName); !strings.Contains(got, "value = var.aws_ssm_parameter_tfer_app_env_value # sensitive") {
+	got := readFile(t, dir, GeneratedFileName)
+	if !strings.Contains(got, "value    = var.aws_ssm_parameter_tfer_app_env_value # sensitive") {
 		t.Errorf("generated.tf doesn't read the variable:\n%s", got)
+	}
+	// Write-only arguments are never stored: unset is right for an import.
+	if !strings.Contains(got, "value_wo = null") {
+		t.Errorf("write-only value_wo should stay null:\n%s", got)
 	}
 	wantVariables := `variable "aws_ssm_parameter_tfer_app_env_value" {
   description = "value of aws_ssm_parameter.tfer--app-env. Terraform doesn't write secret values into the configuration it generates: set it before planning, for example in a .tfvars file kept out of version control."

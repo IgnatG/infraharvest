@@ -182,11 +182,36 @@ func variablesFile(secrets []Secret, schemas *tfjson.ProviderSchemas) ([]byte, e
 	return hclwrite.Format(f.Bytes()), nil
 }
 
+// withoutWriteOnly leaves out write-only attributes (value_wo, for
+// example). Terraform also generates them as "null # sensitive", but they
+// are never stored, so null, unset, is what an import should produce.
+func withoutWriteOnly(secrets map[string][]secretAttribute, schemas *tfjson.ProviderSchemas) map[string][]secretAttribute {
+	kept := map[string][]secretAttribute{}
+	for addr, attrs := range secrets {
+		resourceType := strings.SplitN(addr, ".", 2)[0]
+		for _, s := range attrs {
+			if attr := schemaAttribute(schemas, resourceType, s.schemaPath); attr == nil || !attr.WriteOnly {
+				kept[addr] = append(kept[addr], s)
+			}
+		}
+	}
+	return kept
+}
+
 // attributeType returns the type of the attribute at path in resourceType's
 // schema, or cty.NilType if the schemas don't describe it.
 func attributeType(schemas *tfjson.ProviderSchemas, resourceType string, path []string) cty.Type {
+	if attr := schemaAttribute(schemas, resourceType, path); attr != nil {
+		return attr.AttributeType
+	}
+	return cty.NilType
+}
+
+// schemaAttribute returns the attribute at path in resourceType's schema,
+// or nil if the schemas don't describe it.
+func schemaAttribute(schemas *tfjson.ProviderSchemas, resourceType string, path []string) *tfjson.SchemaAttribute {
 	if schemas == nil || len(path) == 0 {
-		return cty.NilType
+		return nil
 	}
 	for _, provider := range schemas.Schemas {
 		resource, ok := provider.ResourceSchemas[resourceType]
@@ -197,16 +222,13 @@ func attributeType(schemas *tfjson.ProviderSchemas, resourceType string, path []
 		for _, name := range path[:len(path)-1] {
 			nested, ok := block.NestedBlocks[name]
 			if !ok || nested.Block == nil {
-				return cty.NilType
+				return nil
 			}
 			block = nested.Block
 		}
-		if attr, ok := block.Attributes[path[len(path)-1]]; ok {
-			return attr.AttributeType
-		}
-		return cty.NilType
+		return block.Attributes[path[len(path)-1]]
 	}
-	return cty.NilType
+	return nil
 }
 
 // typeTokens renders ty as a type constraint expression.

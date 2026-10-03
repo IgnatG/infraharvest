@@ -233,13 +233,16 @@ func useVariables(ctx context.Context, tf Terraform, dir string, rejections *[]R
 	if len(found) == 0 {
 		return nil, nil
 	}
-	secrets := secretsToVariables(generated, found)
-	if err := generated.save(); err != nil {
-		return nil, err
-	}
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("terraform providers schema: %w", err)
+	}
+	if found = withoutWriteOnly(found, schemas); len(found) == 0 {
+		return nil, nil
+	}
+	secrets := secretsToVariables(generated, found)
+	if err := generated.save(); err != nil {
+		return nil, err
 	}
 	if err := writeVariables(dir, secrets, schemas); err != nil {
 		return nil, err

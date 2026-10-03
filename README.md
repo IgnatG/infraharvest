@@ -135,7 +135,7 @@ Each output directory gets:
 | `providers.tf` | The provider requirement and configuration |
 | `imports.tf` | One `import` block per resource. Delete it after the first `terraform apply` |
 | `generated.tf` | The configuration Terraform generated for the resources |
-| `variables.tf` | Only if there are secrets: a `sensitive` variable, with no default, for each secret value. Terraform doesn't write secret values (an SSM parameter's `value`, for example) into the configuration it generates. Set the variables before planning, for example in a `.tfvars` file kept out of version control |
+| `variables.tf` | Only if there are secrets: a `sensitive` variable, with no default, for each secret value. Terraform doesn't write secret values (an SSM parameter's `value`, for example) into the configuration it generates. Set the variables before planning, for example in a `.tfvars` file kept out of version control. Write-only arguments (`*_wo`) stay unset |
 | `.terraform.lock.hcl` | The provider version, the same for every directory of one import |
 | `rejected.hcl` | Only if some resources couldn't be imported: their `import` block and generated configuration, under the errors Terraform reported. Terraform doesn't load this file. Fix a resource and move its blocks into `imports.tf` and `generated.tf`, or leave it out. Rejected resources make the import exit non-zero unless `--allow-partial` is set |
 
