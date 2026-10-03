@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -70,11 +69,6 @@ func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, erro
 	return tf, nil
 }
 
-// Fixup repairs one generated resource block in place and reports whether
-// it changed anything. Providers use it for quirks of their configuration
-// generator; see terraformutils.ProviderWithConfigFixups.
-type Fixup func(resourceType string, body *hclwrite.Body) bool
-
 // Result is what Generate leaves for the user to finish.
 type Result struct {
 	// Secrets are the variables to set before planning.
@@ -85,14 +79,14 @@ type Result struct {
 
 // Generate writes providers and imports into dir, then runs Terraform to
 // generate the configuration of every imported resource into generated.tf.
-// If Terraform rejects what it generated, Generate repairs it (see repair),
-// using fixup if not nil, and plans again. Resources it still can't plan
-// are left out (see Rejection). Secret values Terraform doesn't write into
-// the configuration become sensitive variables in variables.tf (see Secret).
+// If Terraform rejects what it generated, Generate repairs it (see repair)
+// and plans again. Resources it still can't plan are left out (see
+// Rejection). Secret values Terraform doesn't write into the configuration
+// become sensitive variables in variables.tf (see Secret).
 //
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf.
-func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, imports []Import, fixup Fixup) (*Result, error) {
+func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, imports []Import) (*Result, error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -156,7 +150,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 		changed := false
 		if !repaired {
 			repaired = true
-			if changed, err = repair(ctx, tf, generated, fixup); err != nil {
+			if changed, err = repair(ctx, tf, generated); err != nil {
 				return nil, err
 			}
 		}

@@ -57,10 +57,6 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 	}
 
 	byDir := importsByDir(provider.GetName(), options, mapping.GetResourcesByService(), importIDFunc(provider))
-	var fixup engine.Fixup
-	if withFixups, ok := provider.(terraformutils.ProviderWithConfigFixups); ok {
-		fixup = withFixups.FixGeneratedConfig
-	}
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)
@@ -73,7 +69,7 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 	var lock []byte
 	for _, dir := range dirs {
 		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), providerHCL, byDir[dir], fixup, &lock)
+		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), providerHCL, byDir[dir], &lock)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -97,7 +93,7 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 
 // generateDir runs engine.Generate in dir, seeding it with *lock if set and
 // keeping its lock file in *lock otherwise.
-func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, providerHCL []byte, imports []engine.Import, fixup engine.Fixup, lock *[]byte) (*engine.Result, error) {
+func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, providerHCL []byte, imports []engine.Import, lock *[]byte) (*engine.Result, error) {
 	tf, err := engine.NewTerraform(dir, execPath, pluginCacheDir)
 	if err != nil {
 		return nil, err
@@ -108,7 +104,7 @@ func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, prov
 			return nil, err
 		}
 	}
-	result, err := engine.Generate(ctx, tf, dir, providerHCL, imports, fixup)
+	result, err := engine.Generate(ctx, tf, dir, providerHCL, imports)
 	if *lock == nil {
 		if content, readErr := os.ReadFile(lockPath); readErr == nil {
 			*lock = content

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
 )
 
 // Each fake API below serves two pages. The second page is returned when the
@@ -298,4 +299,81 @@ func TestWafv2Paginates(t *testing.T) {
 	}
 
 	assertEveryOpPaginated(t, g.Resources, wafv2ListOps)
+}
+
+// Some endpoints, emulators among them, end the last page with an empty
+// NextMarker instead of none. The rule lister used to loop on it forever.
+func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
+	describeRules := 0
+	useFakeAPI(t, func(call apiCall) string {
+		const ns = `xmlns="http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"`
+		switch call.Op {
+		case "DescribeLoadBalancers":
+			return `<DescribeLoadBalancersResponse ` + ns + `><DescribeLoadBalancersResult><LoadBalancers><member>
+				<LoadBalancerArn>arn:lb</LoadBalancerArn><LoadBalancerName>web</LoadBalancerName>
+				</member></LoadBalancers></DescribeLoadBalancersResult></DescribeLoadBalancersResponse>`
+		case "DescribeListeners":
+			return `<DescribeListenersResponse ` + ns + `><DescribeListenersResult><Listeners><member>
+				<ListenerArn>arn:listener</ListenerArn>
+				</member></Listeners></DescribeListenersResult></DescribeListenersResponse>`
+		case "DescribeRules":
+			describeRules++
+			if describeRules > 5 {
+				t.Fatal("DescribeRules pagination does not stop")
+			}
+			id, token := pageOf(call, "arn:rule")
+			return fmt.Sprintf(`<DescribeRulesResponse %s><DescribeRulesResult><Rules><member>
+				<RuleArn>%s</RuleArn><IsDefault>false</IsDefault>
+				</member></Rules><NextMarker>%s</NextMarker></DescribeRulesResult></DescribeRulesResponse>`, ns, id, token)
+		case "DescribeListenerCertificates":
+			return `<DescribeListenerCertificatesResponse ` + ns + `><DescribeListenerCertificatesResult><Certificates/>
+				</DescribeListenerCertificatesResult></DescribeListenerCertificatesResponse>`
+		case "DescribeTargetGroups":
+			return `<DescribeTargetGroupsResponse ` + ns + `><DescribeTargetGroupsResult><TargetGroups/>
+				</DescribeTargetGroupsResult></DescribeTargetGroupsResponse>`
+		}
+		t.Fatalf("unexpected call %s", call.Op)
+		return ""
+	})
+	g := &AlbGenerator{}
+
+	if err := g.InitResources(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertIDs(t, g.Resources, "aws_lb_listener_rule", "arn:rule-1", "arn:rule-2")
+}
+
+// The target lister used to page with the rule list's token, which looped
+// forever once there was more than one page of rules.
+func TestCloudWatchEventTargetsPaginate(t *testing.T) {
+	calls := 0
+	useFakeAPI(t, func(call apiCall) string {
+		calls++
+		if calls > 20 {
+			t.Fatal("pagination does not stop")
+		}
+		switch call.Op {
+		case "ListRules":
+			id, token := pageOf(call, "rule")
+			return fmt.Sprintf(`{"Rules":[{"Name":%q}],"NextToken":%q}`, id, token)
+		case "ListTargetsByRule":
+			id, token := pageOf(call, "target")
+			return fmt.Sprintf(`{"Targets":[{"Id":%q,"Arn":"arn:queue"}],"NextToken":%q}`, id, token)
+		}
+		t.Fatalf("unexpected call %s", call.Op)
+		return ""
+	})
+	g := &CloudWatchGenerator{}
+	config, err := g.generateConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.createRules(cloudwatchevents.NewFromConfig(config)); err != nil {
+		t.Fatal(err)
+	}
+
+	assertIDs(t, g.Resources, "aws_cloudwatch_event_rule", "rule-1", "rule-2")
+	assertIDs(t, g.Resources, "aws_cloudwatch_event_target", "rule-1/target-1", "rule-1/target-2", "rule-2/target-1", "rule-2/target-2")
 }

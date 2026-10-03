@@ -24,9 +24,10 @@ resource "aws_vpc" "main" {
 }
 
 resource "aws_subnet" "a" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.42.1.0/24"
-  tags       = local.tags
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.42.1.0/24"
+  availability_zone = "us-east-1a"
+  tags              = local.tags
 }
 
 resource "aws_internet_gateway" "main" {
@@ -144,4 +145,171 @@ resource "aws_ssm_parameter" "token" {
 
 resource "aws_route53_zone" "internal" {
   name = "${local.name}.internal"
+}
+
+resource "aws_subnet" "b" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.42.2.0/24"
+  availability_zone = "us-east-1b"
+  tags              = local.tags
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.a.id
+  tags          = local.tags
+}
+
+resource "aws_network_acl" "private" {
+  vpc_id     = aws_vpc.main.id
+  subnet_ids = [aws_subnet.b.id]
+
+  ingress {
+    rule_no    = 100
+    action     = "allow"
+    protocol   = "tcp"
+    from_port  = 443
+    to_port    = 443
+    cidr_block = "10.0.0.0/8"
+  }
+
+  egress {
+    rule_no    = 100
+    action     = "allow"
+    protocol   = "-1"
+    from_port  = 0
+    to_port    = 0
+    cidr_block = "0.0.0.0/0"
+  }
+}
+
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.us-east-1.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.public.id]
+}
+
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "${local.name}-artifacts"
+  tags   = local.tags
+}
+
+resource "aws_s3_bucket_policy" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = ["${aws_s3_bucket.artifacts.arn}/*"]
+      Condition = { Bool = { "aws:SecureTransport" = "false" } }
+    }]
+  })
+}
+
+resource "aws_lb" "web" {
+  name               = "${local.name}-web"
+  load_balancer_type = "application"
+  internal           = true
+  subnets            = [aws_subnet.a.id, aws_subnet.b.id]
+  security_groups    = [aws_security_group.web.id]
+}
+
+resource "aws_lb_target_group" "web" {
+  name     = "${local.name}-web"
+  port     = 8080
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+}
+
+resource "aws_lb_listener" "web" {
+  load_balancer_arn = aws_lb.web.arn
+  port              = 8080
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.web.arn
+  }
+}
+
+resource "aws_ecs_cluster" "apps" {
+  name = "${local.name}-apps"
+}
+
+resource "aws_ecs_task_definition" "web" {
+  family = "${local.name}-web"
+  container_definitions = jsonencode([{
+    name      = "web"
+    image     = "public.ecr.aws/nginx/nginx:stable"
+    essential = true
+    memory    = 128
+  }])
+}
+
+# No tasks run: the emulator would start containers for them.
+resource "aws_ecs_service" "web" {
+  name            = "web"
+  cluster         = aws_ecs_cluster.apps.id
+  task_definition = aws_ecs_task_definition.web.arn
+  desired_count   = 0
+}
+
+resource "aws_cloudwatch_metric_alarm" "queue_depth" {
+  alarm_name          = "${local.name}-queue-depth"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.jobs.name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 100
+  comparison_operator = "GreaterThanThreshold"
+  alarm_actions       = [aws_sns_topic.events.arn]
+}
+
+resource "aws_cloudwatch_event_rule" "nightly" {
+  name                = "${local.name}-nightly"
+  schedule_expression = "cron(0 3 * * ? *)"
+}
+
+resource "aws_cloudwatch_event_target" "nightly" {
+  rule      = aws_cloudwatch_event_rule.nightly.name
+  target_id = "jobs"
+  arn       = aws_sqs_queue.jobs.arn
+}
+
+resource "aws_iam_role" "workflow" {
+  name = "${local.name}-workflow"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "states.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_sfn_state_machine" "workflow" {
+  name     = "${local.name}-workflow"
+  role_arn = aws_iam_role.workflow.arn
+  definition = jsonencode({
+    StartAt = "Done"
+    States  = { Done = { Type = "Succeed" } }
+  })
+}
+
+resource "aws_ebs_volume" "data" {
+  availability_zone = "us-east-1a"
+  size              = 1
+  type              = "gp3"
+  tags              = local.tags
 }

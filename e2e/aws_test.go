@@ -33,8 +33,10 @@ import (
 // awsServices are the infraharvest services that import what
 // testdata/aws creates.
 var awsServices = []string{
-	"dynamodb", "ecr", "iam", "igw", "kinesis", "kms", "logs", "route53",
-	"route_table", "secretsmanager", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
+	"alb", "cloudwatch", "dynamodb", "ebs", "ecr", "ecs", "eip", "iam", "igw",
+	"kinesis", "kms", "logs", "nacl", "nat", "route53", "route_table", "s3",
+	"secretsmanager", "sfn", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
+	"vpc_endpoint",
 }
 
 // TestAWSRoundTrip creates resources in an AWS emulator, imports them with
@@ -297,18 +299,32 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	return imported
 }
 
-// stateOnlyArguments are arguments the AWS provider keeps only in state and
-// uses when it deletes a resource. They are null after an import, so the
-// first apply records their defaults without calling AWS.
+// stateOnlyArguments are arguments AWS doesn't report, so they are null
+// after an import and the plan sets the provider's defaults: settings the
+// provider keeps only in state (used when it deletes a resource, for
+// example), and settings that don't apply to the resource's kind. The AWS
+// provider's own import tests ignore the same arguments.
 var stateOnlyArguments = map[string][]string{
+	"aws_ecs_service":           {"wait_for_steady_state"},
+	"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
 	"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
 }
 
+// emulatorGaps are attributes Floci leaves out of its API responses where
+// AWS returns them, so the plan sets the provider's default. Each one is a
+// difference from AWS, not from infraharvest's output.
+var emulatorGaps = map[string][]string{
+	// DescribeServices has no deploymentConfiguration.
+	"aws_ecs_service": {"deployment_maximum_percent", "deployment_minimum_healthy_percent"},
+	// DescribeTargetGroupAttributes has no target_group_health.* keys.
+	"aws_lb_target_group": {"target_group_health"},
+}
+
 // stateOnly reports whether every changed attribute is a state-only argument
-// of resourceType.
+// of resourceType, or one the emulator doesn't return.
 func stateOnly(resourceType string, changed map[string]string) bool {
 	for name := range changed {
-		if !slices.Contains(stateOnlyArguments[resourceType], name) {
+		if !slices.Contains(stateOnlyArguments[resourceType], name) && !slices.Contains(emulatorGaps[resourceType], name) {
 			return false
 		}
 	}

@@ -19,13 +19,12 @@ func (g *AppSyncGenerator) InitResources() error {
 
 	svc := appsync.NewFromConfig(config)
 
-	var nextToken *string
-	for {
+	return paginateByMarker(func(nextToken *string) (*string, error) {
 		apis, err := svc.ListGraphqlApis(context.TODO(), &appsync.ListGraphqlApisInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		for _, api := range apis.GraphqlApis {
@@ -38,11 +37,6 @@ func (g *AppSyncGenerator) InitResources() error {
 				"aws",
 				[]string{}))
 		}
-		nextToken = apis.NextToken
-		if nextToken == nil {
-			break
-		}
-	}
-
-	return nil
+		return apis.NextToken, nil
+	})
 }
