@@ -27,10 +27,12 @@ In that case terraformer will not know with which region resources are associate
 infraharvest and Terraform read the standard `AWS_ENDPOINT_URL` variable, so you can try an import against a local emulator such as [Floci](https://github.com/floci-io/floci) without an AWS account:
 
 ```sh
-docker run --rm -d -p 127.0.0.1:4566:4566 floci/floci
+docker compose -f e2e/compose.yaml up -d --wait
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
 infraharvest import aws --engine=terraform --resources=sqs,sns --regions=us-east-1 --profile=
 ```
+
+[`e2e/compose.yaml`](../e2e/compose.yaml) configures Floci to return SQS queue URLs that the Terraform AWS provider can import.
 
 Examples to import other resources-
 
