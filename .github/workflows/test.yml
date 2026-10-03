@@ -100,9 +100,15 @@ jobs:
   # Imports resources from Floci, a local AWS emulator, with the Terraform
   # engine and checks the generated configuration plans with no changes.
   # No AWS account or credentials are involved.
+  # The same round trip with each engine: the output must work on both.
   e2e-aws:
+    name: e2e-aws (${{ matrix.engine }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [terraform, tofu]
     steps:
     # The AWS provider is ~700 MB unpacked and is installed twice.
     - name: Free disk space
@@ -116,15 +122,23 @@ jobs:
         go-version-file: go.mod
         cache: true
     - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: matrix.engine == 'terraform'
       with:
         terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: matrix.engine == 'tofu'
+      with:
+        tofu_wrapper: false
     - name: Format
-      run: terraform fmt -check -recursive -diff e2e
+      env:
+        ENGINE: ${{ matrix.engine }}
+      run: $ENGINE fmt -check -recursive -diff e2e
     - name: Start Floci
       run: docker compose -f e2e/compose.yaml up -d --wait
     - name: Test
       env:
         AWS_ENDPOINT_URL: http://localhost:4566
+        E2E_ENGINE: ${{ matrix.engine }}
       run: go test -tags e2e,minimal,aws -timeout 25m -v ./e2e/
     - name: Floci logs
       if: failure()

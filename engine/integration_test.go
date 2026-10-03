@@ -30,7 +30,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tfVersion, err := TerraformVersion(ctx, execPath)
+	tfVersion, err := BinaryVersion(ctx, execPath)
 	if err != nil {
 		t.Fatal(err)
 	}

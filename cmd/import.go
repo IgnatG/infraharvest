@@ -91,10 +91,10 @@ func newImportCmd() *cobra.Command {
 func Import(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
 	switch options.Engine {
 	case engineLegacy, "":
-	case engineTerraform:
-		return importWithTerraform(provider, options, args)
+	case engineTerraform, engineTofu:
+		return importWithEngine(provider, options, args)
 	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, engineLegacy, engineTerraform)
+		return fmt.Errorf("unknown --engine %q: use %s, %s or %s", options.Engine, engineLegacy, engineTerraform, engineTofu)
 	}
 
 	providerWrapper, options, err := initOptionsAndWrapper(provider, options, args)
@@ -452,6 +452,6 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.IntVarP(&options.RetryCount, "retry-number", "n", 5, "number of retries to perform when refresh fails")
 	flag.IntVarP(&options.RetrySleepMs, "retry-sleep-ms", "m", 300, "time in ms to sleep between retries")
 	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "exit 0 when some services or resources fail to import, leaving them out of the output")
-	flag.StringVar(&options.Engine, "engine", engineLegacy, "legacy, or terraform: generate configuration with Terraform from import blocks (no state written)")
-	flag.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform binary for --engine=terraform (default: terraform on PATH if >= 1.5, else the latest release, downloaded and verified)")
+	flag.StringVar(&options.Engine, "engine", engineLegacy, "legacy, terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks (no state written)")
+	flag.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary for --engine=terraform or tofu (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
 }

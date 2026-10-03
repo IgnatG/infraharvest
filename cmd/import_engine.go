@@ -24,15 +24,26 @@ import (
 const (
 	engineLegacy    = "legacy"
 	engineTerraform = "terraform"
+	engineTofu      = "tofu"
 )
 
-// importWithTerraform lists resources with the provider's listers, then lets
-// Terraform generate their configuration from import blocks. Nothing is
-// refreshed through the embedded provider wrapper and no state is written.
-func importWithTerraform(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
+// engineBinary is the binary --engine runs.
+func engineBinary(name string) engine.Binary {
+	if name == engineTofu {
+		return engine.TofuBinary
+	}
+	return engine.TerraformBinary
+}
+
+// importWithEngine lists resources with the provider's listers, then lets
+// Terraform or OpenTofu generate their configuration from import blocks.
+// Nothing is refreshed through the embedded provider wrapper and no state
+// is written.
+func importWithEngine(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
 	if err := checkTerraformEngineOptions(options); err != nil {
 		return err
 	}
+	binary := engineBinary(options.Engine)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -50,11 +61,11 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 	if err != nil {
 		return err
 	}
-	execPath, err := engine.FindTerraform(ctx, options.TerraformPath, filepath.Join(cacheDir, "terraform"))
+	execPath, err := binary.Find(ctx, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
 	if err != nil {
 		return err
 	}
-	config, err := rootConfig(ctx, http.DefaultClient, "", execPath, engineProvider(provider))
+	config, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider))
 	if err != nil {
 		return err
 	}
@@ -120,15 +131,16 @@ func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, conf
 }
 
 // rootConfig renders versions.tf and providers.tf for every output
-// directory: required_version within the major release of the Terraform at
-// execPath, and the provider pinned to its newest minor release line. A
-// registryURL replaces the provider's registry, for tests.
-func rootConfig(ctx context.Context, client *http.Client, registryURL, execPath string, p engine.Provider) (map[string][]byte, error) {
-	tfVersion, err := engine.TerraformVersion(ctx, execPath)
+// directory: required_version within the major release of the Terraform or
+// OpenTofu at execPath, and the provider pinned to its newest minor release
+// line in registry (the engine's default registry), unless its source names
+// another. A registryURL replaces the registry, for tests.
+func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider) (map[string][]byte, error) {
+	engineVersion, err := engine.BinaryVersion(ctx, execPath)
 	if err != nil {
 		return nil, err
 	}
-	latest, err := engine.LatestProviderVersion(ctx, client, registryURL, p.Source)
+	latest, err := engine.LatestProviderVersion(ctx, client, registryURL, qualifiedSource(registry, p.Source))
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +150,7 @@ func rootConfig(ctx context.Context, client *http.Client, registryURL, execPath 
 		return nil, err
 	}
 	return map[string][]byte{
-		engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(tfVersion), p),
+		engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engineVersion), p),
 		engine.ProvidersFileName: providers,
 	}, nil
 }
@@ -173,7 +185,7 @@ func checkTerraformEngineOptions(options ImportOptions) error {
 		unsupported = append(unsupported, "--compact")
 	}
 	if len(unsupported) > 0 {
-		return fmt.Errorf("--engine=%s does not support %s", engineTerraform, strings.Join(unsupported, ", "))
+		return fmt.Errorf("--engine=%s does not support %s", options.Engine, strings.Join(unsupported, ", "))
 	}
 	return nil
 }
@@ -254,4 +266,14 @@ func listedName(sanitized string) string {
 		}
 		return string(rune(code))
 	})
+}
+
+// qualifiedSource adds registry to a provider source without a host:
+// hashicorp/aws resolves to registry.terraform.io/hashicorp/aws in
+// Terraform and registry.opentofu.org/hashicorp/aws in OpenTofu.
+func qualifiedSource(registry, source string) string {
+	if strings.Count(source, "/") == 1 {
+		return registry + "/" + source
+	}
+	return source
 }
