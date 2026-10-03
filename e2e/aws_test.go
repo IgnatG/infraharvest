@@ -7,11 +7,13 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -205,7 +207,7 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 		case rc.Change.Importing == nil:
 			t.Errorf("%s: %s is planned to %v instead of imported", dir, rc.Address, rc.Change.Actions)
 		case !rc.Change.Actions.NoOp():
-			t.Errorf("%s: %s (import ID %q) is imported with changes: %v", dir, rc.Address, rc.Change.Importing.ID, rc.Change.Actions)
+			t.Errorf("%s: %s (import ID %q) is imported with changes: %v %s", dir, rc.Address, rc.Change.Importing.ID, rc.Change.Actions, changedAttributes(rc.Change.Before, rc.Change.After))
 		default:
 			imported[rc.Type]++
 		}
@@ -233,4 +235,18 @@ func sortedKeys(m map[string]int) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// changedAttributes lists the top-level attributes a planned update changes.
+func changedAttributes(before, after interface{}) []string {
+	b, _ := before.(map[string]interface{})
+	a, _ := after.(map[string]interface{})
+	var changed []string
+	for k, v := range a {
+		if !reflect.DeepEqual(b[k], v) {
+			changed = append(changed, fmt.Sprintf("%s: %v -> %v", k, b[k], v))
+		}
+	}
+	sort.Strings(changed)
+	return changed
 }
