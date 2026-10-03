@@ -303,14 +303,23 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 // uses when it deletes a resource. They are null after an import, so the
 // first apply records their defaults without calling AWS.
 var stateOnlyArguments = map[string][]string{
+	"aws_ecs_service":           {"wait_for_steady_state"},
 	"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
 }
 
+// emulatorGaps are attributes Floci leaves out of its API responses where
+// AWS returns them, so the plan sets the provider's default. Each one is a
+// difference from AWS, not from infraharvest's output.
+var emulatorGaps = map[string][]string{
+	// DescribeServices has no deploymentConfiguration.
+	"aws_ecs_service": {"deployment_maximum_percent", "deployment_minimum_healthy_percent"},
+}
+
 // stateOnly reports whether every changed attribute is a state-only argument
-// of resourceType.
+// of resourceType, or one the emulator doesn't return.
 func stateOnly(resourceType string, changed map[string]string) bool {
 	for name := range changed {
-		if !slices.Contains(stateOnlyArguments[resourceType], name) {
+		if !slices.Contains(stateOnlyArguments[resourceType], name) && !slices.Contains(emulatorGaps[resourceType], name) {
 			return false
 		}
 	}
