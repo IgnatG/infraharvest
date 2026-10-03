@@ -58,21 +58,27 @@ func ImportsFile(imports []Import) ([]byte, error) {
 	return hclwrite.Format(f.Bytes()), nil
 }
 
-// ProvidersFile renders the terraform block with the provider requirement
-// and the provider block.
-func ProvidersFile(p Provider) ([]byte, error) {
+// VersionsFile renders the terraform block: the Terraform versions the
+// configuration accepts (none if requiredVersion is empty) and the provider
+// requirement.
+func VersionsFile(requiredVersion string, p Provider) []byte {
 	f := hclwrite.NewEmptyFile()
-	body := f.Body()
-
+	terraform := f.Body().AppendNewBlock("terraform", nil).Body()
+	if requiredVersion != "" {
+		terraform.SetAttributeValue("required_version", cty.StringVal(requiredVersion))
+	}
 	requirement := map[string]cty.Value{"source": cty.StringVal(p.Source)}
 	if p.Version != "" {
 		requirement["version"] = cty.StringVal(p.Version)
 	}
-	required := body.AppendNewBlock("terraform", nil).Body().AppendNewBlock("required_providers", nil).Body()
-	required.SetAttributeValue(p.Name, cty.ObjectVal(requirement))
+	terraform.AppendNewBlock("required_providers", nil).Body().SetAttributeValue(p.Name, cty.ObjectVal(requirement))
+	return hclwrite.Format(f.Bytes())
+}
 
-	body.AppendNewline()
-	if err := writeBody(body.AppendNewBlock("provider", []string{p.Name}).Body(), p.Config); err != nil {
+// ProvidersFile renders the provider block.
+func ProvidersFile(p Provider) ([]byte, error) {
+	f := hclwrite.NewEmptyFile()
+	if err := writeBody(f.Body().AppendNewBlock("provider", []string{p.Name}).Body(), p.Config); err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.Name, err)
 	}
 	return hclwrite.Format(f.Bytes()), nil
