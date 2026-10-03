@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || mikrotik
+
 package cmd
 
 import (
@@ -41,4 +44,8 @@ func newCmdMikrotikImporter(options ImportOptions) *cobra.Command {
 
 func newMikrotikProvider() terraformutils.ProviderGenerator {
 	return &mikrotik_terraforming.MikrotikProvider{}
+}
+
+func init() {
+	registerProvider("mikrotik", newCmdMikrotikImporter, newMikrotikProvider)
 }

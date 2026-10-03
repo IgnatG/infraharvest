@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || azuread
+
 package cmd
 
 import (
@@ -43,4 +46,8 @@ func newCmdAzureADImporter(options ImportOptions) *cobra.Command {
 
 func newAzureADProvider() terraformutils.ProviderGenerator {
 	return &azuread.AzureADProvider{}
+}
+
+func init() {
+	registerProvider("azuread", newCmdAzureADImporter, newAzureADProvider)
 }

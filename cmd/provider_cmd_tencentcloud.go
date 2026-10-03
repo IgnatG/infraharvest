@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || tencentcloud
+
 package cmd
 
 import (
@@ -50,4 +52,8 @@ func newCmdTencentCloudImporter(options ImportOptions) *cobra.Command {
 
 func newTencentCloudProvider() terraformutils.ProviderGenerator {
 	return &tencentcloud_terraforming.TencentCloudProvider{}
+}
+
+func init() {
+	registerProvider("tencentcloud", newCmdTencentCloudImporter, newTencentCloudProvider)
 }

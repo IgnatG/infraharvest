@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || pagerduty
+
 package cmd
 
 import (
@@ -44,4 +47,8 @@ func newCmdPagerDutyImporter(options ImportOptions) *cobra.Command {
 
 func newPagerDutyProvider() terraformutils.ProviderGenerator {
 	return &pagerduty_terraforming.PagerDutyProvider{}
+}
+
+func init() {
+	registerProvider("pagerduty", newCmdPagerDutyImporter, newPagerDutyProvider)
 }

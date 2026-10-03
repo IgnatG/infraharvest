@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || vault
+
 package cmd
 
 import (
@@ -45,4 +48,8 @@ func newCmdVaultImporter(options ImportOptions) *cobra.Command {
 
 func newVaultProvider() terraformutils.ProviderGenerator {
 	return &vault_terraforming.Provider{}
+}
+
+func init() {
+	registerProvider("vault", newCmdVaultImporter, newVaultProvider)
 }

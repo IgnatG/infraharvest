@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || heroku
+
 package cmd
 
 import (
@@ -51,4 +54,8 @@ func newCmdHerokuImporter(options ImportOptions) *cobra.Command {
 
 func newHerokuProvider() terraformutils.ProviderGenerator {
 	return &heroku_terraforming.HerokuProvider{}
+}
+
+func init() {
+	registerProvider("heroku", newCmdHerokuImporter, newHerokuProvider)
 }

@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || github
+
 package cmd
 
 import (
@@ -55,4 +58,8 @@ func newCmdGithubImporter(options ImportOptions) *cobra.Command {
 
 func newGitHubProvider() terraformutils.ProviderGenerator {
 	return &github_terraforming.GithubProvider{}
+}
+
+func init() {
+	registerProvider("github", newCmdGithubImporter, newGitHubProvider)
 }

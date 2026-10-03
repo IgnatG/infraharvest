@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || cloudflare
+
 package cmd
 
 import (
@@ -42,4 +45,8 @@ func newCmdCloudflareImporter(options ImportOptions) *cobra.Command {
 
 func newCloudflareProvider() terraformutils.ProviderGenerator {
 	return &cloudflare_terraforming.CloudflareProvider{}
+}
+
+func init() {
+	registerProvider("cloudflare", newCmdCloudflareImporter, newCloudflareProvider)
 }

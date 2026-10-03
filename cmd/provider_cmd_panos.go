@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || panos
+
 package cmd
 
 import (
@@ -79,4 +81,8 @@ func newCmdPanosImporter(options ImportOptions) *cobra.Command {
 func newPanosProvider() terraformutils.ProviderGenerator {
 
 	return &panos_terraforming.PanosProvider{}
+}
+
+func init() {
+	registerProvider("panos", newCmdPanosImporter, newPanosProvider)
 }

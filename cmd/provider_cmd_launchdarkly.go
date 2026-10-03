@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || launchdarkly
+
 package cmd
 
 import (
@@ -42,4 +45,8 @@ func newCmdLaunchDarklyImporter(options ImportOptions) *cobra.Command {
 
 func newLaunchDarklyProvider() terraformutils.ProviderGenerator {
 	return &launchdarkly_terraforming.LaunchDarklyProvider{}
+}
+
+func init() {
+	registerProvider("launchdarkly", newCmdLaunchDarklyImporter, newLaunchDarklyProvider)
 }

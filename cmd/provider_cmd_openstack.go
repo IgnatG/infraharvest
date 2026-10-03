@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || openstack
+
 package cmd
 
 import (
@@ -49,4 +52,8 @@ func newCmdOpenStackImporter(options ImportOptions) *cobra.Command {
 
 func newOpenStackProvider() terraformutils.ProviderGenerator {
 	return &openstack_terraforming.OpenStackProvider{}
+}
+
+func init() {
+	registerProvider("openstack", newCmdOpenStackImporter, newOpenStackProvider)
 }

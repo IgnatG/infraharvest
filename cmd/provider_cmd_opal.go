@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || opal
+
 package cmd
 
 import (
@@ -43,4 +46,8 @@ func newCmdOpalImporter(options ImportOptions) *cobra.Command {
 
 func newOpalProvider() terraformutils.ProviderGenerator {
 	return &opal_terraformer.OpalProvider{}
+}
+
+func init() {
+	registerProvider("opal", newCmdOpalImporter, newOpalProvider)
 }

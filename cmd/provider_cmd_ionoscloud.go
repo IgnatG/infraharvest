@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || ionoscloud
+
 package cmd
 
 import (
@@ -42,4 +45,8 @@ func newCmdIonosCloudImporter(options ImportOptions) *cobra.Command {
 
 func newIonosCloudProvider() terraformutils.ProviderGenerator {
 	return &ionoscloud_terraformer.IonosCloudProvider{}
+}
+
+func init() {
+	registerProvider("ionoscloud", newCmdIonosCloudImporter, newIonosCloudProvider)
 }

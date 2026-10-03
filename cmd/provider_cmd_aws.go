@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !minimal || aws
+
 package cmd
 
 import (
@@ -136,4 +139,8 @@ func contains(s []string, e string) bool {
 		}
 	}
 	return false
+}
+
+func init() {
+	registerProvider("aws", newCmdAwsImporter, newAWSProvider)
 }

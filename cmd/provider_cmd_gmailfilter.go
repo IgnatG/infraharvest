@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !minimal || gmailfilter
+
 package cmd
 
 import (
@@ -48,4 +50,8 @@ func newCmdGmailfilterImporter(options ImportOptions) *cobra.Command {
 
 func newGmailfilterProvider() terraformutils.ProviderGenerator {
 	return &gmailfilter_terraforming.GmailfilterProvider{}
+}
+
+func init() {
+	registerProvider("gmailfilter", newCmdGmailfilterImporter, newGmailfilterProvider)
 }
