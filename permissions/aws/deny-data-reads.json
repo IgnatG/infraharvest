@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyDataPlaneReads",
+      "Effect": "Deny",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "dynamodb:BatchGetItem",
+        "dynamodb:GetItem",
+        "dynamodb:GetRecords",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "kinesis:GetRecords",
+        "sqs:ReceiveMessage",
+        "secretsmanager:BatchGetSecretValue",
+        "secretsmanager:GetSecretValue",
+        "kms:Decrypt",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents",
+        "logs:GetQueryResults",
+        "logs:StartQuery",
+        "athena:GetQueryResults",
+        "ec2:GetPasswordData",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "codecommit:GetBlob",
+        "codecommit:GetFile",
+        "codecommit:GitPull"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
