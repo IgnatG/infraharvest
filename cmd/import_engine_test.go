@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -26,8 +27,8 @@ func TestImportsByDir(t *testing.T) {
 		got := importsByDir("aws", options, resources, listerID)
 
 		want := map[string][]engine.Import{
-			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "tfer--orders", ID: "https://sqs/1/orders"}},
-			filepath.Join("out", "aws", "sns"): {{Type: "aws_sns_topic", Name: "tfer--alerts", ID: "arn:aws:sns:topic"}},
+			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/1/orders"}},
+			filepath.Join("out", "aws", "sns"): {{Type: "aws_sns_topic", Name: "alerts", ID: "arn:aws:sns:topic"}},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v, want %v", got, want)
@@ -65,7 +66,7 @@ func TestImportsByDirUsesImportIDs(t *testing.T) {
 	got := importsByDir("aws", options, resources, importID)
 
 	want := map[string][]engine.Import{
-		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "tfer--a", ID: "subnet-1/rtb-1"}},
+		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "a", ID: "subnet-1/rtb-1"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -141,5 +142,40 @@ func TestImportRejectsUnknownEngine(t *testing.T) {
 	err := Import(&fakeProvider{}, ImportOptions{Engine: "tofu-ish"}, nil)
 	if err == nil || !strings.Contains(err.Error(), `unknown --engine "tofu-ish"`) {
 		t.Errorf("want an unknown engine error, got %v", err)
+	}
+}
+
+func TestListedName(t *testing.T) {
+	for sanitized, want := range map[string]string{
+		terraformutils.TfSanitize("/infraharvest-e2e/endpoint"): "/infraharvest-e2e/endpoint",
+		terraformutils.TfSanitize("orders queue"):               "orders queue",
+		"plain": "plain",
+	} {
+		if got := listedName(sanitized); got != want {
+			t.Errorf("listedName(%q): got %q, want %q", sanitized, got, want)
+		}
+	}
+}
+
+func TestWriteGitignore(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "generated")
+
+	if err := writeGitignore(out); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(out, ".gitignore"))
+	if err != nil || !strings.Contains(string(content), "*.tfstate") {
+		t.Fatalf("want a .gitignore excluding state, got %q, %v", content, err)
+	}
+
+	// A .gitignore the user already has is kept.
+	if err := os.WriteFile(filepath.Join(out, ".gitignore"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGitignore(out); err != nil {
+		t.Fatal(err)
+	}
+	if content, _ := os.ReadFile(filepath.Join(out, ".gitignore")); string(content) != "mine\n" {
+		t.Errorf("existing .gitignore overwritten: %q", content)
 	}
 }

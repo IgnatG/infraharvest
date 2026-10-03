@@ -23,6 +23,7 @@ import (
 
 // Files the engine writes into each output directory.
 const (
+	VersionsFileName  = "versions.tf"
 	ProvidersFileName = "providers.tf"
 	ImportsFileName   = "imports.tf"
 	GeneratedFileName = "generated.tf"
@@ -77,16 +78,19 @@ type Result struct {
 	Rejected []Rejection
 }
 
-// Generate writes providers and imports into dir, then runs Terraform to
-// generate the configuration of every imported resource into generated.tf.
-// If Terraform rejects what it generated, Generate repairs it (see repair)
-// and plans again. Resources it still can't plan are left out (see
-// Rejection). Secret values Terraform doesn't write into the configuration
-// become sensitive variables in variables.tf (see Secret).
+// Generate writes config (file contents by name, such as versions.tf and
+// providers.tf) and an import block per resource into dir, then runs
+// Terraform to generate the configuration of every imported resource into
+// generated.tf. Resource names become labels (see Label). If Terraform
+// rejects what it generated, Generate repairs it (see repair) and plans
+// again. Resources it still can't plan are left out (see Rejection). Secret
+// values Terraform doesn't write into the configuration become sensitive
+// variables in variables.tf (see Secret). Last, it writes a README with
+// what is left to do.
 //
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf.
-func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, imports []Import) (*Result, error) {
+func Generate(ctx context.Context, tf Terraform, dir string, config map[string][]byte, imports []Import) (*Result, error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -96,6 +100,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	imports = labelled(imports)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err
@@ -103,7 +108,11 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	for name, content := range map[string][]byte{ProvidersFileName: providers, ImportsFileName: importsHCL} {
+	files := map[string][]byte{ImportsFileName: importsHCL}
+	for name, content := range config {
+		files[name] = content
+	}
+	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
 			return nil, err
 		}
@@ -175,7 +184,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 			return nil, err
 		}
 	}
-	return result, nil
+	return result, os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(imports, result), 0o644)
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors

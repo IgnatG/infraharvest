@@ -7,6 +7,7 @@ package engine
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,16 +30,27 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	providers, err := ProvidersFile(Provider{Name: "random", Source: "hashicorp/random"})
+	tfVersion, err := TerraformVersion(ctx, execPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The real registry, so a change to its API fails here.
+	latest, err := LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/random")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Provider{Name: "random", Source: "hashicorp/random", Version: ProviderConstraint(latest)}
+	providers, err := ProvidersFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := map[string][]byte{VersionsFileName: VersionsFile(RequiredVersion(tfVersion), p), ProvidersFileName: providers}
 	tf, err := NewTerraform(dir, execPath, filepath.Join(cache, "plugins"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := Generate(ctx, tf, dir, providers, []Import{{Type: "random_string", Name: "tfer--example", ID: "s3cr3tvalue"}})
+	result, err := Generate(ctx, tf, dir, config, []Import{{Type: "random_string", Name: "example", ID: "s3cr3tvalue"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +62,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(generated), `resource "random_string" "tfer--example"`) {
+	if !strings.Contains(string(generated), `resource "random_string" "example"`) {
 		t.Errorf("generated.tf has no random_string resource:\n%s", generated)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "terraform.tfstate")); err == nil {

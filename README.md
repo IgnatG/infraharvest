@@ -132,12 +132,15 @@ Each output directory gets:
 
 | File | Contents |
 |---|---|
-| `providers.tf` | The provider requirement and configuration |
+| `versions.tf` | `required_version` within the major release of the Terraform that generated it (`>= 1.16, < 2.0`), and the provider pinned to its newest minor release line (`~> 6.67`) |
+| `providers.tf` | The provider configuration |
 | `imports.tf` | One `import` block per resource. Delete it after the first `terraform apply` |
 | `generated.tf` | The configuration Terraform generated for the resources |
 | `variables.tf` | Only if there are secrets: a `sensitive` variable, with no default, for each secret value. Terraform doesn't write secret values (an SSM parameter's `value`, for example) into the configuration it generates. Set the variables before planning, for example in a `.tfvars` file kept out of version control. Write-only arguments (`*_wo`) stay unset |
 | `.terraform.lock.hcl` | The provider version, the same for every directory of one import |
 | `rejected.hcl` | Only if some resources couldn't be imported: their `import` block and generated configuration, under the errors Terraform reported. Terraform doesn't load this file. Fix a resource and move its blocks into `imports.tf` and `generated.tf`, or leave it out. Rejected resources make the import exit non-zero unless `--allow-partial` is set |
+
+Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud.
 
 When the configuration Terraform generates doesn't validate, infraharvest fixes what Terraform rejects where that doesn't change its meaning, then plans again. It removes arguments that are unset in effect (zero values), arguments that duplicate another one (`subnets` next to `subnet_mapping` blocks), and nested blocks whose arguments are all null. Inside objects, it writes `null` for unset strings that Terraform generated as `""`.
 

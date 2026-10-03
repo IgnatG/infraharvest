@@ -7,10 +7,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/engine"
@@ -51,8 +54,11 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 	if err != nil {
 		return err
 	}
-	providerHCL, err := engine.ProvidersFile(engineProvider(provider))
+	config, err := rootConfig(ctx, http.DefaultClient, "", execPath, engineProvider(provider))
 	if err != nil {
+		return err
+	}
+	if err := writeGitignore(options.PathOutput); err != nil {
 		return err
 	}
 
@@ -69,7 +75,7 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 	var lock []byte
 	for _, dir := range dirs {
 		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), providerHCL, byDir[dir], &lock)
+		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), config, byDir[dir], &lock)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -93,7 +99,7 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 
 // generateDir runs engine.Generate in dir, seeding it with *lock if set and
 // keeping its lock file in *lock otherwise.
-func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, providerHCL []byte, imports []engine.Import, lock *[]byte) (*engine.Result, error) {
+func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, config map[string][]byte, imports []engine.Import, lock *[]byte) (*engine.Result, error) {
 	tf, err := engine.NewTerraform(dir, execPath, pluginCacheDir)
 	if err != nil {
 		return nil, err
@@ -104,13 +110,50 @@ func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, prov
 			return nil, err
 		}
 	}
-	result, err := engine.Generate(ctx, tf, dir, providerHCL, imports)
+	result, err := engine.Generate(ctx, tf, dir, config, imports)
 	if *lock == nil {
 		if content, readErr := os.ReadFile(lockPath); readErr == nil {
 			*lock = content
 		}
 	}
 	return result, err
+}
+
+// rootConfig renders versions.tf and providers.tf for every output
+// directory: required_version within the major release of the Terraform at
+// execPath, and the provider pinned to its newest minor release line. A
+// registryURL replaces the provider's registry, for tests.
+func rootConfig(ctx context.Context, client *http.Client, registryURL, execPath string, p engine.Provider) (map[string][]byte, error) {
+	tfVersion, err := engine.TerraformVersion(ctx, execPath)
+	if err != nil {
+		return nil, err
+	}
+	latest, err := engine.LatestProviderVersion(ctx, client, registryURL, p.Source)
+	if err != nil {
+		return nil, err
+	}
+	p.Version = engine.ProviderConstraint(latest)
+	providers, err := engine.ProvidersFile(p)
+	if err != nil {
+		return nil, err
+	}
+	return map[string][]byte{
+		engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(tfVersion), p),
+		engine.ProvidersFileName: providers,
+	}, nil
+}
+
+// writeGitignore writes a .gitignore for Terraform into the output
+// directory, unless it has one.
+func writeGitignore(outputDir string) error {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(outputDir, ".gitignore")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	return os.WriteFile(path, []byte(engine.GitignoreFile), 0o644)
 }
 
 // checkTerraformEngineOptions rejects legacy options the Terraform engine
@@ -151,7 +194,7 @@ func importsByDir(providerName string, options ImportOptions, resourcesByService
 			}
 			byDir[dir] = append(byDir[dir], engine.Import{
 				Type: r.InstanceInfo.Type,
-				Name: r.ResourceName,
+				Name: listedName(r.ResourceName),
 				ID:   id,
 			})
 		}
@@ -196,4 +239,19 @@ func infraharvestCacheDir() (string, error) {
 		return "", fmt.Errorf("find a cache directory for Terraform downloads: %w", err)
 	}
 	return filepath.Join(dir, "infraharvest"), nil
+}
+
+var legacyEscape = regexp.MustCompile(`-([0-9A-F]{4})-`)
+
+// listedName undoes the legacy sanitizing of a resource name ("tfer--"
+// prefix, "-002F-" for "/"), so the engine labels the name as listed.
+func listedName(sanitized string) string {
+	name := strings.TrimPrefix(sanitized, "tfer--")
+	return legacyEscape.ReplaceAllStringFunc(name, func(escaped string) string {
+		code, err := strconv.ParseUint(escaped[1:5], 16, 32)
+		if err != nil {
+			return escaped
+		}
+		return string(rune(code))
+	})
 }

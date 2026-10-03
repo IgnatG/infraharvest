@@ -83,12 +83,21 @@ func TestAWSRoundTrip(t *testing.T) {
 		t.Fatalf("infraharvest import: %v", err)
 	}
 
+	readFile(t, filepath.Join(out, ".gitignore"))
 	imported := map[string]int{}
 	var lock string
 	for _, dir := range generatedDirs(t, out) {
 		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
 		}
+		versions := readFile(t, filepath.Join(dir, engine.VersionsFileName))
+		if !strings.Contains(versions, "required_version") || !strings.Contains(versions, `version = "~> `) {
+			t.Errorf("%s: %s doesn't pin Terraform and the provider:\n%s", dir, engine.VersionsFileName, versions)
+		}
+		if strings.Contains(readFile(t, filepath.Join(dir, engine.ImportsFileName)), "tfer--") {
+			t.Errorf("%s: legacy tfer-- resource names", dir)
+		}
+		readFile(t, filepath.Join(dir, engine.ReadmeFileName))
 		// One provider version for the whole import.
 		if content := readFile(t, filepath.Join(dir, engine.LockFileName)); lock == "" {
 			lock = content
