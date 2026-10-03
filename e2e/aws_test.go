@@ -27,7 +27,7 @@ import (
 // testdata/aws creates.
 var awsServices = []string{
 	"dynamodb", "ecr", "iam", "igw", "kinesis", "kms", "logs", "route53",
-	"route_table", "secretsmanager", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
+	"route_table", "secretsmanager", "sg", "sns", "sqs", "subnet", "vpc",
 }
 
 // TestAWSRoundTrip creates resources in an AWS emulator, imports them with

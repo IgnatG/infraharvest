@@ -24,4 +24,6 @@ The test uses test credentials and empty AWS config files, and refuses any `AWS_
 
 To cover another service, add its resources to `testdata/aws/main.tf` and its infraharvest service name to `awsServices` in `aws_test.go`. Check Floci [supports the service](https://github.com/floci-io/floci/tree/main/docs/services) first.
 
+Not covered yet: SSM parameters. Terraform doesn't write sensitive values into generated configuration, so an imported parameter needs its value filled in by hand.
+
 An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so this doesn't replace a check against a real account.

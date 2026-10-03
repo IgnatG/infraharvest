@@ -110,12 +110,6 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = 7
 }
 
-resource "aws_ssm_parameter" "environment" {
-  name  = "/${local.name}/environment"
-  type  = "String"
-  value = "e2e"
-}
-
 resource "aws_kms_key" "app" {
   description             = "${local.name} application key"
   deletion_window_in_days = 7
