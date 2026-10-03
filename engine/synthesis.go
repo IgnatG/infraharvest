@@ -421,7 +421,8 @@ func retargetImports(dir string, to map[string]string) error {
 }
 
 // importTargets returns where each import block of dir imports into, by
-// import ID.
+// resource type and import ID: resources of different types can share an
+// ID, such as a bucket and its versioning.
 func importTargets(dir string) (map[string]string, error) {
 	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
 	if err != nil {
@@ -439,10 +440,20 @@ func importTargets(dir string) (map[string]string, error) {
 			continue
 		}
 		rng := to.Expr.Range()
-		src := rng.SliceBytes(imports.file.Bytes())
-		targets[v.AsString()] = strings.TrimSpace(string(src))
+		address := strings.TrimSpace(string(rng.SliceBytes(imports.file.Bytes())))
+		targets[addressType(address)+"\x00"+v.AsString()] = address
 	}
 	return targets, nil
+}
+
+// addressType returns the resource type of an address such as
+// aws_s3_bucket.logs or module.logs.aws_s3_bucket.this[0].
+func addressType(address string) string {
+	parts := strings.Split(address, ".")
+	for len(parts) > 2 && parts[0] == "module" {
+		parts = parts[2:]
+	}
+	return parts[0]
 }
 
 // movedAddresses returns the new address of each resource whose import
@@ -454,8 +465,8 @@ func movedAddresses(dir string, before map[string]string) (map[string]string, er
 		return nil, err
 	}
 	moved := map[string]string{}
-	for id, from := range before {
-		if to, ok := after[id]; ok && to != from {
+	for key, from := range before {
+		if to, ok := after[key]; ok && to != from {
 			moved[from] = to
 		}
 	}
