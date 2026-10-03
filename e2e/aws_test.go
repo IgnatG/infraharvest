@@ -100,9 +100,9 @@ func TestAWSRoundTrip(t *testing.T) {
 	}
 	imported := map[string]int{}
 	var lock string
-	// The VPC ID repeats across the network resources, so it must become a
-	// local; the plans below check the lift changes nothing.
-	liftedVPC := false
+	// The network resources refer to the VPC instead of repeating its ID;
+	// the plans below check that changes nothing.
+	referencedVPC := false
 	for _, dir := range generatedDirs(t, out) {
 		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
@@ -115,8 +115,8 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("%s: legacy tfer-- resource names", dir)
 		}
 		readFile(t, filepath.Join(dir, engine.ReadmeFileName))
-		if locals, err := os.ReadFile(filepath.Join(dir, engine.LocalsFileName)); err == nil && strings.Contains(string(locals), "vpc_id") {
-			liftedVPC = true
+		if strings.Contains(readFile(t, filepath.Join(dir, engine.GeneratedFileName)), "vpc_id = aws_vpc.") {
+			referencedVPC = true
 		}
 		// One provider version for the whole import.
 		if content := readFile(t, filepath.Join(dir, engine.LockFileName)); lock == "" {
@@ -128,8 +128,8 @@ func TestAWSRoundTrip(t *testing.T) {
 			imported[typ] += n
 		}
 	}
-	if !liftedVPC {
-		t.Errorf("no %s with local.vpc_id", engine.LocalsFileName)
+	if !referencedVPC {
+		t.Errorf("no %s refers to the VPC", engine.GeneratedFileName)
 	}
 	seeded := map[string]int{}
 	for _, r := range state {

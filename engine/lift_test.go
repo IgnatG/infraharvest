@@ -111,6 +111,13 @@ func TestSharedTags(t *testing.T) {
 	}
 }
 
+// liftTagsVerified lifts tags in dir as postProcess does, against an empty
+// baseline.
+func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
+	return verify(context.Background(), tf, dir, changeSummary{}, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags) },
+		GeneratedFileName, ProvidersFileName, LocalsFileName)
+}
+
 func liftTagsDir(t *testing.T) (string, *fakeTerraform) {
 	t.Helper()
 	dir := t.TempDir()
@@ -122,7 +129,7 @@ func liftTagsDir(t *testing.T) (string, *fakeTerraform) {
 func TestLiftTags(t *testing.T) {
 	dir, tf := liftTagsDir(t)
 
-	kept, err := liftTags(context.Background(), tf, dir, awsDefaultTags, changeSummary{})
+	kept, err := liftTagsVerified(tf, dir)
 	if err != nil || !kept {
 		t.Fatalf("want the lift kept, got kept=%v err=%v", kept, err)
 	}
@@ -154,7 +161,7 @@ func TestLiftTagsRevertsWhenThePlanChanges(t *testing.T) {
 	dir, tf := liftTagsDir(t)
 	tf.plans = []fakePlan{{summary: changeSummary{Change: 3}}}
 
-	kept, err := liftTags(context.Background(), tf, dir, awsDefaultTags, changeSummary{})
+	kept, err := liftTagsVerified(tf, dir)
 	if err != nil || kept {
 		t.Fatalf("want the lift undone, got kept=%v err=%v", kept, err)
 	}
@@ -170,12 +177,13 @@ func TestLiftTagsRevertsWhenThePlanChanges(t *testing.T) {
 	}
 }
 
-// With secret values left, the plan can't be compared, so tags stay.
-func TestLiftSkipsTagsWithoutAPlanToCompare(t *testing.T) {
+// Without a plan to compare with, tags stay where they are.
+func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
 	dir, tf := liftTagsDir(t)
+	tf.plans = []fakePlan{{diags: []tfjson.Diagnostic{errorAt(1, "Invalid value", "")}}}
 	opts := Options{DefaultTags: &awsDefaultTags}
 
-	err := lift(context.Background(), tf, dir, opts, []tfjson.Diagnostic{errorAt(1, "secret", "")}, nil)
+	err := postProcess(context.Background(), tf, dir, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -45,6 +46,7 @@ type Terraform interface {
 	PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error)
 	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
 	ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error)
+	ShowPlanFile(ctx context.Context, planPath string, opts ...tfexec.ShowOption) (*tfjson.Plan, error)
 	SetStdout(w io.Writer)
 }
 
@@ -92,7 +94,7 @@ type Options struct {
 	// out changes no plan.
 	Omit map[string][]string
 	// DefaultTags, if set, lets Generate move the tags every resource shares
-	// into local.tags, applied through the provider (see liftTags).
+	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags
 }
 
@@ -139,7 +141,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	// Plan reports changes because every import is pending; only errors matter.
-	diags, summary, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
+	diags, _, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
 	}
@@ -158,7 +160,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if omitted, err := omitArguments(generated, opts.Omit); err != nil {
 		return nil, err
 	} else if omitted {
-		if diags, summary, err = plan(ctx, tf); err != nil {
+		if diags, _, err = plan(ctx, tf); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
 	}
@@ -197,16 +199,14 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			}
 			result.Rejected = append(result.Rejected, rejections...)
 		}
-		if diags, summary, err = plan(ctx, tf); err != nil {
+		if diags, _, err = plan(ctx, tf); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
 	}
-	if err := lift(ctx, tf, dir, opts, diags, summary); err != nil {
+	if result.Secrets, err = useVariables(ctx, tf, dir, &result.Rejected, &rejected); err != nil {
 		return nil, err
 	}
-	// Terraform can't plan with the secret variables unset, so the resources
-	// that use them are only validated from here on.
-	if result.Secrets, err = useVariables(ctx, tf, dir, &result.Rejected, &rejected); err != nil {
+	if err := postProcess(ctx, tf, dir, opts, result.Secrets); err != nil {
 		return nil, err
 	}
 	if rejected.Len() > 0 {
@@ -283,6 +283,9 @@ func useVariables(ctx context.Context, tf Terraform, dir string, rejections *[]R
 		return nil, nil
 	}
 	secrets := secretsToVariables(generated, found)
+	for i, s := range secrets {
+		secrets[i].ty = attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
+	}
 	if err := generated.save(); err != nil {
 		return nil, err
 	}

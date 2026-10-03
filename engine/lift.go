@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,7 +17,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	tfjson "github.com/hashicorp/terraform-json"
+
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -49,13 +48,13 @@ const minRepeats = 3
 // projects/...), not words and settings such as "Enabled" or "tcp".
 var liftable = regexp.MustCompile(`^(arn:|/subscriptions/|projects/)|^[a-z][a-z0-9]*-[0-9a-f]{8,}$`)
 
-// liftTags moves the tags every resource with tags shares into local.tags,
-// which the provider applies through dt.Block, and leaves each resource
-// only its other tags. AWS records each resource's full tag set in
-// tags_all, so whether that changes the plan depends on the provider: the
-// lift is kept only if the plan's changes stay baseline. It reports
-// whether it kept the lift.
-func liftTags(ctx context.Context, tf Terraform, dir string, dt DefaultTags, baseline changeSummary) (bool, error) {
+// applyTagLift moves the tags every resource with tags shares into
+// local.tags, which the provider applies through dt.Block, and leaves each
+// resource only its other tags. AWS records each resource's full tag set
+// in tags_all, so whether that changes the plan depends on the provider:
+// postProcess keeps the lift only if the plan doesn't change (see verify).
+// It reports whether it changed anything.
+func applyTagLift(dir string, dt DefaultTags) (bool, error) {
 	generatedPath := filepath.Join(dir, GeneratedFileName)
 	generated, err := loadHCL(generatedPath)
 	if err != nil {
@@ -79,10 +78,6 @@ func liftTags(ctx context.Context, tf Terraform, dir string, dt DefaultTags, bas
 		return false, nil
 	}
 
-	backup, err := backupFiles(dir, GeneratedFileName, ProvidersFileName, LocalsFileName)
-	if err != nil {
-		return false, err
-	}
 	for _, r := range generated.resources() {
 		attr, ok := r.syntax.Body.Attributes[dt.Attribute]
 		if !ok {
@@ -107,18 +102,7 @@ func liftTags(ctx context.Context, tf Terraform, dir string, dt DefaultTags, bas
 	if err := providers.save(); err != nil {
 		return false, err
 	}
-	if err := setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(common)}); err != nil {
-		return false, err
-	}
-
-	diags, summary, err := plan(ctx, tf)
-	if err != nil {
-		return false, err
-	}
-	if len(diags) == 0 && summary != nil && *summary == baseline {
-		return true, nil
-	}
-	return false, backup.restore()
+	return true, setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(common)})
 }
 
 // sharedTags returns the tags, as key and value, that every resource with
@@ -365,38 +349,6 @@ func (b *fileBackup) restore() error {
 		if err := os.WriteFile(path, content, 0o644); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// lift moves repeated values into locals.tf once the configuration plans:
-// shared tags (see liftTags) and repeated identifiers (see liftLiterals).
-// diags and summary are the last plan's.
-func lift(ctx context.Context, tf Terraform, dir string, opts Options, diags []tfjson.Diagnostic, summary *changeSummary) error {
-	// Errors left at this point are about secret values, which the plan
-	// can't check without them; a tag lift needs a plan to compare with.
-	verifiable := len(diags) == 0 && summary != nil
-	if opts.DefaultTags != nil && verifiable {
-		if _, err := liftTags(ctx, tf, dir, *opts.DefaultTags, *summary); err != nil {
-			return err
-		}
-	}
-	backup, err := backupFiles(dir, GeneratedFileName, LocalsFileName)
-	if err != nil {
-		return err
-	}
-	lifted, err := liftLiterals(dir)
-	if err != nil || !lifted || !verifiable {
-		// With secret values left, validation after they become variables
-		// checks the lift.
-		return err
-	}
-	validation, err := tf.Validate(ctx)
-	if err != nil {
-		return fmt.Errorf("terraform validate: %w", err)
-	}
-	if !validation.Valid {
-		return backup.restore()
 	}
 	return nil
 }
