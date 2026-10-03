@@ -44,9 +44,16 @@ func (f *fakeAPI) Do(r *http.Request) (*http.Response, error) {
 	}
 	respBody := f.handle(call)
 	status := http.StatusOK
-	if strings.Contains(respBody, `"__type"`) {
+	switch {
+	case strings.Contains(respBody, `"__type"`):
 		// AWS JSON protocols name the error in __type and send a 4xx status.
 		status = http.StatusBadRequest
+	case strings.HasPrefix(respBody, "<Error>"):
+		// REST-XML (S3) errors; S3's "not configured" errors are 404s.
+		status = http.StatusNotFound
+		contentType = "application/xml"
+	case strings.HasPrefix(respBody, "<") && contentType == "application/json":
+		contentType = "application/xml" // REST-XML (S3)
 	}
 	return &http.Response{
 		StatusCode: status,

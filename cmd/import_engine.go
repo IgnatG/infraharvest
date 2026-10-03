@@ -82,7 +82,12 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 		return err
 	}
 
-	resourcesByService := mapping.GetResourcesByService()
+	resourcesByService, childFailures := withChildImports(provider, mapping.GetResourcesByService())
+	failures = append(failures, childFailures...)
+	opts := engine.Options{Config: root.files}
+	if withOmitted, ok := provider.(terraformutils.ProviderWithOmittedArguments); ok {
+		opts.Omit = withOmitted.OmittedArguments()
+	}
 	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
 	rep := &report.Report{Manifest: report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version},
@@ -109,7 +114,7 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	failed := map[string]int{}
 	for _, dir := range dirs {
 		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), root.files, byDir[dir], &lock)
+		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &lock)
 		reported := report.Directory{Path: relativePath(options.PathOutput, dir)}
 		if err != nil {
 			if ctx.Err() != nil {
@@ -177,7 +182,7 @@ func relativePath(outputDir, dir string) string {
 
 // generateDir runs engine.Generate in dir, seeding it with *lock if set and
 // keeping its lock file in *lock otherwise.
-func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, config map[string][]byte, imports []engine.Import, lock *[]byte) (*engine.Result, error) {
+func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
 	tf, err := engine.NewTerraform(dir, execPath, pluginCacheDir)
 	if err != nil {
 		return nil, err
@@ -188,7 +193,7 @@ func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, conf
 			return nil, err
 		}
 	}
-	result, err := engine.Generate(ctx, tf, dir, config, imports)
+	result, err := engine.Generate(ctx, tf, dir, imports, opts)
 	if *lock == nil {
 		if content, readErr := os.ReadFile(lockPath); readErr == nil {
 			*lock = content
@@ -355,4 +360,27 @@ func qualifiedSource(registry, source string) string {
 		return registry + "/" + source
 	}
 	return source
+}
+
+// withChildImports adds to each service's resources the child resources
+// the provider lists for them (see terraformutils.ProviderWithChildImports),
+// and returns the resources it couldn't list children for as failures.
+func withChildImports(provider terraformutils.ProviderGenerator, resourcesByService map[string][]terraformutils.Resource) (map[string][]terraformutils.Resource, []error) {
+	withChildren, ok := provider.(terraformutils.ProviderWithChildImports)
+	if !ok {
+		return resourcesByService, nil
+	}
+	var failures []error
+	all := make(map[string][]terraformutils.Resource, len(resourcesByService))
+	for service, resources := range resourcesByService {
+		all[service] = append([]terraformutils.Resource(nil), resources...)
+		for _, r := range resources {
+			children, err := withChildren.ChildImports(r)
+			if err != nil {
+				failures = append(failures, fmt.Errorf("%s: %s %s: %w", service, r.InstanceInfo.Type, r.InstanceState.ID, err))
+			}
+			all[service] = append(all[service], children...)
+		}
+	}
+	return all, failures
 }

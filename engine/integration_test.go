@@ -50,7 +50,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Generate(ctx, tf, dir, config, []Import{{Type: "random_string", Name: "example", ID: "s3cr3tvalue"}})
+	result, err := Generate(ctx, tf, dir, []Import{{Type: "random_string", Name: "example", ID: "s3cr3tvalue"}}, Options{Config: config})
 	if err != nil {
 		t.Fatal(err)
 	}
