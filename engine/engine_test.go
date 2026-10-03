@@ -118,13 +118,15 @@ type fakeTerraform struct {
 	plans       []fakePlan               // returned by successive plans; then clean
 	validations []*tfjson.ValidateOutput // returned by successive validations; then valid
 	schemas     *tfjson.ProviderSchemas
-	shown       *tfjson.Plan // returned by ShowPlanFile; empty if nil
+	shown       *tfjson.Plan   // returned by ShowPlanFile once showns is used up; empty if nil
+	showns      []*tfjson.Plan // returned by successive ShowPlanFile calls
+	initErr     error
 	calls       []string
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
 	f.calls = append(f.calls, "init")
-	return nil
+	return f.initErr
 }
 
 func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
@@ -185,6 +187,11 @@ func (f *fakeTerraform) ProvidersSchema(context.Context) (*tfjson.ProviderSchema
 
 func (f *fakeTerraform) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.Plan, error) {
 	f.calls = append(f.calls, "show")
+	if len(f.showns) > 0 {
+		p := f.showns[0]
+		f.showns = f.showns[1:]
+		return p, nil
+	}
 	if f.shown == nil {
 		return &tfjson.Plan{}, nil
 	}

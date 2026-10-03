@@ -107,6 +107,9 @@ type Directory struct {
 	Imported []Resource `json:"imported"`
 	LeftOut  []LeftOut  `json:"left_out,omitempty"`
 	Secrets  []Secret   `json:"secrets,omitempty"`
+	// Modules are the directory's module calls, and the clusters of
+	// resources that stayed in the root, with why.
+	Modules []Module `json:"modules,omitempty"`
 	// Checks are the verification gate's results.
 	Checks []Check `json:"checks,omitempty"`
 	// Error is why nothing in the directory was imported.
@@ -132,6 +135,17 @@ type Secret struct {
 	Variable  string `json:"variable"`
 	Address   string `json:"address"`
 	Attribute string `json:"attribute"`
+}
+
+// Module is a module call, by its name, the module's source and version
+// and the addresses the resources had in the root. A declined cluster has
+// no name, and why the resources stayed in the root.
+type Module struct {
+	Name      string   `json:"name,omitempty"`
+	Source    string   `json:"source"`
+	Version   string   `json:"version,omitempty"`
+	Resources []string `json:"resources"`
+	Declined  string   `json:"declined,omitempty"`
 }
 
 // Check is one check of the verification gate on a directory: formatted,
@@ -326,8 +340,17 @@ func (r *Report) Markdown() string {
 		}
 	}
 
-	var leftOut, secrets, dirErrors []string
+	var leftOut, secrets, modules, declined, dirErrors []string
 	for _, d := range r.Directories {
+		for _, m := range d.Modules {
+			resources := "`" + strings.Join(m.Resources, "`, `") + "`"
+			source := strings.TrimSpace("`" + m.Source + "` " + m.Version)
+			if m.Declined != "" {
+				declined = append(declined, fmt.Sprintf("- %s in `%s` (%s): %s", resources, d.Path, source, m.Declined))
+			} else {
+				modules = append(modules, fmt.Sprintf("- `module.%s` in `%s`: %s, for %s", m.Name, d.Path, source, resources))
+			}
+		}
 		for _, l := range d.LeftOut {
 			leftOut = append(leftOut, fmt.Sprintf("- `%s` in `%s`: %s", l.Address, d.Path, strings.Join(l.Errors, "; ")))
 		}
@@ -346,6 +369,8 @@ func (r *Report) Markdown() string {
 	}
 	section("Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", leftOut)
 	section("Secrets to set", "Set these variables before planning: Terraform doesn't write secret values into the configuration it generates.", secrets)
+	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
+	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string
 	for _, s := range r.Skipped {
 		skipped = append(skipped, fmt.Sprintf("- `%s` (%d): %s", s.Type, s.Count, s.Reason))
