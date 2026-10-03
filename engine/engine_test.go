@@ -105,8 +105,9 @@ func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
 // fakePlan is what one fake plan reports: diagnostics, or err for a failure
 // without any.
 type fakePlan struct {
-	diags []tfjson.Diagnostic
-	err   error
+	diags   []tfjson.Diagnostic
+	err     error
+	summary changeSummary // reported when there are no diags
 }
 
 // fakeTerraform records calls. Like Terraform, a plan with
@@ -144,6 +145,15 @@ func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.
 	}
 	for _, d := range p.diags {
 		line, err := json.Marshal(map[string]interface{}{"type": "diagnostic", "diagnostic": d})
+		if err != nil {
+			return false, err
+		}
+		if _, err := w.Write(append(line, '\n')); err != nil {
+			return false, err
+		}
+	}
+	if p.err == nil && len(p.diags) == 0 {
+		line, err := json.Marshal(map[string]interface{}{"type": "change_summary", "changes": p.summary})
 		if err != nil {
 			return false, err
 		}

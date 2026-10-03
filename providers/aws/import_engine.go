@@ -36,3 +36,21 @@ func (AWSProvider) ImportID(r terraformutils.Resource) (string, bool) {
 	}
 	return r.InstanceState.ID, true
 }
+
+// OmittedArguments leaves out of generated configuration the deprecated
+// aws_s3_bucket arguments (see s3BucketArguments), and from every
+// resource: region, which defaults to the provider's, the region the
+// resources were listed in; and tags_all, which the provider computes from
+// tags and default_tags.
+func (AWSProvider) OmittedArguments() map[string][]string {
+	return map[string][]string{
+		"*":             {"region", "tags_all"},
+		"aws_s3_bucket": s3BucketArguments,
+	}
+}
+
+// DefaultTags describes the provider's default_tags: tags it applies to
+// every resource. Keys starting with aws: are AWS's own.
+func (AWSProvider) DefaultTags() (attribute, block, reservedPrefix string) {
+	return "tags", "default_tags", "aws:"
+}

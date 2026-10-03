@@ -91,6 +91,9 @@ type Options struct {
 	// an S3 bucket's versioning. They must be computed, so that leaving them
 	// out changes no plan.
 	Omit map[string][]string
+	// DefaultTags, if set, lets Generate move the tags every resource shares
+	// into local.tags, applied through the provider (see liftTags).
+	DefaultTags *DefaultTags
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
@@ -136,7 +139,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	// Plan reports changes because every import is pending; only errors matter.
-	diags, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
+	diags, summary, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
 	}
@@ -155,7 +158,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if omitted, err := omitArguments(generated, opts.Omit); err != nil {
 		return nil, err
 	} else if omitted {
-		if diags, err = plan(ctx, tf); err != nil {
+		if diags, summary, err = plan(ctx, tf); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
 	}
@@ -194,9 +197,12 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			}
 			result.Rejected = append(result.Rejected, rejections...)
 		}
-		if diags, err = plan(ctx, tf); err != nil {
+		if diags, summary, err = plan(ctx, tf); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
+	}
+	if err := lift(ctx, tf, dir, opts, diags, summary); err != nil {
+		return nil, err
 	}
 	// Terraform can't plan with the secret variables unset, so the resources
 	// that use them are only validated from here on.

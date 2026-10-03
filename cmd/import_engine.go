@@ -88,6 +88,10 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	if withOmitted, ok := provider.(terraformutils.ProviderWithOmittedArguments); ok {
 		opts.Omit = withOmitted.OmittedArguments()
 	}
+	if withDefaultTags, ok := provider.(terraformutils.ProviderWithDefaultTags); ok {
+		attribute, block, reserved := withDefaultTags.DefaultTags()
+		opts.DefaultTags = &engine.DefaultTags{Provider: provider.GetName(), Attribute: attribute, Block: block, ReservedPrefix: reserved}
+	}
 	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
 	rep := &report.Report{Manifest: report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version},
