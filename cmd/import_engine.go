@@ -98,6 +98,9 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		return err
 	}
 	selected := run.selectResources(listed, defaults, chosen, importIDFunc(provider))
+	if options.PathPattern, err = rootPathPattern(provider, options.PathPattern); err != nil {
+		return err
+	}
 
 	cacheDir, err := infraharvestCacheDir()
 	if err != nil {
@@ -151,6 +154,13 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 			return ctx.Err()
 		}
 		run.addDirectory(dir, byDir[dir], result, err)
+		if err == nil && run.backend != nil {
+			// After the checks, which run on a local working directory: the
+			// import never needs access to the state backend.
+			if err := os.WriteFile(filepath.Join(dir, BackendFileName), run.backend.File(relativePath(options.PathOutput, dir)), 0o644); err != nil {
+				return err
+			}
+		}
 	}
 	run.report.Provider.Version = engine.LockedVersion(run.lock, run.report.Provider.Source)
 	return nil
@@ -431,4 +441,32 @@ func withChildImports(provider terraformutils.ProviderGenerator, resourcesByServ
 		}
 	}
 	return all, failures
+}
+
+// BackendFileName holds a generated root's state backend.
+const BackendFileName = "backend.tf"
+
+// DefaultRootPathPattern lays output out as one root per state boundary:
+// account (or subscription or project), then region or global.
+const DefaultRootPathPattern = "{output}/{provider}/{account}/{region}/"
+
+// rootPathPattern returns the path pattern for the Terraform engine's
+// roots: DefaultRootPathPattern unless --path-pattern says otherwise (the
+// legacy default, which the AWS command may extend with a region, doesn't),
+// with {account} and {region} filled in from the provider.
+func rootPathPattern(provider terraformutils.ProviderGenerator, pattern string) (string, error) {
+	if strings.HasPrefix(pattern, DefaultPathPattern) {
+		pattern = DefaultRootPathPattern
+	}
+	if !strings.Contains(pattern, "{account}") && !strings.Contains(pattern, "{region}") {
+		return pattern, nil
+	}
+	account, region := "default", "default"
+	if withScope, ok := provider.(terraformutils.ProviderWithScope); ok {
+		var err error
+		if account, region, err = withScope.Scope(); err != nil {
+			return "", err
+		}
+	}
+	return strings.NewReplacer("{account}", account, "{region}", region).Replace(pattern), nil
 }

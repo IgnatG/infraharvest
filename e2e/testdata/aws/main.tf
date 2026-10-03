@@ -194,6 +194,11 @@ resource "aws_vpc_endpoint" "s3" {
   route_table_ids   = [aws_route_table.public.id]
 }
 
+# Holds the generated roots' state (see stateBackendConfig in aws_test.go).
+resource "aws_s3_bucket" "state" {
+  bucket = "infraharvest-e2e-state"
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${local.name}-artifacts"
   tags   = local.tags

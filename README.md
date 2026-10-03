@@ -141,7 +141,32 @@ infraharvest import aws --engine=terraform --resources=vpc,subnet,sg,s3 --region
 
 `--all` imports everything the default selection includes, without a file. The report lists what was excluded and why.
 
+#### Configuration file and state backend
+
+`--config infraharvest.yaml` sets any flag the command line doesn't, and the state backend of the generated roots:
+
+```yaml
+version: 1
+settings:                # flags of every provider command
+  engine: terraform
+  selection: selection.yaml
+providers:               # flags of one provider command
+  aws:
+    profile: prod
+    regions: [eu-west-2, us-east-1]
+    resources: [vpc, subnet, sg, s3]
+backend:                 # one of s3, azurerm, gcs
+  s3:
+    bucket: acme-terraform-state
+    region: eu-west-2
+    key_prefix: imported
+```
+
+Each root gets a `backend.tf` with its own state key (`imported/aws/<account>/<region>/terraform.tfstate`). S3 state is locked with S3's own lock file (`use_lockfile = true`), not DynamoDB. infraharvest writes `backend.tf` after checking the root, so importing never needs access to the state bucket.
+
 #### Output of `--engine=terraform`
+
+By default each root is one state boundary: `<path-output>/<provider>/<account>/<region>/`, with `global` for global services such as IAM. `--path-pattern` can change that, with `{account}` and `{region}` as well as `{output}`, `{provider}` and `{service}`.
 
 Each output directory gets:
 
