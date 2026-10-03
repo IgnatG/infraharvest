@@ -213,3 +213,55 @@ func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
 }
+
+// OpenTofu writes "" for unset strings in nested blocks, and its errors
+// about set elements and attributes written as blocks point at the
+// resource.
+func TestRemoveRejectedAtResourceLevel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	config := `resource "aws_lb" "a" {
+  name = ""
+  subnet_mapping {
+    ipv6_address = ""
+    subnet_id    = "subnet-1"
+  }
+}
+
+resource "aws_default_network_acl" "b" {
+  egress {
+    cidr_block      = "0.0.0.0/0"
+    ipv6_cidr_block = ""
+  }
+}
+`
+	if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diags := []tfjson.Diagnostic{
+		errorAt(1, "expected subnet_mapping.1.ipv6_address to contain a valid IPv6 address, got: ", ""),
+		errorAt(9, `"" is not a valid CIDR block: invalid CIDR address: `, ""),
+	}
+
+	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
+		return removeRejected(f, syntax, GeneratedFileName, diags)
+	})
+	if err != nil || !changed {
+		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"ipv6_address", "ipv6_cidr_block"} {
+		if strings.Contains(string(got), removed) {
+			t.Errorf("%s not removed:\n%s", removed, got)
+		}
+	}
+	// Only what the errors name: the load balancer's name isn't.
+	for _, kept := range []string{`name = ""`, `subnet_id = "subnet-1"`, `cidr_block = "0.0.0.0/0"`} {
+		if !strings.Contains(string(got), kept) {
+			t.Errorf("%s not kept:\n%s", kept, got)
+		}
+	}
+}

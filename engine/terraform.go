@@ -17,55 +17,100 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
-// MinTerraformVersion is the first release with import blocks and
-// `plan -generate-config-out`.
-var MinTerraformVersion = version.Must(version.NewVersion("1.5.0"))
-
-// versionOf reports the version of the Terraform binary at execPath.
-type versionOf func(ctx context.Context, execPath string) (*version.Version, error)
-
-// FindTerraform returns a Terraform binary at least MinTerraformVersion, in
-// this order: explicitPath (which must qualify), terraform on PATH, a binary
-// cached in cacheDir, or the latest release downloaded into cacheDir.
-// Downloads are verified against HashiCorp's signed checksums.
-func FindTerraform(ctx context.Context, explicitPath, cacheDir string) (string, error) {
-	return findTerraform(ctx, explicitPath, cacheDir, terraformVersion, installLatest)
+// Binary describes an engine binary: Terraform or OpenTofu, which run the
+// same configuration through the same CLI.
+type Binary struct {
+	// Name is the executable's name, without .exe.
+	Name string
+	// Registry is the host provider sources without one resolve to.
+	Registry string
+	// Minimum is the first release with import blocks and
+	// `plan -generate-config-out`.
+	Minimum *version.Version
+	// install downloads the latest release into a directory and returns the
+	// binary's path; nil if the engine isn't downloaded automatically.
+	install func(ctx context.Context, dir string) (string, error)
 }
 
-func findTerraform(ctx context.Context, explicitPath, cacheDir string, versionOf versionOf, install func(context.Context, string) (string, error)) (string, error) {
+var (
+	// TerraformBinary is HashiCorp Terraform, downloaded if not installed.
+	TerraformBinary = Binary{
+		Name:     "terraform",
+		Registry: DefaultRegistry,
+		Minimum:  version.Must(version.NewVersion("1.5.0")),
+		install:  installLatestTerraform,
+	}
+	// TofuBinary is OpenTofu. It must be installed.
+	TofuBinary = Binary{
+		Name:     "tofu",
+		Registry: "registry.opentofu.org",
+		Minimum:  version.Must(version.NewVersion("1.6.0")),
+	}
+)
+
+// versionOf reports the version of the engine binary at execPath.
+type versionOf func(ctx context.Context, execPath string) (*version.Version, error)
+
+// FindTerraform finds Terraform; see Binary.Find.
+func FindTerraform(ctx context.Context, explicitPath, cacheDir string) (string, error) {
+	return TerraformBinary.Find(ctx, explicitPath, cacheDir)
+}
+
+// Find returns a binary of at least b.Minimum, in this order: explicitPath
+// (which must qualify), b.Name on PATH, a binary cached in cacheDir, or,
+// for engines downloaded automatically, the latest release downloaded into
+// cacheDir. Terraform downloads are verified against HashiCorp's signed
+// checksums.
+func (b Binary) Find(ctx context.Context, explicitPath, cacheDir string) (string, error) {
+	return b.find(ctx, explicitPath, cacheDir, binaryVersion)
+}
+
+func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, versionOf versionOf) (string, error) {
 	if explicitPath != "" {
-		if err := checkVersion(ctx, explicitPath, versionOf); err != nil {
+		if err := b.checkVersion(ctx, explicitPath, versionOf); err != nil {
 			return "", err
 		}
 		return explicitPath, nil
 	}
-	candidates := []string{filepath.Join(cacheDir, binaryName())}
-	if onPath, err := exec.LookPath("terraform"); err == nil {
+	candidates := []string{filepath.Join(cacheDir, b.fileName())}
+	if onPath, err := exec.LookPath(b.Name); err == nil {
 		candidates = append([]string{onPath}, candidates...)
 	}
 	for _, path := range candidates {
-		if _, err := os.Stat(path); err == nil && checkVersion(ctx, path, versionOf) == nil {
+		if _, err := os.Stat(path); err == nil && b.checkVersion(ctx, path, versionOf) == nil {
 			return path, nil
 		}
+	}
+	if b.install == nil {
+		return "", fmt.Errorf("%s %s or newer not found on PATH; install it, or pass its path", b.Name, b.Minimum)
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err
 	}
-	return install(ctx, cacheDir)
+	return b.install(ctx, cacheDir)
 }
 
-func checkVersion(ctx context.Context, execPath string, versionOf versionOf) error {
+func (b Binary) checkVersion(ctx context.Context, execPath string, versionOf versionOf) error {
 	v, err := versionOf(ctx, execPath)
 	if err != nil {
-		return fmt.Errorf("terraform at %s: %w", execPath, err)
+		return fmt.Errorf("%s at %s: %w", b.Name, execPath, err)
 	}
-	if v.LessThan(MinTerraformVersion) {
-		return fmt.Errorf("terraform at %s is %s; %s or newer is required", execPath, v, MinTerraformVersion)
+	if v.LessThan(b.Minimum) {
+		return fmt.Errorf("%s at %s is %s; %s or newer is required", b.Name, execPath, v, b.Minimum)
 	}
 	return nil
 }
 
-func terraformVersion(ctx context.Context, execPath string) (*version.Version, error) {
+func (b Binary) fileName() string {
+	if runtime.GOOS == "windows" {
+		return b.Name + ".exe"
+	}
+	return b.Name
+}
+
+// binaryVersion asks the binary at execPath for its version. OpenTofu
+// answers `version -json` like Terraform.
+func binaryVersion(ctx context.Context, execPath string) (*version.Version, error) {
 	tf, err := tfexec.NewTerraform(os.TempDir(), execPath)
 	if err != nil {
 		return nil, err
@@ -74,7 +119,7 @@ func terraformVersion(ctx context.Context, execPath string) (*version.Version, e
 	return v, err
 }
 
-func installLatest(ctx context.Context, dir string) (string, error) {
+func installLatestTerraform(ctx context.Context, dir string) (string, error) {
 	src := &releases.LatestVersion{Product: product.Terraform, InstallDir: dir}
 	if err := src.Validate(); err != nil {
 		return "", err
@@ -84,11 +129,4 @@ func installLatest(ctx context.Context, dir string) (string, error) {
 		return "", fmt.Errorf("install terraform: %w", err)
 	}
 	return path, nil
-}
-
-func binaryName() string {
-	if runtime.GOOS == "windows" {
-		return "terraform.exe"
-	}
-	return "terraform"
 }

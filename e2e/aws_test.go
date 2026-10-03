@@ -40,8 +40,8 @@ var awsServices = []string{
 }
 
 // TestAWSRoundTrip creates resources in an AWS emulator, imports them with
-// --engine=terraform and checks Terraform plans every generated resource
-// as an import with no changes. Run it against Floci:
+// --engine=terraform (or E2E_ENGINE=tofu) and checks the engine plans every
+// generated resource as an import with no changes. Run it against Floci:
 //
 //	docker compose -f e2e/compose.yaml up -d --wait
 //	AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws ./e2e/
@@ -58,7 +58,8 @@ func TestAWSRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	cache := t.TempDir()
-	execPath, err := engine.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	engineName, binary := e2eEngine(t)
+	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	root := cmd.NewCmdRoot()
 	root.SetArgs([]string{
 		"import", "aws",
-		"--engine=terraform",
+		"--engine=" + engineName,
 		"--terraform-path=" + execPath,
 		"--regions=us-east-1",
 		"--resources=" + strings.Join(awsServices, ","),
@@ -374,4 +375,19 @@ func changedAttributes(before, after interface{}) map[string]string {
 		}
 	}
 	return changed
+}
+
+// e2eEngine returns the engine E2E_ENGINE names: terraform (the default) or
+// tofu.
+func e2eEngine(t *testing.T) (string, engine.Binary) {
+	t.Helper()
+	switch name := os.Getenv("E2E_ENGINE"); name {
+	case "", "terraform":
+		return "terraform", engine.TerraformBinary
+	case "tofu":
+		return name, engine.TofuBinary
+	default:
+		t.Fatalf("E2E_ENGINE=%s: use terraform or tofu", name)
+		return "", engine.Binary{}
+	}
 }

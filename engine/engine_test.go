@@ -516,42 +516,43 @@ func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
 	}
 }
 
-func TestFindTerraform(t *testing.T) {
+func TestBinaryFind(t *testing.T) {
 	versions := map[string]string{}
 	versionOf := func(_ context.Context, path string) (*version.Version, error) {
 		v, ok := versions[path]
 		if !ok {
-			return nil, errors.New("not a terraform binary")
+			return nil, errors.New("not an engine binary")
 		}
 		return version.NewVersion(v)
 	}
 	installed := ""
-	install := func(_ context.Context, dir string) (string, error) {
+	terraform := TerraformBinary
+	terraform.install = func(_ context.Context, dir string) (string, error) {
 		if _, err := os.Stat(dir); err != nil {
-			return "", err // findTerraform must create the cache directory first
+			return "", err // find must create the cache directory first
 		}
-		installed = filepath.Join(dir, binaryName())
+		installed = filepath.Join(dir, terraform.fileName())
 		return installed, nil
 	}
-	t.Setenv("PATH", t.TempDir()) // no terraform on PATH
+	t.Setenv("PATH", t.TempDir()) // no engine on PATH
 
 	t.Run("explicit path too old", func(t *testing.T) {
 		versions["/old/terraform"] = "1.4.6"
-		if _, err := findTerraform(context.Background(), "/old/terraform", t.TempDir(), versionOf, install); err == nil {
+		if _, err := terraform.find(context.Background(), "/old/terraform", t.TempDir(), versionOf); err == nil {
 			t.Error("want an error for Terraform older than 1.5")
 		}
 	})
 
 	t.Run("cached binary is reused", func(t *testing.T) {
 		cache := t.TempDir()
-		cached := filepath.Join(cache, binaryName())
+		cached := filepath.Join(cache, terraform.fileName())
 		if err := os.WriteFile(cached, nil, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		versions[cached] = "1.16.5"
 		installed = ""
 
-		got, err := findTerraform(context.Background(), "", cache, versionOf, install)
+		got, err := terraform.find(context.Background(), "", cache, versionOf)
 
 		if err != nil || got != cached || installed != "" {
 			t.Errorf("got %q, %v (installed %q); want the cached binary without installing", got, err, installed)
@@ -561,10 +562,25 @@ func TestFindTerraform(t *testing.T) {
 	t.Run("installs when nothing qualifies", func(t *testing.T) {
 		cache := filepath.Join(t.TempDir(), "not-yet-created")
 
-		got, err := findTerraform(context.Background(), "", cache, versionOf, install)
+		got, err := terraform.find(context.Background(), "", cache, versionOf)
 
-		if err != nil || got != filepath.Join(cache, binaryName()) {
+		if err != nil || got != filepath.Join(cache, terraform.fileName()) {
 			t.Errorf("got %q, %v; want a fresh install into the cache", got, err)
+		}
+	})
+
+	t.Run("OpenTofu is not downloaded", func(t *testing.T) {
+		_, err := TofuBinary.find(context.Background(), "", t.TempDir(), versionOf)
+
+		if err == nil || !strings.Contains(err.Error(), "tofu 1.6.0 or newer not found") {
+			t.Errorf("want an error asking to install OpenTofu, got %v", err)
+		}
+	})
+
+	t.Run("OpenTofu older than 1.6", func(t *testing.T) {
+		versions["/old/tofu"] = "1.5.7"
+		if _, err := TofuBinary.find(context.Background(), "/old/tofu", t.TempDir(), versionOf); err == nil {
+			t.Error("want an error for OpenTofu older than 1.6")
 		}
 	})
 }

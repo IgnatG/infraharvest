@@ -16,9 +16,10 @@ import (
 // DefaultRegistry is the registry provider sources without a host use.
 const DefaultRegistry = "registry.terraform.io"
 
-// TerraformVersion returns the version of the Terraform binary at execPath.
-func TerraformVersion(ctx context.Context, execPath string) (*version.Version, error) {
-	return terraformVersion(ctx, execPath)
+// BinaryVersion returns the version of the Terraform or OpenTofu binary at
+// execPath.
+func BinaryVersion(ctx context.Context, execPath string) (*version.Version, error) {
+	return binaryVersion(ctx, execPath)
 }
 
 // RequiredVersion is the required_version for configuration generated with

@@ -179,3 +179,21 @@ func TestWriteGitignore(t *testing.T) {
 		t.Errorf("existing .gitignore overwritten: %q", content)
 	}
 }
+
+func TestEngineBinaryAndRegistry(t *testing.T) {
+	for _, tc := range []struct{ engineName, binary, source string }{
+		{engineTerraform, "terraform", "registry.terraform.io/hashicorp/aws"},
+		{engineTofu, "tofu", "registry.opentofu.org/hashicorp/aws"},
+	} {
+		b := engineBinary(tc.engineName)
+		if b.Name != tc.binary {
+			t.Errorf("--engine=%s runs %s, want %s", tc.engineName, b.Name, tc.binary)
+		}
+		if got := qualifiedSource(b.Registry, "hashicorp/aws"); got != tc.source {
+			t.Errorf("--engine=%s: got %s, want %s", tc.engineName, got, tc.source)
+		}
+	}
+	if got := qualifiedSource("registry.opentofu.org", "example.com/acme/thing"); got != "example.com/acme/thing" {
+		t.Errorf("a source with a host must be kept, got %s", got)
+	}
+}
