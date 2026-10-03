@@ -12,7 +12,9 @@ import (
 	"testing"
 
 	"github.com/hashicorp/go-version"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 func TestImportsFile(t *testing.T) {
@@ -88,11 +90,24 @@ func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
-// fakeTerraform records calls and writes generated.tf like Terraform does.
+// fakeTerraform records calls. Like Terraform, a plan with
+// -generate-config-out writes generated.tf even when it then fails.
 type fakeTerraform struct {
-	dir     string
-	planErr error
-	calls   []string
+	dir         string
+	generated   string                   // generated.tf content; a comment if empty
+	planErrs    []error                  // returned by successive plans
+	validations []*tfjson.ValidateOutput // returned by successive validations; then valid
+	calls       []string
+}
+
+func (f *fakeTerraform) Validate(context.Context) (*tfjson.ValidateOutput, error) {
+	f.calls = append(f.calls, "validate")
+	if len(f.validations) == 0 {
+		return &tfjson.ValidateOutput{Valid: true}, nil
+	}
+	out := f.validations[0]
+	f.validations = f.validations[1:]
+	return out, nil
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
@@ -100,19 +115,31 @@ func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
 	return nil
 }
 
-func (f *fakeTerraform) Plan(context.Context, ...tfexec.PlanOption) (bool, error) {
+func (f *fakeTerraform) Plan(_ context.Context, opts ...tfexec.PlanOption) (bool, error) {
 	f.calls = append(f.calls, "plan")
-	if f.planErr != nil {
-		return false, f.planErr
+	for _, opt := range opts {
+		if _, ok := opt.(*tfexec.GenerateConfigOutOption); ok {
+			content := f.generated
+			if content == "" {
+				content = "# generated\n"
+			}
+			if err := os.WriteFile(filepath.Join(f.dir, GeneratedFileName), []byte(content), 0o644); err != nil {
+				return false, err
+			}
+		}
 	}
-	return true, os.WriteFile(filepath.Join(f.dir, GeneratedFileName), []byte("# generated\n"), 0o644)
+	var err error
+	if len(f.planErrs) > 0 {
+		err, f.planErrs = f.planErrs[0], f.planErrs[1:]
+	}
+	return err == nil, err
 }
 
 func TestGenerate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "aws", "sqs")
 	tf := &fakeTerraform{dir: dir}
 
-	err := Generate(context.Background(), tf, dir, []byte("# providers\n"), []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
+	err := Generate(context.Background(), tf, dir, []byte("# providers\n"), []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +154,24 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
+// Output directories such as generated/aws/sqs don't exist before the
+// first import into them.
+func TestNewTerraformCreatesDirs(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "generated", "aws", "sqs")
+	cache := filepath.Join(base, "cache", "plugins")
+
+	if _, err := NewTerraform(dir, os.Args[0], cache); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, d := range []string{dir, cache} {
+		if info, err := os.Stat(d); err != nil || !info.IsDir() {
+			t.Errorf("%s not created: %v", d, err)
+		}
+	}
+}
+
 func TestGenerateRefusesToOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, GeneratedFileName), []byte("mine"), 0o644); err != nil {
@@ -134,7 +179,7 @@ func TestGenerateRefusesToOverwrite(t *testing.T) {
 	}
 	tf := &fakeTerraform{dir: dir}
 
-	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
 
 	if err == nil || len(tf.calls) != 0 {
 		t.Errorf("want an error before running Terraform, got err=%v calls=%v", err, tf.calls)
@@ -143,12 +188,102 @@ func TestGenerateRefusesToOverwrite(t *testing.T) {
 
 func TestGenerateReportsPlanErrors(t *testing.T) {
 	dir := t.TempDir()
-	tf := &fakeTerraform{dir: dir, planErr: errors.New("Cannot import non-existent remote object")}
+	tf := &fakeTerraform{dir: dir, planErrs: []error{errors.New("Cannot import non-existent remote object")}}
 
-	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}})
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, nil)
 
 	if err == nil || !strings.Contains(err.Error(), "terraform plan: Cannot import") {
 		t.Errorf("want the plan error, got %v", err)
+	}
+}
+
+const invalidGenerated = `resource "aws_route53_record" "tfer--a" {
+  name                             = "example.internal"
+  multivalue_answer_routing_policy = false
+}
+`
+
+// dropMultivalue stands in for a provider fixup.
+func dropMultivalue(resourceType string, body *hclwrite.Body) bool {
+	if resourceType != "aws_route53_record" || body.GetAttribute("multivalue_answer_routing_policy") == nil {
+		return false
+	}
+	body.RemoveAttribute("multivalue_answer_routing_policy")
+	return true
+}
+
+func TestGenerateRepairsAndReplans(t *testing.T) {
+	dir := t.TempDir()
+	tf := &fakeTerraform{dir: dir, generated: invalidGenerated, planErrs: []error{errors.New("Missing required argument")}}
+
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "tfer--a", ID: "Z1_example.internal_A"}}, dropMultivalue)
+	if err != nil {
+		t.Fatalf("want the repaired configuration to plan, got %v", err)
+	}
+
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan" {
+		t.Errorf("calls: got %v, want [init plan validate plan]", tf.calls)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, GeneratedFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "multivalue") || !strings.Contains(string(got), `name = "example.internal"`) {
+		t.Errorf("fixup not applied or file not formatted:\n%s", got)
+	}
+}
+
+func TestGenerateReportsErrorsAfterRepair(t *testing.T) {
+	dir := t.TempDir()
+	tf := &fakeTerraform{dir: dir, generated: invalidGenerated, planErrs: []error{errors.New("first"), errors.New("still invalid")}}
+
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_route53_record", Name: "tfer--a", ID: "x"}}, dropMultivalue)
+
+	if err == nil || !strings.Contains(err.Error(), "repaired configuration: still invalid") {
+		t.Errorf("want the error from planning the repaired configuration, got %v", err)
+	}
+}
+
+func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		generated: `resource "aws_kms_key" "a" {
+  description             = "app"
+  rotation_period_in_days = 0
+}
+`,
+		planErrs: []error{errors.New("expected rotation_period_in_days to be in the range (90 - 2560), got 0")},
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{
+			errorAt(3, "expected rotation_period_in_days to be in the range (90 - 2560), got 0", ""),
+		}}},
+	}
+
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_kms_key", Name: "a", ID: "k"}}, nil)
+	if err != nil {
+		t.Fatalf("want the repaired configuration to plan, got %v", err)
+	}
+
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan]", tf.calls)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, GeneratedFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "rotation_period_in_days") {
+		t.Errorf("rejected zero value not removed:\n%s", got)
+	}
+}
+
+func TestGenerateSkipsReplanWithoutRepairs(t *testing.T) {
+	dir := t.TempDir()
+	tf := &fakeTerraform{dir: dir, planErrs: []error{errors.New("Cannot import non-existent remote object")}}
+
+	err := Generate(context.Background(), tf, dir, nil, []Import{{Type: "aws_sqs_queue", Name: "tfer--a", ID: "a"}}, dropMultivalue)
+
+	if err == nil || !strings.Contains(err.Error(), "terraform plan: Cannot import") || strings.Join(tf.calls, ",") != "init,plan,validate" {
+		t.Errorf("want the first plan's error and no second plan, got err=%v calls=%v", err, tf.calls)
 	}
 }
 

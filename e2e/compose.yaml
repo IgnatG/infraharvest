@@ -1,0 +1,17 @@
+# Floci, a local AWS emulator, for the end-to-end tests. See README.md.
+services:
+  floci:
+    image: floci/floci:2.1.0@sha256:f5aa8c18302cedb4f2385f5c4e455b3efc77fee6bf7b6e5d1712b2817ba102db
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      # SQS queue URLs embed this. The AWS provider only imports queues by URLs
+      # shaped like AWS's (https://sqs.<region>.<host>/<account>/<name>);
+      # requests still go to AWS_ENDPOINT_URL. .invalid never resolves.
+      FLOCI_BASE_URL: https://sqs.us-east-1.floci.invalid
+    # The image has bash but no curl: ready once the API port accepts connections.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/4566"]
+      interval: 2s
+      timeout: 2s
+      retries: 30

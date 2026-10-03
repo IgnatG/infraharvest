@@ -97,6 +97,39 @@ jobs:
     - name: Test
       run: go test -tags integration ./engine/...
 
+  # Imports resources from Floci, a local AWS emulator, with the Terraform
+  # engine and checks the generated configuration plans with no changes.
+  # No AWS account or credentials are involved.
+  e2e-aws:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    # The AWS provider is ~700 MB unpacked and is installed twice.
+    - name: Free disk space
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      with:
+        terraform_wrapper: false
+    - name: Format
+      run: terraform fmt -check -recursive -diff e2e
+    - name: Start Floci
+      run: docker compose -f e2e/compose.yaml up -d --wait
+    - name: Test
+      env:
+        AWS_ENDPOINT_URL: http://localhost:4566
+      run: go test -tags e2e,minimal,aws -timeout 25m -v ./e2e/
+    - name: Floci logs
+      if: failure()
+      run: docker compose -f e2e/compose.yaml logs
+
   # The read-only permission templates must stay formatted and valid.
   permissions:
     runs-on: ubuntu-latest

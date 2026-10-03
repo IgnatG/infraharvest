@@ -15,7 +15,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // Files the engine writes into each output directory.
@@ -29,13 +31,16 @@ const (
 type Terraform interface {
 	Init(ctx context.Context, opts ...tfexec.InitOption) error
 	Plan(ctx context.Context, opts ...tfexec.PlanOption) (bool, error)
+	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
 }
 
 // NewTerraform returns a Terraform runner for dir that shares downloaded
-// providers through pluginCacheDir.
+// providers through pluginCacheDir. It creates both directories.
 func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, error) {
-	if err := os.MkdirAll(pluginCacheDir, 0o755); err != nil {
-		return nil, err
+	for _, d := range []string{dir, pluginCacheDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return nil, err
+		}
 	}
 	tf, err := tfexec.NewTerraform(dir, execPath)
 	if err != nil {
@@ -51,10 +56,17 @@ func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, erro
 	return tf, nil
 }
 
+// Fixup repairs one generated resource block in place and reports whether
+// it changed anything. Providers use it for quirks of their configuration
+// generator; see terraformutils.ProviderWithConfigFixups.
+type Fixup func(resourceType string, body *hclwrite.Body) bool
+
 // Generate writes providers and imports into dir, then runs Terraform to
 // generate the configuration of every imported resource into generated.tf.
-// It refuses to overwrite an existing generated.tf.
-func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, imports []Import) error {
+// If Terraform rejects what it generated, Generate repairs it (see repair),
+// using fixup if not nil, and plans again. It refuses to overwrite an
+// existing generated.tf.
+func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, imports []Import, fixup Fixup) error {
 	if len(imports) == 0 {
 		return errors.New("no resources to import")
 	}
@@ -80,8 +92,23 @@ func Generate(ctx context.Context, tf Terraform, dir string, providers []byte, i
 		return fmt.Errorf("terraform init: %w", err)
 	}
 	// Plan reports changes because every import is pending; only errors matter.
-	if _, err := tf.Plan(ctx, tfexec.GenerateConfigOut(GeneratedFileName)); err != nil {
-		return fmt.Errorf("terraform plan: %w", err)
+	_, err = tf.Plan(ctx, tfexec.GenerateConfigOut(GeneratedFileName))
+	if err == nil {
+		return nil
+	}
+	planErr := fmt.Errorf("terraform plan: %w", err)
+	// Terraform writes generated.tf even when the configuration it generated
+	// is invalid. Repair it and plan again.
+	repaired, err := repair(ctx, tf, generated, fixup)
+	switch {
+	case errors.Is(err, fs.ErrNotExist), err == nil && !repaired:
+		return planErr
+	case err != nil:
+		return errors.Join(planErr, err)
+	}
+	if _, err := tf.Plan(ctx); err != nil {
+		// The first plan's errors explain resources it generated nothing for.
+		return errors.Join(planErr, fmt.Errorf("terraform plan of the repaired configuration: %w", err))
 	}
 	return nil
 }

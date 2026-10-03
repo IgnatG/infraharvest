@@ -396,7 +396,6 @@ require (
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/hashicorp/aws-sdk-go-base/v2 v2.0.0-beta.72 // indirect
-	github.com/hashicorp/terraform-json v0.28.0 // indirect
 	github.com/hashicorp/terraform-plugin-log v0.10.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -438,6 +437,7 @@ require (
 	github.com/gofrs/uuid/v3 v3.1.2
 	github.com/hashicorp/hc-install v0.10.0
 	github.com/hashicorp/terraform-exec v0.25.3
+	github.com/hashicorp/terraform-json v0.28.0
 	github.com/ionos-cloud/sdk-go-cert-manager v1.0.0
 	github.com/ionos-cloud/sdk-go-container-registry v1.0.0
 	github.com/ionos-cloud/sdk-go-dataplatform v1.0.1

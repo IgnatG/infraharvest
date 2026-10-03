@@ -56,7 +56,11 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 		return err
 	}
 
-	byDir := importsByDir(provider.GetName(), options, mapping.GetResourcesByService())
+	byDir := importsByDir(provider.GetName(), options, mapping.GetResourcesByService(), importIDFunc(provider))
+	var fixup engine.Fixup
+	if withFixups, ok := provider.(terraformutils.ProviderWithConfigFixups); ok {
+		fixup = withFixups.FixGeneratedConfig
+	}
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)
@@ -66,7 +70,7 @@ func importWithTerraform(provider terraformutils.ProviderGenerator, options Impo
 		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
 		tf, err := engine.NewTerraform(dir, execPath, filepath.Join(cacheDir, "plugins"))
 		if err == nil {
-			err = engine.Generate(ctx, tf, dir, providerHCL, byDir[dir])
+			err = engine.Generate(ctx, tf, dir, providerHCL, byDir[dir], fixup)
 		}
 		if err != nil {
 			if ctx.Err() != nil {
@@ -101,20 +105,44 @@ func checkTerraformEngineOptions(options ImportOptions) error {
 }
 
 // importsByDir groups resources into import blocks per output directory,
-// following --path-pattern like the legacy engine.
-func importsByDir(providerName string, options ImportOptions, resourcesByService map[string][]terraformutils.Resource) map[string][]engine.Import {
+// following --path-pattern like the legacy engine. It leaves out, and logs,
+// resources Terraform can't import.
+func importsByDir(providerName string, options ImportOptions, resourcesByService map[string][]terraformutils.Resource, importID func(terraformutils.Resource) (string, bool)) map[string][]engine.Import {
 	byDir := map[string][]engine.Import{}
+	skipped := map[string]int{}
 	for service, resources := range resourcesByService {
 		dir := filepath.Clean(Path(options.PathPattern, providerName, service, options.PathOutput))
 		for _, r := range resources {
+			id, ok := importID(r)
+			if !ok {
+				skipped[r.InstanceInfo.Type]++
+				continue
+			}
 			byDir[dir] = append(byDir[dir], engine.Import{
 				Type: r.InstanceInfo.Type,
 				Name: r.ResourceName,
-				ID:   r.InstanceState.ID,
+				ID:   id,
 			})
 		}
 	}
+	types := make([]string, 0, len(skipped))
+	for typ := range skipped {
+		types = append(types, typ)
+	}
+	sort.Strings(types)
+	for _, typ := range types {
+		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", providerName, skipped[typ], typ)
+	}
 	return byDir
+}
+
+// importIDFunc returns how to get a resource's import ID: the provider's
+// mapping if it has one, else the ID its lister recorded.
+func importIDFunc(provider terraformutils.ProviderGenerator) func(terraformutils.Resource) (string, bool) {
+	if withIDs, ok := provider.(terraformutils.ProviderWithImportIDs); ok {
+		return withIDs.ImportID
+	}
+	return func(r terraformutils.Resource) (string, bool) { return r.InstanceState.ID, true }
 }
 
 // engineProvider describes the provider for the generated configuration.
