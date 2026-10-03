@@ -15,10 +15,10 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-// s3BucketArguments are the aws_s3_bucket arguments the AWS provider
-// deprecated in favour of separate resources. They are optional and
-// computed, so configuration without them plans no change; the separate
-// resources s3Children lists carry their settings.
+// s3BucketArguments are the aws_s3_bucket arguments that the AWS provider
+// replaced with separate resources, and marks as deprecated. They are
+// optional and computed, so configuration without them plans no change;
+// the separate resources s3Children lists carry their settings.
 var s3BucketArguments = []string{
 	"acceleration_status", "acl", "cors_rule", "grant", "lifecycle_rule", "logging",
 	"object_lock_configuration", "policy", "replication_configuration", "request_payer",
