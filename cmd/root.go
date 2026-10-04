@@ -33,6 +33,7 @@ func NewCmdRoot() *cobra.Command {
 	cmd.AddCommand(newMCPCmd())
 	cmd.AddCommand(newVerifyCmd())
 	cmd.AddCommand(newReportCmd())
+	cmd.AddCommand(newBootstrapCmd())
 	cmd.AddCommand(versionCmd)
 	return cmd
 }

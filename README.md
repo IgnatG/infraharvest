@@ -166,6 +166,8 @@ backend:                 # one of s3, azurerm, gcs
 
 Each root gets a `backend.tf` with its own state key (`imported/aws/<account>/<region>/terraform.tfstate`). S3 state is locked with S3's own lock file (`use_lockfile = true`), not DynamoDB. infraharvest writes `backend.tf` after checking the root, so importing never needs access to the state bucket.
 
+If the storage doesn't exist yet, `infraharvest bootstrap --config infraharvest.yaml` writes a root into `<path-output>/bootstrap` that creates it: an S3 bucket, an Azure storage account and container, or a Cloud Storage bucket. The storage is versioned, encrypted, not public, reachable only over TLS, and protected from `terraform destroy`. Apply it once, with rights to create storage, before planning the generated roots.
+
 #### AI agents (MCP)
 
 `infraharvest mcp` serves infraharvest to AI agents such as Claude Code, Copilot or Cursor over the [Model Context Protocol](https://modelcontextprotocol.io), on stdin and stdout. Its tools run the same binary, so they behave like the command line:
