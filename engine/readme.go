@@ -12,9 +12,9 @@ import (
 // ReadmeFileName explains a generated directory and what is left to do.
 const ReadmeFileName = "README.md"
 
-// GitignoreFile keeps state, plans, Terraform's working directory and
-// variable values out of version control. Variable files can hold the
-// secret values variables.tf asks for.
+// GitignoreFile keeps state, plans, Terraform's working directory, variable
+// values and infraharvest's checkpoints (.infraharvest) out of version
+// control. Variable files can hold the secret values variables.tf asks for.
 const GitignoreFile = `.terraform/
 *.tfstate
 *.tfstate.*
@@ -27,6 +27,7 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+.infraharvest/
 `
 
 // readmeFile describes a directory Generate wrote: what it imports, the
