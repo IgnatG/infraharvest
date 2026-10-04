@@ -374,6 +374,14 @@ docker run --rm -v "$PWD:/work" -v "$HOME/.aws:/home/git/.aws:ro" -e AWS_PROFILE
   ghcr.io/ignatg/infraharvest import aws --engine=terraform --all --resources=vpc --regions=eu-west-2
 ```
 
+**With the install script**
+
+For Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell. It checks the archive's checksum and, if cosign is installed, the release's signature. Set `INFRAHARVEST_REQUIRE_SIGNATURE=1` to refuse to install without cosign:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+```
+
 **With Go**
 
 `go install github.com/IgnatG/infraharvest@latest`
