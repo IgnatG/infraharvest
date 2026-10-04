@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 )
@@ -58,7 +56,7 @@ func (g *SesGenerator) loadDomainIdentities(svc *ses.Client) error {
 		IdentityType: "Domain",
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -79,7 +77,7 @@ func (g *SesGenerator) loadMailIdentities(svc *ses.Client) error {
 		IdentityType: "EmailAddress",
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -96,7 +94,7 @@ func (g *SesGenerator) loadMailIdentities(svc *ses.Client) error {
 }
 
 func (g *SesGenerator) loadTemplates(svc *ses.Client) error {
-	templates, err := svc.ListTemplates(context.TODO(), &ses.ListTemplatesInput{})
+	templates, err := svc.ListTemplates(g.Context(), &ses.ListTemplatesInput{})
 	if err != nil {
 		return err
 	}
@@ -113,7 +111,7 @@ func (g *SesGenerator) loadTemplates(svc *ses.Client) error {
 }
 
 func (g *SesGenerator) loadConfigurationSets(svc *ses.Client) error {
-	configurationSets, err := svc.ListConfigurationSets(context.TODO(), &ses.ListConfigurationSetsInput{})
+	configurationSets, err := svc.ListConfigurationSets(g.Context(), &ses.ListConfigurationSetsInput{})
 	if err != nil {
 		return err
 	}
@@ -130,7 +128,7 @@ func (g *SesGenerator) loadConfigurationSets(svc *ses.Client) error {
 }
 
 func (g *SesGenerator) loadRuleSets(svc *ses.Client) error {
-	ruleSets, err := svc.ListReceiptRuleSets(context.TODO(), &ses.ListReceiptRuleSetsInput{})
+	ruleSets, err := svc.ListReceiptRuleSets(g.Context(), &ses.ListReceiptRuleSetsInput{})
 	if err != nil {
 		return err
 	}
@@ -143,7 +141,7 @@ func (g *SesGenerator) loadRuleSets(svc *ses.Client) error {
 			"aws_ses_receipt_rule_set",
 			"aws",
 			sesAllowEmptyValues))
-		rules, err := svc.DescribeReceiptRuleSet(context.TODO(), &ses.DescribeReceiptRuleSetInput{
+		rules, err := svc.DescribeReceiptRuleSet(g.Context(), &ses.DescribeReceiptRuleSetInput{
 			RuleSetName: ruleSet.Name,
 		})
 		if err != nil {

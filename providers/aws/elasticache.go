@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -32,7 +31,7 @@ type ElastiCacheGenerator struct {
 func (g *ElastiCacheGenerator) loadCacheClusters(svc *elasticache.Client) error {
 	p := elasticache.NewDescribeCacheClustersPaginator(svc, &elasticache.DescribeCacheClustersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -79,7 +78,7 @@ func (g *ElastiCacheGenerator) loadCacheClusters(svc *elasticache.Client) error 
 func (g *ElastiCacheGenerator) loadParameterGroups(svc *elasticache.Client) error {
 	p := elasticache.NewDescribeCacheParameterGroupsPaginator(svc, &elasticache.DescribeCacheParameterGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -103,7 +102,7 @@ func (g *ElastiCacheGenerator) loadParameterGroups(svc *elasticache.Client) erro
 func (g *ElastiCacheGenerator) loadSubnetGroups(svc *elasticache.Client) error {
 	p := elasticache.NewDescribeCacheSubnetGroupsPaginator(svc, &elasticache.DescribeCacheSubnetGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -124,7 +123,7 @@ func (g *ElastiCacheGenerator) loadSubnetGroups(svc *elasticache.Client) error {
 func (g *ElastiCacheGenerator) loadReplicationGroups(svc *elasticache.Client) error {
 	p := elasticache.NewDescribeReplicationGroupsPaginator(svc, &elasticache.DescribeReplicationGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

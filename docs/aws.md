@@ -22,6 +22,10 @@ infraharvest import aws --resources=cloudfront --profile=prod
 ```
 In that case terraformer will not know with which region resources are associated with and will not assume any region. That scenario is useful in case of global resources (e.g. CloudFront distributions or Route 53 records) and when region is passed implicitly through environmental variables or metadata service.
 
+#### Throttling and timeouts
+
+Listing a large account makes many API calls. Calls that AWS throttles back off and retry, up to 10 attempts, in the SDK's adaptive retry mode: it also slows the client down while an API is throttling it. `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override these settings. `--list-timeout` (default 30 minutes) limits how long infraharvest lists one service in one region. A service that takes longer is reported as failed, rather than imported with resources missing. Ctrl-C stops the listing.
+
 #### Local emulators
 
 infraharvest and Terraform read the standard `AWS_ENDPOINT_URL` variable, so you can try an import against a local emulator such as [Floci](https://github.com/floci-io/floci) without an AWS account:

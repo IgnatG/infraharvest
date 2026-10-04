@@ -15,6 +15,8 @@
 package terraformutils
 
 import (
+	"context"
+
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -48,7 +50,7 @@ type ProviderWithImportIDs interface {
 // resources, such as an S3 bucket's versioning. They are imported next to
 // r. It returns no children for most resources.
 type ProviderWithChildImports interface {
-	ChildImports(r Resource) ([]Resource, error)
+	ChildImports(ctx context.Context, r Resource) ([]Resource, error)
 }
 
 // ProviderWithOmittedArguments names, per resource type or under "*" for
@@ -72,7 +74,7 @@ type ProviderWithStateOnlyArguments interface {
 // leaves out unless told otherwise, by "type id", with the reason:
 // resources the cloud creates and manages itself, such as a default VPC.
 type ProviderWithSelectionDefaults interface {
-	ExcludedByDefault(resources []Resource) (map[string]string, error)
+	ExcludedByDefault(ctx context.Context, resources []Resource) (map[string]string, error)
 }
 
 // ProviderWithScope names the account (or subscription or project) and the
@@ -80,7 +82,7 @@ type ProviderWithSelectionDefaults interface {
 // ({output}/{provider}/{account}/{region}/): one root per state
 // boundary.
 type ProviderWithScope interface {
-	Scope() (account, region string, err error)
+	Scope(ctx context.Context) (account, region string, err error)
 }
 
 // ProviderWithDefaultTags describes how the provider applies tags to every

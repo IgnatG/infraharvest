@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -18,6 +19,10 @@ func (s *AwsFacade) SetProviderName(providerName string) {
 
 func (s *AwsFacade) SetVerbose(verbose bool) {
 	s.service.SetVerbose(verbose)
+}
+
+func (s *AwsFacade) SetContext(ctx context.Context) {
+	s.service.SetContext(ctx)
 }
 
 func (s *AwsFacade) ParseFilters(rawFilters []string) {

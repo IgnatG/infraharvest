@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -38,7 +37,7 @@ func (g *Route53Generator) createZonesResources(svc *route53.Client) []terraform
 	var resources []terraformutils.Resource
 	p := route53.NewListHostedZonesPaginator(svc, &route53.ListHostedZonesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			log.Println(err)
 			return resources
@@ -64,7 +63,7 @@ func (g *Route53Generator) createZonesResources(svc *route53.Client) []terraform
 	return resources
 }
 
-func (Route53Generator) createRecordsResources(svc *route53.Client, zoneID string) []terraformutils.Resource {
+func (g Route53Generator) createRecordsResources(svc *route53.Client, zoneID string) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	var sets *route53.ListResourceRecordSetsOutput
 	var err error
@@ -73,7 +72,7 @@ func (Route53Generator) createRecordsResources(svc *route53.Client, zoneID strin
 	}
 
 	for {
-		sets, err = svc.ListResourceRecordSets(context.TODO(), listParams)
+		sets, err = svc.ListResourceRecordSets(g.Context(), listParams)
 		if err != nil {
 			log.Println(err)
 			return resources
@@ -108,12 +107,12 @@ func (Route53Generator) createRecordsResources(svc *route53.Client, zoneID strin
 	return resources
 }
 
-func (Route53Generator) createHealthChecksResources(svc *route53.Client) []terraformutils.Resource {
+func (g Route53Generator) createHealthChecksResources(svc *route53.Client) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 
 	p := route53.NewListHealthChecksPaginator(svc, &route53.ListHealthChecksInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			log.Println(err)
 			return resources

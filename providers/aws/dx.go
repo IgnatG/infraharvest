@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -31,7 +30,7 @@ type DirectConnectGenerator struct {
 
 func (g *DirectConnectGenerator) getDirectConnectGateways(svc *directconnect.Client) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		output, err := svc.DescribeDirectConnectGateways(context.TODO(), &directconnect.DescribeDirectConnectGatewaysInput{
+		output, err := svc.DescribeDirectConnectGateways(g.Context(), &directconnect.DescribeDirectConnectGatewaysInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
@@ -54,7 +53,7 @@ func (g *DirectConnectGenerator) getDirectConnectGateways(svc *directconnect.Cli
 
 func (g *DirectConnectGenerator) getDirectConnectConnections(svc *directconnect.Client) error {
 	input := &directconnect.DescribeConnectionsInput{}
-	output, err := svc.DescribeConnections(context.TODO(), input)
+	output, err := svc.DescribeConnections(g.Context(), input)
 	if err != nil {
 		return err
 	}
@@ -73,7 +72,7 @@ func (g *DirectConnectGenerator) getDirectConnectConnections(svc *directconnect.
 
 func (g *DirectConnectGenerator) getDirectConnectVritualInterfaces(svc *directconnect.Client) error {
 	input := &directconnect.DescribeVirtualInterfacesInput{}
-	output, err := svc.DescribeVirtualInterfaces(context.TODO(), input)
+	output, err := svc.DescribeVirtualInterfaces(g.Context(), input)
 	if err != nil {
 		return err
 	}

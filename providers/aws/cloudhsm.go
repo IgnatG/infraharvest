@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/aws/aws-sdk-go-v2/service/cloudhsmv2"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -37,7 +35,7 @@ func (g *CloudHsmGenerator) InitResources() error {
 
 	p := cloudhsmv2.NewDescribeClustersPaginator(svc, &cloudhsmv2.DescribeClustersInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

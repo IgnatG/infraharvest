@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -47,7 +46,7 @@ func (g *EfsGenerator) InitResources() error {
 func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 	p := efs.NewDescribeFileSystemsPaginator(svc, &efs.DescribeFileSystemsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -59,7 +58,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 				"aws",
 				efsAllowEmptyValues))
 
-			targetsResponse, err := svc.DescribeMountTargets(context.TODO(), &efs.DescribeMountTargetsInput{
+			targetsResponse, err := svc.DescribeMountTargets(g.Context(), &efs.DescribeMountTargetsInput{
 				FileSystemId: fileSystem.FileSystemId,
 			})
 			if err != nil {
@@ -75,7 +74,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 					efsAllowEmptyValues))
 			}
 
-			policyResponse, err := svc.DescribeFileSystemPolicy(context.TODO(), &efs.DescribeFileSystemPolicyInput{
+			policyResponse, err := svc.DescribeFileSystemPolicy(g.Context(), &efs.DescribeFileSystemPolicyInput{
 				FileSystemId: fileSystem.FileSystemId,
 			})
 			if err != nil {
@@ -101,7 +100,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 func (g *EfsGenerator) loadAccessPoint(svc *efs.Client) error {
 	p := efs.NewDescribeAccessPointsPaginator(svc, &efs.DescribeAccessPointsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

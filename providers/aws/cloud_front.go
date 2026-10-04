@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 )
@@ -48,7 +46,7 @@ func (g *CloudFrontGenerator) InitResources() error {
 func (g *CloudFrontGenerator) loadDistribution(svc *cloudfront.Client) error {
 	p := cloudfront.NewListDistributionsPaginator(svc, &cloudfront.ListDistributionsInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -75,7 +73,7 @@ func (g *CloudFrontGenerator) loadDistribution(svc *cloudfront.Client) error {
 func (g *CloudFrontGenerator) loadCachePolicy(svc *cloudfront.Client) error {
 	var marker *string
 	for {
-		out, err := svc.ListCachePolicies(context.TODO(), &cloudfront.ListCachePoliciesInput{
+		out, err := svc.ListCachePolicies(g.Context(), &cloudfront.ListCachePoliciesInput{
 			Marker: marker,
 		})
 		if err != nil {

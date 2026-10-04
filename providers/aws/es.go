@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	es "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 )
@@ -34,7 +32,7 @@ func (g *EsGenerator) InitResources() error {
 	}
 	svc := es.NewFromConfig(config)
 
-	domainNames, err := svc.ListDomainNames(context.TODO(), &es.ListDomainNamesInput{})
+	domainNames, err := svc.ListDomainNames(g.Context(), &es.ListDomainNamesInput{})
 	if err != nil {
 		return err
 	}

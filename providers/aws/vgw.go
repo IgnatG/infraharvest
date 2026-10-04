@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -51,7 +49,7 @@ func (g *VpnGatewayGenerator) InitResources() error {
 		return e
 	}
 	svc := ec2.NewFromConfig(config)
-	vpnGws, err := svc.DescribeVpnGateways(context.TODO(), &ec2.DescribeVpnGatewaysInput{})
+	vpnGws, err := svc.DescribeVpnGateways(g.Context(), &ec2.DescribeVpnGatewaysInput{})
 	if err != nil {
 		return err
 	}

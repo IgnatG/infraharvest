@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -39,7 +38,7 @@ func (g *EcrGenerator) InitResources() error {
 
 	p := ecr.NewDescribeRepositoriesPaginator(svc, &ecr.DescribeRepositoriesInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -51,7 +50,7 @@ func (g *EcrGenerator) InitResources() error {
 				"aws",
 				ecrAllowEmptyValues))
 
-			_, err := svc.GetRepositoryPolicy(context.TODO(), &ecr.GetRepositoryPolicyInput{
+			_, err := svc.GetRepositoryPolicy(g.Context(), &ecr.GetRepositoryPolicyInput{
 				RepositoryName: repository.RepositoryName,
 				RegistryId:     repository.RegistryId,
 			})
@@ -64,7 +63,7 @@ func (g *EcrGenerator) InitResources() error {
 					ecrAllowEmptyValues))
 			}
 
-			_, err = svc.GetLifecyclePolicy(context.TODO(), &ecr.GetLifecyclePolicyInput{
+			_, err = svc.GetLifecyclePolicy(g.Context(), &ecr.GetLifecyclePolicyInput{
 				RepositoryName: repository.RepositoryName,
 				RegistryId:     repository.RegistryId,
 			})

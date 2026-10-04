@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"log"
 
@@ -36,7 +37,7 @@ func checkSelectionOptions(options ImportOptions) error {
 
 // excludedByDefault asks the provider which listed resources it leaves out
 // unless told otherwise, by "type lister-ID".
-func excludedByDefault(provider terraformutils.ProviderGenerator, listed map[string][]terraformutils.Resource) (map[string]string, error) {
+func excludedByDefault(ctx context.Context, provider terraformutils.ProviderGenerator, listed map[string][]terraformutils.Resource) (map[string]string, error) {
 	withDefaults, ok := provider.(terraformutils.ProviderWithSelectionDefaults)
 	if !ok {
 		return nil, nil
@@ -45,7 +46,7 @@ func excludedByDefault(provider terraformutils.ProviderGenerator, listed map[str
 	for _, resources := range listed {
 		all = append(all, resources...)
 	}
-	return withDefaults.ExcludedByDefault(all)
+	return withDefaults.ExcludedByDefault(ctx, all)
 }
 
 // selectionFile loads the selection file once per run; nil for --all.

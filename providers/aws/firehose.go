@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -52,7 +51,7 @@ func (g *FirehoseGenerator) InitResources() error {
 	var streamNames []string
 	var lastStreamName *string
 	for {
-		output, err := svc.ListDeliveryStreams(context.TODO(), &firehose.ListDeliveryStreamsInput{
+		output, err := svc.ListDeliveryStreams(g.Context(), &firehose.ListDeliveryStreamsInput{
 			ExclusiveStartDeliveryStreamName: lastStreamName,
 			Limit:                            aws.Int32(100),
 		})

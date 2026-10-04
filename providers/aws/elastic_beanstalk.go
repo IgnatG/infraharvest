@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
@@ -44,7 +42,7 @@ func (g *BeanstalkGenerator) InitResources() error {
 }
 
 func (g *BeanstalkGenerator) addApplications(client *elasticbeanstalk.Client) error {
-	response, err := client.DescribeApplications(context.TODO(), &elasticbeanstalk.DescribeApplicationsInput{})
+	response, err := client.DescribeApplications(g.Context(), &elasticbeanstalk.DescribeApplicationsInput{})
 	if err != nil {
 		return err
 	}
@@ -61,7 +59,7 @@ func (g *BeanstalkGenerator) addApplications(client *elasticbeanstalk.Client) er
 }
 
 func (g *BeanstalkGenerator) addEnvironments(client *elasticbeanstalk.Client) error {
-	response, err := client.DescribeEnvironments(context.TODO(), &elasticbeanstalk.DescribeEnvironmentsInput{})
+	response, err := client.DescribeEnvironments(g.Context(), &elasticbeanstalk.DescribeEnvironmentsInput{})
 	if err != nil {
 		return err
 	}

@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/devicefarm"
 )
@@ -36,7 +34,7 @@ func (g *DeviceFarmGenerator) InitResources() error {
 	p := devicefarm.NewListProjectsPaginator(svc, &devicefarm.ListProjectsInput{})
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -36,7 +34,7 @@ func (g *SsmGenerator) InitResources() error {
 	svc := ssm.NewFromConfig(config)
 	p := ssm.NewDescribeParametersPaginator(svc, &ssm.DescribeParametersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

@@ -1,7 +1,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -41,7 +40,7 @@ func (g *BatchGenerator) InitResources() error {
 func (g *BatchGenerator) loadComputeEnvironments(batchClient *batch.Client) error {
 	p := batch.NewDescribeComputeEnvironmentsPaginator(batchClient, &batch.DescribeComputeEnvironmentsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -68,7 +67,7 @@ func (g *BatchGenerator) loadJobDefinitions(batchClient *batch.Client) error {
 		Status: aws.String("ACTIVE"),
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -93,7 +92,7 @@ func (g *BatchGenerator) loadJobDefinitions(batchClient *batch.Client) error {
 func (g *BatchGenerator) loadJobQueues(batchClient *batch.Client) error {
 	p := batch.NewDescribeJobQueuesPaginator(batchClient, &batch.DescribeJobQueuesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

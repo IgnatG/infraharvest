@@ -15,6 +15,7 @@
 package terraformutils
 
 import (
+	"context"
 	"log"
 	"strings"
 
@@ -38,6 +39,8 @@ type ServiceGenerator interface {
 	InitialCleanup()
 	PopulateIgnoreKeys(*providerwrapper.ProviderWrapper)
 	PostRefreshCleanup()
+	// SetContext sets the context of the service's API calls.
+	SetContext(ctx context.Context)
 }
 
 type Service struct {
@@ -47,6 +50,22 @@ type Service struct {
 	Args         map[string]interface{}
 	Filter       []ResourceFilter
 	Verbose      bool
+	ctx          context.Context
+}
+
+// SetContext sets the context of the service's API calls: cancelled when
+// the user interrupts, with a deadline for listing the service.
+func (s *Service) SetContext(ctx context.Context) {
+	s.ctx = ctx
+}
+
+// Context returns the context of the service's API calls, or
+// context.Background() if none was set.
+func (s *Service) Context() context.Context {
+	if s.ctx == nil {
+		return context.Background()
+	}
+	return s.ctx
 }
 
 func (s *Service) SetProviderName(providerName string) {

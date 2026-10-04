@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -52,7 +50,7 @@ func (g *EniGenerator) InitResources() error {
 	svc := ec2.NewFromConfig(config)
 	p := ec2.NewDescribeNetworkInterfacesPaginator(svc, &ec2.DescribeNetworkInterfacesInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -32,7 +31,7 @@ type TransitGatewayGenerator struct {
 func (g *TransitGatewayGenerator) getTransitGateways(svc *ec2.Client) error {
 	p := ec2.NewDescribeTransitGatewaysPaginator(svc, &ec2.DescribeTransitGatewaysInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -52,7 +51,7 @@ func (g *TransitGatewayGenerator) getTransitGateways(svc *ec2.Client) error {
 func (g *TransitGatewayGenerator) getTransitGatewayRouteTables(svc *ec2.Client) error {
 	p := ec2.NewDescribeTransitGatewayRouteTablesPaginator(svc, &ec2.DescribeTransitGatewayRouteTablesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -77,7 +76,7 @@ func (g *TransitGatewayGenerator) getTransitGatewayRouteTables(svc *ec2.Client) 
 func (g *TransitGatewayGenerator) getTransitGatewayVpcAttachments(svc *ec2.Client) error {
 	p := ec2.NewDescribeTransitGatewayVpcAttachmentsPaginator(svc, &ec2.DescribeTransitGatewayVpcAttachmentsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

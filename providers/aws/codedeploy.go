@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -37,7 +36,7 @@ func (g *CodeDeployGenerator) InitResources() error {
 	p := codedeploy.NewListApplicationsPaginator(svc, &codedeploy.ListApplicationsInput{})
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

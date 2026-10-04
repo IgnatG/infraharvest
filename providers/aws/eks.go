@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -33,7 +32,7 @@ func (g *EksGenerator) getNodeGroups(clusterName string, svc *eks.Client) error 
 		ClusterName: &clusterName,
 	})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -58,7 +57,7 @@ func (g *EksGenerator) InitResources() error {
 	svc := eks.NewFromConfig(config)
 	p := eks.NewListClustersPaginator(svc, &eks.ListClustersInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

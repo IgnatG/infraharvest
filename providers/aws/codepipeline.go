@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/codepipeline"
 )
@@ -30,7 +28,7 @@ type CodePipelineGenerator struct {
 func (g *CodePipelineGenerator) loadPipelines(svc *codepipeline.Client) error {
 	p := codepipeline.NewListPipelinesPaginator(svc, &codepipeline.ListPipelinesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -50,7 +48,7 @@ func (g *CodePipelineGenerator) loadPipelines(svc *codepipeline.Client) error {
 func (g *CodePipelineGenerator) loadWebhooks(svc *codepipeline.Client) error {
 	p := codepipeline.NewListWebhooksPaginator(svc, &codepipeline.ListWebhooksInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

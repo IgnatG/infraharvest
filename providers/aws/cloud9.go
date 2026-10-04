@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/cloud9"
 	"github.com/aws/aws-sdk-go-v2/service/cloud9/types"
@@ -36,12 +34,12 @@ func (g *Cloud9Generator) InitResources() error {
 	svc := cloud9.NewFromConfig(config)
 	p := cloud9.NewListEnvironmentsPaginator(svc, &cloud9.ListEnvironmentsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
 		for _, environmentID := range page.EnvironmentIds {
-			details, err := svc.DescribeEnvironmentStatus(context.TODO(), &cloud9.DescribeEnvironmentStatusInput{
+			details, err := svc.DescribeEnvironmentStatus(g.Context(), &cloud9.DescribeEnvironmentStatusInput{
 				EnvironmentId: &environmentID,
 			})
 			if err != nil {

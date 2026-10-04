@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -34,7 +32,7 @@ type AutoScalingGenerator struct {
 func (g *AutoScalingGenerator) loadAutoScalingGroups(svc *autoscaling.Client) error {
 	p := autoscaling.NewDescribeAutoScalingGroupsPaginator(svc, &autoscaling.DescribeAutoScalingGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -61,7 +59,7 @@ func (g *AutoScalingGenerator) loadAutoScalingGroups(svc *autoscaling.Client) er
 func (g *AutoScalingGenerator) loadLaunchConfigurations(svc *autoscaling.Client) error {
 	p := autoscaling.NewDescribeLaunchConfigurationsPaginator(svc, &autoscaling.DescribeLaunchConfigurationsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -91,7 +89,7 @@ func (g *AutoScalingGenerator) loadLaunchTemplates(config aws.Config) error {
 
 	p := ec2.NewDescribeLaunchTemplatesPaginator(ec2svc, &ec2.DescribeLaunchTemplatesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

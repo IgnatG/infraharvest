@@ -90,12 +90,12 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	}
 	options = resolveServices(provider, options)
 	mapping := terraformutils.NewProvidersMapping(provider)
-	failures, err := initAllServicesResources(mapping, options, args, nil)
+	failures, err := initAllServicesResources(ctx, mapping, options, args, nil)
 	if err != nil {
 		return err
 	}
 	listed := mapping.GetResourcesByService()
-	defaults, err := excludedByDefault(provider, listed)
+	defaults, err := excludedByDefault(ctx, provider, listed)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
 	}
@@ -111,7 +111,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		return err
 	}
 	selected := run.selectResources(listed, defaults, chosen, importIDFunc(provider))
-	if options.PathPattern, err = rootPathPattern(provider, options.PathPattern); err != nil {
+	if options.PathPattern, err = rootPathPattern(ctx, provider, options.PathPattern); err != nil {
 		return err
 	}
 
@@ -132,7 +132,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	}
 
 	// Children follow their parent: only selected resources have them.
-	resourcesByService, childFailures := withChildImports(provider, selected)
+	resourcesByService, childFailures := withChildImports(ctx, provider, selected)
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, root)
 	switch options.Modules {
@@ -451,7 +451,7 @@ func qualifiedSource(registry, source string) string {
 // withChildImports adds to each service's resources the child resources
 // the provider lists for them (see terraformutils.ProviderWithChildImports),
 // and returns the resources it couldn't list children for as failures.
-func withChildImports(provider terraformutils.ProviderGenerator, resourcesByService map[string][]terraformutils.Resource) (map[string][]terraformutils.Resource, []error) {
+func withChildImports(ctx context.Context, provider terraformutils.ProviderGenerator, resourcesByService map[string][]terraformutils.Resource) (map[string][]terraformutils.Resource, []error) {
 	withChildren, ok := provider.(terraformutils.ProviderWithChildImports)
 	if !ok {
 		return resourcesByService, nil
@@ -461,7 +461,7 @@ func withChildImports(provider terraformutils.ProviderGenerator, resourcesByServ
 	for service, resources := range resourcesByService {
 		all[service] = append([]terraformutils.Resource(nil), resources...)
 		for _, r := range resources {
-			children, err := withChildren.ChildImports(r)
+			children, err := withChildren.ChildImports(ctx, r)
 			if err != nil {
 				failures = append(failures, fmt.Errorf("%s: %s %s: %w", service, r.InstanceInfo.Type, r.InstanceState.ID, err))
 			}
@@ -482,7 +482,7 @@ const DefaultRootPathPattern = "{output}/{provider}/{account}/{region}/"
 // roots: DefaultRootPathPattern unless --path-pattern says otherwise (the
 // legacy default, which the AWS command may extend with a region, doesn't),
 // with {account} and {region} filled in from the provider.
-func rootPathPattern(provider terraformutils.ProviderGenerator, pattern string) (string, error) {
+func rootPathPattern(ctx context.Context, provider terraformutils.ProviderGenerator, pattern string) (string, error) {
 	if strings.HasPrefix(pattern, DefaultPathPattern) {
 		pattern = DefaultRootPathPattern
 	}
@@ -492,7 +492,7 @@ func rootPathPattern(provider terraformutils.ProviderGenerator, pattern string) 
 	account, region := "default", "default"
 	if withScope, ok := provider.(terraformutils.ProviderWithScope); ok {
 		var err error
-		if account, region, err = withScope.Scope(); err != nil {
+		if account, region, err = withScope.Scope(ctx); err != nil {
 			return "", err
 		}
 	}

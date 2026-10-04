@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -56,7 +55,7 @@ func (g *SecurityhubGenerator) InitResources() error {
 }
 
 func (g *SecurityhubGenerator) addAccount(client *securityhub.Client, accountNumber string) (bool, error) {
-	_, err := client.GetEnabledStandards(context.TODO(), &securityhub.GetEnabledStandardsInput{})
+	_, err := client.GetEnabledStandards(g.Context(), &securityhub.GetEnabledStandardsInput{})
 
 	if err != nil {
 		errorMsg := err.Error()
@@ -79,7 +78,7 @@ func (g *SecurityhubGenerator) addMembers(svc *securityhub.Client, accountNumber
 	p := securityhub.NewListMembersPaginator(svc, &securityhub.ListMembersInput{})
 
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -111,7 +110,7 @@ func (g *SecurityhubGenerator) addStandardsSubscription(svc *securityhub.Client,
 	p := securityhub.NewGetEnabledStandardsPaginator(svc, &securityhub.GetEnabledStandardsInput{})
 
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

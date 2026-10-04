@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 )
@@ -51,7 +49,7 @@ func (g *KinesisGenerator) InitResources() error {
 
 	p := kinesis.NewListStreamsPaginator(svc, &kinesis.ListStreamsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

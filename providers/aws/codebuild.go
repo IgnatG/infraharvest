@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 )
@@ -35,7 +33,7 @@ func (g *CodeBuildGenerator) InitResources() error {
 	svc := codebuild.NewFromConfig(config)
 	p := codebuild.NewListProjectsPaginator(svc, &codebuild.ListProjectsInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

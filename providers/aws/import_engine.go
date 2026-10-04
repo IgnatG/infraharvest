@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -76,9 +77,10 @@ func (AWSProvider) StateOnlyArguments() map[string][]string {
 
 // Scope names the account and region this import covers, for the output
 // layout: global for global services such as IAM.
-func (p *AWSProvider) Scope() (account, region string, err error) {
+func (p *AWSProvider) Scope(ctx context.Context) (account, region string, err error) {
 	service := &AWSService{}
 	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	service.SetContext(ctx)
 	config, err := service.generateConfig()
 	if err != nil {
 		return "", "", err

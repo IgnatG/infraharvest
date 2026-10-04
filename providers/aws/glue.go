@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 )
@@ -29,7 +27,7 @@ func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 	var GlueCrawlerAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetCrawlersPaginator(svc, &glue.GetCrawlersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -44,13 +42,13 @@ func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 	return nil
 }
 
-func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *string) (databaseNames []*string, error error) {
+func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *string) (databaseNames []*string, err error) {
 	var GlueCatalogDatabaseAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetDatabasesPaginator(svc, &glue.GetDatabasesInput{})
 	for p.HasMorePages() {
-		page, error := p.NextPage(context.TODO())
-		if error != nil {
-			return databaseNames, error
+		page, err := p.NextPage(g.Context())
+		if err != nil {
+			return databaseNames, err
 		}
 		for _, catalogDatabase := range page.DatabaseList {
 			// format of ID is "CATALOG-ID:DATABASE-NAME".
@@ -75,7 +73,7 @@ func (g *GlueGenerator) loadGlueCatalogTable(svc *glue.Client, account *string, 
 	var GlueCatalogTableAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetTablesPaginator(svc, &glue.GetTablesInput{DatabaseName: databaseName})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -96,7 +94,7 @@ func (g *GlueGenerator) loadGlueJobs(svc *glue.Client) error {
 	var GlueJobAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetJobsPaginator(svc, &glue.GetJobsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -115,7 +113,7 @@ func (g *GlueGenerator) loadGlueTriggers(svc *glue.Client) error {
 	var GlueTriggerAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetTriggersPaginator(svc, &glue.GetTriggersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

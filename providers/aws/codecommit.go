@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -31,7 +30,7 @@ type CodeCommitGenerator struct {
 func (g *CodeCommitGenerator) loadRepository(svc *codecommit.Client) error {
 	p := codecommit.NewListRepositoriesPaginator(svc, &codecommit.ListRepositoriesInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -51,7 +50,7 @@ func (g *CodeCommitGenerator) loadRepository(svc *codecommit.Client) error {
 func (g *CodeCommitGenerator) loadApprovalRuleTemplate(svc *codecommit.Client) error {
 	p := codecommit.NewListApprovalRuleTemplatesPaginator(svc, &codecommit.ListApprovalRuleTemplatesInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/iot"
 )
@@ -53,7 +51,7 @@ func (g *IotGenerator) InitResources() error {
 func (g *IotGenerator) loadThingTypes(svc *iot.Client) error {
 	p := iot.NewListThingTypesPaginator(svc, &iot.ListThingTypesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -77,7 +75,7 @@ func (g *IotGenerator) loadThingTypes(svc *iot.Client) error {
 func (g *IotGenerator) loadThings(svc *iot.Client) error {
 	p := iot.NewListThingsPaginator(svc, &iot.ListThingsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -101,7 +99,7 @@ func (g *IotGenerator) loadThings(svc *iot.Client) error {
 func (g *IotGenerator) loadTopicRules(svc *iot.Client) error {
 	p := iot.NewListTopicRulesPaginator(svc, &iot.ListTopicRulesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -120,7 +118,7 @@ func (g *IotGenerator) loadTopicRules(svc *iot.Client) error {
 func (g *IotGenerator) loadRoleAliases(svc *iot.Client) error {
 	p := iot.NewListRoleAliasesPaginator(svc, &iot.ListRoleAliasesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

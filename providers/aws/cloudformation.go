@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
@@ -36,7 +34,7 @@ func (g *CloudFormationGenerator) InitResources() error {
 	svc := cloudformation.NewFromConfig(config)
 	p := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -53,7 +51,7 @@ func (g *CloudFormationGenerator) InitResources() error {
 			))
 		}
 	}
-	stackSets, err := svc.ListStackSets(context.TODO(), &cloudformation.ListStackSetsInput{})
+	stackSets, err := svc.ListStackSets(g.Context(), &cloudformation.ListStackSetsInput{})
 	if err != nil {
 		return err
 	}
@@ -69,7 +67,7 @@ func (g *CloudFormationGenerator) InitResources() error {
 			cloudFormationAllowEmptyValues,
 		))
 
-		stackSetInstances, err := svc.ListStackInstances(context.TODO(), &cloudformation.ListStackInstancesInput{
+		stackSetInstances, err := svc.ListStackInstances(g.Context(), &cloudformation.ListStackInstancesInput{
 			StackSetName: stackSetSummary.StackSetName,
 		})
 		if err != nil {

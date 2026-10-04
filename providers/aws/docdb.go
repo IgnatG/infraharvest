@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -53,7 +52,7 @@ func (g *DocDBGenerator) InitResources() error {
 func (g *DocDBGenerator) getClusters(svc *docdb.Client) error {
 	clusterPaginator := docdb.NewDescribeDBClustersPaginator(svc, &docdb.DescribeDBClustersInput{})
 	for clusterPaginator.HasMorePages() {
-		page, err := clusterPaginator.NextPage(context.TODO())
+		page, err := clusterPaginator.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -89,7 +88,7 @@ func (g *DocDBGenerator) getSubnetGroups(svc *docdb.Client) error {
 	subnetGroupPaginator := docdb.NewDescribeDBSubnetGroupsPaginator(svc, &docdb.DescribeDBSubnetGroupsInput{})
 
 	for subnetGroupPaginator.HasMorePages() {
-		page, err := subnetGroupPaginator.NextPage(context.TODO())
+		page, err := subnetGroupPaginator.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -114,7 +113,7 @@ func (g *DocDBGenerator) getParameterGroups(svc *docdb.Client) error {
 	parameterGroupPaginator := docdb.NewDescribeDBClusterParameterGroupsPaginator(svc, &docdb.DescribeDBClusterParameterGroupsInput{})
 
 	for parameterGroupPaginator.HasMorePages() {
-		page, err := parameterGroupPaginator.NextPage(context.TODO())
+		page, err := parameterGroupPaginator.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

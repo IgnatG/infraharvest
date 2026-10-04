@@ -30,7 +30,7 @@ const (
 // by "type id", with the reason: resources AWS creates and manages itself,
 // such as the default VPC and its subnets, default security groups and
 // network ACLs, service-linked roles, and Lambda's log groups.
-func (p *AWSProvider) ExcludedByDefault(resources []terraformutils.Resource) (map[string]string, error) {
+func (p *AWSProvider) ExcludedByDefault(ctx context.Context, resources []terraformutils.Resource) (map[string]string, error) {
 	excluded := map[string]string{}
 	network := false
 	for _, r := range resources {
@@ -50,7 +50,7 @@ func (p *AWSProvider) ExcludedByDefault(resources []terraformutils.Resource) (ma
 	if !network || p.region == GlobalRegion {
 		return excluded, nil
 	}
-	defaults, err := p.defaultNetwork(context.TODO())
+	defaults, err := p.defaultNetwork(ctx)
 	for _, r := range resources {
 		id := r.InstanceState.ID
 		reason := ""
@@ -90,6 +90,7 @@ func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error
 	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}, securityGroups: map[string]bool{}}
 	service := &AWSService{}
 	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	service.SetContext(ctx)
 	config, err := service.generateConfig()
 	if err != nil {
 		return d, err

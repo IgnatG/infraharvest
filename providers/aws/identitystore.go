@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -37,7 +35,7 @@ func (g *IdentityStoreGenerator) GetIdentityStoreId() (*string, error) {
 		return nil, e
 	}
 	svc := ssoadmin.NewFromConfig(config)
-	instances, err := svc.ListInstances(context.TODO(), &ssoadmin.ListInstancesInput{})
+	instances, err := svc.ListInstances(g.Context(), &ssoadmin.ListInstancesInput{})
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +57,7 @@ func (g *IdentityStoreGenerator) InitGroupResources(identityStoreId string) erro
 		IdentityStoreId: aws.String(identityStoreId),
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -98,7 +96,7 @@ func (g *IdentityStoreGenerator) InitGroupMembershipResources(identityStoreId st
 		IdentityStoreId: aws.String(identityStoreId),
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -141,7 +139,7 @@ func (g *IdentityStoreGenerator) InitUserResources(identityStoreId string) error
 		IdentityStoreId: aws.String(identityStoreId),
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

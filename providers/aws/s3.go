@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -41,7 +40,7 @@ func (g *S3Generator) createResources(config aws.Config, buckets *s3.ListBuckets
 	svc := s3.NewFromConfig(config)
 	for _, bucket := range buckets.Buckets {
 		resourceName := StringValue(bucket.Name)
-		location, err := svc.GetBucketLocation(context.TODO(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
+		location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
 		if err != nil {
 			log.Println(err)
 			continue
@@ -55,7 +54,7 @@ func (g *S3Generator) createResources(config aws.Config, buckets *s3.ListBuckets
 			}
 			// try get policy
 			var policy *s3.GetBucketPolicyOutput
-			policy, err = svc.GetBucketPolicy(context.TODO(), &s3.GetBucketPolicyInput{
+			policy, err = svc.GetBucketPolicy(g.Context(), &s3.GetBucketPolicyInput{
 				Bucket: bucket.Name,
 			})
 
@@ -92,7 +91,7 @@ func (g *S3Generator) InitResources() error {
 	}
 	svc := s3.NewFromConfig(config)
 
-	buckets, err := svc.ListBuckets(context.TODO(), nil)
+	buckets, err := svc.ListBuckets(g.Context(), nil)
 	if err != nil {
 		return err
 	}

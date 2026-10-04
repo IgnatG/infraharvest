@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -55,7 +54,7 @@ func (g *BudgetsGenerator) InitResources() error {
 
 	p := budgets.NewDescribeBudgetsPaginator(budgetsSvc, &budgets.DescribeBudgetsInput{AccountId: account})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

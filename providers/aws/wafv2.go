@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/wafv2"
 	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
@@ -65,7 +63,7 @@ func (g *Wafv2Generator) InitResources() error {
 
 func (g *Wafv2Generator) loadWebACL(svc *wafv2.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListWebACLs(context.TODO(), &wafv2.ListWebACLsInput{Scope: g.scope, NextMarker: marker})
+		output, err := svc.ListWebACLs(g.Context(), &wafv2.ListWebACLsInput{Scope: g.scope, NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -97,7 +95,7 @@ func (g *Wafv2Generator) loadWebACL(svc *wafv2.Client) error {
 
 func (g *Wafv2Generator) loadWebACLAssociations(svc *wafv2.Client, webACLArn *string) error {
 	for _, resourceType := range types.ResourceTypeApplicationLoadBalancer.Values() {
-		output, err := svc.ListResourcesForWebACL(context.TODO(),
+		output, err := svc.ListResourcesForWebACL(g.Context(),
 			&wafv2.ListResourcesForWebACLInput{WebACLArn: webACLArn, ResourceType: resourceType})
 		if err != nil {
 			return err
@@ -122,7 +120,7 @@ func (g *Wafv2Generator) loadWebACLAssociations(svc *wafv2.Client, webACLArn *st
 
 func (g *Wafv2Generator) loadIPSet(svc *wafv2.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListIPSets(context.TODO(), &wafv2.ListIPSetsInput{Scope: g.scope, NextMarker: marker})
+		output, err := svc.ListIPSets(g.Context(), &wafv2.ListIPSetsInput{Scope: g.scope, NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -146,7 +144,7 @@ func (g *Wafv2Generator) loadIPSet(svc *wafv2.Client) error {
 
 func (g *Wafv2Generator) loadRegexPatternSets(svc *wafv2.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRegexPatternSets(context.TODO(), &wafv2.ListRegexPatternSetsInput{Scope: g.scope, NextMarker: marker})
+		output, err := svc.ListRegexPatternSets(g.Context(), &wafv2.ListRegexPatternSetsInput{Scope: g.scope, NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +168,7 @@ func (g *Wafv2Generator) loadRegexPatternSets(svc *wafv2.Client) error {
 
 func (g *Wafv2Generator) loadWafRuleGroups(svc *wafv2.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRuleGroups(context.TODO(), &wafv2.ListRuleGroupsInput{Scope: g.scope, NextMarker: marker})
+		output, err := svc.ListRuleGroups(g.Context(), &wafv2.ListRuleGroupsInput{Scope: g.scope, NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +193,7 @@ func (g *Wafv2Generator) loadWafRuleGroups(svc *wafv2.Client) error {
 
 func (g *Wafv2Generator) loadWebACLLoggingConfiguration(svc *wafv2.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListLoggingConfigurations(context.TODO(), &wafv2.ListLoggingConfigurationsInput{Scope: g.scope, NextMarker: marker})
+		output, err := svc.ListLoggingConfigurations(g.Context(), &wafv2.ListLoggingConfigurationsInput{Scope: g.scope, NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}

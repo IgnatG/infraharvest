@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/datapipeline"
 )
@@ -36,7 +34,7 @@ func (g *DataPipelineGenerator) InitResources() error {
 	p := datapipeline.NewListPipelinesPaginator(svc, &datapipeline.ListPipelinesInput{})
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}

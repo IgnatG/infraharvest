@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/kafka"
 )
@@ -35,7 +33,7 @@ func (g *MskGenerator) InitResources() error {
 	svc := kafka.NewFromConfig(config)
 	p := kafka.NewListClustersPaginator(svc, &kafka.ListClustersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
