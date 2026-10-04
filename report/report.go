@@ -394,3 +394,21 @@ func (r *Report) Markdown() string {
 	section("Failed services", "These services couldn't be listed.", failures)
 	return b.String()
 }
+
+// Read reads the report an import wrote into outputDir (see WriteFiles).
+func Read(outputDir string) (*Report, error) {
+	r := &Report{}
+	for _, name := range []string{"coverage.json", "manifest.json"} {
+		content, err := os.ReadFile(filepath.Join(outputDir, Dir, name))
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(content, r); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	if r.SchemaVersion != SchemaVersion {
+		return nil, fmt.Errorf("report schema version %d, want %d", r.SchemaVersion, SchemaVersion)
+	}
+	return r, nil
+}

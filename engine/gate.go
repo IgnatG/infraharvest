@@ -412,3 +412,15 @@ func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOp
 	}
 	return p, summary, nil, nil
 }
+
+// Verify runs the verification gate on a directory Generate wrote, for
+// example after people edit it: it initialises the directory without its
+// backend, so verifying needs no access to the state, then checks it.
+// Secret variables need values, from TF_VAR_ environment variables or a
+// .auto.tfvars file; opts.Omit and opts.StateOnly are the provider's.
+func Verify(ctx context.Context, tf Terraform, dir string, opts Options) (Gate, error) {
+	if err := tf.Init(ctx, tfexec.Backend(false)); err != nil {
+		return nil, fmt.Errorf("terraform init: %w", err)
+	}
+	return runGate(ctx, tf, dir, nil, opts)
+}
