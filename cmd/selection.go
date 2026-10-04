@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sort"
 
 	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/report"
@@ -103,6 +104,13 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 			leftOut = append(leftOut, engine.External{Type: typ, ID: id})
 		}
 	}
+	// In a stable order: listed is a map, and the order names data sources.
+	sort.Slice(leftOut, func(i, j int) bool {
+		if leftOut[i].Type != leftOut[j].Type {
+			return leftOut[i].Type < leftOut[j].Type
+		}
+		return leftOut[i].ID < leftOut[j].ID
+	})
 	return selected, leftOut
 }
 
