@@ -145,3 +145,58 @@ func TestExcludeManaged(t *testing.T) {
 		t.Error("want an error for backend without a configured backend")
 	}
 }
+
+// Running discover again keeps people's decisions and marks what is new.
+func TestDiscoverUpdatesSelection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	first := newEngineRun()
+	first.options = ImportOptions{Discover: true, Selection: path}
+	first.addDiscovered(listedForSelection, defaultsForSelection, importIDForSelection)
+	if err := first.writeSelection(); err != nil {
+		t.Fatal(err)
+	}
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range f.Resources {
+		if f.Resources[i].ID == "old-archive" {
+			f.Resources[i].Include, f.Resources[i].Note = false, "archived"
+		}
+	}
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	again := newEngineRun()
+	again.options = ImportOptions{Discover: true, Selection: path}
+	listed := map[string][]terraformutils.Resource{
+		"vpc": listedForSelection["vpc"],
+		"s3": {
+			terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws", nil),
+			terraformutils.NewSimpleResource("new-logs", "new-logs", "aws_s3_bucket", "aws", nil),
+		},
+	}
+	again.addDiscovered(listed, defaultsForSelection, importIDForSelection)
+	if err := again.writeSelection(); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]selection.Resource{}
+	for _, r := range updated.Resources {
+		byID[r.ID] = r
+	}
+	if r := byID["old-archive"]; r.Include || r.Note != "archived" || r.New {
+		t.Errorf("kept decision: %+v", r)
+	}
+	if r := byID["new-logs"]; !r.Include || !r.New {
+		t.Errorf("new resource: %+v", r)
+	}
+	if len(updated.Resources) != 4 {
+		t.Errorf("resources: %+v", updated.Resources)
+	}
+}
