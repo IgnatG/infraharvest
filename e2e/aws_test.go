@@ -31,6 +31,7 @@ import (
 	"github.com/IgnatG/infraharvest/adapters"
 	"github.com/IgnatG/infraharvest/cmd"
 	"github.com/IgnatG/infraharvest/engine"
+	"github.com/IgnatG/infraharvest/managed"
 	"github.com/IgnatG/infraharvest/providers/aws"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/selection"
@@ -78,6 +79,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	// selects must give the same files as --all, and importing the
 	// unchanged estate again the same files (G7).
 	selectionFile := discoverAWS(ctx, t, state)
+	checkManagedState(ctx, t, state)
 	again := importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile)
 	if first, second := outputFiles(t, out), outputFiles(t, again); !reflect.DeepEqual(first, second) {
 		for name, content := range first {
@@ -640,4 +642,61 @@ func nullArguments(t *testing.T, path string) []string {
 	}
 	sort.Strings(nulls)
 	return nulls
+}
+
+// checkManagedState runs discover with --managed-state on a state file
+// that holds the created SQS queues and SNS topics: discover must leave
+// them out as already managed.
+func checkManagedState(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
+	type instance struct {
+		Attributes map[string]any `json:"attributes"`
+	}
+	type resource struct {
+		Mode      string     `json:"mode"`
+		Type      string     `json:"type"`
+		Name      string     `json:"name"`
+		Instances []instance `json:"instances"`
+	}
+	var resources []resource
+	managedIDs := map[string]bool{}
+	for _, r := range created {
+		id, ok := r.AttributeValues["id"].(string)
+		if !ok || (r.Type != "aws_sqs_queue" && r.Type != "aws_sns_topic") {
+			continue
+		}
+		resources = append(resources, resource{Mode: "managed", Type: r.Type, Name: r.Name, Instances: []instance{{Attributes: map[string]any{"id": id}}}})
+		managedIDs[r.Type+" "+id] = true
+	}
+	content, err := json.Marshal(map[string]any{"version": 4, "resources": resources})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(t.TempDir(), "terraform.tfstate")
+	if err := os.WriteFile(statePath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	root := cmd.NewCmdRoot()
+	root.SetArgs([]string{"discover", "aws", "--regions=us-east-1", "--resources=sqs,sns", "--selection=" + path, "--managed-state=" + statePath})
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("infraharvest discover --managed-state: %v", err)
+	}
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, r := range f.Resources {
+		if !managedIDs[r.Type+" "+r.ID] {
+			continue
+		}
+		found++
+		if r.Include || !strings.HasPrefix(r.Reason, managed.Reason) {
+			t.Errorf("%s %s is in the state but not excluded as managed: include=%v %q", r.Type, r.ID, r.Include, r.Reason)
+		}
+	}
+	if found != len(managedIDs) || found == 0 {
+		t.Errorf("found %d of the %d managed resources in the selection", found, len(managedIDs))
+	}
 }
