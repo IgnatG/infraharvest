@@ -58,6 +58,14 @@ type ImportOptions struct {
 	AllowPartial  bool
 	Engine        string
 	TerraformPath string
+	// Selection is the selection file to import from, or, for discover,
+	// the one to write.
+	Selection string
+	// All imports everything the default selection includes, without a
+	// selection file.
+	All bool
+	// Discover writes a selection file instead of importing.
+	Discover bool `json:"-"`
 }
 
 const DefaultPathPattern = "{output}/{provider}/{service}/"
@@ -93,8 +101,14 @@ func newImportCmd() *cobra.Command {
 }
 
 func Import(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
+	if options.Discover {
+		return importWithEngine(provider, options, args)
+	}
 	switch options.Engine {
 	case engineLegacy, "":
+		if options.Selection != "" || options.All {
+			return errors.New("--selection and --all need --engine=terraform or tofu")
+		}
 	case engineTerraform, engineTofu:
 		return importWithEngine(provider, options, args)
 	default:
@@ -478,7 +492,9 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.StringVarP(&options.Output, "output", "O", outputHCL, "hcl or json. Legacy engine: format of the generated files. Terraform or OpenTofu engine: json prints the import report as JSON on stdout")
 	flag.IntVarP(&options.RetryCount, "retry-number", "n", 5, "number of retries to perform when refresh fails")
 	flag.IntVarP(&options.RetrySleepMs, "retry-sleep-ms", "m", 300, "time in ms to sleep between retries")
-	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "exit 0 when some services or resources fail to import, leaving them out of the output")
+	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1")
+	flag.StringVar(&options.Selection, "selection", "", "--engine=terraform or tofu: selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")
+	flag.BoolVar(&options.All, "all", false, "--engine=terraform or tofu: import everything the default selection includes, without a selection file")
 	flag.StringVar(&options.Engine, "engine", engineLegacy, "legacy, terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks (no state written)")
 	flag.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary for --engine=terraform or tofu (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
 }

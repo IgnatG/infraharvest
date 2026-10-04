@@ -29,7 +29,7 @@ infraharvest and Terraform read the standard `AWS_ENDPOINT_URL` variable, so you
 ```sh
 docker compose -f e2e/compose.yaml up -d --wait
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
-infraharvest import aws --engine=terraform --resources=sqs,sns --regions=us-east-1 --profile=
+infraharvest import aws --engine=terraform --all --resources=sqs,sns --regions=us-east-1 --profile=
 ```
 
 [`e2e/compose.yaml`](../e2e/compose.yaml) configures Floci to return SQS queue URLs that the Terraform AWS provider can import.

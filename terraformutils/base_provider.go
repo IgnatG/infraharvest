@@ -68,6 +68,13 @@ type ProviderWithStateOnlyArguments interface {
 	StateOnlyArguments() map[string][]string
 }
 
+// ProviderWithSelectionDefaults names the listed resources a selection
+// leaves out unless told otherwise, by "type id", with the reason:
+// resources the cloud creates and manages itself, such as a default VPC.
+type ProviderWithSelectionDefaults interface {
+	ExcludedByDefault(resources []Resource) (map[string]string, error)
+}
+
 // ProviderWithDefaultTags describes how the provider applies tags to every
 // resource, for --engine=terraform to move the tags all resources share
 // into the provider configuration: the resources' tags attribute, the

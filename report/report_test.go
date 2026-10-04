@@ -151,8 +151,8 @@ func TestMarkdown(t *testing.T) {
 
 	for _, want := range []string{
 		"infraharvest v0.1.0, terraform 1.16.5, provider `registry.terraform.io/hashicorp/aws` ~> 6.67 (6.67.0).",
-		"| 3 | 2 | 1 | 1 | 0 |",
-		"| `aws_lb` | 1 | 0 | 1 | 0 | 0 |",
+		"| 3 | 2 | 0 | 1 | 1 | 0 |",
+		"| `aws_lb` | 1 | 0 | 0 | 1 | 0 | 0 |",
 		"- `aws_lb.web` in `aws/us-east-1`: Invalid combination of arguments",
 		"- `aws_ssm_parameter_token_value` in `aws/us-east-1`: value of `aws_ssm_parameter.token`",
 		"- `aws_main_route_table_association` (1): Terraform can't import this resource type",
