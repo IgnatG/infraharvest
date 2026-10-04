@@ -108,7 +108,8 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 				checkOmitted(b, omit, where, fail)
 			}
 		}
-		hclsyntax.VisitAll(f.syntax, func(n hclsyntax.Node) hcl.Diagnostics {
+		// The visitor reports through fail and returns no diagnostics.
+		_ = hclsyntax.VisitAll(f.syntax, func(n hclsyntax.Node) hcl.Diagnostics {
 			if w, ok := n.(*hclsyntax.TemplateWrapExpr); ok {
 				fail("legacy-interpolation", "%s: \"${...}\" around a single expression", where(w.Range()))
 			}
