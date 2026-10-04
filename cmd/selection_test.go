@@ -5,11 +5,13 @@ package cmd
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/managed"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/selection"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -118,5 +120,28 @@ func TestDiscoverWritesSelection(t *testing.T) {
 	}
 	if d := f.Decide("aws_vpc", "vpc-0abc1234", ""); !d.Include {
 		t.Errorf("own VPC: %+v", d)
+	}
+}
+
+func TestExcludeManaged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terraform.tfstate")
+	content := `{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "old-archive"}}]}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := newEngineRun()
+
+	defaults, err := excludeManaged(t.Context(), run, []string{path}, listedForSelection, map[string]string{"aws_vpc vpc-default": "default VPC"}, importIDForSelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := defaults["aws_s3_bucket old-archive"]; got != managed.Reason+" ("+path+")" {
+		t.Errorf("managed bucket: %q", got)
+	}
+	if len(defaults) != 2 {
+		t.Errorf("defaults: %v", defaults)
+	}
+	if _, err := excludeManaged(t.Context(), run, []string{"backend"}, listedForSelection, nil, importIDForSelection); err == nil {
+		t.Error("want an error for backend without a configured backend")
 	}
 }

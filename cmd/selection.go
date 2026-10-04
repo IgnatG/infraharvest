@@ -6,10 +6,12 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 
 	"github.com/IgnatG/infraharvest/engine"
+	"github.com/IgnatG/infraharvest/managed"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/selection"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -154,4 +156,45 @@ func (r *engineRun) writeSelection() error {
 	}
 	log.Printf("listed %d resources into %s, %d of them excluded by default; review it, then import with --engine=terraform --selection %s", len(r.listed), path, excluded, path)
 	return nil
+}
+
+// backendState is the --managed-state source that stands for the state of
+// the configured backend.
+const backendState = "backend"
+
+// excludeManaged adds to defaults the listed resources Terraform already
+// manages, according to the state in sources (see managed.Load), so that
+// an import leaves them out unless a selection file says otherwise.
+func excludeManaged(ctx context.Context, run *engineRun, sources []string, listed map[string][]terraformutils.Resource, defaults map[string]string, importID func(terraformutils.Resource) (string, bool)) (map[string]string, error) {
+	if len(sources) == 0 {
+		return defaults, nil
+	}
+	resolved := make([]string, 0, len(sources))
+	for _, s := range sources {
+		if s != backendState {
+			resolved = append(resolved, s)
+			continue
+		}
+		if run.backend == nil || run.backend.S3 == nil {
+			return nil, errors.New("--managed-state=backend needs an S3 backend in the configuration file")
+		}
+		s3 := run.backend.S3
+		resolved = append(resolved, fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region))
+	}
+	state, err := managed.Load(ctx, resolved, managed.NewS3)
+	if err != nil {
+		return nil, err
+	}
+	if defaults == nil {
+		defaults = map[string]string{}
+	}
+	for _, resources := range listed {
+		for _, res := range resources {
+			id, _ := importID(res)
+			if where, ok := state.Lookup(res.InstanceInfo.Type, id, res.InstanceState.ID); ok {
+				defaults[res.InstanceInfo.Type+" "+res.InstanceState.ID] = managed.Reason + " (" + where + ")"
+			}
+		}
+	}
+	return defaults, nil
 }

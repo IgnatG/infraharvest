@@ -99,6 +99,9 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
 	}
+	if defaults, err = excludeManaged(ctx, run, options.ManagedState, listed, defaults, importIDFunc(provider)); err != nil {
+		return err
+	}
 	if options.Discover {
 		run.used = true
 		run.options = options

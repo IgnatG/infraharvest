@@ -1,0 +1,161 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package managed finds the resources Terraform already manages, from
+// state, so that an import can leave them out instead of importing them a
+// second time. State can hold secrets: it is read only when asked, and
+// only resource types and IDs are kept.
+package managed
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Reason starts the reason an import gives for leaving out a resource
+// Terraform already manages.
+const Reason = "already managed by Terraform"
+
+// ObjectStore reads state from a bucket.
+type ObjectStore interface {
+	// List returns the keys under prefix.
+	List(ctx context.Context, bucket, prefix string) ([]string, error)
+	Get(ctx context.Context, bucket, key string) ([]byte, error)
+}
+
+// Resources are managed resources: where the state of each is, by
+// "type id" (and "type arn", where a resource has an ARN).
+type Resources map[string]string
+
+// Lookup returns where the state of a resource of typ with any of ids is.
+func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
+	for _, id := range ids {
+		if where, ok := r[typ+" "+id]; ok && id != "" {
+			return where, true
+		}
+	}
+	return "", false
+}
+
+// Load reads the state in sources: state files, directories with state
+// files (*.tfstate, outside .terraform), and s3://bucket/prefix, all of
+// whose *.tfstate objects are read. newStore opens an object store for an
+// s3:// source's region (from ?region=, or "" for the default).
+func Load(ctx context.Context, sources []string, newStore func(ctx context.Context, region string) (ObjectStore, error)) (Resources, error) {
+	r := Resources{}
+	for _, source := range sources {
+		var err error
+		if strings.HasPrefix(source, "s3://") {
+			err = r.loadS3(ctx, source, newStore)
+		} else {
+			err = r.loadLocal(source)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("state %s: %w", source, err)
+		}
+	}
+	return r, nil
+}
+
+func (r Resources) loadS3(ctx context.Context, source string, newStore func(ctx context.Context, region string) (ObjectStore, error)) error {
+	u, err := url.Parse(source)
+	if err != nil {
+		return err
+	}
+	store, err := newStore(ctx, u.Query().Get("region"))
+	if err != nil {
+		return err
+	}
+	prefix := strings.TrimPrefix(u.Path, "/")
+	keys, err := store.List(ctx, u.Host, prefix)
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if !strings.HasSuffix(key, ".tfstate") {
+			continue
+		}
+		content, err := store.Get(ctx, u.Host, key)
+		if err != nil {
+			return err
+		}
+		if err := r.Parse(content, "s3://"+u.Host+"/"+key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Resources) loadLocal(source string) error {
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		content, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		return r.Parse(content, source)
+	}
+	return filepath.WalkDir(source, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".terraform" {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".tfstate") {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return r.Parse(content, path)
+	})
+}
+
+// Parse adds the managed resources of a state file (format version 4, as
+// Terraform and OpenTofu write it), found at where.
+func (r Resources) Parse(content []byte, where string) error {
+	var state struct {
+		Version   int `json:"version"`
+		Resources []struct {
+			Mode      string `json:"mode"`
+			Type      string `json:"type"`
+			Instances []struct {
+				Attributes struct {
+					ID  string `json:"id"`
+					ARN string `json:"arn"`
+				} `json:"attributes"`
+			} `json:"instances"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(content, &state); err != nil {
+		return fmt.Errorf("%s: %w", where, err)
+	}
+	if state.Version != 4 {
+		return errors.New(where + ": not a version 4 state file")
+	}
+	for _, res := range state.Resources {
+		if res.Mode != "managed" {
+			continue
+		}
+		for _, i := range res.Instances {
+			for _, id := range []string{i.Attributes.ID, i.Attributes.ARN} {
+				if id != "" {
+					r[res.Type+" "+id] = where
+				}
+			}
+		}
+	}
+	return nil
+}
