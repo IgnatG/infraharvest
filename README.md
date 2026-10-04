@@ -145,6 +145,8 @@ infraharvest import aws --engine=terraform --resources=vpc,subnet,sg,s3 --region
 
 `--all` imports everything the default selection includes, without a file. The report lists what was excluded and why.
 
+Running `discover` again updates the selection file. Entries keep their decisions and notes, resources that no longer exist are dropped, and new ones are added with `new: true`, decided by the file's rules and defaults. Review those, then remove the mark.
+
 Resources that Terraform already manages can be left out too. `--managed-state` reads existing state, including the version 3 state that Terraformer writes, and excludes every resource it finds there, with the state file as the reason. The flag accepts state files, directories of them, or `s3://bucket/prefix?region=...` (every `.tfstate` object under the prefix). `--managed-state=backend` reads the S3 backend from the configuration file, so an import run again only picks up what is new. The report then shows, by type, how much of what was discovered is managed and how much isn't. State can hold secrets: infraharvest reads it only when asked, keeps only resource types and IDs, and needs read access to the state for it.
 
 A run that fails part way, such as on one region, can be run again with `--resume`: roots generated from the same resources and options since then are kept as they are, with their results. The others are generated again from scratch. Checkpoints go into `<path-output>/.infraharvest`, which `.gitignore` excludes.

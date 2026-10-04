@@ -84,6 +84,9 @@ type Resource struct {
 	Reason string `yaml:"reason,omitempty"`
 	// Note is for people; infraharvest keeps it.
 	Note string `yaml:"note,omitempty"`
+	// New marks a resource discover found after the file was first written.
+	// Remove the mark once the entry is reviewed.
+	New bool `yaml:"new,omitempty"`
 }
 
 // Decision is whether to import a resource, and why not.
@@ -186,6 +189,11 @@ const header = `# infraharvest selection file: which listed resources to import.
 #   rules:
 #     - exclude: { type: aws_cloudwatch_log_group, id: "/aws/lambda/*" }
 #
+# Running discover again updates this file: entries keep their decisions and
+# notes, resources no longer found are dropped, and new ones are added with
+# new: true, decided by the rules and defaults. Review them, then remove the
+# mark.
+#
 `
 
 // Save writes the file with its resources in a stable order.
@@ -228,4 +236,41 @@ func (f *File) index() {
 	for i := range f.Resources {
 		f.byKey[f.Resources[i].Type+" "+f.Resources[i].ID] = &f.Resources[i]
 	}
+}
+
+// Merge updates f with the resources discover listed now. Entries f has
+// keep their decisions and notes. Listed resources it lacks are added with
+// New set: excluded with listed's reason if listed excludes them (the
+// provider's defaults), else decided by f's rules and defaults. Entries no
+// longer listed are dropped. It returns how many were added and dropped.
+func (f *File) Merge(listed []Resource) (added, dropped int) {
+	f.index()
+	keep := map[string]bool{}
+	var merged []Resource
+	for _, l := range listed {
+		key := l.Type + " " + l.ID
+		if keep[key] {
+			continue
+		}
+		keep[key] = true
+		if r, ok := f.byKey[key]; ok {
+			merged = append(merged, *r)
+			continue
+		}
+		if l.Include {
+			d := f.Decide(l.Type, l.ID, l.Name)
+			l.Include, l.Reason = d.Include, d.Reason
+		}
+		l.New = true
+		merged = append(merged, l)
+		added++
+	}
+	for _, r := range f.Resources {
+		if !keep[r.Type+" "+r.ID] {
+			dropped++
+		}
+	}
+	f.Resources = merged
+	f.byKey = nil
+	return added, dropped
 }

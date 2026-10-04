@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"sort"
 
@@ -144,7 +145,17 @@ func (r *engineRun) writeSelection() error {
 	if path == "" {
 		path = DefaultSelectionFile
 	}
-	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: r.listed}
+	f, err := selection.Load(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: r.listed}
+	case err != nil:
+		return err
+	default:
+		// Running discover again: keep the decisions people made.
+		added, dropped := f.Merge(r.listed)
+		log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped", path, added, dropped)
+	}
 	if err := f.Save(path); err != nil {
 		return err
 	}

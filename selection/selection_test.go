@@ -116,3 +116,42 @@ func TestSaveRoundTrips(t *testing.T) {
 		t.Errorf("round trip lost the decision: %+v", got)
 	}
 }
+
+func TestMerge(t *testing.T) {
+	f := &File{
+		Version:  Version,
+		Defaults: Defaults{Include: true},
+		Rules:    []Rule{{Exclude: &Match{Type: Patterns{"aws_cloudwatch_log_group"}, ID: Patterns{"/aws/lambda/*"}}}},
+		Resources: []Resource{
+			{Type: "aws_vpc", ID: "vpc-1", Include: false, Note: "managed by the network team"},
+			{Type: "aws_s3_bucket", ID: "gone", Include: true},
+		},
+	}
+	added, dropped := f.Merge([]Resource{
+		{Type: "aws_vpc", ID: "vpc-1", Include: true},
+		{Type: "aws_s3_bucket", ID: "new-bucket", Include: true},
+		{Type: "aws_cloudwatch_log_group", ID: "/aws/lambda/f", Include: true},
+		{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"},
+	})
+
+	if added != 3 || dropped != 1 {
+		t.Errorf("added %d, dropped %d", added, dropped)
+	}
+	want := map[string]Resource{
+		"aws_vpc vpc-1":                          {Type: "aws_vpc", ID: "vpc-1", Include: false, Note: "managed by the network team"},
+		"aws_s3_bucket new-bucket":               {Type: "aws_s3_bucket", ID: "new-bucket", Include: true, New: true},
+		"aws_cloudwatch_log_group /aws/lambda/f": {Type: "aws_cloudwatch_log_group", ID: "/aws/lambda/f", Reason: "excluded by a rule in the selection file", New: true},
+		"aws_vpc vpc-default":                    {Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC", New: true},
+	}
+	if len(f.Resources) != len(want) {
+		t.Fatalf("resources: %+v", f.Resources)
+	}
+	for _, r := range f.Resources {
+		if r != want[r.Type+" "+r.ID] {
+			t.Errorf("%s %s: got %+v, want %+v", r.Type, r.ID, r, want[r.Type+" "+r.ID])
+		}
+	}
+	if !f.Has("aws_s3_bucket", "new-bucket") || f.Has("aws_s3_bucket", "gone") {
+		t.Error("the index doesn't follow the merge")
+	}
+}
