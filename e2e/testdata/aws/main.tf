@@ -199,6 +199,25 @@ resource "aws_s3_bucket" "state" {
   bucket = "infraharvest-e2e-state"
 }
 
+resource "aws_s3_bucket_versioning" "state" {
+  bucket = aws_s3_bucket.state.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# The same shape as the state bucket, so the two share a generated module.
+resource "aws_s3_bucket" "logs" {
+  bucket = "infraharvest-e2e-logs"
+}
+
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${local.name}-artifacts"
   tags   = local.tags

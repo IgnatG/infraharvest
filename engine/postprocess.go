@@ -48,6 +48,12 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 			return err
 		}
 	}
+	// Last, as clusters reach the module through the references above.
+	if opts.ModulesDir != "" {
+		if _, err := liftModules(ctx, tf, dir, opts.ModulesDir, *baseline, vars); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
