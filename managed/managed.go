@@ -123,8 +123,8 @@ func (r Resources) loadLocal(source string) error {
 	})
 }
 
-// Parse adds the managed resources of a state file (format version 4, as
-// Terraform and OpenTofu write it), found at where.
+// Parse adds the managed resources of a state file found at where: format
+// version 4, as Terraform and OpenTofu write it, or 3 (see parseV3).
 func (r Resources) Parse(content []byte, where string) error {
 	var state struct {
 		Version   int `json:"version"`
@@ -142,8 +142,12 @@ func (r Resources) Parse(content []byte, where string) error {
 	if err := json.Unmarshal(content, &state); err != nil {
 		return fmt.Errorf("%s: %w", where, err)
 	}
-	if state.Version != 4 {
-		return errors.New(where + ": not a version 4 state file")
+	switch state.Version {
+	case 3:
+		return r.parseV3(content, where)
+	case 4:
+	default:
+		return errors.New(where + ": not a version 3 or 4 state file")
 	}
 	for _, res := range state.Resources {
 		if res.Mode != "managed" {
@@ -151,6 +155,38 @@ func (r Resources) Parse(content []byte, where string) error {
 		}
 		for _, i := range res.Instances {
 			for _, id := range []string{i.Attributes.ID, i.Attributes.ARN} {
+				if id != "" {
+					r[res.Type+" "+id] = where
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// parseV3 adds the managed resources of a version 3 state file, as
+// Terraform 0.11 and Terraformer (the legacy engine) write it.
+func (r Resources) parseV3(content []byte, where string) error {
+	var state struct {
+		Modules []struct {
+			Resources map[string]struct {
+				Type    string `json:"type"`
+				Primary struct {
+					ID         string            `json:"id"`
+					Attributes map[string]string `json:"attributes"`
+				} `json:"primary"`
+			} `json:"resources"`
+		} `json:"modules"`
+	}
+	if err := json.Unmarshal(content, &state); err != nil {
+		return fmt.Errorf("%s: %w", where, err)
+	}
+	for _, m := range state.Modules {
+		for address, res := range m.Resources {
+			if strings.HasPrefix(address, "data.") {
+				continue
+			}
+			for _, id := range []string{res.Primary.ID, res.Primary.Attributes["arn"]} {
 				if id != "" {
 					r[res.Type+" "+id] = where
 				}
