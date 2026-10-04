@@ -95,10 +95,25 @@ func TestLoad(t *testing.T) {
 
 func TestLoadRejectsOtherFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.tfstate")
-	if err := os.WriteFile(path, []byte(`{"version": 3, "modules": []}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version": 2}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(context.Background(), []string{path}, nil); err == nil || !strings.Contains(err.Error(), "version 4") {
+	if _, err := Load(context.Background(), []string{path}, nil); err == nil || !strings.Contains(err.Error(), "version 3 or 4") {
 		t.Errorf("want a version error, got %v", err)
+	}
+}
+
+// Terraformer, the legacy engine, writes version 3 state.
+func TestParseVersion3(t *testing.T) {
+	r := Resources{}
+	err := r.Parse([]byte(`{"version": 3, "modules": [{"path": ["root"], "resources": {
+	  "aws_vpc.tfer--main": {"type": "aws_vpc", "primary": {"id": "vpc-0abc1234", "attributes": {"id": "vpc-0abc1234", "arn": "arn:aws:ec2:eu-west-2:1:vpc/vpc-0abc1234"}}},
+	  "data.aws_caller_identity.current": {"type": "aws_caller_identity", "primary": {"id": "1"}}
+	}}]}`), "terraform.tfstate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Lookup("aws_vpc", "arn:aws:ec2:eu-west-2:1:vpc/vpc-0abc1234"); !ok || len(r) != 2 {
+		t.Errorf("resources: %v", r)
 	}
 }
