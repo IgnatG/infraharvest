@@ -1,0 +1,158 @@
+name: infraharvest
+description: Generate Terraform configuration that plans with no changes for existing cloud resources, and summarise the import.
+author: Gabriel Ignat
+branding:
+  icon: download-cloud
+  color: green
+
+# The action installs a release of infraharvest, verifies its signature and
+# checksum, and runs one import. Credentials come from the environment, for
+# example from aws-actions/configure-aws-credentials with OIDC: the action
+# never needs cloud secrets. It reads the cloud and writes files; it never
+# applies anything.
+inputs:
+  version:
+    description: The infraharvest release to install, such as v0.2.0.
+    required: false
+  binary:
+    description: An infraharvest binary to run instead of installing a release.
+    required: false
+  token:
+    description: Token to download the release with.
+    default: ${{ github.token }}
+  provider:
+    description: The provider command, such as aws.
+    required: true
+  resources:
+    description: Services to import, comma-separated, such as vpc,s3,iam.
+    required: true
+  regions:
+    description: Regions to import, comma-separated.
+    required: false
+  selection:
+    description: Selection file saying which resources to import (from infraharvest discover). Without one, the default selection is imported (--all).
+    required: false
+  engine:
+    description: terraform or tofu.
+    default: terraform
+  output:
+    description: Directory to write the configuration and the report to.
+    default: generated
+  config:
+    description: infraharvest configuration file (--config), for example with the state backend.
+    required: false
+  allow-partial:
+    description: Succeed when some resources couldn't be imported (exit code 3), keeping the rest.
+    default: "false"
+  pull-request:
+    description: Open or update a pull request with the generated configuration, with the report as its body.
+    default: "false"
+  pull-request-branch:
+    description: Branch for the pull request.
+    default: infraharvest/import
+
+outputs:
+  exit-code:
+    description: infraharvest's exit code (0 complete, 1 incomplete, 2 couldn't run, 3 partial with allow-partial).
+    value: ${{ steps.import.outputs.exit-code }}
+  report:
+    description: Path of the import report (report.md).
+    value: ${{ steps.import.outputs.report }}
+  pull-request-url:
+    description: URL of the pull request, if one was opened.
+    value: ${{ steps.pull-request.outputs.pull-request-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check inputs
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        BINARY: ${{ inputs.binary }}
+      run: |
+        if [[ -z "$VERSION" && -z "$BINARY" ]]; then
+          echo "::error::set version (a release such as v0.2.0) or binary"
+          exit 1
+        fi
+        if [[ -n "$VERSION" && ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+          echo "::error::version must look like v1.2.3, got '$VERSION'"
+          exit 1
+        fi
+    - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      if: inputs.binary == ''
+    - name: Install infraharvest
+      if: inputs.binary == ''
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        case "$RUNNER_OS" in
+          Linux) os=linux ext=tar.gz ;;
+          macOS) os=darwin ext=tar.gz ;;
+          Windows) os=windows ext=zip ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::unsupported runner architecture $RUNNER_ARCH"; exit 1 ;;
+        esac
+        number="${VERSION#v}"
+        sums="infraharvest_${number}_SHA256SUMS"
+        archive="infraharvest_${number}_${os}_${arch}.${ext}"
+        dir="$RUNNER_TEMP/infraharvest"
+        mkdir -p "$dir"
+        gh release download "$VERSION" -R IgnatG/infraharvest -D "$dir" -p "$archive" -p "$sums" -p "$sums.sigstore.json"
+        cd "$dir"
+        # The checksum file must be signed by this repository's release workflow.
+        cosign verify-blob \
+          --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yaml@refs/heads/main" \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          --bundle "$sums.sigstore.json" "$sums"
+        if command -v sha256sum > /dev/null; then sha256sum --check --ignore-missing "$sums"; else shasum -a 256 --check --ignore-missing "$sums"; fi
+        if [[ "$ext" == zip ]]; then unzip -q -o "$archive"; else tar -xzf "$archive"; fi
+        echo "$dir" >> "$GITHUB_PATH"
+    - name: Import
+      id: import
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        PROVIDER: ${{ inputs.provider }}
+        RESOURCES: ${{ inputs.resources }}
+        REGIONS: ${{ inputs.regions }}
+        SELECTION: ${{ inputs.selection }}
+        ENGINE: ${{ inputs.engine }}
+        OUTPUT: ${{ inputs.output }}
+        CONFIG: ${{ inputs.config }}
+        ALLOW_PARTIAL: ${{ inputs.allow-partial }}
+      run: |
+        if [[ ! "$PROVIDER" =~ ^[a-z][a-z0-9_]*$ ]]; then
+          echo "::error::unknown provider '$PROVIDER'"
+          exit 1
+        fi
+        bin="${BINARY:-infraharvest}"
+        args=(import "$PROVIDER" "--engine=$ENGINE" "--resources=$RESOURCES" "--path-output=$OUTPUT" --output=json)
+        [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
+        [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
+        [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
+        if [[ -n "$SELECTION" ]]; then args+=("--selection=$SELECTION"); else args+=(--all); fi
+        code=0
+        "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
+        report="$OUTPUT/report/report.md"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+        if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+        if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
+          echo "::error::infraharvest exited with $code; see the job summary"
+          exit "$code"
+        fi
+    - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      id: pull-request
+      if: inputs.pull-request == 'true'
+      with:
+        add-paths: ${{ inputs.output }}
+        branch: ${{ inputs.pull-request-branch }}
+        commit-message: "feat: import existing resources with infraharvest"
+        title: Import existing resources with infraharvest
+        body-path: ${{ steps.import.outputs.report }}
