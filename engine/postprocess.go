@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -17,6 +18,7 @@ import (
 const placeholderString = "infraharvest-placeholder"
 
 // postProcess improves the configuration once it plans, in this order:
+// arguments that only repeat a default (see stripDefaults),
 // references between resources (see addReferences), shared tags (see
 // applyTagLift) and repeated identifiers (see liftLiterals). Each step is
 // checked against the plan before it (see verify) and undone if the plan
@@ -34,6 +36,20 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	}
 	if baseline == nil {
 		return nil, liftLiteralsValidated(ctx, tf, dir)
+	}
+	// First, so the steps below see only the arguments that matter.
+	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars)
+	if err != nil {
+		return nil, err
+	}
+	if stripped {
+		// Leaving out a default may remove changes: compare with the new plan.
+		if baseline, values, changes, err = planValues(ctx, tf, vars); err != nil {
+			return nil, err
+		}
+		if baseline == nil {
+			return nil, errors.New("the configuration stopped planning after leaving out defaults")
+		}
 	}
 	type step struct {
 		files []string
