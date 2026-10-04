@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/managed"
 )
 
 func sample() *Report {
@@ -161,5 +163,21 @@ func TestMarkdown(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestManagedCounts(t *testing.T) {
+	r := &Report{}
+	r.Excluded = []Excluded{
+		{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC, which AWS creates in every region"},
+		{Type: "aws_s3_bucket", ID: "logs", Reason: managed.Reason + " (s3://acme-state/imported/aws/terraform.tfstate)"},
+	}
+	r.Finish(map[string]int{"aws_vpc": 1, "aws_s3_bucket": 2}, nil, false)
+
+	if r.Totals.Managed != 1 || r.Totals.Excluded != 2 {
+		t.Errorf("totals: %+v", r.Totals)
+	}
+	if md := r.Markdown(); !strings.Contains(md, "## Managed and unmanaged") || !strings.Contains(md, "| `aws_s3_bucket` | 2 | 1 | 1 |") {
+		t.Errorf("markdown:\n%s", md)
 	}
 }

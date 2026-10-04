@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/managed"
 )
 
 // SchemaVersion is the version of the JSON documents. It changes only
@@ -98,6 +100,8 @@ type CoverageTotal struct {
 	Skipped    int `json:"skipped"`
 	Excluded   int `json:"excluded"`
 	Failed     int `json:"failed"`
+	// Managed counts the excluded resources Terraform already manages.
+	Managed int `json:"managed,omitempty"`
 }
 
 // Directory is one output directory.
@@ -203,6 +207,9 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	}
 	for _, e := range r.Excluded {
 		count(e.Type).Excluded++
+		if strings.HasPrefix(e.Reason, managed.Reason) {
+			count(e.Type).Managed++
+		}
 	}
 	for i := range r.Directories {
 		d := &r.Directories[i]
@@ -231,6 +238,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		r.Totals.Skipped += c.Skipped
 		r.Totals.Excluded += c.Excluded
 		r.Totals.Failed += c.Failed
+		r.Totals.Managed += c.Managed
 	}
 
 	switch {
@@ -337,6 +345,12 @@ func (r *Report) Markdown() string {
 		b.WriteString("\n## By type\n\n| Type | Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|---|\n")
 		for _, c := range r.Types {
 			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.Excluded, c.LeftOut, c.Skipped, c.Failed)
+		}
+	}
+	if r.Totals.Managed > 0 {
+		b.WriteString("\n## Managed and unmanaged\n\nThe state read with --managed-state already manages these resources, so the import left them out. The rest of what was discovered isn't under Terraform yet.\n\n| Type | Discovered | Already managed | Not managed |\n|---|---|---|---|\n")
+		for _, c := range r.Types {
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.Discovered-c.Managed)
 		}
 	}
 
