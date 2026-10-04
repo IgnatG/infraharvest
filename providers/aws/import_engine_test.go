@@ -35,3 +35,29 @@ func TestImportID(t *testing.T) {
 		}
 	}
 }
+
+// A role the import assumes is assumed by Terraform too.
+func TestProviderDataAssumesTheRole(t *testing.T) {
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_PROFILE", "")
+	p := &AWSProvider{}
+	if err := p.Init([]string{"eu-west-2", "default", "arn:aws:iam::111122223333:role/infraharvest-readonly"}); err != nil {
+		t.Fatal(err)
+	}
+	config := p.GetProviderData()["provider"].(map[string]interface{})["aws"].(map[string]interface{})
+	role, ok := config["assume_role"].(map[string]interface{})
+	if !ok || role["role_arn"] != "arn:aws:iam::111122223333:role/infraharvest-readonly" || config["region"] != "eu-west-2" {
+		t.Errorf("provider config: %v", config)
+	}
+	if got := p.serviceArgs()["role_arn"]; got != "arn:aws:iam::111122223333:role/infraharvest-readonly" {
+		t.Errorf("service args: %v", got)
+	}
+
+	single := &AWSProvider{}
+	if err := single.Init([]string{"eu-west-2", "default"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := single.GetProviderData()["provider"].(map[string]interface{})["aws"].(map[string]interface{})["assume_role"]; ok {
+		t.Error("assume_role without a role")
+	}
+}

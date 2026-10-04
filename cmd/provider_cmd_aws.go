@@ -17,6 +17,9 @@
 package cmd
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -31,45 +34,28 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 		Short: "Import current state to Terraform configuration from AWS",
 		Long:  "Import current state to Terraform configuration from AWS",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			originalResources := options.Resources
-			originalRegions := options.Regions
-			originalPathPattern := options.PathPattern
-
-			if len(options.Regions) > 0 {
-				shouldSpecifyPathRegion := len(options.Regions) > 1
-				globalResources, eastOnlyResources, regionalResources := parseAndGroupResources(originalResources)
-				options.Resources = globalResources
-				options.Regions = []string{awsterraformer.GlobalRegion}
-				e := importGlobalResources(options)
-				if e != nil {
-					return e
-				}
-
-				options.Resources = eastOnlyResources
-				options.Regions = []string{awsterraformer.MainRegionPublicPartition}
-				e = importEastOnlyResources(options)
-				if e != nil {
-					return e
-				}
-
-				options.Resources = regionalResources
-				options.Regions = originalRegions
-				if len(options.Resources) > 0 { // don't import anything and potentially override global resources
-					if len(globalResources) > 0 {
-						shouldSpecifyPathRegion = true // we should keep global resources away from regional
-					}
-					for _, region := range originalRegions {
-						e := importRegionResources(options, originalPathPattern, region, shouldSpecifyPathRegion)
-						if e != nil {
-							return e
-						}
-					}
-				}
-				return nil
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
 			}
-			err := importRegionResources(options, options.PathPattern, awsterraformer.NoRegion, false)
+			accounts, err := awsAccounts(ctx, options)
 			if err != nil {
 				return err
+			}
+			if len(accounts) == 0 {
+				// One account: a full role ARN is assumed as it is.
+				if !strings.Contains(options.AssumeRole, "{account}") {
+					options.RoleARN = options.AssumeRole
+				}
+				return importAWSAccount(options)
+			}
+			for _, account := range accounts {
+				log.Printf("aws: importing account %s", account)
+				accountOptions := options
+				accountOptions.RoleARN = strings.ReplaceAll(options.AssumeRole, "{account}", account)
+				if err := importAWSAccount(accountOptions); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -79,7 +65,78 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 
 	cmd.PersistentFlags().StringVarP(&options.Profile, "profile", "", "default", "prod")
 	cmd.PersistentFlags().StringSliceVarP(&options.Regions, "regions", "", []string{}, "eu-west-1,eu-west-2,us-east-1")
+	cmd.PersistentFlags().StringSliceVar(&options.Accounts, "accounts", nil, "accounts to import, each through the role --assume-role names")
+	cmd.PersistentFlags().BoolVar(&options.Organization, "organization", false, "import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names")
+	cmd.PersistentFlags().StringVar(&options.AssumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
 	return cmd
+}
+
+// importAWSAccount imports one account: global, us-east-1-only and regional
+// resources, through options.RoleARN if set.
+func importAWSAccount(options ImportOptions) error {
+	originalResources := options.Resources
+	originalRegions := options.Regions
+	originalPathPattern := options.PathPattern
+	if len(options.Regions) == 0 {
+		return importRegionResources(options, options.PathPattern, awsterraformer.NoRegion, false)
+	}
+
+	shouldSpecifyPathRegion := len(options.Regions) > 1
+	globalResources, eastOnlyResources, regionalResources := parseAndGroupResources(originalResources)
+	options.Resources = globalResources
+	options.Regions = []string{awsterraformer.GlobalRegion}
+	if err := importGlobalResources(options); err != nil {
+		return err
+	}
+
+	options.Resources = eastOnlyResources
+	options.Regions = []string{awsterraformer.MainRegionPublicPartition}
+	if err := importEastOnlyResources(options); err != nil {
+		return err
+	}
+
+	options.Resources = regionalResources
+	options.Regions = originalRegions
+	if len(options.Resources) == 0 { // don't import anything and potentially override global resources
+		return nil
+	}
+	if len(globalResources) > 0 {
+		shouldSpecifyPathRegion = true // we should keep global resources away from regional
+	}
+	for _, region := range originalRegions {
+		if err := importRegionResources(options, originalPathPattern, region, shouldSpecifyPathRegion); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DefaultAssumeRole is the role --accounts and --organization assume in
+// each account: the read-only role permissions/aws creates.
+const DefaultAssumeRole = "arn:aws:iam::{account}:role/infraharvest-readonly"
+
+// awsAccounts returns the accounts to import one by one: --accounts, or
+// the organization's with --organization; none for a single account.
+func awsAccounts(ctx context.Context, options ImportOptions) ([]string, error) {
+	switch {
+	case options.Organization && len(options.Accounts) > 0:
+		return nil, errors.New("use either --accounts or --organization")
+	case options.Organization:
+		accounts, err := awsterraformer.OrganizationAccounts(ctx, options.Profile)
+		if err != nil {
+			return nil, fmt.Errorf("list the organization's accounts: %w", err)
+		}
+		if len(accounts) == 0 {
+			return nil, errors.New("the organization has no active accounts")
+		}
+		return accounts, nil
+	case len(options.Accounts) > 0:
+		if !strings.Contains(options.AssumeRole, "{account}") {
+			return nil, fmt.Errorf("--assume-role %q needs {account} to reach several accounts", options.AssumeRole)
+		}
+		return options.Accounts, nil
+	}
+	return nil, nil
 }
 
 // returns global, east-only, regional resources
@@ -122,7 +179,7 @@ func importRegionResources(options ImportOptions, originalPathPattern string, re
 	} else {
 		log.Println(provider.GetName() + " importing default region")
 	}
-	err := Import(provider, options, []string{region, options.Profile})
+	err := Import(provider, options, []string{region, options.Profile, options.RoleARN})
 	if err != nil {
 		return err
 	}

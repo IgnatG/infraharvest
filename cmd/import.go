@@ -79,6 +79,13 @@ type ImportOptions struct {
 	// Resume skips the roots a previous run generated from the same imports
 	// and options (see resumed).
 	Resume bool
+	// Accounts, Organization and AssumeRole import several AWS accounts,
+	// each through a role (see awsAccounts); RoleARN is the role of the
+	// account being imported.
+	Accounts     []string
+	Organization bool
+	AssumeRole   string
+	RoleARN      string `json:"-"`
 	// Modules says which modules hold clusters of resources: registry,
 	// local or none.
 	Modules string
@@ -126,8 +133,8 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 	}
 	switch options.Engine {
 	case engineLegacy, "":
-		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume {
-			return errors.New("--selection, --all, --managed-state and --resume need --engine=terraform or tofu")
+		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume || options.RoleARN != "" {
+			return errors.New("--selection, --all, --managed-state, --resume, --accounts, --organization and --assume-role need --engine=terraform or tofu")
 		}
 	case engineTerraform, engineTofu:
 		return importWithEngine(provider, options, args)
