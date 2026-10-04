@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"log"
+	"strings"
 
 	awsterraformer "github.com/IgnatG/infraharvest/providers/aws"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -114,7 +115,7 @@ func importRegionResources(options ImportOptions, originalPathPattern string, re
 	provider := newAWSProvider()
 	options.PathPattern = originalPathPattern
 	if region != awsterraformer.GlobalRegion && region != awsterraformer.NoRegion {
-		if shouldSpecifyPathRegion {
+		if shouldSpecifyPathRegion && !strings.Contains(options.PathPattern, "{region}") {
 			options.PathPattern += region + "/"
 		}
 		log.Println(provider.GetName() + " importing region " + region)

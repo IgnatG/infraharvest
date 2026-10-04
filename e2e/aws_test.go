@@ -114,6 +114,15 @@ func TestAWSRoundTrip(t *testing.T) {
 		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
 		}
+		// One root per account and region, each with its own state key.
+		rel, err := filepath.Rel(out, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		backend := readFile(t, filepath.Join(dir, cmd.BackendFileName))
+		if wantKey := "e2e/" + filepath.ToSlash(rel) + "/terraform.tfstate"; !strings.HasPrefix(filepath.ToSlash(rel), "aws/000000000000/") || !strings.Contains(backend, wantKey) || !strings.Contains(backend, "use_lockfile = true") {
+			t.Errorf("%s: want a root per account and region with state key %s:\n%s", rel, wantKey, backend)
+		}
 		versions := readFile(t, filepath.Join(dir, engine.VersionsFileName))
 		if !strings.Contains(versions, "required_version") || !strings.Contains(versions, `version = "~> `) {
 			t.Errorf("%s: %s doesn't pin Terraform and the provider:\n%s", dir, engine.VersionsFileName, versions)
@@ -311,8 +320,14 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	if err != nil {
 		t.Fatal(err)
 	}
+	// As the README says: init, with the root's backend, then plan.
+	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+		t.Fatalf("%s: terraform init with the generated backend: %v", dir, err)
+	}
 	planFile := filepath.Join(t.TempDir(), "e2e.tfplan")
-	if _, err := tf.Plan(ctx, append(vars, tfexec.Out(planFile))...); err != nil {
+	// The emulator's S3 may not support the conditional writes S3 state
+	// locking uses.
+	if _, err := tf.Plan(ctx, append(vars, tfexec.Out(planFile), tfexec.Lock(false))...); err != nil {
 		t.Errorf("%s: terraform plan of the generated configuration: %v", dir, err)
 		return nil
 	}
@@ -430,8 +445,10 @@ func importAWS(ctx context.Context, t *testing.T, engineName, execPath string, s
 		"--terraform-path=" + execPath,
 		"--regions=us-east-1",
 		"--resources=" + strings.Join(awsServices, ","),
-		"--path-pattern={output}/{provider}/",
 		"--path-output=" + out,
+		// The default layout, one root per account and region, and a state
+		// backend in the emulator (see stateBackendConfig).
+		"--config=" + stateBackendConfig(t),
 		// Keep going after a failed directory so one run reports every
 		// problem; the checks on coverage.json still fail the test.
 		"--allow-partial",
@@ -535,6 +552,22 @@ func discoverAWS(ctx context.Context, t *testing.T, created []*tfjson.StateResou
 	}
 	if excluded == 0 {
 		t.Error("discover excluded nothing, though the emulator's default VPC exists")
+	}
+	return path
+}
+
+// stateBucket is the bucket testdata/aws creates for the generated roots'
+// state.
+const stateBucket = "infraharvest-e2e-state"
+
+// stateBackendConfig writes a configuration file that gives the generated
+// roots an S3 backend in the emulator.
+func stateBackendConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	content := "version: 1\nbackend:\n  s3:\n    bucket: " + stateBucket + "\n    region: us-east-1\n    key_prefix: e2e\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	return path
 }

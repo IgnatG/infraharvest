@@ -205,3 +205,24 @@ func TestEngineBinaryAndRegistry(t *testing.T) {
 		t.Errorf("a source with a host must be kept, got %s", got)
 	}
 }
+
+type scopedProvider struct {
+	terraformutils.ProviderGenerator
+}
+
+func (scopedProvider) Scope() (string, string, error) { return "111122223333", "eu-west-2", nil }
+
+func TestRootPathPattern(t *testing.T) {
+	for pattern, want := range map[string]string{
+		// The legacy default, which the AWS command may extend with a region.
+		DefaultPathPattern:                "{output}/{provider}/111122223333/eu-west-2/",
+		DefaultPathPattern + "eu-west-2/": "{output}/{provider}/111122223333/eu-west-2/",
+		"{output}/{account}/{service}/":   "{output}/111122223333/{service}/",
+		"{output}/{provider}/":            "{output}/{provider}/",
+	} {
+		got, err := rootPathPattern(scopedProvider{}, pattern)
+		if err != nil || got != want {
+			t.Errorf("%s: got %q, %v; want %q", pattern, got, err, want)
+		}
+	}
+}

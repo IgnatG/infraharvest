@@ -4,7 +4,10 @@
 package aws
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -65,4 +68,27 @@ func (AWSProvider) StateOnlyArguments() map[string][]string {
 		"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
 		"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
 	}
+}
+
+// Scope names the account and region this import covers, for the output
+// layout: global for global services such as IAM.
+func (p *AWSProvider) Scope() (account, region string, err error) {
+	service := &AWSService{}
+	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	config, err := service.generateConfig()
+	if err != nil {
+		return "", "", err
+	}
+	id, err := service.getAccountNumber(config)
+	if err != nil {
+		return "", "", fmt.Errorf("find the AWS account: %w", err)
+	}
+	region = p.region
+	switch region {
+	case GlobalRegion:
+		region = "global"
+	case NoRegion:
+		region = config.Region
+	}
+	return aws.ToString(id), region, nil
 }

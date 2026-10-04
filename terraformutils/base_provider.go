@@ -75,6 +75,14 @@ type ProviderWithSelectionDefaults interface {
 	ExcludedByDefault(resources []Resource) (map[string]string, error)
 }
 
+// ProviderWithScope names the account (or subscription or project) and the
+// region an import covers, for the output layout
+// ({output}/{provider}/{account}/{region}/): one root per state
+// boundary.
+type ProviderWithScope interface {
+	Scope() (account, region string, err error)
+}
+
 // ProviderWithDefaultTags describes how the provider applies tags to every
 // resource, for --engine=terraform to move the tags all resources share
 // into the provider configuration: the resources' tags attribute, the

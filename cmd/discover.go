@@ -19,6 +19,7 @@ func newDiscoverCmd() *cobra.Command {
 			"manages itself. Review it, then import with --engine=terraform --selection <file>.",
 		SilenceUsage: true,
 	}
+	cmd.PersistentFlags().String("config", "", "configuration file, which sets flags not given on the command line")
 	for _, subcommand := range providerImporterSubcommands() {
 		providerCommand := subcommand(options)
 		providerCommand.Short = "List " + providerCommand.Name() + " resources into a selection file"

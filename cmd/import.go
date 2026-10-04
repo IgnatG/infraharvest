@@ -83,6 +83,7 @@ func newImportCmd() *cobra.Command {
 		//Version:       version.String(),
 	}
 
+	cmd.PersistentFlags().String("config", "", "--engine=terraform or tofu: configuration file, which sets flags not given on the command line and the state backend of the generated roots")
 	cmd.AddCommand(newCmdPlanImporter(options))
 	cmd.AddCommand(&cobra.Command{
 		Use:   "no-sort",

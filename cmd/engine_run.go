@@ -5,12 +5,14 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/config"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/selection"
 )
@@ -33,7 +35,9 @@ type engineRun struct {
 	selection *selection.File
 	// listed are the resources discover lists into a selection file.
 	listed []selection.Resource
-	used   bool
+	// backend is the state backend of the generated roots, if configured.
+	backend *config.Backend
+	used    bool
 }
 
 // activeRun is the run of the provider command being executed, if any.
@@ -49,10 +53,34 @@ func newEngineRun() *engineRun {
 func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		run := newEngineRun()
+		if err := run.applyConfig(c); err != nil {
+			return err
+		}
 		activeRun = run
 		defer func() { activeRun = nil }()
 		return run.finish(runE(c, args))
 	}
+}
+
+// applyConfig loads the --config file, if any: it sets the command's flags
+// the command line didn't, and the state backend of the generated roots.
+func (r *engineRun) applyConfig(c *cobra.Command) error {
+	if c == nil {
+		return nil
+	}
+	flag := c.Flag("config")
+	if flag == nil || flag.Value.String() == "" {
+		return nil
+	}
+	f, err := config.Load(flag.Value.String())
+	if err != nil {
+		return err
+	}
+	if err := f.Apply(c.Flags(), c.Name()); err != nil {
+		return fmt.Errorf("%s: %w", flag.Value.String(), err)
+	}
+	r.backend = f.Backend
+	return nil
 }
 
 // finish writes the run's report, prints it for --output json, and returns
