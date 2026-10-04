@@ -248,28 +248,48 @@ func terraform12Adjustments(formatted []byte, mapsObjects map[string]struct{}) [
 	return []byte(s)
 }
 
+// terraform13Adjustments rewrites the HCL1 printer's
+//
+//	required_providers "aws" {
+//	  source = "hashicorp/aws"
+//	}
+//
+// into Terraform 0.13's syntax, a map of provider requirements:
+//
+//	required_providers {
+//	  aws = {
+//	    source = "hashicorp/aws"
+//	  }
+//	}
+//
+// Input without a closing brace is returned unchanged.
 func terraform13Adjustments(formatted []byte) []byte {
-	s := string(formatted)
 	requiredProvidersRe := regexp.MustCompile("required_providers \".*\" {")
 	endBraceRe := regexp.MustCompile(`^\s*}`)
-	lines := strings.Split(s, "\n")
+	lines := strings.Split(string(formatted), "\n")
 	for i, line := range lines {
-		if requiredProvidersRe.MatchString(line) {
-			parts := strings.Split(strings.TrimSpace(line), " ")
-			provider := strings.ReplaceAll(parts[1], "\"", "")
-			lines[i] = "\trequired_providers {"
-			var innerBlock []string
-			inner := i + 1
-			for ; !endBraceRe.MatchString(lines[inner]); inner++ {
-				innerBlock = append(innerBlock, "\t"+lines[inner])
-			}
-			lines[i+1] = "\t\t" + provider + " = {\n" + strings.Join(innerBlock, "\n") + "\n\t\t}"
-			lines = append(lines[:i+2], lines[inner:]...)
-			break
+		if !requiredProvidersRe.MatchString(line) {
+			continue
 		}
+		end := i + 1
+		for end < len(lines) && !endBraceRe.MatchString(lines[end]) {
+			end++
+		}
+		if end == len(lines) {
+			return formatted
+		}
+		parts := strings.Split(strings.TrimSpace(line), " ")
+		provider := strings.ReplaceAll(parts[1], "\"", "")
+		adjusted := append([]string(nil), lines[:i]...)
+		adjusted = append(adjusted, "\trequired_providers {", "\t\t"+provider+" = {")
+		for _, inner := range lines[i+1 : end] {
+			adjusted = append(adjusted, "\t"+inner)
+		}
+		adjusted = append(adjusted, "\t\t}")
+		adjusted = append(adjusted, lines[end:]...)
+		return []byte(strings.Join(adjusted, "\n"))
 	}
-	s = strings.Join(lines, "\n")
-	return []byte(s)
+	return formatted
 }
 
 func escapeRune(s string) string {
