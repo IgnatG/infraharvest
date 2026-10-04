@@ -15,6 +15,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write      # create the tag and the release
       packages: write      # push the image to ghcr.io
@@ -67,7 +68,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.18.2
-          args: release --clean
+          args: release --clean --parallelism=1
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Attest build provenance

@@ -17,6 +17,9 @@ permissions:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    # One platform at a time: compiling several at once runs the runner out
+    # of memory on this module.
+    timeout-minutes: 90
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -38,7 +41,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.18.2
-          args: release --snapshot --clean --skip=sign
+          args: release --snapshot --clean --skip=sign --parallelism=1
       - name: Smoke-test the binary
         run: |
           ls dist/*.tar.gz dist/*.zip dist/*_SHA256SUMS dist/*.sbom.json
