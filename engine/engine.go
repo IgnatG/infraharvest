@@ -114,6 +114,11 @@ type Options struct {
 	// Adapters map clusters of resources onto calls of curated modules,
 	// tried before generated local modules (see synthesize).
 	Adapters []adapters.Adapter
+	// External are resources the import listed but doesn't manage, which
+	// the configuration may refer to through the data sources in
+	// DataSources, by resource type (see addDataSources).
+	External    []External
+	DataSources map[string]DataSource
 }
 
 // Generate writes opts.Config and an import block per resource into dir,

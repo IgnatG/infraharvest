@@ -19,11 +19,25 @@ import (
 type referenceTarget struct {
 	address   string
 	attribute string
+	// data is set for a data source (see addDataSources).
+	data bool
 }
 
 func (t referenceTarget) traversal() hcl.Traversal {
 	typ, name, _ := strings.Cut(t.address, ".")
-	return hcl.Traversal{hcl.TraverseRoot{Name: typ}, hcl.TraverseAttr{Name: name}, hcl.TraverseAttr{Name: t.attribute}}
+	steps := hcl.Traversal{hcl.TraverseAttr{Name: typ}, hcl.TraverseAttr{Name: name}, hcl.TraverseAttr{Name: t.attribute}}
+	if t.data {
+		return append(hcl.Traversal{hcl.TraverseRoot{Name: "data"}}, steps...)
+	}
+	return append(hcl.Traversal{hcl.TraverseRoot{Name: typ}}, steps[1:]...)
+}
+
+// node is the target's name in the dependency graph.
+func (t referenceTarget) node() string {
+	if t.data {
+		return "data." + t.address
+	}
+	return t.address
 }
 
 // addReferences replaces literals in generated.tf that are another
@@ -45,7 +59,7 @@ func addReferences(dir string, values map[string]map[string]any) (bool, error) {
 	g := dependencies{}
 	changed := false
 	for _, r := range generated.resources() {
-		if referenceAttributes(r.address, r.syntax.Body, r.write.Body(), index, g) {
+		if referenceAttributes(r.address, r.syntax.Body, r.write.Body(), index, g, generated.src) {
 			changed = true
 		}
 	}
@@ -135,7 +149,7 @@ func namedAfter(argument, address string) bool {
 // referenceAttributes replaces the literals in body, of the resource at
 // address, and in its nested blocks. It records the references it adds in
 // g and skips those that would close a cycle.
-func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, index map[string]referenceTarget, g dependencies) bool {
+func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, index map[string]referenceTarget, g dependencies, src []byte) bool {
 	changed := false
 	names := make([]string, 0, len(syntax.Attributes))
 	for name := range syntax.Attributes {
@@ -149,7 +163,7 @@ func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.
 		if !ok || t.address == address || (!referenceable(value) && !namedAfter(argument, t.address)) {
 			return referenceTarget{}, false
 		}
-		return t, g.add(address, t.address)
+		return t, g.add(address, t.node())
 	}
 	for _, name := range names {
 		switch expr := syntax.Attributes[name].Expr.(type) {
@@ -161,7 +175,7 @@ func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.
 				}
 			}
 		case *hclsyntax.TupleConsExpr:
-			if tokens, ok := referenceTuple(name, expr, target); ok {
+			if tokens, ok := referenceTuple(name, expr, target, src); ok {
 				body.SetAttributeRaw(name, tokens)
 				changed = true
 			}
@@ -169,37 +183,35 @@ func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.
 	}
 	blocks := body.Blocks()
 	for i, b := range syntax.Blocks {
-		if i < len(blocks) && referenceAttributes(address, b.Body, blocks[i].Body(), index, g) {
+		if i < len(blocks) && referenceAttributes(address, b.Body, blocks[i].Body(), index, g, src) {
 			changed = true
 		}
 	}
 	return changed
 }
 
-// referenceTuple rewrites a list of string literals with the elements that
-// are references replaced, if any are and every element is a literal.
-func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(argument, value string) (referenceTarget, bool)) (hclwrite.Tokens, bool) {
-	literals := make([]string, 0, len(expr.Exprs))
-	for _, e := range expr.Exprs {
-		tmpl, ok := e.(*hclsyntax.TemplateExpr)
-		if !ok {
-			return nil, false
-		}
-		v, ok := literalString(tmpl)
-		if !ok {
-			return nil, false
-		}
-		literals = append(literals, v)
-	}
-	elems := make([]hclwrite.Tokens, 0, len(literals))
+// referenceTuple rewrites a list with the string literals that are
+// references replaced, if any are. Other elements stay as written in src.
+func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(argument, value string) (referenceTarget, bool), src []byte) (hclwrite.Tokens, bool) {
+	elems := make([]hclwrite.Tokens, 0, len(expr.Exprs))
 	replaced := false
-	for _, v := range literals {
-		if t, ok := target(argument, v); ok {
-			elems = append(elems, hclwrite.TokensForTraversal(t.traversal()))
-			replaced = true
-		} else {
-			elems = append(elems, hclwrite.TokensForValue(cty.StringVal(v)))
+	for _, e := range expr.Exprs {
+		if tmpl, ok := e.(*hclsyntax.TemplateExpr); ok {
+			if v, ok := literalString(tmpl); ok {
+				if t, ok := target(argument, v); ok {
+					elems = append(elems, hclwrite.TokensForTraversal(t.traversal()))
+					replaced = true
+				} else {
+					elems = append(elems, hclwrite.TokensForValue(cty.StringVal(v)))
+				}
+				continue
+			}
 		}
+		rng := e.Range()
+		if rng.End.Byte > len(src) || rng.Start.Byte > rng.End.Byte {
+			return nil, false
+		}
+		elems = append(elems, hclwrite.Tokens{{Type: hclsyntax.TokenIdent, Bytes: rng.SliceBytes(src)}})
 	}
 	if !replaced {
 		return nil, false

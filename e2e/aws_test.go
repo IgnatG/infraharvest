@@ -111,6 +111,9 @@ func TestAWSRoundTrip(t *testing.T) {
 	// The network resources refer to the VPC instead of repeating its ID;
 	// the plans below check that changes nothing.
 	referencedVPC := false
+	// The ALB refers to the default security group, which the selection
+	// leaves out, through a data source.
+	readsDefaultGroup := false
 	for _, dir := range generatedDirs(t, out) {
 		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
@@ -135,6 +138,9 @@ func TestAWSRoundTrip(t *testing.T) {
 		if strings.Contains(readFile(t, filepath.Join(dir, engine.GeneratedFileName)), "vpc_id = aws_vpc.") {
 			referencedVPC = true
 		}
+		if strings.Contains(readFile(t, filepath.Join(dir, engine.GeneratedFileName)), "data.aws_security_group.") {
+			readsDefaultGroup = strings.Contains(readFile(t, filepath.Join(dir, engine.DataFileName)), `data "aws_security_group"`)
+		}
 		// Arguments that only repeat a default are left out.
 		if nulls := nullArguments(t, filepath.Join(dir, engine.GeneratedFileName)); len(nulls) > 0 {
 			t.Errorf("%s: arguments set to null: %v", dir, nulls)
@@ -151,6 +157,9 @@ func TestAWSRoundTrip(t *testing.T) {
 	}
 	if !referencedVPC {
 		t.Errorf("no %s refers to the VPC", engine.GeneratedFileName)
+	}
+	if !readsDefaultGroup {
+		t.Errorf("no %s reads the default security group through %s", engine.GeneratedFileName, engine.DataFileName)
 	}
 	// Each bucket becomes a call of the curated S3 module, and the two roles
 	// of the same shape share a generated local module; the plans above

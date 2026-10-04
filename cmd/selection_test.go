@@ -65,7 +65,7 @@ func selectedIDs(selected map[string][]terraformutils.Resource) []string {
 func TestSelectResourcesWithAll(t *testing.T) {
 	run := newEngineRun()
 
-	selected := run.selectResources(listedForSelection, defaultsForSelection, nil, importIDForSelection)
+	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, nil, importIDForSelection)
 
 	// Unimportable resources go on, for importsByDir to count.
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -87,7 +87,7 @@ func TestSelectResourcesWithFile(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "old-archive", Include: false, Note: "to be deleted"},
 	}}
 
-	selected := run.selectResources(listedForSelection, defaultsForSelection, f, importIDForSelection)
+	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, f, importIDForSelection)
 
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)

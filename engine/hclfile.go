@@ -23,6 +23,7 @@ type hclFile struct {
 	path   string
 	file   *hclwrite.File
 	syntax *hclsyntax.Body
+	src    []byte // the file as loaded, which syntax ranges point into
 }
 
 func loadHCL(path string) (*hclFile, error) {
@@ -38,7 +39,7 @@ func loadHCL(path string) (*hclFile, error) {
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parse %s: %w", path, diags)
 	}
-	return &hclFile{path: path, file: f, syntax: syntax.Body.(*hclsyntax.Body)}, nil
+	return &hclFile{path: path, file: f, syntax: syntax.Body.(*hclsyntax.Body), src: src}, nil
 }
 
 // save writes the edited file back, formatted. Removing the first block

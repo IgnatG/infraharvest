@@ -283,12 +283,14 @@ resource "aws_s3_bucket_policy" "artifacts" {
   })
 }
 
+# The VPC's default security group is one the default selection leaves out:
+# the import refers to it through a data source.
 resource "aws_lb" "web" {
   name               = "${local.name}-web"
   load_balancer_type = "application"
   internal           = true
   subnets            = [aws_subnet.a.id, aws_subnet.b.id]
-  security_groups    = [aws_security_group.web.id]
+  security_groups    = [aws_security_group.web.id, aws_vpc.main.default_security_group_id]
 }
 
 resource "aws_lb_target_group" "web" {
