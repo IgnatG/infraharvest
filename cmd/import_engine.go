@@ -172,10 +172,32 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	}
 	sort.Strings(dirs)
 	for _, dir := range dirs {
-		log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-		result, err := generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &run.lock)
-		if err != nil && ctx.Err() != nil {
-			return ctx.Err()
+		fp, err := fingerprint(root.engineVersion, byDir[dir], opts)
+		if err != nil {
+			return err
+		}
+		var result *engine.Result
+		if options.Resume {
+			if result, err = resumed(options.PathOutput, dir, fp); err != nil {
+				return err
+			}
+		}
+		if result != nil {
+			log.Printf("%s: %s is unchanged since it was generated (--resume)", provider.GetName(), dir)
+			if run.lock == nil {
+				run.lock, _ = os.ReadFile(filepath.Join(dir, engine.LockFileName))
+			}
+		} else {
+			log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
+			result, err = generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &run.lock)
+			if err != nil && ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err == nil {
+				if err := saveCheckpoint(options.PathOutput, dir, fp, result); err != nil {
+					return err
+				}
+			}
 		}
 		run.addDirectory(dir, byDir[dir], result, err)
 		if err == nil && run.backend != nil {

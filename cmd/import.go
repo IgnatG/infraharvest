@@ -76,6 +76,9 @@ type ImportOptions struct {
 	// ManagedState is state to read, so that an import leaves out what
 	// Terraform already manages (see excludeManaged).
 	ManagedState []string
+	// Resume skips the roots a previous run generated from the same imports
+	// and options (see resumed).
+	Resume bool
 	// Modules says which modules hold clusters of resources: registry,
 	// local or none.
 	Modules string
@@ -123,8 +126,8 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 	}
 	switch options.Engine {
 	case engineLegacy, "":
-		if options.Selection != "" || options.All || len(options.ManagedState) > 0 {
-			return errors.New("--selection, --all and --managed-state need --engine=terraform or tofu")
+		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume {
+			return errors.New("--selection, --all, --managed-state and --resume need --engine=terraform or tofu")
 		}
 	case engineTerraform, engineTofu:
 		return importWithEngine(provider, options, args)
@@ -538,6 +541,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1")
 	flag.StringVar(&options.Selection, "selection", "", "--engine=terraform or tofu: selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")
 	flag.StringSliceVar(&options.ManagedState, "managed-state", nil, "--engine=terraform or tofu: leave out what Terraform already manages, according to this state: state files, directories of them, or s3://bucket/prefix[?region=...] (all its .tfstate objects); backend reads the configured S3 backend's state")
+	flag.BoolVar(&options.Resume, "resume", false, "--engine=terraform or tofu: skip the roots a previous run generated from the same resources and options, such as after a run that failed part way")
 	flag.BoolVar(&options.All, "all", false, "--engine=terraform or tofu: import everything the default selection includes, without a selection file")
 	flag.StringVar(&options.Modules, "modules", modulesRegistry, "--engine=terraform or tofu: registry moves clusters of resources into curated public modules (terraform-aws-modules) where the plan stays the same, else into generated local modules; local uses generated local modules only; none keeps every resource in the root")
 	flag.StringVar(&options.Engine, "engine", engineLegacy, "legacy, terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks (no state written)")
