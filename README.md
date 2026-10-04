@@ -4,6 +4,8 @@
 
 Licensed under [AGPL-3.0](LICENSE). Terraformer code keeps its Apache-2.0 licence and attribution; see [NOTICE](NOTICE).
 
+Coming from Terraformer? See [Migrating from Terraformer](docs/migrating-from-terraformer.md).
+
 The rest of this README is Terraformer's documentation.
 
 A CLI tool that generates `tf`/`json` and `tfstate` files based on existing infrastructure
