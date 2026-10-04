@@ -42,13 +42,13 @@ func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 	return nil
 }
 
-func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *string) (databaseNames []*string, error error) {
+func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *string) (databaseNames []*string, err error) {
 	var GlueCatalogDatabaseAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetDatabasesPaginator(svc, &glue.GetDatabasesInput{})
 	for p.HasMorePages() {
-		page, error := p.NextPage(g.Context())
-		if error != nil {
-			return databaseNames, error
+		page, err := p.NextPage(g.Context())
+		if err != nil {
+			return databaseNames, err
 		}
 		for _, catalogDatabase := range page.DatabaseList {
 			// format of ID is "CATALOG-ID:DATABASE-NAME".
