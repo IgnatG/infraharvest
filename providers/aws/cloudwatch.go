@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
@@ -55,7 +53,7 @@ func (g *CloudWatchGenerator) InitResources() error {
 
 func (g *CloudWatchGenerator) createMetricAlarms(cloudwatchSvc *cloudwatch.Client) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		output, err := cloudwatchSvc.DescribeAlarms(context.TODO(), &cloudwatch.DescribeAlarmsInput{
+		output, err := cloudwatchSvc.DescribeAlarms(g.Context(), &cloudwatch.DescribeAlarmsInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
@@ -75,7 +73,7 @@ func (g *CloudWatchGenerator) createMetricAlarms(cloudwatchSvc *cloudwatch.Clien
 
 func (g *CloudWatchGenerator) createDashboards(cloudwatchSvc *cloudwatch.Client) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		output, err := cloudwatchSvc.ListDashboards(context.TODO(), &cloudwatch.ListDashboardsInput{
+		output, err := cloudwatchSvc.ListDashboards(g.Context(), &cloudwatch.ListDashboardsInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
@@ -95,7 +93,7 @@ func (g *CloudWatchGenerator) createDashboards(cloudwatchSvc *cloudwatch.Client)
 
 func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.Client) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		output, err := cloudwatcheventsSvc.ListRules(context.TODO(), &cloudwatchevents.ListRulesInput{
+		output, err := cloudwatcheventsSvc.ListRules(g.Context(), &cloudwatchevents.ListRulesInput{
 			NextToken: nextToken,
 		})
 		if err != nil {
@@ -118,7 +116,7 @@ func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.
 
 func (g *CloudWatchGenerator) createTargets(cloudwatcheventsSvc *cloudwatchevents.Client, ruleName *string) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		output, err := cloudwatcheventsSvc.ListTargetsByRule(context.TODO(), &cloudwatchevents.ListTargetsByRuleInput{
+		output, err := cloudwatcheventsSvc.ListTargetsByRule(g.Context(), &cloudwatchevents.ListTargetsByRuleInput{
 			Rule:      ruleName,
 			NextToken: nextToken,
 		})

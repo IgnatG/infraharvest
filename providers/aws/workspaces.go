@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/workspaces"
 )
@@ -45,7 +43,7 @@ func (g *WorkspacesGenerator) InitResources() error {
 func (g *WorkspacesGenerator) loadWorkspaces(svc *workspaces.Client) error {
 	p := workspaces.NewDescribeWorkspacesPaginator(svc, &workspaces.DescribeWorkspacesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -71,7 +69,7 @@ func (g *WorkspacesGenerator) loadWorkspaces(svc *workspaces.Client) error {
 
 func (g *WorkspacesGenerator) loadWorkspacesIPGroup(svc *workspaces.Client) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		response, err := svc.DescribeIpGroups(context.TODO(), &workspaces.DescribeIpGroupsInput{NextToken: nextToken})
+		response, err := svc.DescribeIpGroups(g.Context(), &workspaces.DescribeIpGroupsInput{NextToken: nextToken})
 		if err != nil {
 			return nil, err
 		}

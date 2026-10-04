@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -54,7 +53,7 @@ func (g *MediaLiveGenerator) InitResources() error {
 func (g *MediaLiveGenerator) GetChannels(svc *medialive.Client) error {
 	p := medialive.NewListChannelsPaginator(svc, &medialive.ListChannelsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -75,7 +74,7 @@ func (g *MediaLiveGenerator) GetChannels(svc *medialive.Client) error {
 func (g *MediaLiveGenerator) GetInputs(svc *medialive.Client) error {
 	p := medialive.NewListInputsPaginator(svc, &medialive.ListInputsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -96,7 +95,7 @@ func (g *MediaLiveGenerator) GetInputs(svc *medialive.Client) error {
 func (g *MediaLiveGenerator) GetInputSecurityGroups(svc *medialive.Client) error {
 	p := medialive.NewListInputSecurityGroupsPaginator(svc, &medialive.ListInputSecurityGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

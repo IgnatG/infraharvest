@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -31,7 +30,7 @@ type ElasticIPGenerator struct {
 
 func (g *ElasticIPGenerator) createElasticIpsResources(svc *ec2.Client) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	addresses, err := svc.DescribeAddresses(context.TODO(), &ec2.DescribeAddressesInput{})
+	addresses, err := svc.DescribeAddresses(g.Context(), &ec2.DescribeAddressesInput{})
 
 	if err != nil {
 		log.Println(err)

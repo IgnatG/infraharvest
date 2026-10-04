@@ -14,12 +14,16 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/IgnatG/infraharvest/terraformutils/terraformerstring"
 
@@ -55,6 +59,9 @@ type ImportOptions struct {
 	NoSort        bool
 	RetryCount    int
 	RetrySleepMs  int
+	// ListTimeout limits listing one service in one region; 0 means no
+	// limit.
+	ListTimeout   time.Duration
 	AllowPartial  bool
 	Engine        string
 	TerraformPath string
@@ -74,6 +81,9 @@ type ImportOptions struct {
 const DefaultPathPattern = "{output}/{provider}/{service}/"
 const DefaultPathOutput = "generated"
 const DefaultState = "local"
+
+// DefaultListTimeout is the default of --list-timeout.
+const DefaultListTimeout = 30 * time.Minute
 
 func newImportCmd() *cobra.Command {
 	options := ImportOptions{}
@@ -126,7 +136,9 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 	defer providerWrapper.Kill()
 	providerMapping := terraformutils.NewProvidersMapping(provider)
 
-	failures, err := initAllServicesResources(providerMapping, options, args, providerWrapper)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	failures, err := initAllServicesResources(ctx, providerMapping, options, args, providerWrapper)
 	if err != nil {
 		return err
 	}
@@ -222,10 +234,19 @@ func resolveServices(provider terraformutils.ProviderGenerator, options ImportOp
 	return options
 }
 
+// listContext returns ctx with timeout, if there is one.
+func listContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 // initAllServicesResources lists the resources of every requested service.
 // A service that fails is left out and reported in failures; err is set
-// only when the provider itself cannot be initialised.
-func initAllServicesResources(providersMapping *terraformutils.ProvidersMapping, options ImportOptions, args []string, providerWrapper *providerwrapper.ProviderWrapper) (failures []error, err error) {
+// only when the provider itself cannot be initialised, or ctx is done
+// (the user interrupted).
+func initAllServicesResources(ctx context.Context, providersMapping *terraformutils.ProvidersMapping, options ImportOptions, args []string, providerWrapper *providerwrapper.ProviderWrapper) (failures []error, err error) {
 	var failedServices []string
 
 	for _, service := range options.Resources {
@@ -233,7 +254,11 @@ func initAllServicesResources(providersMapping *terraformutils.ProvidersMapping,
 		if err := serviceProvider.Init(args); err != nil {
 			return nil, err
 		}
-		if err := initServiceResources(service, serviceProvider, options, providerWrapper); err != nil {
+		err := initServiceResources(ctx, service, serviceProvider, options, providerWrapper)
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("listing %s: %w", service, ctx.Err())
+		}
+		if err != nil {
 			failedServices = append(failedServices, service)
 			failures = append(failures, fmt.Errorf("service %s: %w", service, err))
 		}
@@ -267,7 +292,9 @@ func importFromPlan(providerMapping *terraformutils.ProvidersMapping, options Im
 	return ImportFromPlan(providerMapping.GetBaseProvider(), plan)
 }
 
-func initServiceResources(service string, provider terraformutils.ProviderGenerator,
+// initServiceResources lists one service's resources, with ctx and at most
+// options.ListTimeout for the service's API calls.
+func initServiceResources(ctx context.Context, service string, provider terraformutils.ProviderGenerator,
 	options ImportOptions, providerWrapper *providerwrapper.ProviderWrapper) error {
 	log.Println(provider.GetName() + " importing... " + service)
 	err := provider.InitService(service, options.Verbose)
@@ -276,7 +303,15 @@ func initServiceResources(service string, provider terraformutils.ProviderGenera
 		return err
 	}
 	provider.GetService().ParseFilters(options.Filter)
+	listCtx, cancel := listContext(ctx, options.ListTimeout)
+	defer cancel()
+	provider.GetService().SetContext(listCtx)
 	err = provider.GetService().InitResources()
+	// Many listers log a failed call and go on: past the deadline, what
+	// they found is incomplete even without an error.
+	if ctx.Err() == nil && listCtx.Err() != nil {
+		err = fmt.Errorf("listing took longer than --list-timeout %s; its resources may be incomplete", options.ListTimeout)
+	}
 	if err != nil {
 		log.Printf("%s error initializing resources in service %s, err: %s\n", provider.GetName(), service, err)
 		return err
@@ -496,6 +531,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.StringVarP(&options.Output, "output", "O", outputHCL, "hcl or json. Legacy engine: format of the generated files. Terraform or OpenTofu engine: json prints the import report as JSON on stdout")
 	flag.IntVarP(&options.RetryCount, "retry-number", "n", 5, "number of retries to perform when refresh fails")
 	flag.IntVarP(&options.RetrySleepMs, "retry-sleep-ms", "m", 300, "time in ms to sleep between retries")
+	flag.DurationVar(&options.ListTimeout, "list-timeout", DefaultListTimeout, "longest time to list one service in one region; a service that takes longer is reported as failed (0: no limit)")
 	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1")
 	flag.StringVar(&options.Selection, "selection", "", "--engine=terraform or tofu: selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")
 	flag.BoolVar(&options.All, "all", false, "--engine=terraform or tofu: import everything the default selection includes, without a selection file")

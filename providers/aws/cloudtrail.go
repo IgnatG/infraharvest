@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
@@ -48,7 +46,7 @@ func (g *CloudTrailGenerator) InitResources() error {
 		return e
 	}
 	svc := cloudtrail.NewFromConfig(config)
-	output, err := svc.DescribeTrails(context.TODO(), &cloudtrail.DescribeTrailsInput{})
+	output, err := svc.DescribeTrails(g.Context(), &cloudtrail.DescribeTrailsInput{})
 	if err != nil {
 		return err
 	}

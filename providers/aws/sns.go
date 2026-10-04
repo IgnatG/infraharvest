@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -43,7 +42,7 @@ func (g *SnsGenerator) InitResources() error {
 	svc := sns.NewFromConfig(config)
 	p := sns.NewListTopicsPaginator(svc, &sns.ListTopicsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -63,7 +62,7 @@ func (g *SnsGenerator) InitResources() error {
 				TopicArn: topic.TopicArn,
 			})
 			for topicSubsPage.HasMorePages() {
-				topicSubsNextPage, err := topicSubsPage.NextPage(context.TODO())
+				topicSubsNextPage, err := topicSubsPage.NextPage(g.Context())
 				if err != nil {
 					log.Println(err)
 					continue

@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/wafregional"
 )
@@ -75,7 +73,7 @@ func (g *WafRegionalGenerator) InitResources() error {
 
 func (g *WafRegionalGenerator) loadWebACL(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListWebACLs(context.TODO(), &wafregional.ListWebACLsInput{NextMarker: marker})
+		output, err := svc.ListWebACLs(g.Context(), &wafregional.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +91,7 @@ func (g *WafRegionalGenerator) loadWebACL(svc *wafregional.Client) error {
 
 func (g *WafRegionalGenerator) loadByteMatchSet(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListByteMatchSets(context.TODO(), &wafregional.ListByteMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListByteMatchSets(g.Context(), &wafregional.ListByteMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +109,7 @@ func (g *WafRegionalGenerator) loadByteMatchSet(svc *wafregional.Client) error {
 
 func (g *WafRegionalGenerator) loadGeoMatchSet(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListGeoMatchSets(context.TODO(), &wafregional.ListGeoMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListGeoMatchSets(g.Context(), &wafregional.ListGeoMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +127,7 @@ func (g *WafRegionalGenerator) loadGeoMatchSet(svc *wafregional.Client) error {
 
 func (g *WafRegionalGenerator) loadIPSet(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListIPSets(context.TODO(), &wafregional.ListIPSetsInput{NextMarker: marker})
+		output, err := svc.ListIPSets(g.Context(), &wafregional.ListIPSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +145,7 @@ func (g *WafRegionalGenerator) loadIPSet(svc *wafregional.Client) error {
 
 func (g *WafRegionalGenerator) loadRateBasedRules(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRateBasedRules(context.TODO(), &wafregional.ListRateBasedRulesInput{NextMarker: marker})
+		output, err := svc.ListRateBasedRules(g.Context(), &wafregional.ListRateBasedRulesInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +163,7 @@ func (g *WafRegionalGenerator) loadRateBasedRules(svc *wafregional.Client) error
 
 func (g *WafRegionalGenerator) loadRegexMatchSets(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRegexMatchSets(context.TODO(), &wafregional.ListRegexMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListRegexMatchSets(g.Context(), &wafregional.ListRegexMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -183,7 +181,7 @@ func (g *WafRegionalGenerator) loadRegexMatchSets(svc *wafregional.Client) error
 
 func (g *WafRegionalGenerator) loadRegexPatternSets(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRegexPatternSets(context.TODO(), &wafregional.ListRegexPatternSetsInput{NextMarker: marker})
+		output, err := svc.ListRegexPatternSets(g.Context(), &wafregional.ListRegexPatternSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +199,7 @@ func (g *WafRegionalGenerator) loadRegexPatternSets(svc *wafregional.Client) err
 
 func (g *WafRegionalGenerator) loadWafRules(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRules(context.TODO(), &wafregional.ListRulesInput{NextMarker: marker})
+		output, err := svc.ListRules(g.Context(), &wafregional.ListRulesInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -219,7 +217,7 @@ func (g *WafRegionalGenerator) loadWafRules(svc *wafregional.Client) error {
 
 func (g *WafRegionalGenerator) loadWafRuleGroups(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRuleGroups(context.TODO(), &wafregional.ListRuleGroupsInput{NextMarker: marker})
+		output, err := svc.ListRuleGroups(g.Context(), &wafregional.ListRuleGroupsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -237,7 +235,7 @@ func (g *WafRegionalGenerator) loadWafRuleGroups(svc *wafregional.Client) error 
 
 func (g *WafRegionalGenerator) loadSizeConstraintSets(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListSizeConstraintSets(context.TODO(), &wafregional.ListSizeConstraintSetsInput{NextMarker: marker})
+		output, err := svc.ListSizeConstraintSets(g.Context(), &wafregional.ListSizeConstraintSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +253,7 @@ func (g *WafRegionalGenerator) loadSizeConstraintSets(svc *wafregional.Client) e
 
 func (g *WafRegionalGenerator) loadSQLInjectionMatchSets(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListSqlInjectionMatchSets(context.TODO(), &wafregional.ListSqlInjectionMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListSqlInjectionMatchSets(g.Context(), &wafregional.ListSqlInjectionMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -273,7 +271,7 @@ func (g *WafRegionalGenerator) loadSQLInjectionMatchSets(svc *wafregional.Client
 
 func (g *WafRegionalGenerator) loadXSSMatchSet(svc *wafregional.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListXssMatchSets(context.TODO(), &wafregional.ListXssMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListXssMatchSets(g.Context(), &wafregional.ListXssMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}

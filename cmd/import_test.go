@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -60,7 +62,7 @@ func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
 	mapping := terraformutils.NewProvidersMapping(&fakeProvider{})
 	options := ImportOptions{Resources: []string{"good", "bad"}}
 
-	failures, err := initAllServicesResources(mapping, options, nil, nil)
+	failures, err := initAllServicesResources(t.Context(), mapping, options, nil, nil)
 	if err != nil {
 		t.Fatalf("a failing service must not abort the run: %v", err)
 	}
@@ -72,6 +74,34 @@ func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
 	}
 	if got := len(mapping.Resources); got != 1 {
 		t.Errorf("want the good service's resource only, got %d resources", got)
+	}
+}
+
+func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
+	mapping := terraformutils.NewProvidersMapping(&fakeProvider{})
+	options := ImportOptions{Resources: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
+
+	failures, err := initAllServicesResources(t.Context(), mapping, options, nil, nil)
+	if err != nil {
+		t.Fatalf("a slow service must not abort the run: %v", err)
+	}
+	if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms") {
+		t.Errorf("want the slow service reported, got %v", failures)
+	}
+	if got := len(mapping.Resources); got != 1 {
+		t.Errorf("want the good service's resource only, got %d resources", got)
+	}
+}
+
+// An interrupt stops listing.
+func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	mapping := terraformutils.NewProvidersMapping(&fakeProvider{})
+
+	_, err := initAllServicesResources(ctx, mapping, ImportOptions{Resources: []string{"slow", "good"}}, nil, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("want the run stopped, got %v", err)
 	}
 }
 
@@ -109,7 +139,8 @@ func TestRelativeStatePath(t *testing.T) {
 	}
 }
 
-// fakeProvider lists one resource per service and fails for service "bad".
+// fakeProvider lists one resource per service, fails for service "bad",
+// and lists service "slow" until its context is done.
 type fakeProvider struct {
 	terraformutils.ProviderGenerator
 	service *fakeService
@@ -131,8 +162,13 @@ type fakeService struct {
 }
 
 func (s *fakeService) InitResources() error {
-	if s.GetName() == "bad" {
+	switch s.GetName() {
+	case "bad":
 		return errors.New("access denied")
+	case "slow":
+		// Like listers that log a failed call and go on.
+		<-s.Context().Done()
+		return nil
 	}
 	s.Resources = []terraformutils.Resource{
 		terraformutils.NewSimpleResource("id-1", "one", "fake_thing", "fake", nil),

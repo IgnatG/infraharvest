@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -50,7 +49,7 @@ func (g *SqsGenerator) InitResources() error {
 
 	p := sqs.NewListQueuesPaginator(svc, &listQueuesInput)
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

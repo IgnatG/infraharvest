@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/mq"
 )
@@ -30,7 +28,7 @@ type MQGenerator struct {
 func (g *MQGenerator) loadBrokers(svc *mq.Client) error {
 	p := mq.NewListBrokersPaginator(svc, &mq.ListBrokersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

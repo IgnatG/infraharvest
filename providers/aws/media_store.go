@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/mediastore"
 )
@@ -36,7 +34,7 @@ func (g *MediaStoreGenerator) InitResources() error {
 	p := mediastore.NewListContainersPaginator(svc, &mediastore.ListContainersInput{})
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

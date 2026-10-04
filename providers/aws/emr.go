@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/emr"
 )
@@ -45,7 +43,7 @@ func (g *EmrGenerator) InitResources() error {
 func (g *EmrGenerator) addClusters(client *emr.Client) error {
 	p := emr.NewListClustersPaginator(client, &emr.ListClustersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -65,7 +63,7 @@ func (g *EmrGenerator) addClusters(client *emr.Client) error {
 func (g *EmrGenerator) addSecurityConfigurations(client *emr.Client) error {
 	p := emr.NewListSecurityConfigurationsPaginator(client, &emr.ListSecurityConfigurationsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

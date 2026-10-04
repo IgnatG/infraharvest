@@ -1,8 +1,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/xray"
 )
@@ -22,7 +20,7 @@ func (g *XrayGenerator) InitResources() error {
 
 	p := xray.NewGetSamplingRulesPaginator(svc, &xray.GetSamplingRulesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

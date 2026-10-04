@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/configservice"
 )
@@ -47,7 +45,7 @@ func (g *ConfigGenerator) InitResources() error {
 }
 
 func (g *ConfigGenerator) addConfigurationRecorders(svc *configservice.Client) ([]string, error) {
-	configurationRecorders, err := svc.DescribeConfigurationRecorders(context.TODO(),
+	configurationRecorders, err := svc.DescribeConfigurationRecorders(g.Context(),
 		&configservice.DescribeConfigurationRecordersInput{})
 
 	if err != nil {
@@ -72,7 +70,7 @@ func (g *ConfigGenerator) addConfigurationRecorders(svc *configservice.Client) (
 func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configurationRecorderRefs []string) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
 		configRules, err := svc.DescribeConfigRules(
-			context.TODO(),
+			g.Context(),
 			&configservice.DescribeConfigRulesInput{
 				NextToken: nextToken,
 			})
@@ -99,7 +97,7 @@ func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configuratio
 }
 
 func (g *ConfigGenerator) addDeliveryChannels(svc *configservice.Client, configurationRecorderRefs []string) error {
-	deliveryChannels, err := svc.DescribeDeliveryChannels(context.TODO(),
+	deliveryChannels, err := svc.DescribeDeliveryChannels(g.Context(),
 		&configservice.DescribeDeliveryChannelsInput{})
 
 	if err != nil {

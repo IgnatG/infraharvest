@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -56,7 +55,7 @@ func (g *EbsGenerator) InitResources() error {
 		Filters: filters,
 	})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -64,7 +63,7 @@ func (g *EbsGenerator) InitResources() error {
 			isRootDevice := false // Let's leave root device configuration to be done in ec2_instance resources
 
 			for _, attachment := range volume.Attachments {
-				instances, _ := svc.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{
+				instances, _ := svc.DescribeInstances(g.Context(), &ec2.DescribeInstancesInput{
 					InstanceIds: []string{StringValue(attachment.InstanceId)},
 				})
 				for _, reservation := range instances.Reservations {

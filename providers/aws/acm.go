@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 	"strings"
 
@@ -36,7 +35,7 @@ func (g *ACMGenerator) createCertificatesResources(svc *acm.Client) []terraformu
 	var resources []terraformutils.Resource
 	p := acm.NewListCertificatesPaginator(svc, &acm.ListCertificatesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			log.Println(err)
 			return resources

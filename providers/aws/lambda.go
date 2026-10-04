@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 
@@ -86,7 +85,7 @@ func (g *LambdaGenerator) PostConvertHook() error {
 func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 	p := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -103,7 +102,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 				map[string]interface{}{},
 			))
 
-			gp, err := svc.GetPolicy(context.TODO(), &lambda.GetPolicyInput{
+			gp, err := svc.GetPolicy(g.Context(), &lambda.GetPolicyInput{
 				FunctionName: aws.String(*function.FunctionArn),
 			})
 
@@ -145,7 +144,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 					FunctionName: function.FunctionName,
 				})
 			for pi.HasMorePages() {
-				piage, err := pi.NextPage(context.TODO())
+				piage, err := pi.NextPage(g.Context())
 				if err != nil {
 					return err
 				}
@@ -167,7 +166,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 func (g *LambdaGenerator) addEventSourceMappings(svc *lambda.Client) error {
 	p := lambda.NewListEventSourceMappingsPaginator(svc, &lambda.ListEventSourceMappingsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -192,7 +191,7 @@ func (g *LambdaGenerator) addEventSourceMappings(svc *lambda.Client) error {
 func (g *LambdaGenerator) addLayerVersions(svc *lambda.Client) error {
 	pl := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{})
 	for pl.HasMorePages() {
-		plage, err := pl.NextPage(context.TODO())
+		plage, err := pl.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -201,7 +200,7 @@ func (g *LambdaGenerator) addLayerVersions(svc *lambda.Client) error {
 				LayerName: layer.LayerName,
 			})
 			for pv.HasMorePages() {
-				pvage, err := pv.NextPage(context.TODO())
+				pvage, err := pv.NextPage(g.Context())
 				if err != nil {
 					return err
 				}

@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"strings"
 
 	"log"
@@ -34,7 +33,7 @@ type RedshiftGenerator struct {
 func (g *RedshiftGenerator) loadClusters(svc *redshift.Client) error {
 	p := redshift.NewDescribeClustersPaginator(svc, &redshift.DescribeClustersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -55,7 +54,7 @@ func (g *RedshiftGenerator) loadClusters(svc *redshift.Client) error {
 func (g *RedshiftGenerator) loadParameterGroups(svc *redshift.Client) error {
 	p := redshift.NewDescribeClusterParameterGroupsPaginator(svc, &redshift.DescribeClusterParameterGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -79,7 +78,7 @@ func (g *RedshiftGenerator) loadParameterGroups(svc *redshift.Client) error {
 func (g *RedshiftGenerator) loadSubnetGroups(svc *redshift.Client) error {
 	p := redshift.NewDescribeClusterSubnetGroupsPaginator(svc, &redshift.DescribeClusterSubnetGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -100,7 +99,7 @@ func (g *RedshiftGenerator) loadSubnetGroups(svc *redshift.Client) error {
 func (g *RedshiftGenerator) loadEventSubscription(svc *redshift.Client) error {
 	p := redshift.NewDescribeEventSubscriptionsPaginator(svc, &redshift.DescribeEventSubscriptionsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -121,7 +120,7 @@ func (g *RedshiftGenerator) loadEventSubscription(svc *redshift.Client) error {
 func (g *RedshiftGenerator) loadSnapshotSchedules(svc *redshift.Client) error {
 	p := redshift.NewDescribeSnapshotSchedulesPaginator(svc, &redshift.DescribeSnapshotSchedulesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

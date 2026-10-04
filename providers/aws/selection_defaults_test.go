@@ -47,7 +47,7 @@ func TestExcludedByDefault(t *testing.T) {
 		terraformutils.NewSimpleResource("/app/web", "web", "aws_cloudwatch_log_group", "aws", nil),
 	}
 
-	excluded, err := p.ExcludedByDefault(resources)
+	excluded, err := p.ExcludedByDefault(t.Context(), resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestExcludedByDefault(t *testing.T) {
 // Global services have no network to ask about.
 func TestExcludedByDefaultGlobal(t *testing.T) {
 	p := &AWSProvider{region: GlobalRegion}
-	excluded, err := p.ExcludedByDefault([]terraformutils.Resource{
+	excluded, err := p.ExcludedByDefault(t.Context(), []terraformutils.Resource{
 		terraformutils.NewSimpleResource("AWSServiceRoleForECS", "ecs", "aws_iam_role", "aws", nil),
 		terraformutils.NewSimpleResource("app", "app", "aws_iam_role", "aws", nil),
 	})

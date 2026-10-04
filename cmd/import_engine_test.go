@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -210,7 +211,9 @@ type scopedProvider struct {
 	terraformutils.ProviderGenerator
 }
 
-func (scopedProvider) Scope() (string, string, error) { return "111122223333", "eu-west-2", nil }
+func (scopedProvider) Scope(context.Context) (string, string, error) {
+	return "111122223333", "eu-west-2", nil
+}
 
 func TestRootPathPattern(t *testing.T) {
 	for pattern, want := range map[string]string{
@@ -220,7 +223,7 @@ func TestRootPathPattern(t *testing.T) {
 		"{output}/{account}/{service}/":   "{output}/111122223333/{service}/",
 		"{output}/{provider}/":            "{output}/{provider}/",
 	} {
-		got, err := rootPathPattern(scopedProvider{}, pattern)
+		got, err := rootPathPattern(t.Context(), scopedProvider{}, pattern)
 		if err != nil || got != want {
 			t.Errorf("%s: got %q, %v; want %q", pattern, got, err, want)
 		}

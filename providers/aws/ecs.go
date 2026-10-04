@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -39,7 +38,7 @@ func (g *EcsGenerator) InitResources() error {
 
 	p := ecs.NewListClustersPaginator(svc, &ecs.ListClustersInput{})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -59,7 +58,7 @@ func (g *EcsGenerator) InitResources() error {
 				Cluster: &clusterArn,
 			})
 			for servicePage.HasMorePages() {
-				serviceNextPage, err := servicePage.NextPage(context.TODO())
+				serviceNextPage, err := servicePage.NextPage(g.Context())
 				if err != nil {
 					fmt.Println(err.Error())
 					continue
@@ -68,7 +67,7 @@ func (g *EcsGenerator) InitResources() error {
 					arnParts := strings.Split(serviceArn, "/")
 					serviceName := arnParts[len(arnParts)-1]
 
-					serResp, err := svc.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+					serResp, err := svc.DescribeServices(g.Context(), &ecs.DescribeServicesInput{
 						Services: []string{
 							serviceName,
 						},
@@ -102,7 +101,7 @@ func (g *EcsGenerator) InitResources() error {
 	taskDefinitionsMap := map[string]terraformutils.Resource{}
 	taskDefinitionsPage := ecs.NewListTaskDefinitionsPaginator(svc, &ecs.ListTaskDefinitionsInput{})
 	for taskDefinitionsPage.HasMorePages() {
-		taskDefinitionsNextPage, e := taskDefinitionsPage.NextPage(context.TODO())
+		taskDefinitionsNextPage, e := taskDefinitionsPage.NextPage(g.Context())
 		if e != nil {
 			fmt.Println(e.Error())
 			continue

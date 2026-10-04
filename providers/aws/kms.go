@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -47,12 +46,12 @@ func (g *KmsGenerator) InitResources() error {
 func (g *KmsGenerator) addKeys(client *kms.Client) error {
 	p := kms.NewListKeysPaginator(client, &kms.ListKeysInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
 		for _, key := range page.Keys {
-			keyDescription, err := client.DescribeKey(context.TODO(), &kms.DescribeKeyInput{
+			keyDescription, err := client.DescribeKey(g.Context(), &kms.DescribeKeyInput{
 				KeyId: key.KeyId,
 			})
 			if err != nil {
@@ -84,7 +83,7 @@ func (g *KmsGenerator) addKeys(client *kms.Client) error {
 func (g *KmsGenerator) addAliases(client *kms.Client) error {
 	p := kms.NewListAliasesPaginator(client, &kms.ListAliasesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -92,7 +91,7 @@ func (g *KmsGenerator) addAliases(client *kms.Client) error {
 			if alias.TargetKeyId == nil {
 				continue
 			}
-			keyDescription, err := client.DescribeKey(context.TODO(), &kms.DescribeKeyInput{
+			keyDescription, err := client.DescribeKey(g.Context(), &kms.DescribeKeyInput{
 				KeyId: alias.TargetKeyId,
 			})
 			if err != nil {
@@ -120,7 +119,7 @@ func (g *KmsGenerator) addGrants(keyID *string, client *kms.Client) {
 		KeyId: keyID,
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			log.Println(err)
 			return

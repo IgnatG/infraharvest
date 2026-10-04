@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"os"
 	"regexp"
 	"sync"
@@ -34,6 +33,9 @@ type AWSService struct { //nolint
 }
 
 var awsVariable = regexp.MustCompile(`(\${[0-9A-Za-z:]+})`)
+
+// listMaxAttempts is how many times a throttled or failed call is tried.
+const listMaxAttempts = 10
 
 // configKey identifies an SDK config: one import can cover several regions,
 // global services included.
@@ -66,7 +68,7 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 		baseConfig.ClientLogMode = aws.LogRequestWithBody & aws.LogResponseWithBody
 	}
 
-	creds, e := baseConfig.Credentials.Retrieve(context.TODO())
+	creds, e := baseConfig.Credentials.Retrieve(s.Context())
 
 	if e != nil {
 		return baseConfig, e
@@ -100,7 +102,16 @@ func (s *AWSService) buildBaseConfig() (aws.Config, error) {
 	loadOptions = append(loadOptions, config.WithAssumeRoleCredentialOptions(func(options *stscreds.AssumeRoleOptions) {
 		options.TokenProvider = stscreds.StdinTokenProvider
 	}))
-	return config.LoadDefaultConfig(context.TODO(), loadOptions...)
+	// Listing makes many calls in a row: throttled calls back off and retry,
+	// and the adaptive mode also slows the client down while an API
+	// throttles it. AWS_RETRY_MODE and AWS_MAX_ATTEMPTS still win.
+	if os.Getenv("AWS_RETRY_MODE") == "" {
+		loadOptions = append(loadOptions, config.WithRetryMode(aws.RetryModeAdaptive))
+	}
+	if os.Getenv("AWS_MAX_ATTEMPTS") == "" {
+		loadOptions = append(loadOptions, config.WithRetryMaxAttempts(listMaxAttempts))
+	}
+	return config.LoadDefaultConfig(s.Context(), loadOptions...)
 }
 
 // for CF interpolation and IAM Policy variables
@@ -110,7 +121,7 @@ func (*AWSService) escapeAwsInterpolation(str string) string {
 
 func (s *AWSService) getAccountNumber(config aws.Config) (*string, error) {
 	stsSvc := sts.NewFromConfig(config)
-	identity, err := stsSvc.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
+	identity, err := stsSvc.GetCallerIdentity(s.Context(), &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return nil, err
 	}

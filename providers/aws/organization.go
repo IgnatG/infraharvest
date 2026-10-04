@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -32,7 +31,7 @@ type OrganizationGenerator struct {
 }
 
 func (g *OrganizationGenerator) traverseNode(svc *organizations.Client, parentID string) {
-	accountsForParent, err := svc.ListAccountsForParent(context.TODO(),
+	accountsForParent, err := svc.ListAccountsForParent(g.Context(),
 		&organizations.ListAccountsForParentInput{ParentId: aws.String(parentID)})
 	if err != nil {
 		return
@@ -64,7 +63,7 @@ func (g *OrganizationGenerator) traverseNode(svc *organizations.Client, parentID
 		))
 	}
 
-	unitsForParent, err := svc.ListOrganizationalUnitsForParent(context.TODO(),
+	unitsForParent, err := svc.ListOrganizationalUnitsForParent(g.Context(),
 		&organizations.ListOrganizationalUnitsForParentInput{ParentId: aws.String(parentID)})
 	if err != nil {
 		return
@@ -93,7 +92,7 @@ func (g *OrganizationGenerator) InitResources() error {
 	}
 	svc := organizations.NewFromConfig(config)
 
-	roots, err := svc.ListRoots(context.TODO(), &organizations.ListRootsInput{})
+	roots, err := svc.ListRoots(g.Context(), &organizations.ListRootsInput{})
 	if err != nil {
 		return err
 	}
@@ -107,7 +106,7 @@ func (g *OrganizationGenerator) InitResources() error {
 		Filter: types.PolicyTypeServiceControlPolicy,
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -127,7 +126,7 @@ func (g *OrganizationGenerator) InitResources() error {
 				map[string]interface{}{},
 			))
 
-			targetsForPolicy, err := svc.ListTargetsForPolicy(context.TODO(),
+			targetsForPolicy, err := svc.ListTargetsForPolicy(g.Context(),
 				&organizations.ListTargetsForPolicyInput{PolicyId: policy.Id})
 			if err != nil {
 				fmt.Println(err.Error())

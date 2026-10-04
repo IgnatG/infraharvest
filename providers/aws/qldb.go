@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/qldb"
 )
@@ -36,7 +34,7 @@ func (g *QLDBGenerator) InitResources() error {
 	p := qldb.NewListLedgersPaginator(svc, &qldb.ListLedgersInput{})
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

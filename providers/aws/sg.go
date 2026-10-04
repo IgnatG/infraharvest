@@ -16,7 +16,6 @@ package aws
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -248,7 +247,7 @@ func (g *SecurityGenerator) InitResources() error {
 	p := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{})
 	var resourcesToFilter []types.SecurityGroup
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

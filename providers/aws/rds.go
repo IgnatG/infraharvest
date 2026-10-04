@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -32,7 +31,7 @@ type RDSGenerator struct {
 func (g *RDSGenerator) loadDBClusters(svc *rds.Client) error {
 	p := rds.NewDescribeDBClustersPaginator(svc, &rds.DescribeDBClustersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -53,7 +52,7 @@ func (g *RDSGenerator) loadDBClusters(svc *rds.Client) error {
 func (g *RDSGenerator) loadDBClusterSnapshots(svc *rds.Client) error {
 	p := rds.NewDescribeDBClusterSnapshotsPaginator(svc, &rds.DescribeDBClusterSnapshotsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -74,7 +73,7 @@ func (g *RDSGenerator) loadDBClusterSnapshots(svc *rds.Client) error {
 func (g *RDSGenerator) loadDBProxies(svc *rds.Client) error {
 	p := rds.NewDescribeDBProxiesPaginator(svc, &rds.DescribeDBProxiesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -95,7 +94,7 @@ func (g *RDSGenerator) loadDBProxies(svc *rds.Client) error {
 func (g *RDSGenerator) loadDBInstances(svc *rds.Client) error {
 	p := rds.NewDescribeDBInstancesPaginator(svc, &rds.DescribeDBInstancesInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -118,7 +117,7 @@ func (g *RDSGenerator) loadDBInstances(svc *rds.Client) error {
 func (g *RDSGenerator) loadDBInstanceSnapshots(svc *rds.Client) error {
 	p := rds.NewDescribeDBSnapshotsPaginator(svc, &rds.DescribeDBSnapshotsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -139,7 +138,7 @@ func (g *RDSGenerator) loadDBInstanceSnapshots(svc *rds.Client) error {
 func (g *RDSGenerator) loadDBParameterGroups(svc *rds.Client) error {
 	p := rds.NewDescribeDBParameterGroupsPaginator(svc, &rds.DescribeDBParameterGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -163,7 +162,7 @@ func (g *RDSGenerator) loadDBParameterGroups(svc *rds.Client) error {
 func (g *RDSGenerator) loadDBSubnetGroups(svc *rds.Client) error {
 	p := rds.NewDescribeDBSubnetGroupsPaginator(svc, &rds.DescribeDBSubnetGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -184,7 +183,7 @@ func (g *RDSGenerator) loadDBSubnetGroups(svc *rds.Client) error {
 func (g *RDSGenerator) loadOptionGroups(svc *rds.Client) error {
 	p := rds.NewDescribeOptionGroupsPaginator(svc, &rds.DescribeOptionGroupsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -208,7 +207,7 @@ func (g *RDSGenerator) loadOptionGroups(svc *rds.Client) error {
 func (g *RDSGenerator) loadEventSubscription(svc *rds.Client) error {
 	p := rds.NewDescribeEventSubscriptionsPaginator(svc, &rds.DescribeEventSubscriptionsInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
@@ -229,7 +228,7 @@ func (g *RDSGenerator) loadEventSubscription(svc *rds.Client) error {
 func (g *RDSGenerator) loadRDSGlobalClusters(svc *rds.Client) error {
 	p := rds.NewDescribeGlobalClustersPaginator(svc, &rds.DescribeGlobalClustersInput{})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
+		page, err := p.NextPage(g.Context())
 		if err != nil {
 			return err
 		}

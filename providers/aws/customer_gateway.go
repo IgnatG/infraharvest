@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -51,7 +49,7 @@ func (g *CustomerGatewayGenerator) InitResources() error {
 		return e
 	}
 	svc := ec2.NewFromConfig(config)
-	cgws, err := svc.DescribeCustomerGateways(context.TODO(), &ec2.DescribeCustomerGatewaysInput{})
+	cgws, err := svc.DescribeCustomerGateways(g.Context(), &ec2.DescribeCustomerGatewaysInput{})
 	if err != nil {
 		return err
 	}

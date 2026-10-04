@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"github.com/aws/aws-sdk-go-v2/service/opsworks"
 	"github.com/aws/aws-sdk-go-v2/service/opsworks/types"
 	"log"
@@ -48,7 +47,7 @@ func (g *OpsworksGenerator) InitResources() error {
 }
 
 func (g *OpsworksGenerator) fetchApps(stackID *string, svc *opsworks.Client) error {
-	apps, err := svc.DescribeApps(context.TODO(), &opsworks.DescribeAppsInput{
+	apps, err := svc.DescribeApps(g.Context(), &opsworks.DescribeAppsInput{
 		StackId: stackID,
 	})
 	if err != nil {
@@ -67,7 +66,7 @@ func (g *OpsworksGenerator) fetchApps(stackID *string, svc *opsworks.Client) err
 }
 
 func (g *OpsworksGenerator) fetchLayers(stackID *string, svc *opsworks.Client) error {
-	apps, err := svc.DescribeLayers(context.TODO(), &opsworks.DescribeLayersInput{
+	apps, err := svc.DescribeLayers(g.Context(), &opsworks.DescribeLayersInput{
 		StackId: stackID,
 	})
 	if err != nil {
@@ -113,7 +112,7 @@ func (g *OpsworksGenerator) fetchLayers(stackID *string, svc *opsworks.Client) e
 }
 
 func (g *OpsworksGenerator) fetchInstances(stackID *string, svc *opsworks.Client) error {
-	apps, err := svc.DescribeInstances(context.TODO(), &opsworks.DescribeInstancesInput{
+	apps, err := svc.DescribeInstances(g.Context(), &opsworks.DescribeInstancesInput{
 		StackId: stackID,
 	})
 	if err != nil {
@@ -131,7 +130,7 @@ func (g *OpsworksGenerator) fetchInstances(stackID *string, svc *opsworks.Client
 	return nil
 }
 func (g *OpsworksGenerator) fetchRdsInstances(stackID *string, svc *opsworks.Client) error {
-	apps, err := svc.DescribeRdsDbInstances(context.TODO(), &opsworks.DescribeRdsDbInstancesInput{
+	apps, err := svc.DescribeRdsDbInstances(g.Context(), &opsworks.DescribeRdsDbInstancesInput{
 		StackId: stackID,
 	})
 	if err != nil {
@@ -155,7 +154,7 @@ func (g *OpsworksGenerator) fetchRdsInstances(stackID *string, svc *opsworks.Cli
 }
 
 func (g *OpsworksGenerator) fetchStacks(svc *opsworks.Client) error {
-	apps, err := svc.DescribeStacks(context.TODO(), &opsworks.DescribeStacksInput{})
+	apps, err := svc.DescribeStacks(g.Context(), &opsworks.DescribeStacksInput{})
 	if err != nil {
 		return err
 	}
@@ -192,7 +191,7 @@ func (g *OpsworksGenerator) fetchStacks(svc *opsworks.Client) error {
 }
 
 func (g *OpsworksGenerator) fetchUserProfile(svc *opsworks.Client) error {
-	apps, err := svc.DescribeUserProfiles(context.TODO(), &opsworks.DescribeUserProfilesInput{})
+	apps, err := svc.DescribeUserProfiles(g.Context(), &opsworks.DescribeUserProfilesInput{})
 	if err != nil {
 		return err
 	}

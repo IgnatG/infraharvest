@@ -103,12 +103,13 @@ var s3Children = []s3Child{
 // ChildImports lists, for an S3 bucket, the separate resources that hold
 // the parts of its configuration it has (see s3BucketArguments). Other
 // resources have none.
-func (p *AWSProvider) ChildImports(r terraformutils.Resource) ([]terraformutils.Resource, error) {
+func (p *AWSProvider) ChildImports(ctx context.Context, r terraformutils.Resource) ([]terraformutils.Resource, error) {
 	if r.InstanceInfo.Type != "aws_s3_bucket" {
 		return nil, nil
 	}
 	service := &AWSService{}
 	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	service.SetContext(ctx)
 	config, err := service.generateConfig()
 	if err != nil {
 		return nil, err
@@ -118,7 +119,7 @@ func (p *AWSProvider) ChildImports(r terraformutils.Resource) ([]terraformutils.
 	var children []terraformutils.Resource
 	var errs []error
 	for _, child := range s3Children {
-		configured, err := child.configured(context.TODO(), svc, &bucket)
+		configured, err := child.configured(ctx, svc, &bucket)
 		var apiErr smithy.APIError
 		switch {
 		case errors.As(err, &apiErr) && s3NotConfigured[apiErr.ErrorCode()]:

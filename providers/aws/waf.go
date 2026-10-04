@@ -15,8 +15,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/waf"
 )
@@ -76,7 +74,7 @@ func (g *WafGenerator) InitResources() error {
 
 func (g *WafGenerator) loadWebACL(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListWebACLs(context.TODO(), &waf.ListWebACLsInput{NextMarker: marker})
+		output, err := svc.ListWebACLs(g.Context(), &waf.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +92,7 @@ func (g *WafGenerator) loadWebACL(svc *waf.Client) error {
 
 func (g *WafGenerator) loadByteMatchSet(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListByteMatchSets(context.TODO(), &waf.ListByteMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListByteMatchSets(g.Context(), &waf.ListByteMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +110,7 @@ func (g *WafGenerator) loadByteMatchSet(svc *waf.Client) error {
 
 func (g *WafGenerator) loadGeoMatchSet(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListGeoMatchSets(context.TODO(), &waf.ListGeoMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListGeoMatchSets(g.Context(), &waf.ListGeoMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +128,7 @@ func (g *WafGenerator) loadGeoMatchSet(svc *waf.Client) error {
 
 func (g *WafGenerator) loadIPSet(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListIPSets(context.TODO(), &waf.ListIPSetsInput{NextMarker: marker})
+		output, err := svc.ListIPSets(g.Context(), &waf.ListIPSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +146,7 @@ func (g *WafGenerator) loadIPSet(svc *waf.Client) error {
 
 func (g *WafGenerator) loadRateBasedRules(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRateBasedRules(context.TODO(), &waf.ListRateBasedRulesInput{NextMarker: marker})
+		output, err := svc.ListRateBasedRules(g.Context(), &waf.ListRateBasedRulesInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +164,7 @@ func (g *WafGenerator) loadRateBasedRules(svc *waf.Client) error {
 
 func (g *WafGenerator) loadRegexMatchSets(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRegexMatchSets(context.TODO(), &waf.ListRegexMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListRegexMatchSets(g.Context(), &waf.ListRegexMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +182,7 @@ func (g *WafGenerator) loadRegexMatchSets(svc *waf.Client) error {
 
 func (g *WafGenerator) loadRegexPatternSets(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRegexPatternSets(context.TODO(), &waf.ListRegexPatternSetsInput{NextMarker: marker})
+		output, err := svc.ListRegexPatternSets(g.Context(), &waf.ListRegexPatternSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +200,7 @@ func (g *WafGenerator) loadRegexPatternSets(svc *waf.Client) error {
 
 func (g *WafGenerator) loadWafRules(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRules(context.TODO(), &waf.ListRulesInput{NextMarker: marker})
+		output, err := svc.ListRules(g.Context(), &waf.ListRulesInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -220,7 +218,7 @@ func (g *WafGenerator) loadWafRules(svc *waf.Client) error {
 
 func (g *WafGenerator) loadWafRuleGroups(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListRuleGroups(context.TODO(), &waf.ListRuleGroupsInput{NextMarker: marker})
+		output, err := svc.ListRuleGroups(g.Context(), &waf.ListRuleGroupsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +236,7 @@ func (g *WafGenerator) loadWafRuleGroups(svc *waf.Client) error {
 
 func (g *WafGenerator) loadSizeConstraintSets(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListSizeConstraintSets(context.TODO(), &waf.ListSizeConstraintSetsInput{NextMarker: marker})
+		output, err := svc.ListSizeConstraintSets(g.Context(), &waf.ListSizeConstraintSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -256,7 +254,7 @@ func (g *WafGenerator) loadSizeConstraintSets(svc *waf.Client) error {
 
 func (g *WafGenerator) loadSQLInjectionMatchSets(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListSqlInjectionMatchSets(context.TODO(), &waf.ListSqlInjectionMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListSqlInjectionMatchSets(g.Context(), &waf.ListSqlInjectionMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}
@@ -274,7 +272,7 @@ func (g *WafGenerator) loadSQLInjectionMatchSets(svc *waf.Client) error {
 
 func (g *WafGenerator) loadXSSMatchSet(svc *waf.Client) error {
 	return paginateByMarker(func(marker *string) (*string, error) {
-		output, err := svc.ListXssMatchSets(context.TODO(), &waf.ListXssMatchSetsInput{NextMarker: marker})
+		output, err := svc.ListXssMatchSets(g.Context(), &waf.ListXssMatchSetsInput{NextMarker: marker})
 		if err != nil {
 			return nil, err
 		}

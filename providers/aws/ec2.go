@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"context"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -50,7 +49,7 @@ func (g *Ec2Generator) InitResources() error {
 		Filters: filters,
 	})
 	for p.HasMorePages() {
-		page, e := p.NextPage(context.TODO())
+		page, e := p.NextPage(g.Context())
 		if e != nil {
 			return e
 		}
@@ -62,7 +61,7 @@ func (g *Ec2Generator) InitResources() error {
 						name = *tag.Value
 					}
 				}
-				attr, err := svc.DescribeInstanceAttribute(context.TODO(), &ec2.DescribeInstanceAttributeInput{
+				attr, err := svc.DescribeInstanceAttribute(g.Context(), &ec2.DescribeInstanceAttributeInput{
 					Attribute:  types.InstanceAttributeNameUserData,
 					InstanceId: instance.InstanceId,
 				})

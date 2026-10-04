@@ -119,6 +119,8 @@ Flags:
   -n, --retry-number          number of retries to perform if refresh fails
   -m, --retry-sleep-ms        time in ms to sleep between retries
       --allow-partial         exit 0 when some services or resources fail to import (default false)
+      --list-timeout duration longest time to list one service in one region; a service that takes
+                              longer is reported as failed, 0 for no limit (default 30m0s)
       --engine string         legacy, terraform or tofu: generate configuration with Terraform or
                               OpenTofu from import blocks; no state is written (default "legacy")
       --terraform-path string Terraform or OpenTofu binary for --engine=terraform or tofu

@@ -1,8 +1,6 @@
 package aws
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
 )
@@ -20,7 +18,7 @@ func (g *AppSyncGenerator) InitResources() error {
 	svc := appsync.NewFromConfig(config)
 
 	return paginateByMarker(func(nextToken *string) (*string, error) {
-		apis, err := svc.ListGraphqlApis(context.TODO(), &appsync.ListGraphqlApisInput{
+		apis, err := svc.ListGraphqlApis(g.Context(), &appsync.ListGraphqlApisInput{
 			NextToken: nextToken,
 		})
 		if err != nil {

@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"context"
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
@@ -16,6 +17,10 @@ func (s *GCPFacade) SetProviderName(providerName string) {
 
 func (s *GCPFacade) SetVerbose(verbose bool) {
 	s.service.SetVerbose(verbose)
+}
+
+func (s *GCPFacade) SetContext(ctx context.Context) {
+	s.service.SetContext(ctx)
 }
 
 func (s *GCPFacade) ParseFilters(rawFilters []string) {
