@@ -88,17 +88,24 @@ func TestStripDefaults(t *testing.T) {
 	}
 }
 
-// An error the plan can't pin on a resource undoes everything.
+// An error the plan can't pin on a resource keeps every constant; nulls
+// still go, as they are the same as leaving the argument out.
 func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
 	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil)
-	if err != nil || stripped {
-		t.Fatalf("want nothing stripped, got %v, %v", stripped, err)
+	if err != nil || !stripped {
+		t.Fatalf("want the nulls stripped, got %v, %v", stripped, err)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != withDefaults {
-		t.Errorf("generated.tf not restored:\n%s", got)
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{"enabled = false", "retries = 0", "tags = {}", `mode = ""`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "null") {
+		t.Errorf("generated.tf still has nulls:\n%s", got)
 	}
 }
 

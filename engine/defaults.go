@@ -64,6 +64,21 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 	}
 	restore := func() error { return os.WriteFile(path, original, 0o644) }
+	// What the plan can't settle keeps its constants; nulls still go, as
+	// Terraform treats null as an omitted argument.
+	nullsOnly := func() (bool, error) {
+		if err := restore(); err != nil {
+			return false, err
+		}
+		f, err := loadHCL(path)
+		if err != nil {
+			return false, err
+		}
+		if len(removeDefaults(f, nil, nil)) == 0 {
+			return false, nil
+		}
+		return true, f.save()
+	}
 	keep := map[string]bool{}
 	for round := 0; round < maxDefaultRounds; round++ {
 		if err := restore(); err != nil {
@@ -98,7 +113,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			}
 			assigned, unassigned := byResource(diags, edited, imports)
 			if len(unassigned) > 0 || len(assigned) == 0 {
-				return false, restore()
+				return nullsOnly()
 			}
 			for _, c := range removed {
 				if _, ok := assigned[c.address]; ok {
@@ -114,8 +129,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			}
 			if !noWorse(changeSignature(rc), changes[rc.Address]) {
 				differs = true
-				changed := changedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown)
-				keepChanged(removed, rc.Address, changed, keep)
+				keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), keep)
 			}
 		}
 		if !differs && summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change {
@@ -123,18 +137,19 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 		if !differs {
 			// The totals changed without a resource to blame.
-			return false, restore()
+			return nullsOnly()
 		}
 	}
-	return false, restore()
+	return nullsOnly()
 }
 
-// keepChanged keeps the candidates of address behind changed: those under
-// a changed top-level argument, or all of them if none is.
+// keepChanged keeps the constant candidates of address behind changed:
+// those under a newly changed top-level argument, or all of them if none
+// is. Nulls never count: Terraform treats null as an omitted argument.
 func keepChanged(removed []defaultCandidate, address string, changed []string, keep map[string]bool) {
 	matched := false
 	for _, c := range removed {
-		if c.address == address && slices.Contains(changed, c.path[0]) {
+		if !c.null && c.address == address && slices.Contains(changed, c.path[0]) {
 			keep[c.key()] = true
 			matched = true
 		}
@@ -143,10 +158,25 @@ func keepChanged(removed []defaultCandidate, address string, changed []string, k
 		return
 	}
 	for _, c := range removed {
-		if c.address == address {
+		if !c.null && c.address == address {
 			keep[c.key()] = true
 		}
 	}
+}
+
+// newlyChanged returns the attributes a change signature, now, changes
+// that the one before didn't.
+func newlyChanged(now, before string) []string {
+	_, nowAttributes, _ := strings.Cut(now, ":")
+	_, beforeAttributes, _ := strings.Cut(before, ":")
+	previous := strings.Split(beforeAttributes, ",")
+	var changed []string
+	for _, a := range strings.Split(nowAttributes, ",") {
+		if a != "" && !slices.Contains(previous, a) {
+			changed = append(changed, a)
+		}
+	}
+	return changed
 }
 
 // noWorse reports whether a resource's planned change, now, does no more
