@@ -9,6 +9,7 @@ on:
       - Dockerfile
       - .github/workflows/release*.yaml
       - cmd/version.go
+      - install.sh
   workflow_dispatch:
 
 permissions:
@@ -54,3 +55,10 @@ jobs:
           docker run --rm --entrypoint terraform "$image" version
           docker run --rm --entrypoint tofu "$image" version
           docker run --rm --entrypoint git "$image" --version
+      - name: Install with install.sh
+        run: |
+          shellcheck install.sh
+          version=$(jq -r .version dist/metadata.json)
+          INFRAHARVEST_VERSION="$version" INFRAHARVEST_BASE_URL="file://$PWD/dist" \
+            INFRAHARVEST_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          "$RUNNER_TEMP/bin/infraharvest" version
