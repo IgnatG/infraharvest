@@ -65,3 +65,37 @@ func TestCheckpoints(t *testing.T) {
 		}
 	}
 }
+
+// Listing order varies between runs; the fingerprint doesn't.
+func TestFingerprintIgnoresOrder(t *testing.T) {
+	a := []engine.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-1"}, {Type: "aws_subnet", Name: "b", ID: "subnet-1"}}
+	b := []engine.Import{a[1], a[0]}
+	fa, err := fingerprint("1.16.5", a, engine.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := fingerprint("1.16.5", b, engine.Options{})
+	if err != nil || fa != fb {
+		t.Errorf("fingerprints differ: %s, %s, %v", fa, fb, err)
+	}
+	if a[0].Type != "aws_vpc" {
+		t.Error("fingerprint reordered the caller's imports")
+	}
+}
+
+func TestClearGenerated(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName, "notes.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := clearGenerated(dir); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{engine.GeneratedFileName: false, engine.ImportsFileName: false, engine.VersionsFileName: true, "notes.md": true} {
+		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != want {
+			t.Errorf("%s: exists=%v, want %v", name, err == nil, want)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/IgnatG/infraharvest/engine"
 )
@@ -31,6 +32,14 @@ type checkpoint struct {
 // version, the engine, the imports, the files written besides them, and
 // the options that change the output.
 func fingerprint(engineVersion string, imports []engine.Import, opts engine.Options) (string, error) {
+	// Imports come in listing order, which varies between runs.
+	imports = append([]engine.Import(nil), imports...)
+	sort.Slice(imports, func(i, j int) bool {
+		if imports[i].Type != imports[j].Type {
+			return imports[i].Type < imports[j].Type
+		}
+		return imports[i].ID < imports[j].ID
+	})
 	adapters := make([]string, 0, len(opts.Adapters))
 	for _, a := range opts.Adapters {
 		adapters = append(adapters, a.Source+"@"+a.Version)
@@ -90,4 +99,22 @@ func saveCheckpoint(out, dir, fp string, result *engine.Result) error {
 		return err
 	}
 	return os.WriteFile(path, append(content, '\n'), 0o644)
+}
+
+// generatedFiles are the files a previous run wrote into a root, which
+// --resume removes before generating the root again.
+var generatedFiles = []string{
+	engine.GeneratedFileName, engine.ImportsFileName, engine.RejectedFileName, engine.LocalsFileName,
+	engine.VariablesFileName, engine.DataFileName, engine.ReadmeFileName, BackendFileName,
+}
+
+// clearGenerated removes what a previous run generated in dir, so that the
+// root can be generated again.
+func clearGenerated(dir string) error {
+	for _, name := range generatedFiles {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }

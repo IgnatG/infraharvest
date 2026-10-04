@@ -188,6 +188,12 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 				run.lock, _ = os.ReadFile(filepath.Join(dir, engine.LockFileName))
 			}
 		} else {
+			if options.Resume {
+				// What changed is generated again, from scratch.
+				if err := clearGenerated(dir); err != nil {
+					return err
+				}
+			}
 			log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
 			result, err = generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &run.lock)
 			if err != nil && ctx.Err() != nil {
