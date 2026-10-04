@@ -134,3 +134,16 @@ func (p *Provider) GetSupportedService() map[string]ServiceGenerator {
 func (p *Provider) GetBasicConfig() cty.Value {
 	return cty.ObjectVal(map[string]cty.Value{})
 }
+
+// DataSource reads one resource: the data source's type and the argument
+// that takes the resource's import ID.
+type DataSource struct {
+	Type, Argument string
+}
+
+// ProviderWithDataSources names, per resource type, the data source that
+// reads one resource by its import ID, for --engine=terraform to refer to
+// resources the selection leaves out, such as a default VPC.
+type ProviderWithDataSources interface {
+	DataSources() map[string]DataSource
+}

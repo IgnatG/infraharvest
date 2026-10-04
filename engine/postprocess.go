@@ -19,7 +19,8 @@ const placeholderString = "infraharvest-placeholder"
 
 // postProcess improves the configuration once it plans, in this order:
 // arguments that only repeat a default (see stripDefaults),
-// references between resources (see addReferences), shared tags (see
+// references between resources (see addReferences) and to resources it
+// doesn't manage (see addDataSources), shared tags (see
 // applyTagLift) and repeated identifiers (see liftLiterals). Each step is
 // checked against the plan before it (see verify) and undone if the plan
 // changes. Secret variables get placeholder values in these plans. If the
@@ -56,6 +57,9 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		edit  func() (bool, error)
 	}
 	steps := []step{{[]string{GeneratedFileName}, func() (bool, error) { return addReferences(dir, values) }}}
+	if len(opts.External) > 0 {
+		steps = append(steps, step{[]string{GeneratedFileName, DataFileName}, func() (bool, error) { return addDataSources(dir, opts.External, opts.DataSources) }})
+	}
 	// Tags before literals, so a tag value is never made a local.
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags

@@ -29,13 +29,13 @@ func TestReferenceIndex(t *testing.T) {
 	index := referenceIndex(importedValues)
 
 	for value, want := range map[string]referenceTarget{
-		"vpc-0abc1234": {"aws_vpc.main", "id"},
-		"arn:aws:ec2:us-east-1:1:vpc/vpc-0abc1234": {"aws_vpc.main", "arn"},
+		"vpc-0abc1234": {address: "aws_vpc.main", attribute: "id"},
+		"arn:aws:ec2:us-east-1:1:vpc/vpc-0abc1234": {address: "aws_vpc.main", attribute: "arn"},
 		// The versioning resource's id is the bucket's name too.
-		"logs":                    {"aws_s3_bucket.logs", "bucket"},
-		"arn:aws:iam::1:role/app": {"aws_iam_role.app", "arn"},
+		"logs":                    {address: "aws_s3_bucket.logs", attribute: "bucket"},
+		"arn:aws:iam::1:role/app": {address: "aws_iam_role.app", attribute: "arn"},
 		// id and ARN of one resource: the ARN.
-		"arn:aws:states:us-east-1:1:stateMachine:flow": {"aws_sfn_state_machine.flow", "arn"},
+		"arn:aws:states:us-east-1:1:stateMachine:flow": {address: "aws_sfn_state_machine.flow", attribute: "arn"},
 	} {
 		if got := index[value]; got != want {
 			t.Errorf("%s: got %+v, want %+v", value, got, want)

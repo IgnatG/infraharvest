@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sort"
 
+	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/selection"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -68,8 +70,10 @@ func (r *engineRun) selectionFile(path string) (*selection.File, error) {
 // others as excluded. A resource the selection file lists follows it; one
 // it doesn't list follows the provider's defaults, then the file's rules
 // and defaults. With no file (--all), the provider's defaults decide.
-func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource, defaults map[string]string, f *selection.File, importID func(terraformutils.Resource) (string, bool)) map[string][]terraformutils.Resource {
+// It also returns the resources it leaves out.
+func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource, defaults map[string]string, f *selection.File, importID func(terraformutils.Resource) (string, bool)) (map[string][]terraformutils.Resource, []engine.External) {
 	selected := make(map[string][]terraformutils.Resource, len(listed))
+	var leftOut []engine.External
 	for service, resources := range listed {
 		for _, res := range resources {
 			id, importable := importID(res)
@@ -97,9 +101,17 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 			}
 			r.discovered[typ]++
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason})
+			leftOut = append(leftOut, engine.External{Type: typ, ID: id})
 		}
 	}
-	return selected
+	// In a stable order: listed is a map, and the order names data sources.
+	sort.Slice(leftOut, func(i, j int) bool {
+		if leftOut[i].Type != leftOut[j].Type {
+			return leftOut[i].Type < leftOut[j].Type
+		}
+		return leftOut[i].ID < leftOut[j].ID
+	})
+	return selected, leftOut
 }
 
 // addDiscovered adds the listed resources Terraform can import to the

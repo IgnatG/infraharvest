@@ -110,7 +110,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	if err != nil {
 		return err
 	}
-	selected := run.selectResources(listed, defaults, chosen, importIDFunc(provider))
+	selected, leftOut := run.selectResources(listed, defaults, chosen, importIDFunc(provider))
 	if options.PathPattern, err = rootPathPattern(ctx, provider, options.PathPattern); err != nil {
 		return err
 	}
@@ -135,6 +135,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	resourcesByService, childFailures := withChildImports(ctx, provider, selected)
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, root)
+	opts.External = leftOut
 	switch options.Modules {
 	case "", modulesRegistry:
 		opts.Adapters = adapters.For(provider.GetName())
@@ -194,6 +195,12 @@ func engineOptions(provider terraformutils.ProviderGenerator, root *rootFiles) e
 	}
 	if withStateOnly, ok := provider.(terraformutils.ProviderWithStateOnlyArguments); ok {
 		opts.StateOnly = withStateOnly.StateOnlyArguments()
+	}
+	if withData, ok := provider.(terraformutils.ProviderWithDataSources); ok {
+		opts.DataSources = map[string]engine.DataSource{}
+		for typ, d := range withData.DataSources() {
+			opts.DataSources[typ] = engine.DataSource{Type: d.Type, Argument: d.Argument}
+		}
 	}
 	if withDefaultTags, ok := provider.(terraformutils.ProviderWithDefaultTags); ok {
 		attribute, block, reserved := withDefaultTags.DefaultTags()
