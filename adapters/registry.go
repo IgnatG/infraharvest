@@ -3,12 +3,14 @@
 
 package adapters
 
+// byProvider has each provider's adapters, in the order the engine tries
+// them.
+var byProvider = map[string][]Adapter{
+	"aws": {S3Bucket},
+}
+
 // For returns the adapters for a provider's resources, in the order the
 // engine tries them.
 func For(provider string) []Adapter {
-	switch provider {
-	case "aws":
-		return []Adapter{S3Bucket}
-	}
-	return nil
+	return byProvider[provider]
 }
