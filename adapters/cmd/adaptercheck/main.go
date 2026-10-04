@@ -32,28 +32,34 @@ import (
 func main() {
 	write := flag.Bool("write", false, "refresh the interface snapshots of the pinned versions")
 	flag.Parse()
+	if err := run(*write); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(write bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
 
 	for _, provider := range adapters.Providers() {
 		for _, a := range adapters.For(provider) {
-			if *write {
+			if write {
 				if err := writeSnapshot(ctx, client, a); err != nil {
-					log.Fatal(err)
+					return err
 				}
 				continue
 			}
 			latest, err := client.Latest(ctx, a.Source)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			if latest == a.Version {
 				continue
 			}
 			iface, err := client.Fetch(ctx, a.Source, latest)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			fmt.Printf("- `%s`: the adapter pins %s, the newest release is %s.", a.Source, a.Version, latest)
 			if problems := moduleinterface.Check(a, iface); len(problems) > 0 {
@@ -63,6 +69,7 @@ func main() {
 			}
 		}
 	}
+	return nil
 }
 
 // writeSnapshot writes the interface of the version an adapter pins to
