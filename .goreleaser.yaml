@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Release build (see .github/workflows/release.yaml): binaries for Linux,
+# macOS and Windows on amd64 and arm64, a checksum file signed with cosign
+# (keyless, from GitHub Actions), SBOMs, and a container image.
+version: 2
+project_name: infraharvest
+
+builds:
+  - id: infraharvest
+    main: .
+    binary: infraharvest
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/IgnatG/infraharvest/cmd.version=v{{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # Reproducible: the same commit gives the same binaries.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - LICENSES/*
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+dockers_v2:
+  - images:
+      - ghcr.io/ignatg/infraharvest
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: Turns existing cloud resources into Terraform configuration that plans with no changes
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.licenses: AGPL-3.0-only
+
+docker_signs:
+  - args: ["sign", "${artifact}@${digest}", "--yes"]
+
+release:
+  prerelease: auto
+
+changelog:
+  use: github-native

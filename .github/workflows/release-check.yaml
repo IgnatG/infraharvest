@@ -1,0 +1,53 @@
+name: release-check
+
+# Builds a snapshot release, as the release workflow would but without
+# signing or publishing, and smoke-tests the binary and the image.
+on:
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - Dockerfile
+      - .github/workflows/release*.yaml
+      - cmd/version.go
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: check
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release --snapshot --clean --skip=sign
+      - name: Smoke-test the binary
+        run: |
+          ls dist/*.tar.gz dist/*.zip dist/*_SHA256SUMS dist/*.sbom.json
+          dist/infraharvest_linux_amd64_v1/infraharvest version
+      - name: Smoke-test the image
+        run: |
+          image=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}' | grep amd64 | head -n 1)
+          test -n "$image"
+          docker run --rm "$image" version
+          docker run --rm --entrypoint terraform "$image" version
+          docker run --rm --entrypoint tofu "$image" version
+          docker run --rm --entrypoint git "$image" --version

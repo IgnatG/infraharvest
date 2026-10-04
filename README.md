@@ -326,34 +326,33 @@ It's possible to combine `--compact` `--path-pattern` parameters together.
 
 Both Terraformer and a Terraform provider plugin need to be installed.
 
-#### Terraformer
+#### infraharvest
 
-**From a package manager**
-- [Homebrew](https://brew.sh/) users can use `brew install terraformer`.
-- [MacPorts](https://www.macports.org/) users can use `sudo port install terraformer`.
-- [Chocolatey](https://chocolatey.org/) users can use `choco install terraformer`.
+**From a release**
 
-**From releases**
-This installs all providers, set `PROVIDER` to one of `google`, `aws` or `kubernetes` if you only need one.
+Each [release](https://github.com/IgnatG/infraharvest/releases) has archives for Linux, macOS and Windows on amd64 and arm64. It also has a checksum file, signed with [cosign](https://github.com/sigstore/cosign) from the release workflow (keyless, no long-lived key), SBOMs and build provenance. To verify a download, check the checksum file's signature, then the archive's checksum:
 
-* Linux
+```sh
+VERSION=0.2.0
+cosign verify-blob \
+  --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yaml@refs/heads/main" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle "infraharvest_${VERSION}_SHA256SUMS.sigstore.json" "infraharvest_${VERSION}_SHA256SUMS"
+sha256sum --check --ignore-missing "infraharvest_${VERSION}_SHA256SUMS"
 ```
-export PROVIDER=all
-curl -LO "https://github.com/GoogleCloudPlatform/terraformer/releases/download/$(curl -s https://api.github.com/repos/GoogleCloudPlatform/terraformer/releases/latest | grep tag_name | cut -d '"' -f 4)/terraformer-${PROVIDER}-linux-amd64"
-chmod +x terraformer-${PROVIDER}-linux-amd64
-sudo mv terraformer-${PROVIDER}-linux-amd64 /usr/local/bin/terraformer
+
+**Container image**
+
+`ghcr.io/ignatg/infraharvest` (linux/amd64 and linux/arm64, signed with cosign) includes pinned Terraform and OpenTofu binaries, and git for registry modules. It runs as a non-root user in `/work`:
+
+```sh
+docker run --rm -v "$PWD:/work" -v "$HOME/.aws:/home/git/.aws:ro" -e AWS_PROFILE \
+  ghcr.io/ignatg/infraharvest import aws --engine=terraform --all --resources=vpc --regions=eu-west-2
 ```
-* MacOS
-```
-export PROVIDER=all
-curl -LO "https://github.com/GoogleCloudPlatform/terraformer/releases/download/$(curl -s https://api.github.com/repos/GoogleCloudPlatform/terraformer/releases/latest | grep tag_name | cut -d '"' -f 4)/terraformer-${PROVIDER}-darwin-amd64"
-chmod +x terraformer-${PROVIDER}-darwin-amd64
-sudo mv terraformer-${PROVIDER}-darwin-amd64 /usr/local/bin/terraformer
-```
-* Windows
-1. Install Terraform - https://www.terraform.io/downloads
-2. Download exe file for required provider from here - https://github.com/GoogleCloudPlatform/terraformer/releases
-3. Add the exe file path to path variable
+
+**With Go**
+
+`go install github.com/IgnatG/infraharvest@latest`
 
 **From source**
 1.  Run `git clone https://github.com/IgnatG/infraharvest.git && cd infraharvest/`
