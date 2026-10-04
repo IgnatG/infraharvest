@@ -189,7 +189,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 
 // engineOptions configures engine.Generate for provider's directories.
 func engineOptions(provider terraformutils.ProviderGenerator, root *rootFiles) engine.Options {
-	opts := engine.Options{Config: root.files}
+	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners()}
 	if withOmitted, ok := provider.(terraformutils.ProviderWithOmittedArguments); ok {
 		opts.Omit = withOmitted.OmittedArguments()
 	}

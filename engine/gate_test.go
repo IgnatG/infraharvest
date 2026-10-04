@@ -129,13 +129,14 @@ func TestScanNondeterminism(t *testing.T) {
 
 func TestRunGate(t *testing.T) {
 	dir := t.TempDir()
+	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 `)
 	tf := &fakeTerraform{dir: dir, shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}}
 
-	gate, err := runGate(context.Background(), tf, dir, nil, nil)
+	gate, err := runGate(context.Background(), tf, dir, nil, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestRunGate(t *testing.T) {
 	for _, c := range gate {
 		names = append(names, c.Name)
 	}
-	if want := []string{CheckFormat, CheckValidate, CheckPlan, CheckSecrets, CheckDeterminism}; !reflect.DeepEqual(names, want) {
+	if want := []string{CheckFormat, CheckValidate, CheckPlan, CheckStandards, CheckScanners, CheckSecrets, CheckDeterminism}; !reflect.DeepEqual(names, want) {
 		t.Errorf("checks: got %v, want %v", names, want)
 	}
 	if !gate.Passed() {

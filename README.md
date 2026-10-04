@@ -244,6 +244,8 @@ After generating a directory, infraharvest runs its verification gate on it and 
 | G1 format | `terraform fmt` has nothing to change |
 | G2 validate | `terraform validate` passes |
 | G3 plan | The plan imports every resource and changes nothing else. Secret variables get placeholder values for this plan, so the arguments they set may change, and so may arguments the provider keeps only in state (for example a Secrets Manager secret's `recovery_window_in_days`) |
+| G4 standards | The directory, and the local modules it calls, follow the output standard. Terraform and providers are pinned (`required_version` within one major release, providers with `~>`). Registry modules have an exact version, and git modules a `?ref=`. Variables and outputs are typed and described, and no sensitive variable has a default. There is no `"${...}"` around a single expression, and no argument the provider leaves out (such as an S3 bucket's deprecated inline settings). There are no state files and only `.tf` files. Local modules have `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a README, and no `examples/` |
+| G5 scanners | The scanners installed on `PATH` run on the directory. tflint must find nothing at warning level or above, since its findings concern the generated code. trivy and checkov findings are listed but never fail the check: they describe the infrastructure's own settings, which the configuration must mirror to plan with no changes |
 | G6 secrets | No written file contains a value the provider marks sensitive, or a credential such as an AWS access key or a private key |
 | G7 determinism | The configuration calls no function whose result changes between runs, such as `timestamp()` |
 
