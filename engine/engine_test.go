@@ -495,21 +495,23 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 	}
 
 	// The secret error needs no repair. Validation checks the variable;
-	// post-processing plans with a placeholder value for it.
-	if strings.Join(tf.calls, ",") != "init,plan,schema,validate,plan,show,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan schema validate plan show fmt validate plan show]", tf.calls)
+	// post-processing plans with a placeholder value for it, leaves out
+	// value_wo = null, and plans again.
+	if want := "init,plan,schema,validate,plan,show,plan,show,plan,show,fmt,validate,plan,show"; strings.Join(tf.calls, ",") != want {
+		t.Errorf("calls: got %v, want %s", tf.calls, want)
 	}
 	wantSecrets := []Secret{{Variable: "aws_ssm_parameter_app_env_value", Address: "aws_ssm_parameter.app_env", Attribute: "value", schemaPath: []string{"value"}, ty: cty.String}}
 	if !reflect.DeepEqual(result.Secrets, wantSecrets) {
 		t.Errorf("secrets: got %+v, want %+v", result.Secrets, wantSecrets)
 	}
 	got := readFile(t, dir, GeneratedFileName)
-	if !strings.Contains(got, "value    = var.aws_ssm_parameter_app_env_value # sensitive") {
+	if !strings.Contains(got, "value = var.aws_ssm_parameter_app_env_value # sensitive") {
 		t.Errorf("generated.tf doesn't read the variable:\n%s", got)
 	}
-	// Write-only arguments are never stored: unset is right for an import.
-	if !strings.Contains(got, "value_wo = null") {
-		t.Errorf("write-only value_wo should stay null:\n%s", got)
+	// Write-only arguments are never stored: unset is right for an import,
+	// and null is the same as leaving the argument out.
+	if strings.Contains(got, "value_wo") {
+		t.Errorf("write-only value_wo should be left out:\n%s", got)
 	}
 	wantVariables := `variable "aws_ssm_parameter_app_env_value" {
   description = "value of aws_ssm_parameter.app_env. Terraform doesn't write secret values into the configuration it generates: set it before planning, for example in a .tfvars file kept out of version control."

@@ -135,6 +135,10 @@ func TestAWSRoundTrip(t *testing.T) {
 		if strings.Contains(readFile(t, filepath.Join(dir, engine.GeneratedFileName)), "vpc_id = aws_vpc.") {
 			referencedVPC = true
 		}
+		// Arguments that only repeat a default are left out.
+		if nulls := nullArguments(t, filepath.Join(dir, engine.GeneratedFileName)); len(nulls) > 0 {
+			t.Errorf("%s: arguments set to null: %v", dir, nulls)
+		}
 		// One provider version for the whole import.
 		if content := readFile(t, filepath.Join(dir, engine.LockFileName)); lock == "" {
 			lock = content
@@ -598,4 +602,33 @@ func stateBackendConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// nullArguments returns the arguments a configuration file sets to null,
+// in resources and their nested blocks.
+func nullArguments(t *testing.T, path string) []string {
+	t.Helper()
+	f, diags := hclsyntax.ParseConfig([]byte(readFile(t, path)), path, hcl.InitialPos)
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+	var nulls []string
+	var walk func(prefix string, body *hclsyntax.Body)
+	walk = func(prefix string, body *hclsyntax.Body) {
+		for name, attr := range body.Attributes {
+			if lit, ok := attr.Expr.(*hclsyntax.LiteralValueExpr); ok && lit.Val.IsNull() {
+				nulls = append(nulls, prefix+"."+name)
+			}
+		}
+		for _, b := range body.Blocks {
+			walk(prefix+"."+b.Type, b.Body)
+		}
+	}
+	for _, b := range f.Body.(*hclsyntax.Body).Blocks {
+		if b.Type == "resource" {
+			walk(strings.Join(b.Labels, "."), b.Body)
+		}
+	}
+	sort.Strings(nulls)
+	return nulls
 }

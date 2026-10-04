@@ -200,6 +200,8 @@ Each output directory gets:
 
 Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud.
 
+Terraform writes every optional argument into the configuration it generates, so infraharvest leaves out the ones that only repeat a default. That means arguments set to `null`, and optional arguments set to `false`, `0`, `""`, `[]` or `{}` when that is the provider's default. Only the plan can tell a default from a setting, so infraharvest plans without these arguments and puts back any whose absence would change a resource. Computed arguments keep their values: leaving one out never shows in the plan, so it could hide a real setting.
+
 Literals that are another imported resource's ID or ARN become references: `vpc_id = aws_vpc.main.id`, `role_arn = aws_iam_role.app.arn`. An argument named after a resource type refers to that resource by name, for example `bucket = aws_s3_bucket.logs.bucket`. Values several resources share are skipped, unless one is the others' parent (a bucket and its configuration resources). So are references that would make resources depend on each other in a loop. The references are kept only if a new plan shows no extra changes.
 
 Repeated values move into `locals.tf`:
