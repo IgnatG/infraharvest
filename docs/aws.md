@@ -22,6 +22,20 @@ infraharvest import aws --resources=cloudfront --profile=prod
 ```
 In that case terraformer will not know with which region resources are associated with and will not assume any region. That scenario is useful in case of global resources (e.g. CloudFront distributions or Route 53 records) and when region is passed implicitly through environmental variables or metadata service.
 
+#### Several accounts
+
+With `--engine=terraform` (or `tofu`), one run can import several accounts. Each is imported through a role, from the credentials of `--profile` (or the environment):
+
+```
+infraharvest import aws --engine=terraform --all --resources=vpc,s3,iam --regions=eu-west-2 \
+  --accounts=111122223333,444455556666
+infraharvest import aws --engine=terraform --all --resources=vpc,s3,iam --regions=eu-west-2 --organization
+```
+
+`--organization` imports every active account of the organization. It needs `organizations:ListAccounts`, which the management account, or a delegated administrator, has. `--assume-role` names the role in each account. It defaults to `arn:aws:iam::{account}:role/infraharvest-readonly`, the read-only role that [permissions/aws](../permissions/aws) creates. Given a full ARN without `{account}`, it imports that one account through that role.
+
+Each account gets its own roots (`{output}/aws/{account}/{region}/`). Their provider block assumes the same role, so `terraform plan` works with the credentials that ran the import.
+
 #### Throttling and timeouts
 
 Listing a large account makes many API calls. Calls that AWS throttles back off and retry, up to 10 attempts, in the SDK's adaptive retry mode: it also slows the client down while an API is throttling it. `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override these settings. `--list-timeout` (default 30 minutes) limits how long infraharvest lists one service in one region. A service that takes longer is reported as failed, rather than imported with resources missing. Ctrl-C stops the listing.

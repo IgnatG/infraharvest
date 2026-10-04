@@ -79,7 +79,7 @@ func (AWSProvider) StateOnlyArguments() map[string][]string {
 // layout: global for global services such as IAM.
 func (p *AWSProvider) Scope(ctx context.Context) (account, region string, err error) {
 	service := &AWSService{}
-	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	service.SetArgs(p.serviceArgs())
 	service.SetContext(ctx)
 	config, err := service.generateConfig()
 	if err != nil {

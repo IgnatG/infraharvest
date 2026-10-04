@@ -108,7 +108,7 @@ func (p *AWSProvider) ChildImports(ctx context.Context, r terraformutils.Resourc
 		return nil, nil
 	}
 	service := &AWSService{}
-	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	service.SetArgs(p.serviceArgs())
 	service.SetContext(ctx)
 	config, err := service.generateConfig()
 	if err != nil {
