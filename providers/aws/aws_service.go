@@ -88,8 +88,11 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 
 func (s *AWSService) buildBaseConfig() (aws.Config, error) {
 	var loadOptions []func(*config.LoadOptions) error
-	if s.GetArgs()["profile"].(string) != "" {
-		loadOptions = append(loadOptions, config.WithSharedConfigProfile(s.GetArgs()["profile"].(string)))
+	// --profile defaults to "default", which must not require a shared config
+	// file: in CI, credentials often come only from the environment (OIDC).
+	// The SDK's default chain uses that profile anyway, or AWS_PROFILE.
+	if profile := s.GetArgs()["profile"].(string); profile != "" && profile != "default" {
+		loadOptions = append(loadOptions, config.WithSharedConfigProfile(profile))
 	}
 	if s.GetArgs()["region"].(string) != "" {
 		os.Setenv("AWS_REGION", s.GetArgs()["region"].(string))
