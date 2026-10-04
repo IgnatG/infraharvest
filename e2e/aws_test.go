@@ -80,6 +80,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	// unchanged estate again the same files (G7).
 	selectionFile := discoverAWS(ctx, t, state)
 	checkManagedState(ctx, t, state)
+	checkAssumeRole(ctx, t, state)
 	again := importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile)
 	if first, second := outputFiles(t, out), outputFiles(t, again); !reflect.DeepEqual(first, second) {
 		for name, content := range first {
@@ -721,4 +722,28 @@ func generatedTimes(t *testing.T, out string) map[string]int64 {
 		times[dir] = info.ModTime().UnixNano()
 	}
 	return times
+}
+
+// checkAssumeRole lists the SQS queues through a role: listing works with
+// the role's credentials.
+func checkAssumeRole(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	root := cmd.NewCmdRoot()
+	root.SetArgs([]string{"discover", "aws", "--regions=us-east-1", "--resources=sqs", "--selection=" + path, "--assume-role=arn:aws:iam::000000000000:role/infraharvest-readonly"})
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("infraharvest discover --assume-role: %v", err)
+	}
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range created {
+		if r.Type != "aws_sqs_queue" {
+			continue
+		}
+		if id, _ := r.AttributeValues["id"].(string); !f.Has(r.Type, id) {
+			t.Errorf("listing through the role misses %s %s", r.Type, id)
+		}
+	}
 }

@@ -89,7 +89,7 @@ type defaultNetwork struct {
 func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error) {
 	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}, securityGroups: map[string]bool{}}
 	service := &AWSService{}
-	service.SetArgs(map[string]interface{}{"region": p.region, "profile": p.profile, "skip_region_validation": true})
+	service.SetArgs(p.serviceArgs())
 	service.SetContext(ctx)
 	config, err := service.generateConfig()
 	if err != nil {

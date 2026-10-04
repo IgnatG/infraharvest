@@ -27,6 +27,9 @@ type AWSProvider struct { //nolint
 	terraformutils.Provider
 	region  string
 	profile string
+	// roleARN, if set, is a role to assume for every call, such as a
+	// read-only role in one account of an organization.
+	roleARN string
 }
 
 const GlobalRegion = "aws-global"
@@ -157,6 +160,11 @@ func (p AWSProvider) GetProviderData(arg ...string) map[string]interface{} {
 	} else if p.region != NoRegion {
 		awsConfig["region"] = p.region
 	}
+	// Terraform assumes the same role as the import, from the credentials of
+	// whoever plans.
+	if p.roleARN != "" {
+		awsConfig["assume_role"] = map[string]interface{}{"role_arn": p.roleARN}
+	}
 
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
@@ -186,6 +194,9 @@ func (p *AWSProvider) GetBasicConfig() cty.Value {
 func (p *AWSProvider) Init(args []string) error {
 	p.region = args[0]
 	p.profile = args[1]
+	if len(args) > 2 {
+		p.roleARN = args[2]
+	}
 
 	// Terraformer accepts region and profile configuration, so we must detect what env variables to adjust to make Go SDK rely on them. AWS_SDK_LOAD_CONFIG here must be checked to determine correct variable to set.
 	enableSharedConfig, _ := strconv.ParseBool(os.Getenv("AWS_SDK_LOAD_CONFIG"))
@@ -227,11 +238,7 @@ func (p *AWSProvider) InitService(serviceName string, verbose bool) error {
 	p.Service.SetName(serviceName)
 	p.Service.SetVerbose(verbose)
 	p.Service.SetProviderName(p.GetName())
-	p.Service.SetArgs(map[string]interface{}{
-		"region":                 p.region,
-		"profile":                p.profile,
-		"skip_region_validation": true,
-	})
+	p.Service.SetArgs(p.serviceArgs())
 	return nil
 }
 
@@ -336,4 +343,15 @@ func StringValue(value *string) string {
 		return *value
 	}
 	return ""
+}
+
+// serviceArgs are the arguments of the provider's services: region,
+// profile and the role to assume.
+func (p *AWSProvider) serviceArgs() map[string]interface{} {
+	return map[string]interface{}{
+		"region":                 p.region,
+		"profile":                p.profile,
+		"role_arn":               p.roleARN,
+		"skip_region_validation": true,
+	}
 }

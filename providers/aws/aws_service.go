@@ -15,6 +15,7 @@
 package aws
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"sync"
@@ -38,8 +39,8 @@ var awsVariable = regexp.MustCompile(`(\${[0-9A-Za-z:]+})`)
 const listMaxAttempts = 10
 
 // configKey identifies an SDK config: one import can cover several regions,
-// global services included.
-type configKey struct{ region, profile string }
+// global services included, and several accounts, through roles.
+type configKey struct{ region, profile, roleARN string }
 
 var (
 	configsMu sync.Mutex
@@ -52,7 +53,8 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 	if testConfig != nil {
 		return *testConfig, nil
 	}
-	key := configKey{region: s.GetArgs()["region"].(string), profile: s.GetArgs()["profile"].(string)}
+	roleARN, _ := s.GetArgs()["role_arn"].(string)
+	key := configKey{region: s.GetArgs()["region"].(string), profile: s.GetArgs()["profile"].(string), roleARN: roleARN}
 	configsMu.Lock()
 	defer configsMu.Unlock()
 	if cfg, ok := configs[key]; ok {
@@ -82,6 +84,17 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 
 		if creds.SessionToken != "" {
 			os.Setenv("AWS_SESSION_TOKEN", creds.SessionToken)
+		}
+	}
+	// The base credentials go to Terraform, whose provider block assumes the
+	// role itself (see GetProviderData).
+	if roleARN != "" {
+		provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(baseConfig), roleARN, func(o *stscreds.AssumeRoleOptions) {
+			o.RoleSessionName = "infraharvest"
+		})
+		baseConfig.Credentials = aws.NewCredentialsCache(provider)
+		if _, e := baseConfig.Credentials.Retrieve(s.Context()); e != nil {
+			return baseConfig, fmt.Errorf("assume %s: %w", roleARN, e)
 		}
 	}
 	configs[key] = baseConfig
