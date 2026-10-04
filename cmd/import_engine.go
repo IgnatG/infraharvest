@@ -89,12 +89,10 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		return err
 	}
 	options = resolveServices(provider, options)
-	mapping := terraformutils.NewProvidersMapping(provider)
-	failures, err := initAllServicesResources(ctx, mapping, options, args, nil)
+	listed, failures, err := listResources(ctx, provider, options, args)
 	if err != nil {
 		return err
 	}
-	listed := mapping.GetResourcesByService()
 	defaults, err := excludedByDefault(ctx, provider, listed)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
