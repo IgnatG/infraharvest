@@ -12,6 +12,8 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -197,16 +199,26 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 
 	// A person confirms the selection: an agent may not import on its own.
+	// The tool asks the client to ask the user, and the client calls it
+	// again with the answer (multi round-trip requests). The request state
+	// ties the answer to this exact import.
 	message := fmt.Sprintf("Import the %d resources that %s includes (%d excluded) into Terraform configuration in %s? infraharvest reads the %s account and writes files; it never applies anything.",
 		summary.Included, in.Selection, summary.Excluded, in.Output, in.Provider)
-	answer, err := req.Session.Elicit(ctx, &mcp.ElicitParams{
-		Message:         message,
-		RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{}},
-	})
-	if err != nil {
-		return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them (%v). Ask the user to run it themselves:\n\ninfraharvest %s", err, strings.Join(args, " "))), nil, nil
+	state := confirmationState(args, summary)
+	if len(req.Params.InputResponses) == 0 {
+		if !canAsk(req.Session) {
+			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", strings.Join(args, " "))), nil, nil
+		}
+		return &mcp.CallToolResult{
+			InputRequests: mcp.InputRequestMap{confirmation: &mcp.ElicitParams{
+				Message:         message,
+				RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}},
+			RequestState: state,
+		}, nil, nil
 	}
-	if answer.Action != "accept" {
+	answer, ok := req.Params.InputResponses[confirmation].(*mcp.ElicitResult)
+	if !ok || answer.Action != "accept" || req.Params.RequestState != state {
 		return errorResult("The user didn't confirm the import, so nothing was imported."), nil, nil
 	}
 
@@ -228,6 +240,26 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Output, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
 	return textResult(text), result, nil
+}
+
+// confirmation names the import tool's request for the user's confirmation.
+const confirmation = "confirm_import"
+
+// confirmationState identifies an import the user is asked to confirm:
+// its arguments and what its selection file includes.
+func confirmationState(args []string, summary *SelectionSummary) string {
+	sum := sha256.New()
+	for _, a := range args {
+		fmt.Fprintf(sum, "%q\n", a)
+	}
+	fmt.Fprintf(sum, "%d %d\n", summary.Included, summary.Excluded)
+	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// canAsk reports whether the client can ask its user to confirm.
+func canAsk(session *mcp.ServerSession) bool {
+	params := session.InitializeParams()
+	return params != nil && params.Capabilities != nil && params.Capabilities.Elicitation != nil
 }
 
 // ReportInput is the report tool's input.

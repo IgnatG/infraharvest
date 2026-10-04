@@ -172,3 +172,28 @@ func TestScopeArgsKeepValuesOutOfFlags(t *testing.T) {
 		t.Errorf("args: %v, %v", args, err)
 	}
 }
+
+// A confirmation only counts for the import the user was asked about.
+func TestImportChecksWhatWasConfirmed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
+		RequestState:   "a confirmation of another import",
+	}}
+	in := ImportInput{Scope: Scope{Provider: "aws", Resources: []string{"vpc"}}, Selection: path, Output: filepath.Join(dir, "generated")}
+
+	res, _, err := tools.importSelection(t.Context(), req, in)
+
+	if err != nil || res == nil || !res.IsError {
+		t.Fatalf("want an error result, got %+v, %v", res, err)
+	}
+	if len(runner.runs) != 0 {
+		t.Errorf("imported without a matching confirmation: %v", runner.runs)
+	}
+}
