@@ -52,9 +52,16 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	if err != nil {
 		return false, err
 	}
-	schemas, err := tf.ProvidersSchema(ctx)
+	current, err := loadHCL(path)
 	if err != nil {
-		return false, fmt.Errorf("terraform providers schema: %w", err)
+		return false, err
+	}
+	// Only constants need the schema, to tell optional from computed.
+	var schemas *tfjson.ProviderSchemas
+	if hasZeroConstants(current.syntax) {
+		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
+			return false, fmt.Errorf("terraform providers schema: %w", err)
+		}
 	}
 	restore := func() error { return os.WriteFile(path, original, 0o644) }
 	keep := map[string]bool{}
@@ -235,6 +242,22 @@ func isZeroConstant(expr hclsyntax.Expression) bool {
 		return len(e.Exprs) == 0
 	case *hclsyntax.ObjectConsExpr:
 		return len(e.Items) == 0
+	}
+	return false
+}
+
+// hasZeroConstants reports whether a body or its nested blocks set an
+// argument to false, 0, "", [] or {}.
+func hasZeroConstants(body *hclsyntax.Body) bool {
+	for _, attr := range body.Attributes {
+		if isZeroConstant(attr.Expr) {
+			return true
+		}
+	}
+	for _, b := range body.Blocks {
+		if hasZeroConstants(b.Body) {
+			return true
+		}
 	}
 	return false
 }
