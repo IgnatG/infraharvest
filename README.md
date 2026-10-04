@@ -164,6 +164,22 @@ backend:                 # one of s3, azurerm, gcs
 
 Each root gets a `backend.tf` with its own state key (`imported/aws/<account>/<region>/terraform.tfstate`). S3 state is locked with S3's own lock file (`use_lockfile = true`), not DynamoDB. infraharvest writes `backend.tf` after checking the root, so importing never needs access to the state bucket.
 
+#### AI agents (MCP)
+
+`infraharvest mcp` serves infraharvest to AI agents such as Claude Code, Copilot or Cursor over the [Model Context Protocol](https://modelcontextprotocol.io), on stdin and stdout. Its tools run the same binary, so they behave like the command line:
+
+| Tool | What it does |
+|---|---|
+| `discover` | Lists a provider's resources into a selection file, and summarises what it includes and excludes, with reasons |
+| `import` | Generates configuration from a selection file. It asks the user to confirm first, through MCP elicitation. A client that can't ask gets the command to run instead |
+| `report` | Returns an import's report |
+
+The agent can propose a selection, but only a person can start an import. infraharvest reads the cloud and writes files; it never applies anything. To add the server to Claude Code:
+
+```sh
+claude mcp add infraharvest -- infraharvest mcp
+```
+
 #### Output of `--engine=terraform`
 
 By default each root is one state boundary: `<path-output>/<provider>/<account>/<region>/`, with `global` for global services such as IAM. `--path-pattern` can change that, with `{account}` and `{region}` as well as `{output}`, `{provider}` and `{service}`.
