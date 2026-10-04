@@ -251,6 +251,8 @@ After generating a directory, infraharvest runs its verification gate on it and 
 
 A failed check counts like a resource that couldn't be imported (exit code 1, or 3 with `--allow-partial`).
 
+To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, initialising each without its backend, so it needs no access to the state; set secret variables first. `infraharvest report [output-directory]` prints an import's report again (`--output json` for JSON).
+
 Exit codes:
 
 | Code | Meaning |
