@@ -1,0 +1,51 @@
+name: adapters
+
+# Checks every night whether the modules the curated adapters pin have a
+# newer release, and whether each adapter fits it. Findings go into one
+# open issue labelled adapter-update, which the check keeps current.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open and update the adapter-update issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check the adapters against the newest module releases
+        run: go run ./adapters/cmd/adaptercheck > "$RUNNER_TEMP/adapters.md"
+      - name: Report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label adapter-update --state open --json number --jq '.[0].number // empty')
+          if [[ ! -s "$RUNNER_TEMP/adapters.md" ]]; then
+            echo "Every adapter pins its module's newest release."
+            if [[ -n "$issue" ]]; then
+              gh issue close "$issue" --repo "$GITHUB_REPOSITORY" --comment "Every adapter pins its module's newest release again."
+            fi
+            exit 0
+          fi
+          {
+            echo "The nightly adapter check found newer releases of curated modules:"
+            echo
+            cat "$RUNNER_TEMP/adapters.md"
+          } > "$RUNNER_TEMP/body.md"
+          if [[ -n "$issue" ]]; then
+            gh issue edit "$issue" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh label create adapter-update --repo "$GITHUB_REPOSITORY" --color 0e8a16 --description "A curated module has a newer release" --force
+            gh issue create --repo "$GITHUB_REPOSITORY" --label adapter-update --title "Curated module adapters: newer module releases" --body-file "$RUNNER_TEMP/body.md"
+          fi

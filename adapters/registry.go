@@ -3,6 +3,8 @@
 
 package adapters
 
+import "sort"
+
 // byProvider has each provider's adapters, in the order the engine tries
 // them.
 var byProvider = map[string][]Adapter{
@@ -13,4 +15,14 @@ var byProvider = map[string][]Adapter{
 // engine tries them.
 func For(provider string) []Adapter {
 	return byProvider[provider]
+}
+
+// Providers returns the providers with adapters, sorted.
+func Providers() []string {
+	names := make([]string, 0, len(byProvider))
+	for name := range byProvider {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

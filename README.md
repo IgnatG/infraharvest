@@ -213,6 +213,8 @@ Clusters of resources that a curated public module can manage move into a call o
 |---|---|
 | `aws_s3_bucket` with its versioning, encryption, public access block, ownership controls, lifecycle and policy | [`terraform-aws-modules/s3-bucket/aws`](https://registry.terraform.io/modules/terraform-aws-modules/s3-bucket/aws) 5.16.1 |
 
+Each adapter pins an exact module version and is checked against that version's variables and outputs. A nightly job opens an issue when a newer release comes out, saying whether the adapter fits it; `go run ./adapters/cmd/adaptercheck -write` refreshes the interfaces after a bump.
+
 `--modules=local` uses generated local modules only, for example where the module registry can't be reached; `--modules=none` keeps every resource in the root.
 
 Other resources that come in clusters, such as a security group and its rules, move into a generated local module when two or more clusters in a root have the same shape. The module goes in `<path-output>/modules/<kind>_<hash>/` (`main.tf`, `variables.tf`, `outputs.tf`, `README.md`), and each cluster becomes a call to it. Values the clusters share stay in the module, and values that differ become typed variables. References from other resources use the module's outputs, and the import blocks import into the module. Identical modules in different roots are written once. The change is kept only if a new plan shows no extra changes.
