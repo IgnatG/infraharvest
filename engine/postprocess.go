@@ -22,15 +22,18 @@ const placeholderString = "infraharvest-placeholder"
 // checked against the plan before it (see verify) and undone if the plan
 // changes. Secret variables get placeholder values in these plans. If the
 // configuration doesn't plan even so, only the literal lift is made,
-// checked by validation.
-func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) error {
+// checked by validation. Last, clusters of resources move into modules:
+// curated ones first (see synthesize), then generated local ones (see
+// liftModules). It returns the clusters it didn't move into a curated
+// module, with why.
+func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
 	vars := placeholders(secrets)
-	baseline, values, err := planValues(ctx, tf, vars)
+	baseline, values, changes, err := planValues(ctx, tf, vars)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if baseline == nil {
-		return liftLiteralsValidated(ctx, tf, dir)
+		return nil, liftLiteralsValidated(ctx, tf, dir)
 	}
 	type step struct {
 		files []string
@@ -45,16 +48,22 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	steps = append(steps, step{[]string{GeneratedFileName, LocalsFileName}, func() (bool, error) { return liftLiterals(dir) }})
 	for _, step := range steps {
 		if _, err := verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	// Last, as clusters reach the module through the references above.
+	// Last, as clusters reach the modules through the references above.
+	var declined []ModuleCall
+	if len(opts.Adapters) > 0 {
+		if declined, err = synthesize(ctx, tf, dir, opts.Adapters, *baseline, changes, vars); err != nil {
+			return nil, err
+		}
+	}
 	if opts.ModulesDir != "" {
 		if _, err := liftModules(ctx, tf, dir, opts.ModulesDir, *baseline, vars); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return declined, nil
 }
 
 // liftLiteralsValidated lifts repeated identifiers when the configuration
@@ -103,15 +112,17 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 	return false, backup.restore()
 }
 
-// planValues plans with vars and returns the plan's change summary and
-// each resource's imported attribute values, by address. It returns no
-// summary if the configuration doesn't plan.
-func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*changeSummary, map[string]map[string]any, error) {
+// planValues plans with vars and returns the plan's change summary, and
+// each resource's imported attribute values and planned change (see
+// changeSignature), by address. It returns no summary if the
+// configuration doesn't plan.
+func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*changeSummary, map[string]map[string]any, map[string]string, error) {
 	p, summary, _, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil || p == nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	values := map[string]map[string]any{}
+	changes := map[string]string{}
 	for _, rc := range p.ResourceChanges {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 			continue
@@ -122,8 +133,9 @@ func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*c
 			attrs, _ = rc.Change.After.(map[string]any)
 		}
 		values[rc.Address] = attrs
+		changes[rc.Address] = changeSignature(rc)
 	}
-	return summary, values, nil
+	return summary, values, changes, nil
 }
 
 // placeholders gives each secret variable a value of its type.

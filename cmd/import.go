@@ -66,6 +66,9 @@ type ImportOptions struct {
 	All bool
 	// Discover writes a selection file instead of importing.
 	Discover bool `json:"-"`
+	// Modules says which modules hold clusters of resources: registry,
+	// local or none.
+	Modules string
 }
 
 const DefaultPathPattern = "{output}/{provider}/{service}/"
@@ -496,6 +499,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.BoolVar(&options.AllowPartial, "allow-partial", false, "keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1")
 	flag.StringVar(&options.Selection, "selection", "", "--engine=terraform or tofu: selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")
 	flag.BoolVar(&options.All, "all", false, "--engine=terraform or tofu: import everything the default selection includes, without a selection file")
+	flag.StringVar(&options.Modules, "modules", modulesRegistry, "--engine=terraform or tofu: registry moves clusters of resources into curated public modules (terraform-aws-modules) where the plan stays the same, else into generated local modules; local uses generated local modules only; none keeps every resource in the root")
 	flag.StringVar(&options.Engine, "engine", engineLegacy, "legacy, terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks (no state written)")
 	flag.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary for --engine=terraform or tofu (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
 }

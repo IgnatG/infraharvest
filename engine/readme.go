@@ -72,6 +72,9 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
 	}
+	if len(result.Modules) > 0 {
+		b.WriteString(modulesSection(result.Modules))
+	}
 	if len(result.Gate) > 0 {
 		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had placeholder values in the plan.\n\n| Check | Result |\n|---|---|\n")
 		for _, c := range result.Gate {
@@ -92,6 +95,48 @@ func readmeFile(result *Result) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// modulesSection lists the module calls and the clusters of resources that
+// stayed in the root, with why.
+func modulesSection(calls []ModuleCall) string {
+	var b strings.Builder
+	b.WriteString("\n## Modules\n\n")
+	var declined []ModuleCall
+	made := 0
+	for _, c := range calls {
+		if c.Declined != "" {
+			declined = append(declined, c)
+			continue
+		}
+		if made == 0 {
+			b.WriteString("These resources are managed through modules. infraharvest kept each module call only because the plan was the same as with the resources in the root.\n\n| Call | Module | Resources |\n|---|---|---|\n")
+		}
+		made++
+		source := "`" + c.Source + "`"
+		if c.Version != "" {
+			source += " " + c.Version
+		}
+		fmt.Fprintf(&b, "| `module.%s` | %s | %s |\n", c.Name, source, codeList(c.Resources))
+	}
+	if len(declined) > 0 {
+		if made > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("These resources stay in the root, as a module couldn't manage them the same way:\n\n")
+		for _, c := range declined {
+			fmt.Fprintf(&b, "- %s (`%s` %s): %s\n", codeList(c.Resources), c.Source, c.Version, c.Declined)
+		}
+	}
+	return b.String()
+}
+
+func codeList(items []string) string {
+	quoted := make([]string, len(items))
+	for i, s := range items {
+		quoted[i] = "`" + s + "`"
+	}
+	return strings.Join(quoted, ", ")
 }
 
 func plural(n int, one, many string) string {

@@ -28,6 +28,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/adapters"
 	"github.com/IgnatG/infraharvest/cmd"
 	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/providers/aws"
@@ -147,11 +148,28 @@ func TestAWSRoundTrip(t *testing.T) {
 	if !referencedVPC {
 		t.Errorf("no %s refers to the VPC", engine.GeneratedFileName)
 	}
-	// The state and logs buckets have the same shape: one generated module,
-	// called twice; the plans above check that changes nothing.
-	modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "s3_bucket_*", "main.tf"))
+	// Each bucket becomes a call of the curated S3 module, and the two roles
+	// of the same shape share a generated local module; the plans above
+	// check that changes nothing.
+	s3Calls := 0
+	for _, d := range coverage.Directories {
+		for _, m := range d.Modules {
+			if m.Source == adapters.S3Bucket.Source && m.Declined == "" {
+				s3Calls++
+			}
+		}
+	}
+	if s3Calls < 3 {
+		t.Errorf("%d buckets are calls of %s, want 3 or more; modules:", s3Calls, adapters.S3Bucket.Source)
+		for _, d := range coverage.Directories {
+			for _, m := range d.Modules {
+				t.Logf("%s: %+v", d.Path, m)
+			}
+		}
+	}
+	modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "iam_role_*", "main.tf"))
 	if err != nil || len(modules) == 0 {
-		t.Errorf("no generated S3 bucket module under %s (%v)", engine.ModulesDirName, err)
+		t.Errorf("no generated IAM role module under %s (%v)", engine.ModulesDirName, err)
 	}
 	seeded := map[string]int{}
 	for _, r := range state {
@@ -343,6 +361,10 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	}
 	imported := map[string]int{}
 	for _, rc := range plan.ResourceChanges {
+		// Modules read data sources, such as the caller's identity.
+		if rc.Mode != tfjson.ManagedResourceMode {
+			continue
+		}
 		if rc.Change.Importing == nil {
 			t.Errorf("%s: %s is planned to %v instead of imported", dir, rc.Address, rc.Change.Actions)
 			continue

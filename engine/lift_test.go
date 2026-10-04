@@ -183,7 +183,7 @@ func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
 	tf.plans = []fakePlan{{diags: []tfjson.Diagnostic{errorAt(1, "Invalid value", "")}}}
 	opts := Options{DefaultTags: &awsDefaultTags}
 
-	err := postProcess(context.Background(), tf, dir, opts, nil)
+	_, err := postProcess(context.Background(), tf, dir, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

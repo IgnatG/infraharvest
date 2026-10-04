@@ -41,13 +41,17 @@ func (AWSProvider) ImportID(r terraformutils.Resource) (string, bool) {
 }
 
 // OmittedArguments leaves out of generated configuration the deprecated
-// aws_s3_bucket arguments (see s3BucketArguments), and from every
-// resource: region, which defaults to the provider's, the region the
-// resources were listed in; and tags_all, which the provider computes from
-// tags and default_tags.
+// aws_s3_bucket arguments (see s3BucketArguments); aws_iam_role's
+// inline_policy and managed_policy_arns, deprecated in favour of the
+// aws_iam_role_policy and aws_iam_role_policy_attachment resources the
+// IAM lister imports with each role; and from every resource: region,
+// which defaults to the provider's, the region the resources were listed
+// in, and tags_all, which the provider computes from tags and
+// default_tags.
 func (AWSProvider) OmittedArguments() map[string][]string {
 	return map[string][]string{
 		"*":             {"region", "tags_all"},
+		"aws_iam_role":  {"inline_policy", "managed_policy_arns"},
 		"aws_s3_bucket": s3BucketArguments,
 	}
 }

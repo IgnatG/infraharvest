@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/adapters"
 	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -34,6 +35,18 @@ const (
 const (
 	outputHCL  = "hcl"
 	outputJSON = "json"
+)
+
+// Values of --modules: which modules hold clusters of resources.
+const (
+	// modulesRegistry tries curated public modules, then generated local
+	// modules.
+	modulesRegistry = "registry"
+	// modulesLocal uses generated local modules only, such as where the
+	// registry can't be reached.
+	modulesLocal = "local"
+	// modulesNone keeps every resource in the root.
+	modulesNone = "none"
 )
 
 // engineBinary is the binary --engine runs.
@@ -122,7 +135,13 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	resourcesByService, childFailures := withChildImports(provider, selected)
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, root)
-	opts.ModulesDir = filepath.Join(options.PathOutput, engine.ModulesDirName)
+	switch options.Modules {
+	case "", modulesRegistry:
+		opts.Adapters = adapters.For(provider.GetName())
+		opts.ModulesDir = filepath.Join(options.PathOutput, engine.ModulesDirName)
+	case modulesLocal:
+		opts.ModulesDir = filepath.Join(options.PathOutput, engine.ModulesDirName)
+	}
 	byDir, skipped := importsByDir(provider.GetName(), options, resourcesByService, importIDFunc(provider))
 
 	run.used = true
@@ -202,6 +221,9 @@ func (r *engineRun) addDirectory(dir string, imports []engine.Import, result *en
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))
 		reported.LeftOut = append(reported.LeftOut, report.LeftOut{Address: rej.Address, ID: rej.ID, Errors: rej.Errors})
+	}
+	for _, m := range result.Modules {
+		reported.Modules = append(reported.Modules, report.Module{Name: m.Name, Source: m.Source, Version: m.Version, Resources: m.Resources, Declined: m.Declined})
 	}
 	for _, s := range result.Secrets {
 		reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
@@ -329,6 +351,11 @@ func checkTerraformEngineOptions(options ImportOptions) error {
 	}
 	if len(unsupported) > 0 {
 		return fmt.Errorf("--engine=%s does not support %s", options.Engine, strings.Join(unsupported, ", "))
+	}
+	switch options.Modules {
+	case "", modulesRegistry, modulesLocal, modulesNone:
+	default:
+		return fmt.Errorf("--modules must be %s, %s or %s, not %q", modulesRegistry, modulesLocal, modulesNone, options.Modules)
 	}
 	return nil
 }

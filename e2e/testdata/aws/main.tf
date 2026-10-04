@@ -195,6 +195,7 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 # Holds the generated roots' state (see stateBackendConfig in aws_test.go).
+# Like every bucket here, it becomes a terraform-aws-modules/s3-bucket call.
 resource "aws_s3_bucket" "state" {
   bucket = "infraharvest-e2e-state"
 }
@@ -206,7 +207,6 @@ resource "aws_s3_bucket_versioning" "state" {
   }
 }
 
-# The same shape as the state bucket, so the two share a generated module.
 resource "aws_s3_bucket" "logs" {
   bucket = "infraharvest-e2e-logs"
 }
@@ -363,6 +363,35 @@ resource "aws_iam_role" "workflow" {
       Effect    = "Allow"
       Principal = { Service = "states.amazonaws.com" }
       Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = local.tags
+}
+
+# The two roles and their inline policies have the same shape, so they share
+# a generated local module.
+resource "aws_iam_role_policy" "app" {
+  name = "queue"
+  role = aws_iam_role.app.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "sqs:SendMessage"
+      Resource = aws_sqs_queue.jobs.arn
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "workflow" {
+  name = "logs"
+  role = aws_iam_role.workflow.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "logs:CreateLogDelivery"
+      Resource = "*"
     }]
   })
 }

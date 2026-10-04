@@ -20,6 +20,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/adapters"
 )
 
 // Files the engine writes into each output directory.
@@ -84,6 +86,9 @@ type Result struct {
 	Rejected []Rejection
 	// Gate is the result of the verification gate (see runGate).
 	Gate Gate
+	// Modules are the module calls the configuration makes, and the
+	// clusters of resources Generate didn't move into one, with why.
+	Modules []ModuleCall
 }
 
 // Options configure Generate.
@@ -106,6 +111,9 @@ type Options struct {
 	// ModulesDir, if set, is where Generate puts local modules for clusters
 	// of resources that repeat with the same shape (see modularize).
 	ModulesDir string
+	// Adapters map clusters of resources onto calls of curated modules,
+	// tried before generated local modules (see synthesize).
+	Adapters []adapters.Adapter
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
@@ -224,8 +232,25 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if result.Secrets, err = useVariables(ctx, tf, dir, &result.Rejected, &rejected); err != nil {
 		return nil, err
 	}
-	if err := postProcess(ctx, tf, dir, opts, result.Secrets); err != nil {
+	before, err := importTargets(dir)
+	if err != nil {
 		return nil, err
+	}
+	declined, err := postProcess(ctx, tf, dir, opts, result.Secrets)
+	if err != nil {
+		return nil, err
+	}
+	moved, err := movedAddresses(dir, before)
+	if err != nil {
+		return nil, err
+	}
+	if result.Modules, err = moduleCalls(dir, moved, declined); err != nil {
+		return nil, err
+	}
+	for i, s := range result.Secrets {
+		if to, ok := moved[s.Address]; ok {
+			result.Secrets[i].Address = to
+		}
 	}
 	if rejected.Len() > 0 {
 		if err := os.WriteFile(filepath.Join(dir, RejectedFileName), rejected.Bytes(), 0o644); err != nil {
