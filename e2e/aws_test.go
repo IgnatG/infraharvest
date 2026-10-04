@@ -91,6 +91,12 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("two imports wrote %d and %d files", len(first), len(second))
 		}
 	}
+	// Running again with --resume generates no root again: nothing changed.
+	before := generatedTimes(t, out)
+	importAWS(ctx, t, engineName, execPath, "--all", "--resume", "--path-output="+out)
+	if after := generatedTimes(t, out); !reflect.DeepEqual(before, after) {
+		t.Errorf("--resume generated roots again: %v, then %v", before, after)
+	}
 
 	readFile(t, filepath.Join(out, ".gitignore"))
 	var coverage report.Report
@@ -512,7 +518,8 @@ func outputFiles(t *testing.T, out string) map[string]string {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".terraform" {
+			// Terraform's working directories, and infraharvest's checkpoints.
+			if d.Name() == ".terraform" || d.Name() == cmd.CheckpointDir {
 				return filepath.SkipDir
 			}
 			return nil
@@ -699,4 +706,19 @@ func checkManagedState(ctx context.Context, t *testing.T, created []*tfjson.Stat
 	if found != len(managedIDs) || found == 0 {
 		t.Errorf("found %d of the %d managed resources in the selection", found, len(managedIDs))
 	}
+}
+
+// generatedTimes returns when each root's generated.tf under out was last
+// written, by path.
+func generatedTimes(t *testing.T, out string) map[string]int64 {
+	t.Helper()
+	times := map[string]int64{}
+	for _, dir := range generatedDirs(t, out) {
+		info, err := os.Stat(filepath.Join(dir, engine.GeneratedFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		times[dir] = info.ModTime().UnixNano()
+	}
+	return times
 }
