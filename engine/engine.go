@@ -119,6 +119,8 @@ type Options struct {
 	// DataSources, by resource type (see addDataSources).
 	External    []External
 	DataSources map[string]DataSource
+	// Scanners run in the verification gate (see runScanners).
+	Scanners []Scanner
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
@@ -271,7 +273,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			result.Imported = append(result.Imported, imp)
 		}
 	}
-	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts.StateOnly); err != nil {
+	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
 	}
 	return result, os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)

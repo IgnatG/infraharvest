@@ -19,8 +19,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
-// Names of the verification gate's checks (definition of done G1, G2, G3,
-// G6 and G7).
+// Names of the verification gate's checks (definition of done G1 to G7; see
+// also CheckStandards and CheckScanners).
 const (
 	CheckFormat      = "G1 format"
 	CheckValidate    = "G2 validate"
@@ -61,12 +61,14 @@ func (g Gate) Passed() bool {
 }
 
 // runGate checks the directory as Generate leaves it: formatted, valid,
-// planning only imports, without secret values in any file, and without
-// functions that make output differ between runs. Secret variables get
+// planning only imports, following the output standard (see
+// checkStandards), passing the installed scanners (see runScanners),
+// without secret values in any file, and without functions that make
+// output differ between runs. Secret variables get
 // placeholder values in the plan, so the arguments they set may change;
-// so may the arguments stateOnly names per type, which providers keep
+// so may the arguments opts.StateOnly names per type, which providers keep
 // only in state and import can't set.
-func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, stateOnly map[string][]string) (Gate, error) {
+func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options) (Gate, error) {
 	var gate Gate
 
 	formatted, files, err := tf.FormatCheck(ctx)
@@ -89,7 +91,13 @@ func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, st
 	if err != nil {
 		return nil, err
 	}
-	gate = append(gate, planCheck(p, diags, secrets, stateOnly))
+	gate = append(gate, planCheck(p, diags, secrets, opts.StateOnly))
+
+	standards, err := checkStandards(dir, opts.Omit)
+	if err != nil {
+		return nil, err
+	}
+	gate = append(gate, standards, runScanners(ctx, dir, opts.Scanners))
 
 	secretCheck, err := scanSecrets(dir, sensitiveValues(p))
 	if err != nil {

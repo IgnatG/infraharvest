@@ -77,6 +77,7 @@ func moduleRoot(t *testing.T, generated string) (string, string) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(content))
+	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
 	return dir, filepath.Join(out, ModulesDirName)
 }
 
@@ -109,6 +110,12 @@ func TestModularize(t *testing.T) {
 	for _, want := range []string{`variable "bucket" {`, "type        = string", `variable "tags" {`, "type        = map(string)"} {
 		if !strings.Contains(variables, want) {
 			t.Errorf("variables.tf misses %q:\n%s", want, variables)
+		}
+	}
+	versions := squashed(readFile(t, module, VersionsFileName))
+	for _, want := range []string{`required_version = ">= 1.16"`, `source = "hashicorp/aws"`, `version = ">= 6.14"`} {
+		if !strings.Contains(versions, want) {
+			t.Errorf("versions.tf misses %q:\n%s", want, versions)
 		}
 	}
 	outputs := readFile(t, module, "outputs.tf")

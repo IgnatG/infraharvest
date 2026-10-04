@@ -117,11 +117,15 @@ func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]stri
 		return nil, false, nil
 	}
 
+	versions, err := moduleVersionsFile(filepath.Join(dir, VersionsFileName))
+	if err != nil {
+		return nil, false, err
+	}
 	var created []string
 	for _, g := range groups {
 		path := filepath.Join(modulesDir, g.name)
 		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-			if err := writeModule(path, g); err != nil {
+			if err := writeModule(path, g, versions); err != nil {
 				return created, false, err
 			}
 			created = append(created, path)
@@ -520,7 +524,7 @@ func allTraversals(body *hclsyntax.Body) []hcl.Traversal {
 
 // writeModule writes a group's module: main.tf, variables.tf, outputs.tf,
 // versions.tf and a README.
-func writeModule(path string, g *moduleGroup) error {
+func writeModule(path string, g *moduleGroup, versions []byte) error {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
 	}
@@ -578,10 +582,11 @@ func writeModule(path string, g *moduleGroup) error {
 	}
 
 	for name, content := range map[string][]byte{
-		"main.tf":      g.main,
-		"variables.tf": hclwrite.Format(variables.Bytes()),
-		"outputs.tf":   hclwrite.Format(outputs.Bytes()),
-		"README.md":    []byte(readme.String()),
+		"main.tf":        g.main,
+		"variables.tf":   hclwrite.Format(variables.Bytes()),
+		"outputs.tf":     hclwrite.Format(outputs.Bytes()),
+		"README.md":      []byte(readme.String()),
+		VersionsFileName: versions,
 	} {
 		if err := os.WriteFile(filepath.Join(path, name), content, 0o644); err != nil {
 			return err
@@ -705,4 +710,53 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, base
 		return true, nil
 	}
 	return false, undo()
+}
+
+// moduleVersionsFile renders a generated module's versions.tf from its
+// root's: the same providers and Terraform versions, as lower bounds only,
+// as modules should (~> 6.14 becomes >= 6.14). The root pins the rest.
+func moduleVersionsFile(rootVersions string) ([]byte, error) {
+	root, err := loadHCL(rootVersions)
+	if err != nil {
+		return nil, err
+	}
+	f := hclwrite.NewEmptyFile()
+	terraform := f.Body().AppendNewBlock("terraform", nil).Body()
+	for _, b := range root.syntax.Blocks {
+		if b.Type != "terraform" {
+			continue
+		}
+		if attr, ok := b.Body.Attributes["required_version"]; ok {
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
+				lower, _, _ := strings.Cut(v.AsString(), ",")
+				terraform.SetAttributeValue("required_version", cty.StringVal(strings.TrimSpace(lower)))
+			}
+		}
+		for _, inner := range b.Body.Blocks {
+			if inner.Type != "required_providers" {
+				continue
+			}
+			providers := terraform.AppendNewBlock("required_providers", nil).Body()
+			names := make([]string, 0, len(inner.Body.Attributes))
+			for name := range inner.Body.Attributes {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				v, diags := inner.Body.Attributes[name].Expr.Value(nil)
+				if diags.HasErrors() || !v.Type().IsObjectType() {
+					return nil, fmt.Errorf("%s: required_providers.%s isn't an object", rootVersions, name)
+				}
+				requirement := map[string]cty.Value{}
+				if v.Type().HasAttribute("source") {
+					requirement["source"] = v.GetAttr("source")
+				}
+				if v.Type().HasAttribute("version") {
+					requirement["version"] = cty.StringVal(">= " + strings.TrimSpace(strings.TrimPrefix(v.GetAttr("version").AsString(), "~>")))
+				}
+				providers.SetAttributeValue(name, cty.ObjectVal(requirement))
+			}
+		}
+	}
+	return hclwrite.Format(f.Bytes()), nil
 }

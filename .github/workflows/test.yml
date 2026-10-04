@@ -129,6 +129,14 @@ jobs:
       if: matrix.engine == 'tofu'
       with:
         tofu_wrapper: false
+    # The gate runs the scanners it finds (G5): tflint must find nothing in
+    # the generated configuration; trivy only reports.
+    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      with:
+        tflint_version: v0.64.0
+    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+      with:
+        version: v0.75.0
     - name: Format
       env:
         ENGINE: ${{ matrix.engine }}
