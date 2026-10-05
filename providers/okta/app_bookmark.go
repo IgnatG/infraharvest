@@ -42,7 +42,7 @@ func (g *AppBookmarkGenerator) createResources(appList []okta.ListApplications20
 }
 
 func (g *AppBookmarkGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}

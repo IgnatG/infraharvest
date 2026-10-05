@@ -16,41 +16,50 @@ package okta
 
 import (
 	"context"
+	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/terraform-provider-okta/sdk"
 )
 
 type FactorGenerator struct {
 	OktaService
 }
 
-func (g FactorGenerator) createResources(ctx context.Context, factorList []*okta.UserFactor, client *sdk.APISupplement) []terraformutils.Resource {
+// orgFactor is a factor of the org factor API, which okta-sdk-golang/v5 has
+// no call for.
+type orgFactor struct {
+	ID         string `json:"id"`
+	FactorType string `json:"factorType"`
+	Status     string `json:"status"`
+}
+
+// hotpFactorProfile is a profile of the org's HOTP factor.
+type hotpFactorProfile struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (g FactorGenerator) createResources(factorList []orgFactor, hotpFactorProfiles []hotpFactorProfile) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, factor := range factorList {
 		if factor.Status == "ACTIVE" {
 			resources = append(resources, terraformutils.NewResource(
-				factor.Id,
-				"factor_"+normalizeResourceNameWithRandom(factor.Id, true),
+				factor.ID,
+				"factor_"+normalizeResourceNameWithRandom(factor.ID, true),
 				"okta_factor",
 				"okta",
 				map[string]string{
-					"provider_id": factor.Id,
+					"provider_id": factor.ID,
 				}))
 
 			if factor.FactorType == "token:hotp" {
-				hotpFactorProfiles, _, _ := getHotpFactorProfiles(ctx, client)
-
 				for _, factorProfile := range hotpFactorProfiles {
-					if factorProfile != nil {
-						resources = append(resources, terraformutils.NewResource(
-							factorProfile.ID,
-							"factor_totp_"+normalizeResourceNameWithRandom(factorProfile.Name, true),
-							"okta_factor_totp",
-							"okta",
-							map[string]string{}))
-					}
+					resources = append(resources, terraformutils.NewResource(
+						factorProfile.ID,
+						"factor_totp_"+normalizeResourceNameWithRandom(factorProfile.Name, true),
+						"okta_factor_totp",
+						"okta",
+						map[string]string{}))
 				}
 			}
 		}
@@ -59,49 +68,46 @@ func (g FactorGenerator) createResources(ctx context.Context, factorList []*okta
 }
 
 func (g *FactorGenerator) InitResources() error {
-	var factors []*okta.UserFactor
-
-	ctx, client, err := g.APISupplementClient()
+	ctx, client, err := g.Client()
+	if err != nil {
+		return err
+	}
+	raw, err := newRawClient(client)
 	if err != nil {
 		return err
 	}
 
-	output, _, err := getListFactors(ctx, client)
+	factors, err := getListFactors(ctx, raw)
 	if err != nil {
 		return err
 	}
 
-	factors = append(factors, output...)
+	// As before, a failure to list the HOTP profiles only leaves them out.
+	var hotpFactorProfiles []hotpFactorProfile
+	if hasActiveHotpFactor(factors) {
+		hotpFactorProfiles, err = getHotpFactorProfiles(ctx, raw)
+		if err != nil {
+			log.Printf("okta: listing HOTP factor profiles: %v", err)
+		}
+	}
 
-	g.Resources = g.createResources(ctx, factors, client)
+	g.Resources = g.createResources(factors, hotpFactorProfiles)
 	return nil
 }
 
-func getListFactors(ctx context.Context, m *sdk.APISupplement) ([]*okta.UserFactor, *okta.Response, error) {
-	//NOTE: Okta SDK does not support general ListFactors method so we got to manually implement the REST calls.
-	url := "/api/v1/org/factors"
-	req, err := m.RequestExecutor.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, nil, err
+func hasActiveHotpFactor(factors []orgFactor) bool {
+	for _, factor := range factors {
+		if factor.Status == "ACTIVE" && factor.FactorType == "token:hotp" {
+			return true
+		}
 	}
-	var factors []*okta.UserFactor
-	resp, err := m.RequestExecutor.Do(ctx, req, &factors)
-	if err != nil {
-		return nil, resp, err
-	}
-	return factors, resp, nil
+	return false
 }
 
-func getHotpFactorProfiles(ctx context.Context, m *sdk.APISupplement) ([]*sdk.HotpFactorProfile, *okta.Response, error) {
-	url := "/api/v1/org/factors/hotp/profiles"
-	req, err := m.RequestExecutor.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	var factors []*sdk.HotpFactorProfile
-	resp, err := m.RequestExecutor.Do(ctx, req, &factors)
-	if err != nil {
-		return nil, resp, err
-	}
-	return factors, resp, nil
+func getListFactors(ctx context.Context, client *rawClient) ([]orgFactor, error) {
+	return rawList[orgFactor](ctx, client, "/api/v1/org/factors")
+}
+
+func getHotpFactorProfiles(ctx context.Context, client *rawClient) ([]hotpFactorProfile, error) {
+	return rawList[hotpFactorProfile](ctx, client, "/api/v1/org/factors/hotp/profiles")
 }

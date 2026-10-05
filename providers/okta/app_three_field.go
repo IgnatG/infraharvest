@@ -18,19 +18,19 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type AppThreeFieldGenerator struct {
 	OktaService
 }
 
-func (g AppThreeFieldGenerator) createResources(appList []*okta.Application) []terraformutils.Resource {
+func (g AppThreeFieldGenerator) createResources(appList []oktaApp) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, app := range appList {
 		resources = append(resources, terraformutils.NewSimpleResource(
-			app.Id,
-			normalizeResourceName(app.Id+"_"+app.Name),
+			app.ID,
+			normalizeResourceName(app.ID+"_"+app.Name),
 			"okta_app_three_field",
 			"okta"))
 	}
@@ -52,14 +52,14 @@ func (g *AppThreeFieldGenerator) InitResources() error {
 	return nil
 }
 
-func getThreeFieldApplications(ctx context.Context, client *okta.Client) ([]*okta.Application, error) {
+func getThreeFieldApplications(ctx context.Context, client *okta.APIClient) ([]oktaApp, error) {
 	signOnMode := "BROWSER_PLUGIN"
 	apps, err := getApplications(ctx, client, signOnMode)
 	if err != nil {
 		return nil, err
 	}
 
-	threeFieldApps := []*okta.Application{}
+	threeFieldApps := []oktaApp{}
 	for _, app := range apps {
 		if app.Name == "template_swa3field" {
 			threeFieldApps = append(threeFieldApps, app)

@@ -16,19 +16,18 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/terraform-provider-okta/sdk"
 )
 
 type PasswordPolicyRuleGenerator struct {
 	OktaService
 }
 
-func (g PasswordPolicyRuleGenerator) createResources(passwordPolicyRuleList []sdk.PolicyRule, policyID string, policyName string) []terraformutils.Resource {
+func (g PasswordPolicyRuleGenerator) createResources(passwordPolicyRuleList []oktaPolicyRule, policyID string, policyName string) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 
 	for _, policyRule := range passwordPolicyRuleList {
 		resources = append(resources, terraformutils.NewResource(
-			policyRule.Id,
+			policyRule.ID,
 			"policyrule_password_"+normalizeResourceName(policyName+"_"+policyRule.Name),
 			"okta_policy_rule_password",
 			"okta",
@@ -47,6 +46,10 @@ func (g *PasswordPolicyRuleGenerator) InitResources() error {
 	if e != nil {
 		return e
 	}
+	raw, err := newRawClient(client)
+	if err != nil {
+		return err
+	}
 
 	passwordPolicies, err := getPasswordPolicies(ctx, client)
 	if err != nil {
@@ -54,34 +57,14 @@ func (g *PasswordPolicyRuleGenerator) InitResources() error {
 	}
 
 	for _, policy := range passwordPolicies {
-		output, err := getPasswordPolicyRules(g, policy.Id)
+		output, err := listPolicyRules(ctx, raw, policy.ID)
 		if err != nil {
 			return err
 		}
 
-		resources = append(resources, g.createResources(output, policy.Id, policy.Name)...)
+		resources = append(resources, g.createResources(output, policy.ID, policy.Name)...)
 	}
 
 	g.Resources = resources
 	return nil
-}
-
-func getPasswordPolicyRules(g *PasswordPolicyRuleGenerator, policyID string) ([]sdk.PolicyRule, error) {
-	ctx, client, e := g.APISupplementClient()
-	if e != nil {
-		return nil, e
-	}
-
-	output, resp, err := client.ListPolicyRules(ctx, policyID)
-	if err != nil {
-		return nil, e
-	}
-
-	for resp.HasNextPage() {
-		var nextPolicySet []sdk.PolicyRule
-		resp, _ = resp.Next(ctx, &nextPolicySet)
-		output = append(output, nextPolicySet...)
-	}
-
-	return output, nil
 }

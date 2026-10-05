@@ -18,15 +18,14 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type MFAPolicyGenerator struct {
 	OktaService
 }
 
-func (g MFAPolicyGenerator) createResources(mfaPolicyList []*okta.Policy) []terraformutils.Resource {
+func (g MFAPolicyGenerator) createResources(mfaPolicyList []oktaPolicy) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, mfaPolicy := range mfaPolicyList {
 		resourceName := normalizeResourceName(mfaPolicy.Name)
@@ -35,7 +34,7 @@ func (g MFAPolicyGenerator) createResources(mfaPolicyList []*okta.Policy) []terr
 			resourceType = "okta_policy_mfa_default"
 		}
 		resources = append(resources, terraformutils.NewSimpleResource(
-			mfaPolicy.Id,
+			mfaPolicy.ID,
 			"policy_mfa_"+resourceName,
 			resourceType,
 			"okta"))
@@ -44,33 +43,19 @@ func (g MFAPolicyGenerator) createResources(mfaPolicyList []*okta.Policy) []terr
 }
 
 func (g *MFAPolicyGenerator) InitResources() error {
-	var output []*okta.Policy
 	ctx, client, e := g.Client()
 	if e != nil {
 		return e
 	}
 
-	output, _ = getMFAPolicies(ctx, client)
+	output, err := getMFAPolicies(ctx, client)
+	if err != nil {
+		return err
+	}
 	g.Resources = g.createResources(output)
 	return nil
 }
 
-func getMFAPolicies(ctx context.Context, client *okta.Client) ([]*okta.Policy, error) {
-	qp := query.NewQueryParams(query.WithType("MFA_ENROLL"))
-	var policies []*okta.Policy
-	data, resp, err := client.Policy.ListPolicies(ctx, qp)
-	if err != nil {
-		return nil, err
-	}
-
-	for resp.HasNextPage() {
-		var nextPolicies []*okta.Policy
-		resp, _ = resp.Next(ctx, &nextPolicies)
-		policies = append(policies, nextPolicies...)
-	}
-	for _, p := range data {
-		policies = append(policies, p.(*okta.Policy))
-	}
-
-	return policies, nil
+func getMFAPolicies(ctx context.Context, client *okta.APIClient) ([]oktaPolicy, error) {
+	return listPolicies(ctx, client, "MFA_ENROLL")
 }

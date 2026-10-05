@@ -18,15 +18,14 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type PasswordPolicyGenerator struct {
 	OktaService
 }
 
-func (g PasswordPolicyGenerator) createResources(passwordPolicyList []*okta.Policy) []terraformutils.Resource {
+func (g PasswordPolicyGenerator) createResources(passwordPolicyList []oktaPolicy) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, passwordPolicy := range passwordPolicyList {
 		resourceName := normalizeResourceName(passwordPolicy.Name)
@@ -35,7 +34,7 @@ func (g PasswordPolicyGenerator) createResources(passwordPolicyList []*okta.Poli
 			resourceType = "okta_policy_password_default"
 		}
 		resources = append(resources, terraformutils.NewSimpleResource(
-			passwordPolicy.Id,
+			passwordPolicy.ID,
 			"policy_password_"+resourceName,
 			resourceType,
 			"okta"))
@@ -44,33 +43,19 @@ func (g PasswordPolicyGenerator) createResources(passwordPolicyList []*okta.Poli
 }
 
 func (g *PasswordPolicyGenerator) InitResources() error {
-	var output []*okta.Policy
 	ctx, client, e := g.Client()
 	if e != nil {
 		return e
 	}
 
-	output, _ = getPasswordPolicies(ctx, client)
+	output, err := getPasswordPolicies(ctx, client)
+	if err != nil {
+		return err
+	}
 	g.Resources = g.createResources(output)
 	return nil
 }
 
-func getPasswordPolicies(ctx context.Context, client *okta.Client) ([]*okta.Policy, error) {
-	qp := query.NewQueryParams(query.WithType("PASSWORD"))
-	var policies []*okta.Policy
-	data, resp, err := client.Policy.ListPolicies(ctx, qp)
-	if err != nil {
-		return nil, err
-	}
-
-	for resp.HasNextPage() {
-		var nextPolicies []*okta.Policy
-		resp, _ = resp.Next(ctx, &nextPolicies)
-		policies = append(policies, nextPolicies...)
-	}
-	for _, p := range data {
-		policies = append(policies, p.(*okta.Policy))
-	}
-
-	return policies, nil
+func getPasswordPolicies(ctx context.Context, client *okta.APIClient) ([]oktaPolicy, error) {
+	return listPolicies(ctx, client, "PASSWORD")
 }

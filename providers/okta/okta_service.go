@@ -19,72 +19,47 @@ import (
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	oktaV2 "github.com/okta/okta-sdk-golang/v2/okta"
-	oktaV5 "github.com/okta/okta-sdk-golang/v5/okta"
-	"github.com/okta/terraform-provider-okta/sdk"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type OktaService struct { //nolint
 	terraformutils.Service
 }
 
-func (s *OktaService) Client() (context.Context, *oktaV2.Client, error) {
+// Client returns an Okta management API client for the org in the service
+// arguments, authenticated with its API token.
+func (s *OktaService) Client() (context.Context, *okta.APIClient, error) {
 	orgName := s.Args["org_name"].(string)
 	baseURL := s.Args["base_url"].(string)
 	apiToken := s.Args["api_token"].(string)
 
 	orgURL := fmt.Sprintf("https://%v.%v", orgName, baseURL)
 
-	ctx, client, err := oktaV2.NewClient(
-		context.Background(),
-		oktaV2.WithOrgUrl(orgURL),
-		oktaV2.WithToken(apiToken),
-	)
-	if err != nil {
-		return ctx, nil, err
-	}
-
-	return ctx, client, nil
-}
-
-func (s *OktaService) ClientV5() (context.Context, *oktaV5.APIClient, error) {
-	orgName := s.Args["org_name"].(string)
-	baseURL := s.Args["base_url"].(string)
-	apiToken := s.Args["api_token"].(string)
-
-	orgURL := fmt.Sprintf("https://%v.%v", orgName, baseURL)
-
-	config, err := oktaV5.NewConfiguration(
-		oktaV5.WithOrgUrl(orgURL),
-		oktaV5.WithToken(apiToken),
+	config, err := okta.NewConfiguration(
+		okta.WithOrgUrl(orgURL),
+		okta.WithToken(apiToken),
 	)
 	if err != nil {
 		return nil, nil, err
 	}
-	client := oktaV5.NewAPIClient(config)
+	client := okta.NewAPIClient(config)
 
 	return context.Background(), client, nil
 }
 
-func (s *OktaService) APISupplementClient() (context.Context, *sdk.APISupplement, error) {
-	baseURL := s.Args["base_url"].(string)
-	orgName := s.Args["org_name"].(string)
-	apiToken := s.Args["api_token"].(string)
-
-	orgURL := fmt.Sprintf("https://%v.%v", orgName, baseURL)
-
-	ctx, client, err := oktaV2.NewClient(
-		context.Background(),
-		oktaV2.WithOrgUrl(orgURL),
-		oktaV2.WithToken(apiToken),
-	)
+// allPages returns items plus the items of every page after resp, so a
+// listing can be written allPages(client.XAPI.ListX(ctx).Execute()).
+func allPages[T any](items []T, resp *okta.APIResponse, err error) ([]T, error) {
 	if err != nil {
-		return ctx, nil, err
+		return nil, err
 	}
-
-	apiSupplementClient := &sdk.APISupplement{
-		RequestExecutor: client.CloneRequestExecutor(),
+	for resp != nil && resp.HasNextPage() {
+		var next []T
+		resp, err = resp.Next(&next)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, next...)
 	}
-
-	return ctx, apiSupplementClient, nil
+	return items, nil
 }

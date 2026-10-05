@@ -16,21 +16,20 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type GroupGenerator struct {
 	OktaService
 }
 
-func (g GroupGenerator) createResources(groupList []*okta.Group) []terraformutils.Resource {
+func (g GroupGenerator) createResources(groupList []okta.Group) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, group := range groupList {
 
 		resources = append(resources, terraformutils.NewSimpleResource(
-			group.Id,
-			"group_"+group.Profile.Name,
+			group.GetId(),
+			"group_"+group.Profile.GetName(),
 			"okta_group",
 			"okta"))
 	}
@@ -43,16 +42,9 @@ func (g *GroupGenerator) InitResources() error {
 		return e
 	}
 
-	filter := query.NewQueryParams(query.WithFilter("type eq \"OKTA_GROUP\""))
-	output, resp, err := client.Group.ListGroups(ctx, filter)
+	output, err := allPages(client.GroupAPI.ListGroups(ctx).Filter("type eq \"OKTA_GROUP\"").Execute())
 	if err != nil {
-		return e
-	}
-
-	for resp.HasNextPage() {
-		var nextGroupSet []*okta.Group
-		resp, _ = resp.Next(ctx, &nextGroupSet)
-		output = append(output, nextGroupSet...)
+		return err
 	}
 
 	g.Resources = g.createResources(output)

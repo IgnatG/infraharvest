@@ -16,16 +16,20 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type AppUserSchemaPropertyGenerator struct {
 	OktaService
 }
 
-func (g AppUserSchemaPropertyGenerator) createResources(appUserSchema *okta.UserSchema, appID string) []terraformutils.Resource {
+func (g AppUserSchemaPropertyGenerator) createResources(appUserSchema *okta.UserSchema, appID string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	for index := range appUserSchema.Definitions.Custom.Properties {
+	custom, base, err := userSchemaPropertyNames(appUserSchema)
+	if err != nil {
+		return nil, err
+	}
+	for _, index := range custom {
 		resources = append(resources, terraformutils.NewResource(
 			index,
 			normalizeResourceName(appID)+"_property_"+normalizeResourceName(index),
@@ -37,7 +41,7 @@ func (g AppUserSchemaPropertyGenerator) createResources(appUserSchema *okta.User
 			}))
 	}
 
-	for index := range appUserSchema.Definitions.Base.Properties {
+	for _, index := range base {
 		resources = append(resources, terraformutils.NewResource(
 			index,
 			normalizeResourceName(appID)+"_property_"+normalizeResourceName(index),
@@ -48,7 +52,7 @@ func (g AppUserSchemaPropertyGenerator) createResources(appUserSchema *okta.User
 				"index":  index,
 			}))
 	}
-	return resources
+	return resources, nil
 }
 
 func (g *AppUserSchemaPropertyGenerator) InitResources() error {
@@ -64,12 +68,16 @@ func (g *AppUserSchemaPropertyGenerator) InitResources() error {
 	}
 
 	for _, app := range apps {
-		appUserSchema, _, err := client.UserSchema.GetApplicationUserSchema(ctx, app.Id)
+		appUserSchema, _, err := client.SchemaAPI.GetApplicationUserSchema(ctx, app.ID).Execute()
 		if err != nil {
 			return err
 		}
 
-		resources = append(resources, g.createResources(appUserSchema, app.Id)...)
+		appResources, err := g.createResources(appUserSchema, app.ID)
+		if err != nil {
+			return err
+		}
+		resources = append(resources, appResources...)
 	}
 	g.Resources = resources
 	return nil

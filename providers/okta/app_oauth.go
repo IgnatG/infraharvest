@@ -42,7 +42,7 @@ func (g *AppOAuthGenerator) createResources(appList []okta.ListApplications200Re
 }
 
 func (g *AppOAuthGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}

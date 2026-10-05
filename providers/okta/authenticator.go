@@ -65,7 +65,7 @@ func (g AuthenticatorGenerator) createResources(authenticators []okta.ListAuthen
 }
 
 func (g *AuthenticatorGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}

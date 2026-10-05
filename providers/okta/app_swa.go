@@ -40,7 +40,7 @@ func (g *AppSWAGenerator) createResources(appList []okta.ListApplications200Resp
 }
 
 func (g *AppSWAGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}
