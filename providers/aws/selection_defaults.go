@@ -24,12 +24,14 @@ const (
 	reasonDefaultNACL     = "default network ACL, which AWS creates with every VPC"
 	reasonServiceLinked   = "service-linked role, which AWS manages for a service"
 	reasonLambdaLogGroups = "log group Lambda creates for a function"
+	reasonCreatedByAWS    = "created by AWS for the account, such as a default event bus or workgroup"
 )
 
 // ExcludedByDefault names the resources the default selection leaves out,
 // by "type id", with the reason: resources AWS creates and manages itself,
 // such as the default VPC and its subnets, default security groups and
-// network ACLs, service-linked roles, and Lambda's log groups.
+// network ACLs, service-linked roles, Lambda's log groups, and the
+// defaults of services listed through Cloud Control.
 func (p *AWSProvider) ExcludedByDefault(ctx context.Context, resources []terraformutils.Resource) (map[string]string, error) {
 	excluded := map[string]string{}
 	network := false
@@ -42,6 +44,8 @@ func (p *AWSProvider) ExcludedByDefault(ctx context.Context, resources []terrafo
 			excluded[typ+" "+id] = reasonServiceLinked
 		case typ == "aws_cloudwatch_log_group" && strings.HasPrefix(id, "/aws/lambda/"):
 			excluded[typ+" "+id] = reasonLambdaLogGroups
+		case createdByAWS(typ, id):
+			excluded[typ+" "+id] = reasonCreatedByAWS
 		case typ == "aws_vpc", typ == "aws_subnet", typ == "aws_security_group", typ == "aws_security_group_rule",
 			typ == "aws_route_table", typ == "aws_internet_gateway":
 			network = true
@@ -77,6 +81,13 @@ func (p *AWSProvider) ExcludedByDefault(ctx context.Context, resources []terrafo
 		}
 	}
 	return excluded, err
+}
+
+// createdByAWS reports whether AWS created a resource listed through Cloud
+// Control for the account (see cloudControlType.CreatedByAWS).
+func createdByAWS(typ, id string) bool {
+	t, ok := cloudControlTypeOf(typ)
+	return ok && t.CreatedByAWS != nil && t.CreatedByAWS(id)
 }
 
 // defaultNetwork is what AWS creates on its own: default VPCs, their
