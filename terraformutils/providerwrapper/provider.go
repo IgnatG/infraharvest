@@ -192,7 +192,7 @@ func (p *ProviderWrapper) readObjBlocks(block map[string]*configschema.NestedBlo
 				}
 			}
 		}
-		if fieldCount == len(v.Block.Attributes) && fieldCount > 0 && len(v.BlockTypes) == 0 {
+		if fieldCount == len(v.Attributes) && fieldCount > 0 && len(v.BlockTypes) == 0 {
 			readOnlyAttributes = append(readOnlyAttributes, "^"+k)
 		}
 	}

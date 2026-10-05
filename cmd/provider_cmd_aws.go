@@ -33,7 +33,7 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 		Use:   "aws",
 		Short: "Import current state to Terraform configuration from AWS",
 		Long:  "Import current state to Terraform configuration from AWS",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
@@ -168,11 +168,12 @@ func groupAWSResources(options ImportOptions) (global, eastOnly, regional []stri
 func parseAndGroupResources(allResources []string) ([]string, []string, []string) {
 	var globalResources, eastOnlyResources, regionalResources []string
 	for _, resourceName := range allResources {
-		if contains(awsterraformer.SupportedGlobalResources, resourceName) {
+		switch {
+		case contains(awsterraformer.SupportedGlobalResources, resourceName):
 			globalResources = append(globalResources, resourceName)
-		} else if contains(awsterraformer.SupportedEastOnlyResources, resourceName) {
+		case contains(awsterraformer.SupportedEastOnlyResources, resourceName):
 			eastOnlyResources = append(eastOnlyResources, resourceName)
-		} else {
+		default:
 			regionalResources = append(regionalResources, resourceName)
 		}
 	}

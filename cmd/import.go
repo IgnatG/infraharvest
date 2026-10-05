@@ -522,7 +522,7 @@ func listCmd(provider terraformutils.ProviderGenerator) *cobra.Command {
 		Use:   "list",
 		Short: "List supported resources for " + provider.GetName() + " provider",
 		Long:  "List supported resources for " + provider.GetName() + " provider",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			services := providerServices(provider)
 			for _, k := range services {
 				fmt.Println(k)

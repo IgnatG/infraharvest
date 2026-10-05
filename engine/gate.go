@@ -524,7 +524,7 @@ func nondeterministicCalls(rel, content string) []string {
 		return nil
 	}
 	calls := map[string]bool{}
-	hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+	_ = hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
 		if call, ok := node.(*hclsyntax.FunctionCallExpr); ok && nondeterministic[call.Name] {
 			calls[call.Name] = true
 		}
