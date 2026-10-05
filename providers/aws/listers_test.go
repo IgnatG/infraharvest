@@ -35,21 +35,6 @@ func TestEbsReturnsDescribeInstancesError(t *testing.T) {
 
 // Reading a SecureString parameter decrypts it, which the read-only role
 // cannot do, so the lister leaves those out.
-func TestSsmSkipsSecureStrings(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
-		if call.Op != "DescribeParameters" {
-			t.Fatalf("unexpected call %s", call.Op)
-		}
-		return `{"Parameters":[{"Name":"/app/endpoint","Type":"String"},{"Name":"/app/password","Type":"SecureString"},{"Name":"/app/hosts","Type":"StringList"}]}`
-	})
-	g := &SsmGenerator{}
-
-	if err := g.InitResources(); err != nil {
-		t.Fatal(err)
-	}
-
-	assertIDs(t, g.Resources, "aws_ssm_parameter", "/app/endpoint", "/app/hosts")
-}
 
 // serveWafv2Associations answers the WAFv2 listers with one web ACL whose
 // association listing returns associations for load balancers and

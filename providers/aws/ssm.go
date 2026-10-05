@@ -15,12 +15,9 @@
 package aws
 
 import (
-	"log"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
 
 var ssmAllowEmptyValues = []string{"tags."}
@@ -42,12 +39,6 @@ func (g *SsmGenerator) InitResources() error {
 			return err
 		}
 		for _, parameter := range page.Parameters {
-			if parameter.Type == types.ParameterTypeSecureString {
-				// Reading a SecureString decrypts it, which needs kms:Decrypt,
-				// a data read the shipped read-only role denies.
-				log.Printf("skipping SSM parameter %s: SecureString parameters are not imported, reading one decrypts its value", StringValue(parameter.Name))
-				continue
-			}
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				StringValue(parameter.Name),
 				StringValue(parameter.Name),
