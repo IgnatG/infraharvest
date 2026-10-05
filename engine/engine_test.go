@@ -225,15 +225,18 @@ func (f *fakeTerraform) ProvidersSchema(context.Context) (*tfjson.ProviderSchema
 
 func (f *fakeTerraform) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.Plan, error) {
 	f.calls = append(f.calls, "show")
-	p := f.shown
 	if len(f.showns) > 0 {
-		p = f.showns[0]
+		p := f.showns[0]
 		f.showns = f.showns[1:]
+		if p == nil {
+			return nil, nil // a plan that reports nothing
+		}
+		return f.withImports(p)
 	}
-	if p == nil {
-		p = &tfjson.Plan{}
+	if f.shown == nil {
+		return f.withImports(&tfjson.Plan{})
 	}
-	return f.withImports(p)
+	return f.withImports(f.shown)
 }
 
 // withImports makes p consistent with the configuration's import blocks,

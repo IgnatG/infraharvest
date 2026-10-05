@@ -189,6 +189,11 @@ func TestScanNondeterminism(t *testing.T) {
 
 func TestRunGate(t *testing.T) {
 	dir := t.TempDir()
+	writeConfig(t, dir, ImportsFileName, `import {
+  to = aws_vpc.main
+  id = "vpc-1"
+}
+`)
 	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
