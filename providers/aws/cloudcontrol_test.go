@@ -101,6 +101,7 @@ func TestCloudControlName(t *testing.T) {
 }
 
 func TestExcludedByDefaultCreatedByAWS(t *testing.T) {
+	useFakeAPI(t, func(apiCall) string { return noStacks })
 	p := &AWSProvider{}
 	excluded, err := p.ExcludedByDefault(t.Context(), []terraformutils.Resource{
 		terraformutils.NewSimpleResource("default", "default", "aws_cloudwatch_event_bus", "aws"),

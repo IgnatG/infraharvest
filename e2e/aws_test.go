@@ -200,6 +200,9 @@ func TestAWSRoundTrip(t *testing.T) {
 	}
 	seeded := map[string]int{}
 	for _, r := range state {
+		if r.Type == "aws_cloudformation_stack" {
+			continue // it only owns a bucket, which discover leaves out
+		}
 		seeded[r.Type]++
 	}
 	for _, typ := range sortedKeys(seeded) {
@@ -605,6 +608,19 @@ func discoverAWS(ctx context.Context, t *testing.T, created []*tfjson.StateResou
 				t.Errorf("discover excludes %s %s, which the test created: %s", r.Type, id, listed.Reason)
 			}
 		}
+	}
+	// The bucket a CloudFormation stack owns is left out, naming the stack.
+	cfnBucket := false
+	for _, r := range f.Resources {
+		if r.Type == "aws_s3_bucket" && r.ID == "infraharvest-e2e-cfn-assets" {
+			cfnBucket = true
+			if r.Include || !strings.Contains(r.Reason, "CloudFormation stack infraharvest-e2e-app") {
+				t.Errorf("the bucket of a CloudFormation stack: include=%v %q", r.Include, r.Reason)
+			}
+		}
+	}
+	if !cfnBucket {
+		t.Error("discover didn't list the bucket of the CloudFormation stack")
 	}
 	if excluded == 0 {
 		t.Error("discover excluded nothing, though the emulator's default VPC exists")

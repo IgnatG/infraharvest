@@ -450,3 +450,17 @@ resource "aws_ebs_volume" "data" {
   type              = "gp3"
   tags              = local.tags
 }
+
+# A bucket a CloudFormation stack owns: discover leaves it out by default,
+# naming the stack.
+resource "aws_cloudformation_stack" "app" {
+  name = "${local.name}-app"
+  template_body = jsonencode({
+    Resources = {
+      Assets = {
+        Type       = "AWS::S3::Bucket"
+        Properties = { BucketName = "${local.name}-cfn-assets" }
+      }
+    }
+  })
+}
