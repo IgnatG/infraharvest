@@ -20,6 +20,7 @@ func newDiscoverCmd() *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.PersistentFlags().String("config", "", "configuration file, which sets flags not given on the command line")
+	cmd.PersistentFlags().Bool("pick", true, "open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick)")
 	for _, subcommand := range providerImporterSubcommands() {
 		providerCommand := subcommand(options)
 		providerCommand.Short = "List " + providerCommand.Name() + " resources into a selection file"
