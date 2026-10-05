@@ -18,19 +18,19 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type AppSecurePasswordStoreGenerator struct {
 	OktaService
 }
 
-func (g AppSecurePasswordStoreGenerator) createResources(appList []*okta.Application) []terraformutils.Resource {
+func (g AppSecurePasswordStoreGenerator) createResources(appList []oktaApp) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, app := range appList {
 		resources = append(resources, terraformutils.NewSimpleResource(
-			app.Id,
-			normalizeResourceName(app.Id+"_"+app.Name),
+			app.ID,
+			normalizeResourceName(app.ID+"_"+app.Name),
 			"okta_app_secure_password_store",
 			"okta"))
 	}
@@ -52,7 +52,7 @@ func (g *AppSecurePasswordStoreGenerator) InitResources() error {
 	return nil
 }
 
-func getSecurePasswordStoreApplications(ctx context.Context, client *okta.Client) ([]*okta.Application, error) {
+func getSecurePasswordStoreApplications(ctx context.Context, client *okta.APIClient) ([]oktaApp, error) {
 	signOnMode := "SECURE_PASSWORD_STORE"
 	apps, err := getApplications(ctx, client, signOnMode)
 	if err != nil {

@@ -45,7 +45,7 @@ func (g AppSignOnPolicyGenerator) createResources(policies []okta.ListPolicies20
 }
 
 func (g *AppSignOnPolicyGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}

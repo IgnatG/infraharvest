@@ -49,7 +49,7 @@ func (g AppSignOnPolicyRuleGenerator) createResources(signOnPolicyRuleList []okt
 }
 
 func (g *AppSignOnPolicyRuleGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}

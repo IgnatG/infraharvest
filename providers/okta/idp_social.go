@@ -18,20 +18,19 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type IdpSocialGenerator struct {
 	OktaService
 }
 
-func (g IdpSocialGenerator) createResources(idpSocialList []*okta.IdentityProvider) []terraformutils.Resource {
+func (g IdpSocialGenerator) createResources(idpSocialList []okta.IdentityProvider) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, idp := range idpSocialList {
 		resources = append(resources, terraformutils.NewSimpleResource(
-			idp.Id,
-			"idp_"+normalizeResourceName(idp.Type+"_"+idp.Name),
+			idp.GetId(),
+			"idp_"+normalizeResourceName(idp.GetType()+"_"+idp.GetName()),
 			"okta_idp_social",
 			"okta"))
 
@@ -55,21 +54,14 @@ func (g *IdpSocialGenerator) InitResources() error {
 	return nil
 }
 
-func getIdpSocials(ctx context.Context, client *okta.Client) ([]*okta.IdentityProvider, error) {
+func getIdpSocials(ctx context.Context, client *okta.APIClient) ([]okta.IdentityProvider, error) {
 	idpSocialTypes := []string{"APPLE", "FACEBOOK", "GOOGLE", "LINKEDIN", "MICROSOFT"}
-	var allIDPSocials []*okta.IdentityProvider
+	var allIDPSocials []okta.IdentityProvider
 
 	for _, idpSocialType := range idpSocialTypes {
-		qp := &query.Params{Type: idpSocialType, Limit: 1}
-		output, resp, err := client.IdentityProvider.ListIdentityProviders(ctx, qp)
+		output, err := listIdentityProviders(ctx, client, idpSocialType)
 		if err != nil {
 			return nil, err
-		}
-
-		for resp.HasNextPage() {
-			var nextIdpSocialSet []*okta.IdentityProvider
-			resp, _ = resp.Next(ctx, &nextIdpSocialSet)
-			output = append(output, nextIdpSocialSet...)
 		}
 
 		allIDPSocials = append(allIDPSocials, output...)

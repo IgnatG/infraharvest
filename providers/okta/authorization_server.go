@@ -18,24 +18,24 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type AuthorizationServerGenerator struct {
 	OktaService
 }
 
-func (g AuthorizationServerGenerator) createResources(authorizationServerList []*okta.AuthorizationServer) []terraformutils.Resource {
+func (g AuthorizationServerGenerator) createResources(authorizationServerList []okta.AuthorizationServer) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, authorizationServer := range authorizationServerList {
 		resourceType := "okta_auth_server"
-		if authorizationServer.Name == "default" {
+		if authorizationServer.GetName() == "default" {
 			resourceType = "okta_auth_server_default"
 		}
 
 		resources = append(resources, terraformutils.NewSimpleResource(
-			authorizationServer.Id,
-			"auth_server_"+authorizationServer.Name,
+			authorizationServer.GetId(),
+			"auth_server_"+authorizationServer.GetName(),
 			resourceType,
 			"okta"))
 	}
@@ -50,24 +50,22 @@ func (g *AuthorizationServerGenerator) InitResources() error {
 
 	output, err := getAuthorizationServers(ctx, client)
 	if err != nil {
-		return e
+		return err
 	}
 
 	g.Resources = g.createResources(output)
 	return nil
 }
 
-func getAuthorizationServers(ctx context.Context, client *okta.Client) ([]*okta.AuthorizationServer, error) {
-	output, resp, err := client.AuthorizationServer.ListAuthorizationServers(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
+func getAuthorizationServers(ctx context.Context, client *okta.APIClient) ([]okta.AuthorizationServer, error) {
+	return allPages(client.AuthorizationServerAPI.ListAuthorizationServers(ctx).Execute())
+}
 
-	for resp.HasNextPage() {
-		var nextAuthorizationServerSet []*okta.AuthorizationServer
-		resp, _ = resp.Next(ctx, &nextAuthorizationServerSet)
-		output = append(output, nextAuthorizationServerSet...)
-	}
-
-	return output, nil
+// authorizationServerPolicyIDName returns the ID and name of an authorization
+// server policy. The SDK's AuthorizationServerPolicy model only declares the
+// conditions, so the rest of the policy is in AdditionalProperties.
+func authorizationServerPolicyIDName(policy okta.AuthorizationServerPolicy) (id, name string) {
+	id, _ = policy.AdditionalProperties["id"].(string)
+	name, _ = policy.AdditionalProperties["name"].(string)
+	return id, name
 }

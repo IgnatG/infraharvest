@@ -16,20 +16,20 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type EventHookGenerator struct {
 	OktaService
 }
 
-func (g EventHookGenerator) createResources(eventHookList []*okta.EventHook) []terraformutils.Resource {
+func (g EventHookGenerator) createResources(eventHookList []okta.EventHook) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, eventHook := range eventHookList {
 
 		resources = append(resources, terraformutils.NewSimpleResource(
-			eventHook.Id,
-			"event_hook_"+eventHook.Name,
+			eventHook.GetId(),
+			"event_hook_"+eventHook.GetName(),
 			"okta_event_hook",
 			"okta"))
 	}
@@ -42,15 +42,9 @@ func (g *EventHookGenerator) InitResources() error {
 		return e
 	}
 
-	output, resp, err := client.EventHook.ListEventHooks(ctx)
+	output, err := allPages(client.EventHookAPI.ListEventHooks(ctx).Execute())
 	if err != nil {
-		return e
-	}
-
-	for resp.HasNextPage() {
-		var nextEventHookSet []*okta.EventHook
-		resp, _ = resp.Next(ctx, &nextEventHookSet)
-		output = append(output, nextEventHookSet...)
+		return err
 	}
 
 	g.Resources = g.createResources(output)

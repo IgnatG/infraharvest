@@ -65,7 +65,7 @@ func (g *NetworkZoneGenerator) createResources(networkZoneList []okta.ListNetwor
 }
 
 func (g *NetworkZoneGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return fmt.Errorf("failed to create Okta client: %w", err)
 	}

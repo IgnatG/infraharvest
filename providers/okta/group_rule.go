@@ -16,20 +16,20 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type GroupRuleGenerator struct {
 	OktaService
 }
 
-func (g GroupRuleGenerator) createResources(groupRuleList []*okta.GroupRule) []terraformutils.Resource {
+func (g GroupRuleGenerator) createResources(groupRuleList []okta.GroupRule) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, groupRule := range groupRuleList {
 
 		resources = append(resources, terraformutils.NewSimpleResource(
-			groupRule.Id,
-			"grouprule_"+groupRule.Name,
+			groupRule.GetId(),
+			"grouprule_"+groupRule.GetName(),
 			"okta_group_rule",
 			"okta"))
 	}
@@ -42,15 +42,9 @@ func (g *GroupRuleGenerator) InitResources() error {
 		return e
 	}
 
-	output, resp, err := client.Group.ListGroupRules(ctx, nil)
+	output, err := allPages(client.GroupAPI.ListGroupRules(ctx).Execute())
 	if err != nil {
-		return e
-	}
-
-	for resp.HasNextPage() {
-		var nextGroupRuleSet []*okta.GroupRule
-		resp, _ = resp.Next(ctx, &nextGroupRuleSet)
-		output = append(output, nextGroupRuleSet...)
+		return err
 	}
 
 	g.Resources = g.createResources(output)

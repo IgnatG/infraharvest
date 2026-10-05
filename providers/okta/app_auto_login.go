@@ -18,19 +18,19 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type AppAutoLoginGenerator struct {
 	OktaService
 }
 
-func (g AppAutoLoginGenerator) createResources(appList []*okta.Application) []terraformutils.Resource {
+func (g AppAutoLoginGenerator) createResources(appList []oktaApp) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, app := range appList {
 		resources = append(resources, terraformutils.NewSimpleResource(
-			app.Id,
-			normalizeResourceName(app.Id+"_"+app.Name),
+			app.ID,
+			normalizeResourceName(app.ID+"_"+app.Name),
 			"okta_app_auto_login",
 			"okta"))
 	}
@@ -52,7 +52,7 @@ func (g *AppAutoLoginGenerator) InitResources() error {
 	return nil
 }
 
-func getAutoLoginApplications(ctx context.Context, client *okta.Client) ([]*okta.Application, error) {
+func getAutoLoginApplications(ctx context.Context, client *okta.APIClient) ([]oktaApp, error) {
 	signOnMode := "AUTO_LOGIN"
 	apps, err := getApplications(ctx, client, signOnMode)
 	if err != nil {

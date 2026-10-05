@@ -48,7 +48,7 @@ func (g *AppSamlGenerator) createResources(appList []okta.ListApplications200Res
 }
 
 func (g *AppSamlGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}

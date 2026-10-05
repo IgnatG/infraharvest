@@ -18,20 +18,19 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type IdpOIDCGenerator struct {
 	OktaService
 }
 
-func (g IdpOIDCGenerator) createResources(idpOIDCList []*okta.IdentityProvider) []terraformutils.Resource {
+func (g IdpOIDCGenerator) createResources(idpOIDCList []okta.IdentityProvider) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, idp := range idpOIDCList {
 		resources = append(resources, terraformutils.NewSimpleResource(
-			idp.Id,
-			"idp_"+normalizeResourceName(idp.Type+"_"+idp.Name),
+			idp.GetId(),
+			"idp_"+normalizeResourceName(idp.GetType()+"_"+idp.GetName()),
 			"okta_idp_oidc",
 			"okta"))
 
@@ -54,18 +53,11 @@ func (g *IdpOIDCGenerator) InitResources() error {
 	return nil
 }
 
-func getIdpOIDC(ctx context.Context, client *okta.Client) ([]*okta.IdentityProvider, error) {
-	qp := &query.Params{Type: "OIDC", Limit: 1}
-	output, resp, err := client.IdentityProvider.ListIdentityProviders(ctx, qp)
-	if err != nil {
-		return nil, err
-	}
+func getIdpOIDC(ctx context.Context, client *okta.APIClient) ([]okta.IdentityProvider, error) {
+	return listIdentityProviders(ctx, client, "OIDC")
+}
 
-	for resp.HasNextPage() {
-		var nextIdpOIDCSet []*okta.IdentityProvider
-		resp, _ = resp.Next(ctx, &nextIdpOIDCSet)
-		output = append(output, nextIdpOIDCSet...)
-	}
-
-	return output, nil
+// listIdentityProviders returns every identity provider of idpType.
+func listIdentityProviders(ctx context.Context, client *okta.APIClient, idpType string) ([]okta.IdentityProvider, error) {
+	return allPages(client.IdentityProviderAPI.ListIdentityProviders(ctx).Type_(idpType).Execute())
 }

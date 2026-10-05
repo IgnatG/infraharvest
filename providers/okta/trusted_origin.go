@@ -16,20 +16,20 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type TrustedOriginGenerator struct {
 	OktaService
 }
 
-func (g TrustedOriginGenerator) createResources(trustedOriginList []*okta.TrustedOrigin) []terraformutils.Resource {
+func (g TrustedOriginGenerator) createResources(trustedOriginList []okta.TrustedOrigin) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, trustedOrigin := range trustedOriginList {
 
 		resources = append(resources, terraformutils.NewSimpleResource(
-			trustedOrigin.Id,
-			"trusted_origin_"+trustedOrigin.Id,
+			trustedOrigin.GetId(),
+			"trusted_origin_"+trustedOrigin.GetId(),
 			"okta_trusted_origin",
 			"okta"))
 	}
@@ -42,15 +42,9 @@ func (g *TrustedOriginGenerator) InitResources() error {
 		return e
 	}
 
-	output, resp, err := client.TrustedOrigin.ListOrigins(ctx, nil)
+	output, err := allPages(client.TrustedOriginAPI.ListTrustedOrigins(ctx).Execute())
 	if err != nil {
-		return e
-	}
-
-	for resp.HasNextPage() {
-		var nextTrustedOriginSet []*okta.TrustedOrigin
-		resp, _ = resp.Next(ctx, &nextTrustedOriginSet)
-		output = append(output, nextTrustedOriginSet...)
+		return err
 	}
 
 	g.Resources = g.createResources(output)

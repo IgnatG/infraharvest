@@ -16,61 +16,79 @@ package okta
 
 import (
 	"context"
-	"log"
 
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
-// NOTE: Okta SDK v2.6.1 ListApplications() method does not support applications by type at this time. So
-//
-//	we have to create the application filter by our self.
-func getApplications(ctx context.Context, client *okta.Client, signOnMode string) ([]*okta.Application, error) {
-	supportedApps, err := getAllApplications(ctx, client)
-	if err != nil {
-		return nil, err
-	}
-
-	var filterApps []*okta.Application
-	for _, app := range supportedApps {
-		if app.SignOnMode == signOnMode {
-			filterApps = append(filterApps, app)
-		}
-	}
-	return filterApps, nil
+// oktaApp is what the app listers need of an application, whatever its
+// sign-on mode.
+type oktaApp struct {
+	ID         string
+	Name       string
+	SignOnMode string
 }
 
-func getAllApplications(ctx context.Context, client *okta.Client) ([]*okta.Application, error) {
-	var apps []*okta.Application
-	data, resp, err := client.Application.ListApplications(ctx, nil)
+// unsupportedAppNames are app names the Okta Terraform provider cannot manage.
+var unsupportedAppNames = map[string]bool{
+	"template_wsfed":        true,
+	"template_swa_two_page": true,
+	"okta_enduser":          true,
+	"okta_browser_plugin":   true,
+	"saasure":               true,
+}
+
+// getApplications returns the supported applications with signOnMode. The
+// applications API filters by name or status, not by sign-on mode, so the
+// filter is applied here.
+func getApplications(ctx context.Context, client *okta.APIClient, signOnMode string) ([]oktaApp, error) {
+	apps, err := getAllApplications(ctx, client)
 	if err != nil {
 		return nil, err
 	}
+	return appsWithSignOnMode(apps, signOnMode), nil
+}
 
-	for resp.HasNextPage() {
-		var nextAppSet []*okta.Application
-		resp, err = resp.Next(ctx, &nextAppSet)
-		if err != nil {
-			log.Println("fff")
-			return nil, err
-		}
-		apps = append(apps, nextAppSet...)
-	}
-	for _, a := range data {
-		apps = append(apps, a.(*okta.Application))
-	}
-
-	var supportedApps []*okta.Application
+func appsWithSignOnMode(apps []oktaApp, signOnMode string) []oktaApp {
+	var filtered []oktaApp
 	for _, app := range apps {
-		//NOTE: Okta provider does not support the following app type/name
-		if app.Name == "template_wsfed" ||
-			app.Name == "template_swa_two_page" ||
-			app.Name == "okta_enduser" ||
-			app.Name == "okta_browser_plugin" ||
-			app.Name == "saasure" {
+		if app.SignOnMode == signOnMode {
+			filtered = append(filtered, app)
+		}
+	}
+	return filtered
+}
+
+// getAllApplications returns every application the Okta provider supports.
+func getAllApplications(ctx context.Context, client *okta.APIClient) ([]oktaApp, error) {
+	apps, err := allPages(client.ApplicationAPI.ListApplications(ctx).Execute())
+	if err != nil {
+		return nil, err
+	}
+	return supportedApps(apps), nil
+}
+
+func supportedApps(apps []okta.ListApplications200ResponseInner) []oktaApp {
+	var supported []oktaApp
+	for i := range apps {
+		app, ok := toOktaApp(&apps[i])
+		if !ok || unsupportedAppNames[app.Name] {
 			continue
 		}
-		supportedApps = append(supportedApps, app)
+		supported = append(supported, app)
 	}
+	return supported
+}
 
-	return supportedApps, nil
+// toOktaApp reads the common fields of the application in the list item,
+// whichever sign-on mode schema it was decoded as.
+func toOktaApp(item *okta.ListApplications200ResponseInner) (oktaApp, bool) {
+	app, ok := item.GetActualInstance().(interface {
+		GetId() string
+		GetName() string
+		GetSignOnMode() string
+	})
+	if !ok {
+		return oktaApp{}, false
+	}
+	return oktaApp{ID: app.GetId(), Name: app.GetName(), SignOnMode: app.GetSignOnMode()}, true
 }

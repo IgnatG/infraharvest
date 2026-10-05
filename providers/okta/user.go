@@ -36,20 +36,14 @@ func (g UserGenerator) createResources(userList []okta.User) []terraformutils.Re
 }
 
 func (g *UserGenerator) InitResources() error {
-	ctx, client, err := g.ClientV5()
+	ctx, client, err := g.Client()
 	if err != nil {
 		return err
 	}
 
-	output, resp, err := client.UserAPI.ListUsers(ctx).Execute()
+	output, err := allPages(client.UserAPI.ListUsers(ctx).Execute())
 	if err != nil {
 		return err
-	}
-
-	for resp.HasNextPage() {
-		var nextUserSet []okta.User
-		resp, _ = resp.Next(&nextUserSet)
-		output = append(output, nextUserSet...)
 	}
 
 	g.Resources = g.createResources(output)

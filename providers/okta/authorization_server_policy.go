@@ -16,20 +16,21 @@ package okta
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 )
 
 type AuthorizationServerPolicyGenerator struct {
 	OktaService
 }
 
-func (g AuthorizationServerPolicyGenerator) createResources(authorizationServerPolicyList []*okta.AuthorizationServerPolicy, authorizationServerID string, authorizationServerName string) []terraformutils.Resource {
+func (g AuthorizationServerPolicyGenerator) createResources(authorizationServerPolicyList []okta.AuthorizationServerPolicy, authorizationServerID string, authorizationServerName string) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 
 	for _, authorizationServerPolicy := range authorizationServerPolicyList {
+		policyID, policyName := authorizationServerPolicyIDName(authorizationServerPolicy)
 		resources = append(resources, terraformutils.NewResource(
-			authorizationServerPolicy.Id,
-			normalizeResourceName("auth_server_"+authorizationServerName+"_policy_"+authorizationServerPolicy.Name),
+			policyID,
+			normalizeResourceName("auth_server_"+authorizationServerName+"_policy_"+policyName),
 			"okta_auth_server_policy",
 			"okta",
 			map[string]string{
@@ -52,12 +53,12 @@ func (g *AuthorizationServerPolicyGenerator) InitResources() error {
 	}
 
 	for _, authorizationServer := range authorizationServers {
-		output, _, err := client.AuthorizationServer.ListAuthorizationServerPolicies(ctx, authorizationServer.Id)
+		output, err := allPages(client.AuthorizationServerPoliciesAPI.ListAuthorizationServerPolicies(ctx, authorizationServer.GetId()).Execute())
 		if err != nil {
 			return err
 		}
 
-		resources = append(resources, g.createResources(output, authorizationServer.Id, authorizationServer.Name)...)
+		resources = append(resources, g.createResources(output, authorizationServer.GetId(), authorizationServer.GetName())...)
 	}
 
 	g.Resources = resources
