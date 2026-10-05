@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/IBM/go-sdk-core/v4/core"
+	"github.com/IBM/go-sdk-core/v5/core"
 	dlProviderV2 "github.com/IBM/networking-go-sdk/directlinkproviderv2"
 	dl "github.com/IBM/networking-go-sdk/directlinkv1"
 	"github.com/IgnatG/infraharvest/terraformutils"

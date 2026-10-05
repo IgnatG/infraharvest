@@ -20,7 +20,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/IBM/go-sdk-core/v4/core"
+	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )

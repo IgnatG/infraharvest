@@ -24,7 +24,7 @@ import (
 	"github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	"github.com/IBM/go-sdk-core/v3/core"
+	"github.com/IBM/go-sdk-core/v5/core"
 )
 
 type SatelliteControlPlaneGenerator struct {

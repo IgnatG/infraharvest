@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // GKE support
 )
 
 type KubernetesProvider struct { //nolint
