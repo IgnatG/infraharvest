@@ -104,7 +104,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		run.used = true
 		run.options = options
 		run.failures = append(run.failures, failures...)
-		run.addDiscovered(listed, defaults, importIDFunc(provider))
+		run.addDiscovered(listed, defaults, discoveryScope(ctx, provider), importIDFunc(provider))
 		return nil
 	}
 	chosen, err := run.selectionFile(options.Selection)

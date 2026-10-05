@@ -37,6 +37,9 @@ type engineRun struct {
 	listed []selection.Resource
 	// backend is the state backend of the generated roots, if configured.
 	backend *config.Backend
+	// openPicker opens the picker on the selection file discover writes,
+	// when run in a terminal (see pick).
+	openPicker bool
 	used    bool
 }
 
@@ -55,6 +58,9 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 		run := newEngineRun()
 		if err := run.applyConfig(c); err != nil {
 			return err
+		}
+		if f := c.Flag("pick"); f != nil {
+			run.openPicker = f.Value.String() == "true"
 		}
 		activeRun = run
 		defer func() { activeRun = nil }()
@@ -96,6 +102,11 @@ func (r *engineRun) finish(err error) error {
 		}
 		if err != nil {
 			return err
+		}
+		if r.openPicker && interactive() {
+			if err := pick(r.selectionPath()); err != nil {
+				return err
+			}
 		}
 		return checkFailures(r.failures, r.options.AllowPartial)
 	}

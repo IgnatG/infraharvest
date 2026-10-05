@@ -118,9 +118,9 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 }
 
 // addDiscovered adds the listed resources Terraform can import to the
-// selection file discover writes, included unless the provider's defaults
-// exclude them.
-func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, defaults map[string]string, importID func(terraformutils.Resource) (string, bool)) {
+// selection file discover writes, in scope (see discoveryScope), included
+// unless the provider's defaults exclude them.
+func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, defaults map[string]string, scope string, importID func(terraformutils.Resource) (string, bool)) {
 	for _, resources := range listed {
 		for _, res := range resources {
 			id, importable := importID(res)
@@ -132,6 +132,7 @@ func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, d
 				Type:    res.InstanceInfo.Type,
 				ID:      id,
 				Name:    listedName(res.ResourceName),
+				Scope:   scope,
 				Include: reason == "",
 				Reason:  reason,
 			})
@@ -139,12 +140,17 @@ func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, d
 	}
 }
 
+// selectionPath is the selection file discover writes.
+func (r *engineRun) selectionPath() string {
+	if r.options.Selection == "" {
+		return DefaultSelectionFile
+	}
+	return r.options.Selection
+}
+
 // writeSelection writes what discover listed.
 func (r *engineRun) writeSelection() error {
-	path := r.options.Selection
-	if path == "" {
-		path = DefaultSelectionFile
-	}
+	path := r.selectionPath()
 	f, err := selection.Load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -208,4 +214,20 @@ func excludeManaged(ctx context.Context, run *engineRun, sources []string, liste
 		}
 	}
 	return defaults, nil
+}
+
+// discoveryScope names where provider lists, as the roots are laid out:
+// provider, account and region (aws/123456789012/eu-west-2), or "" if the
+// provider can't say.
+func discoveryScope(ctx context.Context, provider terraformutils.ProviderGenerator) string {
+	withScope, ok := provider.(terraformutils.ProviderWithScope)
+	if !ok {
+		return ""
+	}
+	account, region, err := withScope.Scope(ctx)
+	if err != nil {
+		log.Printf("%s: the selection file won't say which account and region the resources are in: %v", provider.GetName(), err)
+		return ""
+	}
+	return provider.GetName() + "/" + account + "/" + region
 }

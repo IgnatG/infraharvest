@@ -103,7 +103,7 @@ func TestDiscoverWritesSelection(t *testing.T) {
 	run := newEngineRun()
 	run.options = ImportOptions{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
-	run.addDiscovered(listedForSelection, defaultsForSelection, importIDForSelection)
+	run.addDiscovered(listedForSelection, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
 	if err := run.writeSelection(); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +120,11 @@ func TestDiscoverWritesSelection(t *testing.T) {
 	}
 	if d := f.Decide("aws_vpc", "vpc-0abc1234", ""); !d.Include {
 		t.Errorf("own VPC: %+v", d)
+	}
+	for _, r := range f.Resources {
+		if r.Scope != "aws/123456789012/eu-west-2" {
+			t.Errorf("%s %s: scope %q", r.Type, r.ID, r.Scope)
+		}
 	}
 }
 
@@ -151,7 +156,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	first := newEngineRun()
 	first.options = ImportOptions{Discover: true, Selection: path}
-	first.addDiscovered(listedForSelection, defaultsForSelection, importIDForSelection)
+	first.addDiscovered(listedForSelection, defaultsForSelection, "", importIDForSelection)
 	if err := first.writeSelection(); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +182,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 			terraformutils.NewSimpleResource("new-logs", "new-logs", "aws_s3_bucket", "aws", nil),
 		},
 	}
-	again.addDiscovered(listed, defaultsForSelection, importIDForSelection)
+	again.addDiscovered(listed, defaultsForSelection, "", importIDForSelection)
 	if err := again.writeSelection(); err != nil {
 		t.Fatal(err)
 	}

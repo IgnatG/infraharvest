@@ -76,9 +76,12 @@ func (p *Patterns) UnmarshalYAML(node *yaml.Node) error {
 
 // Resource is a listed resource and whether to import it.
 type Resource struct {
-	Type    string `yaml:"type"`
-	ID      string `yaml:"id"`
-	Name    string `yaml:"name,omitempty"`
+	Type string `yaml:"type"`
+	ID   string `yaml:"id"`
+	Name string `yaml:"name,omitempty"`
+	// Scope is where discover listed it: provider, account and region, as
+	// the root it is imported into is laid out (aws/123456789012/eu-west-2).
+	Scope   string `yaml:"scope,omitempty"`
 	Include bool   `yaml:"include"`
 	// Reason says why the default rules exclude the resource.
 	Reason string `yaml:"reason,omitempty"`
@@ -255,6 +258,8 @@ func (f *File) Merge(listed []Resource) (added, dropped int) {
 		keep[key] = true
 		if r, ok := f.byKey[key]; ok {
 			merged = append(merged, *r)
+			// Where it is listed is discover's to say.
+			merged[len(merged)-1].Scope = l.Scope
 			continue
 		}
 		if l.Include {
