@@ -250,7 +250,7 @@ func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) []*tf
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := engine.NewTerraform(dir, execPath, pluginCache)
+	tf, err := engine.NewTerraform(dir, execPath, pluginCache, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func generatedDirs(t *testing.T, out string) []string {
 // imports.
 func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCache string, vars []tfexec.PlanOption) map[string]int {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, pluginCache)
+	tf, err := engine.NewTerraform(dir, execPath, pluginCache, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

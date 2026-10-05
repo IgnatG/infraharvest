@@ -54,7 +54,7 @@ func TestAddToRootFailsEveryImportOnACheckpointError(t *testing.T) {
 	r := &engineRun{options: ImportOptions{PathOutput: out}}
 	imports := []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}}
 
-	failed, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, "", "")
+	failed, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 
 	if err == nil || result != nil || holds != nil {
 		t.Fatalf("want the checkpoint error, got result=%v holds=%v err=%v", result, holds, err)

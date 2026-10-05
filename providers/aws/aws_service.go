@@ -42,6 +42,9 @@ type configKey struct{ region, profile, roleARN string }
 var (
 	configsMu sync.Mutex
 	configs   = map[configKey]aws.Config{}
+	// baseCredentials are the credentials each configuration started from,
+	// before assuming a role: Terraform's (see AWSProvider.TerraformEnv).
+	baseCredentials = map[configKey]aws.CredentialsProvider{}
 	// testConfig, when set, is returned for every region and profile.
 	testConfig *aws.Config
 )
@@ -68,22 +71,10 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 		baseConfig.ClientLogMode = aws.LogRequest | aws.LogResponse | aws.LogRetries
 	}
 
-	creds, e := baseConfig.Credentials.Retrieve(s.Context())
-
-	if e != nil {
+	if _, e := baseConfig.Credentials.Retrieve(s.Context()); e != nil {
 		return baseConfig, e
 	}
-
-	// terraform cannot ask for MFA token, so we need to pass STS session token, which might contain credentials with MFA requirement
-	accessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	if accessKey == "" {
-		os.Setenv("AWS_ACCESS_KEY_ID", creds.AccessKeyID)
-		os.Setenv("AWS_SECRET_ACCESS_KEY", creds.SecretAccessKey)
-
-		if creds.SessionToken != "" {
-			os.Setenv("AWS_SESSION_TOKEN", creds.SessionToken)
-		}
-	}
+	baseCredentials[key] = baseConfig.Credentials
 	// The base credentials go to Terraform, whose provider block assumes the
 	// role itself (see GetProviderData).
 	if roleARN != "" {
@@ -107,8 +98,10 @@ func (s *AWSService) buildBaseConfig() (aws.Config, error) {
 	if profile := s.GetArgs()["profile"].(string); profile != "" && profile != "default" {
 		loadOptions = append(loadOptions, config.WithSharedConfigProfile(profile))
 	}
-	if s.GetArgs()["region"].(string) != "" {
-		os.Setenv("AWS_REGION", s.GetArgs()["region"].(string))
+	// Per configuration, not through AWS_REGION: several regions can list
+	// in one process.
+	if region := s.GetArgs()["region"].(string); region != "" {
+		loadOptions = append(loadOptions, config.WithRegion(region))
 	}
 	loadOptions = append(loadOptions, config.WithAssumeRoleCredentialOptions(func(options *stscreds.AssumeRoleOptions) {
 		options.TokenProvider = stscreds.StdinTokenProvider
@@ -132,4 +125,22 @@ func (s *AWSService) getAccountNumber(config aws.Config) (*string, error) {
 		return nil, err
 	}
 	return identity.Account, nil
+}
+
+// baseCredentials returns the credentials the service's configuration
+// started from, before assuming a role, refreshed if they expired.
+func (s *AWSService) baseCredentials() (aws.Credentials, error) {
+	cfg, err := s.generateConfig()
+	if err != nil {
+		return aws.Credentials{}, err
+	}
+	provider := cfg.Credentials
+	if testConfig == nil {
+		roleARN, _ := s.GetArgs()["role_arn"].(string)
+		key := configKey{region: s.GetArgs()["region"].(string), profile: s.GetArgs()["profile"].(string), roleARN: roleARN}
+		configsMu.Lock()
+		provider = baseCredentials[key]
+		configsMu.Unlock()
+	}
+	return provider.Retrieve(s.Context())
 }

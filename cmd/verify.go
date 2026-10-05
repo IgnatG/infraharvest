@@ -91,7 +91,7 @@ func verifyOutput(ctx context.Context, out, engineName, terraformPath, format st
 			providerOpts := engineOptions(provider, &rootFiles{})
 			opts.Omit, opts.StateOnly = providerOpts.Omit, providerOpts.StateOnly
 		}
-		tf, err := engine.NewTerraform(dir, execPath, filepath.Join(cacheDir, "plugins"))
+		tf, err := engine.NewTerraform(dir, execPath, filepath.Join(cacheDir, "plugins"), nil)
 		if err != nil {
 			return err
 		}

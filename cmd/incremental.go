@@ -32,7 +32,7 @@ const InRootReason = "already in the root"
 // result is set if nothing is new. On an error, the resources returned
 // are those the error failed: every one of imports until it knows which
 // are new.
-func (r *engineRun) addToRoot(ctx context.Context, dir string, imports []engine.Import, opts engine.Options, execPath, pluginCacheDir string) ([]engine.Import, *engine.Result, *engine.Result, error) {
+func (r *engineRun) addToRoot(ctx context.Context, dir string, imports []engine.Import, opts engine.Options, tr terraformRun) ([]engine.Import, *engine.Result, *engine.Result, error) {
 	out := r.options.PathOutput
 	previous, err := checkpointResult(out, dir)
 	if err != nil {
@@ -59,7 +59,7 @@ func (r *engineRun) addToRoot(ctx context.Context, dir string, imports []engine.
 	}
 	log.Printf("adding %d new resources to %s (--incremental)", len(added), dir)
 	staging := stagingDir(out, dir)
-	tf, err := engine.NewTerraform(staging, execPath, pluginCacheDir)
+	tf, err := tr.in(staging)
 	if err != nil {
 		return added, nil, nil, err
 	}
@@ -73,7 +73,7 @@ func (r *engineRun) addToRoot(ctx context.Context, dir string, imports []engine.
 			return added, nil, nil, err
 		}
 	}
-	rootTF, err := engine.NewTerraform(dir, execPath, pluginCacheDir)
+	rootTF, err := tr.in(dir)
 	if err != nil {
 		return added, nil, nil, err
 	}

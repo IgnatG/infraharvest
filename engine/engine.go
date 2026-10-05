@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,8 +55,10 @@ type Terraform interface {
 }
 
 // NewTerraform returns a Terraform runner for dir that shares downloaded
-// providers through pluginCacheDir. It creates both directories.
-func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, error) {
+// providers through pluginCacheDir, with env on top of the process's
+// environment, such as the credentials the provider resolved. It creates
+// both directories.
+func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (*tfexec.Terraform, error) {
 	for _, d := range []string{dir, pluginCacheDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
@@ -67,9 +70,11 @@ func NewTerraform(dir, execPath, pluginCacheDir string) (*tfexec.Terraform, erro
 	}
 	// SetEnv replaces the inherited environment and rejects variables that
 	// tfexec manages itself (TF_LOG, TF_CLI_ARGS, ...), so drop those.
-	env := tfexec.CleanEnv(environ())
-	env["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
-	if err := tf.SetEnv(env); err != nil {
+	all := environ()
+	maps.Copy(all, env)
+	all = tfexec.CleanEnv(all)
+	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
+	if err := tf.SetEnv(all); err != nil {
 		return nil, err
 	}
 	return tf, nil

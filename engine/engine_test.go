@@ -358,7 +358,7 @@ func TestNewTerraformCreatesDirs(t *testing.T) {
 	dir := filepath.Join(base, "generated", "aws", "sqs")
 	cache := filepath.Join(base, "cache", "plugins")
 
-	if _, err := NewTerraform(dir, os.Args[0], cache); err != nil {
+	if _, err := NewTerraform(dir, os.Args[0], cache, nil); err != nil {
 		t.Fatal(err)
 	}
 
