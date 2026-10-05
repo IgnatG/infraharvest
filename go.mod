@@ -398,6 +398,7 @@ require (
 	github.com/go-openapi/swag v0.19.14 // indirect
 	github.com/go-playground/validator/v10 v10.19.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
+	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/google/gnostic v0.5.7-v3refs // indirect
 	github.com/google/go-github/v45 v45.2.0 // indirect
@@ -493,3 +494,9 @@ replace gopkg.in/jarcoal/httpmock.v1 => github.com/jarcoal/httpmock v1.0.5
 replace gopkg.in/ns1/ns1-go.v2 => github.com/ns1/ns1-go/v2 v2.6.5
 
 replace github.com/tencentcloud/tencentcloud-sdk-go => github.com/tencentcloud/tencentcloud-sdk-go v1.0.392
+
+// dgrijalva/jwt-go is unmaintained and has no fix for GHSA-w73w-5m7g-f7qc;
+// golang-jwt/jwt v3.2.1 is its maintained fork with the fix, same API (v3.2.2
+// is in the graph under its own path, and one version can't serve both).
+// Azure go-autorest (Track 1) and the IBM SDK still require it.
+replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
