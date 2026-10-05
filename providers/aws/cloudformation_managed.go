@@ -65,7 +65,7 @@ func (p *AWSProvider) cloudFormationManaged(ctx context.Context, config aws.Conf
 // stackResources adds the physical IDs of the resources of every live
 // stack to managed, nested stacks included.
 func stackResources(ctx context.Context, svc *cloudformation.Client, managed map[string]string) error {
-	stacks := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses})
+	stacks := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)
 	for stacks.HasMorePages() {
 		page, err := stacks.NextPage(ctx)
 		if err != nil {
@@ -73,7 +73,7 @@ func stackResources(ctx context.Context, svc *cloudformation.Client, managed map
 		}
 		for _, s := range page.StackSummaries {
 			name := aws.ToString(s.StackName)
-			resources := cloudformation.NewListStackResourcesPaginator(svc, &cloudformation.ListStackResourcesInput{StackName: s.StackId})
+			resources := cloudformation.NewListStackResourcesPaginator(svc, &cloudformation.ListStackResourcesInput{StackName: s.StackId}, stopOnDuplicateToken)
 			for resources.HasMorePages() {
 				page, err := resources.NextPage(ctx)
 				if err != nil {
