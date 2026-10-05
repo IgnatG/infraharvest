@@ -2,6 +2,12 @@ name: release-check
 
 # Builds a snapshot release, as the release workflow would but without
 # signing or publishing, and smoke-tests the binary and the image.
+#
+# Compiling one target of this module takes about five minutes, so a pull
+# request builds only linux/amd64, the target the smoke tests run, with a
+# build cache from main. Every target is built when a pull request changes
+# .goreleaser.yaml, once a week, and on demand; the release workflow builds
+# them all again from a clean cache.
 on:
   pull_request:
     paths:
@@ -10,10 +16,33 @@ on:
       - .github/workflows/release*.yaml
       - cmd/version.go
       - install.sh
+  push:
+    # Keeps the build cache pull requests restore current.
+    branches: [main]
+    paths:
+      - .goreleaser.yaml
+      - Dockerfile
+      - .github/workflows/release*.yaml
+      - cmd/version.go
+      - install.sh
+      - go.mod
+      - go.sum
+  schedule:
+    - cron: "43 5 * * 1"
   workflow_dispatch:
+    inputs:
+      all-targets:
+        description: Build every target, not only linux/amd64
+        type: boolean
+        default: true
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-check-${{ github.ref }}
+  # A newer push to a pull request makes the running check moot.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   snapshot:
@@ -31,6 +60,44 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # The shared cache holds test builds, which a -trimpath release
+          # build can't reuse; this job restores its own below.
+          cache: false
+      - name: Choose the targets
+        id: targets
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ALL_TARGETS: ${{ inputs.all-targets }}
+        run: |
+          all=false
+          case "$EVENT" in
+            schedule) all=true ;;
+            workflow_dispatch) all="$ALL_TARGETS" ;;
+            pull_request)
+              if git diff --name-only "$BASE_SHA" HEAD | grep -qx .goreleaser.yaml; then
+                all=true
+              fi
+              ;;
+          esac
+          config=.goreleaser.yaml
+          if [ "$all" != true ]; then
+            config="$RUNNER_TEMP/goreleaser-linux-amd64.yaml"
+            yq '.builds[].goos = ["linux"] | .builds[].goarch = ["amd64"] | .dockers_v2[].platforms = ["linux/amd64"]' .goreleaser.yaml > "$config"
+          fi
+          echo "all=$all" >> "$GITHUB_OUTPUT"
+          echo "config=$config" >> "$GITHUB_OUTPUT"
+          echo "Every target: $all"
+      - name: Restore the build cache
+        id: cache
+        if: steps.targets.outputs.all != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: release-check-linux-amd64-${{ hashFiles('go.sum') }}
+          restore-keys: release-check-linux-amd64-
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
@@ -42,14 +109,25 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.18.2
-          args: release --snapshot --clean --skip=sign --parallelism=1
+          args: release --snapshot --clean --skip=sign --parallelism=1 --config=${{ steps.targets.outputs.config }}
+      - name: Save the build cache
+        # Only main saves, so that pull requests share one cache.
+        if: github.event_name == 'push' && steps.targets.outputs.all != 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: release-check-linux-amd64-${{ hashFiles('go.sum') }}
       - name: Smoke-test the binary
         run: |
-          ls dist/*.tar.gz dist/*.zip dist/*_SHA256SUMS dist/*.sbom.json
+          ls dist/*.tar.gz dist/*_SHA256SUMS dist/*.sbom.json
           dist/infraharvest_linux_amd64_v1/infraharvest version
       - name: Smoke-test the image
         run: |
-          image=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}' | grep amd64 | head -n 1)
+          images=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}')
+          image=$(printf '%s\n' "$images" | grep amd64 | head -n 1 || true)
+          [ -n "$image" ] || image=$(printf '%s\n' "$images" | head -n 1)
           test -n "$image"
           docker run --rm "$image" version
           docker run --rm --entrypoint terraform "$image" version
