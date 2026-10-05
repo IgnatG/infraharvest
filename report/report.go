@@ -82,6 +82,15 @@ type Coverage struct {
 	Excluded    []Excluded    `json:"excluded,omitempty"`
 	Failures    []string      `json:"failures,omitempty"`
 	Totals      CoverageTotal `json:"totals"`
+	// Scopes count by provider, account and region (see AddDiscovered),
+	// such as aws/123456789012/eu-west-2.
+	Scopes []ScopeCount `json:"scopes,omitempty"`
+}
+
+// ScopeCount counts the resources of one scope.
+type ScopeCount struct {
+	Scope string `json:"scope"`
+	CoverageTotal
 }
 
 // TypeCount counts the resources of one type.
@@ -102,12 +111,17 @@ type CoverageTotal struct {
 	Failed     int `json:"failed"`
 	// Managed counts the excluded resources Terraform already manages.
 	Managed int `json:"managed,omitempty"`
+	// OtherTool counts the excluded resources another tool manages, such as
+	// CloudFormation (see OtherToolPrefix).
+	OtherTool int `json:"other_tool,omitempty"`
 }
 
 // Directory is one output directory.
 type Directory struct {
 	// Path is relative to the output directory, with forward slashes.
-	Path     string     `json:"path"`
+	Path string `json:"path"`
+	// Scope is where its resources were listed (see Coverage.Scopes).
+	Scope    string     `json:"scope,omitempty"`
 	Imported []Resource `json:"imported"`
 	LeftOut  []LeftOut  `json:"left_out,omitempty"`
 	Secrets  []Secret   `json:"secrets,omitempty"`
@@ -165,6 +179,7 @@ type Excluded struct {
 	Type   string `json:"type"`
 	ID     string `json:"id"`
 	Reason string `json:"reason"`
+	Scope  string `json:"scope,omitempty"`
 }
 
 // Skipped counts resources of a type infraharvest doesn't import.
@@ -172,6 +187,24 @@ type Skipped struct {
 	Type   string `json:"type"`
 	Count  int    `json:"count"`
 	Reason string `json:"reason"`
+}
+
+// OtherToolPrefix starts the reason of an exclusion for a resource another
+// infrastructure-as-code tool manages, such as "managed by CloudFormation
+// stack app".
+const OtherToolPrefix = "managed by "
+
+// AddDiscovered counts n resources listed in scope (see Coverage.Scopes).
+// Finish counts what became of them from the directories and exclusions
+// that name the scope.
+func (r *Report) AddDiscovered(scope string, n int) {
+	for i := range r.Scopes {
+		if r.Scopes[i].Scope == scope {
+			r.Scopes[i].Discovered += n
+			return
+		}
+	}
+	r.Scopes = append(r.Scopes, ScopeCount{Scope: scope, CoverageTotal: CoverageTotal{Discovered: n}})
 }
 
 // Finish sorts the report, counts it, and sets the exit code. discovered
@@ -205,11 +238,31 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	for _, s := range r.Skipped {
 		count(s.Type).Skipped += s.Count
 	}
+	byScope := map[string]*CoverageTotal{}
+	for _, s := range r.Scopes {
+		byScope[s.Scope] = &CoverageTotal{Discovered: s.Discovered}
+	}
+	inScope := func(scope string, add func(*CoverageTotal)) {
+		if c, ok := byScope[scope]; ok {
+			add(c)
+		}
+	}
 	for _, e := range r.Excluded {
 		count(e.Type).Excluded++
 		if strings.HasPrefix(e.Reason, managed.Reason) {
 			count(e.Type).Managed++
+		} else if strings.HasPrefix(e.Reason, OtherToolPrefix) {
+			count(e.Type).OtherTool++
 		}
+		inScope(e.Scope, func(c *CoverageTotal) {
+			c.Excluded++
+			switch {
+			case strings.HasPrefix(e.Reason, managed.Reason):
+				c.Managed++
+			case strings.HasPrefix(e.Reason, OtherToolPrefix):
+				c.OtherTool++
+			}
+		})
 	}
 	for i := range r.Directories {
 		d := &r.Directories[i]
@@ -221,6 +274,10 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		for _, res := range d.LeftOut {
 			count(resourceType(res.Address)).LeftOut++
 		}
+		inScope(d.Scope, func(c *CoverageTotal) {
+			c.Imported += len(d.Imported)
+			c.LeftOut += len(d.LeftOut)
+		})
 	}
 	types := make([]string, 0, len(byType))
 	for t := range byType {
@@ -239,7 +296,12 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		r.Totals.Excluded += c.Excluded
 		r.Totals.Failed += c.Failed
 		r.Totals.Managed += c.Managed
+		r.Totals.OtherTool += c.OtherTool
 	}
+	for i := range r.Scopes {
+		r.Scopes[i].CoverageTotal = *byScope[r.Scopes[i].Scope]
+	}
+	sort.Slice(r.Scopes, func(i, j int) bool { return r.Scopes[i].Scope < r.Scopes[j].Scope })
 
 	switch {
 	case !r.Incomplete():
@@ -347,10 +409,18 @@ func (r *Report) Markdown() string {
 			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.Excluded, c.LeftOut, c.Skipped, c.Failed)
 		}
 	}
-	if r.Totals.Managed > 0 {
-		b.WriteString("\n## Managed and unmanaged\n\nThe state read with --managed-state already manages these resources, so the import left them out. The rest of what was discovered isn't under Terraform yet.\n\n| Type | Discovered | Already managed | Not managed |\n|---|---|---|---|\n")
+	if r.Totals.Managed > 0 || r.Totals.OtherTool > 0 {
+		b.WriteString("\n## Managed and unmanaged\n\nTerraform already manages some of what was discovered, according to the state read with --managed-state, and other tools, such as CloudFormation, manage some more: the import left those out. The rest isn't under infrastructure as code yet.\n\n")
+		if len(r.Scopes) > 1 {
+			b.WriteString("| Account and region | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
+			for _, s := range r.Scopes {
+				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Discovered-s.Managed-s.OtherTool)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("| Type | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
 		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.Discovered-c.Managed)
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Discovered-c.Managed-c.OtherTool)
 		}
 	}
 

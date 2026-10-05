@@ -96,6 +96,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		return err
 	}
 	scope := discoveryScope(ctx, provider)
+	run.scope = scope
 	if options.Discover {
 		run.used = true
 		run.options = options
@@ -156,8 +157,14 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	for typ, n := range skipped {
 		run.skipped[typ] += n
 	}
+	// What the selection left out, and what it keeps with their children.
+	counted := len(leftOut)
 	for typ, n := range discoveredByType(resourcesByService) {
 		run.discovered[typ] += n
+		counted += n
+	}
+	if scope != "" {
+		run.report.AddDiscovered(scope, counted)
 	}
 
 	dirs := make([]string, 0, len(byDir))
@@ -258,7 +265,7 @@ func engineOptions(provider terraformutils.ProviderGenerator, root *rootFiles) e
 
 // addDirectory records what Generate did in dir, or err if it failed.
 func (r *engineRun) addDirectory(dir string, imports []engine.Import, result *engine.Result, err error) {
-	reported := report.Directory{Path: relativePath(r.options.PathOutput, dir)}
+	reported := report.Directory{Path: relativePath(r.options.PathOutput, dir), Scope: r.scope}
 	if err != nil {
 		r.failures = append(r.failures, fmt.Errorf("%s: %w", dir, err))
 		reported.Error = err.Error()
