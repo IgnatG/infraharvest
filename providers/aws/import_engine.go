@@ -70,6 +70,7 @@ func (AWSProvider) DefaultTags() (attribute, block, reservedPrefix string) {
 func (AWSProvider) StateOnlyArguments() map[string][]string {
 	return map[string][]string{
 		"aws_ecs_service":           {"wait_for_steady_state"},
+		"aws_iam_role":              {"force_detach_policies"},
 		"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
 		"aws_secretsmanager_secret": {"force_overwrite_replica_secret", "recovery_window_in_days"},
 	}

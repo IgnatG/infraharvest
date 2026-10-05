@@ -398,6 +398,45 @@ resource "aws_iam_role_policy" "workflow" {
   })
 }
 
+# A role shaped like the iam-role module's: an inline policy and an
+# instance profile named after it, and an attached policy.
+resource "aws_iam_role" "ci" {
+  name = "${local.name}-ci"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy" "ci" {
+  name = aws_iam_role.ci.name
+  role = aws_iam_role.ci.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "s3:GetObject"
+      Resource = "${aws_s3_bucket.artifacts.arn}/*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ci" {
+  role       = aws_iam_role.ci.name
+  policy_arn = aws_iam_policy.app.arn
+}
+
+resource "aws_iam_instance_profile" "ci" {
+  name = aws_iam_role.ci.name
+  role = aws_iam_role.ci.name
+  tags = local.tags
+}
+
 resource "aws_sfn_state_machine" "workflow" {
   name     = "${local.name}-workflow"
   role_arn = aws_iam_role.workflow.arn

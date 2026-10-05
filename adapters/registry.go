@@ -8,7 +8,7 @@ import "sort"
 // byProvider has each provider's adapters, in the order the engine tries
 // them.
 var byProvider = map[string][]Adapter{
-	"aws": {S3Bucket},
+	"aws": {S3Bucket, IAMRole},
 }
 
 // For returns the adapters for a provider's resources, in the order the
