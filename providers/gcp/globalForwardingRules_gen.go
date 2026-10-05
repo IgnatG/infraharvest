@@ -54,8 +54,8 @@ func (g GlobalForwardingRulesGenerator) createResources(ctx context.Context, glo
 // from each globalForwardingRules create 1 TerraformResource
 // Need globalForwardingRules name as ID for terraform resource
 func (g *GlobalForwardingRulesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

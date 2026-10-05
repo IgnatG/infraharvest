@@ -55,8 +55,8 @@ func (g RoutersGenerator) createResources(ctx context.Context, routersList *comp
 // from each routers create 1 TerraformResource
 // Need routers name as ID for terraform resource
 func (g *RoutersGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

@@ -15,8 +15,6 @@
 package gcp
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	sqladmin "google.golang.org/api/sqladmin/v1beta4"
@@ -75,8 +73,8 @@ func (g *CloudSQLGenerator) loadDBs(svc *sqladmin.Service, instanceName, project
 // Need dbinstance name as ID for terraform resource
 func (g *CloudSQLGenerator) InitResources() error {
 	project := g.GetArgs()["project"].(string)
-	ctx := context.Background()
-	svc, err := sqladmin.NewService(ctx)
+	ctx := g.Context()
+	svc, err := sqladmin.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

@@ -55,8 +55,8 @@ func (g RegionInstanceGroupManagersGenerator) createResources(ctx context.Contex
 // from each regionInstanceGroupManagers create 1 TerraformResource
 // Need regionInstanceGroupManagers name as ID for terraform resource
 func (g *RegionInstanceGroupManagersGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

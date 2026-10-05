@@ -32,3 +32,21 @@ Not covered yet:
 - **Lambda functions in general:** the generated configuration can't include the function code, so it doesn't validate until you add the package.
 
 An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so this doesn't replace a check against a real account.
+
+## GCP (floci-gcp)
+
+[`TestGCPRoundTrip`](gcp_test.go) uses [floci-gcp](https://github.com/floci-io/floci-gcp), the GCP member of the same emulator family:
+
+1. Terraform creates the resources in [`testdata/gcp`](testdata/gcp/main.tf) in floci-gcp: a VPC network with a subnetwork and a firewall rule, a Cloud Storage bucket, and a Pub/Sub topic with a subscription.
+2. `infraharvest import google --all` imports them.
+3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
+
+```sh
+docker compose -f e2e/compose.yaml --profile gcp up -d floci-gcp
+INFRAHARVEST_GCP_ENDPOINT=http://localhost:4588 go test -tags e2e,minimal,google -run TestGCP -v ./e2e/
+docker compose -f e2e/compose.yaml --profile gcp down
+```
+
+`INFRAHARVEST_GCP_ENDPOINT` sends the listers' Google API calls to the emulator, without credentials. The test points the Terraform provider there through its `GOOGLE_*_CUSTOM_ENDPOINT` variables, with a placeholder access token. It refuses any endpoint other than localhost.
+
+Not covered yet: the listers that use gRPC clients (IAM, Cloud Tasks, Cloud Build, Logging). floci-gcp serves IAM over REST only.

@@ -55,8 +55,8 @@ func (g ResourcePoliciesGenerator) createResources(ctx context.Context, resource
 // from each resourcePolicies create 1 TerraformResource
 // Need resourcePolicies name as ID for terraform resource
 func (g *ResourcePoliciesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

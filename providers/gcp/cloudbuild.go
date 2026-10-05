@@ -1,8 +1,6 @@
 package gcp
 
 import (
-	"context"
-
 	cloudbuild "cloud.google.com/go/cloudbuild/apiv1"
 	pb "google.golang.org/genproto/googleapis/devtools/cloudbuild/v1"
 
@@ -17,9 +15,9 @@ type CloudBuildGenerator struct {
 
 // InitResources generates TerraformResources from GCP API.
 func (g *CloudBuildGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 
-	c, err := cloudbuild.NewClient(ctx)
+	c, err := cloudbuild.NewClient(ctx, grpcClientOptions()...)
 	if err != nil {
 		return err
 	}

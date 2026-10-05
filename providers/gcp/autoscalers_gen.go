@@ -57,8 +57,8 @@ func (g AutoscalersGenerator) createResources(ctx context.Context, autoscalersLi
 // from each autoscalers create 1 TerraformResource
 // Need autoscalers name as ID for terraform resource
 func (g *AutoscalersGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

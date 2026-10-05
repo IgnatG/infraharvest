@@ -55,8 +55,8 @@ func (g BackendBucketsGenerator) createResources(ctx context.Context, backendBuc
 // from each backendBuckets create 1 TerraformResource
 // Need backendBuckets name as ID for terraform resource
 func (g *BackendBucketsGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

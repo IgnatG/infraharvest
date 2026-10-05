@@ -55,8 +55,8 @@ func (g AddressesGenerator) createResources(ctx context.Context, addressesList *
 // from each addresses create 1 TerraformResource
 // Need addresses name as ID for terraform resource
 func (g *AddressesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

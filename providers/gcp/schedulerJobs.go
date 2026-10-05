@@ -56,8 +56,8 @@ func (g SchedulerJobsGenerator) createResources(ctx context.Context, jobsList *c
 
 // Generate TerraformResources from GCP API,
 func (g *SchedulerJobsGenerator) InitResources() error {
-	ctx := context.Background()
-	cloudSchedulerService, err := cloudscheduler.NewService(ctx)
+	ctx := g.Context()
+	cloudSchedulerService, err := cloudscheduler.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

@@ -55,8 +55,8 @@ func (g TargetHttpsProxiesGenerator) createResources(ctx context.Context, target
 // from each targetHttpsProxies create 1 TerraformResource
 // Need targetHttpsProxies name as ID for terraform resource
 func (g *TargetHttpsProxiesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

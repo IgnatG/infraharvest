@@ -82,8 +82,8 @@ func (g DataprocGenerator) createJobResources(jobList *dataproc.ProjectsRegionsJ
 // from each DataprocGenerator create 1 TerraformResource
 // Need DataprocGenerator name as ID for terraform resource
 func (g *DataprocGenerator) InitResources() error {
-	ctx := context.Background()
-	dataprocService, err := dataproc.NewService(ctx)
+	ctx := g.Context()
+	dataprocService, err := dataproc.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

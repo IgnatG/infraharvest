@@ -57,8 +57,8 @@ func (g ReservationsGenerator) createResources(ctx context.Context, reservations
 // from each reservations create 1 TerraformResource
 // Need reservations name as ID for terraform resource
 func (g *ReservationsGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

@@ -55,8 +55,8 @@ func (g *CloudTaskGenerator) loadCloudTaskQueues(ctx context.Context, client *cl
 // Generate TerraformResources from GCP API,
 // from each cloud task queue create 1 TerraformResource
 func (g *CloudTaskGenerator) InitResources() error {
-	ctx := context.Background()
-	client, err := cloudtasks.NewClient(ctx)
+	ctx := g.Context()
+	client, err := cloudtasks.NewClient(ctx, grpcClientOptions()...)
 	if err != nil {
 		return err
 	}

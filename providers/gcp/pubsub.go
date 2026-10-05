@@ -78,8 +78,8 @@ func (g PubsubGenerator) createTopicsListResources(ctx context.Context, topicsLi
 
 // Generate TerraformResources from GCP API,
 func (g *PubsubGenerator) InitResources() error {
-	ctx := context.Background()
-	pubsubService, err := pubsub.NewService(ctx)
+	ctx := g.Context()
+	pubsubService, err := pubsub.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ package gcp
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -31,22 +31,23 @@ type GCPProvider struct { //nolint
 	providerType string
 }
 
-func getRegion(project, regionName string) *compute.Region {
+// getRegion looks up a region and its zones, which the zonal listers list
+// in; nothing for global. A region it can't look up fails, rather than
+// leave the zonal listers nothing to list.
+func getRegion(project, regionName string) (*compute.Region, error) {
 	if regionName == "global" {
-		return &compute.Region{}
+		return &compute.Region{}, nil
 	}
-	computeService, err := compute.NewService(context.Background())
+	ctx := context.Background()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
-		log.Println(err)
-		return &compute.Region{}
+		return nil, err
 	}
-	regionsGetCall := computeService.Regions.Get(project, regionName).Fields("name", "zones")
-	region, err := regionsGetCall.Do()
+	region, err := computeService.Regions.Get(project, regionName).Fields("name", "zones").Context(ctx).Do()
 	if err != nil {
-		log.Println(err)
-		return &compute.Region{}
+		return nil, fmt.Errorf("region %s of project %s: %w", regionName, project, err)
 	}
-	return region
+	return region, nil
 }
 
 // check projectName in env params
@@ -59,7 +60,11 @@ func (p *GCPProvider) Init(args []string) error {
 		return errors.New("google cloud project name must be set")
 	}
 	p.projectName = projectName
-	p.region = *getRegion(projectName, args[0])
+	region, err := getRegion(projectName, args[0])
+	if err != nil {
+		return err
+	}
+	p.region = *region
 	p.providerType = args[2]
 	return nil
 }
@@ -89,7 +94,7 @@ func (p *GCPProvider) InitService(serviceName string, verbose bool) error {
 
 // GetGCPSupportService return map of support service for GCP
 func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
-	services := ComputeServices
+	services := computeServices()
 	services["bigQuery"] = &BigQueryGenerator{}
 	services["cloudFunctions"] = &CloudFunctionsGenerator{}
 	services["cloudsql"] = &CloudSQLGenerator{}

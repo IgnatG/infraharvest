@@ -15,7 +15,6 @@
 package gcp
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -73,8 +72,8 @@ func (g *GkeGenerator) initNodePools(nodePools []*container.NodePool, clusterNam
 
 // Generate TerraformResources from GCP API,
 func (g *GkeGenerator) InitResources() error {
-	ctx := context.Background()
-	service, err := container.NewService(ctx)
+	ctx := g.Context()
+	service, err := container.NewService(ctx, clientOptions()...)
 	if err != nil {
 		log.Print(err)
 		return err

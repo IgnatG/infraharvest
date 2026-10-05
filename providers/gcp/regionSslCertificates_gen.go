@@ -55,8 +55,8 @@ func (g RegionSslCertificatesGenerator) createResources(ctx context.Context, reg
 // from each regionSslCertificates create 1 TerraformResource
 // Need regionSslCertificates name as ID for terraform resource
 func (g *RegionSslCertificatesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

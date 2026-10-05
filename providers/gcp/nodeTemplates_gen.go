@@ -55,8 +55,8 @@ func (g NodeTemplatesGenerator) createResources(ctx context.Context, nodeTemplat
 // from each nodeTemplates create 1 TerraformResource
 // Need nodeTemplates name as ID for terraform resource
 func (g *NodeTemplatesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}
