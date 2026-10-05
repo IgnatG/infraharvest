@@ -72,8 +72,6 @@ func (g {{.titleResourceName}}Generator) createResources(ctx context.Context, {{
 					"project": g.GetArgs()["project"].(string),
 					{{ if .needRegion}}"region":  g.GetArgs()["region"].(compute.Region).Name,{{end}}
 					{{ if .byZone  }}"zone":    zone,{{end}}
-					{{ range $key, $value := .additionalFieldsForRefresh}}
-					"{{$key}}":			"{{$value}}",{{end}}
 				},
 			))
 		}
@@ -135,7 +133,7 @@ import (
 // Map of supported GCP compute service with code generate
 var ComputeServices = map[string]terraformutils.ServiceGenerator{
 {{ range $key, $value := .services }}
-	"{{$key}}":                   &GCPFacade{service: &{{title $key}}Generator{}},{{ end }}
+	"{{$key}}":                   &{{title $key}}Generator{},{{ end }}
 
 }
 
@@ -152,7 +150,7 @@ func main() {
 		log.Fatal(err)
 	}
 	funcMap := template.FuncMap{
-		"title":   strings.Title,
+		"title":   upperFirst,
 		"toLower": strings.ToLower,
 		"join":    strings.Join,
 	}
@@ -176,16 +174,15 @@ func main() {
 			var tpl bytes.Buffer
 			t := template.Must(template.New("resource.go").Funcs(funcMap).Parse(serviceTemplate))
 			err := t.Execute(&tpl, map[string]interface{}{
-				"titleResourceName":          strings.Title(resource),
-				"resource":                   resource,
-				"responseName":               value.(map[string]interface{})["response"].(map[string]interface{})["$ref"].(string),
-				"terraformName":              terraformResources[resource].getTerraformName(),
-				"additionalFieldsForRefresh": terraformResources[resource].getAdditionalFieldsForRefresh(),
-				"needRegion":                 terraformResources[resource].ifNeedRegion(),
-				"resourcePackageName":        resource,
-				"parameterOrder":             parameterOrder,
-				"byZone":                     terraformResources[resource].ifNeedZone(strings.Contains(parameterOrder, "zone")),
-				"idWithZone":                 terraformResources[resource].ifIDWithZone(strings.Contains(parameterOrder, "zone")),
+				"titleResourceName":   upperFirst(resource),
+				"resource":            resource,
+				"responseName":        value.(map[string]interface{})["response"].(map[string]interface{})["$ref"].(string),
+				"terraformName":       terraformResources[resource].getTerraformName(),
+				"needRegion":          terraformResources[resource].ifNeedRegion(),
+				"resourcePackageName": resource,
+				"parameterOrder":      parameterOrder,
+				"byZone":              terraformResources[resource].ifNeedZone(strings.Contains(parameterOrder, "zone")),
+				"idWithZone":          terraformResources[resource].ifIDWithZone(strings.Contains(parameterOrder, "zone")),
 			})
 			if err != nil {
 				log.Print(resource, err)
@@ -228,4 +225,13 @@ func codeFormat(src []byte) []byte {
 		log.Println(err)
 	}
 	return code
+}
+
+// upperFirst upper-cases the first letter of an ASCII name, such as a
+// Compute API resource name (regionBackendServices).
+func upperFirst(name string) string {
+	if name == "" {
+		return name
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
 }

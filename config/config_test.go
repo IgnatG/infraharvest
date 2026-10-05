@@ -38,7 +38,7 @@ backend:
 
 func flags() (*pflag.FlagSet, *string, *bool, *string, *[]string) {
 	fs := pflag.NewFlagSet("aws", pflag.ContinueOnError)
-	engine := fs.String("engine", "legacy", "")
+	engine := fs.String("engine", "tofu", "")
 	all := fs.Bool("all", false, "")
 	profile := fs.String("profile", "default", "")
 	regions := fs.StringSlice("regions", nil, "")

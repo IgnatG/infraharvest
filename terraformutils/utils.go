@@ -44,7 +44,10 @@ func ParseFilterValues(value string) []string {
 	return values
 }
 
-func FilterCleanup(s *Service, isInitial bool) {
+// FilterCleanup keeps the resources of s that pass its ID filters, without
+// duplicates. Filters on other attributes are left to the listers that
+// pass them to the API they list with (see ResourceFilter.Filter).
+func FilterCleanup(s *Service) {
 	if len(s.Filter) == 0 {
 		return
 	}
@@ -53,7 +56,7 @@ func FilterCleanup(s *Service, isInitial bool) {
 	for _, resource := range s.Resources {
 		allPredicatesTrue := true
 		for _, filter := range s.Filter {
-			if filter.isInitial() == isInitial {
+			if filter.FieldPath == "id" {
 				allPredicatesTrue = allPredicatesTrue && filter.Filter(resource)
 			}
 		}

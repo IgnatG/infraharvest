@@ -76,14 +76,6 @@ var terraformResources = map[string]gcpResourceRenderable{
 	"instanceTemplates": basicGCPResource{
 		terraformName: "google_compute_instance_template",
 	},
-	/*"instances": instances{
-		basicGCPResource{
-			terraformName:    "google_compute_instance",
-			additionalFieldsForRefresh: map[string]string{
-				"disk.#": "0",
-			},
-		},
-	},*/
 	"networks": basicGCPResource{
 		terraformName: "google_compute_network",
 	},

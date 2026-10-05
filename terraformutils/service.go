@@ -134,7 +134,7 @@ func (s *Service) GetName() string {
 }
 
 func (s *Service) InitialCleanup() {
-	FilterCleanup(s, true)
+	FilterCleanup(s)
 }
 
 func (s *Service) GetArgs() map[string]interface{} {

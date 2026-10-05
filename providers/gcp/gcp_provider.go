@@ -31,22 +31,6 @@ type GCPProvider struct { //nolint
 	providerType string
 }
 
-func GetRegions(project string) []string {
-	computeService, err := compute.NewService(context.Background())
-	if err != nil {
-		return []string{}
-	}
-	regionsList, err := computeService.Regions.List(project).Do()
-	if err != nil {
-		return []string{}
-	}
-	regions := []string{}
-	for _, region := range regionsList.Items {
-		regions = append(regions, region.Name)
-	}
-	return regions
-}
-
 func getRegion(project, regionName string) *compute.Region {
 	if regionName == "global" {
 		return &compute.Region{}
@@ -106,24 +90,24 @@ func (p *GCPProvider) InitService(serviceName string, verbose bool) error {
 // GetGCPSupportService return map of support service for GCP
 func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	services := ComputeServices
-	services["bigQuery"] = &GCPFacade{service: &BigQueryGenerator{}}
-	services["cloudFunctions"] = &GCPFacade{service: &CloudFunctionsGenerator{}}
-	services["cloudsql"] = &GCPFacade{service: &CloudSQLGenerator{}}
-	services["cloudtasks"] = &GCPFacade{service: &CloudTaskGenerator{}}
-	services["dataProc"] = &GCPFacade{service: &DataprocGenerator{}}
-	services["dns"] = &GCPFacade{service: &CloudDNSGenerator{}}
-	services["gcs"] = &GCPFacade{service: &GcsGenerator{}}
-	services["gke"] = &GCPFacade{service: &GkeGenerator{}}
-	services["iam"] = &GCPFacade{service: &IamGenerator{}}
-	services["kms"] = &GCPFacade{service: &KmsGenerator{}}
-	services["logging"] = &GCPFacade{service: &LoggingGenerator{}}
-	services["memoryStore"] = &GCPFacade{service: &MemoryStoreGenerator{}}
-	services["monitoring"] = &GCPFacade{service: &MonitoringGenerator{}}
-	services["project"] = &GCPFacade{service: &ProjectGenerator{}}
-	services["instances"] = &GCPFacade{service: &InstancesGenerator{}}
-	services["pubsub"] = &GCPFacade{service: &PubsubGenerator{}}
-	services["schedulerJobs"] = &GCPFacade{service: &SchedulerJobsGenerator{}}
-	services["cloudbuild"] = &GCPFacade{service: &CloudBuildGenerator{}}
+	services["bigQuery"] = &BigQueryGenerator{}
+	services["cloudFunctions"] = &CloudFunctionsGenerator{}
+	services["cloudsql"] = &CloudSQLGenerator{}
+	services["cloudtasks"] = &CloudTaskGenerator{}
+	services["dataProc"] = &DataprocGenerator{}
+	services["dns"] = &CloudDNSGenerator{}
+	services["gcs"] = &GcsGenerator{}
+	services["gke"] = &GkeGenerator{}
+	services["iam"] = &IamGenerator{}
+	services["kms"] = &KmsGenerator{}
+	services["logging"] = &LoggingGenerator{}
+	services["memoryStore"] = &MemoryStoreGenerator{}
+	services["monitoring"] = &MonitoringGenerator{}
+	services["project"] = &ProjectGenerator{}
+	services["instances"] = &InstancesGenerator{}
+	services["pubsub"] = &PubsubGenerator{}
+	services["schedulerJobs"] = &SchedulerJobsGenerator{}
+	services["cloudbuild"] = &CloudBuildGenerator{}
 	return services
 }
 
