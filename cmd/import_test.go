@@ -43,6 +43,22 @@ func TestCheckFailures(t *testing.T) {
 	}
 }
 
+// The legacy engine rejects the options only the Terraform engine follows,
+// instead of ignoring them.
+func TestLegacyEngineRejectsEngineOptions(t *testing.T) {
+	for name, options := range map[string]ImportOptions{
+		"--reuse-inventory": {ReuseInventory: true},
+		"--modules local":   {Modules: modulesLocal},
+		"--modules none":    {Modules: modulesNone},
+		"--selection":       {Selection: "selection.yaml"},
+	} {
+		err := Import(&fakeProvider{}, options, nil)
+		if err == nil || !strings.Contains(err.Error(), "need --engine=terraform or tofu") {
+			t.Errorf("%s: got %v, want the engine error", name, err)
+		}
+	}
+}
+
 func TestExitCode(t *testing.T) {
 	for _, tc := range []struct {
 		err  error

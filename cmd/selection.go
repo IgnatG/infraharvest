@@ -70,11 +70,12 @@ func (r *engineRun) selectionFile(path string) (*selection.File, error) {
 }
 
 // selectResources keeps the listed resources to import and records the
-// others as excluded. A resource the selection file lists follows it; one
-// it doesn't list follows the provider's defaults, then the file's rules
-// and defaults. With no file (--all), the provider's defaults decide.
-// It also returns the resources it leaves out.
-func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource, defaults map[string]string, f *selection.File, importID func(terraformutils.Resource) (string, bool)) (map[string][]terraformutils.Resource, []engine.External) {
+// others as excluded. A resource the selection file lists in scope (see
+// discoveryScope) follows it; one it doesn't list follows the file's
+// rules, then the provider's defaults, then the file's defaults. With no
+// file (--all), the provider's defaults decide. It also returns the
+// resources it leaves out.
+func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource, defaults map[string]string, f *selection.File, scope string, importID func(terraformutils.Resource) (string, bool)) (map[string][]terraformutils.Resource, []engine.External) {
 	selected := make(map[string][]terraformutils.Resource, len(listed))
 	var leftOut []engine.External
 	for service, resources := range listed {
@@ -89,12 +90,20 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 			reason, excluded := defaults[typ+" "+res.InstanceState.ID]
 			var d selection.Decision
 			switch {
-			case f != nil && f.Has(typ, id):
-				d = f.Decide(typ, id, listedName(res.ResourceName))
+			case f != nil && f.HasIn(scope, typ, id):
+				d = f.DecideIn(scope, typ, id, res.RawName)
+			case f != nil:
+				ruled, ok := f.ByRule(typ, id, res.RawName)
+				switch {
+				case ok:
+					d = ruled
+				case excluded:
+					d = selection.Decision{Reason: reason}
+				default:
+					d = f.DecideIn(scope, typ, id, res.RawName)
+				}
 			case excluded:
 				d = selection.Decision{Reason: reason}
-			case f != nil:
-				d = f.Decide(typ, id, listedName(res.ResourceName))
 			default:
 				d = selection.Decision{Include: true}
 			}
@@ -131,7 +140,7 @@ func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, d
 			r.listed = append(r.listed, selection.Resource{
 				Type:    res.InstanceInfo.Type,
 				ID:      id,
-				Name:    listedName(res.ResourceName),
+				Name:    res.RawName,
 				Scope:   scope,
 				Include: reason == "",
 				Reason:  reason,
@@ -154,7 +163,12 @@ func (r *engineRun) writeSelection() error {
 	f, err := selection.Load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: r.listed}
+		// Merge lists each resource once; nothing is new in a first file.
+		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
+		f.Merge(r.listed)
+		for i := range f.Resources {
+			f.Resources[i].New = false
+		}
 	case err != nil:
 		return err
 	default:

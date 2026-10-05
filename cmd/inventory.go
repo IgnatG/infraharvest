@@ -24,12 +24,15 @@ const inventoryVersion = 1
 
 // inventory is what discover listed for one provider call: its resources
 // by service, and the services that failed, so that import
-// --reuse-inventory can import from it without listing again.
+// --reuse-inventory can import from it without listing again. The call's
+// arguments (region, profile and role) name the file (see inventoryPath)
+// and aren't kept in it.
 type inventory struct {
-	Version   int                                  `json:"version"`
-	Provider  string                               `json:"provider"`
-	Args      []string                             `json:"args"`
-	Services  []string                             `json:"services"`
+	Version  int      `json:"version"`
+	Provider string   `json:"provider"`
+	Services []string `json:"services"`
+	// Filter is the --filter the resources were listed with.
+	Filter    []string                             `json:"filter,omitempty"`
 	Failures  []string                             `json:"failures,omitempty"`
 	Resources map[string][]terraformutils.Resource `json:"resources"`
 }
@@ -49,12 +52,14 @@ func saveInventory(path string, inv inventory) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, content, 0o644)
+	// The inventory holds every resource's attributes, so it is as
+	// sensitive as state.
+	return terraformutils.WriteSecretFile(path, content)
 }
 
 // loadInventory returns the saved inventory at path if it lists every one
-// of services; nil if there is none, or it doesn't.
-func loadInventory(path string, services []string) (*inventory, error) {
+// of services, listed with filter; nil if there is none, or it doesn't.
+func loadInventory(path string, services, filter []string) (*inventory, error) {
 	content, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -66,7 +71,7 @@ func loadInventory(path string, services []string) (*inventory, error) {
 	if err := json.Unmarshal(content, &inv); err != nil {
 		return nil, err
 	}
-	if inv.Version != inventoryVersion {
+	if inv.Version != inventoryVersion || !sameFilter(inv.Filter, filter) {
 		return nil, nil
 	}
 	for _, s := range services {
@@ -75,6 +80,15 @@ func loadInventory(path string, services []string) (*inventory, error) {
 		}
 	}
 	return &inv, nil
+}
+
+// sameFilter reports whether two --filter values select the same
+// resources, whatever their order.
+func sameFilter(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 // inventoryFor keeps the resources of services, the ones an import asks
@@ -94,7 +108,7 @@ func inventoryFor(inv *inventory, services []string) map[string][]terraformutils
 func listResources(ctx context.Context, provider terraformutils.ProviderGenerator, options ImportOptions, args []string) (map[string][]terraformutils.Resource, []error, error) {
 	path := inventoryPath(options.PathOutput, provider.GetName(), args)
 	if options.ReuseInventory && !options.Discover {
-		inv, err := loadInventory(path, options.Resources)
+		inv, err := loadInventory(path, options.Resources, options.Filter)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -110,7 +124,7 @@ func listResources(ctx context.Context, provider terraformutils.ProviderGenerato
 			}
 			return inventoryFor(inv, options.Resources), failures, nil
 		}
-		log.Printf("%s: no saved inventory lists %s: listing them", provider.GetName(), strings.Join(options.Resources, ","))
+		log.Printf("%s: no saved inventory lists %s with the same --filter: listing them", provider.GetName(), strings.Join(options.Resources, ","))
 	}
 	mapping := terraformutils.NewProvidersMapping(provider)
 	failures, err := initAllServicesResources(ctx, mapping, options, args, nil)
@@ -119,7 +133,7 @@ func listResources(ctx context.Context, provider terraformutils.ProviderGenerato
 	}
 	listed := mapping.GetResourcesByService()
 	if options.Discover {
-		inv := inventory{Version: inventoryVersion, Provider: provider.GetName(), Args: args, Services: options.Resources, Resources: listed}
+		inv := inventory{Version: inventoryVersion, Provider: provider.GetName(), Services: options.Resources, Filter: options.Filter, Resources: listed}
 		for _, f := range failures {
 			inv.Failures = append(inv.Failures, f.Error())
 		}

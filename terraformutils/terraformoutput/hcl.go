@@ -14,7 +14,6 @@
 package terraformoutput
 
 import (
-	"log"
 	"os"
 	"strings"
 
@@ -49,7 +48,9 @@ func OutputHclFiles(resources []terraformutils.Resource, provider terraformutils
 	if err != nil {
 		return err
 	}
-	PrintFile(path+"/provider."+GetFileExtension(output), providerDataFile)
+	if err := PrintFile(path+"/provider."+GetFileExtension(output), providerDataFile); err != nil {
+		return err
+	}
 
 	// create outputs files
 	outputs := map[string]interface{}{}
@@ -92,7 +93,9 @@ func OutputHclFiles(resources []terraformutils.Resource, provider terraformutils
 		if err != nil {
 			return err
 		}
-		PrintFile(path+"/outputs."+GetFileExtension(output), outputsFile)
+		if err := PrintFile(path+"/outputs."+GetFileExtension(output), outputsFile); err != nil {
+			return err
+		}
 	}
 
 	// group by resource by type
@@ -145,12 +148,10 @@ func printFile(v []terraformutils.Resource, fileName, path, output string, sort 
 	return nil
 }
 
-func PrintFile(path string, data []byte) {
-	err := os.WriteFile(path, data, terraformutils.FilePerm)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
+// PrintFile writes a generated file. It returns the error instead of
+// exiting, so the caller cleans up and exits with the right code.
+func PrintFile(path string, data []byte) error {
+	return os.WriteFile(path, data, terraformutils.FilePerm)
 }
 
 func GetFileExtension(outputFormat string) string {

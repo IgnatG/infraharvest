@@ -19,24 +19,33 @@ import (
 
 // newMCPCmd serves infraharvest to AI agents over MCP on stdin and stdout.
 func newMCPCmd() *cobra.Command {
-	return &cobra.Command{
+	var root string
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve infraharvest to AI agents over the Model Context Protocol (stdio)",
 		Long: "Serve infraharvest to AI agents over the Model Context Protocol, on stdin and\n" +
 			"stdout. The tools run this binary: discover lists resources into a selection file,\n" +
 			"import generates configuration from one after the user confirms it, and report\n" +
-			"reads an import's report. Nothing is ever applied.",
+			"reads an import's report. The files they read and write stay under --root.\n" +
+			"Nothing is ever applied.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			self, err := os.Executable()
 			if err != nil {
 				return err
 			}
+			if root == "" {
+				if root, err = os.Getwd(); err != nil {
+					return err
+				}
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
-			return mcpserver.New(version, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
+			return mcpserver.New(version, root, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
 		},
 	}
+	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories and reports (default: the current directory)")
+	return cmd
 }
 
 // execRunner runs binary with the tool's arguments. Its standard output
@@ -47,6 +56,10 @@ func execRunner(binary string) mcpserver.Runner {
 		c := exec.CommandContext(ctx, binary, args...)
 		c.Stdout, c.Stderr = &stdout, &stderr
 		err := c.Run()
+		if ctx.Err() != nil {
+			// The child was killed: its exit code says nothing.
+			return stdout.Bytes(), stderr.Bytes(), 0, ctx.Err()
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return stdout.Bytes(), stderr.Bytes(), exitErr.ExitCode(), nil

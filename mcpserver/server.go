@@ -41,10 +41,12 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 3. Call import with the selection file. The user is asked to confirm before anything is imported.
 4. Call report to read what was imported, what was left out and why, and the results of the checks.`
 
-// New returns the server, which runs infraharvest with run.
-func New(version string, run Runner) *mcp.Server {
+// New returns the server, which runs infraharvest with run. The tools read
+// and write files under root only: selection files, output directories
+// and reports.
+func New(version, root string, run Runner) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infraharvest", Version: version}, &mcp.ServerOptions{Instructions: instructions})
-	t := &tools{run: run}
+	t := &tools{run: run, root: root}
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "discover",
@@ -71,6 +73,26 @@ func ptr[T any](v T) *T { return &v }
 
 type tools struct {
 	run Runner
+	// root is the directory the tools' files must be under.
+	root string
+}
+
+// within checks that path, which the agent chose, is under the root: an
+// agent may not read or write files anywhere else on the machine.
+func (t *tools) within(what, path string) error {
+	root, err := filepath.Abs(t.root)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%s %q must be under %s", what, path, root)
+	}
+	return nil
 }
 
 // Scope is what to list: a provider command and its resources and regions.
@@ -112,10 +134,17 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection == "" {
 		return nil, nil, errors.New("selection is required")
 	}
+	if err := t.within("selection", in.Selection); err != nil {
+		return nil, nil, err
+	}
 	args = append(args, "--engine=terraform", "--selection="+in.Selection)
 	_, stderr, code, err := t.run(ctx, args)
 	if err != nil {
 		return nil, nil, err
+	}
+	if code == report.ExitCouldNotRun {
+		// Nothing was written: a selection file that is there is an old one.
+		return errorResult(fmt.Sprintf("discover couldn't run (exit code %d):\n%s", code, tail(stderr))), nil, nil
 	}
 	summary, err := summarize(in.Selection)
 	if err != nil {
@@ -142,7 +171,7 @@ func summarize(path string) (*SelectionSummary, error) {
 			c = &TypeCount{Type: r.Type}
 			byType[r.Type] = c
 		}
-		d := f.Decide(r.Type, r.ID, r.Name)
+		d := f.DecideIn(r.Scope, r.Type, r.ID, r.Name)
 		if d.Include {
 			c.Included++
 			summary.Included++
@@ -185,6 +214,12 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Selection == "" || in.Output == "" {
 		return nil, nil, errors.New("selection and output are required")
 	}
+	if err := t.within("selection", in.Selection); err != nil {
+		return nil, nil, err
+	}
+	if err := t.within("output", in.Output); err != nil {
+		return nil, nil, err
+	}
 	engine := in.Engine
 	if engine == "" {
 		engine = "terraform"
@@ -202,8 +237,8 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	message := fmt.Sprintf("Import the %d resources that %s includes (%d excluded) into Terraform configuration in %s? infraharvest reads the %s account and writes files; it never applies anything.",
-		summary.Included, in.Selection, summary.Excluded, in.Output, in.Provider)
+	message := fmt.Sprintf("Import the %d resources that %s includes (%d excluded) into Terraform configuration in %s? infraharvest reads %s and writes files; it never applies anything.",
+		summary.Included, in.Selection, summary.Excluded, in.Output, scopeText(in.Scope))
 	state := confirmationState(args, summary)
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {
@@ -271,6 +306,9 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 	if in.Output == "" {
 		return nil, nil, errors.New("output is required")
 	}
+	if err := t.within("output", in.Output); err != nil {
+		return nil, nil, err
+	}
 	content, err := os.ReadFile(filepath.Join(in.Output, report.Dir, "report.md"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("no report in %s: %w", in.Output, err)
@@ -298,6 +336,19 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 		args = append(args, "--profile="+s.Profile)
 	}
 	return args, nil
+}
+
+// scopeText says what an import reads, for the user to confirm: the
+// provider's account (its profile), regions and services.
+func scopeText(s Scope) string {
+	text := "the " + s.Provider + " account"
+	if s.Profile != "" {
+		text += " of profile " + s.Profile
+	}
+	if len(s.Regions) > 0 {
+		text += " in " + strings.Join(s.Regions, ", ")
+	}
+	return text + " (" + strings.Join(s.Resources, ", ") + ")"
 }
 
 func textResult(text string) *mcp.CallToolResult {

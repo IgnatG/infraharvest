@@ -27,10 +27,14 @@ import (
 )
 
 type Resource struct {
-	InstanceInfo      *terraform.InstanceInfo
-	InstanceState     *terraform.InstanceState
-	Outputs           map[string]*terraform.OutputState `json:",omitempty"`
+	InstanceInfo  *terraform.InstanceInfo
+	InstanceState *terraform.InstanceState
+	Outputs       map[string]*terraform.OutputState `json:",omitempty"`
+	// ResourceName is the resource's name as a Terraform label (see
+	// TfSanitize); RawName is the name as listed, which the Terraform engine
+	// labels its own way.
 	ResourceName      string
+	RawName           string `json:",omitempty"`
 	Provider          string
 	Item              map[string]interface{} `json:",omitempty"`
 	IgnoreKeys        []string               `json:",omitempty"`
@@ -95,6 +99,7 @@ func NewResource(id, resourceName, resourceType, provider string,
 	additionalFields map[string]interface{}) Resource {
 	return Resource{
 		ResourceName: TfSanitize(resourceName),
+		RawName:      resourceName,
 		Item:         nil,
 		Provider:     provider,
 		InstanceState: &terraform.InstanceState{

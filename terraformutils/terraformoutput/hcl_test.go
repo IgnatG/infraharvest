@@ -13,7 +13,9 @@ func TestPrintFileIsNotWritableByOthers(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "provider.tf")
 
-	PrintFile(path, []byte(`provider "aws" {}`))
+	if err := PrintFile(path, []byte(`provider "aws" {}`)); err != nil {
+		t.Fatal(err)
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
