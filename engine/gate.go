@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -79,13 +81,35 @@ func (g Gate) check(name string) Check {
 // so may the arguments opts.StateOnly names per type, which providers keep
 // only in state and import can't set.
 func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options) (Gate, error) {
+	expected, err := countImportBlocks(dir)
+	if err != nil {
+		return nil, err
+	}
 	return gateWith(ctx, tf, dir, opts, func() (Check, []string, error) {
-		p, diags, err := showPlan(ctx, tf, placeholders(secrets))
+		p, _, diags, err := showPlanWithSummary(ctx, tf, placeholders(secrets))
 		if err != nil {
 			return Check{}, nil, err
 		}
-		return planCheck(p, diags, secrets, opts.StateOnly), sensitiveValues(p), nil
+		return planCheck(p, diags, secrets, opts.StateOnly, expected), sensitiveValues(p), nil
 	})
+}
+
+// countImportBlocks counts the import blocks in dir's configuration: how
+// many resources its plan must import.
+func countImportBlocks(dir string) (int, error) {
+	files, err := configFiles(dir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type == "import" {
+				n++
+			}
+		}
+	}
+	return n, nil
 }
 
 // gateWith runs the verification gate's checks on dir, with plan for the
@@ -135,25 +159,36 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	return append(gate, determinism), nil
 }
 
-// planCheck passes if the plan has no changes besides imports, other than
-// updates to arguments that secrets set or stateOnly names.
-func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stateOnly map[string][]string) Check {
+// planCheck passes if the plan imports expected resources and has no
+// changes besides those imports, other than updates to the attributes
+// secrets set, to what a secret's placeholder makes unknown, or to the
+// stateOnly arguments of the resource's type. An expected below zero
+// doesn't check the number of imports.
+func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stateOnly map[string][]string, expected int) Check {
 	check := Check{Name: CheckPlan}
 	if len(diags) > 0 || p == nil {
 		for _, d := range diags {
 			check.Details = append(check.Details, formatDiagnostic(d))
 		}
+		if len(diags) == 0 {
+			check.Details = append(check.Details, "terraform plan reported no change summary")
+		}
 		return check
 	}
-	secretArguments := map[string][]string{}
+	secretPaths := map[string][]string{}
 	for _, s := range secrets {
-		top, _, _ := strings.Cut(s.Attribute, ".")
-		top, _, _ = strings.Cut(top, "[")
-		secretArguments[s.Address] = append(secretArguments[s.Address], top)
+		secretPaths[s.Address] = append(secretPaths[s.Address], withoutIndexes(s.Attribute))
 	}
 	check.Passed = true
+	importing := 0
 	for _, rc := range p.ResourceChanges {
-		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil || rc.Change.Actions.NoOp() || rc.Change.Actions.Read() {
+		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
+			continue
+		}
+		if rc.Change.Importing != nil {
+			importing++
+		}
+		if rc.Change.Actions.NoOp() || rc.Change.Actions.Read() {
 			continue
 		}
 		change := PlannedChange{Address: rc.Address}
@@ -165,20 +200,23 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 			check.Changes = append(check.Changes, change)
 			continue
 		}
-		change.Attributes = changedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown)
-		allowed := append(append([]string(nil), stateOnly[rc.Type]...), secretArguments[rc.Address]...)
+		leaves := changedLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown)
+		change.Attributes = topLevel(leaves)
 		// A placeholder secret value also makes what the provider computes
 		// from it unknown, such as an SSM parameter's version.
 		placeholderChanged := false
-		for _, a := range change.Attributes {
-			if slices.Contains(secretArguments[rc.Address], a) {
+		for _, l := range leaves {
+			if slices.Contains(secretPaths[rc.Address], withoutIndexes(l.path)) {
 				placeholderChanged = true
 			}
 		}
-		unknown := unknownAttributes(rc.Change.AfterUnknown)
 		explained := true
-		for _, a := range change.Attributes {
-			if !slices.Contains(allowed, a) && (!placeholderChanged || !slices.Contains(unknown, a)) {
+		for _, l := range leaves {
+			switch {
+			case slices.Contains(stateOnly[rc.Type], topOf(l.path)):
+			case slices.Contains(secretPaths[rc.Address], withoutIndexes(l.path)):
+			case placeholderChanged && l.unknown:
+			default:
 				explained = false
 			}
 		}
@@ -196,63 +234,109 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 		}
 		check.Details = append(check.Details, detail)
 	}
+	if expected >= 0 && importing != expected {
+		check.Passed = false
+		check.Details = append(check.Details, fmt.Sprintf("the plan imports %d resources, the configuration has %d import blocks", importing, expected))
+	}
 	return check
+}
+
+// leaf is one attribute of a resource a plan changes, by its path, such as
+// user[0].password; unknown says its value is known only after apply.
+type leaf struct {
+	path    string
+	unknown bool
+}
+
+// changedLeaves returns the attributes that differ between before and
+// after, down to nested blocks, or that will only be known after apply,
+// sorted by path.
+func changedLeaves(before, after, afterUnknown any) []leaf {
+	var leaves []leaf
+	diffLeaves("", before, after, afterUnknown, &leaves)
+	sort.Slice(leaves, func(i, j int) bool { return leaves[i].path < leaves[j].path })
+	return leaves
+}
+
+func diffLeaves(path string, before, after, unknown any, out *[]leaf) {
+	if u, ok := unknown.(bool); ok && u {
+		*out = append(*out, leaf{path: path, unknown: true})
+		return
+	}
+	bm, bok := before.(map[string]any)
+	am, aok := after.(map[string]any)
+	um, uok := unknown.(map[string]any)
+	bl, blok := before.([]any)
+	al, alok := after.([]any)
+	ul, ulok := unknown.([]any)
+	n := len(*out)
+	switch {
+	case (bok || before == nil) && (aok || after == nil) && (bok || aok || uok):
+		keys := map[string]bool{}
+		for k := range bm {
+			keys[k] = true
+		}
+		for k := range am {
+			keys[k] = true
+		}
+		for k := range um {
+			keys[k] = true
+		}
+		for k := range keys {
+			sub := k
+			if path != "" {
+				sub = path + "." + k
+			}
+			diffLeaves(sub, bm[k], am[k], um[k], out)
+		}
+	case (blok || before == nil) && (alok || after == nil) && (blok || alok || ulok):
+		for i := 0; i < max(len(bl), len(al), len(ul)); i++ {
+			diffLeaves(fmt.Sprintf("%s[%d]", path, i), at(bl, i), at(al, i), at(ul, i), out)
+		}
+	}
+	if len(*out) == n && !reflect.DeepEqual(before, after) {
+		*out = append(*out, leaf{path: path})
+	}
+}
+
+func at(list []any, i int) any {
+	if i < len(list) {
+		return list[i]
+	}
+	return nil
+}
+
+// topOf returns the top-level attribute of a path: user for
+// user[0].password.
+func topOf(path string) string {
+	top, _, _ := strings.Cut(path, ".")
+	top, _, _ = strings.Cut(top, "[")
+	return top
+}
+
+// topLevel returns the top-level attributes of leaves, each once, sorted.
+func topLevel(leaves []leaf) []string {
+	var names []string
+	for _, l := range leaves {
+		names = append(names, topOf(l.path))
+	}
+	sort.Strings(names)
+	return slices.Compact(names)
+}
+
+var indexes = regexp.MustCompile(`\[[^\]]*\]`)
+
+// withoutIndexes drops the indexes from a path, so that the same attribute
+// matches whichever element of a set it is in: user[0].password becomes
+// user.password.
+func withoutIndexes(path string) string {
+	return indexes.ReplaceAllString(path, "")
 }
 
 // changedAttributes returns the top-level attributes that differ between
 // before and after, or that will only be known after apply, sorted.
 func changedAttributes(before, after, afterUnknown any) []string {
-	b, _ := before.(map[string]any)
-	a, _ := after.(map[string]any)
-	unknown, _ := afterUnknown.(map[string]any)
-	var changed []string
-	for k, v := range a {
-		if !reflect.DeepEqual(b[k], v) {
-			changed = append(changed, k)
-		}
-	}
-	for k, u := range unknown {
-		if containsTrue(u) && !slices.Contains(changed, k) {
-			changed = append(changed, k)
-		}
-	}
-	sort.Strings(changed)
-	return changed
-}
-
-// unknownAttributes returns the top-level attributes after_unknown marks
-// as known only after apply.
-func unknownAttributes(afterUnknown any) []string {
-	unknown, _ := afterUnknown.(map[string]any)
-	var names []string
-	for k, u := range unknown {
-		if containsTrue(u) {
-			names = append(names, k)
-		}
-	}
-	return names
-}
-
-// containsTrue reports whether an after_unknown value marks anything
-// unknown.
-func containsTrue(v any) bool {
-	switch u := v.(type) {
-	case bool:
-		return u
-	case map[string]any:
-		for _, sub := range u {
-			if containsTrue(sub) {
-				return true
-			}
-		}
-	case []any:
-		for _, sub := range u {
-			if containsTrue(sub) {
-				return true
-			}
-		}
-	}
-	return false
+	return topLevel(changedLeaves(before, after, afterUnknown))
 }
 
 // sensitiveValues returns the string values the plan marks sensitive in
@@ -332,8 +416,22 @@ var secretPatterns = map[string]*regexp.Regexp{
 	"password in a URL": regexp.MustCompile(`[a-z][a-z0-9+.-]*://[^/\s:@"]+:[^/\s@"]+@`),
 }
 
+// secretPatternNames are the names of secretPatterns, sorted, so that
+// findings come in the same order every run.
+var secretPatternNames = sortedKeys(secretPatterns)
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // scanSecrets checks every file Generate wrote into dir for the plan's
-// sensitive values and for credential formats.
+// sensitive values, for credential formats, and for provider blocks that
+// set a credential argument to a constant (see IsCredentialArgument).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
 	err := walkOutput(dir, func(rel string, content string) {
@@ -344,23 +442,61 @@ func scanSecrets(dir string, sensitive []string) (Check, error) {
 				break
 			}
 		}
-		names := make([]string, 0, len(secretPatterns))
-		for name := range secretPatterns {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range secretPatternNames {
 			if secretPatterns[name].MatchString(content) {
 				check.Passed = false
 				check.Details = append(check.Details, rel+": looks like it contains a "+name)
 			}
 		}
+		for _, name := range providerCredentials(rel, content) {
+			check.Passed = false
+			check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
+		}
 	})
 	return check, err
 }
 
+// providerCredentials returns the credential arguments the provider blocks
+// of a .tf file set to constants, sorted, as "provider.argument".
+func providerCredentials(rel, content string) []string {
+	if !strings.HasSuffix(rel, ".tf") {
+		return nil
+	}
+	body, ok := parseBody(rel, content)
+	if !ok {
+		return nil
+	}
+	var names []string
+	for _, b := range body.Blocks {
+		if b.Type != "provider" || len(b.Labels) != 1 {
+			continue
+		}
+		for name, attr := range b.Body.Attributes {
+			if !IsCredentialArgument(name) {
+				continue
+			}
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.IsWhollyKnown() {
+				names = append(names, b.Labels[0]+"."+name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// parseBody parses a .tf file's content; a file that doesn't parse has
+// nothing to scan, since validate (G2) reports it.
+func parseBody(rel, content string) (*hclsyntax.Body, bool) {
+	f, diags := hclsyntax.ParseConfig([]byte(content), rel, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, false
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	return body, ok
+}
+
 // nondeterministic are functions whose results differ between runs.
-var nondeterministic = regexp.MustCompile(`\b(timestamp|plantimestamp|uuid|uuidv5|bcrypt)\(`)
+var nondeterministic = map[string]bool{"timestamp": true, "plantimestamp": true, "uuid": true, "uuidv5": true, "bcrypt": true}
 
 // scanNondeterminism checks the configuration Generate wrote calls no
 // function whose result differs between runs, so that importing an
@@ -368,12 +504,33 @@ var nondeterministic = regexp.MustCompile(`\b(timestamp|plantimestamp|uuid|uuidv
 func scanNondeterminism(dir string) (Check, error) {
 	check := Check{Name: CheckDeterminism, Passed: true}
 	err := walkOutput(dir, func(rel string, content string) {
-		if strings.HasSuffix(rel, ".tf") && nondeterministic.MatchString(content) {
+		for _, call := range nondeterministicCalls(rel, content) {
 			check.Passed = false
-			check.Details = append(check.Details, rel+": calls "+nondeterministic.FindString(content))
+			check.Details = append(check.Details, rel+": calls "+call+"(")
 		}
 	})
 	return check, err
+}
+
+// nondeterministicCalls returns the nondeterministic functions a .tf
+// file's expressions call, each once, sorted. Strings and comments that
+// only mention a function's name don't count.
+func nondeterministicCalls(rel, content string) []string {
+	if !strings.HasSuffix(rel, ".tf") {
+		return nil
+	}
+	body, ok := parseBody(rel, content)
+	if !ok {
+		return nil
+	}
+	calls := map[string]bool{}
+	hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+		if call, ok := node.(*hclsyntax.FunctionCallExpr); ok && nondeterministic[call.Name] {
+			calls[call.Name] = true
+		}
+		return nil
+	})
+	return sortedKeys(calls)
 }
 
 // walkOutput calls visit with each file Generate wrote into dir, by path
@@ -405,15 +562,10 @@ func walkOutput(dir string, visit func(rel, content string)) error {
 	})
 }
 
-// showPlan plans with vars into a plan file and returns it as JSON, or the
-// errors if the configuration doesn't plan. The plan file holds secret
-// values: it lives in a private temporary directory, removed before
-// showPlan returns.
-func showPlan(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, []tfjson.Diagnostic, error) {
-	p, _, diags, err := showPlanWithSummary(ctx, tf, vars)
-	return p, diags, err
-}
-
+// showPlanWithSummary plans with vars into a plan file and returns it as
+// JSON with its change summary, or the errors if the configuration doesn't
+// plan. The plan file holds secret values: it lives in a private temporary
+// directory, removed before showPlanWithSummary returns.
 func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, *changeSummary, []tfjson.Diagnostic, error) {
 	tmp, err := os.MkdirTemp("", "infraharvest-plan-")
 	if err != nil {
@@ -428,6 +580,11 @@ func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOp
 	}
 	if len(diags) > 0 || summary == nil {
 		return nil, nil, diags, nil
+	}
+	// The directory is private already; this also keeps the file private
+	// where the directory's permissions aren't inherited.
+	if _, err := os.Stat(planFile); err == nil {
+		_ = os.Chmod(planFile, 0o600)
 	}
 	p, err := tf.ShowPlanFile(ctx, planFile)
 	if err != nil {

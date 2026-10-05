@@ -5,7 +5,9 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,13 +78,26 @@ func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, version
 	if onPath, err := exec.LookPath(b.Name); err == nil {
 		candidates = append([]string{onPath}, candidates...)
 	}
+	var skipped []error
 	for _, path := range candidates {
-		if _, err := os.Stat(path); err == nil && b.checkVersion(ctx, path, versionOf) == nil {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		err := b.checkVersion(ctx, path, versionOf)
+		if err == nil {
 			return path, nil
 		}
+		// Say why an installed binary isn't used, rather than download
+		// another quietly.
+		log.Printf("%s: not using %s: %v", b.Name, path, err)
+		skipped = append(skipped, err)
 	}
 	if b.install == nil {
-		return "", fmt.Errorf("%s %s or newer not found on PATH; install it, or pass its path", b.Name, b.Minimum)
+		err := fmt.Errorf("%s %s or newer not found on PATH; install it, or pass its path", b.Name, b.Minimum)
+		if len(skipped) > 0 {
+			err = fmt.Errorf("%w: %w", err, errors.Join(skipped...))
+		}
+		return "", err
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err

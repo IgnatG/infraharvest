@@ -19,7 +19,10 @@ func TestParseUIDiagnostics(t *testing.T) {
 not json
 {"@level":"warn","type":"diagnostic","diagnostic":{"severity":"warning","summary":"Deprecated"}}
 `
-	got := parseUIDiagnostics([]byte(out))
+	got, err := parseUIDiagnostics([]byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	want := []tfjson.Diagnostic{
 		{

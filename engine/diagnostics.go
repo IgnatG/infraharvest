@@ -19,63 +19,82 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
-// changeSummary counts the changes a plan has besides imports.
+// changeSummary counts the changes a plan has, and its imports: an edit
+// that loses an import block changes the summary too.
 type changeSummary struct {
 	Add    int `json:"add"`
 	Change int `json:"change"`
 	Remove int `json:"remove"`
+	Import int `json:"import"`
 }
 
 // plan runs terraform plan and returns its error diagnostics and its change
 // summary, which is nil if Terraform reported none, as when the plan fails.
 // It returns an error only when Terraform failed without reporting any
-// diagnostics, for example when it couldn't start or ctx was cancelled.
+// diagnostics, for example when it couldn't start or ctx was cancelled, or
+// when its output couldn't be read.
 func plan(ctx context.Context, tf Terraform, opts ...tfexec.PlanOption) ([]tfjson.Diagnostic, *changeSummary, error) {
 	var out bytes.Buffer
 	_, err := tf.PlanJSON(ctx, &out, opts...)
 	tf.SetStdout(io.Discard) // PlanJSON leaves out as the output of later commands
-	diags := errorDiagnostics(parseUIDiagnostics(out.Bytes()))
+	uiDiags, scanErr := parseUIDiagnostics(out.Bytes())
+	if scanErr != nil {
+		return nil, nil, fmt.Errorf("read the plan's output: %w", scanErr)
+	}
+	diags := errorDiagnostics(uiDiags)
 	if err != nil && len(diags) == 0 {
 		return nil, nil, err
 	}
-	return diags, parseChangeSummary(out.Bytes()), nil
+	summary, scanErr := parseChangeSummary(out.Bytes())
+	if scanErr != nil {
+		return nil, nil, fmt.Errorf("read the plan's output: %w", scanErr)
+	}
+	return diags, summary, nil
 }
 
 // parseChangeSummary returns the change summary in Terraform's
 // machine-readable UI output, or nil.
-func parseChangeSummary(out []byte) *changeSummary {
+func parseChangeSummary(out []byte) (*changeSummary, error) {
 	var summary *changeSummary
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
+	err := eachUIMessage(out, func(line []byte) {
 		var msg struct {
 			Type    string        `json:"type"`
 			Changes changeSummary `json:"changes"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &msg) == nil && msg.Type == "change_summary" {
+		if json.Unmarshal(line, &msg) == nil && msg.Type == "change_summary" {
 			changes := msg.Changes
 			summary = &changes
 		}
-	}
-	return summary
+	})
+	return summary, err
 }
 
 // parseUIDiagnostics returns the diagnostics in Terraform's machine-readable
 // UI output (one JSON message per line).
-func parseUIDiagnostics(out []byte) []tfjson.Diagnostic {
+func parseUIDiagnostics(out []byte) ([]tfjson.Diagnostic, error) {
 	var diags []tfjson.Diagnostic
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
+	err := eachUIMessage(out, func(line []byte) {
 		var msg struct {
 			Type       string            `json:"type"`
 			Diagnostic tfjson.Diagnostic `json:"diagnostic"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &msg) == nil && msg.Type == "diagnostic" {
+		if json.Unmarshal(line, &msg) == nil && msg.Type == "diagnostic" {
 			diags = append(diags, msg.Diagnostic)
 		}
+	})
+	return diags, err
+}
+
+// eachUIMessage calls visit with each line of Terraform's machine-readable
+// UI output. It fails on a line too long to read, so that no message is
+// passed over quietly.
+func eachUIMessage(out []byte, visit func(line []byte)) error {
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		visit(scanner.Bytes())
 	}
-	return diags
+	return scanner.Err()
 }
 
 func errorDiagnostics(diags []tfjson.Diagnostic) []tfjson.Diagnostic {

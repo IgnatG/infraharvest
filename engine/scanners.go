@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -112,6 +113,12 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 	if len(scanners) == 0 {
 		check.Details = []string{"no scanner installed (tflint, trivy, checkov)"}
 		return check
+	}
+	// Absolute, so that a directory starting with a dash isn't taken for
+	// a flag, and so that findings name the same path whatever the
+	// working directory.
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
 	}
 	for _, s := range scanners {
 		findings, err := s.Run(ctx, dir)
