@@ -44,17 +44,28 @@ func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
 	return "", false
 }
 
+// Stores open the object stores state is read from: S3 in a region ("" for
+// the default), and Cloud Storage.
+type Stores struct {
+	S3  func(ctx context.Context, region string) (ObjectStore, error)
+	GCS func(ctx context.Context) (ObjectStore, error)
+}
+
+// DefaultStores read with each cloud's default credentials.
+var DefaultStores = Stores{S3: NewS3, GCS: NewGCS}
+
 // Load reads the state in sources: state files, directories with state
-// files (*.tfstate, outside .terraform), and s3://bucket/prefix, all of
-// whose *.tfstate objects are read. newStore opens an object store for an
-// s3:// source's region (from ?region=, or "" for the default).
-func Load(ctx context.Context, sources []string, newStore func(ctx context.Context, region string) (ObjectStore, error)) (Resources, error) {
+// files (*.tfstate, outside .terraform), s3://bucket/prefix (?region=
+// names the bucket's region) and gs://bucket/prefix, all of whose
+// *.tfstate objects are read, from stores.
+func Load(ctx context.Context, sources []string, stores Stores) (Resources, error) {
 	r := Resources{}
 	for _, source := range sources {
 		var err error
-		if strings.HasPrefix(source, "s3://") {
-			err = r.loadS3(ctx, source, newStore)
-		} else {
+		switch {
+		case strings.HasPrefix(source, "s3://"), strings.HasPrefix(source, "gs://"):
+			err = r.loadObjects(ctx, source, stores)
+		default:
 			err = r.loadLocal(source)
 		}
 		if err != nil {
@@ -64,12 +75,18 @@ func Load(ctx context.Context, sources []string, newStore func(ctx context.Conte
 	return r, nil
 }
 
-func (r Resources) loadS3(ctx context.Context, source string, newStore func(ctx context.Context, region string) (ObjectStore, error)) error {
+// loadObjects reads the *.tfstate objects under an s3:// or gs:// source.
+func (r Resources) loadObjects(ctx context.Context, source string, stores Stores) error {
 	u, err := url.Parse(source)
 	if err != nil {
 		return err
 	}
-	store, err := newStore(ctx, u.Query().Get("region"))
+	var store ObjectStore
+	if u.Scheme == "gs" {
+		store, err = stores.GCS(ctx)
+	} else {
+		store, err = stores.S3(ctx, u.Query().Get("region"))
+	}
 	if err != nil {
 		return err
 	}
@@ -86,7 +103,7 @@ func (r Resources) loadS3(ctx context.Context, source string, newStore func(ctx 
 		if err != nil {
 			return err
 		}
-		if err := r.Parse(content, "s3://"+u.Host+"/"+key); err != nil {
+		if err := r.Parse(content, u.Scheme+"://"+u.Host+"/"+key); err != nil {
 			return err
 		}
 	}

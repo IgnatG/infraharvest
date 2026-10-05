@@ -206,13 +206,17 @@ func excludeManaged(ctx context.Context, run *engineRun, sources []string, liste
 			resolved = append(resolved, s)
 			continue
 		}
-		if run.backend == nil || run.backend.S3 == nil {
-			return nil, errors.New("--managed-state=backend needs an S3 backend in the configuration file")
+		switch {
+		case run.backend != nil && run.backend.S3 != nil:
+			s3 := run.backend.S3
+			resolved = append(resolved, fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region))
+		case run.backend != nil && run.backend.GCS != nil:
+			resolved = append(resolved, fmt.Sprintf("gs://%s/%s", run.backend.GCS.Bucket, run.backend.GCS.Prefix))
+		default:
+			return nil, errors.New("--managed-state=backend needs an S3 or GCS backend in the configuration file")
 		}
-		s3 := run.backend.S3
-		resolved = append(resolved, fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region))
 	}
-	state, err := managed.Load(ctx, resolved, managed.NewS3)
+	state, err := managed.Load(ctx, resolved, managed.DefaultStores)
 	if err != nil {
 		return nil, err
 	}
