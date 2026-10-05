@@ -247,9 +247,9 @@ import {
 `)
 	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
 
-	added, err := merge(staging, root, existing, awsDataSources)
-	if err != nil || added != AddedFileName(2) {
-		t.Fatalf("got %q, %v", added, err)
+	addedFile, err := merge(staging, root, existing, awsDataSources)
+	if err != nil || addedFile != AddedFileName(2) {
+		t.Fatalf("got %q, %v", addedFile, err)
 	}
 
 	if got := readFile(t, root, GeneratedFileName); got != generatedBefore {
