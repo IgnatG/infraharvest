@@ -58,7 +58,7 @@ func TestLiftLiterals(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, networkGenerated)
 
-	lifted, err := liftLiterals(dir)
+	lifted, err := liftLiterals(dir, nil)
 	if err != nil || !lifted {
 		t.Fatalf("want a lift, got lifted=%v err=%v", lifted, err)
 	}
@@ -89,7 +89,7 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 }
 `, 3))
 
-	if _, err := liftLiterals(dir); err != nil {
+	if _, err := liftLiterals(dir, nil); err != nil {
 		t.Fatal(err)
 	}
 

@@ -63,13 +63,14 @@ func (t *trial) moduleAddress(member string) string {
 // writes every call, installs the modules and plans, and takes back the
 // calls whose resources would plan differently than baseline, which has
 // each resource's planned change (see changeSignature), until the plan
-// matches. It returns the clusters it didn't move, with why.
-func synthesize(ctx context.Context, tf Terraform, dir string, list []adapters.Adapter, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, error) {
+// matches. Calls are named other than the modules in taken. It returns
+// the clusters it didn't move, with why.
+func synthesize(ctx context.Context, tf Terraform, dir string, list []adapters.Adapter, taken Names, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, error) {
 	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName)
 	if err != nil {
 		return nil, err
 	}
-	trials, declined, err := mapClusters(dir, list)
+	trials, declined, err := mapClusters(dir, list, taken)
 	if err != nil || len(trials) == 0 {
 		return declined, err
 	}
@@ -245,17 +246,22 @@ func rejections(trials []*trial) []ModuleCall {
 // address order, and maps them. A resource joins the first cluster whose
 // anchor it refers to, if that cluster has no member of its type yet. It
 // returns the clusters the adapters mapped and the ones they declined.
-func mapClusters(dir string, list []adapters.Adapter) ([]*trial, []ModuleCall, error) {
+func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []ModuleCall, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, nil, err
 	}
 	resources := generated.resources()
-	taken := map[string]bool{}
+	clustered := map[string]bool{}
 	used := map[string]bool{}
 	for _, b := range generated.syntax.Blocks {
 		if b.Type == "module" && len(b.Labels) == 1 {
 			used[b.Labels[0]] = true
+		}
+	}
+	for name := range taken {
+		if call, ok := strings.CutPrefix(name, "module."); ok {
+			used[call] = true
 		}
 	}
 	var trials []*trial
@@ -263,14 +269,14 @@ func mapClusters(dir string, list []adapters.Adapter) ([]*trial, []ModuleCall, e
 	for ai := range list {
 		a := &list[ai]
 		for _, anchor := range resources {
-			if taken[anchor.address] || resourceTypeOf(anchor.address) != a.Anchor {
+			if clustered[anchor.address] || resourceTypeOf(anchor.address) != a.Anchor {
 				continue
 			}
 			c := adapters.Cluster{Anchor: resourceOf(anchor)}
 			types := map[string]bool{}
 			for _, r := range resources {
 				typ := resourceTypeOf(r.address)
-				if taken[r.address] || types[typ] || !slices.Contains(a.Members, typ) || !slices.Contains(referencedAddresses(r.syntax.Body), anchor.address) {
+				if clustered[r.address] || types[typ] || !slices.Contains(a.Members, typ) || !slices.Contains(referencedAddresses(r.syntax.Body), anchor.address) {
 					continue
 				}
 				types[typ] = true
@@ -291,7 +297,7 @@ func mapClusters(dir string, list []adapters.Adapter) ([]*trial, []ModuleCall, e
 			}
 			t.name = uniqueName(anchor.address[strings.IndexByte(anchor.address, '.')+1:], used)
 			for _, m := range t.members() {
-				taken[m] = true
+				clustered[m] = true
 			}
 			trials = append(trials, t)
 		}
@@ -428,8 +434,14 @@ func importTargets(dir string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return importTargetsIn(imports), nil
+}
+
+// importTargetsIn returns where each import block of f with a literal ID
+// imports into, by resource type and import ID.
+func importTargetsIn(f *hclFile) map[string]string {
 	targets := map[string]string{}
-	for _, b := range imports.syntax.Blocks {
+	for _, b := range f.syntax.Blocks {
 		to, ok := b.Body.Attributes["to"]
 		id, hasID := b.Body.Attributes["id"]
 		if b.Type != "import" || !ok || !hasID {
@@ -439,11 +451,10 @@ func importTargets(dir string) (map[string]string, error) {
 		if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
 			continue
 		}
-		rng := to.Expr.Range()
-		address := strings.TrimSpace(string(rng.SliceBytes(imports.file.Bytes())))
+		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.src)))
 		targets[addressType(address)+"\x00"+v.AsString()] = address
 	}
-	return targets, nil
+	return targets
 }
 
 // addressType returns the resource type of an address such as

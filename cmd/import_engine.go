@@ -180,12 +180,34 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 				return err
 			}
 		}
-		if result != nil {
+		incremental := false
+		if result == nil && options.Incremental {
+			if incremental, err = engine.HasConfiguration(dir); err != nil {
+				return err
+			}
+		}
+		switch {
+		case result != nil:
 			log.Printf("%s: %s is unchanged since it was generated (--resume)", provider.GetName(), dir)
 			if run.lock == nil {
 				run.lock, _ = os.ReadFile(filepath.Join(dir, engine.LockFileName))
 			}
-		} else {
+		case incremental:
+			added, addedResult, holds, err := run.addToRoot(ctx, dir, byDir[dir], opts, execPath, filepath.Join(cacheDir, "plugins"))
+			if err != nil && ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err == nil && holds != nil {
+				if err := saveCheckpoint(options.PathOutput, dir, fp, holds); err != nil {
+					return err
+				}
+			}
+			if err == nil && addedResult == nil {
+				continue // nothing new
+			}
+			run.addDirectory(dir, added, addedResult, err)
+			continue
+		default:
 			if options.Resume {
 				// What changed is generated again, from scratch.
 				if err := clearGenerated(dir); err != nil {

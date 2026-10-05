@@ -36,7 +36,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		return nil, err
 	}
 	if baseline == nil {
-		return nil, liftLiteralsValidated(ctx, tf, dir)
+		return nil, liftLiteralsValidated(ctx, tf, dir, opts.Taken)
 	}
 	// First, so the steps below see only the arguments that matter.
 	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars)
@@ -58,14 +58,16 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	}
 	steps := []step{{[]string{GeneratedFileName}, func() (bool, error) { return addReferences(dir, values) }}}
 	if len(opts.External) > 0 {
-		steps = append(steps, step{[]string{GeneratedFileName, DataFileName}, func() (bool, error) { return addDataSources(dir, opts.External, opts.DataSources) }})
+		steps = append(steps, step{[]string{GeneratedFileName, DataFileName}, func() (bool, error) {
+			return addDataSources(dir, opts.External, opts.DataSources, opts.Taken)
+		}})
 	}
 	// Tags before literals, so a tag value is never made a local.
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags
 		steps = append(steps, step{[]string{GeneratedFileName, ProvidersFileName, LocalsFileName}, func() (bool, error) { return applyTagLift(dir, dt) }})
 	}
-	steps = append(steps, step{[]string{GeneratedFileName, LocalsFileName}, func() (bool, error) { return liftLiterals(dir) }})
+	steps = append(steps, step{[]string{GeneratedFileName, LocalsFileName}, func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
 	for _, step := range steps {
 		if _, err := verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...); err != nil {
 			return nil, err
@@ -74,7 +76,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	// Last, as clusters reach the modules through the references above.
 	var declined []ModuleCall
 	if len(opts.Adapters) > 0 {
-		if declined, err = synthesize(ctx, tf, dir, opts.Adapters, *baseline, changes, vars); err != nil {
+		if declined, err = synthesize(ctx, tf, dir, opts.Adapters, opts.Taken, *baseline, changes, vars); err != nil {
 			return nil, err
 		}
 	}
@@ -88,12 +90,12 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 
 // liftLiteralsValidated lifts repeated identifiers when the configuration
 // can't be planned, and undoes the lift if it doesn't validate.
-func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string) error {
+func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string, taken Names) error {
 	backup, err := backupFiles(dir, GeneratedFileName, LocalsFileName)
 	if err != nil {
 		return err
 	}
-	lifted, err := liftLiterals(dir)
+	lifted, err := liftLiterals(dir, taken)
 	if err != nil || !lifted {
 		return err
 	}

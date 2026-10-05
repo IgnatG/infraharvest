@@ -5,6 +5,8 @@ package engine
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -145,4 +147,9 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// WriteReadme writes the README of dir, a root that holds result.
+func WriteReadme(dir string, result *Result) error {
+	return os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
 }

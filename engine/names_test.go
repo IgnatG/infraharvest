@@ -36,13 +36,13 @@ func TestLabelledIsUniqueAndStable(t *testing.T) {
 		{Type: "aws_vpc", Name: "main_2", ID: "vpc-9"},
 	}
 
-	got := labelled(imports)
+	got := labelled(imports, nil)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 	// Discovery order must not change the labels.
 	reversed := []Import{imports[3], imports[2], imports[1], imports[0]}
-	if again := labelled(reversed); !reflect.DeepEqual(again, want) {
+	if again := labelled(reversed, nil); !reflect.DeepEqual(again, want) {
 		t.Errorf("reordered input: got %+v, want %+v", again, want)
 	}
 }

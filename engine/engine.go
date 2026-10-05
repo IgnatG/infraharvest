@@ -121,6 +121,9 @@ type Options struct {
 	DataSources map[string]DataSource
 	// Scanners run in the verification gate (see runScanners).
 	Scanners []Scanner
+	// Taken are names Generate leaves alone, such as those of the root an
+	// incremental import adds to (see Add).
+	Taken Names
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
@@ -145,7 +148,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	imports = labelled(imports)
+	imports = labelled(imports, opts.Taken)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err
@@ -159,6 +162,11 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	if dt := opts.DefaultTags; dt != nil && dt.Applied != nil {
+		if err := applyDefaultTags(dir, *dt); err != nil {
 			return nil, err
 		}
 	}
@@ -236,7 +244,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, &result.Rejected, &rejected); err != nil {
+	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, &result.Rejected, &rejected); err != nil {
 		return nil, err
 	}
 	before, err := importTargets(dir)
@@ -276,7 +284,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
 	}
-	return result, os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
+	return result, WriteReadme(dir, result)
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors
@@ -316,10 +324,10 @@ func unresolved(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diag
 }
 
 // useVariables makes the secret attributes in generated.tf read from
-// sensitive variables, declared in variables.tf, and validates the result.
-// It leaves out resources that still don't validate, adding them to
-// rejections and out.
-func useVariables(ctx context.Context, tf Terraform, dir string, rejections *[]Rejection, out *bytes.Buffer) ([]Secret, error) {
+// sensitive variables, declared in variables.tf, named other than the
+// variables in taken, and validates the result. It leaves out resources
+// that still don't validate, adding them to rejections and out.
+func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, rejections *[]Rejection, out *bytes.Buffer) ([]Secret, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
@@ -335,7 +343,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, rejections *[]R
 	if found = withoutWriteOnly(found, schemas); len(found) == 0 {
 		return nil, nil
 	}
-	secrets := secretsToVariables(generated, found)
+	secrets := secretsToVariables(generated, found, taken)
 	for i, s := range secrets {
 		secrets[i].ty = attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
 	}

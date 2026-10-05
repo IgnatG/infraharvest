@@ -38,6 +38,10 @@ type DefaultTags struct {
 	// ReservedPrefix starts the keys of tags the cloud sets itself, which
 	// can't be applied through the provider, e.g. aws:.
 	ReservedPrefix string
+	// Applied, if set, are tags the provider already applies, such as in
+	// the root an incremental import adds to: Generate applies them too,
+	// and leaves them out of the resources instead of lifting others.
+	Applied map[string]string `json:",omitempty"`
 }
 
 // minRepeats is how often a value must appear to be lifted into a local.
@@ -53,56 +57,106 @@ var liftable = regexp.MustCompile(`^(arn:|/subscriptions/|projects/)|^[a-z][a-z0
 // resource only its other tags. AWS records each resource's full tag set
 // in tags_all, so whether that changes the plan depends on the provider:
 // postProcess keeps the lift only if the plan doesn't change (see verify).
-// It reports whether it changed anything.
+// It reports whether it changed anything. With dt.Applied, it only leaves
+// those tags out of the resources: the provider applies them already (see
+// applyDefaultTags).
 func applyTagLift(dir string, dt DefaultTags) (bool, error) {
 	generatedPath := filepath.Join(dir, GeneratedFileName)
 	generated, err := loadHCL(generatedPath)
 	if err != nil {
 		return false, err
 	}
+	if dt.Applied != nil {
+		if !removeTags(generated, dt.Attribute, dt.Applied) {
+			return false, nil
+		}
+		return true, generated.save()
+	}
 	common, tagged := sharedTags(generated, dt)
 	if len(common) == 0 || tagged < 2 {
 		return false, nil
 	}
-	providers, err := loadHCL(filepath.Join(dir, ProvidersFileName))
-	if err != nil {
+	providers, provider, err := loadProvider(dir, dt.Provider)
+	if err != nil || provider == nil {
 		return false, err
 	}
-	var provider *hclwrite.Body
-	for _, b := range providers.file.Body().Blocks() {
-		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == dt.Provider {
-			provider = b.Body()
-		}
-	}
-	if provider == nil {
-		return false, nil
-	}
-
-	for _, r := range generated.resources() {
-		attr, ok := r.syntax.Body.Attributes[dt.Attribute]
-		if !ok {
-			continue
-		}
-		tags, _ := stringMap(attr.Expr)
-		for k := range common {
-			delete(tags, k)
-		}
-		if len(tags) == 0 {
-			r.write.Body().RemoveAttribute(dt.Attribute)
-		} else {
-			r.write.Body().SetAttributeValue(dt.Attribute, mapValue(tags))
-		}
-	}
-	provider.AppendNewBlock(dt.Block, nil).Body().SetAttributeTraversal(dt.Attribute, hcl.Traversal{
-		hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: dt.Attribute},
-	})
+	removeTags(generated, dt.Attribute, common)
 	if err := generated.save(); err != nil {
 		return false, err
 	}
-	if err := providers.save(); err != nil {
-		return false, err
+	return true, setDefaultTags(dir, providers, provider, dt, common)
+}
+
+// applyDefaultTags makes the provider in dir apply dt.Applied to every
+// resource, as the root an incremental import adds to does.
+func applyDefaultTags(dir string, dt DefaultTags) error {
+	providers, provider, err := loadProvider(dir, dt.Provider)
+	if err != nil {
+		return err
 	}
-	return true, setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(common)})
+	if provider == nil {
+		return fmt.Errorf("%s has no provider %q to apply default tags", ProvidersFileName, dt.Provider)
+	}
+	return setDefaultTags(dir, providers, provider, dt, dt.Applied)
+}
+
+// loadProvider loads providers.tf and finds the block of the provider
+// named name, or nil.
+func loadProvider(dir, name string) (*hclFile, *hclwrite.Body, error) {
+	providers, err := loadHCL(filepath.Join(dir, ProvidersFileName))
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, b := range providers.file.Body().Blocks() {
+		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == name {
+			return providers, b.Body(), nil
+		}
+	}
+	return providers, nil, nil
+}
+
+// setDefaultTags makes provider, in providers, apply tags through local.tags
+// (dt.Attribute) and dt.Block.
+func setDefaultTags(dir string, providers *hclFile, provider *hclwrite.Body, dt DefaultTags, tags map[string]string) error {
+	provider.AppendNewBlock(dt.Block, nil).Body().SetAttributeTraversal(dt.Attribute, hcl.Traversal{
+		hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: dt.Attribute},
+	})
+	if err := providers.save(); err != nil {
+		return err
+	}
+	return setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(tags)})
+}
+
+// removeTags leaves out of each resource's literal attribute the tags in
+// remove, with the same values, and reports whether it changed anything.
+func removeTags(f *hclFile, attribute string, remove map[string]string) bool {
+	changed := false
+	for _, r := range f.resources() {
+		attr, ok := r.syntax.Body.Attributes[attribute]
+		if !ok {
+			continue
+		}
+		tags, ok := stringMap(attr.Expr)
+		if !ok {
+			continue
+		}
+		n := len(tags)
+		for k, v := range remove {
+			if value, ok := tags[k]; ok && value == v {
+				delete(tags, k)
+			}
+		}
+		if len(tags) == n {
+			continue
+		}
+		changed = true
+		if len(tags) == 0 {
+			r.write.Body().RemoveAttribute(attribute)
+		} else {
+			r.write.Body().SetAttributeValue(attribute, mapValue(tags))
+		}
+	}
+	return changed
 }
 
 // sharedTags returns the tags, as key and value, that every resource with
@@ -178,9 +232,10 @@ func mapValue(m map[string]string) cty.Value {
 // liftLiterals moves identifier-like string values (see liftable) that
 // the generated configuration repeats at least minRepeats times into
 // locals named after the argument that holds them most, and makes every
-// use refer to the local. The values stay the same, so the plan does too.
-// It reports whether it lifted anything.
-func liftLiterals(dir string) (bool, error) {
+// use refer to the local, named other than the locals in taken. The values
+// stay the same, so the plan does too. It reports whether it lifted
+// anything.
+func liftLiterals(dir string, taken Names) (bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return false, err
@@ -241,7 +296,7 @@ func liftLiterals(dir string) (bool, error) {
 			}
 		}
 		name := Label(best)
-		for n := 2; hasLocal(locals, name); n++ {
+		for n := 2; hasLocal(locals, name) || taken["local."+name]; n++ {
 			name = fmt.Sprintf("%s_%d", Label(best), n)
 		}
 		locals[name] = cty.StringVal(value)

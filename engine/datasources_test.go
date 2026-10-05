@@ -40,7 +40,7 @@ resource "aws_lambda_function" "f" {
 		{Type: "aws_sqs_queue", ID: "q"},              // no data source
 	}
 
-	changed, err := addDataSources(dir, external, awsDataSources)
+	changed, err := addDataSources(dir, external, awsDataSources, nil)
 	if err != nil || !changed {
 		t.Fatalf("want data sources, got %v, %v", changed, err)
 	}
@@ -75,7 +75,7 @@ func TestAddDataSourcesWithoutReferences(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_vpc\" \"a\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")
 
-	changed, err := addDataSources(dir, []External{{Type: "aws_vpc", ID: "vpc-0abc1234"}}, awsDataSources)
+	changed, err := addDataSources(dir, []External{{Type: "aws_vpc", ID: "vpc-0abc1234"}}, awsDataSources, nil)
 	if err != nil || changed {
 		t.Fatalf("want no change, got %v, %v", changed, err)
 	}

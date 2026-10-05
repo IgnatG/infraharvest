@@ -60,6 +60,16 @@ func (g Gate) Passed() bool {
 	return true
 }
 
+// check returns the check named name; one that didn't run fails.
+func (g Gate) check(name string) Check {
+	for _, c := range g {
+		if c.Name == name {
+			return c
+		}
+	}
+	return Check{Name: name, Details: []string{"didn't run"}}
+}
+
 // runGate checks the directory as Generate leaves it: formatted, valid,
 // planning only imports, following the output standard (see
 // checkStandards), passing the installed scanners (see runScanners),
@@ -69,6 +79,19 @@ func (g Gate) Passed() bool {
 // so may the arguments opts.StateOnly names per type, which providers keep
 // only in state and import can't set.
 func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options) (Gate, error) {
+	return gateWith(ctx, tf, dir, opts, func() (Check, []string, error) {
+		p, diags, err := showPlan(ctx, tf, placeholders(secrets))
+		if err != nil {
+			return Check{}, nil, err
+		}
+		return planCheck(p, diags, secrets, opts.StateOnly), sensitiveValues(p), nil
+	})
+}
+
+// gateWith runs the verification gate's checks on dir, with plan for the
+// plan check; plan also returns the values the plan marks sensitive, which
+// no file may contain.
+func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan func() (Check, []string, error)) (Gate, error) {
 	var gate Gate
 
 	formatted, files, err := tf.FormatCheck(ctx)
@@ -87,11 +110,11 @@ func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, op
 	}
 	gate = append(gate, validCheck)
 
-	p, diags, err := showPlan(ctx, tf, placeholders(secrets))
+	planned, sensitive, err := plan()
 	if err != nil {
 		return nil, err
 	}
-	gate = append(gate, planCheck(p, diags, secrets, opts.StateOnly))
+	gate = append(gate, planned)
 
 	standards, err := checkStandards(dir, opts.Omit)
 	if err != nil {
@@ -99,7 +122,7 @@ func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, op
 	}
 	gate = append(gate, standards, runScanners(ctx, dir, opts.Scanners))
 
-	secretCheck, err := scanSecrets(dir, sensitiveValues(p))
+	secretCheck, err := scanSecrets(dir, sensitive)
 	if err != nil {
 		return nil, err
 	}
