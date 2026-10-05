@@ -280,7 +280,7 @@ func TestFactorResources(t *testing.T) {
 func rateLimitedServer(t *testing.T, limited int32, reset string) (*rawClient, *atomic.Int32) {
 	t.Helper()
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if requests.Add(1) <= limited {
 			if reset != "" {
 				w.Header().Set("X-Rate-Limit-Reset", reset)
