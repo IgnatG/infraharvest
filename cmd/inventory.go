@@ -127,7 +127,7 @@ func listResources(ctx context.Context, provider terraformutils.ProviderGenerato
 		log.Printf("%s: no saved inventory lists %s with the same --filter: listing them", provider.GetName(), strings.Join(options.Resources, ","))
 	}
 	mapping := terraformutils.NewProvidersMapping(provider)
-	failures, err := initAllServicesResources(ctx, mapping, options, args, nil)
+	failures, err := initAllServicesResources(ctx, mapping, options, args)
 	if err != nil {
 		return nil, nil, err
 	}

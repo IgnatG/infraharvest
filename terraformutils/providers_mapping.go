@@ -1,12 +1,12 @@
 package terraformutils
 
 import (
-	"fmt"
 	"log"
-	"math/rand"
 	"reflect"
 )
 
+// ProvidersMapping lists services each with a provider of their own, made
+// from one base provider, and keeps which resources each one listed.
 type ProvidersMapping struct {
 	baseProvider       ProviderGenerator
 	Resources          map[*Resource]bool
@@ -35,10 +35,8 @@ func deepCopyProvider(provider ProviderGenerator) ProviderGenerator {
 	return reflect.New(reflect.ValueOf(provider).Elem().Type()).Interface().(ProviderGenerator)
 }
 
-func (p *ProvidersMapping) GetBaseProvider() ProviderGenerator {
-	return p.baseProvider
-}
-
+// AddServiceToProvider returns a new provider, of the base provider's type,
+// for service.
 func (p *ProvidersMapping) AddServiceToProvider(service string) ProviderGenerator {
 	newProvider := deepCopyProvider(p.baseProvider)
 	p.Providers[newProvider] = true
@@ -49,15 +47,7 @@ func (p *ProvidersMapping) AddServiceToProvider(service string) ProviderGenerato
 	return newProvider
 }
 
-func (p *ProvidersMapping) GetServices() []string {
-	services := make([]string, 0, len(p.Services))
-	for service := range p.Services {
-		services = append(services, service)
-	}
-
-	return services
-}
-
+// RemoveServices drops services and their providers.
 func (p *ProvidersMapping) RemoveServices(services []string) {
 	for _, service := range services {
 		delete(p.Services, service)
@@ -69,65 +59,21 @@ func (p *ProvidersMapping) RemoveServices(services []string) {
 	}
 }
 
-func (p *ProvidersMapping) ShuffleResources() []*Resource {
-	resources := []*Resource{}
-	for resource := range p.Resources {
-		resources = append(resources, resource)
-	}
-	rand.Shuffle(len(resources), func(i, j int) { resources[i], resources[j] = resources[j], resources[i] })
-
-	return resources
-}
-
-func (p *ProvidersMapping) ProcessResources(isCleanup bool) {
-	initialResources := p.resourceToProvider
-	if isCleanup && len(initialResources) > 0 {
-		p.Resources = map[*Resource]bool{}
-		p.resourceToProvider = map[*Resource]ProviderGenerator{}
-		for provider := range p.Providers {
-			resources := provider.GetService().GetResources()
-			log.Printf("Filtered number of resources for service %s: %d", p.providerToService[provider], len(provider.GetService().GetResources()))
-			for i := range resources {
-				resource := resources[i]
-				p.Resources[&resource] = true
-				p.resourceToProvider[&resource] = provider
-			}
-		}
-	} else if !isCleanup {
-		for provider := range p.Providers {
-			resources := provider.GetService().GetResources()
-			log.Printf("Number of resources for service %s: %d", p.providerToService[provider], len(provider.GetService().GetResources()))
-			for i := range resources {
-				resource := resources[i]
-				p.Resources[&resource] = true
-				p.resourceToProvider[&resource] = provider
-			}
-		}
-	}
-}
-
-func (p *ProvidersMapping) MatchProvider(resource *Resource) ProviderGenerator {
-	return p.resourceToProvider[resource]
-}
-
-func (p *ProvidersMapping) SetResources(resourceToKeep []*Resource) {
-	p.Resources = map[*Resource]bool{}
-	resourcesGroupsByProviders := map[ProviderGenerator][]Resource{}
-	for i := range resourceToKeep {
-		resource := resourceToKeep[i]
-		provider := p.resourceToProvider[resource]
-		if resourcesGroupsByProviders[provider] == nil {
-			resourcesGroupsByProviders[provider] = []Resource{}
-		}
-		resourcesGroupsByProviders[provider] = append(resourcesGroupsByProviders[provider], *resource)
-		p.Resources[resource] = true
-	}
-
+// ProcessResources collects the resources each service's provider listed.
+func (p *ProvidersMapping) ProcessResources() {
 	for provider := range p.Providers {
-		provider.GetService().SetResources(resourcesGroupsByProviders[provider])
+		resources := provider.GetService().GetResources()
+		log.Printf("Number of resources for service %s: %d", p.providerToService[provider], len(resources))
+		for i := range resources {
+			resource := resources[i]
+			p.Resources[&resource] = true
+			p.resourceToProvider[&resource] = provider
+		}
 	}
 }
 
+// GetResourcesByService returns the collected resources by service. Every
+// service is a key, with no resources if it listed none.
 func (p *ProvidersMapping) GetResourcesByService() map[string][]Resource {
 	mapping := map[string][]Resource{}
 	for service := range p.Services {
@@ -141,47 +87,4 @@ func (p *ProvidersMapping) GetResourcesByService() map[string][]Resource {
 	}
 
 	return mapping
-}
-
-// ConvertTFStates converts each resource's state to configuration. A resource
-// that fails to convert is dropped and reported in the returned errors.
-func (p *ProvidersMapping) ConvertTFStates(schemaProvider SchemaProvider) []error {
-	var failures []error
-	for resource := range p.Resources {
-		if err := resource.ConvertTFstate(schemaProvider); err != nil {
-			failures = append(failures, fmt.Errorf("convert %s: %w", resource.InstanceInfo.Id, err))
-			delete(p.Resources, resource)
-		}
-	}
-	sortErrors(failures)
-
-	resourcesGroupsByProviders := map[ProviderGenerator][]Resource{}
-	for resource := range p.Resources {
-		provider := p.resourceToProvider[resource]
-		if resourcesGroupsByProviders[provider] == nil {
-			resourcesGroupsByProviders[provider] = []Resource{}
-		}
-		resourcesGroupsByProviders[provider] = append(resourcesGroupsByProviders[provider], *resource)
-	}
-
-	for provider := range p.Providers {
-		provider.GetService().SetResources(resourcesGroupsByProviders[provider])
-	}
-	return failures
-}
-
-// CleanupProviders runs each service's post-refresh cleanup and post-convert
-// hook. It returns one error per service whose hook failed; that service's
-// output may be missing the hook's adjustments.
-func (p *ProvidersMapping) CleanupProviders() []error {
-	var failures []error
-	for provider := range p.Providers {
-		provider.GetService().PostRefreshCleanup()
-		if err := provider.GetService().PostConvertHook(); err != nil {
-			failures = append(failures, fmt.Errorf("post-convert hook for service %s: %w", p.providerToService[provider], err))
-		}
-	}
-	p.ProcessResources(true)
-	sortErrors(failures)
-	return failures
 }

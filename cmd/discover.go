@@ -16,7 +16,7 @@ func newDiscoverCmd() *cobra.Command {
 		Short: "List resources into a selection file to review before importing",
 		Long: "List resources into a selection file (--selection, default selection.yaml), each\n" +
 			"marked included or not by the default rules, which leave out resources the cloud\n" +
-			"manages itself. Review it, then import with --engine=terraform --selection <file>.",
+			"manages itself. Review it, then import with --selection <file>.",
 		SilenceUsage: true,
 	}
 	cmd.PersistentFlags().String("config", "", "configuration file, which sets flags not given on the command line")

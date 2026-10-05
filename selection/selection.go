@@ -203,7 +203,7 @@ const header = `# infraharvest selection file: which listed resources to import.
 # to false to leave a resource out, or true to bring in one the default
 # rules excluded (the reason says why they did). Then run:
 #
-#   infraharvest import <provider> --engine=terraform --selection <this file> ...
+#   infraharvest import <provider> --selection <this file> ...
 #
 # Resources without an entry, such as new ones, follow the rules (the last
 # matching one decides) and then the defaults. Rules match type, id and name

@@ -17,10 +17,10 @@ import (
 	"github.com/IgnatG/infraharvest/selection"
 )
 
-// engineRun collects what the Import calls of one command do with
-// --engine=terraform or tofu, so the command writes one report and ends
-// with one exit code. The AWS command, for one, imports global,
-// us-east-1-only and regional resources in separate calls.
+// engineRun collects what the Import calls of one command do, so the
+// command writes one report and ends with one exit code. The AWS command,
+// for one, imports global, us-east-1-only and regional resources in
+// separate calls.
 type engineRun struct {
 	options    ImportOptions
 	report     report.Report
@@ -62,7 +62,6 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 		if err := requireResources(c); err != nil {
 			return err
 		}
-		defaultPathPattern(c)
 		if c != nil {
 			if f := c.Flag("pick"); f != nil {
 				run.openPicker = f.Value.String() == "true"
@@ -92,23 +91,6 @@ func requireResources(c *cobra.Command) error {
 		return errNoResources
 	}
 	return nil
-}
-
-// defaultPathPattern lays the roots of --engine=terraform or tofu out by
-// account and region (DefaultRootPathPattern) when --path-pattern is not
-// given, on the command line or in the configuration file. Given, it is
-// followed as it is, even when it equals the legacy default.
-func defaultPathPattern(c *cobra.Command) {
-	if c == nil {
-		return
-	}
-	pattern, engineFlag := c.Flags().Lookup("path-pattern"), c.Flags().Lookup("engine")
-	if pattern == nil || pattern.Changed || engineFlag == nil {
-		return
-	}
-	if v := engineFlag.Value.String(); v == engineTerraform || v == engineTofu {
-		_ = pattern.Value.Set(DefaultRootPathPattern)
-	}
 }
 
 // recordFailure records that part of the command couldn't run, such as one
@@ -146,7 +128,7 @@ func (r *engineRun) applyConfig(c *cobra.Command) error {
 
 // finish writes the run's report, prints it for --output json, and returns
 // err if the command couldn't run, or the error for what wasn't imported
-// (see checkFailures). A run no engine import used returns err as is.
+// (see checkFailures). A run no import used returns err as is.
 func (r *engineRun) finish(err error) error {
 	if !r.used {
 		return err

@@ -131,9 +131,6 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-memdb v1.3.2 // indirect
 	github.com/hashicorp/go-plugin v1.4.4
-	github.com/hashicorp/hcl v1.0.0
-	github.com/hashicorp/terraform v0.12.31
-	github.com/hashicorp/vault v0.10.4
 	github.com/heimweh/go-pagerduty v0.0.0-20210930203304-530eff2acdc6
 	github.com/heroku/heroku-go/v5 v5.4.1
 	github.com/hokaccha/go-prettyjson v0.0.0-20210113012101-fb4e108d2519 // indirect

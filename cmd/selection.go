@@ -185,7 +185,7 @@ func (r *engineRun) writeSelection() error {
 			excluded++
 		}
 	}
-	log.Printf("listed %d resources into %s, %d of them excluded by default; review it, then import with --engine=terraform --selection %s", len(r.listed), path, excluded, path)
+	log.Printf("listed %d resources into %s, %d of them excluded by default; review it, then import with --selection %s", len(r.listed), path, excluded, path)
 	return nil
 }
 

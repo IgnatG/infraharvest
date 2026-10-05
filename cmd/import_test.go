@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
 
 func TestCheckFailures(t *testing.T) {
@@ -43,22 +41,6 @@ func TestCheckFailures(t *testing.T) {
 	}
 }
 
-// The legacy engine rejects the options only the Terraform engine follows,
-// instead of ignoring them.
-func TestLegacyEngineRejectsEngineOptions(t *testing.T) {
-	for name, options := range map[string]ImportOptions{
-		"--reuse-inventory": {ReuseInventory: true},
-		"--modules local":   {Modules: modulesLocal},
-		"--modules none":    {Modules: modulesNone},
-		"--selection":       {Selection: "selection.yaml"},
-	} {
-		err := Import(&fakeProvider{}, options, nil)
-		if err == nil || !strings.Contains(err.Error(), "need --engine=terraform or tofu") {
-			t.Errorf("%s: got %v, want the engine error", name, err)
-		}
-	}
-}
-
 func TestExitCode(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
@@ -78,7 +60,7 @@ func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
 	mapping := terraformutils.NewProvidersMapping(&fakeProvider{})
 	options := ImportOptions{Resources: []string{"good", "bad"}}
 
-	failures, err := initAllServicesResources(t.Context(), mapping, options, nil, nil)
+	failures, err := initAllServicesResources(t.Context(), mapping, options, nil)
 	if err != nil {
 		t.Fatalf("a failing service must not abort the run: %v", err)
 	}
@@ -97,7 +79,7 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 	mapping := terraformutils.NewProvidersMapping(&fakeProvider{})
 	options := ImportOptions{Resources: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
 
-	failures, err := initAllServicesResources(t.Context(), mapping, options, nil, nil)
+	failures, err := initAllServicesResources(t.Context(), mapping, options, nil)
 	if err != nil {
 		t.Fatalf("a slow service must not abort the run: %v", err)
 	}
@@ -115,43 +97,9 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 	cancel()
 	mapping := terraformutils.NewProvidersMapping(&fakeProvider{})
 
-	_, err := initAllServicesResources(ctx, mapping, ImportOptions{Resources: []string{"slow", "good"}}, nil, nil)
+	_, err := initAllServicesResources(ctx, mapping, ImportOptions{Resources: []string{"slow", "good"}}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("want the run stopped, got %v", err)
-	}
-}
-
-func TestRelativeStatePath(t *testing.T) {
-	abs := t.TempDir()
-	tests := map[string]struct {
-		output  string
-		pattern string
-	}{
-		"default pattern":                   {output: DefaultPathOutput, pattern: DefaultPathPattern},
-		"output dir contains service name":  {output: "sqs-export", pattern: DefaultPathPattern},
-		"absolute output dir":               {output: abs, pattern: DefaultPathPattern},
-		"absolute output contains service":  {output: filepath.Join(abs, "sqs"), pattern: DefaultPathPattern},
-		"service before provider in layout": {output: "out", pattern: "{output}/{service}/{provider}/"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			from := Path(tc.pattern, "aws", "sqs", tc.output)
-			to := Path(tc.pattern, "aws", "sns", tc.output)
-
-			got, err := relativeStatePath(from, to)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if strings.Contains(got, `\`) {
-				t.Errorf("path %q must use forward slashes", got)
-			}
-			resolved := filepath.Clean(filepath.Join(from, filepath.FromSlash(got)))
-			want := filepath.Clean(filepath.Join(to, "terraform.tfstate"))
-			if resolved != want {
-				t.Errorf("path %q resolves to %q from %q, want %q", got, resolved, from, want)
-			}
-		})
 	}
 }
 
@@ -187,9 +135,7 @@ func (s *fakeService) InitResources() error {
 		return nil
 	}
 	s.Resources = []terraformutils.Resource{
-		terraformutils.NewSimpleResource("id-1", "one", "fake_thing", "fake", nil),
+		terraformutils.NewSimpleResource("id-1", "one", "fake_thing", "fake"),
 	}
 	return nil
 }
-
-func (s *fakeService) PopulateIgnoreKeys(*providerwrapper.ProviderWrapper) {}

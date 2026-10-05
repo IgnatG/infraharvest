@@ -2,5 +2,4 @@
 # One entry per line: an OSV ID or a module path, then the reason.
 # Remove an entry as soon as it no longer applies; CI warns about stale ones.
 
-github.com/hashicorp/vault  Pinned at v0.10.4 by the embedded Terraform 0.12 engine, which also blocks moving to the separate vault/api module. Only its api client package is compiled in. Goes away with the legacy engine.
 GO-2026-5932                golang.org/x/crypto openpgp: no fixed version released.

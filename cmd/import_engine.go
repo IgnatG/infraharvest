@@ -22,14 +22,12 @@ import (
 
 // Import engines selectable with --engine.
 const (
-	engineLegacy    = "legacy"
 	engineTerraform = "terraform"
 	engineTofu      = "tofu"
 )
 
-// Values of --output. With the legacy engine they choose the format of the
-// generated files; with Terraform or OpenTofu, json prints the import report
-// (see package report) on stdout.
+// Values of --output: json also prints the import report (see package
+// report) on stdout.
 const (
 	outputHCL  = "hcl"
 	outputJSON = "json"
@@ -57,10 +55,9 @@ func engineBinary(name string) engine.Binary {
 
 // importWithEngine lists resources with the provider's listers, then lets
 // Terraform or OpenTofu generate their configuration from import blocks.
-// Nothing is refreshed through the embedded provider wrapper and no state
-// is written.
+// No state is written.
 func importWithEngine(provider terraformutils.ProviderGenerator, options ImportOptions, args []string) error {
-	if err := checkTerraformEngineOptions(options); err != nil {
+	if err := checkImportOptions(options); err != nil {
 		return err
 	}
 	if err := checkSelectionOptions(options); err != nil {
@@ -390,36 +387,43 @@ func writeGitignore(outputDir string) error {
 	return os.WriteFile(path, []byte(engine.GitignoreFile), 0o644)
 }
 
-// checkTerraformEngineOptions rejects legacy options the Terraform engine
+// checkImportOptions rejects values of --output and --modules the import
 // would otherwise silently ignore.
-func checkTerraformEngineOptions(options ImportOptions) error {
-	var unsupported []string
-	if options.Plan {
-		unsupported = append(unsupported, "plan files")
-	}
-	if options.State != DefaultState {
-		unsupported = append(unsupported, "--state "+options.State)
-	}
-	if options.Output != outputHCL && options.Output != outputJSON {
-		unsupported = append(unsupported, "--output "+options.Output)
-	}
-	if options.Compact {
-		unsupported = append(unsupported, "--compact")
-	}
-	if len(unsupported) > 0 {
-		return fmt.Errorf("--engine=%s does not support %s", options.Engine, strings.Join(unsupported, ", "))
+func checkImportOptions(options ImportOptions) error {
+	if options.Output != "" && options.Output != outputHCL && options.Output != outputJSON {
+		return fmt.Errorf("--output must be %s or %s, not %q", outputHCL, outputJSON, options.Output)
 	}
 	switch options.Modules {
 	case "", modulesRegistry, modulesLocal, modulesNone:
 	default:
 		return fmt.Errorf("--modules must be %s, %s or %s, not %q", modulesRegistry, modulesLocal, modulesNone, options.Modules)
 	}
+	return checkFilters(options.Filter)
+}
+
+// checkFilters rejects a --filter that doesn't parse. Filters on IDs apply
+// to every service; a filter on another attribute only takes effect where
+// the service's lister passes it to the API it lists with (such as AWS EC2
+// instance tags), so it says so.
+func checkFilters(rawFilters []string) error {
+	var s terraformutils.Service
+	for _, raw := range rawFilters {
+		filters := s.ParseFilter(raw)
+		if len(filters) == 0 {
+			return fmt.Errorf("--filter %q isn't a filter: use <service>=<id1>:<id2>, or [Type=<service>;]Name=<attribute>[;Value=<value1>:<value2>]", raw)
+		}
+		for _, f := range filters {
+			if f.FieldPath != "id" {
+				log.Printf("--filter %q: a filter on %s only applies to services whose lister supports it (see the provider's page); others list everything", raw, f.FieldPath)
+			}
+		}
+	}
 	return nil
 }
 
 // importsByDir groups resources into import blocks per output directory,
-// following --path-pattern like the legacy engine. It leaves out, logs and
-// counts by type resources Terraform can't import.
+// following --path-pattern. It leaves out, logs and counts by type
+// resources Terraform can't import.
 func importsByDir(providerName string, options ImportOptions, resourcesByService map[string][]terraformutils.Resource, importID func(terraformutils.Resource) (string, bool)) (map[string][]engine.Import, map[string]int) {
 	byDir := map[string][]engine.Import{}
 	skipped := map[string]int{}
@@ -520,10 +524,9 @@ const BackendFileName = "backend.tf"
 // account (or subscription or project), then region or global.
 const DefaultRootPathPattern = "{output}/{provider}/{account}/{region}/"
 
-// rootPathPattern returns the path pattern for the Terraform engine's
-// roots: DefaultRootPathPattern unless pattern says otherwise (see
-// defaultPathPattern for what --path-pattern passes), with {account} and
-// {region} filled in from the provider.
+// rootPathPattern returns the path pattern for the roots: pattern, or
+// DefaultRootPathPattern if empty, with {account} and {region} filled in
+// from the provider.
 func rootPathPattern(ctx context.Context, provider terraformutils.ProviderGenerator, pattern string) (string, error) {
 	if pattern == "" {
 		pattern = DefaultRootPathPattern

@@ -3,8 +3,6 @@ package terraformutils
 import (
 	"reflect"
 	"testing"
-
-	"github.com/hashicorp/terraform/terraform"
 )
 
 func TestEmptyFiltersParsing(t *testing.T) {
@@ -61,16 +59,16 @@ func TestEdgeIdFiltersParsing(t *testing.T) {
 func TestServiceIdCleanupWithFilter(t *testing.T) {
 	service := Service{
 		Resources: []Resource{{
-			InstanceInfo: &terraform.InstanceInfo{
+			InstanceInfo: &InstanceInfo{
 				Type: "type1",
 			},
-			InstanceState: &terraform.InstanceState{
+			InstanceState: &InstanceState{
 				ID: "myid",
 			}}, {
-			InstanceInfo: &terraform.InstanceInfo{
+			InstanceInfo: &InstanceInfo{
 				Type: "type2",
 			},
-			InstanceState: &terraform.InstanceState{
+			InstanceState: &InstanceState{
 				ID: "myid",
 			}}},
 	}
@@ -88,16 +86,16 @@ func TestServiceIdCleanupKeepsTypesSharingAnId(t *testing.T) {
 	service := Service{
 		Resources: []Resource{
 			{
-				InstanceInfo:  &terraform.InstanceInfo{Type: "aws_iam_role", Id: "admins"},
-				InstanceState: &terraform.InstanceState{ID: "admins"},
+				InstanceInfo:  &InstanceInfo{Type: "aws_iam_role", Id: "admins"},
+				InstanceState: &InstanceState{ID: "admins"},
 			},
 			{
-				InstanceInfo:  &terraform.InstanceInfo{Type: "aws_iam_group", Id: "admins"},
-				InstanceState: &terraform.InstanceState{ID: "admins"},
+				InstanceInfo:  &InstanceInfo{Type: "aws_iam_group", Id: "admins"},
+				InstanceState: &InstanceState{ID: "admins"},
 			},
 			{
-				InstanceInfo:  &terraform.InstanceInfo{Type: "aws_iam_group", Id: "admins"},
-				InstanceState: &terraform.InstanceState{ID: "admins"},
+				InstanceInfo:  &InstanceInfo{Type: "aws_iam_group", Id: "admins"},
+				InstanceState: &InstanceState{ID: "admins"},
 			},
 		},
 	}
@@ -113,58 +111,47 @@ func TestServiceIdCleanupKeepsTypesSharingAnId(t *testing.T) {
 	}
 }
 
+// Filters on attributes match the attributes the lister recorded.
 func TestServiceAttributeCleanupWithFilter(t *testing.T) {
 	service := Service{
 		Resources: []Resource{
-			{
-				InstanceInfo: &terraform.InstanceInfo{
-					Type: "aws_vpc",
-				},
-				InstanceState: &terraform.InstanceState{
-					ID: "vpc1",
-				},
-				Item: mapI("tags", mapI("Name", "some"))},
-			{
-				InstanceInfo: &terraform.InstanceInfo{
-					Type: "aws_vpc",
-				},
-				InstanceState: &terraform.InstanceState{
-					ID: "vpc2",
-				},
-				Item: mapI("tags", mapI("Name", "default"))}},
+			NewResource("vpc1", "vpc1", "aws_vpc", "aws", map[string]string{"tags.Name": "some"}),
+			NewResource("vpc2", "vpc2", "aws_vpc", "aws", map[string]string{"tags.Name": "default"}),
+		},
 	}
 	service.ParseFilters([]string{"Name=tags.Name;Value=default"})
-	service.PostRefreshCleanup()
+	FilterCleanup(&service, false)
 
-	if !reflect.DeepEqual(len(service.Resources), 1) {
-		t.Errorf("failed to cleanup")
+	if len(service.Resources) != 1 || service.Resources[0].InstanceState.ID != "vpc2" {
+		t.Errorf("want vpc2 only, got %v", service.Resources)
 	}
 }
 
 func TestServiceAttributeNameOnlyCleanupWithFilter(t *testing.T) {
 	service := Service{
 		Resources: []Resource{
-			{
-				InstanceInfo: &terraform.InstanceInfo{
-					Type: "aws_vpc",
-				},
-				InstanceState: &terraform.InstanceState{
-					ID: "vpc1",
-				},
-				Item: mapI("tags", mapI("Abc", nil))},
-			{
-				InstanceInfo: &terraform.InstanceInfo{
-					Type: "aws_vpc",
-				},
-				InstanceState: &terraform.InstanceState{
-					ID: "vpc2",
-				},
-				Item: mapI("tags", mapI("Name", "default"))}},
+			NewResource("vpc1", "vpc1", "aws_vpc", "aws", map[string]string{"tags.Abc": ""}),
+			NewResource("vpc2", "vpc2", "aws_vpc", "aws", map[string]string{"tags.Name": "default"}),
+		},
 	}
 	service.ParseFilters([]string{"Name=tags.Abc"})
-	service.PostRefreshCleanup()
+	FilterCleanup(&service, false)
 
-	if !reflect.DeepEqual(len(service.Resources), 1) {
-		t.Errorf("failed to cleanup")
+	if len(service.Resources) != 1 || service.Resources[0].InstanceState.ID != "vpc1" {
+		t.Errorf("want vpc1 only, got %v", service.Resources)
+	}
+}
+
+func TestNewResource(t *testing.T) {
+	r := NewSimpleResource("https://sqs/1/my queue", "my queue", "aws_sqs_queue", "aws")
+
+	if r.ResourceName != "tfer--my-0020-queue" || r.RawName != "my queue" {
+		t.Errorf("names: got %q, %q", r.ResourceName, r.RawName)
+	}
+	if got, want := r.InstanceInfo.ResourceAddress(), "aws_sqs_queue.tfer--my-0020-queue"; got != want {
+		t.Errorf("address: got %q, want %q", got, want)
+	}
+	if r.InstanceState.ID != "https://sqs/1/my queue" || r.InstanceState.Attributes == nil {
+		t.Errorf("state: got %+v", r.InstanceState)
 	}
 }

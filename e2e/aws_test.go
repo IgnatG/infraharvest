@@ -48,7 +48,7 @@ var awsServices = []string{
 }
 
 // TestAWSRoundTrip creates resources in an AWS emulator, imports them with
-// --engine=terraform (or E2E_ENGINE=tofu) and checks the engine plans every
+// Terraform (or OpenTofu with E2E_ENGINE=tofu) and checks the engine plans every
 // generated resource as an import with no changes. Run it against Floci:
 //
 //	docker compose -f e2e/compose.yaml up -d --wait
