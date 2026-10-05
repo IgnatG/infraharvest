@@ -410,7 +410,6 @@ resource "aws_iam_role" "ci" {
       Action    = "sts:AssumeRole"
     }]
   })
-  tags = local.tags
 }
 
 resource "aws_iam_role_policy" "ci" {
@@ -434,7 +433,6 @@ resource "aws_iam_role_policy_attachment" "ci" {
 resource "aws_iam_instance_profile" "ci" {
   name = aws_iam_role.ci.name
   role = aws_iam_role.ci.name
-  tags = local.tags
 }
 
 resource "aws_sfn_state_machine" "workflow" {
