@@ -111,34 +111,39 @@ func TestServiceIdCleanupKeepsTypesSharingAnId(t *testing.T) {
 	}
 }
 
-// Filters on attributes match the attributes the lister recorded.
-func TestServiceAttributeCleanupWithFilter(t *testing.T) {
-	service := Service{
-		Resources: []Resource{
-			NewResource("vpc1", "vpc1", "aws_vpc", "aws", map[string]string{"tags.Name": "some"}),
-			NewResource("vpc2", "vpc2", "aws_vpc", "aws", map[string]string{"tags.Name": "default"}),
-		},
-	}
-	service.ParseFilters([]string{"Name=tags.Name;Value=default"})
-	FilterCleanup(&service, false)
+// Filters on attributes match the attributes the lister recorded. Listers
+// that support them apply them with ResourceFilter.Filter.
+func TestAttributeFilter(t *testing.T) {
+	var service Service
+	some := NewResource("vpc1", "vpc1", "aws_vpc", "aws", map[string]string{"tags.Name": "some"})
+	def := NewResource("vpc2", "vpc2", "aws_vpc", "aws", map[string]string{"tags.Name": "default"})
+	abc := NewResource("vpc3", "vpc3", "aws_vpc", "aws", map[string]string{"tags.Abc": ""})
 
-	if len(service.Resources) != 1 || service.Resources[0].InstanceState.ID != "vpc2" {
-		t.Errorf("want vpc2 only, got %v", service.Resources)
+	byValue := service.ParseFilter("Name=tags.Name;Value=default")[0]
+	if byValue.Filter(some) || !byValue.Filter(def) {
+		t.Errorf("Name=tags.Name;Value=default: some=%v default=%v", byValue.Filter(some), byValue.Filter(def))
+	}
+	byName := service.ParseFilter("Name=tags.Abc")[0]
+	if !byName.Filter(abc) || byName.Filter(def) {
+		t.Errorf("Name=tags.Abc: abc=%v default=%v", byName.Filter(abc), byName.Filter(def))
 	}
 }
 
-func TestServiceAttributeNameOnlyCleanupWithFilter(t *testing.T) {
+// The initial cleanup applies ID filters only: an attribute filter is for
+// the lister, and must not drop resources whose lister recorded no such
+// attribute.
+func TestInitialCleanupLeavesAttributeFiltersToListers(t *testing.T) {
 	service := Service{
 		Resources: []Resource{
-			NewResource("vpc1", "vpc1", "aws_vpc", "aws", map[string]string{"tags.Abc": ""}),
-			NewResource("vpc2", "vpc2", "aws_vpc", "aws", map[string]string{"tags.Name": "default"}),
+			NewSimpleResource("vpc1", "vpc1", "aws_vpc", "aws"),
+			NewSimpleResource("vpc2", "vpc2", "aws_vpc", "aws"),
 		},
 	}
-	service.ParseFilters([]string{"Name=tags.Abc"})
-	FilterCleanup(&service, false)
+	service.ParseFilters([]string{"Name=tags.Name;Value=default", "aws_vpc=vpc2"})
+	service.InitialCleanup()
 
-	if len(service.Resources) != 1 || service.Resources[0].InstanceState.ID != "vpc1" {
-		t.Errorf("want vpc1 only, got %v", service.Resources)
+	if len(service.Resources) != 1 || service.Resources[0].InstanceState.ID != "vpc2" {
+		t.Errorf("want vpc2 only, got %v", service.Resources)
 	}
 }
 
@@ -148,8 +153,8 @@ func TestNewResource(t *testing.T) {
 	if r.ResourceName != "tfer--my-0020-queue" || r.RawName != "my queue" {
 		t.Errorf("names: got %q, %q", r.ResourceName, r.RawName)
 	}
-	if got, want := r.InstanceInfo.ResourceAddress(), "aws_sqs_queue.tfer--my-0020-queue"; got != want {
-		t.Errorf("address: got %q, want %q", got, want)
+	if got, want := r.InstanceInfo.ID, "aws_sqs_queue.tfer--my-0020-queue"; got != want || r.InstanceInfo.Type != "aws_sqs_queue" {
+		t.Errorf("info: got %+v, want ID %q", r.InstanceInfo, want)
 	}
 	if r.InstanceState.ID != "https://sqs/1/my queue" || r.InstanceState.Attributes == nil {
 		t.Errorf("state: got %+v", r.InstanceState)

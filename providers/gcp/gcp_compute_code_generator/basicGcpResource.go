@@ -19,20 +19,14 @@ type gcpResourceRenderable interface {
 	ifNeedRegion() bool
 	ifNeedZone(zoneInParameters bool) bool
 	ifIDWithZone(zoneInParameters bool) bool
-	getAdditionalFieldsForRefresh() map[string]string
 }
 
 type basicGCPResource struct {
-	terraformName              string
-	additionalFieldsForRefresh map[string]string
+	terraformName string
 }
 
 func (b basicGCPResource) getTerraformName() string {
 	return b.terraformName
-}
-
-func (b basicGCPResource) getAdditionalFieldsForRefresh() map[string]string {
-	return b.additionalFieldsForRefresh
 }
 
 func (b basicGCPResource) ifNeedRegion() bool {

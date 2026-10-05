@@ -127,7 +127,7 @@ require (
 	github.com/ionos-cloud/sdk-go-dbaas-mongo v1.3.1
 	github.com/ionos-cloud/sdk-go-dbaas-postgres v1.1.2
 	github.com/ionos-cloud/sdk-go/v6 v6.1.3
-	github.com/jmespath/go-jmespath v0.4.0
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jonboydell/logzio_client v1.2.0
 	github.com/labd/commercetools-go-sdk v0.3.1
 	github.com/linode/linodego v0.24.1

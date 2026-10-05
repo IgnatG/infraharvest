@@ -16,7 +16,6 @@ package azure
 
 import (
 	"fmt"
-	"math/rand"
 	"net/url"
 	"strings"
 )
@@ -106,13 +105,4 @@ func ParseAzureResourceID(id string) (*ResourceID, error) {
 	}
 
 	return idObj, nil
-}
-
-func GenerateRandomString(strlen int) string {
-	var lettersToUsed = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	RandomSlice := make([]rune, strlen)
-	for index := range RandomSlice {
-		RandomSlice[index] = lettersToUsed[rand.Intn(len(lettersToUsed))]
-	}
-	return string(RandomSlice)
 }

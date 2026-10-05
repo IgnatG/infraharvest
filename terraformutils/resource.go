@@ -28,12 +28,6 @@ type InstanceInfo struct {
 	ID string
 }
 
-// ResourceAddress returns the resource's address, <type>.<label>, where the
-// label is the part of ID after the type and a dot.
-func (i *InstanceInfo) ResourceAddress() string {
-	return i.Type + "." + strings.TrimPrefix(i.ID, i.Type+".")
-}
-
 // InstanceState is what a lister recorded about a resource.
 type InstanceState struct {
 	// ID is the ID the lister found: the import ID, unless the provider
@@ -93,10 +87,6 @@ func (rf *ResourceFilter) Filter(resource Resource) bool {
 
 func (rf *ResourceFilter) IsApplicable(serviceName string) bool {
 	return rf.ServiceName == "" || rf.ServiceName == serviceName
-}
-
-func (rf *ResourceFilter) isInitial() bool {
-	return rf.FieldPath == "id"
 }
 
 // NewResource records a listed resource: its ID, its name, its Terraform
