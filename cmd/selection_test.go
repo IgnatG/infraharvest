@@ -40,11 +40,11 @@ func TestCheckSelectionOptions(t *testing.T) {
 
 var listedForSelection = map[string][]terraformutils.Resource{
 	"vpc": {
-		terraformutils.NewSimpleResource("vpc-default", "vpc-default", "aws_vpc", "aws", nil),
-		terraformutils.NewSimpleResource("vpc-0abc1234", "vpc-0abc1234", "aws_vpc", "aws", nil),
+		terraformutils.NewSimpleResource("vpc-default", "vpc-default", "aws_vpc", "aws"),
+		terraformutils.NewSimpleResource("vpc-0abc1234", "vpc-0abc1234", "aws_vpc", "aws"),
 	},
-	"s3":          {terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws", nil)},
-	"route_table": {terraformutils.NewSimpleResource("rtbassoc-1", "main", "aws_main_route_table_association", "aws", nil)},
+	"s3":          {terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws")},
+	"route_table": {terraformutils.NewSimpleResource("rtbassoc-1", "main", "aws_main_route_table_association", "aws")},
 }
 
 var defaultsForSelection = map[string]string{"aws_vpc vpc-default": "default VPC"}
@@ -104,7 +104,7 @@ func TestSelectResourcesWithFile(t *testing.T) {
 func TestSelectResourcesByScope(t *testing.T) {
 	const a, b = "aws/111122223333/global", "aws/444455556666/global"
 	listed := map[string][]terraformutils.Resource{
-		"iam": {terraformutils.NewSimpleResource("admin", "admin", "aws_iam_role", "aws", nil)},
+		"iam": {terraformutils.NewSimpleResource("admin", "admin", "aws_iam_role", "aws")},
 	}
 	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: []selection.Resource{
 		{Type: "aws_iam_role", ID: "admin", Scope: a, Include: true},
@@ -256,8 +256,8 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 	listed := map[string][]terraformutils.Resource{
 		"vpc": listedForSelection["vpc"],
 		"s3": {
-			terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws", nil),
-			terraformutils.NewSimpleResource("new-logs", "new-logs", "aws_s3_bucket", "aws", nil),
+			terraformutils.NewSimpleResource("old-archive", "old-archive", "aws_s3_bucket", "aws"),
+			terraformutils.NewSimpleResource("new-logs", "new-logs", "aws_s3_bucket", "aws"),
 		},
 	}
 	again.addDiscovered(listed, defaultsForSelection, "", importIDForSelection)

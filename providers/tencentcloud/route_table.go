@@ -76,10 +76,8 @@ func (g *RouteTableGenerator) InitResources() error {
 			*instance.RouteTableName+"_"+*instance.RouteTableId,
 			"tencentcloud_route_table",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 
 		for _, entry := range instance.RouteSet {
@@ -90,10 +88,8 @@ func (g *RouteTableGenerator) InitResources() error {
 				entryName,
 				"tencentcloud_route_table_entry",
 				"tencentcloud",
-				map[string]string{},
-				[]string{},
-				map[string]interface{}{},
-			)
+				map[string]string{})
+
 			// Route table id could be connected
 			g.Resources = append(g.Resources, entryResource)
 		}

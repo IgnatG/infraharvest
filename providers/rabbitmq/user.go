@@ -30,8 +30,6 @@ type User struct {
 
 type Users []User
 
-var UserAllowEmptyValues = []string{}
-
 func (g UserGenerator) createResources(users Users) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, user := range users {
@@ -39,9 +37,7 @@ func (g UserGenerator) createResources(users Users) []terraformutils.Resource {
 			user.Name,
 			"user_"+normalizeResourceName(user.Name),
 			"rabbitmq_user",
-			"rabbitmq",
-			UserAllowEmptyValues,
-		))
+			"rabbitmq"))
 	}
 	return resources
 }

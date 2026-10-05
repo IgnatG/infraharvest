@@ -9,16 +9,12 @@ import (
 	mgo "github.com/Myra-Security-GmbH/myrasec-go/v2"
 )
 
-//
 // IPFilterGenerator
-//
 type IPFilterGenerator struct {
 	MyrasecService
 }
 
-//
 // createIPFilterResources
-//
 func (g *IPFilterGenerator) createIPFilterResources(api *mgo.API, domainId int, vhost mgo.VHost, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
@@ -45,10 +41,8 @@ func (g *IPFilterGenerator) createIPFilterResources(api *mgo.API, domainId int, 
 				"myrasec",
 				map[string]string{
 					"subdomain_name": vhost.Label,
-				},
-				[]string{},
-				map[string]interface{}{},
-			)
+				})
+
 			g.Resources = append(g.Resources, r)
 		}
 		if len(filters) < pageSize {
@@ -59,9 +53,7 @@ func (g *IPFilterGenerator) createIPFilterResources(api *mgo.API, domainId int, 
 	return nil
 }
 
-//
 // InitResources
-//
 func (g *IPFilterGenerator) InitResources() error {
 	wg := sync.WaitGroup{}
 

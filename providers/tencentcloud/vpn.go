@@ -61,10 +61,8 @@ func (g *VpnGenerator) InitResources() error {
 			*instance.VpnGatewayName+"_"+*instance.VpnGatewayId,
 			"tencentcloud_vpn_gateway",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

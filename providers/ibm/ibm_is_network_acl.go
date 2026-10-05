@@ -34,8 +34,8 @@ func (g NetworkACLGenerator) createNetworkACLResources(nwaclID, nwaclName string
 		nwaclID,
 		normalizeResourceName(nwaclName, true),
 		"ibm_is_network_acl",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

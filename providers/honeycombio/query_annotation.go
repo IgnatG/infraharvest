@@ -41,10 +41,7 @@ func (g *QueryAnnotationGenerator) InitResources() error {
 					map[string]string{
 						"query_id": query.QueryID,
 						"dataset":  query.Dataset,
-					},
-					[]string{},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}

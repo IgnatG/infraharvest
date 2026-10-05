@@ -24,10 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var pubsubAllowEmptyValues = []string{""}
-
-var pubsubAdditionalFields = map[string]interface{}{}
-
 type PubsubGenerator struct {
 	GCPService
 }
@@ -47,10 +43,7 @@ func (g PubsubGenerator) createSubscriptionsResources(ctx context.Context, subsc
 				map[string]string{
 					"name":    name,
 					"project": g.GetArgs()["project"].(string),
-				},
-				pubsubAllowEmptyValues,
-				pubsubAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {
@@ -74,10 +67,7 @@ func (g PubsubGenerator) createTopicsListResources(ctx context.Context, topicsLi
 				map[string]string{
 					"name":    name,
 					"project": g.GetArgs()["project"].(string),
-				},
-				pubsubAllowEmptyValues,
-				pubsubAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {
@@ -103,16 +93,5 @@ func (g *PubsubGenerator) InitResources() error {
 	g.Resources = append(g.Resources, subscriptionsResources...)
 	g.Resources = append(g.Resources, topicsResources...)
 
-	return nil
-}
-
-func (g *PubsubGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		for _, topic := range g.Resources {
-			if r.InstanceState.Attributes["topic"] == "projects/"+g.GetArgs()["project"].(string)+"/topics/"+topic.InstanceState.Attributes["name"] {
-				g.Resources[i].Item["topic"] = "${google_pubsub_topic." + topic.ResourceName + ".name}"
-			}
-		}
-	}
 	return nil
 }

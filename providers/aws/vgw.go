@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var VpnAllowEmptyValues = []string{"tags."}
-
 type VpnGatewayGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (VpnGatewayGenerator) createResources(vpnGws *ec2.DescribeVpnGatewaysOutput
 			StringValue(vpnGw.VpnGatewayId),
 			StringValue(vpnGw.VpnGatewayId),
 			"aws_vpn_gateway",
-			"aws",
-			VpnAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return resources
 }

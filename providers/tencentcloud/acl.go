@@ -70,10 +70,8 @@ func (g *ACLGenerator) InitResources() error {
 			*instance.NetworkAclName+"_"+*instance.NetworkAclId,
 			"tencentcloud_vpc_acl",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 
 		for _, subnet := range instance.SubnetSet {
@@ -82,11 +80,8 @@ func (g *ACLGenerator) InitResources() error {
 				*instance.NetworkAclId+"_"+*subnet.SubnetId,
 				"tencentcloud_vpc_acl_attachment",
 				"tencentcloud",
-				map[string]string{},
-				[]string{},
-				map[string]interface{}{},
-			)
-			attachment.AdditionalFields["acl_id"] = "${tencentcloud_vpc_acl." + resource.ResourceName + ".id}"
+				map[string]string{})
+
 			g.Resources = append(g.Resources, attachment)
 		}
 	}

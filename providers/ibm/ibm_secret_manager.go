@@ -28,7 +28,7 @@ type SecretsManagerGenerator struct {
 	IBMService
 }
 
-func (g SecretsManagerGenerator) loadSM(smID, smName, servicePlan string, timeout map[string]string) terraformutils.Resource {
+func (g SecretsManagerGenerator) loadSM(smID, smName, servicePlan string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		smID,
 		normalizeResourceName(smName, true),
@@ -36,11 +36,8 @@ func (g SecretsManagerGenerator) loadSM(smID, smName, servicePlan string, timeou
 		"ibm",
 		map[string]string{
 			"plan": servicePlan,
-		},
-		[]string{},
-		map[string]interface{}{
-			"timeouts": timeout,
 		})
+
 	return resources
 }
 
@@ -83,8 +80,7 @@ func (g *SecretsManagerGenerator) InitResources() error {
 	}
 
 	for _, smInstance := range smInstances {
-		timeout := map[string]string{"create": "15m"}
-		g.Resources = append(g.Resources, g.loadSM(smInstance.ID, smInstance.Name, smInstance.ServicePlanName, timeout))
+		g.Resources = append(g.Resources, g.loadSM(smInstance.ID, smInstance.Name, smInstance.ServicePlanName))
 	}
 	return nil
 }

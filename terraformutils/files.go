@@ -9,13 +9,9 @@ import (
 	"path/filepath"
 )
 
-// Permissions for generated output. State and plan files can contain
-// secrets, so only their owner may read them.
-const (
-	DirPerm        fs.FileMode = 0o755
-	FilePerm       fs.FileMode = 0o644
-	SecretFilePerm fs.FileMode = 0o600
-)
+// SecretFilePerm is the permission of output that can contain secrets, such
+// as saved inventories: only the owner may read it.
+const SecretFilePerm fs.FileMode = 0o600
 
 // WriteSecretFile writes data to path so that only the owner can read it.
 // The data goes to a private temporary file that then replaces path, so a

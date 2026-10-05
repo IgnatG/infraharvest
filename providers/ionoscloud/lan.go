@@ -45,9 +45,7 @@ func (g *LanGenerator) InitResources() error {
 					*lan.Properties.Name+"-"+*lan.Id,
 					"ionoscloud_lan",
 					helpers.Ionos,
-					map[string]string{helpers.DcID: *datacenter.Id},
-					[]string{},
-					map[string]interface{}{}))
+					map[string]string{helpers.DcID: *datacenter.Id}))
 			}
 		}
 	}

@@ -35,7 +35,7 @@ func (az *AzureService) getClientArgs() (subscriptionID string, resourceGroup st
 }
 
 func (az *AzureService) AppendSimpleResource(id string, resourceName string, resourceType string) {
-	newResource := terraformutils.NewSimpleResource(id, resourceName, resourceType, az.ProviderName, []string{})
+	newResource := terraformutils.NewSimpleResource(id, resourceName, resourceType, az.ProviderName)
 	az.Resources = append(az.Resources, newResource)
 }
 
@@ -44,7 +44,7 @@ func (az *AzureService) AppendSimpleResourceWithDuplicateCheck(id string, resour
 	if !tferexist {
 		resourceName = resourceName + "_" + id
 	}
-	newResource := terraformutils.NewSimpleResource(id, resourceName, resourceType, az.ProviderName, []string{})
+	newResource := terraformutils.NewSimpleResource(id, resourceName, resourceType, az.ProviderName)
 	az.Resources = append(az.Resources, newResource)
 }
 
@@ -77,9 +77,7 @@ func (az *AzureService) appendSimpleAssociation(id string, linkedResourceName st
 		resourceName2 = linkedResourceName + resourceName1
 	}
 	newResource := terraformutils.NewResource(
-		id, resourceName2, resourceType, az.ProviderName, attributes,
-		[]string{"name"},
-		map[string]interface{}{},
-	)
+		id, resourceName2, resourceType, az.ProviderName, attributes)
+
 	az.Resources = append(az.Resources, newResource)
 }

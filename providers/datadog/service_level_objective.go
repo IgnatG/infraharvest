@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// ServiceLevelObjectiveAllowEmptyValues ...
-	ServiceLevelObjectiveAllowEmptyValues = []string{"tags."}
-)
-
 // ServiceLevelObjectiveGenerator ...
 type ServiceLevelObjectiveGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *ServiceLevelObjectiveGenerator) createResource(sloID string) terraformu
 		sloID,
 		fmt.Sprintf("service_level_objective_%s", sloID),
 		"datadog_service_level_objective",
-		"datadog",
-		ServiceLevelObjectiveAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

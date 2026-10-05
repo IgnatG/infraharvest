@@ -34,8 +34,8 @@ func (g ImageGenerator) createImageResources(imageID, imageName string) terrafor
 		imageID,
 		normalizeResourceName(imageName, true),
 		"ibm_is_image",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

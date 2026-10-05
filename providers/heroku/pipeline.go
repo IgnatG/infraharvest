@@ -32,8 +32,7 @@ func (g PipelineGenerator) createResources(pipelineList []heroku.Pipeline) []ter
 			pipeline.ID,
 			pipeline.Name,
 			"heroku_pipeline",
-			"heroku",
-			[]string{}))
+			"heroku"))
 	}
 	return resources
 }

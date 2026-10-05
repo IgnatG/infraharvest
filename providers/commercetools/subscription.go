@@ -48,10 +48,7 @@ func (g *SubscriptionGenerator) InitResources() error {
 			subscription.Key,
 			"commercetools_subscription",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

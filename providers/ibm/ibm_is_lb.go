@@ -17,7 +17,6 @@ package ibm
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
@@ -35,14 +34,9 @@ func (g LBGenerator) createLBResources(lbID, lbName string) terraformutils.Resou
 		normalizeResourceName(lbName, true),
 		"ibm_is_lb",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	// Deprecated parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^profile$",
-	)
 	return resource
 }
 
@@ -52,9 +46,8 @@ func (g LBGenerator) createLBPoolResources(lbID, lbPoolID, lbPoolName string) te
 		normalizeResourceName(lbPoolName, true),
 		"ibm_is_lb_pool",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -64,9 +57,8 @@ func (g LBGenerator) createLBPoolMemberResources(lbID, lbPoolID, lbPoolMemberID,
 		normalizeResourceName(lbPoolMemberName, true),
 		"ibm_is_lb_pool_member",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -76,9 +68,8 @@ func (g LBGenerator) createLBListenerResources(lbID, lbListenerID, lbListenerNam
 		normalizeResourceName(lbListenerName, true),
 		"ibm_is_lb_listener",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -90,9 +81,8 @@ func (g LBGenerator) createLBListenerPolicyResources(lbID, lbListenerID, lbListe
 		"ibm",
 		map[string]string{
 			"target_http_status_code": "302",
-		},
-		[]string{},
-		map[string]interface{}{})
+		})
+
 	return resources
 }
 
@@ -102,9 +92,8 @@ func (g LBGenerator) createLBListenerPolicyRuleResources(lbID, lbListenerID, lbL
 		normalizeResourceName(lbListenerPolicyName, true),
 		"ibm_is_lb_listener_policy_rule",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -219,80 +208,5 @@ func (g *LBGenerator) InitResources() error {
 			}
 		}
 	}
-	return nil
-}
-
-func (g *LBGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_is_lb" {
-			continue
-		}
-
-		for i, pool := range g.Resources {
-			if pool.InstanceInfo.Type != "ibm_is_lb_pool" {
-				continue
-			}
-			if pool.InstanceState.Attributes["lb"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["lb"] = "${ibm_is_lb." + r.ResourceName + ".id}"
-			}
-			for i, poolMember := range g.Resources {
-				if poolMember.InstanceInfo.Type != "ibm_is_lb_pool_member" {
-					continue
-				}
-
-				poolID := strings.Split(pool.InstanceState.Attributes["id"], "/")[1]
-				if poolMember.InstanceState.Attributes["pool"] == poolID {
-					g.Resources[i].Item["pool"] = "${ibm_is_lb_pool." + pool.ResourceName + ".id}"
-				}
-			}
-		}
-
-		for i, poolMember := range g.Resources {
-			if poolMember.InstanceInfo.Type != "ibm_is_lb_pool_member" {
-				continue
-			}
-			if poolMember.InstanceState.Attributes["lb"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["lb"] = "${ibm_is_lb." + r.ResourceName + ".id}"
-			}
-		}
-
-		for i, listener := range g.Resources {
-			if listener.InstanceInfo.Type != "ibm_is_lb_listener" {
-				continue
-			}
-			if listener.InstanceState.Attributes["lb"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["lb"] = "${ibm_is_lb." + r.ResourceName + ".id}"
-			}
-		}
-
-		for i, listenerPolicy := range g.Resources {
-			if listenerPolicy.InstanceInfo.Type != "ibm_is_lb_listener_policy" {
-				continue
-			}
-			if listenerPolicy.InstanceState.Attributes["lb"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["lb"] = "${ibm_is_lb." + r.ResourceName + ".id}"
-			}
-			for i, listenerPolicyRule := range g.Resources {
-				if listenerPolicyRule.InstanceInfo.Type != "ibm_is_lb_listener_policy_rule" {
-					continue
-				}
-
-				if listenerPolicyRule.InstanceState.Attributes["listener"] == listenerPolicy.InstanceState.Attributes["id"] {
-					g.Resources[i].Item["listener"] = "${ibm_is_lb_listener_policy." + listenerPolicy.ResourceName + ".id}"
-				}
-			}
-		}
-
-		for i, listenerPolicyRule := range g.Resources {
-			if listenerPolicyRule.InstanceInfo.Type != "ibm_is_lb_listener_policy_rule" {
-				continue
-			}
-			if listenerPolicyRule.InstanceState.Attributes["lb"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["lb"] = "${ibm_is_lb." + r.ResourceName + ".id}"
-			}
-		}
-
-	}
-
 	return nil
 }

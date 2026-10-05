@@ -38,8 +38,8 @@ func (g IpsecGenerator) createIpsecResources() func(ipsecID, ipsecName string) t
 			ipsecID,
 			normalizeResourceName(ipsecName, random),
 			"ibm_is_ipsec_policy",
-			"ibm",
-			[]string{})
+			"ibm")
+
 		return resources
 	}
 }

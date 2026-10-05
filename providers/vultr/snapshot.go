@@ -32,8 +32,7 @@ func (g SnapshotGenerator) createResources(snapshotList []govultr.Snapshot) []te
 			snapshot.SnapshotID,
 			snapshot.SnapshotID,
 			"vultr_snapshot",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

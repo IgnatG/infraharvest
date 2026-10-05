@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 )
 
-var codebuildAllowEmptyValues = []string{"tags."}
-
 type CodeBuildGenerator struct {
 	AWSService
 }
@@ -42,20 +40,7 @@ func (g *CodeBuildGenerator) InitResources() error {
 				project,
 				project,
 				"aws_codebuild_project",
-				"aws",
-				codebuildAllowEmptyValues))
-		}
-	}
-	return nil
-}
-
-func (g *CodeBuildGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_codebuild_project" {
-			continue
-		}
-		if r.InstanceState.Attributes["concurrent_build_limit"] == "0" {
-			delete(r.Item, "concurrent_build_limit")
+				"aws"))
 		}
 	}
 	return nil

@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/medialive"
 )
 
-var medialiveAllowEmptyValues = []string{"tags."}
-
 type MediaLiveGenerator struct {
 	AWSService
 }
@@ -63,8 +61,7 @@ func (g *MediaLiveGenerator) GetChannels(svc *medialive.Client) error {
 				channelID,
 				channelID,
 				"aws_medialive_channel",
-				"aws",
-				medialiveAllowEmptyValues))
+				"aws"))
 		}
 	}
 
@@ -84,8 +81,7 @@ func (g *MediaLiveGenerator) GetInputs(svc *medialive.Client) error {
 				inputID,
 				inputID,
 				"aws_medialive_input",
-				"aws",
-				medialiveAllowEmptyValues))
+				"aws"))
 		}
 	}
 
@@ -105,8 +101,7 @@ func (g *MediaLiveGenerator) GetInputSecurityGroups(svc *medialive.Client) error
 				inputSecurityGroupID,
 				inputSecurityGroupID,
 				"aws_medialive_input_security_group",
-				"aws",
-				medialiveAllowEmptyValues))
+				"aws"))
 		}
 	}
 

@@ -39,8 +39,7 @@ func (g VolumeGenerator) createResources(volumeList []packngo.Volume) []terrafor
 			volume.ID,
 			volume.Name,
 			"metal_volume",
-			"equinixmetal",
-			[]string{}))
+			"equinixmetal"))
 	}
 	return resources
 }

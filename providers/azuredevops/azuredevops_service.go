@@ -26,17 +26,8 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-type AzureDevOpsServiceGenerator interface {
-	terraformutils.ServiceGenerator
-	GetResourceConnections() map[string][]string
-}
-
 type AzureDevOpsService struct { //nolint
 	terraformutils.Service
-}
-
-func (az *AzureDevOpsService) GetResourceConnections() map[string][]string {
-	return nil
 }
 
 func (az *AzureDevOpsService) getConnection() *azuredevops.Connection {
@@ -77,6 +68,6 @@ func (az *AzureDevOpsService) getGitClient() (git.Client, error) {
 }
 
 func (az *AzureDevOpsService) appendSimpleResource(id string, resourceName string, resourceType string) {
-	newResource := terraformutils.NewSimpleResource(id, resourceName, resourceType, az.ProviderName, []string{})
+	newResource := terraformutils.NewSimpleResource(id, resourceName, resourceType, az.ProviderName)
 	az.Resources = append(az.Resources, newResource)
 }

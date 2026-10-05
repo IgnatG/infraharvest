@@ -62,8 +62,7 @@ func (g ProjectGenerator) createResources(projectList []godo.Project) []terrafor
 			project.ID,
 			project.Name,
 			"digitalocean_project",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

@@ -37,8 +37,7 @@ func (g SecurityCenterContactGenerator) listContacts() ([]terraformutils.Resourc
 			*contact.ID,
 			*contact.Name,
 			"azurerm_security_center_contact",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := contactsIterator.NextWithContext(ctx); err != nil {
 			return resources, err

@@ -22,11 +22,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationPagerdutyAllowEmptyValues ...
-	IntegrationPagerdutyAllowEmptyValues = []string{"tags."}
-)
-
 // IntegrationPagerdutyGenerator ...
 type IntegrationPagerdutyGenerator struct {
 	DatadogService
@@ -47,12 +42,9 @@ func (g *IntegrationPagerdutyGenerator) createResource(serviceName string) terra
 		"datadog",
 		map[string]string{
 			"individual_services": "true",
-		},
-		IntegrationPagerdutyAllowEmptyValues,
-		map[string]interface{}{},
-	)
+		})
+
 	// Ignore services in favor of individual_services
-	resource.IgnoreKeys = append(resource.IgnoreKeys, "^services$")
 
 	return resource
 }

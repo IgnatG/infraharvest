@@ -40,9 +40,7 @@ func (g *ServiceGenerator) createServiceResources(client *pagerduty.Client) erro
 				service.ID,
 				fmt.Sprintf("service_%s", service.Name),
 				"pagerduty_service",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 
 		if !resp.More {
@@ -81,10 +79,7 @@ func (g *ServiceGenerator) createServiceEventRuleResources(client *pagerduty.Cli
 					g.ProviderName,
 					map[string]string{
 						"service": service.ID,
-					},
-					[]string{},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 

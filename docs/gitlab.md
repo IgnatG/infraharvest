@@ -2,10 +2,13 @@
 
 Example:
 
-```shell
-./infraharvest import gitlab --group=GROUP_TO_IMPORT --resources=projects --token=YOUR_TOKEN # or GITLAB_TOKEN in env
-./infraharvest import gitlab --group=GROUP_TO_IMPORT --resources=groups --base-url=https://your-self-hosted-gitlab-domain/api/v4
+```sh
+export GITLAB_TOKEN=YOUR_TOKEN   # or pass --token=YOUR_TOKEN
+infraharvest import gitlab --all --group=GROUP_TO_IMPORT --resources=projects
+infraharvest import gitlab --all --group=GROUP_TO_IMPORT --resources=groups --base-url=https://your-self-hosted-gitlab-domain/api/v4
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover gitlab` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported resources:
 

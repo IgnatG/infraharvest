@@ -29,10 +29,7 @@ func (g RealmGenerator) createRoleResources(roles []*keycloak.Role) []terraformu
 			"keycloak",
 			map[string]string{
 				"realm_id": role.RealmId,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

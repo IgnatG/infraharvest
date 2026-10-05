@@ -43,10 +43,6 @@ func (p *DigitalOceanProvider) GetProviderData(arg ...string) map[string]interfa
 	return map[string]interface{}{}
 }
 
-func (DigitalOceanProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *DigitalOceanProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"cdn":                &CDNGenerator{},
@@ -81,4 +77,9 @@ func (p *DigitalOceanProvider) InitService(serviceName string, verbose bool) err
 		"token": p.token,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *DigitalOceanProvider) GetSource() string {
+	return "digitalocean/digitalocean"
 }

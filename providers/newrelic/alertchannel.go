@@ -36,9 +36,7 @@ func (g *AlertChannelGenerator) createAlertChannelResources(client *newrelic.New
 			fmt.Sprintf("%d", channel.ID),
 			fmt.Sprintf("%s-%d", normalizeResourceName(channel.Name), channel.ID),
 			"newrelic_alert_channel",
-			g.ProviderName,
-			[]string{},
-		))
+			g.ProviderName))
 	}
 
 	return nil

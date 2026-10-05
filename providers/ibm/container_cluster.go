@@ -51,13 +51,7 @@ func (g ContainerClusterGenerator) loadcluster(clustersID, clusterName, datacent
 			"wait_for_worker_update": "true",
 			"datacenter":             datacenter,
 			"hardware":               hardware,
-		},
-		[]string{},
-		map[string]interface{}{})
-
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^worker_num$", "^region$",
-	)
+		})
 
 	return resource
 }
@@ -68,9 +62,7 @@ func (g ContainerClusterGenerator) loadWorkerPools(clustersID, poolID, poolName 
 		normalizeResourceName(poolName, true),
 		"ibm_container_worker_pool",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	return resources
 }
@@ -83,23 +75,18 @@ func (g ContainerClusterGenerator) loadWorkerPoolZones(clustersID, poolID, zoneI
 		"ibm",
 		map[string]string{
 			"wait_till_albs": "true",
-		},
-		[]string{},
-		map[string]interface{}{})
+		})
+
 	return resources
 }
 
-func (g ContainerClusterGenerator) loadNlbDNS(clusterID string, nlbIPs []interface{}) terraformutils.Resource {
+func (g ContainerClusterGenerator) loadNlbDNS(clusterID string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		clusterID,
 		normalizeResourceName(clusterID, true),
 		"ibm_container_nlb_dns",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"nlb_ips": nlbIPs,
-		})
+		map[string]string{})
 
 	return resources
 }
@@ -168,7 +155,7 @@ func (g *ContainerClusterGenerator) InitResources() error {
 			}
 
 			for _, data := range nlbData {
-				g.Resources = append(g.Resources, g.loadNlbDNS(data.Nlb.Cluster, data.Nlb.NlbIPArray))
+				g.Resources = append(g.Resources, g.loadNlbDNS(data.Nlb.Cluster))
 			}
 		}
 	}
@@ -183,52 +170,4 @@ func workerPoolContains(workerPools []v1.WorkerPoolResponse, pool string) bool {
 		}
 	}
 	return false
-}
-
-func (g *ContainerClusterGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_container_cluster" {
-			continue
-		}
-		for i, wp := range g.Resources {
-			if wp.InstanceInfo.Type != "ibm_container_worker_pool" {
-				continue
-			}
-
-			if wp.InstanceState.Attributes["cluster"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["cluster"] = "${ibm_container_cluster." + r.ResourceName + ".id}"
-			}
-		}
-
-		for i, wpZoneAttach := range g.Resources {
-			if wpZoneAttach.InstanceInfo.Type != "ibm_container_worker_pool_zone_attachment" {
-				continue
-			}
-
-			if wpZoneAttach.InstanceState.Attributes["cluster"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["cluster"] = "${ibm_container_cluster." + r.ResourceName + ".id}"
-			}
-		}
-
-		for i, wp := range g.Resources {
-			if wp.InstanceInfo.Type != "ibm_container_worker_pool" {
-				continue
-			}
-			if wp.InstanceState.Attributes["cluster"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["cluster"] = "${ibm_container_cluster." + r.ResourceName + ".id}"
-			}
-		}
-
-		for i, nlb := range g.Resources {
-			if nlb.InstanceInfo.Type != "ibm_container_nlb_dns" {
-				continue
-			}
-
-			if nlb.InstanceState.Attributes["cluster"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["cluster"] = "${ibm_container_cluster." + r.ResourceName + ".id}"
-			}
-		}
-	}
-
-	return nil
 }

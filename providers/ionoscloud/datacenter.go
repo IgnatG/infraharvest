@@ -24,9 +24,7 @@ func (g DatacenterGenerator) createResources(datacentersList []ionoscloud.Datace
 			*datacenter.Properties.Name+"-"+*datacenter.Id,
 			"ionoscloud_datacenter",
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return resources
 }

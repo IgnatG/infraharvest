@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/servicecatalog"
 )
 
-var servicecatalogAllowEmptyValues = []string{"tags."}
-
 type ServiceCatalogGenerator struct {
 	AWSService
 }
@@ -45,8 +43,7 @@ func (g *ServiceCatalogGenerator) InitResources() error {
 				portfolioID,
 				portfolioName,
 				"aws_servicecatalog_portfolio",
-				"aws",
-				servicecatalogAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var subnetworksAllowEmptyValues = []string{""}
-
-var subnetworksAdditionalFields = map[string]interface{}{}
-
 type SubnetworksGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g SubnetworksGenerator) createResources(ctx context.Context, subnetworksLi
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				subnetworksAllowEmptyValues,
-				subnetworksAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

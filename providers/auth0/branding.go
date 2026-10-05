@@ -21,10 +21,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	BrandingAllowEmptyValues = []string{}
-)
-
 type BrandingGenerator struct {
 	Auth0Service
 }
@@ -36,9 +32,7 @@ func (g BrandingGenerator) createResources(branding *management.Branding) []terr
 		resourceName,
 		resourceName,
 		"auth0_branding",
-		"auth0",
-		BrandingAllowEmptyValues,
-	))
+		"auth0"))
 	return resources
 }
 

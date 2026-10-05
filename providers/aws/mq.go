@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/mq"
 )
 
-var mqAllowEmptyValues = []string{"tags."}
-
 type MQGenerator struct {
 	AWSService
 }
@@ -38,8 +36,7 @@ func (g *MQGenerator) loadBrokers(svc *mq.Client) error {
 				resourceName,
 				resourceName,
 				"aws_mq_broker",
-				"aws",
-				mqAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil

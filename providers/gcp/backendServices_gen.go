@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var backendServicesAllowEmptyValues = []string{""}
-
-var backendServicesAdditionalFields = map[string]interface{}{}
-
 type BackendServicesGenerator struct {
 	GCPService
 }
@@ -45,10 +41,7 @@ func (g BackendServicesGenerator) createResources(ctx context.Context, backendSe
 				map[string]string{
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
-				},
-				backendServicesAllowEmptyValues,
-				backendServicesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

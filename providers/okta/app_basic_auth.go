@@ -32,8 +32,7 @@ func (g AppBasicAuthGenerator) createResources(appList []*okta.Application) []te
 			app.Id,
 			normalizeResourceName(app.Id+"_"+app.Name),
 			"okta_app_basic_auth",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

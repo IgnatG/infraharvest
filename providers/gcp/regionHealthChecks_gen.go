@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var regionHealthChecksAllowEmptyValues = []string{""}
-
-var regionHealthChecksAdditionalFields = map[string]interface{}{}
-
 type RegionHealthChecksGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RegionHealthChecksGenerator) createResources(ctx context.Context, region
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				regionHealthChecksAllowEmptyValues,
-				regionHealthChecksAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

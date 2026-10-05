@@ -41,14 +41,12 @@ func (g SatelliteDataPlaneGenerator) loadVPCResources(vpcID, vpcName string) ter
 		"ibm",
 		map[string]string{
 			"address_prefix_management": "auto",
-		},
-		[]string{},
-		map[string]interface{}{})
+		})
 
 	return resource
 }
 
-func (g SatelliteDataPlaneGenerator) loadInstanceResources(instance vpcv1.Instance, dependsOn []string) terraformutils.Resource {
+func (g SatelliteDataPlaneGenerator) loadInstanceResources(instance vpcv1.Instance) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		*instance.ID,
 		*instance.Name,
@@ -57,18 +55,7 @@ func (g SatelliteDataPlaneGenerator) loadInstanceResources(instance vpcv1.Instan
 		map[string]string{
 			"vpc":                *instance.VPC.ID,
 			"wait_before_delete": "true",
-		},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-			"keys":       []string{},
 		})
-
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^port_speed$",
-		"^primary_network_interface.[0-9].primary_ip.[0-9].address$",
-		"^primary_network_interface.[0-9].primary_ip.[0-9].reserved_ip$",
-	)
 
 	return resource
 }
@@ -79,14 +66,9 @@ func (g SatelliteDataPlaneGenerator) loadFloatingIPResources(floatingIPId, float
 		floatingIPName,
 		"ibm_is_floating_ip",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	// Conflicts with proxied attribute
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^zone$",
-	)
 
 	return resource
 }
@@ -97,44 +79,31 @@ func (g SatelliteDataPlaneGenerator) loadSecurityGroupResources(sgID, sgName str
 		sgName,
 		"ibm_is_security_group",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	return resource
 }
 
-func (g SatelliteDataPlaneGenerator) loadSecurityGroupRuleResources(sgID, sgRuleID string, dependsOn []string) terraformutils.Resource {
+func (g SatelliteDataPlaneGenerator) loadSecurityGroupRuleResources(sgID, sgRuleID string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		fmt.Sprintf("%s.%s", sgID, sgRuleID),
 		sgRuleID,
 		"ibm_is_security_group_rule",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
 
 	return resources
 }
 
-func (g SatelliteDataPlaneGenerator) loadSubnetResources(subnetID, subnetName string, dependsOn []string) terraformutils.Resource {
+func (g SatelliteDataPlaneGenerator) loadSubnetResources(subnetID, subnetName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		subnetID,
 		subnetName,
 		"ibm_is_subnet",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
 
 	// Conflicts with proxied attribute
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^total_ipv4_address_count$",
-	)
 
 	return resource
 }
@@ -234,10 +203,6 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 	for _, vpc := range allVPCrecs {
 		if *vpc.Name == vpcName {
 
-			var vpcDependsOn []string
-			vpcDependsOn = append(vpcDependsOn,
-				"ibm_is_vpc."+terraformutils.TfSanitize(*vpc.Name))
-
 			g.Resources = append(g.Resources, g.loadVPCResources(*vpc.ID, *vpc.Name))
 
 			start = ""
@@ -279,7 +244,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 			}
 
 			for _, instance := range allrecs {
-				g.Resources = append(g.Resources, g.loadInstanceResources(instance, vpcDependsOn))
+				g.Resources = append(g.Resources, g.loadInstanceResources(instance))
 
 				for _, ip := range allFloatingIPs {
 					target, _ := ip.Target.(*vpcv1.FloatingIPTarget)
@@ -312,9 +277,6 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 			}
 
 			for _, group := range allSgRecs {
-				var sgDependsOn []string
-				sgDependsOn = append(sgDependsOn,
-					"ibm_is_security_group."+terraformutils.TfSanitize(*group.Name))
 				g.Resources = append(g.Resources, g.loadSecurityGroupResources(*group.ID, *group.Name))
 				listSecurityGroupRulesOptions := &vpcv1.ListSecurityGroupRulesOptions{
 					SecurityGroupID: group.ID,
@@ -328,19 +290,19 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 					case "*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp":
 						{
 							rule := sgrule.(*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp)
-							g.Resources = append(g.Resources, g.loadSecurityGroupRuleResources(*group.ID, *rule.ID, sgDependsOn))
+							g.Resources = append(g.Resources, g.loadSecurityGroupRuleResources(*group.ID, *rule.ID))
 						}
 
 					case "*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll":
 						{
 							rule := sgrule.(*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll)
-							g.Resources = append(g.Resources, g.loadSecurityGroupRuleResources(*group.ID, *rule.ID, sgDependsOn))
+							g.Resources = append(g.Resources, g.loadSecurityGroupRuleResources(*group.ID, *rule.ID))
 						}
 
 					case "*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp":
 						{
 							rule := sgrule.(*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp)
-							g.Resources = append(g.Resources, g.loadSecurityGroupRuleResources(*group.ID, *rule.ID, sgDependsOn))
+							g.Resources = append(g.Resources, g.loadSecurityGroupRuleResources(*group.ID, *rule.ID))
 						}
 					}
 				}
@@ -368,7 +330,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 
 			for _, subnet := range allSubNetRecs {
 				if *subnet.VPC.Name == vpcName {
-					g.Resources = append(g.Resources, g.loadSubnetResources(*subnet.ID, *subnet.Name, vpcDependsOn))
+					g.Resources = append(g.Resources, g.loadSubnetResources(*subnet.ID, *subnet.Name))
 				}
 			}
 		}

@@ -53,13 +53,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var {{.resource}}AllowEmptyValues = []string{"{{join .allowEmptyValues "\",\"" }}"}
-
-var {{.resource}}AdditionalFields = map[string]interface{}{
-	{{ range $key,$value := .additionalFields}}
-	"{{$key}}":			"{{$value}}",{{end}}
-}
-
 type {{.titleResourceName}}Generator struct {
 	GCPService
 }
@@ -82,8 +75,6 @@ func (g {{.titleResourceName}}Generator) createResources(ctx context.Context, {{
 					{{ range $key, $value := .additionalFieldsForRefresh}}
 					"{{$key}}":			"{{$value}}",{{end}}
 				},
-				{{.resource}}AllowEmptyValues,
-				{{.resource}}AdditionalFields,
 			))
 		}
 		return nil
@@ -189,9 +180,7 @@ func main() {
 				"resource":                   resource,
 				"responseName":               value.(map[string]interface{})["response"].(map[string]interface{})["$ref"].(string),
 				"terraformName":              terraformResources[resource].getTerraformName(),
-				"additionalFields":           terraformResources[resource].getAdditionalFields(),
 				"additionalFieldsForRefresh": terraformResources[resource].getAdditionalFieldsForRefresh(),
-				"allowEmptyValues":           terraformResources[resource].getAllowEmptyValues(),
 				"needRegion":                 terraformResources[resource].ifNeedRegion(),
 				"resourcePackageName":        resource,
 				"parameterOrder":             parameterOrder,

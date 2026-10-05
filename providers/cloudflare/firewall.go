@@ -44,10 +44,7 @@ func (*FirewallGenerator) createZoneLockdownsResources(api *cf.API, zoneID, zone
 				map[string]string{
 					"zone_id": zoneID,
 					"zone":    zoneName,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 
 		if zonelockdowns.TotalPages > page {
@@ -73,9 +70,7 @@ func (g *FirewallGenerator) createAccountAccessRuleResources(api *cf.API) ([]ter
 			rule.ID,
 			rule.ID,
 			"cloudflare_access_rule",
-			"cloudflare",
-			[]string{},
-		))
+			"cloudflare"))
 	}
 
 	for page := 2; page <= totalPages; page++ {
@@ -88,9 +83,7 @@ func (g *FirewallGenerator) createAccountAccessRuleResources(api *cf.API) ([]ter
 				rule.ID,
 				rule.ID,
 				"cloudflare_access_rule",
-				"cloudflare",
-				[]string{},
-			))
+				"cloudflare"))
 		}
 	}
 
@@ -114,10 +107,7 @@ func (*FirewallGenerator) createZoneAccessRuleResources(api *cf.API, zoneID, zon
 				"cloudflare",
 				map[string]string{
 					"zone_id": zoneID,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 
@@ -135,10 +125,7 @@ func (*FirewallGenerator) createZoneAccessRuleResources(api *cf.API, zoneID, zon
 					"cloudflare",
 					map[string]string{
 						"zone_id": zoneID,
-					},
-					[]string{},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}
@@ -161,10 +148,7 @@ func (*FirewallGenerator) createFilterResources(api *cf.API, zoneID, zoneName st
 			"cloudflare",
 			map[string]string{
 				"zone_id": zoneID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources, nil
@@ -185,10 +169,7 @@ func (*FirewallGenerator) createFirewallRuleResources(api *cf.API, zoneID, zoneN
 			"cloudflare",
 			map[string]string{
 				"zone_id": zoneID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources, nil
@@ -206,8 +187,7 @@ func (g *FirewallGenerator) createRateLimitResources(api *cf.API, zoneID, zoneNa
 			rateLimit.ID,
 			fmt.Sprintf("%s_%s", zoneID, rateLimit.ID),
 			"cloudflare_rate_limit",
-			"cloudflare",
-			[]string{}))
+			"cloudflare"))
 	}
 
 	return resources, nil
@@ -249,37 +229,6 @@ func (g *FirewallGenerator) InitResources() error {
 				return err
 			}
 			g.Resources = append(g.Resources, tmpRes...)
-		}
-	}
-
-	return nil
-}
-
-func (g *FirewallGenerator) PostConvertHook() error {
-	for i, resourceRecord := range g.Resources {
-		// If Zone Name exists, delete ZoneID
-		if _, zoneIDExist := resourceRecord.Item["zone_id"]; zoneIDExist {
-			delete(g.Resources[i].Item, "zone")
-		}
-
-		if resourceRecord.InstanceInfo.Type == "cloudflare_firewall_rule" {
-			if resourceRecord.Item["priority"].(string) == "0" {
-				delete(g.Resources[i].Item, "priority")
-			}
-		}
-
-		// Reference to 'cloudflare_filter' resource in 'cloudflare_firewall_rule'
-		if resourceRecord.InstanceInfo.Type == "cloudflare_filter" {
-			continue
-		}
-		filterID := resourceRecord.Item["filter_id"]
-		for _, filterResource := range g.Resources {
-			if filterResource.InstanceInfo.Type != "cloudflare_filter" {
-				continue
-			}
-			if filterID == filterResource.InstanceState.ID {
-				g.Resources[i].Item["filter_id"] = "${cloudflare_filter." + filterResource.ResourceName + ".id}"
-			}
 		}
 	}
 

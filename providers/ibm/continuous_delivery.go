@@ -35,8 +35,8 @@ func (g ContinuousDeliveryGenerator) loadContinuousDelivery(cdID string, cdName 
 		cdID,
 		normalizeResourceName(cdName, true),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

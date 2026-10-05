@@ -64,10 +64,8 @@ func (g *SubnetGenerator) InitResources() error {
 			*subnet.SubnetName+"_"+*subnet.SubnetId,
 			"tencentcloud_subnet",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

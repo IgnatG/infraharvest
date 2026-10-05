@@ -34,13 +34,8 @@ func (g SubnetGenerator) createSubnetResources(subnetID, subnetName string) terr
 		normalizeResourceName(subnetName, true),
 		"ibm_is_subnet",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^total_ipv4_address_count$",
-	)
 	return resource
 }
 

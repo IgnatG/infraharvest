@@ -21,8 +21,6 @@ import (
 	launchdarkly "github.com/launchdarkly/api-client-go"
 )
 
-var featureFlagsAllowEmptyValues = []string{"variations.*.value"}
-
 type FeatureFlagsGenerator struct {
 	LaunchDarklyService
 }
@@ -41,9 +39,8 @@ func (g *FeatureFlagsGenerator) loadFeatureFlagEnv(ctx context.Context, client *
 			map[string]string{
 				"env_key": envKey,
 				"flag_id": projectKey + "/" + flagKey,
-			},
-			featureFlagsAllowEmptyValues,
-			map[string]interface{}{})
+			})
+
 		g.Resources = append(g.Resources, resource)
 	}
 	return nil
@@ -63,10 +60,8 @@ func (g *FeatureFlagsGenerator) loadFeatureFlags(ctx context.Context, client *la
 			map[string]string{
 				"key":         featureFlag.Key,
 				"project_key": project,
-			},
-			featureFlagsAllowEmptyValues,
-			map[string]interface{}{})
-		resource.IgnoreKeys = append(resource.IgnoreKeys, "include_in_snippet")
+			})
+
 		err = g.loadFeatureFlagEnv(ctx, client, project, featureFlag.Key)
 		if err != nil {
 			return err

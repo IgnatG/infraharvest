@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var regionDisksAllowEmptyValues = []string{""}
-
-var regionDisksAdditionalFields = map[string]interface{}{}
-
 type RegionDisksGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RegionDisksGenerator) createResources(ctx context.Context, regionDisksLi
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				regionDisksAllowEmptyValues,
-				regionDisksAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

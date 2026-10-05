@@ -18,10 +18,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var projectAllowEmptyValues = []string{""}
-
-var projectAdditionalFields = map[string]interface{}{}
-
 type ProjectGenerator struct {
 	GCPService
 }
@@ -35,10 +31,7 @@ func (g *ProjectGenerator) InitResources() error {
 		g.ProviderName,
 		map[string]string{
 			"auto_create_network": "true",
-		},
-		projectAllowEmptyValues,
-		projectAdditionalFields,
-	))
+		}))
 
 	return nil
 }

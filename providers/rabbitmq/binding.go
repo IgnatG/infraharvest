@@ -36,9 +36,6 @@ type Binding struct {
 
 type Bindings []Binding
 
-var BindingAllowEmptyValues = []string{"source"}
-var BindingAdditionalFields = map[string]interface{}{}
-
 func (g BindingGenerator) createResources(bindings Bindings) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, binding := range bindings {
@@ -58,10 +55,7 @@ func (g BindingGenerator) createResources(bindings Bindings) []terraformutils.Re
 				"destination_type": binding.DestinationType,
 				"properties_key":   binding.PropertiesKey,
 				"arguments_json":   string(argumentsJSON),
-			},
-			BindingAllowEmptyValues,
-			BindingAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }

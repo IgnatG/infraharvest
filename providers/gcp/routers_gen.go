@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var routersAllowEmptyValues = []string{""}
-
-var routersAdditionalFields = map[string]interface{}{}
-
 type RoutersGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RoutersGenerator) createResources(ctx context.Context, routersList *comp
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				routersAllowEmptyValues,
-				routersAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

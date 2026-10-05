@@ -24,8 +24,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 )
 
-var apiGatewayAllowEmptyValues = []string{"tags.", "parent_id", "path_part"}
-
 type APIGatewayGenerator struct {
 	AWSService
 }
@@ -68,8 +66,7 @@ func (g *APIGatewayGenerator) loadRestApis(svc *apigateway.Client) error {
 				*restAPI.Id,
 				*restAPI.Id+"_"+*restAPI.Name,
 				"aws_api_gateway_rest_api",
-				"aws",
-				apiGatewayAllowEmptyValues))
+				"aws"))
 			if err := g.loadStages(svc, restAPI.Id); err != nil {
 				return err
 			}
@@ -123,10 +120,7 @@ func (g *APIGatewayGenerator) loadStages(svc *apigateway.Client, restAPIID *stri
 			map[string]string{
 				"rest_api_id": *restAPIID,
 				"stage_name":  *stage.StageName,
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return nil
 }
@@ -152,10 +146,7 @@ func (g *APIGatewayGenerator) loadResources(svc *apigateway.Client, restAPIID *s
 					"path_part":   StringValue(resource.PathPart),
 					"partent_id":  StringValue(resource.ParentId),
 					"rest_api_id": StringValue(restAPIID),
-				},
-				apiGatewayAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 			err := g.loadResourceMethods(svc, restAPIID, resource)
 			if err != nil {
 				log.Println(err)
@@ -186,10 +177,7 @@ func (g *APIGatewayGenerator) loadModels(svc *apigateway.Client, restAPIID *stri
 					"content_type": StringValue(model.ContentType),
 					"schema":       StringValue(model.Schema),
 					"rest_api_id":  StringValue(restAPIID),
-				},
-				apiGatewayAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -213,10 +201,7 @@ func (g *APIGatewayGenerator) loadResourceMethods(svc *apigateway.Client, restAP
 				"resource_id":   *resource.Id,
 				"http_method":   httpMethod,
 				"authorization": authorizationType,
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 
 		methodDetails, err := svc.GetMethod(g.Context(), &apigateway.GetMethodInput{
 			HttpMethod: &httpMethod,
@@ -239,10 +224,7 @@ func (g *APIGatewayGenerator) loadResourceMethods(svc *apigateway.Client, restAP
 					"resource_id": *resource.Id,
 					"http_method": httpMethod,
 					"type":        typeString,
-				},
-				apiGatewayAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 			integrationDetails, err := svc.GetIntegration(g.Context(), &apigateway.GetIntegrationInput{
 				HttpMethod: &httpMethod,
 				ResourceId: resource.Id,
@@ -264,10 +246,7 @@ func (g *APIGatewayGenerator) loadResourceMethods(svc *apigateway.Client, restAP
 						"resource_id": *resource.Id,
 						"http_method": httpMethod,
 						"status_code": responseCode,
-					},
-					apiGatewayAllowEmptyValues,
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 		for responseCode := range methodDetails.MethodResponses {
@@ -283,10 +262,7 @@ func (g *APIGatewayGenerator) loadResourceMethods(svc *apigateway.Client, restAP
 					"resource_id": *resource.Id,
 					"http_method": httpMethod,
 					"status_code": responseCode,
-				},
-				apiGatewayAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -316,10 +292,7 @@ func (g *APIGatewayGenerator) loadResponses(svc *apigateway.Client, restAPIID *s
 				map[string]string{
 					"rest_api_id":   *restAPIID,
 					"response_type": responseTypeString,
-				},
-				apiGatewayAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		position = response.Position
 		if position == nil {
@@ -345,9 +318,7 @@ func (g *APIGatewayGenerator) loadDocumentationParts(svc *apigateway.Client, res
 				documentationPartID,
 				documentationPartID,
 				"aws_api_gateway_documentation_part",
-				"aws",
-				apiGatewayAllowEmptyValues,
-			))
+				"aws"))
 		}
 		position = response.Position
 		if position == nil {
@@ -376,10 +347,7 @@ func (g *APIGatewayGenerator) loadAuthorizers(svc *apigateway.Client, restAPIID 
 				map[string]string{
 					"rest_api_id": *restAPIID,
 					"name":        StringValue(authorizer.Name),
-				},
-				apiGatewayAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		position = response.Position
 		if position == nil {
@@ -401,8 +369,7 @@ func (g *APIGatewayGenerator) loadVpcLinks(svc *apigateway.Client) error {
 				*vpcLink.Id,
 				*vpcLink.Name,
 				"aws_api_gateway_vpc_link",
-				"aws",
-				apiGatewayAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -420,8 +387,7 @@ func (g *APIGatewayGenerator) loadUsagePlans(svc *apigateway.Client) error {
 				*usagePlan.Id,
 				*usagePlan.Name,
 				"aws_api_gateway_usage_plan",
-				"aws",
-				apiGatewayAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -439,8 +405,7 @@ func (g *APIGatewayGenerator) loadAPIKeys(svc *apigateway.Client) error {
 				*apiKey.Id,
 				*apiKey.Name,
 				"aws_api_gateway_api_key",
-				"aws",
-				apiGatewayAllowEmptyValues))
+				"aws"))
 		}
 	}
 

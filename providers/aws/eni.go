@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var EniAllowEmptyValues = []string{"tags."}
-
 type EniGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (EniGenerator) createResources(enis *ec2.DescribeNetworkInterfacesOutput) [
 			StringValue(eni.NetworkInterfaceId),
 			StringValue(eni.NetworkInterfaceId),
 			"aws_network_interface",
-			"aws",
-			EniAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return resources
 }
@@ -55,20 +51,6 @@ func (g *EniGenerator) InitResources() error {
 			return e
 		}
 		g.Resources = append(g.Resources, g.createResources(page)...)
-	}
-	return nil
-}
-
-func (g *EniGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_network_interface" {
-			continue
-		}
-		if _, hasAttachment := r.Item["attachment"]; hasAttachment {
-			if attInstance, hasAttachment := r.InstanceState.Attributes["attachment.0.instance"]; !hasAttachment || attInstance == "" {
-				delete(r.Item, "attachment")
-			}
-		}
 	}
 	return nil
 }

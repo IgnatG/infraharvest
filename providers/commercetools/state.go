@@ -48,10 +48,7 @@ func (g *StateGenerator) InitResources() error {
 			state.Key,
 			"commercetools_state",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

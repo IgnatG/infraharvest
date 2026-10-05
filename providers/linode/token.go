@@ -33,8 +33,7 @@ func (g TokenGenerator) createResources(tokenList []linodego.Token) []terraformu
 			strconv.Itoa(token.ID),
 			strconv.Itoa(token.ID),
 			"linode_token",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return resources
 }

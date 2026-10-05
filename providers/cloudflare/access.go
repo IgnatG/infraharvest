@@ -41,10 +41,7 @@ func (g *AccessGenerator) createAccessApplications(api *cf.API, zoneID string) (
 			map[string]string{
 				"zone_id": zoneID,
 				"name":    app.Name,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources, nil

@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
-var kmsAllowEmptyValues = []string{"tags."}
-
 type KmsGenerator struct {
 	AWSService
 }
@@ -66,11 +64,7 @@ func (g *KmsGenerator) addKeys(client *kms.Client) error {
 					"aws",
 					map[string]string{
 						"key_id": *key.KeyId,
-					},
-					kmsAllowEmptyValues,
-					map[string]interface{}{},
-				)
-				resource.SlowQueryRequired = true
+					})
 				g.Resources = append(g.Resources, resource)
 
 				g.addGrants(key.KeyId, client)
@@ -103,10 +97,7 @@ func (g *KmsGenerator) addAliases(client *kms.Client) error {
 					*alias.AliasName,
 					*alias.AliasName,
 					"aws_kms_alias",
-					"aws",
-					kmsAllowEmptyValues,
-				)
-				resource.SlowQueryRequired = true
+					"aws")
 				g.Resources = append(g.Resources, resource)
 			}
 		}
@@ -130,10 +121,7 @@ func (g *KmsGenerator) addGrants(keyID *string, client *kms.Client) {
 				grantID,
 				grantID,
 				"aws_kms_grant",
-				"aws",
-				kmsAllowEmptyValues,
-			)
-			resource.SlowQueryRequired = true
+				"aws")
 			g.Resources = append(g.Resources, resource)
 		}
 	}

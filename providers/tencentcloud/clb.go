@@ -70,13 +70,11 @@ func (g *ClbGenerator) InitResources() error {
 			*instance.LoadBalancerName+"_"+*instance.LoadBalancerId,
 			"tencentcloud_clb_instance",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 
-		if err := g.loadListener(client, *instance.LoadBalancerId, resource.ResourceName); err != nil {
+		if err := g.loadListener(client, *instance.LoadBalancerId); err != nil {
 			return err
 		}
 	}
@@ -84,7 +82,7 @@ func (g *ClbGenerator) InitResources() error {
 	return nil
 }
 
-func (g *ClbGenerator) loadListener(client *clb.Client, loadBalancerID, resourceName string) error {
+func (g *ClbGenerator) loadListener(client *clb.Client, loadBalancerID string) error {
 	request := clb.NewDescribeTargetsRequest()
 	request.LoadBalancerId = &loadBalancerID
 	response, err := client.DescribeTargets(request)
@@ -100,11 +98,8 @@ func (g *ClbGenerator) loadListener(client *clb.Client, loadBalancerID, resource
 			"tencentcloud",
 			map[string]string{
 				"scheduler": "WRR",
-			},
-			[]string{},
-			map[string]interface{}{},
-		)
-		resource.AdditionalFields["clb_id"] = "${tencentcloud_clb_instance." + resourceName + ".id}"
+			})
+
 		g.Resources = append(g.Resources, resource)
 		if len(listener.Targets) > 0 {
 			attachmentResource := terraformutils.NewResource(
@@ -112,12 +107,8 @@ func (g *ClbGenerator) loadListener(client *clb.Client, loadBalancerID, resource
 				*listener.ListenerId,
 				"tencentcloud_clb_attachment",
 				"tencentcloud",
-				map[string]string{},
-				[]string{},
-				map[string]interface{}{},
-			)
-			attachmentResource.AdditionalFields["clb_id"] = "${tencentcloud_clb_instance." + resourceName + ".id}"
-			attachmentResource.AdditionalFields["listener_id"] = "${tencentcloud_clb_listener." + resource.ResourceName + ".listener_id}"
+				map[string]string{})
+
 			g.Resources = append(g.Resources, attachmentResource)
 		}
 
@@ -127,12 +118,8 @@ func (g *ClbGenerator) loadListener(client *clb.Client, loadBalancerID, resource
 				*rule.LocationId,
 				"tencentcloud_clb_listener_rule",
 				"tencentcloud",
-				map[string]string{},
-				[]string{},
-				map[string]interface{}{},
-			)
-			ruleResource.AdditionalFields["clb_id"] = "${tencentcloud_clb_instance." + resourceName + ".id}"
-			ruleResource.AdditionalFields["listener_id"] = "${tencentcloud_clb_listener." + resource.ResourceName + ".listener_id}"
+				map[string]string{})
+
 			g.Resources = append(g.Resources, ruleResource)
 
 			if len(rule.Targets) > 0 {
@@ -141,38 +128,13 @@ func (g *ClbGenerator) loadListener(client *clb.Client, loadBalancerID, resource
 					*rule.LocationId,
 					"tencentcloud_clb_attachment",
 					"tencentcloud",
-					map[string]string{},
-					[]string{},
-					map[string]interface{}{},
-				)
-				attachmentResource.AdditionalFields["clb_id"] = "${tencentcloud_clb_instance." + resourceName + ".id}"
-				attachmentResource.AdditionalFields["listener_id"] = "${tencentcloud_clb_listener." + resource.ResourceName + ".listener_id}"
-				attachmentResource.AdditionalFields["rule_id"] = "${tencentcloud_clb_listener_rule." + ruleResource.ResourceName + ".rule_id}"
+					map[string]string{})
+
 				g.Resources = append(g.Resources, attachmentResource)
 			}
 		}
 
 	}
 
-	return nil
-}
-
-func (g *ClbGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "tencentcloud_clb_listener" ||
-			resource.InstanceInfo.Type == "tencentcloud_clb_listener_rule" {
-			if v, ok := resource.Item["session_expire_time"]; ok {
-				sessionExpireTime := v.(string)
-				if sessionExpireTime == "0" {
-					delete(resource.Item, "session_expire_time")
-				}
-			}
-			if _, ok := resource.Item["sni_switch"]; ok {
-				if v, ok := resource.Item["protocol"]; ok && v.(string) != "HTTPS" {
-					delete(resource.Item, "sni_switch")
-				}
-			}
-		}
-	}
 	return nil
 }

@@ -137,7 +137,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if err := t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	args = append(args, "--engine=terraform", "--selection="+in.Selection)
+	args = append(args, "--selection="+in.Selection)
 	_, stderr, code, err := t.run(ctx, args)
 	if err != nil {
 		return nil, nil, err

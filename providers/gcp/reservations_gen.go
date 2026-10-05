@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var reservationsAllowEmptyValues = []string{""}
-
-var reservationsAdditionalFields = map[string]interface{}{}
-
 type ReservationsGenerator struct {
 	GCPService
 }
@@ -48,10 +44,7 @@ func (g ReservationsGenerator) createResources(ctx context.Context, reservations
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
 					"zone":    zone,
-				},
-				reservationsAllowEmptyValues,
-				reservationsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

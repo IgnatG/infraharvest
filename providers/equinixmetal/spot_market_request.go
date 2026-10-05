@@ -39,8 +39,7 @@ func (g SpotMarketRequestGenerator) createResources(spotMarketRequestsList []pac
 			spotMarketRequests.ID,
 			spotMarketRequests.ID,
 			"metal_spot_market_request",
-			"equinixmetal",
-			[]string{}))
+			"equinixmetal"))
 	}
 	return resources
 }

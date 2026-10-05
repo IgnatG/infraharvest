@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
-var dynamodbAllowEmptyValues = []string{"tags."}
-
 type DynamoDbGenerator struct {
 	AWSService
 }
@@ -42,21 +40,7 @@ func (g *DynamoDbGenerator) InitResources() error {
 				tableName,
 				tableName,
 				"aws_dynamodb_table",
-				"aws",
-				dynamodbAllowEmptyValues,
-			))
-		}
-	}
-	return nil
-}
-
-func (g *DynamoDbGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_dynamodb_table" {
-			continue
-		}
-		if val, ok := r.InstanceState.Attributes["ttl.0.enabled"]; ok && val == "false" {
-			delete(r.Item, "ttl")
+				"aws"))
 		}
 	}
 	return nil

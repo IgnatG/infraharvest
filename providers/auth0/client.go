@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	ClientAllowEmptyValues = []string{}
-)
-
 type ClientGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g ClientGenerator) createResources(clients []*management.Client) []terrafo
 			resourceName,
 			resourceName+"_"+*client.Name,
 			"auth0_client",
-			"auth0",
-			ClientAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

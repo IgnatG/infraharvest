@@ -24,8 +24,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/organizations/types"
 )
 
-var organizationAllowEmptyValues = []string{"tags."}
-
 type OrganizationGenerator struct {
 	AWSService
 }
@@ -45,10 +43,7 @@ func (g *OrganizationGenerator) traverseNode(svc *organizations.Client, parentID
 			map[string]string{
 				"id":  StringValue(account.Id),
 				"arn": StringValue(account.Arn),
-			},
-			organizationAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 		g.Resources = append(g.Resources, terraformutils.NewResource(
 			StringValue(account.Id),
 			StringValue(account.Name),
@@ -57,10 +52,7 @@ func (g *OrganizationGenerator) traverseNode(svc *organizations.Client, parentID
 			map[string]string{
 				"id":  StringValue(account.Id),
 				"arn": StringValue(account.Arn),
-			},
-			organizationAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	unitsForParent, err := svc.ListOrganizationalUnitsForParent(g.Context(),
@@ -77,10 +69,7 @@ func (g *OrganizationGenerator) traverseNode(svc *organizations.Client, parentID
 			map[string]string{
 				"id":  StringValue(unit.Id),
 				"arn": StringValue(unit.Arn),
-			},
-			organizationAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 		g.traverseNode(svc, StringValue(unit.Id))
 	}
 }
@@ -121,10 +110,7 @@ func (g *OrganizationGenerator) InitResources() error {
 				map[string]string{
 					"id":  policyID,
 					"arn": StringValue(policy.Arn),
-				},
-				organizationAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 
 			targetsForPolicy, err := svc.ListTargetsForPolicy(g.Context(),
 				&organizations.ListTargetsForPolicyInput{PolicyId: policy.Id})
@@ -141,10 +127,7 @@ func (g *OrganizationGenerator) InitResources() error {
 					map[string]string{
 						"policy_id": policyID,
 						"target_id": StringValue(target.TargetId),
-					},
-					organizationAllowEmptyValues,
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}

@@ -32,8 +32,7 @@ func (g ImageGenerator) createResources(imageList []linodego.Image) []terraformu
 			image.ID,
 			image.ID,
 			"linode_image",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return resources
 }

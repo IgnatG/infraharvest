@@ -62,8 +62,7 @@ func (g VPCGenerator) createResources(vpcList []*godo.VPC) []terraformutils.Reso
 			vpc.ID,
 			vpc.Name,
 			"digitalocean_vpc",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

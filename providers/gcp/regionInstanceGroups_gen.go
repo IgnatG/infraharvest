@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var regionInstanceGroupsAllowEmptyValues = []string{""}
-
-var regionInstanceGroupsAdditionalFields = map[string]interface{}{}
-
 type RegionInstanceGroupsGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RegionInstanceGroupsGenerator) createResources(ctx context.Context, regi
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				regionInstanceGroupsAllowEmptyValues,
-				regionInstanceGroupsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

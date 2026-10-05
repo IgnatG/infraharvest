@@ -34,9 +34,7 @@ func (g *AppOAuthGenerator) createResources(appList []okta.ListApplications200Re
 					*id,
 					normalizeResourceName(*id+"_"+label),
 					"okta_app_oauth",
-					"okta",
-					[]string{},
-				))
+					"okta"))
 			}
 		}
 	}
@@ -66,12 +64,5 @@ func (g *AppOAuthGenerator) InitResources() error {
 	}
 
 	g.Resources = g.createResources(allApplications)
-	return nil
-}
-
-func (g *AppOAuthGenerator) PostConvertHook() error {
-	for i := range g.Resources {
-		g.Resources[i].Item = escapeDollar(g.Resources[i].Item)
-	}
 	return nil
 }

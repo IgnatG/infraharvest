@@ -34,9 +34,7 @@ func (g VPCRoutingTableGenerator) loadVPCRouteTableResources(vpcID, routeTableID
 		normalizeResourceName(routeTableName, false),
 		"ibm_is_vpc_routing_table",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	return resources
 }
@@ -50,14 +48,9 @@ func (g VPCRoutingTableGenerator) loadVPCRouteTableRouteResources(vpcID, routeTa
 		map[string]string{
 			"routing_table": routeTableID,
 			"action":        "deliver",
-		},
-		[]string{},
-		map[string]interface{}{})
+		})
 
 	// Deprecated parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^action$",
-	)
 	return resource
 }
 
@@ -129,24 +122,6 @@ func (g *VPCRoutingTableGenerator) InitResources() error {
 			}
 			for _, tableroute := range tableroutes.Routes {
 				g.Resources = append(g.Resources, g.loadVPCRouteTableRouteResources(*vpc.ID, *table.ID, *tableroute.ID, *tableroute.Name))
-			}
-		}
-	}
-
-	return nil
-}
-
-func (g *VPCRoutingTableGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_is_vpc_routing_table_route" {
-			continue
-		}
-		for _, rt := range g.Resources {
-			if rt.InstanceInfo.Type != "ibm_is_vpc_routing_table" {
-				continue
-			}
-			if r.InstanceState.Attributes["routing_table"] == rt.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["routing_table"] = "${ibm_is_vpc_routing_table." + rt.ResourceName + ".id}"
 			}
 		}
 	}

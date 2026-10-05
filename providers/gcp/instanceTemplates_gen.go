@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var instanceTemplatesAllowEmptyValues = []string{""}
-
-var instanceTemplatesAdditionalFields = map[string]interface{}{}
-
 type InstanceTemplatesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g InstanceTemplatesGenerator) createResources(ctx context.Context, instanc
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				instanceTemplatesAllowEmptyValues,
-				instanceTemplatesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

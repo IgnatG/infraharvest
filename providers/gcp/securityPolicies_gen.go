@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var securityPoliciesAllowEmptyValues = []string{""}
-
-var securityPoliciesAdditionalFields = map[string]interface{}{}
-
 type SecurityPoliciesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g SecurityPoliciesGenerator) createResources(ctx context.Context, security
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				securityPoliciesAllowEmptyValues,
-				securityPoliciesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

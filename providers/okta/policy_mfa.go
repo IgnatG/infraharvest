@@ -38,8 +38,7 @@ func (g MFAPolicyGenerator) createResources(mfaPolicyList []*okta.Policy) []terr
 			mfaPolicy.Id,
 			"policy_mfa_"+resourceName,
 			resourceType,
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

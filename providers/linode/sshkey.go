@@ -33,8 +33,7 @@ func (g SSHKeyGenerator) createResources(keyList []linodego.SSHKey) []terraformu
 			strconv.Itoa(key.ID),
 			strconv.Itoa(key.ID),
 			"linode_sshkey",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return resources
 }

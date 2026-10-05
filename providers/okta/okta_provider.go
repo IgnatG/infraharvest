@@ -19,8 +19,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type OktaProvider struct { //nolint
@@ -30,20 +28,10 @@ type OktaProvider struct { //nolint
 	apiToken string
 }
 
+// GetProviderData returns the okta provider block; the engine pins the
+// provider version in versions.tf, so there is nothing to set here.
 func (p *OktaProvider) GetProviderData(arg ...string) map[string]interface{} {
-	return map[string]interface{}{
-		"provider": map[string]interface{}{
-			"okta": map[string]interface{}{
-				"version": providerwrapper.GetProviderVersion(p.GetName()),
-			},
-		},
-	}
-}
-
-func (p *OktaProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"alerts": {"alert_notification_endpoints": []string{"alert_notification_endpoints", "id"}},
-	}
+	return map[string]interface{}{}
 }
 
 func (p *OktaProvider) Init(args []string) error {
@@ -131,11 +119,7 @@ func (p *OktaProvider) GetSupportedService() map[string]terraformutils.ServiceGe
 	}
 }
 
-// GetConfig returns the provider configuration for Okta
-func (p *OktaProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"base_url":  cty.StringVal(p.baseURL),
-		"api_token": cty.StringVal(p.apiToken),
-		"org_name":  cty.StringVal(p.orgName),
-	})
+// GetSource is the provider's registry source, for required_providers.
+func (p *OktaProvider) GetSource() string {
+	return "okta/okta"
 }

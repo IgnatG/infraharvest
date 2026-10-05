@@ -72,10 +72,6 @@ func (p *LaunchDarklyProvider) GetProviderData(arg ...string) map[string]interfa
 	}
 }
 
-func (LaunchDarklyProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *LaunchDarklyProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"project":     &ProjectGenerator{},
@@ -99,4 +95,9 @@ func (p *LaunchDarklyProvider) InitService(serviceName string, verbose bool) err
 		"ctx":     p.ctx,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *LaunchDarklyProvider) GetSource() string {
+	return "launchdarkly/launchdarkly"
 }

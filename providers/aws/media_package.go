@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/mediapackage"
 )
 
-var mediapackageAllowEmptyValues = []string{"tags."}
-
 type MediaPackageGenerator struct {
 	AWSService
 }
@@ -44,8 +42,7 @@ func (g *MediaPackageGenerator) InitResources() error {
 				channelID,
 				channelID,
 				"aws_media_package_channel",
-				"aws",
-				mediapackageAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

@@ -33,8 +33,7 @@ func (g IdpOIDCGenerator) createResources(idpOIDCList []*okta.IdentityProvider) 
 			idp.Id,
 			"idp_"+normalizeResourceName(idp.Type+"_"+idp.Name),
 			"okta_idp_oidc",
-			"okta",
-			[]string{}))
+			"okta"))
 
 	}
 	return resources

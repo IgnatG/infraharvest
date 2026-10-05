@@ -40,11 +40,7 @@ func (*DNSGenerator) createZonesResource(api *cf.API, zoneID string) ([]terrafor
 		"cloudflare",
 		map[string]string{
 			"id": zoneDetails.ID,
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
-	resource.IgnoreKeys = append(resource.IgnoreKeys, "^meta$")
+		})
 
 	return []terraformutils.Resource{resource}, nil
 }
@@ -67,12 +63,8 @@ func (*DNSGenerator) createRecordsResources(api *cf.API, zoneID string) ([]terra
 				"zone_id": zoneID,
 				"domain":  record.ZoneName,
 				"name":    record.Name,
-			},
-			[]string{},
-			map[string]interface{}{},
-		)
+			})
 
-		r.IgnoreKeys = append(r.IgnoreKeys, "^metadata")
 		resources = append(resources, r)
 	}
 
@@ -107,21 +99,5 @@ func (g *DNSGenerator) InitResources() error {
 			g.Resources = append(g.Resources, tmpRes...)
 		}
 	}
-	return nil
-}
-
-func (g *DNSGenerator) PostConvertHook() error {
-	// 'record' resource have 'data' and 'value' is mutual-exclude
-	// delete which one have empty value
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "cloudflare_record" {
-			if val, ok := resource.Item["data"]; ok && len(val.(map[string]interface{})) == 0 {
-				delete(g.Resources[i].Item, "data")
-			} else if val, ok := resource.Item["value"]; ok && len(val.(string)) == 0 {
-				delete(g.Resources[i].Item, "value")
-			}
-		}
-	}
-
 	return nil
 }

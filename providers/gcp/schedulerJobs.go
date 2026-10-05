@@ -25,10 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var schedulerJobsAllowEmptyValues = []string{""}
-
-var schedulerJobsAdditionalFields = map[string]interface{}{}
-
 type SchedulerJobsGenerator struct {
 	GCPService
 }
@@ -49,10 +45,7 @@ func (g SchedulerJobsGenerator) createResources(ctx context.Context, jobsList *c
 					"name":    name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				schedulerJobsAllowEmptyValues,
-				schedulerJobsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

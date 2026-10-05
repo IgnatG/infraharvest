@@ -35,10 +35,7 @@ func (g *QueryGenerator) InitResources() error {
 				"honeycombio",
 				map[string]string{
 					"dataset": dataset.Name,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 
@@ -61,31 +58,10 @@ func (g *QueryGenerator) InitResources() error {
 					"honeycombio",
 					map[string]string{
 						"dataset": query.Dataset,
-					},
-					[]string{"caption", "query_annotation_id"},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}
 
 	return nil
 }
-
-// PostGenerateHook to format any generated query resource's QuerySpec JSON as a heredoc
-// func (g *QueryGenerator) PostConvertHook() error {
-// 	for i, resource := range g.Resources {
-// 		if resource.InstanceInfo.Type != "honeycombio_query" {
-// 			continue
-// 		}
-// 		if _, exist := resource.Item["query_json"]; exist {
-// 			queryJSON := resource.Item["query_json"].(string)
-// 			unquotedStr, _ := strconv.Unquote(queryJSON)
-// 			fmt.Println(queryJSON)
-// 			g.Resources[i].Item["query_json"] = `<<EOH
-// ` + unquotedStr + `
-// EOH`
-// 		}
-// 	}
-// 	return nil
-// }

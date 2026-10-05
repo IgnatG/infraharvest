@@ -66,10 +66,8 @@ func (g *TcaplusGenerator) InitResources() error {
 			*instance.ClusterName+"_"+*instance.ClusterId,
 			"tencentcloud_tcaplus_cluster",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

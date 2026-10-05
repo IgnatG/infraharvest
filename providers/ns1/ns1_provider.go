@@ -43,10 +43,6 @@ func (p *Ns1Provider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (Ns1Provider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *Ns1Provider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"monitoringjob": &MonitoringJobGenerator{},
@@ -68,4 +64,9 @@ func (p *Ns1Provider) InitService(serviceName string, verbose bool) error {
 		"api_key": p.apiKey,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *Ns1Provider) GetSource() string {
+	return "ns1-terraform/ns1"
 }

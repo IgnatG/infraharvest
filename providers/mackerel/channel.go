@@ -56,9 +56,8 @@ func (g *ChannelGenerator) createResource(channelID string) terraformutils.Resou
 		channelID,
 		fmt.Sprintf("channel_%s", channelID),
 		"mackerel_channel",
-		"mackerel",
-		[]string{},
-	)
+		"mackerel")
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

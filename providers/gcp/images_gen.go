@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var imagesAllowEmptyValues = []string{""}
-
-var imagesAdditionalFields = map[string]interface{}{}
-
 type ImagesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g ImagesGenerator) createResources(ctx context.Context, imagesList *comput
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				imagesAllowEmptyValues,
-				imagesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

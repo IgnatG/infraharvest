@@ -1,64 +1,24 @@
-# Use terraformer with [Opal](https://opal.dev)
+# Use with [Opal](https://opal.dev)
 
-##  Usage
-### 1. Installation
-First you will need to install terraformer with the opal provider. See the [readme](https://github.com/GoogleCloudPlatform/terraformer#installation).
+This provider uses the [opalsecurity/opal](https://registry.terraform.io/providers/opalsecurity/opal/latest) Terraform provider.
 
-### 2. Set up a template terraform workspace
-Before you can use terraformer, you need to create a template workspace so that terraformer
-can access the [opalsecurity/opal](https://registry.terraform.io/providers/opalsecurity/opal/latest) provider.
-
-To do this, create a new directory with a basic `provider.tf` file:
-```hcl
-terraform {
-  required_providers {
-    opal = {
-      source = "opalsecurity/opal"
-      version = "0.0.2"
-    }
-  }
-}
-
-provider "opal" {
-  # Configuration options
-}
-```
-
-then run:
-```bash
-$ terraform init
-````
-
-You should see the output: `Terraform has been successfully initialized!`
-
-### 3. Run terraformer:
+## Usage
 
 ```bash
 export OPAL_AUTH_TOKEN=Your token from https://app.opal.dev/settings#api
 # If you are running an on-prem installation, you will need to provide a base url as well:
-# export OPAL_BASE_URL=Your token from https://my.opal.com
+# export OPAL_BASE_URL=https://my.opal.com
 
-./infraharvest import opal --resources=* --path-pattern {output}/{provider}
+infraharvest import opal --all --resources="*"
 ```
 
 You can also specify only certain kinds of resources to import as well, i.e. `--resources=owner`.
 
-Note that we currently do not support the terraformer `--filter` flag.
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover opal` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
-### 4. Inspect the imported terraform files
+Note that we currently do not support the `--filter` flag.
 
-You should now see a `generated/` subdirectory with generated files. If you are using
-terraform version `>= 0.13`, you will need to run a state migration:
-```bash
-$ cd generated/opal/
-$ terraform state replace-provider -auto-approve "registry.terraform.io/-/opal" "opalsecurity/opal"
-```
-
-You can now initialize and use your new generated resources:
-```bash
-$ terraform init
-$ terraform plan # No changes. Your infrastructure matches the configuration.
-```
+Each generated root's `README.md` lists what was imported and the steps left to take. See [Output](../README.md#output).
 
 ## Supported Opal resources:
 

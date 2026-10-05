@@ -38,9 +38,7 @@ func (g *GroupGenerator) InitResources() error {
 			*group.Properties.Name+"-"+*group.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

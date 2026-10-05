@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/configservice"
 )
 
-var configAllowEmptyValues = []string{"tags."}
-
 type ConfigGenerator struct {
 	AWSService
 }
@@ -32,42 +30,37 @@ func (g *ConfigGenerator) InitResources() error {
 	}
 	client := configservice.NewFromConfig(config)
 
-	configurationRecorderRefs, err := g.addConfigurationRecorders(client)
+	err := g.addConfigurationRecorders(client)
 	if err != nil {
 		return err
 	}
-	err = g.addConfigRules(client, configurationRecorderRefs)
+	err = g.addConfigRules(client)
 	if err != nil {
 		return err
 	}
-	err = g.addDeliveryChannels(client, configurationRecorderRefs)
+	err = g.addDeliveryChannels(client)
 	return err
 }
 
-func (g *ConfigGenerator) addConfigurationRecorders(svc *configservice.Client) ([]string, error) {
+func (g *ConfigGenerator) addConfigurationRecorders(svc *configservice.Client) error {
 	configurationRecorders, err := svc.DescribeConfigurationRecorders(g.Context(),
 		&configservice.DescribeConfigurationRecordersInput{})
 
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var configurationRecorderRefs []string
 	for _, configurationRecorder := range configurationRecorders.ConfigurationRecorders {
 		name := *configurationRecorder.Name
 		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 			name,
 			name,
 			"aws_config_configuration_recorder",
-			"aws",
-			configAllowEmptyValues,
-		))
-		configurationRecorderRefs = append(configurationRecorderRefs,
-			"aws_config_configuration_recorder.tfer--"+name)
+			"aws"))
 	}
-	return configurationRecorderRefs, nil
+	return nil
 }
 
-func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configurationRecorderRefs []string) error {
+func (g *ConfigGenerator) addConfigRules(svc *configservice.Client) error {
 	return paginateByMarker(func(nextToken *string) (*string, error) {
 		configRules, err := svc.DescribeConfigRules(
 			g.Context(),
@@ -85,18 +78,13 @@ func (g *ConfigGenerator) addConfigRules(svc *configservice.Client, configuratio
 				name,
 				"aws_config_config_rule",
 				"aws",
-				map[string]string{},
-				configAllowEmptyValues,
-				map[string]interface{}{
-					"depends_on": configurationRecorderRefs,
-				},
-			))
+				map[string]string{}))
 		}
 		return configRules.NextToken, nil
 	})
 }
 
-func (g *ConfigGenerator) addDeliveryChannels(svc *configservice.Client, configurationRecorderRefs []string) error {
+func (g *ConfigGenerator) addDeliveryChannels(svc *configservice.Client) error {
 	deliveryChannels, err := svc.DescribeDeliveryChannels(g.Context(),
 		&configservice.DescribeDeliveryChannelsInput{})
 
@@ -110,12 +98,7 @@ func (g *ConfigGenerator) addDeliveryChannels(svc *configservice.Client, configu
 			name,
 			"aws_config_delivery_channel",
 			"aws",
-			map[string]string{},
-			configAllowEmptyValues,
-			map[string]interface{}{
-				"depends_on": configurationRecorderRefs,
-			},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

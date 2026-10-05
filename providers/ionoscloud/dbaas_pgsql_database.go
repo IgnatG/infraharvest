@@ -45,9 +45,7 @@ func (g *DBaaSPgSQLDatabaseGenerator) InitResources() error {
 				*database.Properties.Name+"-"+*database.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.ClusterID: *cluster.Id, helpers.NameArg: *database.Properties.Name},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.ClusterID: *cluster.Id, helpers.NameArg: *database.Properties.Name}))
 		}
 	}
 	return nil

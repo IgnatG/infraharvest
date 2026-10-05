@@ -34,10 +34,7 @@ func (g SignOnPolicyRuleGenerator) createResources(signOnPolicyRuleList []sdk.Po
 			"okta",
 			map[string]string{
 				"policy_id": policyID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources

@@ -15,33 +15,44 @@
 package terraformutils
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
-
-	"github.com/hashicorp/terraform/providers"
-	"github.com/hashicorp/terraform/terraform"
-	"github.com/zclconf/go-cty/cty"
 )
 
+// InstanceInfo identifies a listed resource.
+type InstanceInfo struct {
+	// Type is the Terraform resource type, such as aws_sqs_queue.
+	Type string
+	// ID is the resource's address, <type>.<label>.
+	ID string
+}
+
+// ResourceAddress returns the resource's address, <type>.<label>, where the
+// label is the part of ID after the type and a dot.
+func (i *InstanceInfo) ResourceAddress() string {
+	return i.Type + "." + strings.TrimPrefix(i.ID, i.Type+".")
+}
+
+// InstanceState is what a lister recorded about a resource.
+type InstanceState struct {
+	// ID is the ID the lister found: the import ID, unless the provider
+	// maps it (see ProviderWithImportIDs).
+	ID string `json:"id"`
+	// Attributes are the attributes the lister found, for filters and for
+	// mapping to import IDs.
+	Attributes map[string]string `json:"attributes"`
+}
+
 type Resource struct {
-	InstanceInfo  *terraform.InstanceInfo
-	InstanceState *terraform.InstanceState
-	Outputs       map[string]*terraform.OutputState `json:",omitempty"`
+	InstanceInfo  *InstanceInfo
+	InstanceState *InstanceState
 	// ResourceName is the resource's name as a Terraform label (see
 	// TfSanitize); RawName is the name as listed, which the Terraform engine
 	// labels its own way.
-	ResourceName      string
-	RawName           string `json:",omitempty"`
-	Provider          string
-	Item              map[string]interface{} `json:",omitempty"`
-	IgnoreKeys        []string               `json:",omitempty"`
-	AllowEmptyValues  []string               `json:",omitempty"`
-	AdditionalFields  map[string]interface{} `json:",omitempty"`
-	SlowQueryRequired bool
-	DataFiles         map[string][]byte
+	ResourceName string
+	RawName      string `json:",omitempty"`
+	Provider     string
 }
 
 type ApplicableFilter interface {
@@ -55,6 +66,8 @@ type ResourceFilter struct {
 	AcceptableValues []string
 }
 
+// Filter reports whether resource passes the filter: its ID, or the
+// attributes its lister recorded, match.
 func (rf *ResourceFilter) Filter(resource Resource) bool {
 	if !rf.IsApplicable(strings.TrimPrefix(resource.InstanceInfo.Type, resource.Provider+"_")) {
 		return true
@@ -64,16 +77,9 @@ func (rf *ResourceFilter) Filter(resource Resource) bool {
 	case rf.FieldPath == "id":
 		vals = []interface{}{resource.InstanceState.ID}
 	case rf.AcceptableValues == nil:
-		var hasField = WalkAndCheckField(rf.FieldPath, resource.InstanceState.Attributes)
-		if hasField {
-			return true
-		}
-		return WalkAndCheckField(rf.FieldPath, resource.Item)
+		return WalkAndCheckField(rf.FieldPath, resource.InstanceState.Attributes)
 	default:
 		vals = WalkAndGet(rf.FieldPath, resource.InstanceState.Attributes)
-		if len(vals) == 0 {
-			vals = WalkAndGet(rf.FieldPath, resource.Item)
-		}
 	}
 	for _, val := range vals {
 		for _, acceptableValue := range rf.AcceptableValues {
@@ -93,112 +99,38 @@ func (rf *ResourceFilter) isInitial() bool {
 	return rf.FieldPath == "id"
 }
 
-func NewResource(id, resourceName, resourceType, provider string,
-	attributes map[string]string,
-	allowEmptyValues []string,
-	additionalFields map[string]interface{}) Resource {
+// NewResource records a listed resource: its ID, its name, its Terraform
+// type, its provider and the attributes the lister found.
+func NewResource(id, resourceName, resourceType, provider string, attributes map[string]string) Resource {
 	return Resource{
 		ResourceName: TfSanitize(resourceName),
 		RawName:      resourceName,
-		Item:         nil,
 		Provider:     provider,
-		InstanceState: &terraform.InstanceState{
+		InstanceState: &InstanceState{
 			ID:         id,
 			Attributes: attributes,
 		},
-		InstanceInfo: &terraform.InstanceInfo{
+		InstanceInfo: &InstanceInfo{
 			Type: resourceType,
-			Id:   fmt.Sprintf("%s.%s", resourceType, TfSanitize(resourceName)),
+			ID:   fmt.Sprintf("%s.%s", resourceType, TfSanitize(resourceName)),
 		},
-		AdditionalFields: additionalFields,
-		AllowEmptyValues: allowEmptyValues,
 	}
 }
 
-func NewSimpleResource(id, resourceName, resourceType, provider string, allowEmptyValues []string) Resource {
-	return NewResource(
-		id,
-		resourceName,
-		resourceType,
-		provider,
-		map[string]string{},
-		allowEmptyValues,
-		map[string]interface{}{},
-	)
+// NewSimpleResource records a listed resource without attributes.
+func NewSimpleResource(id, resourceName, resourceType, provider string) Resource {
+	return NewResource(id, resourceName, resourceType, provider, map[string]string{})
 }
 
-// StateRefresher reads the live state of a resource from its provider.
-type StateRefresher interface {
-	Refresh(info *terraform.InstanceInfo, state *terraform.InstanceState) (*terraform.InstanceState, error)
+var unsafeChars = regexp.MustCompile(`[^0-9A-Za-z_\-]`)
+
+func escapeRune(s string) string {
+	return fmt.Sprintf("-%04X-", s)
 }
 
-// SchemaProvider returns the schema of a provider's resource types.
-type SchemaProvider interface {
-	GetSchema() *providers.GetSchemaResponse
-}
-
-// Refresh replaces the resource's state with its live state. It returns an
-// error if the provider could not read the resource or returned no state.
-func (r *Resource) Refresh(provider StateRefresher) error {
-	if r.SlowQueryRequired {
-		time.Sleep(200 * time.Millisecond)
-	}
-	state, err := provider.Refresh(r.InstanceInfo, r.InstanceState)
-	r.InstanceState = state
-	if err != nil {
-		return err
-	}
-	if state == nil || state.ID == "" {
-		return errors.New("provider returned no state: the resource may have been deleted, or its ID cannot be read")
-	}
-	return nil
-}
-
-func (r Resource) GetIDKey() string {
-	if _, exist := r.InstanceState.Attributes["self_link"]; exist {
-		return "self_link"
-	}
-	return "id"
-}
-
-func (r *Resource) ParseTFstate(parser Flatmapper, impliedType cty.Type) error {
-	attributes, err := parser.Parse(impliedType)
-	if err != nil {
-		return err
-	}
-
-	// add Additional Fields to resource
-	for key, value := range r.AdditionalFields {
-		attributes[key] = value
-	}
-
-	if attributes == nil {
-		attributes = map[string]interface{}{} // ensure HCL can represent empty resource correctly
-	}
-
-	r.Item = attributes
-	return nil
-}
-
-func (r *Resource) ConvertTFstate(provider SchemaProvider) error {
-	resourceSchema, ok := provider.GetSchema().ResourceTypes[r.InstanceInfo.Type]
-	if !ok {
-		return fmt.Errorf("provider schema has no resource type %s", r.InstanceInfo.Type)
-	}
-	ignoreKeys := []*regexp.Regexp{}
-	for _, pattern := range r.IgnoreKeys {
-		ignoreKeys = append(ignoreKeys, regexp.MustCompile(pattern))
-	}
-	allowEmptyValues := []*regexp.Regexp{}
-	for _, pattern := range r.AllowEmptyValues {
-		if pattern != "" {
-			allowEmptyValues = append(allowEmptyValues, regexp.MustCompile(pattern))
-		}
-	}
-	parser := NewFlatmapParser(r.InstanceState.Attributes, ignoreKeys, allowEmptyValues)
-	return r.ParseTFstate(parser, resourceSchema.Block.ImpliedType())
-}
-
-func (r *Resource) ServiceName() string {
-	return strings.TrimPrefix(r.InstanceInfo.Type, r.Provider+"_")
+// TfSanitize makes name a Terraform label.
+func TfSanitize(name string) string {
+	name = unsafeChars.ReplaceAllStringFunc(name, escapeRune)
+	name = "tfer--" + name
+	return name
 }

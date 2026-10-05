@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var httpHealthChecksAllowEmptyValues = []string{""}
-
-var httpHealthChecksAdditionalFields = map[string]interface{}{}
-
 type HttpHealthChecksGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g HttpHealthChecksGenerator) createResources(ctx context.Context, httpHeal
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				httpHealthChecksAllowEmptyValues,
-				httpHealthChecksAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

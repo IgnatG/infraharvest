@@ -25,10 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var cloudFunctionsAllowEmptyValues = []string{""}
-
-var cloudFunctionsAdditionalFields = map[string]interface{}{}
-
 type CloudFunctionsGenerator struct {
 	GCPService
 }
@@ -50,10 +46,7 @@ func (g CloudFunctionsGenerator) createCloudFunctionsResources(ctx context.Conte
 						"name":     name,
 						"project":  g.GetArgs()["project"].(string),
 						"location": g.GetArgs()["region"].(compute.Region).Name,
-					},
-					cloudFunctionsAllowEmptyValues,
-					cloudFunctionsAdditionalFields,
-				))
+					}))
 			}
 		}
 		return nil
@@ -79,10 +72,7 @@ func (g CloudFunctionsGenerator) createCloudFunctions2ndGenResources(ctx context
 						"name":     name,
 						"project":  g.GetArgs()["project"].(string),
 						"location": g.GetArgs()["region"].(compute.Region).Name,
-					},
-					cloudFunctionsAllowEmptyValues,
-					cloudFunctionsAdditionalFields,
-				))
+					}))
 			}
 		}
 		return nil

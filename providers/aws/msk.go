@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kafka"
 )
 
-var mskAllowEmptyValues = []string{"tags."}
-
 type MskGenerator struct {
 	AWSService
 }
@@ -42,23 +40,9 @@ func (g *MskGenerator) InitResources() error {
 				StringValue(clusterInfo.ClusterArn),
 				StringValue(clusterInfo.ClusterName),
 				"aws_msk_cluster",
-				"aws",
-				mskAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 
-	return nil
-}
-
-func (g *MskGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_msk_cluster" {
-			continue
-		}
-		if r.InstanceState.Attributes["configuration_info.0.revision"] == "0" {
-			delete(r.Item, "configuration_info")
-		}
-	}
 	return nil
 }

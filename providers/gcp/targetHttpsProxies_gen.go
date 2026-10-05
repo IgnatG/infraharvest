@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var targetHttpsProxiesAllowEmptyValues = []string{""}
-
-var targetHttpsProxiesAdditionalFields = map[string]interface{}{}
-
 type TargetHttpsProxiesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g TargetHttpsProxiesGenerator) createResources(ctx context.Context, target
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				targetHttpsProxiesAllowEmptyValues,
-				targetHttpsProxiesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

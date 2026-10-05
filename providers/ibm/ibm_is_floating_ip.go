@@ -35,14 +35,9 @@ func (g FloatingIPGenerator) createFloatingIPResources(fipID, fipName string) te
 		normalizeResourceName(fipName, true),
 		"ibm_is_floating_ip",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	// Conflict parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^zone$",
-	)
 	return resource
 }
 

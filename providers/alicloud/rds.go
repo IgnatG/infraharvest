@@ -27,14 +27,12 @@ type RdsGenerator struct {
 
 func resourceFromrdsResponse(rds rds.DBInstance) terraformutils.Resource {
 	return terraformutils.NewResource(
-		rds.DBInstanceId, // nolint
-		rds.DBInstanceId+"__"+rds.DBInstanceDescription, // nolint
+		rds.DBInstanceId,
+		rds.DBInstanceId+"__"+rds.DBInstanceDescription,
 		"alicloud_db_instance",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 // InitResources Gets the list of all rds ids and generates resources
@@ -70,20 +68,6 @@ func (g *RdsGenerator) InitResources() error {
 	for _, rds := range allrdss {
 		resource := resourceFromrdsResponse(rds)
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-// PostConvertHook Runs before HCL files are generated
-func (g *RdsGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "alicloud_db_instance" {
-			// https://www.terraform.io/docs/providers/alicloud/r/db_instance.html#period
-			if r.Item["instance_charge_type"] != "PrePaid" {
-				delete(r.Item, "period")
-			}
-		}
 	}
 
 	return nil

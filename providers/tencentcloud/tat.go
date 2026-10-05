@@ -73,19 +73,17 @@ func (g *TatGenerator) DescribeCommands(client *tat.Client) error {
 			*instance.CommandId+"_"+*instance.CommandId,
 			"tencentcloud_tat_command",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
-		if err := g.DescribeInvokers(client, *instance.CommandId, resource.ResourceName); err != nil {
+		if err := g.DescribeInvokers(client, *instance.CommandId); err != nil {
 			return err
 		}
 	}
 
 	return nil
 }
-func (g *TatGenerator) DescribeInvokers(client *tat.Client, commandID, resourceName string) error {
+func (g *TatGenerator) DescribeInvokers(client *tat.Client, commandID string) error {
 	request := tat.NewDescribeInvokersRequest()
 	request.Filters = []*tat.Filter{
 		{
@@ -117,11 +115,8 @@ func (g *TatGenerator) DescribeInvokers(client *tat.Client, commandID, resourceN
 			*instance.InvokerId+"_"+*instance.InvokerId,
 			"tencentcloud_tat_invoker",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
-		resource.AdditionalFields["command_id"] = "${tencentcloud_tat_command." + resourceName + ".id}"
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

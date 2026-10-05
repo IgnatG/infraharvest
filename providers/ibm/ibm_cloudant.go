@@ -35,8 +35,8 @@ func (g CloudantGenerator) loadCloudant(dbID string, dbName string) terraformuti
 		dbID,
 		normalizeResourceName(dbName, false),
 		"ibm_cloudant",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

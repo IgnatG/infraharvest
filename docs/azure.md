@@ -45,10 +45,12 @@ export ARM_USE_OIDC=true
 # Using deprecated ADAL authentication for throubleshooting
 export ARM_USE_ADAL=true
 
-./infraharvest import azure -r resource_group
-./infraharvest import azure -R my_resource_group -r virtual_network,resource_group
-./infraharvest import azure -r resource_group --filter=resource_group=/subscriptions/<Subscription id>/resourceGroups/<RGNAME>
+infraharvest import azure --all --resources=resource_group
+infraharvest import azure --all --resource-group=my_resource_group --resources=virtual_network,resource_group
+infraharvest import azure --all --resources=resource_group --filter=resource_group=/subscriptions/<Subscription id>/resourceGroups/<RGNAME>
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover azure` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 ## List of supported Azure resources
 
@@ -226,4 +228,4 @@ export ARM_USE_ADAL=true
 
 ### Virtual networks and subnets
 
-Terraformer will import `azurerm_virtual_network` config with inlined subnet information swipped, in order to avoid any potential circular dependencies. To import the subnet information, please also import `azurerm_subnet`.
+The `virtual_network` service lists virtual networks only. Subnets are listed by the `subnet` service, as `azurerm_subnet` resources, so import both to bring a network and its subnets under Terraform.

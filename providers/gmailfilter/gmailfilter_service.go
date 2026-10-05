@@ -19,11 +19,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/terraform/helper/pathorcontents"
 	"golang.org/x/oauth2"
 	googleoauth "golang.org/x/oauth2/google"
 	"golang.org/x/oauth2/jwt"
@@ -76,7 +76,7 @@ func (s *GmailfilterService) getTokenSource(creds string, impersonatedEmailAddr 
 		if err := s.validateCredentials(creds); err != nil {
 			return nil, err
 		}
-		contents, _, err := pathorcontents.Read(creds)
+		contents, err := readPathOrContents(creds)
 		if err != nil {
 			return nil, fmt.Errorf("Error loading credentials: %s", err)
 		}
@@ -111,4 +111,25 @@ func parseJSON(result interface{}, contents string) error {
 	dec := json.NewDecoder(r)
 
 	return dec.Decode(result)
+}
+
+// readPathOrContents returns the contents of the file at poc when poc names an existing file (a leading
+// ~ is expanded to the home directory), and poc itself otherwise.
+func readPathOrContents(poc string) (string, error) {
+	if poc == "" {
+		return poc, nil
+	}
+	path := poc
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path, err
+		}
+		path = filepath.Join(home, path[1:])
+	}
+	if _, err := os.Stat(path); err == nil {
+		contents, err := os.ReadFile(path)
+		return string(contents), err
+	}
+	return poc, nil
 }

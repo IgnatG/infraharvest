@@ -51,10 +51,8 @@ func (g *OrganizationWebhooksGenerator) InitResources() error {
 				strconv.FormatInt(hook.GetID(), 10),
 				strconv.FormatInt(hook.GetID(), 10),
 				"github_organization_webhook",
-				"github",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"github")
+
 			g.Resources = append(g.Resources, resource)
 		}
 

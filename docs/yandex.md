@@ -2,10 +2,12 @@
 
 Example:
 
-```
+```sh
 export YC_TOKEN=[YANDEX_CLOUD_OAUTH_OR_IAM_TOKEN]
-./infraharvest import yandex -r subnet --folder_ids <comma-separated folder IDs>
+infraharvest import yandex --all --resources=subnet --folder_ids=<comma-separated folder IDs>
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover yandex` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Yandex resources:
 
@@ -18,5 +20,3 @@ List of supported Yandex resources:
 *   `subnet`
     * `yandex_vpc_subnet`
 
-Your `tf` and `tfstate` files are written by default to
-`generated/yandex/service`.

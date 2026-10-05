@@ -62,10 +62,8 @@ func createOrganizationProjects(ctx context.Context, client *githubAPI.Client, o
 				strconv.FormatInt(project.GetID(), 10),
 				strconv.FormatInt(project.GetID(), 10),
 				"github_organization_project",
-				"github",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"github")
+
 			resources = append(resources, resource)
 		}
 

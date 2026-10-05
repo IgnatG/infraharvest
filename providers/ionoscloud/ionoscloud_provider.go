@@ -64,57 +64,6 @@ func (p *IonosCloudProvider) GetProviderData(_ ...string) map[string]interface{}
 	return map[string]interface{}{}
 }
 
-func (IonosCloudProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"server": {
-			"datacenter": []string{helpers.DcID, "id"},
-		},
-		"nic": {
-			"datacenter": []string{helpers.DcID, "id"},
-			"server":     []string{helpers.ServerID, "id"},
-		},
-		"volume": {
-			"datacenter": []string{helpers.DcID, "id"},
-			"server":     []string{helpers.ServerID, "id"},
-		},
-		"firewall": {
-			"datacenter": []string{helpers.DcID, "id"},
-			"server":     []string{helpers.ServerID, "id"},
-			"nic":        []string{helpers.NicID, "id"},
-		},
-		"k8s_node_pool": {
-			"datacenter":  []string{helpers.DcID, "id"},
-			"k8s_cluster": []string{helpers.K8sClusterID, "id"},
-		},
-		"networkloadbalancer": {
-			"datacenter": []string{helpers.DcID, "id"},
-		},
-		"natgateway": {
-			"datacenter": []string{helpers.DcID, "id"},
-		},
-		"application_loadbalancer": {
-			"datacenter": []string{helpers.DcID, "id"},
-		},
-		"networkloadbalancer_forwardingrule": {
-			"datacenter":   []string{helpers.DcID, "id"},
-			"loadbalancer": []string{"networkloadbalancer_id", "id"},
-		},
-		"loadbalancer": {
-			"datacenter": []string{helpers.DcID, "id"},
-		},
-		"natgateway_rule": {
-			"datacenter": []string{helpers.DcID, "id"},
-			"natgateway": []string{"natgateway_id", "id"},
-		},
-		"s3_key": {
-			"user": []string{helpers.UserID, "id"},
-		},
-		"share": {
-			"group": []string{helpers.GroupID, "id"},
-		},
-	}
-}
-
 func (p *IonosCloudProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"datacenter":               &DatacenterGenerator{},
@@ -173,4 +122,9 @@ func (p *IonosCloudProvider) InitService(serviceName string, verbose bool) error
 		"url":      p.url,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *IonosCloudProvider) GetSource() string {
+	return "ionos-cloud/ionoscloud"
 }

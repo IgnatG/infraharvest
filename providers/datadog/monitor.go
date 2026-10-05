@@ -26,11 +26,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// MonitorAllowEmptyValues ...
-	MonitorAllowEmptyValues = []string{"tags.", "message"}
-)
-
 // MonitorGenerator ...
 type MonitorGenerator struct {
 	DatadogService
@@ -54,9 +49,8 @@ func (g *MonitorGenerator) createResource(monitorID string) terraformutils.Resou
 		monitorID,
 		fmt.Sprintf("monitor_%s", monitorID),
 		"datadog_monitor",
-		"datadog",
-		MonitorAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

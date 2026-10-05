@@ -34,9 +34,7 @@ func (g *RulesetGenerator) createRulesetResources(client *pagerduty.Client) erro
 			ruleset.ID,
 			ruleset.Name,
 			"pagerduty_ruleset",
-			g.ProviderName,
-			[]string{},
-		))
+			g.ProviderName))
 	}
 
 	return nil
@@ -64,10 +62,7 @@ func (g *RulesetGenerator) createRulesetRuleResources(client *pagerduty.Client) 
 				g.ProviderName,
 				map[string]string{
 					"ruleset": ruleset.ID,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 

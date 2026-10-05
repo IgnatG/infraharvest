@@ -60,9 +60,7 @@ func (g *ALBForwardingRuleGenerator) InitResources() error {
 					*albForwardingRule.Properties.Name+"-"+*albForwardingRule.Id,
 					resourceType,
 					helpers.Ionos,
-					map[string]string{"application_loadbalancer_id": *applicationLoadBalancer.Id, helpers.DcID: *datacenter.Id},
-					[]string{},
-					map[string]interface{}{}))
+					map[string]string{"application_loadbalancer_id": *applicationLoadBalancer.Id, helpers.DcID: *datacenter.Id}))
 			}
 		}
 	}

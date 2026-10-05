@@ -62,8 +62,7 @@ func (g TagGenerator) createResources(tagList []godo.Tag) []terraformutils.Resou
 			tag.Name,
 			tag.Name,
 			"digitalocean_tag",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

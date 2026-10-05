@@ -36,8 +36,7 @@ func (g *AlertPolicyGenerator) createAlertPolicyResources(client *newrelic.NewRe
 			fmt.Sprintf("%d", alertPolicy.ID),
 			fmt.Sprintf("%s-%d", normalizeResourceName(alertPolicy.Name), alertPolicy.ID),
 			"newrelic_alert_policy",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 	}
 
 	return nil

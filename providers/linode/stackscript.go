@@ -35,8 +35,7 @@ func (g StackScriptGenerator) createResources(stackscriptList []linodego.Stacksc
 				strconv.Itoa(stackscript.ID),
 				strconv.Itoa(stackscript.ID),
 				"linode_stackscript",
-				"linode",
-				[]string{}))
+				"linode"))
 		}
 	}
 	return resources

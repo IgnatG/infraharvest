@@ -4,8 +4,6 @@ import (
 	"errors"
 	"os"
 
-	"github.com/zclconf/go-cty/cty"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
@@ -44,18 +42,8 @@ func (p *OpsgenieProvider) InitService(serviceName string, verbose bool) error {
 	return nil
 }
 
-func (p *OpsgenieProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"api_key": cty.StringVal(p.APIKey),
-	})
-}
-
 func (p *OpsgenieProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
-}
-
-func (p *OpsgenieProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
 }
 
 func (p *OpsgenieProvider) GetName() string {
@@ -68,4 +56,9 @@ func (p *OpsgenieProvider) GetSupportedService() map[string]terraformutils.Servi
 		"team":    &TeamGenerator{},
 		"service": &ServiceGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *OpsgenieProvider) GetSource() string {
+	return "opsgenie/opsgenie"
 }

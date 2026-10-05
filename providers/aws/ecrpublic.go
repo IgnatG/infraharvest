@@ -20,8 +20,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var ecrPublicAllowEmptyValues = []string{"tags."}
-
 type EcrPublicGenerator struct {
 	AWSService
 }
@@ -47,8 +45,8 @@ func (g *EcrPublicGenerator) InitResources() error {
 				*repository.RepositoryName,
 				*repository.RepositoryName,
 				"aws_ecrpublic_repository",
-				"aws",
-				ecrPublicAllowEmptyValues)
+				"aws")
+
 			g.Resources = append(g.Resources, resource)
 		}
 	}

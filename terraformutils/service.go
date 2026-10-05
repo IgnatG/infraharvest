@@ -18,8 +18,6 @@ import (
 	"context"
 	"log"
 	"strings"
-
-	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
 
 type ServiceGenerator interface {
@@ -28,7 +26,6 @@ type ServiceGenerator interface {
 	SetResources(resources []Resource)
 	ParseFilter(rawFilter string) []ResourceFilter
 	ParseFilters(rawFilters []string)
-	PostConvertHook() error
 	GetArgs() map[string]interface{}
 	SetArgs(args map[string]interface{})
 	SetName(name string)
@@ -37,8 +34,6 @@ type ServiceGenerator interface {
 	GetProviderName() string
 	GetName() string
 	InitialCleanup()
-	PopulateIgnoreKeys(*providerwrapper.ProviderWrapper)
-	PostRefreshCleanup()
 	// SetContext sets the context of the service's API calls.
 	SetContext(ctx context.Context)
 }
@@ -142,12 +137,6 @@ func (s *Service) InitialCleanup() {
 	FilterCleanup(s, true)
 }
 
-func (s *Service) PostRefreshCleanup() {
-	if len(s.Filter) != 0 {
-		FilterCleanup(s, false)
-	}
-}
-
 func (s *Service) GetArgs() map[string]interface{} {
 	return s.Args
 }
@@ -164,23 +153,4 @@ func (s *Service) SetResources(resources []Resource) {
 
 func (s *Service) InitResources() error {
 	panic("implement me")
-}
-
-func (s *Service) PostConvertHook() error {
-	return nil
-}
-
-func (s *Service) PopulateIgnoreKeys(providerWrapper *providerwrapper.ProviderWrapper) {
-	var resourcesTypes []string
-	for _, r := range s.Resources {
-		resourcesTypes = append(resourcesTypes, r.InstanceInfo.Type)
-	}
-	keys := IgnoreKeys(resourcesTypes, providerWrapper)
-	for k, v := range keys {
-		for i := range s.Resources {
-			if s.Resources[i].InstanceInfo.Type == k {
-				s.Resources[i].IgnoreKeys = append(s.Resources[i].IgnoreKeys, v...)
-			}
-		}
-	}
 }

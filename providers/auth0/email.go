@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	EmailAllowEmptyValues = []string{}
-)
-
 type EmailGenerator struct {
 	Auth0Service
 }
@@ -34,9 +30,7 @@ func (g EmailGenerator) createResources(email *management.Email) []terraformutil
 		resourceName,
 		resourceName,
 		"auth0_email",
-		"auth0",
-		EmailAllowEmptyValues,
-	))
+		"auth0"))
 	return resources
 }
 

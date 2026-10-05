@@ -38,10 +38,7 @@ func (g *PageRulesGenerator) createPageRules(api *cf.API, zoneID string) ([]terr
 			"cloudflare",
 			map[string]string{
 				"zone_id": zoneID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources, nil

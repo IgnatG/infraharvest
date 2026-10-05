@@ -44,9 +44,7 @@ func (g TeamCollaboratorGenerator) createResources(svc *heroku.Service, teamList
 					collaborator.ID,
 					"heroku_team_collaborator",
 					"heroku",
-					map[string]string{"app": app.Name},
-					[]string{},
-					map[string]interface{}{}))
+					map[string]string{"app": app.Name}))
 			}
 		}
 	}

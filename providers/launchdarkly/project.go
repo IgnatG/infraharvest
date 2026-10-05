@@ -43,10 +43,8 @@ func (g *ProjectGenerator) loadProjects(ctx context.Context, client *launchdarkl
 			"launchdarkly",
 			map[string]string{
 				"key": project.Key,
-			},
-			[]string{},
-			map[string]interface{}{})
-		resource.IgnoreKeys = append(resource.IgnoreKeys, "include_in_snippet")
+			})
+
 		g.Resources = append(g.Resources, resource)
 	}
 	return nil

@@ -31,8 +31,7 @@ func (g GroupRuleGenerator) createResources(groupRuleList []*okta.GroupRule) []t
 			groupRule.Id,
 			"grouprule_"+groupRule.Name,
 			"okta_group_rule",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

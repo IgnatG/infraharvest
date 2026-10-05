@@ -37,8 +37,7 @@ func (g *TeamGenerator) createTeamResources(client *ns1.Client) error {
 			t.ID,
 			t.ID,
 			"ns1_team",
-			"ns1",
-			[]string{}))
+			"ns1"))
 	}
 
 	return nil

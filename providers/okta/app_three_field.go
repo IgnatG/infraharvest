@@ -32,8 +32,7 @@ func (g AppThreeFieldGenerator) createResources(appList []*okta.Application) []t
 			app.Id,
 			normalizeResourceName(app.Id+"_"+app.Name),
 			"okta_app_three_field",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

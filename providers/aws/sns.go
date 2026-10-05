@@ -15,14 +15,11 @@
 package aws
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 )
-
-var snsAllowEmptyValues = []string{"tags."}
 
 type SnsGenerator struct {
 	AWSService
@@ -53,9 +50,7 @@ func (g *SnsGenerator) InitResources() error {
 				StringValue(topic.TopicArn),
 				topicName,
 				"aws_sns_topic",
-				"aws",
-				snsAllowEmptyValues,
-			))
+				"aws"))
 
 			topicSubsPage := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{
 				TopicArn: topic.TopicArn,
@@ -74,26 +69,9 @@ func (g *SnsGenerator) InitResources() error {
 							StringValue(subscription.SubscriptionArn),
 							"subscription-"+subscriptionID,
 							"aws_sns_topic_subscription",
-							"aws",
-							snsAllowEmptyValues,
-						))
+							"aws"))
 					}
 				}
-			}
-		}
-	}
-	return nil
-}
-
-// PostConvertHook for add policy json as heredoc
-func (g *SnsGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_sns_topic" {
-			if val, ok := g.Resources[i].Item["policy"]; ok {
-				policy := g.escapeAwsInterpolation(val.(string))
-				g.Resources[i].Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
 			}
 		}
 	}

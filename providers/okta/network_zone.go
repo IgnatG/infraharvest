@@ -56,9 +56,8 @@ func (g *NetworkZoneGenerator) createResources(networkZoneList []okta.ListNetwor
 				*id,
 				normalizeResourceName(*id+"_"+*name),
 				"okta_network_zone",
-				"okta",
-				[]string{},
-			)
+				"okta")
+
 			resources = append(resources, resource)
 		}
 	}

@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -23,10 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
-
-var S3AllowEmptyValues = []string{"tags."}
-
-var S3AdditionalFields = map[string]interface{}{}
 
 type S3Generator struct {
 	AWSService
@@ -65,18 +60,14 @@ func (g *S3Generator) createResources(config aws.Config, buckets *s3.ListBuckets
 					resourceName,
 					"aws_s3_bucket_policy",
 					"aws",
-					nil,
-					S3AllowEmptyValues,
-					S3AdditionalFields))
+					nil))
 			}
 			resources = append(resources, terraformutils.NewResource(
 				resourceName,
 				resourceName,
 				"aws_s3_bucket",
 				"aws",
-				attributes,
-				S3AllowEmptyValues,
-				S3AdditionalFields))
+				attributes))
 		}
 	}
 	return resources
@@ -96,23 +87,5 @@ func (g *S3Generator) InitResources() error {
 		return err
 	}
 	g.Resources = g.createResources(config, buckets, g.GetArgs()["region"].(string))
-	return nil
-}
-
-// PostGenerateHook for add bucket policy json as heredoc
-// support only bucket with policy
-func (g *S3Generator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_s3_bucket" {
-			if val, ok := g.Resources[i].Item["acl"]; ok && val == "private" {
-				delete(g.Resources[i].Item, "acl")
-			}
-			if val, ok := g.Resources[i].Item["policy"]; ok {
-				g.Resources[i].Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, g.escapeAwsInterpolation(val.(string)))
-			}
-		}
-	}
 	return nil
 }

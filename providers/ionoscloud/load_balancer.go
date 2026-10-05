@@ -46,9 +46,7 @@ func (g *LoadBalancerGenerator) InitResources() error {
 				*loadBalancer.Properties.Name+"-"+*loadBalancer.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.DcID: *datacenter.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.DcID: *datacenter.Id}))
 		}
 	}
 	return nil

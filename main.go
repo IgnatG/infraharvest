@@ -24,14 +24,15 @@ import (
 )
 
 // TerraformerWriter writes log messages to stderr, so stdout carries only
-// results (--output json), and hides the provider plugins' trace and debug
-// messages.
+// results (--output json), and hides trace and debug messages that client
+// libraries log through the standard logger: go-azure-helpers, for one,
+// logs whole HTTP requests at [DEBUG].
 type TerraformerWriter struct {
 	io.Writer
 }
 
 func (t TerraformerWriter) Write(p []byte) (n int, err error) {
-	if !strings.Contains(string(p), "[TRACE]") && !strings.Contains(string(p), "[DEBUG]") { // hide TF GRPC client log messages
+	if !strings.Contains(string(p), "[TRACE]") && !strings.Contains(string(p), "[DEBUG]") {
 		return os.Stderr.Write(p)
 	}
 	return len(p), nil

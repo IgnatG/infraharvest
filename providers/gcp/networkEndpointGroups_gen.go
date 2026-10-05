@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var networkEndpointGroupsAllowEmptyValues = []string{""}
-
-var networkEndpointGroupsAdditionalFields = map[string]interface{}{}
-
 type NetworkEndpointGroupsGenerator struct {
 	GCPService
 }
@@ -48,10 +44,7 @@ func (g NetworkEndpointGroupsGenerator) createResources(ctx context.Context, net
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
 					"zone":    zone,
-				},
-				networkEndpointGroupsAllowEmptyValues,
-				networkEndpointGroupsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

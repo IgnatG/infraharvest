@@ -26,8 +26,6 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
-	"github.com/zclconf/go-cty/cty"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,11 +36,6 @@ import (
 
 type KubernetesProvider struct { //nolint
 	terraformutils.Provider
-	verbose string
-}
-
-func (p KubernetesProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
 }
 
 func (p KubernetesProvider) GetProviderData(arg ...string) map[string]interface{} {
@@ -50,7 +43,6 @@ func (p KubernetesProvider) GetProviderData(arg ...string) map[string]interface{
 }
 
 func (p *KubernetesProvider) Init(args []string) error {
-	p.verbose = args[0]
 	return nil
 }
 
@@ -90,12 +82,6 @@ func (p *KubernetesProvider) GetSupportedService() map[string]terraformutils.Ser
 		log.Println(err)
 		return resources
 	}
-	provider, err := providerwrapper.NewProviderWrapper("kubernetes", cty.Value{}, p.verbose == "true")
-	if err != nil {
-		log.Println(err)
-		return resources
-	}
-	resp := provider.GetSchema()
 	for _, list := range lists {
 		if len(list.APIResources) == 0 {
 			continue
@@ -117,7 +103,7 @@ func (p *KubernetesProvider) GetSupportedService() map[string]terraformutils.Ser
 			}
 
 			// filter to resource that are supported by terraform kubernetes provider
-			if _, ok := resp.ResourceTypes[extractTfResourceName(resource.Kind)]; !ok {
+			if _, ok := supportedResourceTypes[extractTfResourceName(resource.Kind)]; !ok {
 				continue
 			}
 

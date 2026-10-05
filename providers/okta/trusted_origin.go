@@ -31,8 +31,7 @@ func (g TrustedOriginGenerator) createResources(trustedOriginList []*okta.Truste
 			trustedOrigin.Id,
 			"trusted_origin_"+trustedOrigin.Id,
 			"okta_trusted_origin",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

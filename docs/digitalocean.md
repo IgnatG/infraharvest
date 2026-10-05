@@ -2,10 +2,12 @@
 
 Example:
 
-```
+```sh
 export DIGITALOCEAN_TOKEN=[DIGITALOCEAN_TOKEN]
-./infraharvest import digitalocean -r project,droplet
+infraharvest import digitalocean --all --resources=project,droplet
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover digitalocean` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported DigitalOcean resources:
 

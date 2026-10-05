@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
 
 type AwsFacade struct { //nolint
@@ -44,10 +43,6 @@ func (s *AwsFacade) InitialCleanup() {
 	s.service.InitialCleanup()
 }
 
-func (s *AwsFacade) PostRefreshCleanup() {
-	s.service.PostRefreshCleanup()
-}
-
 func (s *AwsFacade) GetArgs() map[string]interface{} {
 	return s.service.GetArgs()
 }
@@ -74,12 +69,4 @@ func (s *AwsFacade) InitResources() error {
 		return nil
 	}
 	return err
-}
-
-func (s *AwsFacade) PostConvertHook() error {
-	return s.service.PostConvertHook()
-}
-
-func (s *AwsFacade) PopulateIgnoreKeys(providerWrapper *providerwrapper.ProviderWrapper) {
-	s.service.PopulateIgnoreKeys(providerWrapper)
 }

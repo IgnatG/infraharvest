@@ -32,8 +32,7 @@ func (g StartupScriptGenerator) createResources(scriptList []govultr.StartupScri
 			script.ScriptID,
 			script.ScriptID,
 			"vultr_startup_script",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

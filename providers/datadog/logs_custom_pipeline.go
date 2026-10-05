@@ -16,19 +16,12 @@ package datadog
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV1"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-)
-
-var (
-	// LogsCustomPipelineAllowEmptyValues ...
-	LogsCustomPipelineAllowEmptyValues = []string{"support_rules", "filter"}
 )
 
 // LogsCustomPipelineGenerator ...
@@ -54,9 +47,8 @@ func (g *LogsCustomPipelineGenerator) createResource(logsCustomPipelineID string
 		logsCustomPipelineID,
 		fmt.Sprintf("logs_custom_pipeline_%s", logsCustomPipelineID),
 		"datadog_logs_custom_pipeline",
-		"datadog",
-		LogsCustomPipelineAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,
@@ -91,26 +83,5 @@ func (g *LogsCustomPipelineGenerator) InitResources() error {
 		return err
 	}
 	g.Resources = g.createResources(logsCustomPipelines)
-	return nil
-}
-
-func (g *LogsCustomPipelineGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		for k, v := range r.Item {
-			// Hack to properly escape `%{` used in pipeline processors
-			if k == "processor" {
-				var z interface{}
-				jsonByte, err := json.Marshal(v)
-				if err != nil {
-					continue
-				}
-				jsonByte = []byte(strings.ReplaceAll(string(jsonByte), "%{", "%%{"))
-				if err = json.Unmarshal(jsonByte, &z); err != nil {
-					continue
-				}
-				g.Resources[i].Item[k] = z
-			}
-		}
-	}
 	return nil
 }

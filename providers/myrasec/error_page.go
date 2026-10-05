@@ -9,16 +9,12 @@ import (
 	mgo "github.com/Myra-Security-GmbH/myrasec-go/v2"
 )
 
-//
 // ErrorPageGenerator
-//
 type ErrorPageGenerator struct {
 	MyrasecService
 }
 
-//
 // createErrorPageResources
-//
 func (g *ErrorPageGenerator) createErrorPageResources(api *mgo.API, domain mgo.Domain, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
@@ -47,11 +43,8 @@ func (g *ErrorPageGenerator) createErrorPageResources(api *mgo.API, domain mgo.D
 					"subdomain_name": p.SubDomainName,
 					"error_code":     strconv.Itoa(p.ErrorCode),
 					"content":        p.Content,
-				},
-				[]string{},
-				map[string]interface{}{},
-			)
-			r.IgnoreKeys = append(r.IgnoreKeys, "^metadata")
+				})
+
 			g.Resources = append(g.Resources, r)
 		}
 		if len(pages) < pageSize {
@@ -62,9 +55,7 @@ func (g *ErrorPageGenerator) createErrorPageResources(api *mgo.API, domain mgo.D
 	return nil
 }
 
-//
 // InitResources
-//
 func (g *ErrorPageGenerator) InitResources() error {
 	wg := sync.WaitGroup{}
 

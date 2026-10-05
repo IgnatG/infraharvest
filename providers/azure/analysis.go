@@ -55,8 +55,7 @@ func (g *AnalysisGenerator) listServiceServers() ([]terraformutils.Resource, err
 			*svr.ID,
 			*svr.Name,
 			"azurerm_analysis_services_server",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 	}
 
 	return resources, nil

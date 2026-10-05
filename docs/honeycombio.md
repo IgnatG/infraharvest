@@ -4,8 +4,10 @@
 
 ```sh
 export HONEYCOMB_API_KEY=MYAPIKEY
-./infraharvest import honeycombio --resources=board,trigger
+infraharvest import honeycombio --all --resources=board,trigger
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover honeycombio` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 #### List of supported Honeycomb resources
 
@@ -31,5 +33,5 @@ If you wish to import a specific list of datasets *including* environment-wide a
 
 ```sh
 export HONEYCOMB_API_KEY=MYAPIKEY
-./infraharvest import honeycombio --resources=derived_column,board --datasets=__all__,my.service
+infraharvest import honeycombio --all --resources=derived_column,board --datasets=__all__,my.service
 ```

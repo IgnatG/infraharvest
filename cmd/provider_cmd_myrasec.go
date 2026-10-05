@@ -8,9 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//
 // newCmdMyrasecImporter
-//
 func newCmdMyrasecImporter(options ImportOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "myrasec",
@@ -31,9 +29,7 @@ func newCmdMyrasecImporter(options ImportOptions) *cobra.Command {
 	return cmd
 }
 
-//
 // newMyrasecProvider
-//
 func newMyrasecProvider() terraformutils.ProviderGenerator {
 	return &myrasec_terraforming.MyrasecProvider{}
 }

@@ -46,10 +46,8 @@ func (g *CfsGenerator) InitResources() error {
 			*instance.FsName+"_"+*instance.FileSystemId,
 			"tencentcloud_cfs_file_system",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

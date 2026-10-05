@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -24,8 +23,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
-
-var sqsAllowEmptyValues = []string{"tags."}
 
 type SqsGenerator struct {
 	AWSService
@@ -61,26 +58,9 @@ func (g *SqsGenerator) InitResources() error {
 				queueURL,
 				queueName,
 				"aws_sqs_queue",
-				"aws",
-				sqsAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 
-	return nil
-}
-
-// PostConvertHook for add policy json as heredoc
-func (g *SqsGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_sqs_queue" {
-			if val, ok := g.Resources[i].Item["policy"]; ok {
-				policy := g.escapeAwsInterpolation(val.(string))
-				g.Resources[i].Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
-			}
-		}
-	}
 	return nil
 }

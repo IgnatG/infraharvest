@@ -35,8 +35,8 @@ func (g CodeEngineGenerator) loadCodeEngine(ceID string, ceName string) terrafor
 		ceID,
 		normalizeResourceName(ceName, false),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

@@ -33,8 +33,8 @@ func (g InstanceTemplateGenerator) createInstanceTemplateResources(templateID, t
 		templateID,
 		normalizeResourceName(templateName, false),
 		"ibm_is_instance_template",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

@@ -38,9 +38,7 @@ func (g *OwnerGenerator) InitResources() error {
 				owner.OwnerId,
 				name,
 				"opal_owner",
-				"opal",
-				[]string{},
-			))
+				"opal"))
 		}
 
 		if !owners.HasNext() || owners.Next.Get() == nil {

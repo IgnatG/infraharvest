@@ -33,8 +33,7 @@ func (g *UserGenerator) loadUsers(client *fastly.Client, customerID string) erro
 			user.ID,
 			user.ID,
 			"fastly_user_v1",
-			"fastly",
-			[]string{}))
+			"fastly"))
 	}
 	return nil
 }

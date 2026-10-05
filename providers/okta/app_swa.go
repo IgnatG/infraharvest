@@ -33,9 +33,7 @@ func (g *AppSWAGenerator) createResources(appList []okta.ListApplications200Resp
 				*app.BrowserPluginApplication.Id,
 				normalizeResourceName(*app.BrowserPluginApplication.Id+"_"+app.BrowserPluginApplication.Label),
 				"okta_app_swa",
-				"okta",
-				[]string{},
-			))
+				"okta"))
 		}
 	}
 	return resources
@@ -65,12 +63,5 @@ func (g *AppSWAGenerator) InitResources() error {
 	}
 
 	g.Resources = g.createResources(allApplications)
-	return nil
-}
-
-func (g *AppSWAGenerator) PostConvertHook() error {
-	for i := range g.Resources {
-		g.Resources[i].Item = escapeDollar(g.Resources[i].Item)
-	}
 	return nil
 }

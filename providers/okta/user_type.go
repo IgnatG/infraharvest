@@ -31,8 +31,7 @@ func (g UserTypeGenerator) createResources(userTypeList []*okta.UserType) []terr
 			userType.Id,
 			"usertype_"+userType.Name,
 			"okta_user_type",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

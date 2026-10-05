@@ -34,8 +34,8 @@ func (g VolumeGenerator) createVolumeResources(volID, volName string) terraformu
 		volID,
 		normalizeResourceName(volName, true),
 		"ibm_is_volume",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

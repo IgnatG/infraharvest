@@ -71,10 +71,8 @@ func (g *CbsGenerator) InitResources() error {
 			*instance.DiskId,
 			"tencentcloud_cbs_storage",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 
 		if *instance.Attached {
@@ -83,11 +81,8 @@ func (g *CbsGenerator) InitResources() error {
 				*instance.DiskId,
 				"tencentcloud_cbs_storage_attachment",
 				"tencentcloud",
-				map[string]string{},
-				[]string{},
-				map[string]interface{}{},
-			)
-			attachment.AdditionalFields["storage_id"] = "${tencentcloud_cbs_storage." + resource.ResourceName + ".id}"
+				map[string]string{})
+
 			g.Resources = append(g.Resources, attachment)
 		}
 	}

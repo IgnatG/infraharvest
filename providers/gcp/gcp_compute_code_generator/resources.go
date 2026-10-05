@@ -67,8 +67,7 @@ var terraformResources = map[string]gcpResourceRenderable{
 	},
 	"instanceGroupManagers": instanceGroupManagers{
 		basicGCPResource{
-			terraformName:    "google_compute_instance_group_manager",
-			allowEmptyValues: []string{"^version.[0-9].name", "^auto_healing_policies.[0-9].health_check"},
+			terraformName: "google_compute_instance_group_manager",
 		},
 	},
 	"instanceGroups": basicGCPResource{
@@ -80,7 +79,6 @@ var terraformResources = map[string]gcpResourceRenderable{
 	/*"instances": instances{
 		basicGCPResource{
 			terraformName:    "google_compute_instance",
-			allowEmptyValues: []string{"labels."},
 			additionalFieldsForRefresh: map[string]string{
 				"disk.#": "0",
 			},
@@ -105,8 +103,7 @@ var terraformResources = map[string]gcpResourceRenderable{
 		terraformName: "google_compute_region_health_check",
 	},
 	"regionInstanceGroupManagers": basicGCPResource{
-		terraformName:    "google_compute_region_instance_group_manager",
-		allowEmptyValues: []string{"name", "health_check"},
+		terraformName: "google_compute_region_instance_group_manager",
 	},
 	"regionInstanceGroups": basicGCPResource{
 		terraformName: "google_compute_region_instance_group",

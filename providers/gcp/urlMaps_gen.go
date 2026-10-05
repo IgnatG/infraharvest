@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var urlMapsAllowEmptyValues = []string{""}
-
-var urlMapsAdditionalFields = map[string]interface{}{}
-
 type UrlMapsGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g UrlMapsGenerator) createResources(ctx context.Context, urlMapsList *comp
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				urlMapsAllowEmptyValues,
-				urlMapsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

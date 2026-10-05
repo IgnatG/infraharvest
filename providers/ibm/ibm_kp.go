@@ -40,59 +40,50 @@ func (g KPGenerator) loadKP() func(kpID, kpName string) terraformutils.Resource 
 			kpID,
 			normalizeResourceName(kpName, random),
 			"ibm_resource_instance",
-			"ibm",
-			[]string{})
+			"ibm")
+
 		return resource
 	}
 }
 
-func (g KPGenerator) loadkPKeys() func(kpKeyCRN, kpKeyName string, dependsOn []string) terraformutils.Resource {
+func (g KPGenerator) loadkPKeys() func(kpKeyCRN, kpKeyName string) terraformutils.Resource {
 	names := make(map[string]struct{})
 	random := true
-	return func(kpKeyCRN, kpKeyName string, dependsOn []string) terraformutils.Resource {
+	return func(kpKeyCRN, kpKeyName string) terraformutils.Resource {
 		names, random = getRandom(names, kpKeyName, random)
 		resource := terraformutils.NewResource(
 			kpKeyCRN,
 			normalizeResourceName(kpKeyName, random),
 			"ibm_kms_key",
 			"ibm",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"depends_on": dependsOn,
-			})
+			map[string]string{})
+
 		return resource
 	}
 }
 
-func (g KPGenerator) loadkPKeyAliases() func(kpKeyCRN, kpKeyAlias string, dependsOn []string) terraformutils.Resource {
-	return func(kpKeyCRN, kpKeyAlias string, dependsOn []string) terraformutils.Resource {
+func (g KPGenerator) loadkPKeyAliases() func(kpKeyCRN, kpKeyAlias string) terraformutils.Resource {
+	return func(kpKeyCRN, kpKeyAlias string) terraformutils.Resource {
 		resource := terraformutils.NewResource(
 			fmt.Sprintf("%s:alias:%s", kpKeyAlias, kpKeyCRN),
 			normalizeResourceName(kpKeyAlias, true),
 			"ibm_kms_key_alias",
 			"ibm",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"depends_on": dependsOn,
-			})
+			map[string]string{})
+
 		return resource
 	}
 }
 
-func (g KPGenerator) loadKpKeyPolicies() func(kpKeyCRN string, dependsOn []string) terraformutils.Resource {
-	return func(kpKeyCRN string, dependsOn []string) terraformutils.Resource {
+func (g KPGenerator) loadKpKeyPolicies() func(kpKeyCRN string) terraformutils.Resource {
+	return func(kpKeyCRN string) terraformutils.Resource {
 		resource := terraformutils.NewResource(
 			kpKeyCRN,
 			normalizeResourceName("kp_policies", true),
 			"ibm_kms_key_policies",
 			"ibm",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"depends_on": dependsOn,
-			})
+			map[string]string{})
+
 		return resource
 	}
 }
@@ -142,7 +133,6 @@ func (g *KPGenerator) InitResources() error {
 	fnObjt := g.loadKP()
 	for _, kpInstance := range kpInstances {
 		g.Resources = append(g.Resources, fnObjt(kpInstance.ID, kpInstance.Name))
-		resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
 		client.Config.InstanceID = kpInstance.Guid
 
 		output, err := client.GetKeys(context.Background(), 100, 0)
@@ -152,72 +142,17 @@ func (g *KPGenerator) InitResources() error {
 
 		fnObjt := g.loadkPKeys()
 		for _, key := range output.Keys {
-			var dependsOn []string
-			dependsOn = append(dependsOn,
-				"ibm_resource_instance."+resourceName)
-			g.Resources = append(g.Resources, fnObjt(key.CRN, key.Name, dependsOn))
-			resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
+			g.Resources = append(g.Resources, fnObjt(key.CRN, key.Name))
 
 			fnObjt := g.loadkPKeyAliases()
-			dependsOn = append(dependsOn,
-				"ibm_kms_key."+resourceName)
 			for _, alias := range key.Aliases {
-				g.Resources = append(g.Resources, fnObjt(key.CRN, alias, dependsOn))
+				g.Resources = append(g.Resources, fnObjt(key.CRN, alias))
 			}
 
 			policies, _ := client.GetPolicies(context.Background(), key.ID)
 			funObjt := g.loadKpKeyPolicies()
 			for range policies {
-				g.Resources = append(g.Resources, funObjt(key.CRN, dependsOn))
-			}
-		}
-	}
-	return nil
-}
-
-func (g *KPGenerator) PostConvertHook() error {
-	for i, rk := range g.Resources {
-		if rk.InstanceInfo.Type != "ibm_kms_key" {
-			continue
-		}
-
-		for _, ri := range g.Resources {
-			if ri.InstanceInfo.Type != "ibm_resource_instance" {
-				continue
-			}
-
-			if rk.InstanceState.Attributes["instance_id"] == ri.InstanceState.Attributes["guid"] {
-				g.Resources[i].Item["instance_id"] = "${ibm_resource_instance." + ri.ResourceName + ".guid}"
-			}
-		}
-	}
-
-	for i, ra := range g.Resources {
-		if ra.InstanceInfo.Type != "ibm_kms_key_alias" {
-			continue
-		}
-		for _, rk := range g.Resources {
-			if rk.InstanceInfo.Type != "ibm_kms_key" {
-				continue
-			}
-			if ra.InstanceState.Attributes["instance_id"] == rk.InstanceState.Attributes["instance_id"] && ra.InstanceState.Attributes["key_id"] == rk.InstanceState.Attributes["key_id"] {
-				g.Resources[i].Item["instance_id"] = "${ibm_kms_key." + rk.ResourceName + ".instance_id}"
-				g.Resources[i].Item["key_id"] = "${ibm_kms_key." + rk.ResourceName + ".key_id}"
-			}
-		}
-	}
-
-	for i, rp := range g.Resources {
-		if rp.InstanceInfo.Type != "ibm_kms_key_policies" {
-			continue
-		}
-		for _, rk := range g.Resources {
-			if rk.InstanceInfo.Type != "ibm_kms_key" {
-				continue
-			}
-			if rp.InstanceState.Attributes["instance_id"] == rk.InstanceState.Attributes["instance_id"] && rp.InstanceState.Attributes["key_id"] == rk.InstanceState.Attributes["key_id"] {
-				g.Resources[i].Item["instance_id"] = "${ibm_kms_key." + rk.ResourceName + ".instance_id}"
-				g.Resources[i].Item["key_id"] = "${ibm_kms_key." + rk.ResourceName + ".key_id}"
+				g.Resources = append(g.Resources, funObjt(key.CRN))
 			}
 		}
 	}

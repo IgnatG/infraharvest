@@ -50,10 +50,8 @@ func (g *RepositoriesGenerator) InitResources() error {
 				repo.GetName(),
 				repo.GetName(),
 				"github_repository",
-				"github",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"github")
+
 			g.Resources = append(g.Resources, resource)
 			g.Resources = append(g.Resources, g.createRepositoryWebhookResources(ctx, client, repo)...)
 			g.Resources = append(g.Resources, g.createRepositoryBranchProtectionResources(ctx, client, repo)...)
@@ -84,10 +82,7 @@ func (g *RepositoriesGenerator) createRepositoryWebhookResources(ctx context.Con
 			"github",
 			map[string]string{
 				"repository": repo.GetName(),
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }
@@ -104,9 +99,7 @@ func (g *RepositoriesGenerator) createRepositoryBranchProtectionResources(ctx co
 				repo.GetName()+":"+branch.GetName(),
 				repo.GetName()+"_"+branch.GetName(),
 				"github_branch_protection",
-				"github",
-				[]string{},
-			))
+				"github"))
 		}
 	}
 	return resources
@@ -123,9 +116,7 @@ func (g *RepositoriesGenerator) createRepositoryCollaboratorResources(ctx contex
 			repo.GetName()+":"+collaborator.GetLogin(),
 			repo.GetName()+":"+collaborator.GetLogin(),
 			"github_repository_collaborator",
-			"github",
-			[]string{},
-		))
+			"github"))
 	}
 	return resources
 }
@@ -141,51 +132,7 @@ func (g *RepositoriesGenerator) createRepositoryDeployKeyResources(ctx context.C
 			repo.GetName()+":"+strconv.FormatInt(key.GetID(), 10),
 			repo.GetName()+":"+key.GetTitle(),
 			"github_repository_deploy_key",
-			"github",
-			[]string{},
-		))
+			"github"))
 	}
 	return resources
-}
-
-// PostGenerateHook for connect between resources
-func (g *RepositoriesGenerator) PostConvertHook() error {
-	for _, repo := range g.Resources {
-		if repo.InstanceInfo.Type != "github_repository" {
-			continue
-		}
-		for i, member := range g.Resources {
-			if member.InstanceInfo.Type != "github_repository_webhook" {
-				continue
-			}
-			if member.InstanceState.Attributes["repository"] == repo.InstanceState.Attributes["name"] {
-				g.Resources[i].Item["repository"] = "${github_repository." + repo.ResourceName + ".name}"
-			}
-		}
-		for i, branch := range g.Resources {
-			if branch.InstanceInfo.Type != "github_branch_protection" {
-				continue
-			}
-			if branch.InstanceState.Attributes["repository"] == repo.InstanceState.Attributes["name"] {
-				g.Resources[i].Item["repository"] = "${github_repository." + repo.ResourceName + ".name}"
-			}
-		}
-		for i, collaborator := range g.Resources {
-			if collaborator.InstanceInfo.Type != "github_repository_collaborator" {
-				continue
-			}
-			if collaborator.InstanceState.Attributes["repository"] == repo.InstanceState.Attributes["name"] {
-				g.Resources[i].Item["repository"] = "${github_repository." + repo.ResourceName + ".name}"
-			}
-		}
-		for i, key := range g.Resources {
-			if key.InstanceInfo.Type != "github_repository_deploy_key" {
-				continue
-			}
-			if key.InstanceState.Attributes["repository"] == repo.InstanceState.Attributes["name"] {
-				g.Resources[i].Item["repository"] = "${github_repository." + repo.ResourceName + ".name}"
-			}
-		}
-	}
-	return nil
 }

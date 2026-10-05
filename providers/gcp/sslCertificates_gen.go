@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var sslCertificatesAllowEmptyValues = []string{""}
-
-var sslCertificatesAdditionalFields = map[string]interface{}{}
-
 type SslCertificatesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g SslCertificatesGenerator) createResources(ctx context.Context, sslCertif
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				sslCertificatesAllowEmptyValues,
-				sslCertificatesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

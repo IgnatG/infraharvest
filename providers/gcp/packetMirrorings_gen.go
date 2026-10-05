@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var packetMirroringsAllowEmptyValues = []string{""}
-
-var packetMirroringsAdditionalFields = map[string]interface{}{}
-
 type PacketMirroringsGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g PacketMirroringsGenerator) createResources(ctx context.Context, packetMi
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				packetMirroringsAllowEmptyValues,
-				packetMirroringsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

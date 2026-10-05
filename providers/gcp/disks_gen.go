@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var disksAllowEmptyValues = []string{""}
-
-var disksAdditionalFields = map[string]interface{}{}
-
 type DisksGenerator struct {
 	GCPService
 }
@@ -48,10 +44,7 @@ func (g DisksGenerator) createResources(ctx context.Context, disksList *compute.
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
 					"zone":    zone,
-				},
-				disksAllowEmptyValues,
-				disksAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

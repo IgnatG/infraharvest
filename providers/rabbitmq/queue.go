@@ -32,9 +32,6 @@ type Queue struct {
 
 type Queues []Queue
 
-var QueueAllowEmptyValues = []string{}
-var QueueAdditionalFields = map[string]interface{}{}
-
 func (g QueueGenerator) createResources(queues Queues) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, queue := range queues {
@@ -46,10 +43,7 @@ func (g QueueGenerator) createResources(queues Queues) []terraformutils.Resource
 			map[string]string{
 				"name":  queue.Name,
 				"vhost": queue.Vhost,
-			},
-			QueueAllowEmptyValues,
-			QueueAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }

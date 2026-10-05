@@ -2,13 +2,16 @@
 
 Example:
 
-```
- export PANOS_HOSTNAME=192.168.1.1
- export PANOS_USERNAME=[PANOS_USERNAME]
- export PANOS_PASSWORD=[PANOS_PASSWORD]
+```sh
+export PANOS_HOSTNAME=192.168.1.1
+export PANOS_USERNAME=[PANOS_USERNAME]
+export PANOS_PASSWORD=[PANOS_PASSWORD]
 
- infraharvest import panos --resources=firewall_device_config,firewall_networking,firewall_objects,firewall_policy
+infraharvest import panos --all --resources=firewall_device_config,firewall_networking,firewall_objects,firewall_policy
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover panos` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
+
 The list of usable environment variables is the same as the [pango go-client](https://github.com/PaloAltoNetworks/pango):
 *  `PANOS_HOSTNAME`
 *  `PANOS_USERNAME`

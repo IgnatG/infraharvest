@@ -32,8 +32,7 @@ func (g RDNSGenerator) createResources(instanceIPList []linodego.InstanceIP) []t
 			instanceIP.Address,
 			instanceIP.Address,
 			"linode_rdns",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return resources
 }

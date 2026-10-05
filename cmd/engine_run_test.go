@@ -58,10 +58,11 @@ func TestEngineRunCombinesImports(t *testing.T) {
 	}
 }
 
-// Legacy imports don't use the run: errors pass through, no report.
+// A command that fails before any import doesn't use the run: errors pass
+// through, no report.
 func TestEngineRunUnused(t *testing.T) {
 	out := t.TempDir()
-	want := errors.New("legacy failure")
+	want := errors.New("no credentials")
 
 	err := withEngineRun(func(*cobra.Command, []string) error {
 		// Options are known, but no engine import used the run.
@@ -73,7 +74,7 @@ func TestEngineRunUnused(t *testing.T) {
 		t.Errorf("got %v, want %v", err, want)
 	}
 	if _, statErr := os.Stat(filepath.Join(out, report.Dir)); statErr == nil {
-		t.Error("report written for a legacy import")
+		t.Error("report written though nothing was imported")
 	}
 }
 
@@ -151,17 +152,18 @@ func TestResourcesFromConfig(t *testing.T) {
 	}
 }
 
-// --path-pattern given as the legacy default is followed; left out, the
-// Terraform engine lays roots out by account and region.
-func TestDefaultPathPattern(t *testing.T) {
+// Left out, --path-pattern lays roots out by account and region; given, on
+// the command line or in the configuration file, it is followed as it is.
+func TestPathPattern(t *testing.T) {
+	byService := "{output}/{provider}/{service}/"
 	for name, tc := range map[string]struct {
 		args []string
 		want string
 	}{
-		"legacy engine":         {[]string{"--resources", "vpc"}, DefaultPathPattern},
-		"terraform engine":      {[]string{"--resources", "vpc", "--engine", "terraform"}, DefaultRootPathPattern},
-		"explicit legacy":       {[]string{"--resources", "vpc", "--engine", "tofu", "--path-pattern", DefaultPathPattern}, DefaultPathPattern},
-		"explicit other layout": {[]string{"--resources", "vpc", "--engine", "terraform", "--path-pattern", "{output}/{service}/"}, "{output}/{service}/"},
+		"default":      {[]string{"--resources", "vpc"}, DefaultRootPathPattern},
+		"tofu":         {[]string{"--resources", "vpc", "--engine", "tofu"}, DefaultRootPathPattern},
+		"by service":   {[]string{"--resources", "vpc", "--path-pattern", byService}, byService},
+		"other layout": {[]string{"--resources", "vpc", "--engine", "terraform", "--path-pattern", "{output}/{service}/"}, "{output}/{service}/"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var got ImportOptions
@@ -176,15 +178,14 @@ func TestDefaultPathPattern(t *testing.T) {
 		})
 	}
 
-	// The configuration file counts as given, for the engine and the pattern.
-	config := writeConfig(t, "version: 1\nsettings:\n  engine: terraform\nproviders:\n  fake:\n    resources: [vpc]\n")
+	config := writeConfig(t, "version: 1\nsettings:\n  path-pattern: \""+byService+"\"\nproviders:\n  fake:\n    resources: [vpc]\n")
 	var got ImportOptions
 	cmd := fakeProviderCommand(func(o ImportOptions) error { got = o; return nil })
 	cmd.SetArgs([]string{"--config", config})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got.PathPattern != DefaultRootPathPattern {
-		t.Errorf("engine from the configuration file: path pattern %q, want %q", got.PathPattern, DefaultRootPathPattern)
+	if got.PathPattern != byService {
+		t.Errorf("path pattern from the configuration file: %q, want %q", got.PathPattern, byService)
 	}
 }

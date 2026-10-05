@@ -35,10 +35,7 @@ func (g AuthorizationServerPolicyRuleGenerator) createResources(authorizationSer
 			map[string]string{
 				"auth_server_id": authorizationServerID,
 				"policy_id":      authorizationServerPolicyID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

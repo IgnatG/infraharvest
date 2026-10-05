@@ -35,18 +35,7 @@ func (g DatabaseETCDGenerator) loadETCDDB(dbID string, dbName string) terraformu
 		dbID,
 		normalizeResourceName(dbName, false),
 		"ibm_database",
-		"ibm",
-		[]string{})
-
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^node_count$",
-		"^members_memory_allocation_mb$",
-		"^node_memory_allocation_mb$",
-		"^members_disk_allocation_mb$",
-		"^members_cpu_allocation_count$",
-		"^node_cpu_allocation_count$",
-		"^node_disk_allocation_mb$",
-	)
+		"ibm")
 
 	return resource
 }

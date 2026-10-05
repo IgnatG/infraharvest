@@ -36,8 +36,7 @@ func (g ResourceGroupGenerator) createResources(groupListResultIterator resource
 			*group.ID,
 			*group.Name,
 			"azurerm_resource_group",
-			"azurerm",
-			[]string{}))
+			"azurerm"))
 		if err := groupListResultIterator.Next(); err != nil {
 			log.Println(err)
 			break
@@ -64,8 +63,7 @@ func (g *ResourceGroupGenerator) InitResources() error {
 				*group.ID,
 				*group.Name,
 				"azurerm_resource_group",
-				"azurerm",
-				[]string{}),
+				"azurerm"),
 		}
 		return nil
 	}

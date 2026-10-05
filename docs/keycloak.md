@@ -2,17 +2,19 @@
 
 Example:
 
-```
- export KEYCLOAK_URL=https://foo.bar.localdomain
- export KEYCLOAK_BASE_PATH=/auth # Only users of the legacy Wildfly distribution will need to set this.
- export KEYCLOAK_CLIENT_ID=[KEYCLOAK_CLIENT_ID]
- export KEYCLOAK_CLIENT_SECRET=[KEYCLOAK_CLIENT_SECRET]
- export RED_HAT_SSO=1 # Only users of the RH-SSO distribution will need to set this.
+```sh
+export KEYCLOAK_URL=https://foo.bar.localdomain
+export KEYCLOAK_BASE_PATH=/auth # Only users of the legacy Wildfly distribution will need to set this.
+export KEYCLOAK_CLIENT_ID=[KEYCLOAK_CLIENT_ID]
+export KEYCLOAK_CLIENT_SECRET=[KEYCLOAK_CLIENT_SECRET]
+export RED_HAT_SSO=1 # Only users of the RH-SSO distribution will need to set this.
 
- infraharvest import keycloak --resources=realms
- infraharvest import keycloak --resources=realms --filter=realm=name1:name2:name3
- infraharvest import keycloak --resources=realms --targets realmA,realmB
+infraharvest import keycloak --all --resources=realms
+infraharvest import keycloak --all --resources=realms --filter=realm=name1:name2:name3
+infraharvest import keycloak --all --resources=realms --targets realmA,realmB
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover keycloak` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 Here is the list of resources which are currently supported by Keycloak provider v.4.0.1:
 

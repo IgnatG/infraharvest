@@ -29,14 +29,12 @@ type EcsGenerator struct {
 
 func resourceFromInstance(instance ecs.Instance) terraformutils.Resource {
 	return terraformutils.NewResource(
-		instance.InstanceId, // id
-		instance.InstanceId+"__"+instance.InstanceName, // name
+		instance.InstanceId,
+		instance.InstanceId+"__"+instance.InstanceName,
 		"alicloud_instance",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 // InitResources Gets the list of all ECS instance ids and generates resources
@@ -83,19 +81,6 @@ func (g *EcsGenerator) InitResources() error {
 	for _, instance := range allInstances {
 		resource := resourceFromInstance(instance)
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-// PostConvertHook Runs before HCL files are generated
-func (g *EcsGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "alicloud_instance" {
-			// subnet_id is absent in the documentation
-			// https://www.terraform.io/docs/providers/alicloud/r/instance.html
-			delete(r.Item, "subnet_id")
-		}
 	}
 
 	return nil

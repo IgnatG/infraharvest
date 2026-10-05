@@ -36,11 +36,6 @@ func (g *AccountMemberGenerator) createAccountMemberResources(api *cf.API) ([]te
 		}
 
 		for _, member := range members {
-			var roleIDs []string
-			for _, role := range member.Roles {
-				roleIDs = append(roleIDs, role.ID)
-			}
-
 			resources = append(resources, terraformutils.NewResource(
 				member.ID,
 				member.ID,
@@ -48,12 +43,7 @@ func (g *AccountMemberGenerator) createAccountMemberResources(api *cf.API) ([]te
 				"cloudflare",
 				map[string]string{
 					"email_address": member.User.Email,
-				},
-				[]string{},
-				map[string]interface{}{
-					"role_ids": roleIDs,
-				},
-			))
+				}))
 		}
 
 		if pageOpt.Page < info.TotalPages {

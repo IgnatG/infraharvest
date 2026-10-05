@@ -16,10 +16,8 @@ package alicloud
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 // AliCloudProvider Provider for alicloud
@@ -30,47 +28,6 @@ type AliCloudProvider struct { //nolint
 }
 
 const GlobalRegion = "alicloud-global"
-
-// GetConfig Converts json config to go-cty
-func (p *AliCloudProvider) GetConfig() cty.Value {
-	profile := p.profile
-	config, err := LoadConfigFromProfile(profile)
-	if err != nil {
-		fmt.Println("ERROR:", err)
-	}
-
-	region := p.region
-	if region == "" {
-		region = config.RegionID
-	}
-
-	var val cty.Value
-	if config.RAMRoleArn != "" {
-		val = cty.ObjectVal(map[string]cty.Value{
-			"region":  cty.StringVal(region),
-			"profile": cty.StringVal(profile),
-			"assume_role": cty.SetVal([]cty.Value{
-				cty.ObjectVal(map[string]cty.Value{
-					"role_arn": cty.StringVal(config.RAMRoleArn),
-				}),
-			}),
-		})
-	} else {
-		val = cty.ObjectVal(map[string]cty.Value{
-			"region":  cty.StringVal(region),
-			"profile": cty.StringVal(profile),
-		})
-	}
-
-	return val
-}
-
-// GetResourceConnections Gets resource connections for alicloud
-func (p AliCloudProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		// TODO: Not implemented
-	}
-}
 
 // GetProviderData Used for generated HCL2 for the provider
 func (p AliCloudProvider) GetProviderData(arg ...string) map[string]interface{} {
@@ -131,4 +88,9 @@ func (p *AliCloudProvider) GetSupportedService() map[string]terraformutils.Servi
 		"vpc":     &VpcGenerator{},
 		"vswitch": &VSwitchGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *AliCloudProvider) GetSource() string {
+	return "aliyun/alicloud"
 }

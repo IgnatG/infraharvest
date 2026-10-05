@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	HookAllowEmptyValues = []string{}
-)
-
 type HookGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g HookGenerator) createResources(hooks []*management.Hook) []terraformutil
 			resourceName,
 			resourceName+"_"+*hook.Name,
 			"auth0_hook",
-			"auth0",
-			HookAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

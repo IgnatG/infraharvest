@@ -36,8 +36,7 @@ func (g *NodeBalancerGenerator) loadNodeBalancers(client linodego.Client) ([]lin
 			strconv.Itoa(nodeBalancer.ID),
 			strconv.Itoa(nodeBalancer.ID),
 			"linode_nodebalancer",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return nodeBalancerList, nil
 }
@@ -53,9 +52,7 @@ func (g *NodeBalancerGenerator) loadNodeBalancerConfigs(client linodego.Client, 
 			strconv.Itoa(nodeBalancerConfig.ID),
 			"linode_nodebalancer_config",
 			"linode",
-			map[string]string{"nodebalancer_id": strconv.Itoa(nodebalancerID)},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{"nodebalancer_id": strconv.Itoa(nodebalancerID)}))
 	}
 	return nodeBalancerConfigList, nil
 }
@@ -74,9 +71,7 @@ func (g *NodeBalancerGenerator) loadNodeBalancerNodes(client linodego.Client, no
 			map[string]string{
 				"nodebalancer_id": strconv.Itoa(nodebalancerID),
 				"config_id":       strconv.Itoa(nodebalancerConfigID),
-			},
-			[]string{},
-			map[string]interface{}{}))
+			}))
 	}
 	return nil
 }

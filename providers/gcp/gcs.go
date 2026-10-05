@@ -16,7 +16,6 @@ package gcp
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strconv"
 
@@ -24,10 +23,6 @@ import (
 
 	"google.golang.org/api/storage/v1"
 )
-
-var GcsAllowEmptyValues = []string{"labels.", "created_before"}
-
-var GcsAdditionalFields = map[string]interface{}{}
 
 type GcsGenerator struct {
 	GCPService
@@ -46,10 +41,7 @@ func (g *GcsGenerator) createBucketsResources(ctx context.Context, gcsService *s
 				map[string]string{
 					"name":          bucket.Name,
 					"force_destroy": "false",
-				},
-				GcsAllowEmptyValues,
-				GcsAdditionalFields,
-			))
+				}))
 			resources = append(resources, terraformutils.NewResource(
 				bucket.Name,
 				bucket.Name,
@@ -58,10 +50,7 @@ func (g *GcsGenerator) createBucketsResources(ctx context.Context, gcsService *s
 				map[string]string{
 					"bucket":        bucket.Name,
 					"role_entity.#": strconv.Itoa(len(bucket.Acl)),
-				},
-				GcsAllowEmptyValues,
-				GcsAdditionalFields,
-			))
+				}))
 			resources = append(resources, terraformutils.NewResource(
 				bucket.Name,
 				bucket.Name,
@@ -70,10 +59,7 @@ func (g *GcsGenerator) createBucketsResources(ctx context.Context, gcsService *s
 				map[string]string{
 					"bucket":        bucket.Name,
 					"role_entity.#": strconv.Itoa(len(bucket.Acl)),
-				},
-				GcsAllowEmptyValues,
-				GcsAdditionalFields,
-			))
+				}))
 
 			resources = append(resources, terraformutils.NewResource(
 				bucket.Name,
@@ -82,10 +68,7 @@ func (g *GcsGenerator) createBucketsResources(ctx context.Context, gcsService *s
 				g.ProviderName,
 				map[string]string{
 					"bucket": bucket.Name,
-				},
-				GcsAllowEmptyValues,
-				GcsAdditionalFields,
-			))
+				}))
 
 			if iam, err := gcsService.Buckets.GetIamPolicy(bucket.Name).Do(); err == nil {
 				for _, binding := range iam.Bindings {
@@ -97,10 +80,7 @@ func (g *GcsGenerator) createBucketsResources(ctx context.Context, gcsService *s
 						map[string]string{
 							"bucket": bucket.Name,
 							"role":   binding.Role,
-						},
-						GcsAllowEmptyValues,
-						GcsAdditionalFields,
-					))
+						}))
 
 					for _, member := range binding.Members {
 						resources = append(resources, terraformutils.NewResource(
@@ -112,10 +92,7 @@ func (g *GcsGenerator) createBucketsResources(ctx context.Context, gcsService *s
 								"bucket": bucket.Name,
 								"role":   binding.Role,
 								"member": member,
-							},
-							GcsAllowEmptyValues,
-							GcsAdditionalFields,
-						))
+							}))
 					}
 				}
 			}
@@ -142,10 +119,7 @@ func (g *GcsGenerator) createNotificationResources(gcsService *storage.Service, 
 			bucket.Name+"/"+notification.Id,
 			"google_storage_notification",
 			g.ProviderName,
-			map[string]string{},
-			GcsAllowEmptyValues,
-			GcsAdditionalFields,
-		))
+			map[string]string{}))
 	}
 	return resources
 }
@@ -165,8 +139,6 @@ func (g *GcsGenerator) createTransferJobsResources(ctx context.Context, storageT
 				map[string]string{
 					"name": transferJob.Name,
 				},
-				GcsAllowEmptyValues,
-				GcsAdditionalFields,
 			))
 		}
 		return nil
@@ -197,22 +169,5 @@ func (g *GcsGenerator) InitResources() error {
 	// 		return err
 	// 	}
 	// g.Resources = append(g.Resources, g.createTransferJobsResources(ctx, storageTransferService)...)
-	return nil
-}
-
-// PostGenerateHook for add bucket policy json as heredoc
-// support only bucket with policy
-func (g *GcsGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type != "google_storage_bucket_iam_policy" {
-			continue
-		}
-		if _, exist := resource.Item["policy_data"]; exist {
-			policy := resource.Item["policy_data"].(string)
-			g.Resources[i].Item["policy_data"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
-		}
-	}
 	return nil
 }

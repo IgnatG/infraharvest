@@ -61,10 +61,8 @@ func (g *RedisGenerator) InitResources() error {
 			*instance.InstanceName+"_"+*instance.InstanceId,
 			"tencentcloud_redis_instance",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

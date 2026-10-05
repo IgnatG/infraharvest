@@ -32,9 +32,6 @@ type Exchange struct {
 
 type Exchanges []Exchange
 
-var ExchangeAllowEmptyValues = []string{}
-var ExchangeAdditionalFields = map[string]interface{}{}
-
 func (g ExchangeGenerator) createResources(exchanges Exchanges) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, exchange := range exchanges {
@@ -49,10 +46,7 @@ func (g ExchangeGenerator) createResources(exchanges Exchanges) []terraformutils
 			map[string]string{
 				"name":  exchange.Name,
 				"vhost": exchange.Vhost,
-			},
-			ExchangeAllowEmptyValues,
-			ExchangeAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }

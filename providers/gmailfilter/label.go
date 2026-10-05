@@ -37,9 +37,7 @@ func (g LabelGenerator) createResources(labels []*gmail.Label) []terraformutils.
 			strings.ReplaceAll(l.Name, "/", "_"),
 			"gmailfilter_label",
 			"gmailfilter",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return resources
 }

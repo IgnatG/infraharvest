@@ -60,10 +60,7 @@ func (g *LoadBalancerGenerator) listLoadBalancerProbes(resourceGroupName string,
 			g.ProviderName,
 			map[string]string{
 				"loadbalancer_id": loadBalancerID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 
 		if err := loadBalancerProbeIterator.Next(); err != nil {
 			log.Println(err)
@@ -100,10 +97,7 @@ func (g *LoadBalancerGenerator) listInboundNatRules(resourceGroupName string, lo
 			g.ProviderName,
 			map[string]string{
 				"loadbalancer_id": loadBalancerID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 
 		if err := InboundNatRuleIterator.Next(); err != nil {
 			log.Println(err)
@@ -140,10 +134,7 @@ func (g *LoadBalancerGenerator) listLoadBalancerBackendAddressPools(resourceGrou
 			g.ProviderName,
 			map[string]string{
 				"loadbalancer_id": loadBalancerID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 		if err := loadBalancerBackendAddressPoolIterator.Next(); err != nil {
 			log.Println(err)
 			break
@@ -182,8 +173,7 @@ func (g *LoadBalancerGenerator) listAndAddForLoadBalancers() ([]terraformutils.R
 			*loadBalancer.ID,
 			*loadBalancer.Name,
 			"azurerm_lb",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		id, err := ParseAzureResourceID(*loadBalancer.ID)
 		if err != nil {

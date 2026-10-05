@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 )
 
-var sesAllowEmptyValues = []string{"tags."}
-
 type SesGenerator struct {
 	AWSService
 }
@@ -65,8 +63,7 @@ func (g *SesGenerator) loadDomainIdentities(svc *ses.Client) error {
 				identity,
 				identity,
 				"aws_ses_domain_identity",
-				"aws",
-				sesAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -86,8 +83,7 @@ func (g *SesGenerator) loadMailIdentities(svc *ses.Client) error {
 				identity,
 				identity,
 				"aws_ses_email_identity",
-				"aws",
-				sesAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -104,8 +100,7 @@ func (g *SesGenerator) loadTemplates(svc *ses.Client) error {
 			StringValue(templateMetadata.Name),
 			StringValue(templateMetadata.Name),
 			"aws_ses_template",
-			"aws",
-			sesAllowEmptyValues))
+			"aws"))
 	}
 	return nil
 }
@@ -121,8 +116,7 @@ func (g *SesGenerator) loadConfigurationSets(svc *ses.Client) error {
 			StringValue(configurationSet.Name),
 			StringValue(configurationSet.Name),
 			"aws_ses_configuration_set",
-			"aws",
-			sesAllowEmptyValues))
+			"aws"))
 	}
 	return nil
 }
@@ -139,8 +133,7 @@ func (g *SesGenerator) loadRuleSets(svc *ses.Client) error {
 			ruleSetName,
 			ruleSetName,
 			"aws_ses_receipt_rule_set",
-			"aws",
-			sesAllowEmptyValues))
+			"aws"))
 		rules, err := svc.DescribeReceiptRuleSet(g.Context(), &ses.DescribeReceiptRuleSetInput{
 			RuleSetName: ruleSet.Name,
 		})
@@ -157,10 +150,7 @@ func (g *SesGenerator) loadRuleSets(svc *ses.Client) error {
 				map[string]string{
 					"name":          *rule.Name,
 					"rule_set_name": ruleSetName,
-				},
-				sesAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil

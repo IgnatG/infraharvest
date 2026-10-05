@@ -43,10 +43,6 @@ func (p *VultrProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (VultrProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *VultrProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"bare_metal_server": &BareMetalServerGenerator{},
@@ -76,4 +72,9 @@ func (p *VultrProvider) InitService(serviceName string, verbose bool) error {
 		"api_key": p.apiKey,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *VultrProvider) GetSource() string {
+	return "vultr/vultr"
 }

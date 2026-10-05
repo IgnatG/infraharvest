@@ -34,9 +34,7 @@ func (g VPCAddressPrefixGenerator) createVPCAddressPrefixResources(vpcID, addPre
 		normalizeResourceName(addPrefixName, false),
 		"ibm_is_vpc_address_prefix",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	return resource
 }

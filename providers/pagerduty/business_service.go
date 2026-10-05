@@ -34,9 +34,7 @@ func (g *BusinessServiceGenerator) createBusinessServiceResources(client *pagerd
 			service.ID,
 			service.Name,
 			"pagerduty_business_service",
-			g.ProviderName,
-			[]string{},
-		))
+			g.ProviderName))
 	}
 
 	return nil

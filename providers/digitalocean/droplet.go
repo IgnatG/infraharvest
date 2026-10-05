@@ -63,8 +63,7 @@ func (g DropletGenerator) createResources(dropletList []godo.Droplet) []terrafor
 			strconv.Itoa(droplet.ID),
 			droplet.Name,
 			"digitalocean_droplet",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

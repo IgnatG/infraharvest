@@ -32,9 +32,6 @@ type Shovel struct {
 
 type Shovels []Shovel
 
-var ShovelAllowEmptyValues = []string{}
-var ShovelAdditionalFields = map[string]interface{}{}
-
 func (g ShovelGenerator) createResources(shovels Shovels) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, shovel := range shovels {
@@ -49,10 +46,7 @@ func (g ShovelGenerator) createResources(shovels Shovels) []terraformutils.Resou
 			map[string]string{
 				"name":  shovel.Name,
 				"vhost": shovel.Vhost,
-			},
-			ShovelAllowEmptyValues,
-			ShovelAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }

@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iot"
 )
 
-var iotAllowEmptyValues = []string{"tags."}
-
 type IotGenerator struct {
 	AWSService
 }
@@ -63,10 +61,7 @@ func (g *IotGenerator) loadThingTypes(svc *iot.Client) error {
 				"aws",
 				map[string]string{
 					"name": *thingType.ThingTypeName,
-				},
-				iotAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -87,10 +82,7 @@ func (g *IotGenerator) loadThings(svc *iot.Client) error {
 				"aws",
 				map[string]string{
 					"name": *thing.ThingName,
-				},
-				iotAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -108,8 +100,7 @@ func (g *IotGenerator) loadTopicRules(svc *iot.Client) error {
 				*rule.RuleName,
 				*rule.RuleName,
 				"aws_iot_topic_rule",
-				"aws",
-				iotAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -127,8 +118,7 @@ func (g *IotGenerator) loadRoleAliases(svc *iot.Client) error {
 				roleAlias,
 				roleAlias,
 				"aws_iot_role_alias",
-				"aws",
-				iotAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil

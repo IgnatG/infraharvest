@@ -36,8 +36,7 @@ func (g DiskGenerator) createResources(diskListIterator compute.DiskListIterator
 			*disk.ID,
 			*disk.Name,
 			"azurerm_managed_disk",
-			"azurerm",
-			[]string{}))
+			"azurerm"))
 		if err := diskListIterator.Next(); err != nil {
 			log.Println(err)
 			return resources, err

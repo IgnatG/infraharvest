@@ -35,9 +35,7 @@ func (g *FirewallObjectsGenerator) createResourcesFromList(o getGeneric, idPrefi
 			id,
 			normalizeResourceName(r),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -59,10 +57,7 @@ func (g *FirewallObjectsGenerator) createResourcesFromListWithVsys(o getGeneric,
 			map[string]string{
 				"vsys":         g.vsys,
 				"device_group": "shared",
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -101,9 +96,7 @@ func (g *FirewallObjectsGenerator) createApplicationObjectResources() (resources
 			id,
 			normalizeResourceName(r),
 			"panos_application_object",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		// TODO: fix
 		// resources = append(resources, g.createApplicationSignatureResources(r)...)
@@ -249,77 +242,6 @@ func (g *FirewallObjectsGenerator) InitResources() error {
 	g.Resources = append(g.Resources, g.createURLFilteringSecurityProfileResources()...)
 	g.Resources = append(g.Resources, g.createVulnerabilitySecurityProfileResources()...)
 	g.Resources = append(g.Resources, g.createWildfireAnalysisSecurityProfileResources()...)
-
-	return nil
-}
-
-func (g *FirewallObjectsGenerator) PostConvertHook() error {
-	mapAddressObjectIDs := map[string]string{}
-	mapApplicationObjectIDs := map[string]string{}
-	mapServiceObjectIDs := map[string]string{}
-
-	for _, r := range g.Resources {
-		if _, ok := r.Item["name"]; ok {
-			if r.InstanceInfo.Type == "panos_address_object" {
-				mapAddressObjectIDs[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_application_object" {
-				mapApplicationObjectIDs[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_service_object" {
-				mapServiceObjectIDs[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-		}
-	}
-
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "panos_address_group" {
-			if _, ok := r.Item["static_addresses"]; ok {
-				staticAddresses := make([]string, len(r.Item["static_addresses"].([]interface{})))
-				for k, staticAddress := range r.Item["static_addresses"].([]interface{}) {
-					if _, ok2 := mapAddressObjectIDs[staticAddress.(string)]; ok2 {
-						staticAddresses[k] = mapAddressObjectIDs[staticAddress.(string)]
-						continue
-					}
-					staticAddresses[k] = staticAddress.(string)
-				}
-
-				r.Item["static_addresses"] = staticAddresses
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_application_group" {
-			if _, ok := r.Item["applications"]; ok {
-				applications := make([]string, len(r.Item["applications"].([]interface{})))
-				for k, application := range r.Item["applications"].([]interface{}) {
-					if _, ok2 := mapApplicationObjectIDs[application.(string)]; ok2 {
-						applications[k] = mapApplicationObjectIDs[application.(string)]
-						continue
-					}
-					applications[k] = application.(string)
-				}
-
-				r.Item["applications"] = applications
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_service_group" {
-			if _, ok := r.Item["services"]; ok {
-				services := make([]string, len(r.Item["services"].([]interface{})))
-				for k, service := range r.Item["services"].([]interface{}) {
-					if _, ok2 := mapServiceObjectIDs[service.(string)]; ok2 {
-						services[k] = mapServiceObjectIDs[service.(string)]
-						continue
-					}
-					services[k] = service.(string)
-				}
-
-				r.Item["services"] = services
-			}
-		}
-	}
 
 	return nil
 }

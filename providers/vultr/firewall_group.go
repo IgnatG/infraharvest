@@ -36,8 +36,7 @@ func (g *FirewallGroupGenerator) loadFirewallGroups(client *govultr.Client) ([]g
 			firewallGroup.FirewallGroupID,
 			firewallGroup.FirewallGroupID,
 			"vultr_firewall_group",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return firewallGroups, nil
 }
@@ -56,9 +55,7 @@ func (g *FirewallGroupGenerator) loadFirewallRulesByIPType(client *govultr.Clien
 			map[string]string{
 				"firewall_group_id": firewallGroupID,
 				"ip_type":           ipType,
-			},
-			[]string{},
-			map[string]interface{}{}))
+			}))
 	}
 	return nil
 }

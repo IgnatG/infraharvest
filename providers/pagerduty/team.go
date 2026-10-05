@@ -40,9 +40,7 @@ func (g *TeamGenerator) createTeamResources(client *pagerduty.Client) error {
 				team.ID,
 				fmt.Sprintf("Team_%s", team.Name),
 				"pagerduty_team",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 		if !resp.More {
 			break
@@ -78,9 +76,7 @@ func (g *TeamGenerator) createTeamMembershipResources(client *pagerduty.Client) 
 					fmt.Sprintf("%s:%s", member.User.ID, team.ID),
 					fmt.Sprintf("%s_%s", member.User.ID, team.Name),
 					"pagerduty_team_membership",
-					g.ProviderName,
-					[]string{},
-				))
+					g.ProviderName))
 			}
 		}
 

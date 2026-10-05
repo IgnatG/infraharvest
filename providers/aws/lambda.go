@@ -24,8 +24,6 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-var lambdaAllowEmptyValues = []string{"tags."}
-
 type LambdaGenerator struct {
 	AWSService
 }
@@ -59,29 +57,6 @@ func (g *LambdaGenerator) InitResources() error {
 	return err
 }
 
-func (g *LambdaGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if _, exist := r.Item["environment"]; !exist {
-			continue
-		}
-		variables := g.Resources[i].Item["environment"].([]interface{})[0].(map[string]interface{})["variables"]
-		g.Resources[i].Item["environment"] = []interface{}{
-			map[string]interface{}{
-				"variables": []map[string]interface{}{variables.(map[string]interface{})},
-			},
-		}
-	}
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_lambda_function_event_invoke_config" {
-			continue
-		}
-		if r.InstanceState.Attributes["maximum_event_age_in_seconds"] == "0" {
-			delete(r.Item, "maximum_event_age_in_seconds")
-		}
-	}
-	return nil
-}
-
 func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 	p := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -97,10 +72,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 				"aws",
 				map[string]string{
 					"function_name": *function.FunctionName,
-				},
-				lambdaAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 
 			gp, err := svc.GetPolicy(g.Context(), &lambda.GetPolicyInput{
 				FunctionName: aws.String(*function.FunctionArn),
@@ -132,10 +104,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 						map[string]string{
 							"statement_id":  statement.Sid,
 							"function_name": *function.FunctionArn,
-						},
-						lambdaAllowEmptyValues,
-						map[string]interface{}{},
-					))
+						}))
 				}
 			}
 
@@ -153,9 +122,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 						*function.FunctionArn,
 						"feic_"+*functionEventInvokeConfig.FunctionArn,
 						"aws_lambda_function_event_invoke_config",
-						"aws",
-						lambdaAllowEmptyValues,
-					))
+						"aws"))
 				}
 			}
 		}
@@ -179,10 +146,7 @@ func (g *LambdaGenerator) addEventSourceMappings(svc *lambda.Client) error {
 				map[string]string{
 					"event_source_arn": *mapping.EventSourceArn,
 					"function_name":    *mapping.FunctionArn,
-				},
-				lambdaAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -209,9 +173,7 @@ func (g *LambdaGenerator) addLayerVersions(svc *lambda.Client) error {
 						*layerVersion.LayerVersionArn,
 						*layerVersion.LayerVersionArn,
 						"aws_lambda_layer_version",
-						"aws",
-						lambdaAllowEmptyValues,
-					))
+						"aws"))
 				}
 			}
 		}

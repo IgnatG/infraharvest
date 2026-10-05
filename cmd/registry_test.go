@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // A full build registers every provider_cmd_<name>.go under <name>.
@@ -64,4 +66,35 @@ func TestRegisterProviderRejectsDuplicates(t *testing.T) {
 		}
 	}()
 	registerProvider("aws", nil, nil)
+}
+
+// providerGenerators maps each provider's Terraform name to its generator.
+func providerGenerators() map[string]func() terraformutils.ProviderGenerator {
+	generators := make(map[string]func() terraformutils.ProviderGenerator)
+	for _, name := range registeredProviders() {
+		newProvider := providerRegistry[name].newProvider
+		generators[newProvider().GetName()] = newProvider
+	}
+	return generators
+}
+
+// HashiCorp's own providers, which Terraform finds as hashicorp/<name>.
+// Every other provider must name its registry source, or terraform init
+// looks for hashicorp/<name> and fails.
+var hashicorpProviders = []string{"aws", "azuread", "azurerm", "google", "google-beta", "kubernetes", "vault"}
+
+func TestEveryProviderHasARegistrySource(t *testing.T) {
+	for name, newProvider := range providerGenerators() {
+		if slices.Contains(hashicorpProviders, name) {
+			continue
+		}
+		withSource, ok := newProvider().(terraformutils.ProviderWithSource)
+		if !ok {
+			t.Errorf("%s: not a HashiCorp provider, so it needs GetSource", name)
+			continue
+		}
+		if source := withSource.GetSource(); strings.HasPrefix(source, "hashicorp/") || strings.Count(source, "/") != 1 || strings.HasSuffix(source, "/") {
+			t.Errorf("%s: GetSource is %q, want <namespace>/<type> outside hashicorp/", name, source)
+		}
+	}
 }

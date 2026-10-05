@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/directconnect"
 )
 
-var dxAllowEmptyValues = []string{"tags."}
-
 type DirectConnectGenerator struct {
 	AWSService
 }
@@ -40,12 +38,10 @@ func (g *DirectConnectGenerator) getDirectConnectGateways(svc *directconnect.Cli
 		// Process each DirectConnect Gateway
 		for _, dx := range output.DirectConnectGateways {
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-				*dx.DirectConnectGatewayId, // Dereference the pointer
+				*dx.DirectConnectGatewayId,
 				*dx.DirectConnectGatewayId,
 				"aws_dx_gateway",
-				"aws",
-				dxAllowEmptyValues,
-			))
+				"aws"))
 		}
 		return output.NextToken, nil
 	})
@@ -60,12 +56,10 @@ func (g *DirectConnectGenerator) getDirectConnectConnections(svc *directconnect.
 
 	for _, dx := range output.Connections {
 		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-			*dx.ConnectionId, // Dereference the pointer
+			*dx.ConnectionId,
 			*dx.ConnectionName,
 			"aws_dx_connection",
-			"aws",
-			dxAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return nil
 }
@@ -93,9 +87,7 @@ func (g *DirectConnectGenerator) getDirectConnectVritualInterfaces(svc *directco
 			*vif.VirtualInterfaceId,
 			*vif.VirtualInterfaceName,
 			resourceType,
-			"aws",
-			dxAllowEmptyValues,
-		))
+			"aws"))
 	}
 
 	return nil

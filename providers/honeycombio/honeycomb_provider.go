@@ -19,7 +19,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 const honeycombDefaultURL = "https://api.honeycomb.io"
@@ -46,41 +45,6 @@ func (p *HoneycombProvider) GetName() string {
 	return "honeycombio"
 }
 
-// This mapping will stop working if queries/query annotations are generated as
-// sub-resources of boards or triggers
-func (p HoneycombProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"board": {
-			"dataset":          {"query.dataset", "name"},
-			"query":            {"query.query_id", "id"},
-			"query_annotation": {"query.query_annotation_id", "id"},
-		},
-		"column": {
-			"dataset": {"dataset", "name"},
-		},
-		"derived_column": {
-			"dataset": {"dataset", "name"},
-		},
-		"query": {
-			"dataset": {"dataset", "name"},
-		},
-		"query_annotation": {
-			"query":   {"query_id", "id"},
-			"dataset": {"dataset", "name"},
-		},
-		"slo": {
-			"dataset": {"dataset", "name"},
-		},
-		"burn_alert": {
-			"slo":     {"slo_id", "id"},
-			"dataset": {"dataset", "name"},
-		},
-		"trigger": {
-			"query":   {"query_id", "id"},
-			"dataset": {"dataset", "name"},
-		},
-	}
-}
 func (p *HoneycombProvider) Init(args []string) error {
 	p.apiKey = os.Getenv("HONEYCOMB_API_KEY")
 	if p.apiKey == "" {
@@ -94,13 +58,6 @@ func (p *HoneycombProvider) Init(args []string) error {
 	p.datasets = args
 
 	return nil
-}
-
-func (p *HoneycombProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"api_key": cty.StringVal(p.apiKey),
-		"api_url": cty.StringVal(p.apiURL),
-	})
 }
 
 func (p *HoneycombProvider) InitService(serviceName string, verbose bool) error {
@@ -132,4 +89,9 @@ func (p *HoneycombProvider) GetSupportedService() map[string]terraformutils.Serv
 		"slo":              &SLOGenerator{},
 		"burn_alert":       &BurnAlertGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *HoneycombProvider) GetSource() string {
+	return "honeycombio/honeycombio"
 }

@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// DashboardJSONAllowEmptyValues ...
-	DashboardJSONAllowEmptyValues = []string{"tags."}
-)
-
 // DashboardJSONGenerator ...
 type DashboardJSONGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *DashboardJSONGenerator) createResource(dashboardID string) terraformuti
 		dashboardID,
 		fmt.Sprintf("dashboard_json_%s", dashboardID),
 		"datadog_dashboard_json",
-		"datadog",
-		DashboardJSONAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

@@ -2,11 +2,13 @@
 
 Example using a Myra Security API Key and corresponding Token:
 
-```
+```sh
 export MYRASEC_API_SECRET=[MYRASEC_API_SECRET]
 export MYRASEC_API_KEY=[MYRASEC_API_KEY]
-./infraharvest import myrasec --resources=domain
+infraharvest import myrasec --all --resources=domain
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover myrasec` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Myra Security services:
 

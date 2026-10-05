@@ -48,10 +48,7 @@ func (g *APIExtensionGenerator) InitResources() error {
 			extension.Key,
 			"commercetools_api_extension",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

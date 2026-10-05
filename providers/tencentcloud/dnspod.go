@@ -65,19 +65,17 @@ func (g *DnspodGenerator) DescribeDomainList(client *dnspod.Client) error {
 			*instance.Name,
 			"tencentcloud_dnspod_domain_instance",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
-		if err := g.DescribeRecordList(client, *instance.Name, resource.ResourceName); err != nil {
+		if err := g.DescribeRecordList(client, *instance.Name); err != nil {
 			return err
 		}
 	}
 
 	return nil
 }
-func (g *DnspodGenerator) DescribeRecordList(client *dnspod.Client, name, resourceName string) error {
+func (g *DnspodGenerator) DescribeRecordList(client *dnspod.Client, name string) error {
 	request := dnspod.NewDescribeRecordListRequest()
 
 	request.Domain = &name
@@ -105,11 +103,8 @@ func (g *DnspodGenerator) DescribeRecordList(client *dnspod.Client, name, resour
 			name+"_"+strconv.FormatUint(*instance.RecordId, 10),
 			"tencentcloud_dnspod_record",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
-		resource.AdditionalFields["domain"] = "${tencentcloud_dnspod_domain_instance." + resourceName + ".id}"
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

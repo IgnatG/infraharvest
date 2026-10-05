@@ -67,10 +67,6 @@ func (p *AzureADProvider) GetProviderData(arg ...string) map[string]interface{} 
 	return map[string]interface{}{}
 }
 
-func (AzureADProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *AzureADProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"user":                &UserServiceGenerator{},

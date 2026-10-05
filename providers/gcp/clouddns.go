@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/dns/v1"
 )
 
-var cloudDNSAllowEmptyValues = []string{}
-
-var cloudDNSAdditionalFields = map[string]interface{}{}
-
 type CloudDNSGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g CloudDNSGenerator) createZonesResources(ctx context.Context, svc *dns.Se
 				map[string]string{
 					"name":    zone.Name,
 					"project": project,
-				},
-				cloudDNSAllowEmptyValues,
-				cloudDNSAdditionalFields,
-			))
+				}))
 			records := g.createRecordsResources(ctx, svc, project, zone.Name)
 			resources = append(resources, records...)
 		}
@@ -76,10 +69,7 @@ func (g CloudDNSGenerator) createRecordsResources(ctx context.Context, svc *dns.
 					"managed_zone": zoneName,
 					"type":         record.Type,
 					"project":      project,
-				},
-				cloudDNSAllowEmptyValues,
-				cloudDNSAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	})
@@ -101,27 +91,5 @@ func (g *CloudDNSGenerator) InitResources() error {
 	}
 
 	g.Resources = g.createZonesResources(ctx, svc, project)
-	return nil
-}
-
-func (g *CloudDNSGenerator) PostConvertHook() error {
-	for i, resourceRecord := range g.Resources {
-		if resourceRecord.InstanceInfo.Type == "google_dns_managed_zone" {
-			continue
-		}
-		item := resourceRecord.Item
-		zoneID := item["managed_zone"].(string)
-		for _, resourceZone := range g.Resources {
-			if resourceZone.InstanceInfo.Type != "google_dns_managed_zone" {
-				continue
-			}
-			if zoneID == resourceZone.InstanceState.ID {
-				g.Resources[i].Item["managed_zone"] = "${google_dns_managed_zone." + resourceZone.ResourceName + ".name}"
-				name := g.Resources[i].Item["name"].(string)
-				name = strings.ReplaceAll(name, resourceZone.Item["dns_name"].(string), "")
-				g.Resources[i].Item["name"] = name + "${google_dns_managed_zone." + resourceZone.ResourceName + ".dns_name}"
-			}
-		}
-	}
 	return nil
 }

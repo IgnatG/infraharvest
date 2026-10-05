@@ -76,10 +76,8 @@ func (g *CvmGenerator) InitResources() error {
 				"disable_monitor_service":  "false",
 				"disable_security_service": "false",
 				"force_delete":             "false",
-			},
-			[]string{},
-			map[string]interface{}{},
-		)
+			})
+
 		// Do not collect keys with CVM cause there can be keys not belong to any of them
 		g.Resources = append(g.Resources, resource)
 	}
@@ -112,23 +110,11 @@ func (g *CvmGenerator) loadKeyPairs(client *cvm.Client, keyIds []*string) (resou
 		resourceName,
 		"tencentcloud_key_pair",
 		"tencentcloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 	g.Resources = append(g.Resources, resource)
 	return
 }
 
 /*
-func (g *CvmGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "tencentcloud_instance" {
-			resource.InstanceState.Attributes["disable_monitor_service"] = "false"
-			resource.InstanceState.Attributes["disable_security_service"] = "false"
-			resource.InstanceState.Attributes["force_delete"] = "false"
-		}
-	}
-	return nil
-}
-*/
+ */

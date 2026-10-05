@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var rtbAllowEmptyValues = []string{"tags."}
-
 type RouteTableGenerator struct {
 	AWSService
 }
@@ -43,9 +41,7 @@ func (g *RouteTableGenerator) createRouteTablesResources(svc *ec2.Client) []terr
 				StringValue(table.RouteTableId),
 				StringValue(table.RouteTableId),
 				"aws_route_table",
-				"aws",
-				rtbAllowEmptyValues,
-			))
+				"aws"))
 
 			for _, assoc := range table.Associations {
 				if *assoc.Main {
@@ -58,10 +54,7 @@ func (g *RouteTableGenerator) createRouteTablesResources(svc *ec2.Client) []terr
 						map[string]string{
 							"vpc_id":         StringValue(table.VpcId),
 							"route_table_id": StringValue(table.RouteTableId),
-						},
-						rtbAllowEmptyValues,
-						map[string]interface{}{},
-					))
+						}))
 				} else if v := assoc.SubnetId; v != nil {
 					// subnet-specific route table association
 					resources = append(resources, terraformutils.NewResource(
@@ -72,10 +65,7 @@ func (g *RouteTableGenerator) createRouteTablesResources(svc *ec2.Client) []terr
 						map[string]string{
 							"subnet_id":      StringValue(v),
 							"route_table_id": StringValue(table.RouteTableId),
-						},
-						rtbAllowEmptyValues,
-						map[string]interface{}{},
-					))
+						}))
 				} else if v := assoc.GatewayId; v != nil {
 					resources = append(resources, terraformutils.NewResource(
 						StringValue(assoc.RouteTableAssociationId),
@@ -85,10 +75,7 @@ func (g *RouteTableGenerator) createRouteTablesResources(svc *ec2.Client) []terr
 						map[string]string{
 							"gateway_id":     StringValue(v),
 							"route_table_id": StringValue(table.RouteTableId),
-						},
-						rtbAllowEmptyValues,
-						map[string]interface{}{},
-					))
+						}))
 
 				}
 			}

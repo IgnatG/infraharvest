@@ -24,12 +24,14 @@ Example:
 }
 ```
 
-Terraformer will pick up the profile name specified in the `--profile` parameter.
+infraharvest uses the profile named by the `--profile` parameter.
 It defaults to the first config in the config array.
 
 ```sh
-infraharvest import alicloud --resources=ecs --regions=ap-southeast-3 --profile=default
+infraharvest import alicloud --all --resources=ecs --regions=ap-southeast-3 --profile=default
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover alicloud` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported AliCloud resources:
 

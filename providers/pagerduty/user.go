@@ -40,9 +40,7 @@ func (g *UserGenerator) createUserResources(client *pagerduty.Client) error {
 				user.ID,
 				fmt.Sprintf("user_%s", user.ID),
 				"pagerduty_user",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 
 		if !resp.More {

@@ -34,9 +34,8 @@ jobs:
         cache: true
     - name: Check go.mod and go.sum are tidy
       run: go mod tidy -diff
-    # Build only the shipped binary: `go build ./...` also links every
-    # tests/* program, each a full binary with all providers, and fills the
-    # runner's disk. `go test ./...` compiles every package anyway.
+    # Build only the shipped binary; `go test ./...` compiles every package
+    # anyway.
     - name: Build
       run: go build -o infraharvest .
     - name: Test

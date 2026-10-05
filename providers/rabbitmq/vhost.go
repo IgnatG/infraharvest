@@ -30,8 +30,6 @@ type Vhost struct {
 
 type Vhosts []Vhost
 
-var VhostAllowEmptyValues = []string{}
-
 func (g VhostGenerator) createResources(vhosts Vhosts) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, vhost := range vhosts {
@@ -39,9 +37,7 @@ func (g VhostGenerator) createResources(vhosts Vhosts) []terraformutils.Resource
 			vhost.Name,
 			"vhost_"+normalizeResourceName(vhost.Name),
 			"rabbitmq_vhost",
-			"rabbitmq",
-			VhostAllowEmptyValues,
-		))
+			"rabbitmq"))
 	}
 	return resources
 }

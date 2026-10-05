@@ -25,11 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// DowntimeAllowEmptyValues ...
-	DowntimeAllowEmptyValues = []string{}
-)
-
 // DowntimeGenerator ...
 type DowntimeGenerator struct {
 	DatadogService
@@ -50,9 +45,8 @@ func (g *DowntimeGenerator) createResource(downtimeID string) terraformutils.Res
 		downtimeID,
 		fmt.Sprintf("downtime_%s", downtimeID),
 		"datadog_downtime",
-		"datadog",
-		DowntimeAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

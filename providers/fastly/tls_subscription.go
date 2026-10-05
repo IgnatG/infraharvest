@@ -35,8 +35,7 @@ func (g *TLSSubscriptionGenerator) loadTLSSubscriptions(client *fastly.Client) (
 			subscription.ID,
 			subscription.ID,
 			"fastly_tls_subscription",
-			"fastly",
-			[]string{}))
+			"fastly"))
 	}
 	return subscriptions, nil
 }
@@ -53,9 +52,7 @@ func (g *TLSSubscriptionGenerator) loadTLSActivations(client *fastly.Client) ([]
 			activation.ID,
 			activation.ID,
 			"fastly_tls_activation",
-			"fastly",
-			[]string{},
-		))
+			"fastly"))
 	}
 	return activations, nil
 }

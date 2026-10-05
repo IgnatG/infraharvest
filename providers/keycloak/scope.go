@@ -31,10 +31,7 @@ func (g RealmGenerator) createScopeResources(realmID string, openidClientScopes 
 			"keycloak",
 			map[string]string{
 				"realm_id": realmID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }
@@ -53,8 +50,6 @@ func (g RealmGenerator) createOpenidClientScopesResources(realmID, clientID, cli
 			"realm_id":    realmID,
 			"client_id":   clientID,
 			t + "_scopes": strings.Join(scopes, ","),
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 }

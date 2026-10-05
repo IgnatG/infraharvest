@@ -16,8 +16,6 @@ package azure
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/services/mariadb/mgmt/2018-06-01/mariadb"
 	"github.com/Azure/azure-sdk-for-go/services/mysql/mgmt/2017-12-01/mysql"
@@ -66,11 +64,7 @@ func (g *DatabasesGenerator) createMariaDBServerResources(servers []mariadb.Serv
 			*server.Name,
 			"azurerm_mariadb_server",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"administrator_login_password": "",
-			}))
+			map[string]string{}))
 	}
 
 	return resources, nil
@@ -101,8 +95,7 @@ func (g *DatabasesGenerator) createMariaDBConfigurationResources(servers []maria
 				*config.ID,
 				*config.Name+"-"+*server.Name,
 				"azurerm_mariadb_configuration",
-				g.ProviderName,
-				[]string{"value"}))
+				g.ProviderName))
 		}
 	}
 
@@ -134,8 +127,7 @@ func (g *DatabasesGenerator) createMariaDBDatabaseResources(servers []mariadb.Se
 				*database.ID,
 				*database.Name+"-"+*server.Name,
 				"azurerm_mariadb_database",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 
@@ -166,8 +158,7 @@ func (g *DatabasesGenerator) createMariaDBFirewallRuleResources(servers []mariad
 				*rule.ID,
 				*rule.Name,
 				"azurerm_mariadb_firewall_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 
@@ -199,8 +190,7 @@ func (g *DatabasesGenerator) createMariaDBVirtualNetworkRuleResources(servers []
 				*rule.ID,
 				*rule.Name,
 				"azurerm_mariadb_virtual_network_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 
 			if err := iter.NextWithContext(ctx); err != nil {
 				return nil, err
@@ -245,11 +235,7 @@ func (g *DatabasesGenerator) createMySQLServerResources(servers []mysql.Server) 
 			*server.Name,
 			"azurerm_mysql_server",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"administrator_login_password": "",
-			}))
+			map[string]string{}))
 	}
 
 	return resources, nil
@@ -280,8 +266,7 @@ func (g *DatabasesGenerator) createMySQLConfigurationResources(servers []mysql.S
 				*config.ID,
 				*config.Name+"-"+*server.Name,
 				"azurerm_mysql_configuration",
-				g.ProviderName,
-				[]string{"value"}))
+				g.ProviderName))
 		}
 	}
 
@@ -313,8 +298,7 @@ func (g *DatabasesGenerator) createMySQLDatabaseResources(servers []mysql.Server
 				*database.ID,
 				*database.Name+"-"+*server.Name,
 				"azurerm_mysql_database",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -345,8 +329,7 @@ func (g *DatabasesGenerator) createMySQLFirewallRuleResources(servers []mysql.Se
 				*rule.ID,
 				*rule.Name,
 				"azurerm_mysql_firewall_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 
@@ -380,8 +363,7 @@ func (g *DatabasesGenerator) createMySQLVirtualNetworkRuleResources(servers []my
 				*rule.ID,
 				*rule.Name,
 				"azurerm_mysql_virtual_network_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 
 			if err := iter.NextWithContext(ctx); err != nil {
 				return nil, err
@@ -428,11 +410,7 @@ func (g *DatabasesGenerator) createPostgreSQLServerResources(servers []postgresq
 			*server.Name,
 			"azurerm_postgresql_server",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"administrator_login_password": "",
-			}))
+			map[string]string{}))
 	}
 
 	return resources, nil
@@ -463,8 +441,7 @@ func (g *DatabasesGenerator) createPostgreSQLDatabaseResources(servers []postgre
 				*database.ID,
 				*database.Name+"-"+*server.Name,
 				"azurerm_postgresql_database",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -494,8 +471,7 @@ func (g *DatabasesGenerator) createPostgreSQLConfigurationResources(servers []po
 				*config.ID,
 				*config.Name+"-"+*server.Name,
 				"azurerm_postgresql_configuration",
-				g.ProviderName,
-				[]string{"value"}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -526,8 +502,7 @@ func (g *DatabasesGenerator) createPostgreSQLFirewallRuleResources(servers []pos
 				*rule.ID,
 				*rule.Name,
 				"azurerm_postgresql_firewall_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -559,8 +534,7 @@ func (g *DatabasesGenerator) createPostgreSQLVirtualNetworkRuleResources(servers
 				*rule.ID,
 				*rule.Name,
 				"azurerm_postgresql_virtual_network_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 
 			if err := rulePages.NextWithContext(ctx); err != nil {
 				return nil, err
@@ -612,11 +586,7 @@ func (g *DatabasesGenerator) createSQLServerResources(servers []sql.Server) ([]t
 			*server.Name,
 			"azurerm_mssql_server",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"administrator_login_password": "",
-			}))
+			map[string]string{}))
 	}
 
 	return resources, nil
@@ -647,8 +617,7 @@ func (g *DatabasesGenerator) createSQLDatabaseResources(servers []sql.Server) ([
 				*database.ID,
 				*database.Name+"-"+*server.Name,
 				"azurerm_mssql_database",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -679,8 +648,7 @@ func (g *DatabasesGenerator) createSQLFirewallRuleResources(servers []sql.Server
 				*rule.ID,
 				*rule.Name,
 				"azurerm_mssql_firewall_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -712,8 +680,7 @@ func (g *DatabasesGenerator) createSQLVirtualNetworkRuleResources(servers []sql.
 				*rule.ID,
 				*rule.Name,
 				"azurerm_sql_virtual_network_rule",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 
 			if err := ruleIter.NextWithContext(ctx); err != nil {
 				return nil, err
@@ -748,8 +715,7 @@ func (g *DatabasesGenerator) createSQLElasticPoolResources(servers []sql.Server)
 				*pool.ID,
 				*pool.Name,
 				"azurerm_sql_elasticpool",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -783,8 +749,7 @@ func (g *DatabasesGenerator) createSQLFailoverResources(servers []sql.Server) ([
 				*failoverGroup.ID,
 				*failoverGroup.Name,
 				"azurerm_sql_failover_group",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 
 			if err := iter.NextWithContext(ctx); err != nil {
 				return nil, err
@@ -820,8 +785,7 @@ func (g *DatabasesGenerator) createSQLADAdministratorResources(servers []sql.Ser
 				*administrator.ID,
 				*administrator.Name,
 				"azurerm_sql_active_directory_administrator",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 	return resources, nil
@@ -912,33 +876,6 @@ func (g *DatabasesGenerator) InitResources() error {
 			return err
 		}
 		g.Resources = append(g.Resources, resources...)
-	}
-
-	return nil
-}
-
-func (g *DatabasesGenerator) PostConvertHook() error {
-	dbEngines := []string{
-		"mariadb",
-		"mysql",
-		"postgresql",
-		"sql",
-	}
-
-	for _, engineName := range dbEngines {
-		for _, resource := range g.Resources {
-			dbServerResourceType := fmt.Sprintf("azurerm_%s_server", engineName)
-			if resource.InstanceInfo.Type == dbServerResourceType {
-				dbName := resource.Item["name"]
-				for rIdx, r := range g.Resources {
-					if r.InstanceInfo.Type != dbServerResourceType &&
-						strings.Contains(r.InstanceInfo.Type, engineName) &&
-						r.Item["server_name"] == dbName {
-						g.Resources[rIdx].Item["server_name"] = fmt.Sprintf("${%s.%s}", resource.InstanceInfo.Id, "name")
-					}
-				}
-			}
-		}
 	}
 
 	return nil

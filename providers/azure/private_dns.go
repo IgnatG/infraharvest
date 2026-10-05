@@ -61,8 +61,7 @@ func (g *PrivateDNSGenerator) listRecordSets(resourceGroupName string, privateZo
 				*recordSet.ID,
 				*recordSet.Name,
 				resName,
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 
 		if err := recordSetIterator.Next(); err != nil {
@@ -92,8 +91,7 @@ func (g *PrivateDNSGenerator) listVirtualNetworkLinks(resourceGroupName string, 
 			*virtualNetworkLink.ID,
 			*virtualNetworkLink.Name,
 			"azurerm_private_dns_zone_virtual_network_link",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := virtualNetworkLinkIterator.Next(); err != nil {
 			log.Println(err)
@@ -133,8 +131,7 @@ func (g *PrivateDNSGenerator) listAndAddForPrivateDNSZone() ([]terraformutils.Re
 			*zone.ID,
 			*zone.Name,
 			"azurerm_private_dns_zone",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		id, err := ParseAzureResourceID(*zone.ID)
 		if err != nil {

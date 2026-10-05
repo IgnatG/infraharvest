@@ -40,9 +40,7 @@ func (g *ScheduleGenerator) createScheduleResources(client *pagerduty.Client) er
 				schedule.ID,
 				fmt.Sprintf("schedule_%s", schedule.Name),
 				"pagerduty_schedule",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 		if !resp.More {
 			break

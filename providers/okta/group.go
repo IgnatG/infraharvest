@@ -32,8 +32,7 @@ func (g GroupGenerator) createResources(groupList []*okta.Group) []terraformutil
 			group.Id,
 			"group_"+group.Profile.Name,
 			"okta_group",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

@@ -34,36 +34,30 @@ func (g TGGenerator) createTransitGatewayResources(gatewayID, gatewayName string
 		gatewayID,
 		normalizeResourceName(gatewayName, false),
 		"ibm_tg_gateway",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resource
 }
 
-func (g TGGenerator) createTransitGatewayConnectionResources(gatewayID, connectionID, connectionName string, dependsOn []string) terraformutils.Resource {
+func (g TGGenerator) createTransitGatewayConnectionResources(gatewayID, connectionID, connectionName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		fmt.Sprintf("%s/%s", gatewayID, connectionID),
 		normalizeResourceName(connectionName, false),
 		"ibm_tg_connection",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
+
 	return resource
 }
 
-func (g TGGenerator) loadTransitGatewayRouterResource(gatewayID, routerID string, dependsOn []string) terraformutils.Resource {
+func (g TGGenerator) loadTransitGatewayRouterResource(gatewayID, routerID string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		fmt.Sprintf("%s/%s", gatewayID, routerID),
 		normalizeResourceName(routerID, false),
 		"ibm_tg_route_report",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
+
 	return resource
 }
 
@@ -112,10 +106,6 @@ func (g *TGGenerator) InitResources() error {
 	}
 	for _, gateway := range allrecs {
 		g.Resources = append(g.Resources, g.createTransitGatewayResources(*gateway.ID, *gateway.Name))
-		resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
-		var dependsOn []string
-		dependsOn = append(dependsOn,
-			"ibm_tg_gateway."+resourceName)
 		listTransitGatewayConnectionsOptions := &tg.ListTransitGatewayConnectionsOptions{
 			TransitGatewayID: gateway.ID,
 		}
@@ -124,7 +114,7 @@ func (g *TGGenerator) InitResources() error {
 			return fmt.Errorf("Error Listing Transit Gateway connections %s\n%s", err, response)
 		}
 		for _, connection := range connections.Connections {
-			g.Resources = append(g.Resources, g.createTransitGatewayConnectionResources(*gateway.ID, *connection.ID, *connection.Name, dependsOn))
+			g.Resources = append(g.Resources, g.createTransitGatewayConnectionResources(*gateway.ID, *connection.ID, *connection.Name))
 		}
 		// Trying to get Transit Gateway reports
 		listTransitGatewayRouteReportOptions := &tg.ListTransitGatewayRouteReportsOptions{
@@ -135,7 +125,7 @@ func (g *TGGenerator) InitResources() error {
 			return fmt.Errorf("Error Listing Transit Gateway route reports %s\n%s", err, response)
 		}
 		for _, routeReport := range routeReports.RouteReports {
-			g.Resources = append(g.Resources, g.loadTransitGatewayRouterResource(*gateway.ID, *routeReport.ID, dependsOn))
+			g.Resources = append(g.Resources, g.loadTransitGatewayRouterResource(*gateway.ID, *routeReport.ID))
 		}
 	}
 	return nil

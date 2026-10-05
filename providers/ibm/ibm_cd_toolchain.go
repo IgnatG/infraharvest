@@ -1,11 +1,11 @@
 package ibm
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -24,118 +24,85 @@ type ToolchainGenerator struct {
 	IBMService
 }
 
-var workerIDMutex sync.RWMutex // Used in PostConvertHook
-var repoMutex sync.RWMutex     // Used in PostConvertHook
-var toolMutex sync.RWMutex     // Used in PostConvertHook
-
 func (g ToolchainGenerator) loadToolchain(tcID string, tcName string) terraformutils.Resource {
 	resource := terraformutils.NewSimpleResource(
 		tcID,
 		tcName,
 		"ibm_cd_toolchain",
-		"ibm",
-		[]string{},
-	)
+		"ibm")
+
 	return resource
 }
 
-func (g ToolchainGenerator) loadTool(resourceType string, tID string, tName string, tcIDref string) terraformutils.Resource {
+func (g ToolchainGenerator) loadTool(resourceType string, tID string, tName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		tID,
 		tName,
 		resourceType,
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"toolchain_id": tcIDref,
-		})
+		map[string]string{})
+
 	return resource
 }
 
 // Adds S2S authorization required by some integrations
-func (g ToolchainGenerator) loadAuthPolicies(policyID string, tcIDref string) terraformutils.Resource {
+func (g ToolchainGenerator) loadAuthPolicies(policyID string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		policyID,
 		normalizeResourceName("iam_authorization_policy", true),
 		"ibm_iam_authorization_policy",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"source_resource_instance_id": tcIDref,
-		})
+		map[string]string{})
 
-	// Conflict parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^subject_attributes$",
-		"^resource_attributes$",
-		"^source_service_account$",
-		"^transaction_id$",
-	)
 	return resource
 }
 
-func (g ToolchainGenerator) loadPL(plID string, plName string, plIDref string) terraformutils.Resource {
+func (g ToolchainGenerator) loadPL(plID string, plName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		plID,
 		plName,
 		"ibm_cd_tekton_pipeline",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"pipeline_id": plIDref,
-		})
+		map[string]string{})
+
 	return resource
 }
 
-func (g ToolchainGenerator) loadPLProp(resourceType string, pID string, pName string, plIDref string) terraformutils.Resource {
+func (g ToolchainGenerator) loadPLProp(resourceType string, pID string, pName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		pID,
 		pName,
 		resourceType,
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"pipeline_id": plIDref,
-		})
+		map[string]string{})
+
 	return resource
 }
 
-func (g ToolchainGenerator) loadPLDef(resourceType string, pID string, pName string, plIDref string, tcID string) terraformutils.Resource {
+func (g ToolchainGenerator) loadPLDef(resourceType string, pID string, pName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		pID,
 		pName,
 		resourceType,
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"pipeline_id":         plIDref,
-			"toolchain_id_actual": tcID, // removed on PostConvertHook
-		})
+		map[string]string{})
+
 	return resource
 }
 
-func (g ToolchainGenerator) loadPLTrigProp(resourceType string, pID string, pName string, plIDref string, trigIDref string) terraformutils.Resource {
+func (g ToolchainGenerator) loadPLTrigProp(resourceType string, pID string, pName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		pID,
 		pName,
 		resourceType,
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"pipeline_id": plIDref,
-			"trigger_id":  trigIDref,
-		})
+		map[string]string{})
+
 	return resource
 }
 
 // Goroutine helper to handle different tool types
-func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType string, tID string, tName string, tcID string, tcIDref string, waitGroup *sync.WaitGroup) error {
+func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType string, tID string, tName string, waitGroup *sync.WaitGroup) error {
 	defer waitGroup.Done()
 
 	apiKey := os.Getenv("IC_API_KEY")
@@ -167,7 +134,7 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 
 	if resourceType, ok := supportedTools[toolType]; ok {
 		resourceMutex.Lock()
-		g.Resources = append(g.Resources, g.loadTool(resourceType, tID, tName, tcIDref))
+		g.Resources = append(g.Resources, g.loadTool(resourceType, tID, tName))
 		resourceMutex.Unlock()
 	} else {
 		switch toolType {
@@ -175,23 +142,21 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 			// Classic pipelines cannot be created using Terraform
 			if t.Parameters["type"] != "tekton" {
 				resourceMutex.Lock()
-				g.Resources = append(g.Resources, g.loadTool("ibm_cd_toolchain_tool_pipeline", tID, tName+"--classic", tcIDref))
+				g.Resources = append(g.Resources, g.loadTool("ibm_cd_toolchain_tool_pipeline", tID, tName+"--classic"))
 				resourceMutex.Unlock()
 				fmt.Println("......! Only Tekton pipelines are supported in Terraform", toolType)
 				return nil
 			}
 
 			resourceMutex.Lock()
-			g.Resources = append(g.Resources, g.loadTool("ibm_cd_toolchain_tool_pipeline", tID, tName+"--tekton", tcIDref))
+			g.Resources = append(g.Resources, g.loadTool("ibm_cd_toolchain_tool_pipeline", tID, tName+"--tekton"))
 			resourceMutex.Unlock()
 
 			plID := *(t.ID)
 			plName := tName
 
-			plIDref := fmt.Sprintf("${ibm_cd_toolchain_tool_pipeline.tfer--%s--tekton.tool_id}", tName)
-
 			resourceMutex.Lock()
-			g.Resources = append(g.Resources, g.loadPL(plID, plName, plIDref))
+			g.Resources = append(g.Resources, g.loadPL(plID, plName))
 			resourceMutex.Unlock()
 
 			// Get pipeline
@@ -219,7 +184,7 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 				defName := normalizeResourceName("definition", true)
 
 				resourceMutex.Lock()
-				g.Resources = append(g.Resources, g.loadPLDef("ibm_cd_tekton_pipeline_definition", defID, defName, plIDref, plID))
+				g.Resources = append(g.Resources, g.loadPLDef("ibm_cd_tekton_pipeline_definition", defID, defName))
 				resourceMutex.Unlock()
 			}
 
@@ -229,7 +194,7 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 				pName := normalizeResourceName(*(prop.Name), true)
 
 				resourceMutex.Lock()
-				g.Resources = append(g.Resources, g.loadPLProp("ibm_cd_tekton_pipeline_property", pID, pName, plIDref))
+				g.Resources = append(g.Resources, g.loadPLProp("ibm_cd_tekton_pipeline_property", pID, pName))
 				resourceMutex.Unlock()
 			}
 
@@ -241,7 +206,7 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 				trigName := normalizeResourceName(*(trigger.Name), true)
 
 				resourceMutex.Lock()
-				g.Resources = append(g.Resources, g.loadPLProp("ibm_cd_tekton_pipeline_trigger", trigID, trigName, plIDref))
+				g.Resources = append(g.Resources, g.loadPLProp("ibm_cd_tekton_pipeline_trigger", trigID, trigName))
 				resourceMutex.Unlock()
 
 				// Trigger Properties
@@ -249,10 +214,8 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 					trigpID := fmt.Sprintf("%s/%s", trigID, *(trigp.Name))
 					trigpName := normalizeResourceName(*(trigp.Name), true)
 
-					trigIDref := fmt.Sprintf("${ibm_cd_tekton_pipeline_trigger.tfer--%s.trigger_id}", trigName)
-
 					resourceMutex.Lock()
-					g.Resources = append(g.Resources, g.loadPLTrigProp("ibm_cd_tekton_pipeline_trigger_property", trigpID, trigpName, plIDref, trigIDref))
+					g.Resources = append(g.Resources, g.loadPLTrigProp("ibm_cd_tekton_pipeline_trigger_property", trigpID, trigpName))
 					resourceMutex.Unlock()
 				}
 			}
@@ -260,7 +223,7 @@ func (g *ToolchainGenerator) HandleTool(t cdtoolchainv2.ToolModel, toolType stri
 			// If this integration is misconfigured, it lacks the necessary fields to work in Terraform
 			if *(t.State) == "configured" {
 				resourceMutex.Lock()
-				g.Resources = append(g.Resources, g.loadTool("ibm_cd_toolchain_tool_pagerduty", tID, tName, tcIDref))
+				g.Resources = append(g.Resources, g.loadTool("ibm_cd_toolchain_tool_pagerduty", tID, tName))
 				resourceMutex.Unlock()
 			}
 		default:
@@ -390,6 +353,8 @@ func (g *ToolchainGenerator) InitResources() error {
 	}
 
 	var toolWG sync.WaitGroup
+	var toolErrsMu sync.Mutex
+	var toolErrs []error
 
 	// Iterate over toolchains to get tools
 	for _, tc := range tcInstances {
@@ -413,7 +378,6 @@ func (g *ToolchainGenerator) InitResources() error {
 
 		if tc.RegionID == region {
 			tcName := normalizeResourceName(tc.Name, true)
-			tcIDref := fmt.Sprintf("${ibm_cd_toolchain.tfer--%s.id}", tcName)
 
 			resourceMutex.Lock()
 			g.Resources = append(g.Resources, g.loadToolchain(tcID, tcName))
@@ -446,7 +410,7 @@ func (g *ToolchainGenerator) InitResources() error {
 				// Add toolchain's s2s policies (some tools require it)
 				for _, pol := range s2sPolicies[tcID] {
 					resourceMutex.Lock()
-					g.Resources = append(g.Resources, g.loadAuthPolicies(*(pol.ID), tcIDref))
+					g.Resources = append(g.Resources, g.loadAuthPolicies(*(pol.ID)))
 					resourceMutex.Unlock()
 				}
 			}
@@ -465,244 +429,16 @@ func (g *ToolchainGenerator) InitResources() error {
 				}
 
 				toolWG.Add(1)
-				go g.HandleTool(t, toolType, tID, tName, tcID, tcIDref, &toolWG)
+				go func() {
+					if err := g.HandleTool(t, toolType, tID, tName, &toolWG); err != nil {
+						toolErrsMu.Lock()
+						toolErrs = append(toolErrs, err)
+						toolErrsMu.Unlock()
+					}
+				}()
 			}
 		}
 	}
 	toolWG.Wait()
-	return nil
-}
-
-// Goroutine helper to collect worker IDs for TektonPipelinePostProcess
-func (g *ToolchainGenerator) updateWorkerIDs(i int, res terraformutils.Resource, workerIDs map[string]string) {
-	resID := g.Resources[i].InstanceState.ID
-	wkrIDSplit := strings.Split(resID, "/")
-	if resID == "" || len(wkrIDSplit) != 2 {
-		return
-	}
-	workerID := wkrIDSplit[1]
-	workerIDMutex.Lock()
-	workerIDs[workerID] = res.InstanceInfo.ResourceAddress().String()
-	workerIDMutex.Unlock()
-}
-
-// Goroutine helper to collect repos for TektonDefinitionPostProcess
-func (g *ToolchainGenerator) updateRepos(i int, res terraformutils.Resource, repos map[string](map[string]string)) {
-	params, ok := g.Resources[i].Item["parameters"].([]interface{})
-	if !ok || len(params) == 0 {
-		return
-	}
-	paramsMap, ok := params[0].(map[string]interface{})
-	if !ok {
-		return
-	}
-	if tcID, ok := g.Resources[i].InstanceState.Attributes["toolchain_id"]; ok {
-		repoMutex.Lock()
-		if repos[tcID] == nil {
-			repos[tcID] = make(map[string]string)
-		}
-		repos[tcID][paramsMap["repo_url"].(string)] = res.InstanceInfo.ResourceAddress().String()
-		repoMutex.Unlock()
-	}
-}
-
-func (g *ToolchainGenerator) PostConvertHook() error {
-	workerIDs := map[string]string{}
-	repos := map[string](map[string]string){}
-	tools := map[string]string{}
-
-	var resWG sync.WaitGroup
-	for i, res := range g.Resources {
-		resWG.Add(1)
-		go func() {
-			defer resWG.Done()
-
-			switch res.InstanceInfo.Type {
-			case "ibm_cd_toolchain_tool_privateworker":
-				g.updateWorkerIDs(i, res, workerIDs)
-			case "ibm_cd_toolchain_tool_bitbucketgit":
-				g.updateRepos(i, res, repos)
-			case "ibm_cd_toolchain_tool_hostedgit":
-				g.updateRepos(i, res, repos)
-			case "ibm_cd_toolchain_tool_gitlab":
-				g.updateRepos(i, res, repos)
-			case "ibm_cd_toolchain_tool_githubconsolidated":
-				g.updateRepos(i, res, repos)
-			}
-
-			// Collect tools for TektonPropertyPostProcess
-			if strings.HasPrefix(res.InstanceInfo.Type, "ibm_cd_toolchain_tool_") {
-				if tID, ok := g.Resources[i].InstanceState.Attributes["tool_id"]; ok {
-					toolMutex.Lock()
-					tools[tID] = res.InstanceInfo.ResourceAddress().String()
-					toolMutex.Unlock()
-				}
-			}
-		}()
-	}
-	resWG.Wait()
-
-	for i, res := range g.Resources {
-		switch res.InstanceInfo.Type {
-		case "ibm_cd_tekton_pipeline":
-			g.TektonPipelinePostProcess(i, res, workerIDs)
-
-		case "ibm_cd_tekton_pipeline_definition":
-			g.TektonDefinitionPostProcess(i, res, repos)
-
-		case "ibm_cd_tekton_pipeline_property":
-			g.TektonPropertyPostProcess(i, res, tools)
-
-		case "ibm_cd_tekton_pipeline_trigger_property":
-			g.TektonPropertyPostProcess(i, res, tools)
-
-		case "ibm_cd_toolchain_tool_jenkins":
-			g.JenkinsPostProcess(i, res)
-
-		case "ibm_cd_toolchain_tool_bitbucketgit":
-			g.GitRepositoryPostProcess(i, res)
-
-		case "ibm_cd_toolchain_tool_hostedgit":
-			g.GitRepositoryPostProcess(i, res)
-
-		case "ibm_cd_toolchain_tool_gitlab":
-			g.GitRepositoryPostProcess(i, res)
-
-		case "ibm_cd_toolchain_tool_githubconsolidated":
-			g.GitRepositoryPostProcess(i, res)
-		}
-	}
-
-	return nil
-}
-
-// PostConvertHook helper to add private workers refs to tekton pipelines
-func (g *ToolchainGenerator) TektonPipelinePostProcess(i int, res terraformutils.Resource, workerIDs map[string]string) {
-	worker, ok := g.Resources[i].Item["worker"].([]interface{})
-	if !ok {
-		return
-	}
-	workerMap, ok := worker[0].(map[string]interface{})
-	if !ok {
-		return
-	}
-	plWorkerID := workerMap["id"]
-	if plWorkerID == nil || plWorkerID == "public" {
-		return
-	}
-	if wkr, ok := workerIDs[plWorkerID.(string)]; ok {
-		workerMap["id"] = fmt.Sprintf("${%s.tool_id}", wkr)
-		return
-	}
-}
-
-// PostConvertHook helper to add repo depends_on to tekton pipeline definitions
-func (g *ToolchainGenerator) TektonDefinitionPostProcess(i int, res terraformutils.Resource, repos map[string](map[string]string)) {
-	defSource, ok := g.Resources[i].Item["source"].([]interface{})
-	if !ok || len(defSource) == 0 {
-		return
-	}
-	defSourceMap, ok := defSource[0].(map[string]interface{})
-	if !ok {
-		return
-	}
-	defProps, ok := defSourceMap["properties"].([]interface{})
-	if !ok || len(defProps) == 0 {
-		return
-	}
-	defPropsMap, ok := defProps[0].(map[string]interface{})
-	if !ok {
-		return
-	}
-	tcID, ok := g.Resources[i].Item["toolchain_id_actual"]
-	if !ok {
-		return
-	}
-	if repo, ok := repos[tcID.(string)][defPropsMap["url"].(string)]; ok {
-		g.Resources[i].Item["depends_on"] = []string{repo}
-	}
-	delete(g.Resources[i].Item, "toolchain_id_actual")
-}
-
-// PostConvertHook helper to add tool refs to tekton pipeline properties and additional escape appconfig substitution
-func (g *ToolchainGenerator) TektonPropertyPostProcess(i int, res terraformutils.Resource, tools map[string]string) {
-	target, ok := g.Resources[i].Item["value"].(string)
-	if !ok {
-		return
-	}
-
-	// escape appconfig values -- ${...} is interpreted as a template in terraform
-	g.Resources[i].Item["value"] = strings.ReplaceAll(g.Resources[i].Item["value"].(string), "${", "$${")
-
-	// add tool integration ref to tekton definitions
-	if g.Resources[i].Item["type"] != "integration" {
-		return
-	}
-
-	if tool, ok := tools[target]; ok {
-		g.Resources[i].Item["value"] = fmt.Sprintf("${%s.tool_id}", tool)
-		return
-	}
-	fmt.Println("......! Could not link pipeline property of type integration:", res.InstanceInfo.ResourceAddress().String())
-}
-
-// PostConvertHook helper to remove Jenkins webhook_url from tf files, which is supposed to be sensitive and computed
-func (g *ToolchainGenerator) JenkinsPostProcess(i int, res terraformutils.Resource) {
-	params, ok := g.Resources[i].Item["parameters"].([]interface{})
-	if !ok || len(params) == 0 {
-		return
-	}
-	paramsMap, ok := params[0].(map[string]interface{})
-	if !ok {
-		return
-	}
-	if _, ok := paramsMap["webhook_url"].(string); ok {
-		delete(paramsMap, "webhook_url")
-	}
-}
-
-// PostConvertHook helper to generate initialization block and remove computed values for git repo resources
-func (g *ToolchainGenerator) GitRepositoryPostProcess(i int, res terraformutils.Resource) {
-	// Handle Initialization args
-	params, ok := g.Resources[i].Item["parameters"].([]interface{})
-	if !ok || len(params) == 0 {
-		return
-	}
-	paramsMap, ok := params[0].(map[string]interface{})
-	if !ok {
-		return
-	}
-	initMap := map[string]interface{}{}
-
-	initMap["git_id"] = paramsMap["git_id"]
-	initMap["type"] = paramsMap["type"] // this will always be "link"
-	initMap["repo_url"] = paramsMap["repo_url"]
-	initMap["private_repo"] = paramsMap["private_repo"]
-
-	// additional parameters
-	if res.InstanceInfo.Type == "ibm_cd_toolchain_tool_githubconsolidated" {
-		initMap["blind_connection"] = paramsMap["blind_connection"]
-		initMap["auto_init"] = paramsMap["auto_init"]
-	} else if res.InstanceInfo.Type == "ibm_cd_toolchain_tool_gitlab" {
-		initMap["blind_connection"] = paramsMap["blind_connection"]
-	}
-
-	// add to initialization accordingly
-	g.Resources[i].Item["initialization"] = initMap
-
-	// add missing initialization to terraform state attributes
-	g.Resources[i].InstanceState.Attributes["initialization.#"] = "1"
-	for key, val := range initMap {
-		g.Resources[i].InstanceState.Attributes["initialization.0."+key] = val.(string)
-	}
-
-	// only include non-computed parameters
-	includeParams := []string{"api_token", "auth_type", "enable_traceability", "integration_owner", "toolchain_issues_enabled"}
-
-	for key := range paramsMap {
-		if !slices.Contains(includeParams, key) {
-			delete(g.Resources[i].Item["parameters"].([]interface{})[0].(map[string]interface{}), key)
-			delete(g.Resources[i].InstanceState.Attributes, key)
-		}
-	}
+	return errors.Join(toolErrs...)
 }

@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var addressesAllowEmptyValues = []string{""}
-
-var addressesAdditionalFields = map[string]interface{}{}
-
 type AddressesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g AddressesGenerator) createResources(ctx context.Context, addressesList *
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				addressesAllowEmptyValues,
-				addressesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

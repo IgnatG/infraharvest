@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationAWSAllowEmptyValues ...
-	IntegrationAWSAllowEmptyValues = []string{}
-)
-
 // IntegrationAWSGenerator ...
 type IntegrationAWSGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *IntegrationAWSGenerator) createResource(resourceID string) terraformuti
 		resourceID,
 		fmt.Sprintf("integration_aws_%s", resourceID),
 		"datadog_integration_aws",
-		"datadog",
-		IntegrationAWSAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

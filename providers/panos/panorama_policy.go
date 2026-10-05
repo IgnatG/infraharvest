@@ -48,9 +48,7 @@ func (g *PanoramaPolicyGenerator) createResourcesFromList(o getGeneric, terrafor
 			id,
 			normalizeResourceName(o.params[0]+":"+o.params[1]+":"+r),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -119,13 +117,10 @@ func (g *PanoramaPolicyGenerator) createSecurityRuleGroupRulebaseResources(dg, r
 			map[string]string{
 				"device_group":    dg,
 				"rulebase":        rulebase,
-				"rule.#":          "1", // Add just enough attributes to make the refresh work...
-				"rule.0.name":     r,   // Add just enough attributes to make the refresh work...
-				"rule.0.target.#": "0", // Add just enough attributes to make the refresh work...
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+				"rule.#":          "1",
+				"rule.0.name":     r,
+				"rule.0.target.#": "0",
+			}))
 	}
 
 	return resources
@@ -153,39 +148,6 @@ func (g *PanoramaPolicyGenerator) InitResources() error {
 		g.Resources = append(g.Resources, g.createNATRuleGroupResources(v)...)
 		g.Resources = append(g.Resources, g.createPBFRuleGroupResources(v)...)
 		g.Resources = append(g.Resources, g.createSecurityRuleGroupResources(v)...)
-	}
-
-	return nil
-}
-
-func (g *PanoramaPolicyGenerator) PostConvertHook() error {
-	for _, res := range g.Resources {
-		if res.InstanceInfo.Type == "panos_panorama_nat_rule_group" {
-			for _, rule := range res.Item["rule"].([]interface{}) {
-				if _, ok := rule.(map[string]interface{})["translated_packet"]; ok {
-					a := rule.(map[string]interface{})["translated_packet"].([]interface{})
-					for _, b := range a {
-						if _, okb := b.(map[string]interface{})["source"]; !okb {
-							b.(map[string]interface{})["source"] = make(map[string]interface{})
-						}
-					}
-
-					for _, b := range a {
-						if _, okb := b.(map[string]interface{})["destination"]; !okb {
-							b.(map[string]interface{})["destination"] = make(map[string]interface{})
-						}
-					}
-				}
-			}
-		}
-
-		if res.InstanceInfo.Type == "panos_panorama_security_rule_group" {
-			for _, rule := range res.Item["rule"].([]interface{}) {
-				if _, ok := rule.(map[string]interface{})["hip_profiles"]; !ok {
-					rule.(map[string]interface{})["hip_profiles"] = []string{"any"}
-				}
-			}
-		}
 	}
 
 	return nil

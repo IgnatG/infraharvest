@@ -2,9 +2,11 @@
 
 Example:
 
+```sh
+infraharvest import newrelic --all --resources=alert,infra,synthetics --api-key=NRAK-XXXXXXXX --account-id=XXXXX
 ```
-./infraharvest import newrelic -r alert,infra,synthetics --api-key=NRAK-XXXXXXXX --account-id=XXXXX
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover newrelic` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported New Relic resources:
 

@@ -23,10 +23,6 @@ import (
 	"cloud.google.com/go/logging/logadmin"
 )
 
-var loggingAllowEmptyValues = []string{}
-
-var loggingAdditionalFields = map[string]interface{}{}
-
 type LoggingGenerator struct {
 	GCPService
 }
@@ -51,10 +47,7 @@ func (g *LoggingGenerator) loadLoggingMetrics(ctx context.Context, client *logad
 			map[string]string{
 				"name":    metric.ID,
 				"project": g.GetArgs()["project"].(string),
-			},
-			loggingAllowEmptyValues,
-			loggingAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }

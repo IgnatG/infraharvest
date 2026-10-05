@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 )
 
-var ElbAllowEmptyValues = []string{"tags."}
-
 type ElbGenerator struct {
 	AWSService
 }
@@ -47,10 +45,8 @@ func (g *ElbGenerator) InitResources() error {
 				resourceName,
 				resourceName,
 				"aws_elb",
-				"aws",
-				ElbAllowEmptyValues,
-			)
-			resource.IgnoreKeys = append(resource.IgnoreKeys, "^instances\\.(.*)") // don't import current connect instances to ELB
+				"aws")
+
 			g.Resources = append(g.Resources, resource)
 		}
 	}

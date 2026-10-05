@@ -48,10 +48,7 @@ func (g *ShippingMethodGenerator) InitResources() error {
 			zone.Key,
 			"commercetools_shipping_method",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

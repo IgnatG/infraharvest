@@ -33,18 +33,18 @@ func TestExcludedByDefault(t *testing.T) {
 	useFakeAPI(t, defaultNetworkAPI)
 	p := &AWSProvider{region: "us-east-1"}
 	resources := []terraformutils.Resource{
-		terraformutils.NewSimpleResource("vpc-default", "vpc-default", "aws_vpc", "aws", nil),
-		terraformutils.NewSimpleResource("vpc-0abc1234", "main", "aws_vpc", "aws", nil),
-		terraformutils.NewSimpleResource("subnet-default-a", "a", "aws_subnet", "aws", nil),
-		terraformutils.NewSimpleResource("subnet-0own", "b", "aws_subnet", "aws", nil),
-		terraformutils.NewSimpleResource("rtb-default", "main", "aws_route_table", "aws", nil),
-		terraformutils.NewSimpleResource("igw-default", "gw", "aws_internet_gateway", "aws", nil),
-		terraformutils.NewSimpleResource("sg-default-own", "default", "aws_security_group", "aws", nil),
-		terraformutils.NewResource("sgrule-1", "sgrule-1", "aws_security_group_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}, nil, nil),
-		terraformutils.NewSimpleResource("acl-1", "acl-1", "aws_default_network_acl", "aws", nil),
-		terraformutils.NewSimpleResource("AWSServiceRoleForECS", "ecs", "aws_iam_role", "aws", nil),
-		terraformutils.NewSimpleResource("/aws/lambda/fn", "fn", "aws_cloudwatch_log_group", "aws", nil),
-		terraformutils.NewSimpleResource("/app/web", "web", "aws_cloudwatch_log_group", "aws", nil),
+		terraformutils.NewSimpleResource("vpc-default", "vpc-default", "aws_vpc", "aws"),
+		terraformutils.NewSimpleResource("vpc-0abc1234", "main", "aws_vpc", "aws"),
+		terraformutils.NewSimpleResource("subnet-default-a", "a", "aws_subnet", "aws"),
+		terraformutils.NewSimpleResource("subnet-0own", "b", "aws_subnet", "aws"),
+		terraformutils.NewSimpleResource("rtb-default", "main", "aws_route_table", "aws"),
+		terraformutils.NewSimpleResource("igw-default", "gw", "aws_internet_gateway", "aws"),
+		terraformutils.NewSimpleResource("sg-default-own", "default", "aws_security_group", "aws"),
+		terraformutils.NewResource("sgrule-1", "sgrule-1", "aws_security_group_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
+		terraformutils.NewSimpleResource("acl-1", "acl-1", "aws_default_network_acl", "aws"),
+		terraformutils.NewSimpleResource("AWSServiceRoleForECS", "ecs", "aws_iam_role", "aws"),
+		terraformutils.NewSimpleResource("/aws/lambda/fn", "fn", "aws_cloudwatch_log_group", "aws"),
+		terraformutils.NewSimpleResource("/app/web", "web", "aws_cloudwatch_log_group", "aws"),
 	}
 
 	excluded, err := p.ExcludedByDefault(t.Context(), resources)
@@ -72,8 +72,8 @@ func TestExcludedByDefault(t *testing.T) {
 func TestExcludedByDefaultGlobal(t *testing.T) {
 	p := &AWSProvider{region: GlobalRegion}
 	excluded, err := p.ExcludedByDefault(t.Context(), []terraformutils.Resource{
-		terraformutils.NewSimpleResource("AWSServiceRoleForECS", "ecs", "aws_iam_role", "aws", nil),
-		terraformutils.NewSimpleResource("app", "app", "aws_iam_role", "aws", nil),
+		terraformutils.NewSimpleResource("AWSServiceRoleForECS", "ecs", "aws_iam_role", "aws"),
+		terraformutils.NewSimpleResource("app", "app", "aws_iam_role", "aws"),
 	})
 	if err != nil || len(excluded) != 1 {
 		t.Errorf("got %v, %v; want the service-linked role only", excluded, err)

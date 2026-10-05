@@ -63,14 +63,8 @@ func createProjects(ctx context.Context, client *gitlab.Client, group string) []
 				strconv.FormatInt(int64(project.ID), 10),
 				getProjectResourceName(project),
 				"gitlab_project",
-				"gitlab",
-				[]string{},
-			)
+				"gitlab")
 
-			// NOTE: mirror fields from API doesn't match with the ones from terraform provider
-			resource.IgnoreKeys = []string{"mirror_trigger_builds", "only_mirror_protected_branches", "mirror", "mirror_overwrites_diverged_branches"}
-
-			resource.SlowQueryRequired = true
 			resources = append(resources, resource)
 			resources = append(resources, createProjectVariables(ctx, client, project)...)
 			resources = append(resources, createBranchProtections(ctx, client, project)...)
@@ -102,10 +96,8 @@ func createProjectVariables(ctx context.Context, client *gitlab.Client, project 
 				fmt.Sprintf("%d:%s:%s", project.ID, projectVariable.Key, projectVariable.EnvironmentScope),
 				fmt.Sprintf("%s___%s___%s", getProjectResourceName(project), projectVariable.Key, projectVariable.EnvironmentScope),
 				"gitlab_project_variable",
-				"gitlab",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"gitlab")
+
 			resources = append(resources, resource)
 		}
 
@@ -134,10 +126,8 @@ func createBranchProtections(ctx context.Context, client *gitlab.Client, project
 				fmt.Sprintf("%d:%s", project.ID, protectedBranch.Name),
 				fmt.Sprintf("%s___%s", getProjectResourceName(project), protectedBranch.Name),
 				"gitlab_branch_protection",
-				"gitlab",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"gitlab")
+
 			resources = append(resources, resource)
 		}
 
@@ -166,10 +156,8 @@ func createTagProtections(ctx context.Context, client *gitlab.Client, project *g
 				fmt.Sprintf("%d:%s", project.ID, protectedTag.Name),
 				fmt.Sprintf("%s___%s", getProjectResourceName(project), protectedTag.Name),
 				"gitlab_tag_protection",
-				"gitlab",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"gitlab")
+
 			resources = append(resources, resource)
 		}
 
@@ -198,10 +186,8 @@ func createProjectMembership(ctx context.Context, client *gitlab.Client, project
 				fmt.Sprintf("%d:%d", project.ID, projectMember.ID),
 				fmt.Sprintf("%s___%s", getProjectResourceName(project), projectMember.Username),
 				"gitlab_project_membership",
-				"gitlab",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"gitlab")
+
 			resources = append(resources, resource)
 		}
 

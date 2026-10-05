@@ -46,9 +46,7 @@ func (g *DNSRecordGenerator) InitResources() error {
 				*record.Properties.Name+"-"+*record.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.ZoneID: *zone.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.ZoneID: *zone.Id}))
 		}
 	}
 	return nil

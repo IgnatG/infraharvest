@@ -63,10 +63,6 @@ func (p *XenorchestraProvider) GetProviderData(arg ...string) map[string]interfa
 	}
 }
 
-func (XenorchestraProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *XenorchestraProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"acl":          &AclGenerator{},
@@ -89,4 +85,9 @@ func (p *XenorchestraProvider) InitService(serviceName string, verbose bool) err
 		"password": p.password,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *XenorchestraProvider) GetSource() string {
+	return "vatesfr/xenorchestra"
 }

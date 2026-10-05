@@ -25,11 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// SyntheticsGlobalVariableAllowEmptyValues ...
-	SyntheticsGlobalVariableAllowEmptyValues = []string{"tags."}
-)
-
 // SyntheticsGlobalVariableGenerator ...
 type SyntheticsGlobalVariableGenerator struct {
 	DatadogService
@@ -50,9 +45,8 @@ func (g *SyntheticsGlobalVariableGenerator) createResource(globalVariableID stri
 		globalVariableID,
 		fmt.Sprintf("synthetics_global_variable_%s", globalVariableID),
 		"datadog_synthetics_global_variable",
-		"datadog",
-		SyntheticsGlobalVariableAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

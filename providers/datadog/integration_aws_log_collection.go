@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationAWSLogCollectionAllowEmptyValues ...
-	IntegrationAWSLogCollectionAllowEmptyValues = []string{"services"}
-)
-
 // IntegrationAWSLogCollectionGenerator ...
 type IntegrationAWSLogCollectionGenerator struct {
 	DatadogService
@@ -48,9 +43,8 @@ func (g *IntegrationAWSLogCollectionGenerator) createResource(resourceID string)
 		resourceID,
 		fmt.Sprintf("integration_aws_log_collection_%s", resourceID),
 		"datadog_integration_aws_log_collection",
-		"datadog",
-		IntegrationAWSLogCollectionAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,
@@ -66,15 +60,5 @@ func (g *IntegrationAWSLogCollectionGenerator) InitResources() error {
 		return err
 	}
 	g.Resources = g.createResources(logCollections)
-	return nil
-}
-
-func (g *IntegrationAWSLogCollectionGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		// services is a required attribute but can be empty. This ensures we append an empty list
-		if r.Item["services"] == nil {
-			r.Item["services"] = []string{}
-		}
-	}
 	return nil
 }

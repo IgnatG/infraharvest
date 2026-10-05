@@ -48,10 +48,7 @@ func (g *ChannelGenerator) InitResources() error {
 			channel.Key,
 			"commercetools_channel",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

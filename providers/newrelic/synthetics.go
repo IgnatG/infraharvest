@@ -36,8 +36,7 @@ func (g *SyntheticsGenerator) createSyntheticsMonitorResources(client *newrelic.
 			fmt.Sprint(monitor.ID),
 			fmt.Sprintf("%s-%s", normalizeResourceName(monitor.Name), monitor.ID),
 			"newrelic_synthetics_monitor",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 	}
 
 	return nil

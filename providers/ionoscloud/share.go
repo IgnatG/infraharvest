@@ -40,9 +40,7 @@ func (g *ShareGenerator) InitResources() error {
 				*share.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.GroupID: *group.Id, helpers.ResourceID: *share.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.GroupID: *group.Id, helpers.ResourceID: *share.Id}))
 		}
 	}
 	return nil

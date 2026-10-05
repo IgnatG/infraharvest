@@ -39,9 +39,8 @@ func (g *ServiceGenerator) createResource(serviceName string) terraformutils.Res
 		serviceName,
 		fmt.Sprintf("service_%s", serviceName),
 		"mackerel_service",
-		"mackerel",
-		[]string{},
-	)
+		"mackerel")
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

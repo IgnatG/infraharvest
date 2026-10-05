@@ -30,14 +30,12 @@ type SgGenerator struct {
 
 func resourceFromSecurityGroup(securitygroup ecs.SecurityGroup) terraformutils.Resource {
 	return terraformutils.NewResource(
-		securitygroup.SecurityGroupId,                                      // id
-		securitygroup.SecurityGroupId+"__"+securitygroup.SecurityGroupName, // name
+		securitygroup.SecurityGroupId,
+		securitygroup.SecurityGroupId+"__"+securitygroup.SecurityGroupName,
 		"alicloud_security_group",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromSecurityGroupAttribute(permission ecs.Permission, securityGroup ecs.SecurityGroup) terraformutils.Resource {
@@ -56,14 +54,12 @@ func resourceFromSecurityGroupAttribute(permission ecs.Permission, securityGroup
 	id = strings.ToLower(id)
 
 	return terraformutils.NewResource(
-		id, // id
-		id+"__"+securityGroup.SecurityGroupName, // name
+		id,
+		id+"__"+securityGroup.SecurityGroupName,
 		"alicloud_security_group_rule",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func initSecurityGroupRules(client *connectivity.AliyunClient, securityGroups []ecs.SecurityGroup) ([]ecs.Permission, []ecs.SecurityGroup, error) {
@@ -146,19 +142,6 @@ func (g *SgGenerator) InitResources() error {
 	for i, permission := range allSecurityGroupRules {
 		resource := resourceFromSecurityGroupAttribute(permission, alignedSecurityGroups[i])
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-// PostConvertHook Runs before HCL files are generated
-func (g *SgGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "alicloud_security_group" {
-			// inner_access is deprecrated
-			// https://www.terraform.io/docs/providers/alicloud/r/security_group.html#inner_access
-			delete(r.Item, "inner_access")
-		}
 	}
 
 	return nil

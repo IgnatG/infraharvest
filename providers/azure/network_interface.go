@@ -36,8 +36,7 @@ func (g NetworkInterfaceGenerator) createResources(interfaceListResult network.I
 			*networkInterface.ID,
 			*networkInterface.Name,
 			"azurerm_network_interface",
-			"azurerm",
-			[]string{}))
+			"azurerm"))
 		if err := interfaceListResult.Next(); err != nil {
 			log.Println(err)
 			return resources, err

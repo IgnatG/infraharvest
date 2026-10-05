@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 )
 
-var RDSAllowEmptyValues = []string{"tags."}
-
 type RDSGenerator struct {
 	AWSService
 }
@@ -41,9 +39,7 @@ func (g *RDSGenerator) loadDBClusters(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_rds_cluster",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -62,9 +58,7 @@ func (g *RDSGenerator) loadDBClusterSnapshots(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_cluster_snapshot",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -83,9 +77,7 @@ func (g *RDSGenerator) loadDBProxies(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_proxy",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -104,10 +96,8 @@ func (g *RDSGenerator) loadDBInstances(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_instance",
-				"aws",
-				RDSAllowEmptyValues,
-			)
-			r.IgnoreKeys = append(r.IgnoreKeys, "^name$")
+				"aws")
+
 			g.Resources = append(g.Resources, r)
 		}
 	}
@@ -127,9 +117,7 @@ func (g *RDSGenerator) loadDBInstanceSnapshots(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_snapshot",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -151,9 +139,7 @@ func (g *RDSGenerator) loadDBParameterGroups(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_parameter_group",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -172,9 +158,7 @@ func (g *RDSGenerator) loadDBSubnetGroups(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_subnet_group",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -196,9 +180,7 @@ func (g *RDSGenerator) loadOptionGroups(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_option_group",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -217,9 +199,7 @@ func (g *RDSGenerator) loadEventSubscription(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_db_event_subscription",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -238,9 +218,7 @@ func (g *RDSGenerator) loadRDSGlobalClusters(svc *rds.Client) error {
 				resourceName,
 				resourceName,
 				"aws_rds_global_cluster",
-				"aws",
-				RDSAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -290,53 +268,5 @@ func (g *RDSGenerator) InitResources() error {
 		return err
 	}
 
-	return nil
-}
-
-func (g *RDSGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type == "aws_db_instance" || r.InstanceInfo.Type == "aws_rds_cluster" {
-			for _, dbInstance := range g.Resources {
-				if dbInstance.InstanceInfo.Type != "aws_db_instance" {
-					continue
-				}
-				if g.Resources[i].Item["replicate_source_db"] != nil {
-					delete(g.Resources[i].Item, "username")
-					delete(g.Resources[i].Item, "engine_version")
-					delete(g.Resources[i].Item, "engine")
-					delete(g.Resources[i].Item, "db_name")
-				}
-			}
-
-			for _, parameterGroup := range g.Resources {
-				if parameterGroup.InstanceInfo.Type != "aws_db_parameter_group" {
-					continue
-				}
-				if parameterGroup.InstanceState.Attributes["name"] == r.InstanceState.Attributes["parameter_group_name"] {
-					g.Resources[i].Item["parameter_group_name"] = "${aws_db_parameter_group." + parameterGroup.ResourceName + ".name}"
-				}
-			}
-
-			for _, subnet := range g.Resources {
-				if subnet.InstanceInfo.Type != "aws_db_subnet_group" {
-					continue
-				}
-				if subnet.InstanceState.Attributes["name"] == r.InstanceState.Attributes["db_subnet_group_name"] {
-					g.Resources[i].Item["db_subnet_group_name"] = "${aws_db_subnet_group." + subnet.ResourceName + ".name}"
-				}
-			}
-
-			for _, optionGroup := range g.Resources {
-				if optionGroup.InstanceInfo.Type != "aws_db_option_group" {
-					continue
-				}
-				if optionGroup.InstanceState.Attributes["name"] == r.InstanceState.Attributes["option_group_name"] {
-					g.Resources[i].Item["option_group_name"] = "${aws_db_option_group." + optionGroup.ResourceName + ".name}"
-				}
-			}
-		} else {
-			continue
-		}
-	}
 	return nil
 }

@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codedeploy"
 )
 
-var codedeployAllowEmptyValues = []string{"tags."}
-
 type CodeDeployGenerator struct {
 	AWSService
 }
@@ -45,8 +43,7 @@ func (g *CodeDeployGenerator) InitResources() error {
 				fmt.Sprintf(":%s", application),
 				application,
 				"aws_codedeploy_app",
-				"aws",
-				codedeployAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

@@ -28,26 +28,22 @@ type DNSGenerator struct {
 
 func resourceFromDomain(domain alidns.DomainInDescribeDomains) terraformutils.Resource {
 	return terraformutils.NewResource(
-		domain.DomainName,                      // id
-		domain.DomainId+"__"+domain.DomainName, // nolint
+		domain.DomainName,
+		domain.DomainId+"__"+domain.DomainName,
 		"alicloud_alidns_domain",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromDomainRecord(record alidns.Record) terraformutils.Resource {
 	return terraformutils.NewResource(
-		record.RecordId,                        // id
-		record.RecordId+"__"+record.DomainName, // nolint
+		record.RecordId,
+		record.RecordId+"__"+record.DomainName,
 		"alicloud_alidns_record",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func initDomains(client *connectivity.AliyunClient) ([]alidns.DomainInDescribeDomains, error) {

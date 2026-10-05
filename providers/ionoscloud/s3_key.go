@@ -41,9 +41,7 @@ func (g *S3KeyGenerator) InitResources() error {
 				*s3Key.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.UserID: *user.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.UserID: *user.Id}))
 		}
 	}
 	return nil

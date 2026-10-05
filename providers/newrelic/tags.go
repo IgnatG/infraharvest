@@ -43,8 +43,7 @@ func (g *TagsGenerator) createSyntheticsMonitorTagResources(client *newrelic.New
 				fmt.Sprint(monitor.ID),
 				fmt.Sprintf("%s-%s", normalizeResourceName(monitor.Name), monitor.ID),
 				"newrelic_entity_tags",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 
@@ -78,8 +77,7 @@ func (g *TagsGenerator) createAlertConditionTagResources(client *newrelic.NewRel
 					fmt.Sprintf("%d:%d", alertPolicy.ID, alertCondition.ID),
 					fmt.Sprintf("%s-%d", normalizeResourceName(alertCondition.Name), alertCondition.ID),
 					"newrelic_entity_tags",
-					g.ProviderName,
-					[]string{}))
+					g.ProviderName))
 			}
 		}
 
@@ -93,8 +91,7 @@ func (g *TagsGenerator) createAlertConditionTagResources(client *newrelic.NewRel
 					fmt.Sprintf("%d:%d", alertPolicy.ID, nrqlCondition.ID),
 					fmt.Sprintf("%s-%d", normalizeResourceName(nrqlCondition.Name), nrqlCondition.ID),
 					"newrelic_entity_tags",
-					g.ProviderName,
-					[]string{}))
+					g.ProviderName))
 			}
 		}
 	}

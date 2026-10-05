@@ -47,10 +47,6 @@ func (p *MikrotikProvider) GetProviderData(arg ...string) map[string]interface{}
 	}
 }
 
-func (MikrotikProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *MikrotikProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"dhcp_lease": &DhcpLeaseGenerator{},
@@ -75,4 +71,9 @@ func (p *MikrotikProvider) InitService(serviceName string, verbose bool) error {
 		"insecure":       p.Insecure,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *MikrotikProvider) GetSource() string {
+	return "ddelnano/mikrotik"
 }

@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -67,8 +65,8 @@ func (g *ServiceGenerator) createSecretBackendResources() error {
 				mount,
 				mount,
 				fmt.Sprintf("vault_%s_secret_backend", g.mountType),
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName),
+		)
 	}
 	return nil
 }
@@ -100,8 +98,8 @@ func (g *ServiceGenerator) createSecretBackendRoleResources() error {
 					fmt.Sprintf("%s/roles/%s", mount, role),
 					fmt.Sprintf("%s_%s", mount, role),
 					fmt.Sprintf("vault_%s_secret_backend_role", g.mountType),
-					g.ProviderName,
-					[]string{}))
+					g.ProviderName),
+			)
 		}
 	}
 	return nil
@@ -133,8 +131,8 @@ func (g *ServiceGenerator) createAuthBackendResources() error {
 				backend,
 				backend,
 				fmt.Sprintf("vault_%s_auth_backend", g.mountType),
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName),
+		)
 	}
 	return nil
 }
@@ -166,8 +164,8 @@ func (g *ServiceGenerator) createAuthBackendEntityResources(apiEntity, tfEntity 
 					fmt.Sprintf("auth/%s/%s/%s", backend, apiEntity, name),
 					fmt.Sprintf("%s_%s", backend, name),
 					fmt.Sprintf("vault_%s_auth_backend_%s", g.mountType, tfEntity),
-					g.ProviderName,
-					[]string{}))
+					g.ProviderName),
+			)
 		}
 	}
 	return nil
@@ -203,8 +201,8 @@ func (g *ServiceGenerator) createPolicyResources() error {
 				policy,
 				policy,
 				"vault_policy",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName),
+		)
 	}
 	return nil
 }
@@ -236,8 +234,8 @@ func (g *ServiceGenerator) createGenericSecretResources() error {
 					fmt.Sprintf("%s/%s", mount, secret),
 					fmt.Sprintf("%s_%s", mount, secret),
 					"vault_generic_secret",
-					g.ProviderName,
-					[]string{}))
+					g.ProviderName),
+			)
 		}
 	}
 	return nil
@@ -254,34 +252,8 @@ func (g *ServiceGenerator) createMountResources() error {
 				mount,
 				mount,
 				"vault_mount",
-				g.ProviderName,
-				[]string{}))
-	}
-	return nil
-}
-
-func (g *ServiceGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		switch resource.InstanceInfo.Type {
-		case "vault_aws_secret_backend_role":
-			if policyDocument, ok := resource.Item["policy_document"]; ok {
-				// borrowed from providers/aws/aws_service.go
-				sanitizedPolicy := regexp.MustCompile(`(\${[0-9A-Za-z:]+})`).
-					ReplaceAllString(policyDocument.(string), "$$$1")
-				resource.Item["policy_document"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, sanitizedPolicy)
-			}
-		case "vault_ldap_auth_backend_group":
-			if policies, ok := resource.Item["policies"]; ok {
-				var strPolicies []string
-				for _, policy := range policies.([]interface{}) {
-					strPolicies = append(strPolicies, policy.(string))
-				}
-				sort.Strings(strPolicies)
-				resource.Item["policies"] = strPolicies
-			}
-		}
+				g.ProviderName),
+		)
 	}
 	return nil
 }

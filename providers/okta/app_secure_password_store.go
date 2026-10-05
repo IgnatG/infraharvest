@@ -32,8 +32,7 @@ func (g AppSecurePasswordStoreGenerator) createResources(appList []*okta.Applica
 			app.Id,
 			normalizeResourceName(app.Id+"_"+app.Name),
 			"okta_app_secure_password_store",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

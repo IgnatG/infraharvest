@@ -97,7 +97,7 @@ func TestDiscover(t *testing.T) {
 	if res.IsError || !strings.Contains(text, "lists 3 resources: 2 included, 1 excluded") {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"discover", "aws", "--resources=vpc,subnet", "--regions=eu-west-2", "--engine=terraform", "--selection=" + path}
+	want := []string{"discover", "aws", "--resources=vpc,subnet", "--regions=eu-west-2", "--selection=" + path}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}

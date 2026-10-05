@@ -40,8 +40,7 @@ func (g StorageAccountGenerator) createResourcesByResourceGroup(ctx context.Cont
 				*account.ID,
 				*account.Name,
 				"azurerm_storage_account",
-				"azurerm",
-				[]string{}))
+				"azurerm"))
 		}
 	}
 	return resources, nil
@@ -58,8 +57,7 @@ func (g StorageAccountGenerator) createResources(ctx context.Context, client sto
 			*account.ID,
 			*account.Name,
 			"azurerm_storage_account",
-			"azurerm",
-			[]string{}))
+			"azurerm"))
 		if err := accountListResultIterator.Next(); err != nil {
 			log.Println(err)
 			return resources, err

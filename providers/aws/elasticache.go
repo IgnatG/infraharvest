@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 )
 
-var elastiCacheAllowEmptyValues = []string{"tags."}
-
 type ElastiCacheGenerator struct {
 	AWSService
 }
@@ -41,34 +39,8 @@ func (g *ElastiCacheGenerator) loadCacheClusters(svc *elasticache.Client) error 
 				resourceName,
 				resourceName,
 				"aws_elasticache_cluster",
-				"aws",
-				elastiCacheAllowEmptyValues,
-			)
-			// redis only - if cluster has Replication Group not need next attributes.
-			// terraform-aws provider has ConflictsWith on ReplicationGroupId with all next attributes,
-			// but return all attributes on refresh :(
-			// https://github.com/terraform-providers/terraform-provider-aws/blob/master/aws/resource_aws_elasticache_cluster.go#L167
-			if StringValue(cluster.ReplicationGroupId) != "" {
-				resource.IgnoreKeys = append(resource.IgnoreKeys,
-					"^availability_zones$",
-					"^az_mode$",
-					"^engine_version$",
-					"^engine$",
-					"^maintenance_window$",
-					"^node_type$",
-					"^notification_topic_arn$",
-					"^num_cache_nodes$",
-					"^parameter_group_name$",
-					"^port$",
-					"^security_group_ids.(.*)",
-					"^security_group_names$",
-					"^snapshot_arns$",
-					"^snapshot_name$",
-					"^snapshot_retention_limit$",
-					"^snapshot_window$",
-					"^subnet_group_name$",
-				)
-			}
+				"aws")
+
 			g.Resources = append(g.Resources, resource)
 		}
 	}
@@ -91,9 +63,7 @@ func (g *ElastiCacheGenerator) loadParameterGroups(svc *elasticache.Client) erro
 				resourceName,
 				resourceName,
 				"aws_elasticache_parameter_group",
-				"aws",
-				elastiCacheAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -112,9 +82,7 @@ func (g *ElastiCacheGenerator) loadSubnetGroups(svc *elasticache.Client) error {
 				resourceName,
 				resourceName,
 				"aws_elasticache_subnet_group",
-				"aws",
-				elastiCacheAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -133,9 +101,7 @@ func (g *ElastiCacheGenerator) loadReplicationGroups(svc *elasticache.Client) er
 				resourceName,
 				resourceName,
 				"aws_elasticache_replication_group",
-				"aws",
-				elastiCacheAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -165,55 +131,5 @@ func (g *ElastiCacheGenerator) InitResources() error {
 		return err
 	}
 
-	return nil
-}
-
-func (g *ElastiCacheGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_elasticache_cluster" {
-			continue
-		}
-		for _, parameterGroup := range g.Resources {
-			if parameterGroup.InstanceInfo.Type != "aws_elasticache_parameter_group" {
-				continue
-			}
-			if parameterGroup.InstanceState.Attributes["name"] == r.InstanceState.Attributes["parameter_group_name"] {
-				if strings.HasPrefix(parameterGroup.InstanceState.Attributes["family"], r.InstanceState.Attributes["engine"]) {
-					g.Resources[i].Item["parameter_group_name"] = "${aws_elasticache_parameter_group." + parameterGroup.ResourceName + ".name}"
-				}
-			}
-		}
-
-		for _, subnet := range g.Resources {
-			if subnet.InstanceInfo.Type != "aws_elasticache_subnet_group" {
-				continue
-			}
-			if subnet.InstanceState.Attributes["name"] == r.Item["subnet_group_name"] {
-				g.Resources[i].Item["subnet_group_name"] = "${aws_elasticache_subnet_group." + subnet.ResourceName + ".name}"
-			}
-		}
-
-		for _, replicationGroup := range g.Resources {
-			if replicationGroup.InstanceInfo.Type != "aws_elasticache_replication_group" {
-				continue
-			}
-			if replicationGroup.InstanceState.Attributes["replication_group_id"] == r.InstanceState.Attributes["replication_group_id"] {
-				g.Resources[i].Item["replication_group_id"] = "${aws_elasticache_replication_group." + replicationGroup.ResourceName + ".replication_group_id}"
-			}
-		}
-	}
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_elasticache_replication_group" {
-			continue
-		}
-		for _, subnet := range g.Resources {
-			if subnet.InstanceInfo.Type != "aws_elasticache_subnet_group" {
-				continue
-			}
-			if subnet.InstanceState.Attributes["name"] == r.InstanceState.Attributes["subnet_group_name"] {
-				g.Resources[i].Item["subnet_group_name"] = "${aws_elasticache_subnet_group." + subnet.ResourceName + ".name}"
-			}
-		}
-	}
 	return nil
 }

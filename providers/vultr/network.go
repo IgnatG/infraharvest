@@ -32,8 +32,7 @@ func (g NetworkGenerator) createResources(networkList []govultr.Network) []terra
 			network.NetworkID,
 			network.NetworkID,
 			"vultr_network",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

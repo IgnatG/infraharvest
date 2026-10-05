@@ -18,11 +18,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// LogsArchiveOrderAllowEmptyValues ...
-	LogsArchiveOrderAllowEmptyValues = []string{}
-)
-
 // LogsArchiveOrderGenerator ...
 type LogsArchiveOrderGenerator struct {
 	DatadogService
@@ -35,9 +30,6 @@ func (g *LogsArchiveOrderGenerator) InitResources() error {
 		"archiveOrderID",
 		"datadog_logs_archive_order",
 		"datadog",
-		map[string]string{},
-		LogsArchiveOrderAllowEmptyValues,
-		map[string]interface{}{},
-	))
+		map[string]string{}))
 	return nil
 }

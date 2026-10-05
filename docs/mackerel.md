@@ -3,10 +3,13 @@
 Example:
 
 ```bash
- ./infraharvest import mackerel --resources=service --api-key=YOUR_MACKEREL_API_KEY // or MACKEREL_API_KEY in env --app-key=YOUR_MACKEREL_API_KEY
- ./infraharvest import mackerel --resources=service --filter=service=name1:name2:name4 --api-key=YOUR_MACKEREL_API_KEY // or MACKEREL_API_KEY in env --app-key=YOUR_MACKEREL_API_KEY
- ./infraharvest import mackerel --resources=aws_integration --filter=aws_integration=id1:id2:id4 --api-key=YOUR_MACKEREL_API_KEY // or MACKEREL_API_KEY in env --app-key=YOUR_MACKEREL_API_KEY
+export MACKEREL_API_KEY=YOUR_MACKEREL_API_KEY   # or pass --api-key=YOUR_MACKEREL_API_KEY
+infraharvest import mackerel --all --resources=service
+infraharvest import mackerel --all --resources=service --filter=service=name1:name2:name4
+infraharvest import mackerel --all --resources=aws_integration --filter=aws_integration=id1:id2:id4
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover mackerel` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Mackerel services:
 

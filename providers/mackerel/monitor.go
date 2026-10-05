@@ -39,9 +39,8 @@ func (g *MonitorGenerator) createResource(monitorID string) terraformutils.Resou
 		monitorID,
 		fmt.Sprintf("monitor_%s", monitorID),
 		"mackerel_monitor",
-		"mackerel",
-		[]string{},
-	)
+		"mackerel")
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

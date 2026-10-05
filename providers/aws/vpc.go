@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var VpcAllowEmptyValues = []string{"tags."}
-
 type VpcGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (VpcGenerator) createResources(vpcs *ec2.DescribeVpcsOutput) []terraformuti
 			StringValue(vpc.VpcId),
 			StringValue(vpc.VpcId),
 			"aws_vpc",
-			"aws",
-			VpcAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return resources
 }

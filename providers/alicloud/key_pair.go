@@ -27,14 +27,12 @@ type KeyPairGenerator struct {
 
 func resourceFromKeyPair(keyPair ecs.KeyPair) terraformutils.Resource {
 	return terraformutils.NewResource(
-		keyPair.KeyPairName, // nolint
-		keyPair.KeyPairName+"__"+keyPair.KeyPairName, // nolint
+		keyPair.KeyPairName,
+		keyPair.KeyPairName+"__"+keyPair.KeyPairName,
 		"alicloud_key_pair",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 // InitResources Gets the list of all key pair ids and generates resources

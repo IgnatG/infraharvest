@@ -44,9 +44,8 @@ func (g *NetworkingGenerator) createSecgroupResources(list *pagination.Pager) []
 				grp.ID,
 				grp.Name,
 				"openstack_networking_secgroup_v2",
-				"openstack",
-				[]string{},
-			)
+				"openstack")
+
 			resources = append(resources, resource)
 			resources = append(resources, g.createSecgroupRuleResources(grp.Rules)...)
 		}
@@ -67,9 +66,8 @@ func (g *NetworkingGenerator) createSecgroupRuleResources(rules []rules.SecGroup
 			r.ID,
 			r.ID,
 			"openstack_networking_secgroup_rule_v2",
-			"openstack",
-			[]string{},
-		)
+			"openstack")
+
 		resources = append(resources, resource)
 	}
 	return resources
@@ -97,24 +95,6 @@ func (g *NetworkingGenerator) InitResources() error {
 	list := groups.List(client, groups.ListOpts{})
 
 	g.Resources = g.createSecgroupResources(&list)
-
-	return nil
-}
-
-func (g *NetworkingGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "openstack_networking_secgroup_rule_v2" {
-			continue
-		}
-		for _, sg := range g.Resources {
-			if sg.InstanceInfo.Type != "openstack_networking_secgroup_v2" {
-				continue
-			}
-			if r.InstanceState.Attributes["security_group_id"] == sg.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["security_group_id"] = "${openstack_networking_secgroup_v2." + sg.ResourceName + ".id}"
-			}
-		}
-	}
 
 	return nil
 }

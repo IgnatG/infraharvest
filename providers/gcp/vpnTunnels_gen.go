@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var vpnTunnelsAllowEmptyValues = []string{""}
-
-var vpnTunnelsAdditionalFields = map[string]interface{}{}
-
 type VpnTunnelsGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g VpnTunnelsGenerator) createResources(ctx context.Context, vpnTunnelsList
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				vpnTunnelsAllowEmptyValues,
-				vpnTunnelsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

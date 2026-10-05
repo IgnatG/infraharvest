@@ -109,8 +109,7 @@ func (g StorageBlobGenerator) listStorageBlobs() ([]terraformutils.Resource, err
 				fmt.Sprintf(blobIDFormat, storageAccountName, containerName, blobItem.Name),
 				blobItem.Name,
 				"azurerm_storage_blob",
-				"azurerm",
-				[]string{}))
+				"azurerm"))
 		}
 	}
 

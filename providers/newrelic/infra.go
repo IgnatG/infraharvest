@@ -44,9 +44,7 @@ func (g *InfraGenerator) createAlertInfraConditionResources(client *newrelic.New
 				g.ProviderName,
 				map[string]string{
 					"type": alertInfraCondition.Type,
-				},
-				[]string{},
-				map[string]interface{}{}))
+				}))
 		}
 	}
 	return nil

@@ -76,8 +76,7 @@ func (g *SubnetGenerator) createResources(subnets []*vpc.Subnet) []terraformutil
 			subnet.GetId(),
 			subnet.GetId(),
 			"yandex_vpc_subnet",
-			"yandex",
-			[]string{}))
+			"yandex"))
 	}
 	return resources
 }

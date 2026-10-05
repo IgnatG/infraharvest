@@ -62,8 +62,7 @@ func (g CertificateGenerator) createResources(certificateList []godo.Certificate
 			certificate.ID,
 			certificate.Name,
 			"digitalocean_certificate",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

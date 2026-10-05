@@ -33,8 +33,7 @@ func (g InstanceGenerator) createResources(instanceList []linodego.Instance) []t
 			strconv.Itoa(instance.ID),
 			strconv.Itoa(instance.ID),
 			"linode_instance",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return resources
 }

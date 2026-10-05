@@ -47,9 +47,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_account",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "certificates":
 		resources, err := client.Certificate.GetAll()
@@ -62,9 +60,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_certificate",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	// case "channels":
 	// TODO: Somehow there is an issue with the channels:
@@ -82,7 +78,6 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 	// 			ressource.Name
 	// 			"octopusdeploy_channel",
 	// 			g.ProviderName,
-	// 			[]string{},
 	// 		))
 	// 	}
 	case "environments":
@@ -96,9 +91,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_environment",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "feeds":
 		resources, err := client.Feed.GetAll()
@@ -111,9 +104,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_feed",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "libraryvariablesets":
 		resources, err := client.LibraryVariableSet.GetAll()
@@ -126,9 +117,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_library_variable_set",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "lifecycles":
 		resources, err := client.Lifecycle.GetAll()
@@ -141,9 +130,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_lifecycle",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "projects":
 		resources, err := client.Project.GetAll()
@@ -156,9 +143,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_project",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "projectgroups":
 		resources, err := client.ProjectGroup.GetAll()
@@ -171,9 +156,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_project_group",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "projecttriggers":
 		resources, err := client.ProjectTrigger.GetAll()
@@ -186,9 +169,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_project_deployment_target_trigger",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 	case "tagsets":
 		resources, err := client.TagSet.GetAll()
@@ -201,9 +182,7 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 				ressource.ID,
 				ressource.Name,
 				"octopusdeploy_tag_set",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 		// case "variables":
 		// TODO: This cannot generate a `variables.tf` file as there is already one.
@@ -226,7 +205,6 @@ func (g *GenericGenerator) createResources(client *octopusdeploy.Client) error {
 		// 			ressource.Name
 		// 			"octopusdeploy_variable",
 		// 			g.ProviderName,
-		// 			[]string{},
 		// 		))
 		// 	}
 		// }

@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var NaclAllowEmptyValues = []string{"tags."}
-
 type NaclGenerator struct {
 	AWSService
 }
@@ -38,8 +36,7 @@ func (NaclGenerator) createResources(nacls *ec2.DescribeNetworkAclsOutput) []ter
 			StringValue(nacl.NetworkAclId),
 			StringValue(nacl.NetworkAclId),
 			resourceType,
-			"aws",
-			NaclAllowEmptyValues))
+			"aws"))
 	}
 	return resources
 }

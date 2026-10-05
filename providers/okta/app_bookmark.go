@@ -34,9 +34,7 @@ func (g *AppBookmarkGenerator) createResources(appList []okta.ListApplications20
 					*id,
 					normalizeResourceName(*id+"_"+label),
 					"okta_app_bookmark",
-					"okta",
-					[]string{},
-				))
+					"okta"))
 			}
 		}
 	}

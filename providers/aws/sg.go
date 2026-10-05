@@ -19,18 +19,16 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/hashicorp/terraform/flatmap"
 	"gonum.org/v1/gonum/graph"
 	simplegraph "gonum.org/v1/gonum/graph/simple"
 	"gonum.org/v1/gonum/graph/topo"
 )
-
-var SgAllowEmptyValues = []string{"tags."}
 
 type void struct{}
 
@@ -71,11 +69,9 @@ func (SecurityGenerator) createResources(securityGroups []types.SecurityGroup) [
 		if sg.VpcId == nil {
 			continue
 		}
-		ruleAttributes := map[string]interface{}{}
-		// we must move out all of the rules - https://github.com/hashicorp/terraform/issues/11011#issuecomment-283076580
+		// we must move out all of the rules, see hashicorp/terraform#11011
 		for _, groupIDToMoveOut := range sgIDsToMoveOut {
 			if groupIDToMoveOut == *sg.GroupId {
-				ruleAttributes["clearRules"] = true
 				for _, rule := range sg.IpPermissions {
 					resources = processRule(rule, "ingress", sg, resources)
 				}
@@ -90,9 +86,7 @@ func (SecurityGenerator) createResources(securityGroups []types.SecurityGroup) [
 			strings.Trim(StringValue(sg.GroupName)+"_"+StringValue(sg.GroupId), " "),
 			"aws_security_group",
 			"aws",
-			map[string]string{},
-			SgAllowEmptyValues,
-			ruleAttributes))
+			map[string]string{}))
 	}
 	return resources
 }
@@ -106,9 +100,7 @@ func processRule(rule types.IpPermission, ruleType string, sg types.SecurityGrou
 				permissionID(*sg.GroupId, ruleType, "", rule),
 				"aws_security_group_rule",
 				"aws",
-				flatmap.Flatten(attributes),
-				SgAllowEmptyValues,
-				map[string]interface{}{}))
+				flattenAttributes(attributes)))
 		}
 		if len(rule.Ipv6Ranges) > 0 { // we must unwind coupled CIDR IPv6 range + security group rules
 			attributes := baseRuleAttributes(ruleType, rule, sg)
@@ -117,9 +109,7 @@ func processRule(rule types.IpPermission, ruleType string, sg types.SecurityGrou
 				permissionID(*sg.GroupId, ruleType, "", rule),
 				"aws_security_group_rule",
 				"aws",
-				flatmap.Flatten(attributes),
-				SgAllowEmptyValues,
-				map[string]interface{}{}))
+				flattenAttributes(attributes)))
 		}
 		for _, groupPair := range rule.UserIdGroupPairs {
 			attributes := baseRuleAttributes(ruleType, rule, sg)
@@ -136,9 +126,7 @@ func processRule(rule types.IpPermission, ruleType string, sg types.SecurityGrou
 				permissionID(*sg.GroupId, ruleType, *groupPair.GroupId, rule),
 				"aws_security_group_rule",
 				"aws",
-				flatmap.Flatten(attributes),
-				SgAllowEmptyValues,
-				map[string]interface{}{}))
+				flattenAttributes(attributes)))
 		}
 	} else {
 		attributes := baseRuleAttributes(ruleType, rule, sg)
@@ -147,9 +135,7 @@ func processRule(rule types.IpPermission, ruleType string, sg types.SecurityGrou
 			permissionID(*sg.GroupId, ruleType, "", rule),
 			"aws_security_group_rule",
 			"aws",
-			flatmap.Flatten(attributes),
-			SgAllowEmptyValues,
-			map[string]interface{}{}))
+			flattenAttributes(attributes)))
 	}
 	return resources
 }
@@ -261,51 +247,6 @@ func (g *SecurityGenerator) InitResources() error {
 	return nil
 }
 
-func (g *SecurityGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_security_group_rule" {
-			if resource.Item["self"] == "true" {
-				delete(resource.Item, "source_security_group_id")
-			}
-		} else if resource.InstanceInfo.Type == "aws_security_group" {
-			if resource.Item["clearRules"] == true {
-				delete(resource.Item, "ingress")
-				delete(resource.Item, "egress")
-				delete(resource.Item, "clearRules")
-				continue
-			}
-
-			if val, ok := resource.Item["ingress"]; ok {
-				g.sortRules(val.([]interface{}))
-			}
-			if val, ok := resource.Item["egress"]; ok {
-				g.sortRules(val.([]interface{}))
-			}
-		}
-	}
-	return nil
-}
-
-func (g *SecurityGenerator) sortRules(rules []interface{}) {
-	for _, rule := range rules {
-		ruleMap := rule.(map[string]interface{})
-		g.sortIfExist("cidr_blocks", ruleMap)
-		g.sortIfExist("ipv6_cidr_blocks", ruleMap)
-		g.sortIfExist("security_groups", ruleMap)
-	}
-	sort.Slice(rules, func(i, j int) bool {
-		return fmt.Sprintf("%v", rules[i]) < fmt.Sprintf("%v", rules[j])
-	})
-}
-
-func (g *SecurityGenerator) sortIfExist(attribute string, ruleMap map[string]interface{}) {
-	if val, ok := ruleMap[attribute]; ok {
-		sort.Slice(val.([]interface{}), func(i, j int) bool {
-			return val.([]interface{})[i].(string) < val.([]interface{})[j].(string)
-		})
-	}
-}
-
 func permissionID(sgID, ruleType, groupID string, ip types.IpPermission) string {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("%s_%s_%s_%d_%d_", sgID, ruleType, *ip.IpProtocol, fromPort(ip), toPort(ip)))
@@ -400,6 +341,30 @@ func prefixes(rule types.IpPermission) []string {
 	result := make([]string, len(rule.PrefixListIds))
 	for idx, rule := range rule.PrefixListIds {
 		result[idx] = *rule.PrefixListId
+	}
+	return result
+}
+
+// flattenAttributes flattens a rule's attributes as Terraform state does:
+// a list becomes "<key>.#" and "<key>.<index>".
+func flattenAttributes(attributes map[string]interface{}) map[string]string {
+	result := map[string]string{}
+	for k, v := range attributes {
+		switch v := v.(type) {
+		case []string:
+			result[k+".#"] = strconv.Itoa(len(v))
+			for i, s := range v {
+				result[k+"."+strconv.Itoa(i)] = s
+			}
+		case bool:
+			result[k] = strconv.FormatBool(v)
+		case int:
+			result[k] = strconv.Itoa(v)
+		case string:
+			result[k] = v
+		default:
+			result[k] = fmt.Sprint(v)
+		}
 	}
 	return result
 }

@@ -5,8 +5,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/xray"
 )
 
-var xrayAllowEmptyValues = []string{"tags."}
-
 type XrayGenerator struct {
 	AWSService
 }
@@ -31,8 +29,7 @@ func (g *XrayGenerator) InitResources() error {
 					*samplingRule.SamplingRule.RuleName,
 					*samplingRule.SamplingRule.RuleName,
 					"aws_xray_sampling_rule",
-					"aws",
-					xrayAllowEmptyValues))
+					"aws"))
 			}
 		}
 	}

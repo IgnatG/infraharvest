@@ -71,9 +71,7 @@ func (g *PanoramaNetworkingGenerator) createResourcesFromList(
 				return r
 			}()),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -101,9 +99,7 @@ func (g *PanoramaNetworkingGenerator) createAggregateInterfaceResources(tmpl, ts
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_aggregate_interface",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 
 			e, err := g.client.(*pango.Panorama).Network.AggregateInterface.Get(tmpl, ts, aggregateInterface)
 			if err != nil {
@@ -135,9 +131,8 @@ func (g *PanoramaNetworkingGenerator) createBGPResource(tmpl, ts, virtualRouter 
 		tmpl+":"+ts+":"+virtualRouter,
 		normalizeResourceName(tmpl+":"+ts+":"+virtualRouter),
 		"panos_panorama_bgp",
-		"panos",
-		[]string{},
-	)
+		"panos")
+
 }
 
 func (g *PanoramaNetworkingGenerator) createBGPAggregateResources(tmpl, ts, virtualRouter string) (resources []terraformutils.Resource) {
@@ -152,9 +147,7 @@ func (g *PanoramaNetworkingGenerator) createBGPAggregateResources(tmpl, ts, virt
 			id,
 			normalizeResourceName(id),
 			"panos_panorama_bgp_aggregate",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPAggregateAdvertiseFilterResources(tmpl, ts, virtualRouter, bgpAggregate)...)
 		resources = append(resources, g.createBGPAggregateSuppressFilterResources(tmpl, ts, virtualRouter, bgpAggregate)...)
@@ -197,9 +190,7 @@ func (g *PanoramaNetworkingGenerator) createBGPConditionalAdvertisementResources
 			id,
 			normalizeResourceName(id),
 			"panos_panorama_bgp_conditional_adv",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPConditionalAdvertisementAdvertiseFilterResources(tmpl, ts, virtualRouter, bgpConditionalAdv)...)
 		resources = append(resources, g.createBGPConditionalAdvertisementNonExistFilterResources(tmpl, ts, virtualRouter, bgpConditionalAdv)...)
@@ -255,9 +246,7 @@ func (g *PanoramaNetworkingGenerator) createBGPPeerGroupResources(tmpl, ts, virt
 			id,
 			normalizeResourceName(id),
 			"panos_panorama_bgp_peer_group",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPPeerResources(tmpl, ts, virtualRouter, bgpPeerGroup)...)
 	}
@@ -301,9 +290,7 @@ func (g *PanoramaNetworkingGenerator) createEthernetInterfaceResources(tmpl, ts 
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_ethernet_interface",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 
 			e, err := g.client.(*pango.Panorama).Network.EthernetInterface.Get(tmpl, ts, ethernetInterface)
 			if err != nil {
@@ -346,10 +333,7 @@ func (g *PanoramaNetworkingGenerator) createIKECryptoProfileResources(tmpl, ts s
 			"panos",
 			map[string]string{
 				"name": ikeCryptoProfile,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -371,10 +355,7 @@ func (g *PanoramaNetworkingGenerator) createIKEGatewayResources(tmpl, ts string)
 			"panos",
 			map[string]string{
 				"name": ikeGateway,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -396,10 +377,7 @@ func (g *PanoramaNetworkingGenerator) createIPSECCryptoProfileResources(tmpl, ts
 			"panos",
 			map[string]string{
 				"name": ipsecCryptoProfile,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -425,9 +403,7 @@ func (g *PanoramaNetworkingGenerator) createIPSECTunnelResources(tmpl, ts string
 			id,
 			normalizeResourceName(id),
 			"panos_panorama_ipsec_tunnel",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createIPSECTunnelProxyIDIPv4Resources(tmpl, ts, ipsecTunnel)...)
 	}
@@ -473,9 +449,7 @@ func (g *PanoramaNetworkingGenerator) createLoopbackInterfaceResources(tmpl, ts 
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_loopback_interface",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 		}
 	}
 
@@ -498,10 +472,7 @@ func (g *PanoramaNetworkingGenerator) createManagementProfileResources(tmpl, ts 
 			"panos",
 			map[string]string{
 				"name": managementProfile,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -550,9 +521,7 @@ func (g *PanoramaNetworkingGenerator) createTunnelInterfaceResources(tmpl, ts st
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_tunnel_interface",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 		}
 	}
 
@@ -582,9 +551,7 @@ func (g *PanoramaNetworkingGenerator) createVirtualRouterResources(tmpl, ts stri
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_virtual_router",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 
 			resources = append(resources, g.createBGPResource(tmpl, ts, virtualRouter))
 			resources = append(resources, g.createBGPAggregateResources(tmpl, ts, virtualRouter)...)
@@ -626,9 +593,7 @@ func (g *PanoramaNetworkingGenerator) createVlanResources(tmpl, ts string, v []v
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_vlan",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 		}
 	}
 
@@ -657,9 +622,7 @@ func (g *PanoramaNetworkingGenerator) createVlanInterfaceResources(tmpl, ts stri
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_vlan_interface",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 		}
 	}
 
@@ -679,9 +642,7 @@ func (g *PanoramaNetworkingGenerator) createZoneResources(tmpl, ts string, v []v
 				id,
 				normalizeResourceName(id),
 				"panos_panorama_zone",
-				"panos",
-				[]string{},
-			))
+				"panos"))
 		}
 	}
 
@@ -734,231 +695,6 @@ func (g *PanoramaNetworkingGenerator) InitResources() error {
 		g.Resources = append(g.Resources, g.createVlanResources(v, "", vsysAll)...)
 		g.Resources = append(g.Resources, g.createVlanInterfaceResources(v, "", vsysAll)...)
 		g.Resources = append(g.Resources, g.createZoneResources(v, "", vsysAll)...)
-	}
-
-	return nil
-}
-
-func (g *PanoramaNetworkingGenerator) PostConvertHook() error {
-	mapInterfaceNames := map[string]string{}
-	mapInterfaceModes := map[string]string{}
-	mapIKECryptoProfileNames := map[string]string{}
-	mapIKEGatewayNames := map[string]string{}
-	mapIPSECCryptoProfileNames := map[string]string{}
-
-	for _, r := range g.Resources {
-		if _, ok := r.Item["name"]; ok {
-			if r.InstanceInfo.Type == "panos_panorama_aggregate_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-				mapInterfaceModes[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".mode}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_ethernet_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-				mapInterfaceModes[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".mode}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_layer2_subinterface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_layer3_subinterface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_loopback_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_tunnel_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_vlan_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_ike_crypto_profile" {
-				mapIKECryptoProfileNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_ike_gateway" {
-				mapIKEGatewayNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_panorama_ipsec_crypto_profile" {
-				mapIPSECCryptoProfileNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-		}
-	}
-
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "panos_panorama_bgp" ||
-			r.InstanceInfo.Type == "panos_panorama_redistribution_profile_ipv4" ||
-			r.InstanceInfo.Type == "panos_panorama_static_route_ipv4" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				if r.Item["virtual_router"].(string) != "default" {
-					r.Item["virtual_router"] = "${panos_panorama_virtual_router." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".name}"
-				}
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_bgp_aggregate" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_auth_profile" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_conditional_adv" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_dampening_profile" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_export_rule_group" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_import_rule_group" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_peer_group" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_redist_rule" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				if r.Item["virtual_router"].(string) != "default" {
-					r.Item["virtual_router"] = "${panos_panorama_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-				}
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_bgp_aggregate_advertise_filter" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_aggregate_suppress_filter" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				if r.Item["virtual_router"].(string) != "default" {
-					r.Item["virtual_router"] = "${panos_panorama_bgp_aggregate." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-				}
-			}
-			if _, ok := r.Item["bgp_aggregate"]; ok {
-				r.Item["bgp_aggregate"] = "${panos_panorama_bgp_aggregate." + normalizeResourceName(r.Item["bgp_aggregate"].(string)) + ".name}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_bgp_peer" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				if r.Item["virtual_router"].(string) != "default" {
-					r.Item["virtual_router"] = "${panos_panorama_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-					r.Item["peer_as"] = "${panos_panorama_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".as_number}"
-				}
-			}
-			if _, ok := r.Item["panos_bgp_peer_group"]; ok {
-				r.Item["bgp_peer_group"] = "${panos_panorama_bgp_peer_group." + normalizeResourceName(r.Item["panos_bgp_peer_group"].(string)) + ".name}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_bgp_conditional_adv_advertise_filter" ||
-			r.InstanceInfo.Type == "panos_panorama_bgp_conditional_adv_non_exist_filter" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				if r.Item["virtual_router"].(string) != "default" {
-					r.Item["virtual_router"] = "${panos_panorama_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-				}
-			}
-			if _, ok := r.Item["panos_bgp_conditional_adv"]; ok {
-				r.Item["bgp_conditional_adv"] = "${panos_panorama_bgp_conditional_adv." + normalizeResourceName(r.Item["panos_bgp_conditional_adv"].(string)) + ".name}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_gre_tunnel" {
-			if mapExists(mapInterfaceNames, r.Item, "interface") {
-				r.Item["interface"] = mapInterfaceNames[r.Item["interface"].(string)]
-			}
-			if mapExists(mapInterfaceNames, r.Item, "tunnel_interface") {
-				r.Item["tunnel_interface"] = mapInterfaceNames[r.Item["tunnel_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_ike_gateway" {
-			if mapExists(mapIKECryptoProfileNames, r.Item, "ikev1_crypto_profile") {
-				r.Item["ikev1_crypto_profile"] = mapIKECryptoProfileNames[r.Item["ikev1_crypto_profile"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_ipsec_tunnel" {
-			if mapExists(mapInterfaceNames, r.Item, "tunnel_interface") {
-				r.Item["tunnel_interface"] = mapInterfaceNames[r.Item["tunnel_interface"].(string)]
-			}
-			if mapExists(mapIKEGatewayNames, r.Item, "ak_ike_gateway") {
-				r.Item["ak_ike_gateway"] = mapIKEGatewayNames[r.Item["ak_ike_gateway"].(string)]
-			}
-			if mapExists(mapIPSECCryptoProfileNames, r.Item, "ak_ipsec_crypto_profile") {
-				r.Item["ak_ipsec_crypto_profile"] = mapIPSECCryptoProfileNames[r.Item["ak_ipsec_crypto_profile"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_ipsec_tunnel_proxy_id_ipv4" {
-			if mapExists(mapInterfaceNames, r.Item, "tunnel_interface") {
-				r.Item["tunnel_interface"] = mapInterfaceNames[r.Item["tunnel_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_layer2_subinterface" {
-			if mapExists(mapInterfaceModes, r.Item, "parent_interface") {
-				r.Item["parent_mode"] = mapInterfaceModes[r.Item["parent_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_layer2_subinterface" ||
-			r.InstanceInfo.Type == "panos_panorama_layer3_subinterface" {
-			if mapExists(mapInterfaceNames, r.Item, "parent_interface") {
-				r.Item["parent_interface"] = mapInterfaceNames[r.Item["parent_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_virtual_router" {
-			if r.Item["ospfv3_ext_dist"].(string) == "0" {
-				r.Item["ospfv3_ext_dist"] = "110"
-			}
-
-			if r.Item["ebgp_dist"].(string) == "0" {
-				r.Item["ebgp_dist"] = "20"
-			}
-
-			if r.Item["rip_dist"].(string) == "0" {
-				r.Item["rip_dist"] = "120"
-			}
-
-			if r.Item["ibgp_dist"].(string) == "0" {
-				r.Item["ibgp_dist"] = "200"
-			}
-
-			if r.Item["static_dist"].(string) == "0" {
-				r.Item["static_dist"] = "10"
-			}
-
-			if r.Item["ospf_int_dist"].(string) == "0" {
-				r.Item["ospf_int_dist"] = "30"
-			}
-
-			if r.Item["static_ipv6_dist"].(string) == "0" {
-				r.Item["static_ipv6_dist"] = "10"
-			}
-
-			if r.Item["ospf_ext_dist"].(string) == "0" {
-				r.Item["ospf_ext_dist"] = "110"
-			}
-
-			if r.Item["ospfv3_int_dist"].(string) == "0" {
-				r.Item["ospfv3_int_dist"] = "30"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_virtual_router" ||
-			r.InstanceInfo.Type == "panos_panorama_zone" {
-			if _, ok := r.Item["interfaces"]; ok {
-				interfaces := make([]string, len(r.Item["interfaces"].([]interface{})))
-				for k, eth := range r.Item["interfaces"].([]interface{}) {
-					if name, ok2 := mapInterfaceNames[eth.(string)]; ok2 {
-						interfaces[k] = name
-						continue
-					}
-					interfaces[k] = eth.(string)
-				}
-
-				r.Item["interfaces"] = interfaces
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_panorama_vlan" {
-			if mapExists(mapInterfaceNames, r.Item, "vlan_interface") {
-				r.Item["vlan_interface"] = mapInterfaceNames[r.Item["vlan_interface"].(string)]
-			}
-		}
 	}
 
 	return nil

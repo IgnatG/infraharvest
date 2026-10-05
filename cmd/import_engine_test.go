@@ -17,13 +17,13 @@ import (
 
 func TestImportsByDir(t *testing.T) {
 	resources := map[string][]terraformutils.Resource{
-		"sqs": {terraformutils.NewSimpleResource("https://sqs/1/orders", "orders", "aws_sqs_queue", "aws", nil)},
-		"sns": {terraformutils.NewSimpleResource("arn:aws:sns:topic", "alerts", "aws_sns_topic", "aws", nil)},
+		"sqs": {terraformutils.NewSimpleResource("https://sqs/1/orders", "orders", "aws_sqs_queue", "aws")},
+		"sns": {terraformutils.NewSimpleResource("arn:aws:sns:topic", "alerts", "aws_sns_topic", "aws")},
 		"s3":  nil, // a service with no resources gets no directory
 	}
 
 	t.Run("one directory per service", func(t *testing.T) {
-		options := ImportOptions{PathPattern: DefaultPathPattern, PathOutput: "out"}
+		options := ImportOptions{PathPattern: "{output}/{provider}/{service}/", PathOutput: "out"}
 
 		got, _ := importsByDir("aws", options, resources, listerID)
 
@@ -52,8 +52,8 @@ func listerID(r terraformutils.Resource) (string, bool) { return r.InstanceState
 func TestImportsByDirUsesImportIDs(t *testing.T) {
 	resources := map[string][]terraformutils.Resource{
 		"route_table": {
-			terraformutils.NewSimpleResource("rtbassoc-1", "a", "aws_route_table_association", "aws", nil),
-			terraformutils.NewSimpleResource("rtbassoc-2", "main", "aws_main_route_table_association", "aws", nil),
+			terraformutils.NewSimpleResource("rtbassoc-1", "a", "aws_route_table_association", "aws"),
+			terraformutils.NewSimpleResource("rtbassoc-2", "main", "aws_main_route_table_association", "aws"),
 		},
 	}
 	importID := func(r terraformutils.Resource) (string, bool) {
@@ -84,7 +84,7 @@ type idProvider struct {
 func (idProvider) ImportID(terraformutils.Resource) (string, bool) { return "mapped", true }
 
 func TestImportIDFunc(t *testing.T) {
-	r := terraformutils.NewSimpleResource("listed", "a", "aws_sqs_queue", "aws", nil)
+	r := terraformutils.NewSimpleResource("listed", "a", "aws_sqs_queue", "aws")
 
 	if id, ok := importIDFunc(sourcedProvider{})(r); id != "listed" || !ok {
 		t.Errorf("without a mapping: got %q, %v; want the lister's ID", id, ok)
@@ -123,26 +123,19 @@ func TestEngineProvider(t *testing.T) {
 	}
 }
 
-func TestCheckTerraformEngineOptions(t *testing.T) {
-	defaults := ImportOptions{State: DefaultState, Output: "hcl", Connect: true}
-	if err := checkTerraformEngineOptions(defaults); err != nil {
-		t.Errorf("defaults must be accepted, got %v", err)
+func TestCheckImportOptions(t *testing.T) {
+	for _, options := range []ImportOptions{{}, {Output: outputHCL}, {Output: outputJSON, Modules: modulesNone}, {Filter: []string{"sqs=a:b", "Type=sqs;Name=id;Value=a", "Name=tags.Team;Value=web"}}} {
+		if err := checkImportOptions(options); err != nil {
+			t.Errorf("%+v must be accepted, got %v", options, err)
+		}
 	}
-	withJSON := defaults
-	withJSON.Output = outputJSON
-	if err := checkTerraformEngineOptions(withJSON); err != nil {
-		t.Errorf("--output json must be accepted, got %v", err)
-	}
-
-	bad := defaults
-	bad.State, bad.Output, bad.Compact = "bucket", "yaml", true
-	err := checkTerraformEngineOptions(bad)
-	if err == nil {
-		t.Fatal("want an error for unsupported options")
-	}
-	for _, want := range []string{"--state bucket", "--output yaml", "--compact"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not mention %q", err, want)
+	for want, options := range map[string]ImportOptions{
+		"--output must be":  {Output: "yaml"},
+		"--modules must be": {Modules: "some"},
+		"isn't a filter":    {Filter: []string{"a;b;c;d"}},
+	} {
+		if err := checkImportOptions(options); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%+v: got %v, want an error saying %q", options, err, want)
 		}
 	}
 }
@@ -155,16 +148,16 @@ func TestImportRejectsUnknownEngine(t *testing.T) {
 }
 
 // The engine labels resources by the name the lister gave, not by undoing
-// the legacy sanitizing: "-" is part of names like my-2024-backups, and
+// TfSanitize: "-" is part of names like my-2024-backups, and
 // "-2024-" is not an escape.
 func TestImportsByDirKeepRawNames(t *testing.T) {
 	resources := map[string][]terraformutils.Resource{
 		"s3": {
-			terraformutils.NewSimpleResource("my-2024-backups", "my-2024-backups", "aws_s3_bucket", "aws", nil),
-			terraformutils.NewSimpleResource("logs-2024-a", "logs-2024-a", "aws_s3_bucket", "aws", nil),
-			terraformutils.NewSimpleResource("logs-2025-a", "logs-2025-a", "aws_s3_bucket", "aws", nil),
+			terraformutils.NewSimpleResource("my-2024-backups", "my-2024-backups", "aws_s3_bucket", "aws"),
+			terraformutils.NewSimpleResource("logs-2024-a", "logs-2024-a", "aws_s3_bucket", "aws"),
+			terraformutils.NewSimpleResource("logs-2025-a", "logs-2025-a", "aws_s3_bucket", "aws"),
 		},
-		"ssm": {terraformutils.NewSimpleResource("/infraharvest-e2e/endpoint", "/infraharvest-e2e/endpoint", "aws_ssm_parameter", "aws", nil)},
+		"ssm": {terraformutils.NewSimpleResource("/infraharvest-e2e/endpoint", "/infraharvest-e2e/endpoint", "aws_ssm_parameter", "aws")},
 	}
 	options := ImportOptions{PathPattern: "{output}/{provider}/", PathOutput: "out"}
 
@@ -234,11 +227,10 @@ func TestRootPathPattern(t *testing.T) {
 	for pattern, want := range map[string]string{
 		// Not given: one root per account and region.
 		"": "{output}/{provider}/111122223333/eu-west-2/",
-		// Given as the legacy default: followed as it is (see
-		// defaultPathPattern).
-		DefaultPathPattern:              DefaultPathPattern,
-		"{output}/{account}/{service}/": "{output}/111122223333/{service}/",
-		"{output}/{provider}/":          "{output}/{provider}/",
+		// Given without {account} or {region}: followed as it is.
+		"{output}/{provider}/{service}/": "{output}/{provider}/{service}/",
+		"{output}/{account}/{service}/":  "{output}/111122223333/{service}/",
+		"{output}/{provider}/":           "{output}/{provider}/",
 	} {
 		got, err := rootPathPattern(t.Context(), scopedProvider{}, pattern)
 		if err != nil || got != want {

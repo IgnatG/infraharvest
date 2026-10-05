@@ -66,59 +66,6 @@ func (p *IBMProvider) GetProviderData(arg ...string) map[string]interface{} {
 	}
 }
 
-func (IBMProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"ibm_is_vpc_route": {
-			"ibm_is_vpc": []string{"vpc", "id"},
-		},
-		"ibm_is_vpc_routing_table": {
-			"ibm_is_vpc": []string{"vpc", "id"},
-		},
-		"ibm_is_subnet": {
-			"ibm_is_vpc":            []string{"vpc", "id"},
-			"ibm_is_public_gateway": []string{"public_gateway", "id"},
-		},
-		"ibm_is_vpc_address_prefix": {
-			"ibm_is_vpc": []string{"vpc", "id"},
-		},
-		"ibm_is_lb": {
-			"ibm_is_vpc":            []string{"vpc", "id"},
-			"ibm_is_subnet":         []string{"subnets", "id"},
-			"ibm_is_security_group": []string{"security_groups", "id"},
-		},
-		"ibm_is_instance": {
-			"ibm_is_vpc":            []string{"vpc", "id"},
-			"ibm_is_image":          []string{"image", "id"},
-			"ibm_is_subnet":         []string{"primary_network_interface.subnet", "id"},
-			"ibm_is_security_group": []string{"primary_network_interface.security_groups", "id"},
-			"ibm_is_volume":         []string{"volumes", "id"},
-		},
-		"ibm_is_security_group": {
-			"ibm_is_vpc": []string{"vpc", "id"},
-		},
-		"ibm_is_network_acl": {
-			"ibm_is_vpc":    []string{"vpc", "id"},
-			"ibm_is_subnet": []string{"subnets", "id"},
-		},
-		"ibm_is_public_gateway": {
-			"ibm_is_vpc":         []string{"vpc", "id"},
-			"ibm_is_floating_ip": []string{"floating_ip.id", "id"},
-		},
-		"ibm_container_vpc_cluster": {
-			"ibm_is_vpc":    []string{"vpc_id", "id"},
-			"ibm_is_subnet": []string{"zones.subnet_id", "id"},
-		},
-		"ibm_vpe_gateway": {
-			"ibm_is_vpc":            []string{"vpc", "id"},
-			"ibm_is_security_group": []string{"security_groups", "id"},
-			"ibm_is_subnet":         []string{"ips.subnet", "id"},
-		},
-		"ibm_is_vpn_gateway": {
-			"ibm_is_subnet": []string{"subnet", "id"},
-		},
-	}
-}
-
 func (p *IBMProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"ibm_kp":                            &KPGenerator{},
@@ -190,4 +137,9 @@ func (p *IBMProvider) InitService(serviceName string, verbose bool) error {
 		"vpc":            p.VPC,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *IBMProvider) GetSource() string {
+	return "IBM-Cloud/ibm"
 }

@@ -32,8 +32,7 @@ func (g *AppSyncGenerator) InitResources() error {
 				id,
 				name,
 				"aws_appsync_graphql_api",
-				"aws",
-				[]string{}))
+				"aws"))
 		}
 		return apis.NextToken, nil
 	})

@@ -34,8 +34,8 @@ func (g IkeGenerator) createIkeResources(ikeID, ikeName string) terraformutils.R
 		ikeID,
 		normalizeResourceName(ikeName, false),
 		"ibm_is_ike_policy",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

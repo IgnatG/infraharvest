@@ -59,9 +59,7 @@ func (g AuthenticatorGenerator) createResources(authenticators []okta.ListAuthen
 			resourceID,
 			resourceName,
 			"okta_authenticator",
-			"okta",
-			[]string{},
-		))
+			"okta"))
 	}
 	return resources
 }

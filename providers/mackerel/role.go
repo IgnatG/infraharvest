@@ -43,10 +43,8 @@ func (g *RoleGenerator) createResource(serviceName string, roleName string) terr
 		map[string]string{
 			"service": serviceName,
 			"name":    roleName,
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

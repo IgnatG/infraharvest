@@ -62,10 +62,7 @@ func createMembershipsResources(ctx context.Context, client *githubAPI.Client, o
 				owner+":"+member.GetLogin(),
 				member.GetLogin(),
 				"github_membership",
-				"github",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"github")
 
 			resources = append(resources, resource)
 		}

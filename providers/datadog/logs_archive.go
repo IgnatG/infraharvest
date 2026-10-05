@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// LogsArchiveAllowEmptyValues ...
-	LogsArchiveAllowEmptyValues = []string{"path", "query"}
-)
-
 // LogsArchiveGenerator ...
 type LogsArchiveGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *LogsArchiveGenerator) createResource(logsArchiveID string) terraformuti
 		logsArchiveID,
 		fmt.Sprintf("logs_archive_%s", logsArchiveID),
 		"datadog_logs_archive",
-		"datadog",
-		LogsArchiveAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

@@ -137,7 +137,7 @@ func (g *CloudControlGenerator) list(ctx context.Context, client cloudcontrol.Li
 			if id == "" {
 				continue
 			}
-			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(id, cloudControlName(id), t.Terraform, "aws", nil))
+			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(id, cloudControlName(id), t.Terraform, "aws"))
 		}
 	}
 	return nil

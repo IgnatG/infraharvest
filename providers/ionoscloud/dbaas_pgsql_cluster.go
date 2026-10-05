@@ -30,9 +30,7 @@ func (g DBaaSPgSQLClusterGenerator) createResources(
 			*cluster.Properties.DisplayName+"-"+*cluster.Id,
 			"ionoscloud_pg_cluster",
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return resources
 }

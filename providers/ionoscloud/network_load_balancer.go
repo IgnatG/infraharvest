@@ -46,9 +46,7 @@ func (g *NetworkLoadBalancerGenerator) InitResources() error {
 				*networkLoadBalancer.Properties.Name+"-"+*networkLoadBalancer.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.DcID: *datacenter.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.DcID: *datacenter.Id}))
 		}
 	}
 	return nil

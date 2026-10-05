@@ -64,12 +64,7 @@ func (g *CloudBuildGenerator) createBuildTriggers(triggers []*pb.BuildTrigger) [
 			g.ProviderName,
 			map[string]string{
 				"project": g.GetArgs()["project"].(string),
-			},
-			[]string{},
-			map[string]interface{}{
-				"filename": trigger.GetFilename(),
-			},
-		))
+			}))
 	}
 
 	return resources

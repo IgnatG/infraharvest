@@ -35,10 +35,7 @@ func (g *TriggerGenerator) InitResources() error {
 				"honeycombio",
 				map[string]string{
 					"dataset": dataset.Name,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 

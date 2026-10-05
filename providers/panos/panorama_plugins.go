@@ -34,9 +34,7 @@ func (g *PanoramaPluginsGenerator) createGCPAccountResources() (resources []terr
 			r,
 			normalizeResourceName(r),
 			"panos_panorama_gcp_account",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -54,9 +52,7 @@ func (g *PanoramaPluginsGenerator) createGKEClusterResources(group string) (reso
 			id,
 			normalizeResourceName(id),
 			"panos_panorama_gke_cluster",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -73,9 +69,7 @@ func (g *PanoramaPluginsGenerator) createGKEClusterGroupResources() (resources [
 			r,
 			normalizeResourceName(r),
 			"panos_panorama_gke_cluster_group",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createGKEClusterResources(r)...)
 	}
@@ -90,26 +84,6 @@ func (g *PanoramaPluginsGenerator) InitResources() error {
 
 	g.Resources = append(g.Resources, g.createGCPAccountResources()...)
 	g.Resources = append(g.Resources, g.createGKEClusterGroupResources()...)
-
-	return nil
-}
-
-func (g *PanoramaPluginsGenerator) PostConvertHook() error {
-	mapGKEClusterGroupNames := map[string]string{}
-
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "panos_panorama_gke_cluster_group" {
-			mapGKEClusterGroupNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-		}
-	}
-
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "panos_panorama_gke_cluster" {
-			if mapExists(mapGKEClusterGroupNames, r.Item, "gke_cluster_group") {
-				r.Item["gke_cluster_group"] = mapGKEClusterGroupNames[r.Item["gke_cluster_group"].(string)]
-			}
-		}
-	}
 
 	return nil
 }

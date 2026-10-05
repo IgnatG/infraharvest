@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type OctopusDeployProvider struct { //nolint
@@ -52,10 +51,6 @@ func (p *OctopusDeployProvider) GetProviderData(arg ...string) map[string]interf
 	}
 }
 
-func (OctopusDeployProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *OctopusDeployProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"accounts": &GenericGenerator{APIService: "accounts"},
@@ -90,14 +85,7 @@ func (p *OctopusDeployProvider) InitService(serviceName string, verbose bool) er
 	return nil
 }
 
-// GetConfig return map of provider config for OctopusDeployProvider
-func (p *OctopusDeployProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"api_key": cty.StringVal(p.apiKey),
-		"address": cty.StringVal(p.address),
-	})
-}
-
-func (p *OctopusDeployProvider) GetBasicConfig() cty.Value {
-	return p.GetConfig()
+// GetSource is the provider's registry source, for required_providers.
+func (p *OctopusDeployProvider) GetSource() string {
+	return "OctopusDeployLabs/octopusdeploy"
 }

@@ -21,10 +21,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	PromptAllowEmptyValues = []string{}
-)
-
 type PromptGenerator struct {
 	Auth0Service
 }
@@ -36,9 +32,7 @@ func (g PromptGenerator) createResources(prompt *management.Prompt) []terraformu
 		resourceName,
 		resourceName,
 		"auth0_prompt",
-		"auth0",
-		PromptAllowEmptyValues,
-	))
+		"auth0"))
 	return resources
 }
 

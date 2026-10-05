@@ -25,10 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var redisAllowEmptyValues = []string{""}
-
-var redisAdditionalFields = map[string]interface{}{}
-
 type MemoryStoreGenerator struct {
 	GCPService
 }
@@ -49,10 +45,7 @@ func (g MemoryStoreGenerator) createResources(ctx context.Context, redisInstance
 					"name":    name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				redisAllowEmptyValues,
-				redisAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

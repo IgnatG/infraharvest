@@ -27,14 +27,12 @@ type VSwitchGenerator struct {
 
 func resourceFromVSwitchResponse(vswitch vpc.VSwitch) terraformutils.Resource {
 	return terraformutils.NewResource(
-		vswitch.VSwitchId, // nolint
-		vswitch.VSwitchId+"__"+vswitch.VSwitchName, // nolint
+		vswitch.VSwitchId,
+		vswitch.VSwitchId+"__"+vswitch.VSwitchName,
 		"alicloud_vswitch",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 // InitResources Gets the list of all vpc VSwitch ids and generates resources

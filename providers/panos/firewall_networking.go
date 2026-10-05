@@ -70,9 +70,7 @@ func (g *FirewallNetworkingGenerator) createResourcesFromList(o getGeneric, idPr
 				return r
 			}()),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -95,9 +93,7 @@ func (g *FirewallNetworkingGenerator) createAggregateInterfaceResources() (resou
 			id,
 			normalizeResourceName(aggregateInterface),
 			"panos_aggregate_interface",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		e, err := g.client.(*pango.Firewall).Network.AggregateInterface.Get(aggregateInterface)
 		if err != nil {
@@ -128,9 +124,8 @@ func (g *FirewallNetworkingGenerator) createBGPResource(virtualRouter string) te
 		virtualRouter,
 		normalizeResourceName(virtualRouter),
 		"panos_bgp",
-		"panos",
-		[]string{},
-	)
+		"panos")
+
 }
 
 func (g *FirewallNetworkingGenerator) createBGPAggregateResources(virtualRouter string) (resources []terraformutils.Resource) {
@@ -145,9 +140,7 @@ func (g *FirewallNetworkingGenerator) createBGPAggregateResources(virtualRouter 
 			id,
 			normalizeResourceName(id),
 			"panos_bgp_aggregate",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPAggregateAdvertiseFilterResources(virtualRouter, bgpAggregate)...)
 		resources = append(resources, g.createBGPAggregateSuppressFilterResources(virtualRouter, bgpAggregate)...)
@@ -190,9 +183,7 @@ func (g *FirewallNetworkingGenerator) createBGPConditionalAdvertisementResources
 			id,
 			normalizeResourceName(id),
 			"panos_bgp_conditional_adv",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPConditionalAdvertisementAdvertiseFilterResources(virtualRouter, bgpConditionalAdv)...)
 		resources = append(resources, g.createBGPConditionalAdvertisementNonExistFilterResources(virtualRouter, bgpConditionalAdv)...)
@@ -243,9 +234,7 @@ func (g *FirewallNetworkingGenerator) createBGPRuleGroupResourcesFromList(o getG
 			id,
 			normalizeResourceName(r),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -277,9 +266,7 @@ func (g *FirewallNetworkingGenerator) createBGPPeerGroupResources(virtualRouter 
 			id,
 			normalizeResourceName(id),
 			"panos_bgp_peer_group",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPPeerResources(virtualRouter, bgpPeerGroup)...)
 	}
@@ -318,9 +305,7 @@ func (g *FirewallNetworkingGenerator) createEthernetInterfaceResources() (resour
 			id,
 			normalizeResourceName(ethernetInterface),
 			"panos_ethernet_interface",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		e, err := g.client.(*pango.Firewall).Network.EthernetInterface.Get(ethernetInterface)
 		if err != nil {
@@ -360,10 +345,7 @@ func (g *FirewallNetworkingGenerator) createIKECryptoProfileResources() (resourc
 			"panos",
 			map[string]string{
 				"name": ikeCryptoProfile,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -383,10 +365,7 @@ func (g *FirewallNetworkingGenerator) createIKEGatewayResources() (resources []t
 			"panos",
 			map[string]string{
 				"name": ikeGateway,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -406,10 +385,7 @@ func (g *FirewallNetworkingGenerator) createIPSECCryptoProfileResources() (resou
 			"panos",
 			map[string]string{
 				"name": ipsecCryptoProfile,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -433,9 +409,7 @@ func (g *FirewallNetworkingGenerator) createIPSECTunnelResources() (resources []
 			ipsecTunnel,
 			normalizeResourceName(ipsecTunnel),
 			"panos_ipsec_tunnel",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createIPSECTunnelProxyIDIPv4Resources(ipsecTunnel)...)
 	}
@@ -478,10 +452,7 @@ func (g *FirewallNetworkingGenerator) createManagementProfileResources() (resour
 			"panos",
 			map[string]string{
 				"name": managementProfile,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources
@@ -533,9 +504,7 @@ func (g *FirewallNetworkingGenerator) createVirtualRouterResources() (resources 
 			id,
 			normalizeResourceName(virtualRouter),
 			"panos_virtual_router",
-			"panos",
-			[]string{},
-		))
+			"panos"))
 
 		resources = append(resources, g.createBGPResource(virtualRouter))
 		resources = append(resources, g.createBGPAggregateResources(virtualRouter)...)
@@ -596,218 +565,6 @@ func (g *FirewallNetworkingGenerator) InitResources() error {
 	g.Resources = append(g.Resources, g.createVlanResources()...)
 	g.Resources = append(g.Resources, g.createVlanInterfaceResources()...)
 	g.Resources = append(g.Resources, g.createZoneResources()...)
-
-	return nil
-}
-
-func (g *FirewallNetworkingGenerator) PostConvertHook() error {
-	mapInterfaceNames := map[string]string{}
-	mapInterfaceModes := map[string]string{}
-	mapIKECryptoProfileNames := map[string]string{}
-	mapIKEGatewayNames := map[string]string{}
-	mapIPSECCryptoProfileNames := map[string]string{}
-
-	for _, r := range g.Resources {
-		if _, ok := r.Item["name"]; ok {
-			if r.InstanceInfo.Type == "panos_aggregate_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-				mapInterfaceModes[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".mode}"
-			}
-
-			if r.InstanceInfo.Type == "panos_ethernet_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-				mapInterfaceModes[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".mode}"
-			}
-
-			if r.InstanceInfo.Type == "panos_layer2_subinterface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_layer3_subinterface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_loopback_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_tunnel_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_vlan_interface" {
-				mapInterfaceNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_ike_crypto_profile" {
-				mapIKECryptoProfileNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_ike_gateway" {
-				mapIKEGatewayNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-
-			if r.InstanceInfo.Type == "panos_ipsec_crypto_profile" {
-				mapIPSECCryptoProfileNames[r.Item["name"].(string)] = "${" + r.InstanceInfo.Type + "." + r.ResourceName + ".name}"
-			}
-		}
-	}
-
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "panos_bgp" ||
-			r.InstanceInfo.Type == "panos_redistribution_profile_ipv4" ||
-			r.InstanceInfo.Type == "panos_static_route_ipv4" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				r.Item["virtual_router"] = "${panos_virtual_router." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".name}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_bgp_aggregate" ||
-			r.InstanceInfo.Type == "panos_bgp_auth_profile" ||
-			r.InstanceInfo.Type == "panos_bgp_conditional_adv" ||
-			r.InstanceInfo.Type == "panos_bgp_dampening_profile" ||
-			r.InstanceInfo.Type == "panos_bgp_export_rule_group" ||
-			r.InstanceInfo.Type == "panos_bgp_import_rule_group" ||
-			r.InstanceInfo.Type == "panos_bgp_peer_group" ||
-			r.InstanceInfo.Type == "panos_bgp_redist_rule" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				r.Item["virtual_router"] = "${panos_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_bgp_aggregate_advertise_filter" ||
-			r.InstanceInfo.Type == "panos_bgp_aggregate_suppress_filter" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				r.Item["virtual_router"] = "${panos_bgp_aggregate." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-			}
-			if _, ok := r.Item["bgp_aggregate"]; ok {
-				r.Item["bgp_aggregate"] = "${panos_bgp_aggregate." + normalizeResourceName(r.Item["bgp_aggregate"].(string)) + ".name}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_bgp_peer" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				r.Item["virtual_router"] = "${panos_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-				r.Item["peer_as"] = "${panos_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".as_number}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_bgp_conditional_adv_advertise_filter" ||
-			r.InstanceInfo.Type == "panos_bgp_conditional_adv_non_exist_filter" {
-			if _, ok := r.Item["virtual_router"]; ok {
-				r.Item["virtual_router"] = "${panos_bgp." + normalizeResourceName(r.Item["virtual_router"].(string)) + ".virtual_router}"
-			}
-			if _, ok := r.Item["panos_bgp_conditional_adv"]; ok {
-				r.Item["bgp_conditional_adv"] = "${panos_bgp_conditional_adv." + normalizeResourceName(r.Item["panos_bgp_conditional_adv"].(string)) + ".name}"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_gre_tunnel" {
-			if mapExists(mapInterfaceNames, r.Item, "interface") {
-				r.Item["interface"] = mapInterfaceNames[r.Item["interface"].(string)]
-			}
-			if mapExists(mapInterfaceNames, r.Item, "tunnel_interface") {
-				r.Item["tunnel_interface"] = mapInterfaceNames[r.Item["tunnel_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_ike_gateway" {
-			if mapExists(mapIKECryptoProfileNames, r.Item, "ikev1_crypto_profile") {
-				r.Item["ikev1_crypto_profile"] = mapIKECryptoProfileNames[r.Item["ikev1_crypto_profile"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_ipsec_tunnel" {
-			if mapExists(mapInterfaceNames, r.Item, "tunnel_interface") {
-				r.Item["tunnel_interface"] = mapInterfaceNames[r.Item["tunnel_interface"].(string)]
-			}
-			if mapExists(mapIKEGatewayNames, r.Item, "ak_ike_gateway") {
-				r.Item["ak_ike_gateway"] = mapIKEGatewayNames[r.Item["ak_ike_gateway"].(string)]
-			}
-			if mapExists(mapIPSECCryptoProfileNames, r.Item, "ak_ipsec_crypto_profile") {
-				r.Item["ak_ipsec_crypto_profile"] = mapIPSECCryptoProfileNames[r.Item["ak_ipsec_crypto_profile"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_ipsec_tunnel_proxy_id_ipv4" {
-			if mapExists(mapInterfaceNames, r.Item, "ipsec_tunnel") {
-				r.Item["ipsec_tunnel"] = mapInterfaceNames[r.Item["ipsec_tunnel"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_layer2_subinterface" {
-			if mapExists(mapInterfaceModes, r.Item, "parent_interface") {
-				r.Item["parent_mode"] = mapInterfaceModes[r.Item["parent_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_layer2_subinterface" ||
-			r.InstanceInfo.Type == "panos_layer3_subinterface" {
-			if mapExists(mapInterfaceNames, r.Item, "parent_interface") {
-				r.Item["parent_interface"] = mapInterfaceNames[r.Item["parent_interface"].(string)]
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_virtual_router" {
-			if r.Item["ospfv3_ext_dist"].(string) == "0" {
-				r.Item["ospfv3_ext_dist"] = "110"
-			}
-
-			if r.Item["ebgp_dist"].(string) == "0" {
-				r.Item["ebgp_dist"] = "20"
-			}
-
-			if r.Item["rip_dist"].(string) == "0" {
-				r.Item["rip_dist"] = "120"
-			}
-
-			if r.Item["ibgp_dist"].(string) == "0" {
-				r.Item["ibgp_dist"] = "200"
-			}
-
-			if r.Item["static_dist"].(string) == "0" {
-				r.Item["static_dist"] = "10"
-			}
-
-			if r.Item["ospf_int_dist"].(string) == "0" {
-				r.Item["ospf_int_dist"] = "30"
-			}
-
-			if r.Item["static_ipv6_dist"].(string) == "0" {
-				r.Item["static_ipv6_dist"] = "10"
-			}
-
-			if r.Item["ospf_ext_dist"].(string) == "0" {
-				r.Item["ospf_ext_dist"] = "110"
-			}
-
-			if r.Item["ospfv3_int_dist"].(string) == "0" {
-				r.Item["ospfv3_int_dist"] = "30"
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_virtual_router" ||
-			r.InstanceInfo.Type == "panos_zone" {
-			if _, ok := r.Item["interfaces"]; ok {
-				interfaces := make([]string, len(r.Item["interfaces"].([]interface{})))
-				for k, eth := range r.Item["interfaces"].([]interface{}) {
-					if name, ok2 := mapInterfaceNames[eth.(string)]; ok2 {
-						interfaces[k] = name
-						continue
-					}
-					interfaces[k] = eth.(string)
-				}
-
-				r.Item["interfaces"] = interfaces
-			}
-		}
-
-		if r.InstanceInfo.Type == "panos_vlan" {
-			if mapExists(mapInterfaceNames, r.Item, "vlan_interface") {
-				r.Item["vlan_interface"] = mapInterfaceNames[r.Item["vlan_interface"].(string)]
-			}
-		}
-	}
 
 	return nil
 }

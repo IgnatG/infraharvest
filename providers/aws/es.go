@@ -19,8 +19,6 @@ import (
 	es "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 )
 
-var esAllowEmptyValues = []string{"tags."}
-
 type EsGenerator struct {
 	AWSService
 }
@@ -45,26 +43,8 @@ func (g *EsGenerator) InitResources() error {
 			"aws",
 			map[string]string{
 				"domain_name": StringValue(domainName.DomainName),
-			},
-			esAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 
-	return nil
-}
-
-func (g *EsGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_elasticsearch_domain" {
-			continue
-		}
-		if r.InstanceState.Attributes["cognito_options.0.enabled"] == "false" {
-			delete(r.Item, "cognito_options")
-		}
-		if r.InstanceState.Attributes["cluster_config.0.warm_count"] == "0" {
-			delete(r.Item["cluster_config"].([]interface{})[0].(map[string]interface{}), "warm_count")
-		}
-	}
 	return nil
 }

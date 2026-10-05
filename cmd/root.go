@@ -15,7 +15,6 @@
 package cmd
 
 import (
-	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +29,6 @@ func NewCmdRoot() *cobra.Command {
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newDiscoverCmd())
 	cmd.AddCommand(newPickCmd())
-	cmd.AddCommand(newPlanCmd())
 	cmd.AddCommand(newMCPCmd())
 	cmd.AddCommand(newVerifyCmd())
 	cmd.AddCommand(newReportCmd())
@@ -50,15 +48,4 @@ func providerImporterSubcommands() []func(options ImportOptions) *cobra.Command 
 		commands = append(commands, providerRegistry[name].newCmd)
 	}
 	return commands
-}
-
-// providerGenerators maps each provider's Terraform name to its generator,
-// for loading plan files.
-func providerGenerators() map[string]func() terraformutils.ProviderGenerator {
-	generators := make(map[string]func() terraformutils.ProviderGenerator)
-	for _, name := range registeredProviders() {
-		newProvider := providerRegistry[name].newProvider
-		generators[newProvider().GetName()] = newProvider
-	}
-	return generators
 }

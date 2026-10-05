@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var externalVpnGatewaysAllowEmptyValues = []string{""}
-
-var externalVpnGatewaysAdditionalFields = map[string]interface{}{}
-
 type ExternalVpnGatewaysGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g ExternalVpnGatewaysGenerator) createResources(ctx context.Context, exter
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				externalVpnGatewaysAllowEmptyValues,
-				externalVpnGatewaysAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

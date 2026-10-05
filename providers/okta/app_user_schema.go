@@ -34,10 +34,7 @@ func (g AppUserSchemaPropertyGenerator) createResources(appUserSchema *okta.User
 			map[string]string{
 				"app_id": appID,
 				"index":  index,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	for index := range appUserSchema.Definitions.Base.Properties {
@@ -49,10 +46,7 @@ func (g AppUserSchemaPropertyGenerator) createResources(appUserSchema *okta.User
 			map[string]string{
 				"app_id": appID,
 				"index":  index,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

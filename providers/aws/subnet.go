@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var SubnetAllowEmptyValues = []string{"tags."}
-
 type SubnetGenerator struct {
 	AWSService
 }
@@ -32,10 +30,8 @@ func (SubnetGenerator) createResources(subnets *ec2.DescribeSubnetsOutput) []ter
 			StringValue(subnet.SubnetId),
 			StringValue(subnet.SubnetId),
 			"aws_subnet",
-			"aws",
-			SubnetAllowEmptyValues,
-		)
-		resource.IgnoreKeys = append(resource.IgnoreKeys, "availability_zone")
+			"aws")
+
 		resources = append(resources, resource)
 	}
 	return resources

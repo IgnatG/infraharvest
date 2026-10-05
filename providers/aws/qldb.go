@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/qldb"
 )
 
-var qldbAllowEmptyValues = []string{"tags."}
-
 type QLDBGenerator struct {
 	AWSService
 }
@@ -44,8 +42,7 @@ func (g *QLDBGenerator) InitResources() error {
 				ledgerName,
 				ledgerName,
 				"aws_qldb_ledger",
-				"aws",
-				qldbAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

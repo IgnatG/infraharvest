@@ -24,10 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var dataprocAllowEmptyValues = []string{""}
-
-var dataprocAdditionalFields = map[string]interface{}{}
-
 type DataprocGenerator struct {
 	GCPService
 }
@@ -46,11 +42,8 @@ func (g DataprocGenerator) createClusterResources(ctx context.Context, clusterLi
 					"name":    cluster.ClusterName,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				dataprocAllowEmptyValues,
-				dataprocAdditionalFields,
-			)
-			resource.IgnoreKeys = append(resource.IgnoreKeys, "^cluster_config.[0-9].delete_autogen_bucket$")
+				})
+
 			resources = append(resources, resource)
 		}
 		return nil
@@ -75,8 +68,6 @@ func (g DataprocGenerator) createJobResources(jobList *dataproc.ProjectsRegionsJ
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
 				},
-				dataprocAllowEmptyValues,
-				dataprocAdditionalFields,
 			))
 		}
 		return nil

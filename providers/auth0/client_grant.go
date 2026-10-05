@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	ClientGrantAllowEmptyValues = []string{}
-)
-
 type ClientGrantGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g ClientGrantGenerator) createResources(clientGrantGrants []*management.Cl
 			resourceName,
 			resourceName+"_"+*clientGrant.ClientID,
 			"auth0_client_grant",
-			"auth0",
-			ClientGrantAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

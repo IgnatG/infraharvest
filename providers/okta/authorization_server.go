@@ -37,8 +37,7 @@ func (g AuthorizationServerGenerator) createResources(authorizationServerList []
 			authorizationServer.Id,
 			"auth_server_"+authorizationServer.Name,
 			resourceType,
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

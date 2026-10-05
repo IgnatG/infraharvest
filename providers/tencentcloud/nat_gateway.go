@@ -61,10 +61,8 @@ func (g *NatGatewayGenerator) InitResources() error {
 			*instance.NatGatewayName+"_"+*instance.NatGatewayId,
 			"tencentcloud_nat_gateway",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 
