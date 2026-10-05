@@ -2,10 +2,12 @@
 
 Example:
 
+```sh
+infraharvest import kubernetes --all --resources=deployments,services,storageclasses
+infraharvest import kubernetes --all --resources=deployments,services,storageclasses --filter=deployment=name1:name2:name3
 ```
- infraharvest import kubernetes --resources=deployments,services,storageclasses
- infraharvest import kubernetes --resources=deployments,services,storageclasses --filter=deployment=name1:name2:name3
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover kubernetes` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 All Kubernetes resources that are currently supported by the Kubernetes provider, are also supported by this module. Here is the list of resources which are currently supported by Kubernetes provider v.1.4:
 
@@ -44,6 +46,4 @@ All Kubernetes resources that are currently supported by the Kubernetes provider
     
 #### Known issues
 
-* Terraform Kubernetes provider is rejecting resources with ":" characters in their names (as they don't meet DNS-1123), while it's allowed for certain types in Kubernetes, e.g. ClusterRoleBinding.
-* Because Terraform flatmap uses "." to detect the keys for unflattening the maps, some keys with "." in their names are being considered as the maps.
-* Since the library assumes empty strings to be empty values (not "0"), there are some issues with optional integer keys that are restricted to be positive.
+* The Terraform Kubernetes provider rejects resources with ":" characters in their names (as they don't meet DNS-1123), while Kubernetes allows them for certain types, e.g. ClusterRoleBinding.

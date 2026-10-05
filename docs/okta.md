@@ -2,17 +2,19 @@
 
 Example:
 
+```sh
+export OKTA_ORG_NAME=<ORG_NAME>
+export OKTA_BASE_URL=<BASE_URL>
+export OKTA_API_TOKEN=<API_TOKEN>
+infraharvest import okta --all --resources=okta_user,okta_group
 ```
-$ export OKTA_ORG_NAME=<ORG_NAME>
-$ export OKTA_BASE_URL=<BASE_URL>
-$ export OKTA_API_TOKEN=<API_TOKEN>
-$ infraharvest import okta --resources=okta_user,okta_group
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover okta` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 If you login to your Okta instance at: https://dev-12345678.okta.com/ you would configure:
 ```
-$ export OKTA_ORG_NAME=dev-12345678
-$ export OKTA_BASE_URL=okta.com
+export OKTA_ORG_NAME=dev-12345678
+export OKTA_BASE_URL=okta.com
 ```
 
 

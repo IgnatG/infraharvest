@@ -4,32 +4,34 @@
 Example:
 
 ```
- infraharvest import aws --resources=vpc,subnet --connect=true --regions=eu-west-1 --profile=prod
- infraharvest import aws --resources=vpc,subnet --filter=vpc=vpc_id1:vpc_id2:vpc_id3 --regions=eu-west-1
+infraharvest import aws --all --resources=vpc,subnet --regions=eu-west-1 --profile=prod
+infraharvest import aws --all --resources=vpc,subnet --filter=vpc=vpc_id1:vpc_id2:vpc_id3 --regions=eu-west-1
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover aws` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 #### Profiles support
 
 AWS configuration including environmental variables, shared credentials file (\~/.aws/credentials), and shared config file (\~/.aws/config) will be loaded by the tool by default. To use a specific profile, you can use the following command:
 
 ```
-infraharvest import aws --resources=vpc,subnet --regions=eu-west-1 --profile=prod
+infraharvest import aws --all --resources=vpc,subnet --regions=eu-west-1 --profile=prod
 ```
 
 You can also provide no regions when importing resources:
 ```
-infraharvest import aws --resources=cloudfront --profile=prod
+infraharvest import aws --all --resources=cloudfront --profile=prod
 ```
-In that case terraformer will not know with which region resources are associated with and will not assume any region. That scenario is useful in case of global resources (e.g. CloudFront distributions or Route 53 records) and when region is passed implicitly through environmental variables or metadata service.
+In that case infraharvest will not know with which region resources are associated with and will not assume any region. That scenario is useful in case of global resources (e.g. CloudFront distributions or Route 53 records) and when region is passed implicitly through environmental variables or metadata service.
 
 #### Several accounts
 
-With `--engine=terraform` (or `tofu`), one run can import several accounts. Each is imported through a role, from the credentials of `--profile` (or the environment):
+One run can import several accounts. Each is imported through a role, from the credentials of `--profile` (or the environment):
 
 ```
-infraharvest import aws --engine=terraform --all --resources=vpc,s3,iam --regions=eu-west-2 \
+infraharvest import aws --all --resources=vpc,s3,iam --regions=eu-west-2 \
   --accounts=111122223333,444455556666
-infraharvest import aws --engine=terraform --all --resources=vpc,s3,iam --regions=eu-west-2 --organization
+infraharvest import aws --all --resources=vpc,s3,iam --regions=eu-west-2 --organization
 ```
 
 `--organization` imports every active account of the organization. It needs `organizations:ListAccounts`, which the management account, or a delegated administrator, has. `--assume-role` names the role in each account. It defaults to `arn:aws:iam::{account}:role/infraharvest-readonly`, the read-only role that [permissions/aws](../permissions/aws) creates. Given a full ARN without `{account}`, it imports that one account through that role.
@@ -47,18 +49,17 @@ infraharvest and Terraform read the standard `AWS_ENDPOINT_URL` variable, so you
 ```sh
 docker compose -f e2e/compose.yaml up -d --wait
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
-infraharvest import aws --engine=terraform --all --resources=sqs,sns --regions=us-east-1 --profile=
+infraharvest import aws --all --resources=sqs,sns --regions=us-east-1 --profile=
 ```
 
 [`e2e/compose.yaml`](../e2e/compose.yaml) configures Floci to return SQS queue URLs that the Terraform AWS provider can import.
 
-Examples to import other resources-
+Examples to import other resources:
 
- * Security Group-
+ * Security groups:
 ```
-infraharvest import aws --resources=sg --regions=us-east-1
+infraharvest import aws --all --resources=sg --regions=us-east-1
 ```
-
 
 
 #### Supported services
@@ -440,21 +441,21 @@ List of global AWS services:
 Attribute filters allow filtering across different resource types by its attributes.
 
 ```
-infraharvest import aws --resources=ec2_instance,ebs --filter="Name=tags.costCenter;Value=20000:'20001:1'" --regions=eu-west-1
+infraharvest import aws --all --resources=ec2_instance,ebs --filter="Name=tags.costCenter;Value=20000:'20001:1'" --regions=eu-west-1
 ```
 Will only import AWS EC2 instances along with EBS volumes annotated with tag `costCenter` with values `20000` or `20001:1`. Attribute filters are by default applicable to all resource types although it's possible to specify to what resource type a given filter should be applicable to by providing `Type=<type>` parameter. For example:
 ```
-infraharvest import aws --resources=ec2_instance,ebs --filter=Type=ec2_instance;Name=tags.costCenter;Value=20000:'20001:1' --regions=eu-west-1
+infraharvest import aws --all --resources=ec2_instance,ebs --filter="Type=ec2_instance;Name=tags.costCenter;Value=20000:'20001:1'" --regions=eu-west-1
 ```
 Will work as same as example above with a change the filter will be applicable only to `ec2_instance` resources.
 
 Few more examples - How to import ec2 instance based on instance name and id
 ```
-infraharvest import aws --resources=ec2_instance --filter="Name=tags.Name;Value=Terraformer" --regions=us-east-1
+infraharvest import aws --all --resources=ec2_instance --filter="Name=tags.Name;Value=web" --regions=us-east-1
 ```
-This command imports ec2 instance having name as Terraformer.
+This command imports ec2 instance having name as web.
 ```
-infraharvest import aws --resources=ec2_instance --filter="Name=id;Value=i-0xxxxxxxxx" --regions=us-east-1
+infraharvest import aws --all --resources=ec2_instance --filter="Name=id;Value=i-0xxxxxxxxx" --regions=us-east-1
 ```
 This command imports ec2 instance having instance-id as i-0xxxxxxxxx.
 
@@ -462,8 +463,8 @@ Due to fact API Gateway generates a lot of resources, it's possible to issue a f
 
 #### SQS queues retrieval
 
-Terraformer uses AWS [ListQueues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ListQueues.html) API call to fetch available queues. The API is able to return only up to 1000 queues and an additional name prefix should be passed to filter the list results. It's possible to pass `QueueNamePrefix` parameter by environmental variable `SQS_PREFIX`.
+infraharvest uses the AWS [ListQueues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ListQueues.html) API call to fetch available queues. The API is able to return only up to 1000 queues and an additional name prefix should be passed to filter the list results. It's possible to pass `QueueNamePrefix` parameter by environmental variable `SQS_PREFIX`.
 
 #### Security groups and rules
 
-Terraformer by default will try to keep rules in security groups as long as no circular dependencies are detected. This approach is implemented to keep the rules as tidy as possible but there can be cases when this behaviour is not desirable (see [GoogleCloudPlatform/terraformer#493](https://github.com/GoogleCloudPlatform/terraformer/issues/493)). To make Terraformer split rules from security groups, add `SPLIT_SG_RULES` environmental variable with any value.
+By default, the security group lister keeps rules in their security groups as long as no circular dependencies are detected, and lists the rules of the other groups as separate `aws_security_group_rule` resources. To list every rule as a separate resource, set the `SPLIT_SG_RULES` environmental variable to any value.

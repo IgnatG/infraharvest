@@ -1,6 +1,6 @@
 ### Use with [Commercetools](https://commercetools.com/de/)
 
-This provider use the [terraform-provider-commercetools](https://github.com/labd/terraform-provider-commercetools). The terraformer provider was build by [Dustin Deus](https://github.com/StarpTech).
+This provider uses the [terraform-provider-commercetools](https://github.com/labd/terraform-provider-commercetools). Its listers were built by [Dustin Deus](https://github.com/StarpTech) for Terraformer.
 
 Example:
 
@@ -20,12 +20,13 @@ export CTP_BASE_URL=base_url # default: https://api.sphere.io
 export CTP_TOKEN_URL=token_url # default: https://auth.sphere.io
 ```
 
-Run terraformer
+Run infraharvest:
 
 ```bash
-./infraharvest plan commercetools -r=types # Only planning
-./infraharvest import commercetools -r=types # Import commercetools types
+infraharvest import commercetools --all --resources=types
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover commercetools` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported [commercetools](https://commercetools.com/de/) resources:
 

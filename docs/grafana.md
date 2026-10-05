@@ -4,10 +4,14 @@ This provider uses the [terraform-provider-grafana](https://registry.terraform.i
 
 #### Example
 
+```sh
+# With a Grafana API token
+GRAFANA_AUTH=api_token GRAFANA_URL=https://stack.grafana.net infraharvest import grafana --all --resources=grafana_dashboard
+# With HTTP basic auth
+GRAFANA_AUTH=username:password GRAFANA_URL=https://stack.grafana.net infraharvest import grafana --all --resources=grafana_dashboard
 ```
-GRAFANA_AUTH=api_token GRAFANA_URL=https://stack.grafana.net ./infraharvest import grafana -r=grafana_dashboard // Import with Grafana API token
-GRAFANA_AUTH=username:password GRAFANA_URL=https://stack.grafana.net ./infraharvest import grafana -r=grafana_dashboard // Import with HTTP basic auth
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover grafana` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 #### Configuration
 
@@ -23,7 +27,7 @@ GRAFANA_AUTH=username:password GRAFANA_URL=https://stack.grafana.net ./infraharv
 
 List of supported [Grafana](https://grafana.com) resources:
 
-* `dashboard`
+* `grafana_dashboard`
   * `grafana_dashboard`
-* `folder`
+* `grafana_folder`
   * `grafana_folder`

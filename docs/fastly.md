@@ -2,11 +2,13 @@
 
 Example:
 
-```
+```sh
 export FASTLY_API_KEY=[FASTLY_API_KEY]
 export FASTLY_CUSTOMER_ID=[FASTLY_CUSTOMER_ID]
-./infraharvest import fastly -r service_v1,user
+infraharvest import fastly --all --resources=service_v1,user
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover fastly` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Fastly resources:
 

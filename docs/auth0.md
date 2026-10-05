@@ -2,12 +2,14 @@
 
 Example:
 
+```sh
+export AUTH0_DOMAIN=<DOMAIN>
+export AUTH0_CLIENT_ID=<CLIENT_ID>
+export AUTH0_CLIENT_SECRET=<CLIENT_SECRET>
+infraharvest import auth0 --all --resources=auth0_rule,auth0_user
 ```
-$ export AUTH0_DOMAIN=<DOMAIN>
-$ export AUTH0_CLIENT_ID=<CLIENT_ID>
-$ export AUTH0_CLIENT_SECRET=<CLIENT_SECRET>
-$ infraharvest import auth0 --resources=auth0_rule,auth0_user
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover auth0` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Auth0 services:
 

@@ -1,10 +1,10 @@
 # Migrating from Terraformer
 
-infraharvest started as a fork of [Terraformer](https://github.com/GoogleCloudPlatform/terraformer). The Terraformer way of importing still works as the `legacy` engine. The recommended way is `--engine=terraform` (or `tofu`). It imports with Terraform's own `import` blocks and `terraform plan -generate-config-out`, and checks that the result plans with no changes. This page maps Terraformer's habits onto it.
+infraharvest started as a fork of [Terraformer](https://github.com/GoogleCloudPlatform/terraformer). It keeps Terraformer's listers, but generates configuration differently: it writes Terraform's own `import` blocks, runs `terraform plan -generate-config-out` (or `tofu` with `--engine=tofu`), and checks that the result plans with no changes. Terraformer's way of importing, with its own HCL printer and a `terraform.tfstate`, is gone: earlier infraharvest releases kept it as `--engine=legacy`, and it has been removed. This page maps Terraformer's habits onto infraharvest.
 
 ## What changes
 
-| | Terraformer (`--engine=legacy`) | infraharvest (`--engine=terraform` or `tofu`) |
+| | Terraformer | infraharvest |
 |---|---|---|
 | Output | HCL from Terraformer's own printer, and a `terraform.tfstate` | `import` blocks plus configuration that Terraform generates. No state is written: `terraform apply` records the resources, and changes nothing in the cloud |
 | Check | None | The verification gate runs on every root: format, validate, a plan that only imports, the output standard, scanners, secrets, determinism |
@@ -16,17 +16,18 @@ infraharvest started as a fork of [Terraformer](https://github.com/GoogleCloudPl
 
 ## Flags
 
-| Terraformer flag | With `--engine=terraform` |
+| Terraformer flag | In infraharvest |
 |---|---|
 | `--resources`, `--excludes`, `--regions`, `--profile`, `--filter` | The same |
-| `--connect` (`terraform_remote_state` between services) | Not needed. A root holds every service of one account and region, and resources refer to each other directly (`vpc_id = aws_vpc.main.id`). Resources the selection leaves out are read through `data` sources |
-| `--path-pattern` | Still accepted, with `{account}` and `{region}` |
-| `--state=bucket`, `--bucket` | A `backend:` section in the configuration file (`--config`). Each root gets a `backend.tf` with its own state key. S3 locks with `use_lockfile`, never DynamoDB. `infraharvest bootstrap` writes a root that creates the bucket |
-| `--compact` | Not needed: each root has one `generated.tf` |
-| `--output json` | Prints the import report as JSON |
-| `--retry-number`, `--retry-sleep-ms` | Not used. The AWS SDK retries throttled calls in adaptive mode, and `--list-timeout` bounds each service |
-| `--plan`, `infraharvest plan` | Legacy only. To check generated roots again, use `infraharvest verify` |
-| — | New: `--selection`, `--all`, `--managed-state`, `--modules`, `--allow-partial`, `--config` |
+| `--path-output`, `--path-pattern` | The same. `--path-pattern` also takes `{account}` and `{region}` |
+| `--connect` (`terraform_remote_state` between services) | Removed. A root holds every service of one account and region, and resources in it refer to each other directly (`vpc_id = aws_vpc.main.id`). Resources the selection leaves out are read through `data` sources. Nothing refers across roots |
+| `--state=bucket`, `--bucket` | Removed. Use a `backend:` section in the configuration file (`--config`). Each root gets a `backend.tf` with its own state key. S3 locks with `use_lockfile`, never DynamoDB. `infraharvest bootstrap` writes a root that creates the bucket |
+| `--output hcl` or `json` (file format) | Removed: the configuration is always HCL that Terraform writes. `--output json` now prints the import report as JSON on stdout |
+| `--compact` | Removed: each root has one `generated.tf` |
+| `--retry-number`, `--retry-sleep-ms` | Removed. The AWS SDK retries throttled calls in adaptive mode, and `--list-timeout` bounds each service |
+| `infraharvest plan`, `import plan <file>` | Removed. Review what will be imported with `infraharvest discover` and a selection file; check generated roots again with `infraharvest verify` |
+| `--engine=legacy` | Removed. `--engine` takes `terraform` (the default) or `tofu` |
+| None | New: `--selection`, `--all`, `--managed-state`, `--modules`, `--allow-partial`, `--config`, `--resume`, `--incremental`, `--reuse-inventory` |
 
 ## A typical migration
 
@@ -41,7 +42,7 @@ infraharvest started as a fork of [Terraformer](https://github.com/GoogleCloudPl
 2. **Leave out what Terraform already manages.** If you imported with Terraformer before, point `--managed-state` at that state; infraharvest reads Terraformer's version 3 state too. Those resources are then left out, so they aren't imported twice:
 
    ```sh
-   infraharvest import aws --engine=terraform --selection=selection.yaml \
+   infraharvest import aws --selection=selection.yaml \
      --managed-state=./generated-terraformer --config=infraharvest.yaml
    ```
 
@@ -58,7 +59,6 @@ Flags you used to repeat go in `infraharvest.yaml`:
 ```yaml
 version: 1
 settings:
-  engine: terraform
   selection: selection.yaml
 providers:
   aws:

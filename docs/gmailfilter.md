@@ -16,8 +16,10 @@ gcloud auth application-default login \
 https://www.googleapis.com/auth/gmail.labels,\
 https://www.googleapis.com/auth/gmail.settings.basic
 
-./infraharvest import gmailfilter -r=filter,label
+infraharvest import gmailfilter --all --resources=filter,label
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover gmailfilter` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported GmailFilter resources:
 

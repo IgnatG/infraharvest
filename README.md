@@ -1,25 +1,17 @@
 # infraharvest
 
-> **Work in progress.** infraharvest is being built on top of [Terraformer](https://github.com/GoogleCloudPlatform/terraformer), which Google archived on 16 March 2026. The code is still Terraformer's and works as documented below, and is being modernised step by step.
+infraharvest generates Terraform configuration for infrastructure that already exists (reverse Terraform). It lists your resources, writes an `import` block for each, and has Terraform (or OpenTofu) generate the configuration with `plan -generate-config-out`. It then tidies that configuration and checks that it plans with no changes.
+
+> **Work in progress.** infraharvest started as a fork of [Terraformer](https://github.com/GoogleCloudPlatform/terraformer), which Google archived on 16 March 2026. It keeps Terraformer's listers, and is being modernised step by step.
 
 Licensed under [AGPL-3.0](LICENSE). Terraformer code keeps its Apache-2.0 licence and attribution; see [NOTICE](NOTICE).
 
 Coming from Terraformer? See [Migrating from Terraformer](docs/migrating-from-terraformer.md).
 
-The rest of this README is Terraformer's documentation.
-
-A CLI tool that generates `tf`/`json` and `tfstate` files based on existing infrastructure
-(reverse Terraform).
-
-*   Disclaimer: This is not an official Google product
-*   Created by: Waze SRE
-
-![Waze SRE logo](assets/waze-sre-logo.png)
-
 # Table of Contents
-- [Demo GCP](#demo-gcp)
-- [Capabilities](#capabilities)
+- [How it works](#how-it-works)
 - [Installation](#installation)
+- [Usage](#usage)
 - [Supported Providers](/docs)
     * Major Cloud
         * [Google Cloud](/docs/gcp.md)
@@ -45,7 +37,7 @@ A CLI tool that generates `tf`/`json` and `tfstate` files based on existing infr
         * [OctopusDeploy](/docs/octopus.md)
         * [RabbitMQ](/docs/rabbitmq.md)
     * Network
-        * [Cloudflare](/docs/cloudflare.md) (provider 3.x only, see the docs page)
+        * [Cloudflare](/docs/cloudflare.md) (listers written for provider 3.x, see the docs page)
         * [Myrasec](/docs/myrasec.md)
         * [PAN-OS](/docs/panos.md)
     * VCS
@@ -73,72 +65,112 @@ A CLI tool that generates `tf`/`json` and `tfstate` files based on existing infr
         * [Okta](/docs/okta.md)
         * [Auth0](/docs/auth0.md)
         * [AzureAD](/docs/azuread.md)
+- [Adding a provider](#adding-a-provider)
 - [Contributing](#contributing)
-- [Developing](#developing)
-- [Infrastructure](#infrastructure)
-- [Stargazers over time](#stargazers-over-time)
 
-## Demo GCP
-[![asciicast](https://asciinema.org/a/243961.svg)](https://asciinema.org/a/243961)
+## How it works
 
-## Capabilities
+1.  The provider's listers call the cloud's APIs and record each resource's type and the ID Terraform imports it by.
+2.  The selection decides which of them to import (see [Choosing what to import](#choosing-what-to-import)).
+3.  infraharvest writes an `import` block for each one into a root, and runs `terraform plan -generate-config-out` (or `tofu`), so the provider itself reads every resource and writes its configuration.
+4.  It tidies the generated configuration: references between resources, shared tags and identifiers as locals, secrets as variables, and clusters of resources as module calls. Each change is kept only if a new plan shows no extra changes.
+5.  It runs the verification gate on every root and writes a report.
 
-1.  Generate `tf`/`json` + `tfstate` files from existing infrastructure for all
-    supported objects by resource.
-2.  Remote state can be uploaded to a GCS bucket.
-3.  Connect between resources with `terraform_remote_state` (local and bucket).
-4.  Save `tf`/`json` files using a custom folder tree pattern.
-5.  Import by resource name and type.
-6.  Support terraform 0.13 (for terraform 0.11 use v0.7.9).
+infraharvest reads the cloud and writes files; it never applies anything, and writes no state. `terraform apply` on a generated root records the imported resources in state without changing them.
 
-Terraformer uses Terraform providers and is designed to easily support newly added resources.
-To upgrade resources with new fields, all you need to do is upgrade the relevant Terraform providers.
+## Installation
+
+infraharvest needs Terraform or OpenTofu to generate configuration. With the default `--engine=terraform`, it uses the Terraform on `PATH` if it is 1.5 or later, or else downloads the latest release and verifies it. `--engine=tofu` needs OpenTofu 1.6 or later installed. `--terraform-path` names a binary to use instead. Terraform downloads the providers itself, so there is nothing else to install.
+
+**From a release**
+
+Each [release](https://github.com/IgnatG/infraharvest/releases) has archives for Linux, macOS and Windows on amd64 and arm64. It also has a checksum file, signed with [cosign](https://github.com/sigstore/cosign) from the release workflow (keyless, no long-lived key), SBOMs and build provenance. To verify a download, check the checksum file's signature, then the archive's checksum:
+
+```sh
+VERSION=0.2.0
+cosign verify-blob \
+  --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yaml@refs/heads/main" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle "infraharvest_${VERSION}_SHA256SUMS.sigstore.json" "infraharvest_${VERSION}_SHA256SUMS"
+sha256sum --check --ignore-missing "infraharvest_${VERSION}_SHA256SUMS"
 ```
-Import current state to Terraform configuration from a provider
 
-Usage:
-   import [provider] [flags]
-   import [provider] [command]
+**Container image**
 
-Available Commands:
-  list        List supported resources for a provider
+`ghcr.io/ignatg/infraharvest` (linux/amd64 and linux/arm64, signed with cosign) includes pinned Terraform and OpenTofu binaries, and git for registry modules. It runs as a non-root user in `/work`:
 
-Flags:
-  -b, --bucket string         gs://terraform-state
-  -c, --connect                (default true)
-  -С, --compact                (default false)
-  -x, --excludes strings      firewalls,networks
-  -f, --filter strings        compute_firewall=id1:id2:id4
-  -h, --help                  help for google
-  -O, --output string         output format hcl or json (default "hcl")
-  -o, --path-output string     (default "generated")
-  -p, --path-pattern string   {output}/{provider}/ (default "{output}/{provider}/{service}/")
-      --projects strings
-  -z, --regions strings       europe-west1, (default [global])
-  -r, --resources strings     firewall,networks or * for all services
-  -s, --state string          local or bucket (default "local")
-  -v, --verbose               verbose mode
-  -n, --retry-number          number of retries to perform if refresh fails
-  -m, --retry-sleep-ms        time in ms to sleep between retries
-      --allow-partial         exit 0 when some services or resources fail to import (default false)
-      --list-timeout duration longest time to list one service in one region; a service that takes
-                              longer is reported as failed, 0 for no limit (default 30m0s)
-      --engine string         legacy, terraform or tofu: generate configuration with Terraform or
-                              OpenTofu from import blocks; no state is written (default "legacy")
-      --terraform-path string Terraform or OpenTofu binary for --engine=terraform or tofu
-                              (default: on PATH; Terraform >= 1.5, else the latest release,
-                              downloaded and verified; OpenTofu >= 1.6, which must be installed)
-
-Use " import [provider] [command] --help" for more information about a command.
+```sh
+docker run --rm -v "$PWD:/work" -v "$HOME/.aws:/home/git/.aws:ro" -e AWS_PROFILE \
+  ghcr.io/ignatg/infraharvest import aws --all --resources=vpc --regions=eu-west-2
 ```
-#### Choosing what to import
 
-With `--engine=terraform` or `tofu`, an import must say what it imports, so a whole account never comes under Terraform by accident:
+**With the install script**
+
+For Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell. It checks the archive's checksum and the release's signature, so it needs [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) installed. Set `INFRAHARVEST_SKIP_SIGNATURE=1` to install with the checksum check only:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+```
+
+**With Go**
+
+`go install github.com/IgnatG/infraharvest@latest`
+
+**From source**
+1.  Run `git clone https://github.com/IgnatG/infraharvest.git && cd infraharvest/`
+2.  Run `go mod download`
+3.  Run `go build -o infraharvest .` for all providers, or build only the providers you need:
+`go build -tags minimal,aws,google -o infraharvest .` (provider names as in `infraharvest import <provider>`)
+
+## Usage
+
+```
+infraharvest discover <provider> [flags]     list resources into a selection file to review
+infraharvest pick --selection <file>         review a selection file in the terminal
+infraharvest import <provider> [flags]       generate configuration for what a selection includes
+infraharvest import <provider> list          list the provider's services
+infraharvest verify [output-directory]       run the verification gate on generated roots again
+infraharvest report [output-directory]       print an import's report again
+infraharvest bootstrap --config <file>       write a root that creates the state storage
+infraharvest mcp                             serve infraharvest to AI agents over MCP
+infraharvest version
+
+Flags of import and discover:
+  -r, --resources strings         services to import, such as vpc,subnet,sg, or "*" for all
+  -x, --excludes strings          services to leave out of --resources
+  -f, --filter strings            keeps only resources with these IDs, or attributes some listers support (see Filtering)
+      --selection string          selection file from infraharvest discover (discover: the file to write,
+                                  default selection.yaml)
+      --all                       import everything the default selection includes, without a selection file
+      --engine string             terraform or tofu (default "terraform")
+      --terraform-path string     Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5, else the
+                                  latest release, downloaded and verified; OpenTofu >= 1.6, which must be installed)
+  -o, --path-output string        output directory (default "generated")
+  -p, --path-pattern string       layout of the roots (default "{output}/{provider}/{account}/{region}/")
+      --config string             configuration file, which sets flags not given on the command line and the
+                                  state backend of the generated roots
+      --managed-state strings     leave out what Terraform already manages, according to this state
+      --resume                    keep the roots a previous run generated from the same resources and options
+      --incremental               add what is new to the roots earlier imports generated
+      --reuse-inventory           import from the resources discover listed, instead of listing them again
+      --modules string            registry, local or none (default "registry")
+      --allow-partial             leave out what fails to import, and exit 3 instead of 1
+      --list-timeout duration     longest time to list one service in one region; a service that takes
+                                  longer is reported as failed, 0 for no limit (default 30m0s)
+  -O, --output string             hcl, or json to also print the import report as JSON on stdout (default "hcl")
+  -v, --verbose                   verbose mode
+```
+
+Providers add their own flags, such as `--profile` and `--regions` for AWS or `--projects` for Google Cloud: see each provider's page under [docs](/docs).
+
+### Choosing what to import
+
+An import must say what it imports, so a whole account never comes under Terraform by accident:
 
 ```
 infraharvest discover aws --resources=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
 # review selection.yaml: set include to false to leave a resource out
-infraharvest import aws --engine=terraform --resources=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
+infraharvest import aws --resources=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
 ```
 
 `discover` lists every resource it finds into the selection file, each marked included or not. By default it leaves out resources AWS creates and manages itself, with the reason: the default VPC with its subnets, route tables and internet gateway, default security groups and network ACLs, service-linked roles, and the log groups Lambda creates. You can include any of them by setting `include: true`. Rules in the file (`exclude: { type: aws_cloudwatch_log_group, id: "/aws/lambda/*" }`) decide resources it doesn't list, such as ones created since. A bucket's configuration resources (versioning, encryption, ...) follow the bucket.
@@ -151,7 +183,7 @@ Running `discover` again updates the selection file. Entries keep their decision
 
 `discover` also saves what it listed under `<path-output>/.infraharvest`. `import --selection selection.yaml --reuse-inventory` imports from that saved list instead of listing the cloud again, as long as it covers the same services, region and account. On a large estate, that saves the listing time a second time. Child resources, such as an S3 bucket's configuration, are still read at import.
 
-Resources that Terraform already manages can be left out too. `--managed-state` reads existing state, including the version 3 state that Terraformer writes, and excludes every resource it finds there, with the state file as the reason. The flag accepts state files, directories of them, or `s3://bucket/prefix?region=...` (every `.tfstate` object under the prefix). `--managed-state=backend` reads the S3 backend from the configuration file, so an import run again only picks up what is new. The report then shows, by type, how much of what was discovered is managed and how much isn't. State can hold secrets: infraharvest reads it only when asked, keeps only resource types and IDs, and needs read access to the state for it.
+Resources that Terraform already manages can be left out too. `--managed-state` reads existing state, including the version 3 state that Terraformer and earlier infraharvest releases wrote, and excludes every resource it finds there, with the state file as the reason. The flag accepts state files, directories of them, or `s3://bucket/prefix?region=...` (every `.tfstate` object under the prefix). `--managed-state=backend` reads the S3 backend from the configuration file, so an import run again only picks up what is new. The report then shows, by type, how much of what was discovered is managed and how much isn't. State can hold secrets: infraharvest reads it only when asked, keeps only resource types and IDs, and needs read access to the state for it.
 
 A run that fails part way, such as on one region, can be run again with `--resume`: roots generated from the same resources and options since then are kept as they are, with their results. The others are generated again from scratch. Checkpoints go into `<path-output>/.infraharvest`, which `.gitignore` excludes.
 
@@ -159,17 +191,16 @@ Once the roots are in use, `--incremental` adds what is new to them instead, wit
 
 ```sh
 infraharvest discover aws --regions=eu-west-2 --selection=selection.yaml   # marks what is new
-infraharvest import aws --engine=terraform --regions=eu-west-2 --selection=selection.yaml --incremental --managed-state=backend
+infraharvest import aws --regions=eu-west-2 --selection=selection.yaml --incremental --managed-state=backend
 ```
 
-#### Configuration file and state backend
+### Configuration file and state backend
 
 `--config infraharvest.yaml` sets any flag the command line doesn't, and the state backend of the generated roots:
 
 ```yaml
 version: 1
 settings:                # flags of every provider command
-  engine: terraform
   selection: selection.yaml
 providers:               # flags of one provider command
   aws:
@@ -187,7 +218,7 @@ Each root gets a `backend.tf` with its own state key (`imported/aws/<account>/<r
 
 If the storage doesn't exist yet, `infraharvest bootstrap --config infraharvest.yaml` writes a root into `<path-output>/bootstrap` that creates it: an S3 bucket, an Azure storage account and container, or a Cloud Storage bucket. The storage is versioned, encrypted, not public, reachable only over TLS, and protected from `terraform destroy`. Apply it once, with rights to create storage, before planning the generated roots.
 
-#### AI agents (MCP)
+### AI agents (MCP)
 
 `infraharvest mcp` serves infraharvest to AI agents such as Claude Code, Copilot or Cursor over the [Model Context Protocol](https://modelcontextprotocol.io), on stdin and stdout. Its tools run the same binary, so they behave like the command line:
 
@@ -203,9 +234,9 @@ The agent can propose a selection, but only a person can start an import. infrah
 claude mcp add infraharvest -- infraharvest mcp
 ```
 
-#### Output of `--engine=terraform`
+### Output
 
-By default each root is one state boundary: `<path-output>/<provider>/<account>/<region>/`, with `global` for global services such as IAM. `--path-pattern` can change that, with `{account}` and `{region}` as well as `{output}`, `{provider}` and `{service}`.
+By default each root is one state boundary: `<path-output>/<provider>/<account>/<region>/`, with `global` for global services such as IAM. Only AWS reports its account and region so far; for other providers both are `default`. `--path-pattern` can change that, with `{account}` and `{region}` as well as `{output}`, `{provider}` and `{service}`.
 
 Each output directory gets:
 
@@ -288,251 +319,42 @@ Exit codes:
 
 When the configuration Terraform generates doesn't validate, infraharvest fixes what Terraform rejects where that doesn't change its meaning, then plans again. It removes arguments that are unset in effect (zero values), arguments that duplicate another one (`subnets` next to `subnet_mapping` blocks), and nested blocks whose arguments are all null. Inside objects, it writes `null` for unset strings that Terraform generated as `""`.
 
-#### Permissions
+### Permissions
 
-The tool requires read-only permissions to list service resources.
+infraharvest needs read-only permissions: it lists resources and lets Terraform read their configuration. [permissions](permissions/README.md) has configurations that grant the minimum access for AWS, Azure and Google Cloud.
 
-#### Resources
+### Resources
 
 You can use `--resources` parameter to tell resources from what service you want to import.
 
 To import resources from all services, use `--resources="*"` . If you want to exclude certain services, you can combine the parameter with `--excludes` to exclude resources from services you don't want to import e.g. `--resources="*" --excludes="iam"`.
 
-#### Filtering
+### Filtering
 
-Filters are a way to choose which resources `terraformer` imports. It's possible to filter resources by its identifiers or attributes. Multiple filtering values are separated by `:`. If an identifier contains this symbol, value should be wrapped in `'` e.g. `--filter=resource=id1:'project:dataset_id'`. Identifier based filters will be executed before Terraformer will try to refresh remote state.
+`--filter` keeps only the resources with the IDs you name, before anything is imported. Separate several IDs with `:`, and wrap an ID that contains `:` in `'`, as in `--filter=resource=id1:'project:dataset_id'`. IDs follow each resource type's import ID, which the import section of its [Terraform provider documentation][terraform-providers] describes.
 
-Use `Type` when you need to filter only one of several types of resources. Multiple filters can be combined when importing different resource types. An example would be importing all AWS security groups from a specific AWS VPC:
-```
-infraharvest import aws -r sg,vpc --filter Type=sg;Name=vpc_id;Value=VPC_ID --filter Type=vpc;Name=id;Value=VPC_ID
-```
-Notice how the `Name` is different for `sg` than it is for `vpc`.
-
-##### Migration state version
-For terraform >= 0.13, you can use `replace-provider` to migrate state from previous versions.
-
-Example usage:
-```
-terraform state replace-provider -auto-approve "registry.terraform.io/-/aws" "hashicorp/aws"
-```
-
-##### Resource ID
-
-Filtering is based on Terraform resource ID patterns. To find valid ID patterns for your resource, check the import part of the [Terraform documentation][terraform-providers].
-
-[terraform-providers]: https://www.terraform.io/docs/providers/
-
-Example usage:
+[terraform-providers]: https://registry.terraform.io/browse/providers
 
 ```
-infraharvest import aws --resources=vpc,subnet --filter=vpc=myvpcid --regions=eu-west-1
-```
-Will only import the vpc with id `myvpcid`. This form of filters can help when it's necessary to select resources by its identifiers.
-
-##### Field name only
-
-It is possible to filter by specific field name only. It can be used e.g. when you want to retrieve resources only with a specific tag key.
-
-Example usage:
-
-```
-infraharvest import aws --resources=s3 --filter="Name=tags.Abc" --regions=eu-west-1
-```
-Will only import the s3 resources that have tag `Abc`. This form of filters can help when the field values are not important from filtering perspective.
-
-##### Field with dots
-
-It is possible to filter by a field that contains a dot.
-
-Example usage:
-
-```
-infraharvest import aws --resources=s3 --filter="Name=tags.Abc.def" --regions=eu-west-1
-```
-Will only import the s3 resources that have tag `Abc.def`.
-
-#### Planning
-
-The `plan` command generates a planfile that contains all the resources set to be imported. By modifying the planfile before running the `import` command, you can rename or filter the resources you'd like to import.
-
-The rest of subcommands and parameters are identical to the `import` command.
-
-```
-$ infraharvest plan google --resources=networks,firewall --projects=my-project --regions=europe-west1-d
-(snip)
-
-Saving planfile to generated/google/my-project/terraformer/plan.json
+infraharvest import aws --all --resources=vpc,subnet --filter=vpc=myvpcid --regions=eu-west-1
 ```
 
-After reviewing/customizing the planfile, begin the import by running `import plan`.
+This imports only the VPC `myvpcid`, and the subnets. Use `Type` when one filter should apply to one service only, and combine several filters:
 
 ```
-$ infraharvest import plan generated/google/my-project/terraformer/plan.json
+infraharvest import aws --all --resources=sg,vpc --filter="Type=vpc;Name=id;Value=VPC_ID" --filter="Type=sg;Name=id;Value=SG_ID1:SG_ID2"
 ```
 
-### Resource structure
+A filter on another attribute, such as `--resources=ec2_instance --filter="Name=tags.Team;Value=web"`, only applies where the service's lister passes it to the API it lists with: AWS EC2 instance tags, Datadog tags, and some Tencent Cloud, IBM, NS1 and Heroku services (see each provider's page). Other services ignore it and list everything, and infraharvest logs a warning. To choose resources by anything else, run `infraharvest discover`, edit the selection file it writes, and import with `--selection`.
 
-Terraformer by default separates each resource into a file, which is put into a given service directory.
+## Adding a provider
 
-The default path for resource files is `{output}/{provider}/{service}/{resource}.tf` and can vary for each provider.
+1.  Create `providers/<name>/` with a provider and a service generator for each service. The provider implements `terraformutils.ProviderGenerator` and lists its services in `GetSupportedService`. Each service's `InitResources` lists the resources and records each one with `terraformutils.NewResource` or `NewSimpleResource`: its ID, a name, the Terraform resource type and attributes for filters.
+2.  Create `cmd/provider_cmd_<name>.go` with the provider's command and flags. It registers itself with `registerProvider` from `init()`, under the build constraint `!minimal || <name>`.
+3.  Add the optional interfaces in `terraformutils/base_provider.go` that the provider needs, for example `GetSource` when the provider isn't `hashicorp/<name>` on the registry, or `ImportID` when the ID a lister records isn't the one Terraform imports by.
+4.  Add a page under `docs/` and link it from this README.
 
-It's possible to adjust the generated structure by:
-1. Using `--compact` parameter to group resource files within a single service into one `resources.tf` file
-2. Adjusting the `--path-pattern` parameter and passing e.g. `--path-pattern {output}/{provider}/` to generate resources for all services in one directory
-
-It's possible to combine `--compact` `--path-pattern` parameters together.
-
-### Installation
-
-Both Terraformer and a Terraform provider plugin need to be installed.
-
-#### infraharvest
-
-**From a release**
-
-Each [release](https://github.com/IgnatG/infraharvest/releases) has archives for Linux, macOS and Windows on amd64 and arm64. It also has a checksum file, signed with [cosign](https://github.com/sigstore/cosign) from the release workflow (keyless, no long-lived key), SBOMs and build provenance. To verify a download, check the checksum file's signature, then the archive's checksum:
-
-```sh
-VERSION=0.2.0
-cosign verify-blob \
-  --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yaml@refs/heads/main" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --bundle "infraharvest_${VERSION}_SHA256SUMS.sigstore.json" "infraharvest_${VERSION}_SHA256SUMS"
-sha256sum --check --ignore-missing "infraharvest_${VERSION}_SHA256SUMS"
-```
-
-**Container image**
-
-`ghcr.io/ignatg/infraharvest` (linux/amd64 and linux/arm64, signed with cosign) includes pinned Terraform and OpenTofu binaries, and git for registry modules. It runs as a non-root user in `/work`:
-
-```sh
-docker run --rm -v "$PWD:/work" -v "$HOME/.aws:/home/git/.aws:ro" -e AWS_PROFILE \
-  ghcr.io/ignatg/infraharvest import aws --engine=terraform --all --resources=vpc --regions=eu-west-2
-```
-
-**With the install script**
-
-For Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell. It checks the archive's checksum and the release's signature, so it needs [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) installed. Set `INFRAHARVEST_SKIP_SIGNATURE=1` to install with the checksum check only:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
-```
-
-**With Go**
-
-`go install github.com/IgnatG/infraharvest@latest`
-
-**From source**
-1.  Run `git clone https://github.com/IgnatG/infraharvest.git && cd infraharvest/`
-2.  Run `go mod download`
-3.  Run `go build -o infraharvest .` for all providers, or build only the providers you need:
-`go build -tags minimal,aws,google -o infraharvest .` (provider names as in `infraharvest import <provider>`)
-
-#### Terraform Providers
-
-Create a working folder and initialize the Terraform provider plugin.  This folder will be where you run Terraformer commands.
-
-Run ```terraform init``` against a ```versions.tf``` file to install the plugins required for your platform. For example, if you need plugins for the google provider, ```versions.tf``` should contain:
-```
-terraform {
-  required_providers {
-    google = {
-      source = "hashicorp/google"
-    }
-  }
-  required_version = ">= 0.13"
-}
-```
-
-Or, copy your Terraform provider's plugin(s) from the list below to folder `~/.terraform.d/plugins/`, as appropriate.
-
-Links to download Terraform provider plugins:
-* Major Cloud
-    * Google Cloud provider >2.11.0 - [here](https://releases.hashicorp.com/terraform-provider-google/)
-    * AWS provider >2.25.0 - [here](https://releases.hashicorp.com/terraform-provider-aws/)
-    * Azure provider >1.35.0 - [here](https://releases.hashicorp.com/terraform-provider-azurerm/)
-    * Alicloud provider >1.57.1 - [here](https://releases.hashicorp.com/terraform-provider-alicloud/)
-* Cloud
-    * DigitalOcean provider >1.9.1 - [here](https://releases.hashicorp.com/terraform-provider-digitalocean/)
-    * Heroku provider >2.2.1 - [here](https://releases.hashicorp.com/terraform-provider-heroku/)
-    * LaunchDarkly provider >=2.1.1 - [here](https://releases.hashicorp.com/terraform-provider-launchdarkly/)
-    * Linode provider >1.8.0 - [here](https://releases.hashicorp.com/terraform-provider-linode/)
-    * OpenStack provider >1.21.1 - [here](https://releases.hashicorp.com/terraform-provider-openstack/)
-    * TencentCloud provider >1.50.0 - [here](https://releases.hashicorp.com/terraform-provider-tencentcloud/)
-    * Vultr provider >1.0.5 - [here](https://releases.hashicorp.com/terraform-provider-vultr/)
-    * Yandex provider >0.42.0 - [here](https://releases.hashicorp.com/terraform-provider-yandex/)
-    * Ionoscloud provider >6.3.3 - [here](https://github.com/ionos-cloud/terraform-provider-ionoscloud/releases)
-* Infrastructure Software
-    * Kubernetes provider >=1.9.0 - [here](https://releases.hashicorp.com/terraform-provider-kubernetes/)
-    * RabbitMQ provider >=1.1.0 - [here](https://releases.hashicorp.com/terraform-provider-rabbitmq/)
-* Network
-    * Myrasec provider >1.44 - [here](https://github.com/Myra-Security-GmbH/terraform-provider-myrasec)
-    * Cloudflare provider >1.16, <4.0 - [here](https://releases.hashicorp.com/terraform-provider-cloudflare/)
-    * Fastly provider >0.16.1 - [here](https://releases.hashicorp.com/terraform-provider-fastly/)
-    * NS1 provider >1.8.3 - [here](https://releases.hashicorp.com/terraform-provider-ns1/)
-    * PAN-OS provider >= 1.8.3 - [here](https://github.com/PaloAltoNetworks/terraform-provider-panos)
-* VCS
-    * GitHub provider >=2.2.1 - [here](https://releases.hashicorp.com/terraform-provider-github/)
-* Monitoring & System Management
-    * Datadog provider >2.1.0 - [here](https://releases.hashicorp.com/terraform-provider-datadog/)
-    * New Relic provider >2.0.0 - [here](https://releases.hashicorp.com/terraform-provider-newrelic/)
-    * Mackerel provider > 0.0.6 - [here](https://github.com/mackerelio-labs/terraform-provider-mackerel)
-    * Pagerduty >=1.9 - [here](https://releases.hashicorp.com/terraform-provider-pagerduty/)
-    * Opsgenie >= 0.6.0 [here](https://releases.hashicorp.com/terraform-provider-opsgenie/)
-    * Honeycomb.io >= 0.10.0 - [here](https://github.com/honeycombio/terraform-provider-honeycombio/releases)
-    * Opal >= 0.0.2 - [here](https://github.com/opalsecurity/terraform-provider-opal/releases)
-* Community
-    * Keycloak provider >=1.19.0 - [here](https://github.com/mrparkers/terraform-provider-keycloak/)
-    * Logz.io provider >=1.1.1 - [here](https://github.com/jonboydell/logzio_terraform_provider/)
-    * Commercetools provider >= 0.21.0 - [here](https://github.com/labd/terraform-provider-commercetools)
-    * Mikrotik provider >= 0.2.2 - [here](https://github.com/ddelnano/terraform-provider-mikrotik)
-    * Xen Orchestra provider >= 0.18.0 - [here](https://github.com/ddelnano/terraform-provider-xenorchestra)
-    * GmailFilter provider >= 1.0.1 - [here](https://github.com/yamamoto-febc/terraform-provider-gmailfilter)
-    * Vault provider - [here](https://github.com/hashicorp/terraform-provider-vault)
-    * Auth0 provider - [here](https://github.com/alexkappa/terraform-provider-auth0)
-    * AzureAD provider - [here](https://github.com/hashicorp/terraform-provider-azuread)
-
-Information on provider plugins:
-https://www.terraform.io/docs/configuration/providers.html
-
-
-## High-Level steps to add new provider
- * Initialize provider details in cmd/root.go and create a provider initialization file in the terraformer/cmd folder
- * Create a folder under terraformer/providers/ for your provider
- * Create two files under this folder
-   * <provide_name>_provider.go
-   * <provide_name>_service.go
-* Initialize all provider's supported services in <provide_name>_provider.go file
-* Create script for each supported service in same folder
-
-## Contributing
-
-If you have improvements or fixes, we would love to have your contributions.
-Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for more information on the process we would like
-contributors to follow.
-
-## Developing
-
-Terraformer was built so you can easily add new providers of any kind.
-
-Process for generating `tf`/`json` + `tfstate` files:
-
-1.  Call GCP/AWS/other api and get list of resources.
-2.  Iterate over resources and take only the ID (we don't need mapping fields!).
-3.  Call to provider for readonly fields.
-4.  Call to infrastructure and take tf + tfstate.
-
-## Infrastructure
-
-1.  Call to provider using the refresh method and get all data.
-2.  Convert refresh data to go struct.
-3.  Generate HCL file - `tf`/`json` files.
-4.  Generate `tfstate` files.
-
-All mapping of resource is made by providers and Terraform. Upgrades are needed only
-for providers.
-
-##### GCP compute resources
+### GCP compute resources
 
 For GCP compute resources, use generated code from
 `providers/gcp/gcp_compute_code_generator`.
@@ -543,29 +365,8 @@ To regenerate code:
 go run providers/gcp/gcp_compute_code_generator/*.go
 ```
 
-### Similar projects
+## Contributing
 
-#### [terraforming](https://github.com/dtan4/terraforming)
-
-##### Terraformer Benefits
-
-* Simpler to add new providers and resources - already supports AWS, GCP, GitHub, Kubernetes, and Openstack. Terraforming supports only AWS.
-* Better support for HCL + tfstate, including updates for Terraform 0.12.
-* If a provider adds new attributes to a resource, there is no need change Terraformer code - just update the Terraform provider on your laptop.
-* Automatically supports connections between resources in HCL files.
-
-##### Comparison
-
-Terraforming gets all attributes from cloud APIs and creates HCL and tfstate files with templating. Each attribute in the API needs to map to attribute in Terraform. Generated files from templating can be broken with illegal syntax. When a provider adds new attributes the terraforming code needs to be updated.
-
-Terraformer instead uses Terraform provider files for mapping attributes, HCL library from Hashicorp, and Terraform code.
-
-Look for S3 support in terraforming here and official S3 support
-Terraforming lacks full coverage for resources - as an example you can see that 70% of S3 options are not supported:
-
-* terraforming - https://github.com/dtan4/terraforming/blob/master/lib/terraforming/template/tf/s3.erb
-* official S3 support - https://www.terraform.io/docs/providers/aws/r/s3_bucket
-
-## Stargazers over time
-
-[![Stargazers over time](https://starchart.cc/GoogleCloudPlatform/terraformer.svg)](https://starchart.cc/GoogleCloudPlatform/terraformer)
+If you have improvements or fixes, we would love to have your contributions.
+Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for more information on the process we would like
+contributors to follow.

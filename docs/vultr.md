@@ -2,10 +2,12 @@
 
 Example:
 
-```
+```sh
 export VULTR_API_KEY=[VULTR_API_KEY]
-./infraharvest import vultr -r server
+infraharvest import vultr --all --resources=server
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover vultr` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Vultr resources:
 

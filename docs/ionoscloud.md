@@ -6,13 +6,24 @@ Proper credential must be configured, before it can be used.
 
 You can set the environment variables for *HTTP basic authentication*:
 
+```sh
 export IONOS_USERNAME="username"
 export IONOS_PASSWORD="password"
+```
 
 Or you can use *token authentication*:
 
+```sh
 export IONOS_TOKEN="token"
+```
 
+## Example
+
+```sh
+infraharvest import ionoscloud --all --resources=datacenter,server
+```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover ionoscloud` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 ## List of supported IONOS Cloud resources
 
@@ -54,12 +65,8 @@ export IONOS_TOKEN="token"
 * [`user`](https://registry.terraform.io/providers/ionos-cloud/ionoscloud/latest/docs/resources/user)
 * [`volume`](https://registry.terraform.io/providers/ionos-cloud/ionoscloud/latest/docs/resources/volume)
 
-We allow only resources that provide valid terraform plans to be imported.
-If you do not see your resource in the tf plan, please enable TF_LOG=debug and check logs 
-for a message that will let you know why the resource was not imported.
+Resources that Terraform can't import go into `rejected.hcl` under Terraform's errors, and the report lists them (see [Output](../README.md#output)).
 
 #### Notes:
- - A server must have a `NIC` and a `volume` attached to be allowed to be imported by terraformer.
+ - A server must have a `NIC` and a `volume` attached to be imported.
  - A server must also have a `BootVolume` set.
-
-

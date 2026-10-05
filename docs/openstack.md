@@ -2,9 +2,11 @@
 
 Example:
 
+```sh
+infraharvest import openstack --all --resources=compute,networking --regions=RegionOne
 ```
- infraharvest import openstack --resources=compute,networking --regions=RegionOne
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover openstack` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported OpenStack services:
 

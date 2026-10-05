@@ -2,11 +2,13 @@
 
 Example:
 
+```sh
+export TENCENTCLOUD_SECRET_ID=<SECRET_ID>
+export TENCENTCLOUD_SECRET_KEY=<SECRET_KEY>
+infraharvest import tencentcloud --all --resources=cvm,cbs --regions=ap-guangzhou
 ```
-$ export TENCENTCLOUD_SECRET_ID=<SECRET_ID>
-$ export TENCENTCLOUD_SECRET_KEY=<SECRET_KEY>
-$ infraharvest import tencentcloud --resources=cvm,cbs --regions=ap-guangzhou
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover tencentcloud` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported TencentCloud services:
 

@@ -2,12 +2,16 @@
 
 Example:
 
-```
+```sh
 export OCTOPUS_CLI_SERVER=http://localhost:8081/
-export OCTOPUS_CLI_API_KEY=API-CK7DQ8BMJCUUBSHAJCDIATXUO
+export OCTOPUS_CLI_API_KEY=API-XXXXXXXXXXXXXXXXXXXXXXXXXX
 
-infraharvest import octopusdeploy --resources=tagsets
+infraharvest import octopusdeploy --all --resources=tagsets
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover octopusdeploy` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
+
+List of supported OctopusDeploy resources:
 
 * `accounts`
   * `octopusdeploy_account`

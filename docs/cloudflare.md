@@ -1,38 +1,25 @@
 ### Use with Cloudflare
 
-Terraformer can only load providers that serve Terraform plugin protocol 5.
-Cloudflare provider 4.0 and later use protocol 6, so install a 3.x release
-(3.12.2 is reported to work):
-
-```hcl
-terraform {
-  required_providers {
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 3.12"
-    }
-  }
-}
-```
-
-With a newer provider, terraformer exits with an error saying the provider
-uses a plugin protocol it cannot load.
+The Cloudflare listers were written for Cloudflare provider 3.x and record its resource types. infraharvest generates configuration with the newest provider release, and later major releases renamed or removed some of these types (provider 5 replaces `cloudflare_record` with `cloudflare_dns_record`, for example). Terraform rejects resources of those types, and the report lists them.
 
 Example using a Cloudflare API Key and corresponding email:
-```
+
+```sh
 export CLOUDFLARE_API_KEY=[CLOUDFLARE_API_KEY]
 export CLOUDFLARE_EMAIL=[CLOUDFLARE_EMAIL]
 export CLOUDFLARE_ACCOUNT_ID=[CLOUDFLARE_ACCOUNT_ID]
- ./infraharvest import cloudflare --resources=firewall,dns
+infraharvest import cloudflare --all --resources=firewall,dns
 ```
 
 or using a Cloudflare API Token:
 
-```
+```sh
 export CLOUDFLARE_API_TOKEN=[CLOUDFLARE_API_TOKEN]
 export CLOUDFLARE_ACCOUNT_ID=[CLOUDFLARE_ACCOUNT_ID]
- ./infraharvest import cloudflare --resources=firewall,dns
+infraharvest import cloudflare --all --resources=firewall,dns
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover cloudflare` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Cloudflare services:
 

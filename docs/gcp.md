@@ -4,20 +4,20 @@ In order to access the information from your Google Project, you need to provide
 by setting up the environment variable `GOOGLE_APPLICATION_CREDENTIALS` with the file path of the JSON
 file that contains your service account key. 
 
-[![asciicast](https://asciinema.org/a/243961.svg)](https://asciinema.org/a/243961)
-
 Example:
 
 ```
-infraharvest import google --resources=gcs,forwardingRules,httpHealthChecks --connect=true --regions=europe-west1,europe-west4 --projects=aaa,fff
-infraharvest import google --resources=gcs,forwardingRules,httpHealthChecks --filter=compute_firewall=rule1:rule2:rule3 --regions=europe-west1 --projects=aaa,fff
+infraharvest import google --all --resources=gcs,forwardingRules,httpHealthChecks --regions=europe-west1,europe-west4 --projects=aaa,fff
+infraharvest import google --all --resources=gcs,forwardingRules,httpHealthChecks --filter=compute_firewall=rule1:rule2:rule3 --regions=europe-west1 --projects=aaa,fff
 ```
 
 For google-beta provider:
 
 ```
-infraharvest import google --resources=gcs,forwardingRules,httpHealthChecks --regions=europe-west4 --projects=aaa --provider-type beta
+infraharvest import google --all --resources=gcs,forwardingRules,httpHealthChecks --regions=europe-west4 --projects=aaa --provider-type beta
 ```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover google` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported GCP services:
 
@@ -171,6 +171,3 @@ List of supported GCP services:
     * `google_compute_url_map`
 *   `vpnTunnels`
     * `google_compute_vpn_tunnel`
-
-Your `tf` and `tfstate` files are written by default to
-`generated/gcp/zone/service`.

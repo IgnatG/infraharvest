@@ -2,12 +2,14 @@
 
 Example:
 
+```sh
+export GITHUB_TOKEN=YOUR_TOKEN   # or pass --token=YOUR_TOKEN
+infraharvest import github --all --owner=YOUR_ORGANIZATION --resources=repositories
+infraharvest import github --all --owner=YOUR_ORGANIZATION --resources=repositories --filter=repository=id1:id2:id4
+infraharvest import github --all --owner=YOUR_ORGANIZATION --resources=repositories --base-url=https://your-enterprise-github-url
 ```
- ./infraharvest import github --owner=YOUR_ORGANIZATION --resources=repositories --token=YOUR_TOKEN // or GITHUB_TOKEN in env
- ./infraharvest import github --owner=YOUR_ORGANIZATION --resources=repositories --filter=repository=id1:id2:id4 --token=YOUR_TOKEN // or GITHUB_TOKEN in env
 
-  ./infraharvest import github --owner=YOUR_ORGANIZATION --resources=repositories --base-url=https://your-enterprise-github-url
-```
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover github` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 Supports only organizational resources. List of supported resources:
 
@@ -33,5 +35,4 @@ Supports only organizational resources. List of supported resources:
     * `github_user_ssh_key`
 
 Notes:
-* Terraformer can't get webhook secrets from the GitHub API. If you use a secret token in any of your webhooks, running `terraform plan` will result in a change being detected:
-=> `configuration.#: "1" => "0"` in tfstate only.
+* The GitHub API doesn't return webhook secrets. If a webhook uses a secret, the generated configuration doesn't have it, and you need to set it before applying.

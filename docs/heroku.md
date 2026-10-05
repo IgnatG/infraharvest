@@ -14,11 +14,11 @@ heroku apps:info --json --app=<NAME>
 
 #### App Config Vars
 
-When importing apps, their settable config vars (those not from add-ons) are added to the Terraform configuration as `config_vars`. These may contain secrets, and can manually be split into `sensitive_config_vars` before the plan/apply.
+An app's config vars may contain secrets. Review `config_vars` in the generated configuration, and move secrets into `sensitive_config_vars` before applying.
 
 #### Builds
 
-The imported configuration cannot build & launch apps in a new place. To launch apps that have been imported with Terraformer, one of the following is required:
+The imported configuration cannot build & launch apps in a new place. To launch apps that have been imported with infraharvest, one of the following is required:
 * source pushed to the new Heroku apps, `git push heroku master` from each app's repo
 * new apps added to an existing Heroku pipelines and promoted to, via the web dashbord or CLI
 * new apps connected for GitHub deployments, via the web dashboard
@@ -28,24 +28,26 @@ The imported configuration cannot build & launch apps in a new place. To launch 
 
 ✏️  *Please replace angle-bracketed* `<VALUES>` *with your specific values.*
 
-```
+```sh
 export HEROKU_API_KEY=<token>
 
 # All team's apps
-./infraharvest import heroku --resources=app --team=<NAME>
+infraharvest import heroku --all --resources=app --team=<NAME>
 
 # Specific app(s), by UUID
-./infraharvest import heroku --resources=app --filter=app=<ID>
-./infraharvest import heroku --resources=app --filter=app=<ID>:<ID2>:<ID3>
+infraharvest import heroku --all --resources=app --filter=app=<ID>
+infraharvest import heroku --all --resources=app --filter=app=<ID>:<ID2>:<ID3>
 
 # Output directory
-./infraharvest import heroku --resources=app --filter=app=<ID> --path-pattern='{output}/{provider}/<DIRECTORY NAME>'
+infraharvest import heroku --all --resources=app --filter=app=<ID> --path-pattern='{output}/{provider}/<DIRECTORY NAME>'
 
 # All enabled features of HEROKU_API_KEY's Heroku account
-./infraharvest import heroku --resources=account_feature
+infraharvest import heroku --all --resources=account_feature
 ```
 
-Heroku Terraformer resources with the terraform-provider-heroku resources they import:
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover heroku` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
+
+Heroku services with the terraform-provider-heroku resources they import:
 
 *   `account_feature`
     * `heroku_account_feature`

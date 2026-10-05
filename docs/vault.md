@@ -2,10 +2,14 @@
 
 Example:
 
+```sh
+export VAULT_TOKEN=YOUR_VAULT_TOKEN     # or pass --token=YOUR_VAULT_TOKEN
+export VAULT_ADDR=YOUR_VAULT_ADDRESS    # or pass --address=YOUR_VAULT_ADDRESS
+infraharvest import vault --all --resources=aws_secret_backend_role
+infraharvest import vault --all --resources=policy --filter=policy=id1:id2:id4
 ```
- ./infraharvest import vault --resources=aws_secret_backend_role --token=YOUR_VAULT_TOKEN // or VAULT_TOKEN in env --address=YOUR_VAULT_ADDRESS // or VAULT_ADDR in env
- ./infraharvest import vault --resources=policy --filter=policy=id1:id2:id4 --token=YOUR_VAULT_TOKEN // or VAULT_TOKEN in env --address=YOUR_VAULT_ADDRESS // or VAULT_ADDR in env
-```
+
+`--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover vault` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
 List of supported Vault resources:
 
@@ -84,4 +88,4 @@ List of supported Vault resources:
 * `token_auth_backend_role`
     * `token_auth_backend_role`
 
-[1]: https://github.com/GoogleCloudPlatform/terraformer/blob/master/README.md#filtering
+[1]: ../README.md#filtering
