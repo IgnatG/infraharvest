@@ -19,6 +19,10 @@ type Import struct {
 	Type string // resource type, e.g. aws_sqs_queue
 	Name string // resource name in the configuration
 	ID   string // the provider's import ID
+	// Provider is the local name of the provider to import with, when it
+	// isn't the one the type implies: google-beta for a google_* resource.
+	// Empty otherwise.
+	Provider string
 }
 
 // Provider describes the provider the generated configuration uses.
@@ -55,6 +59,12 @@ func ImportsFile(imports []Import) ([]byte, error) {
 			hcl.TraverseAttr{Name: imp.Name},
 		})
 		block.SetAttributeValue("id", cty.StringVal(imp.ID))
+		if imp.Provider != "" {
+			if !hclsyntax.ValidIdentifier(imp.Provider) {
+				return nil, fmt.Errorf("invalid provider name %q for %s.%s", imp.Provider, imp.Type, imp.Name)
+			}
+			block.SetAttributeTraversal("provider", hcl.Traversal{hcl.TraverseRoot{Name: imp.Provider}})
+		}
 	}
 	return hclwrite.Format(f.Bytes()), nil
 }

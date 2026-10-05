@@ -50,6 +50,27 @@ func TestImportsFileRejectsInvalidAddress(t *testing.T) {
 	}
 }
 
+// A resource imported with a provider other than the one its type implies
+// says so, or Terraform would use the implied one.
+func TestImportsFileNamesTheProvider(t *testing.T) {
+	got, err := ImportsFile([]Import{{Type: "google_compute_network", Name: "main", ID: "projects/p/global/networks/main", Provider: "google-beta"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `import {
+  to       = google_compute_network.main
+  id       = "projects/p/global/networks/main"
+  provider = google-beta
+}
+`
+	if string(got) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if _, err := ImportsFile([]Import{{Type: "google_compute_network", Name: "main", ID: "x", Provider: "google beta"}}); err == nil {
+		t.Error("want an error for an invalid provider name")
+	}
+}
+
 func TestProvidersFile(t *testing.T) {
 	got, err := ProvidersFile(Provider{
 		Name:    "azurerm",

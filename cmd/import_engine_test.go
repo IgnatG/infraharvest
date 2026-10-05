@@ -49,6 +49,25 @@ func TestImportsByDir(t *testing.T) {
 
 func listerID(r terraformutils.Resource) (string, bool) { return r.InstanceState.ID, true }
 
+// Import blocks name the provider when the root declares it under a local
+// name other than the one the resource type implies, such as google-beta
+// (--provider-type=beta) for google_* resources.
+func TestImportsByDirNamesOtherProviders(t *testing.T) {
+	resources := map[string][]terraformutils.Resource{
+		"networks": {terraformutils.NewSimpleResource("main", "main", "google_compute_network", "google-beta")},
+	}
+	options := ImportOptions{PathPattern: "{output}/{provider}/", PathOutput: "out"}
+
+	beta, _ := importsByDir("google-beta", options, resources, listerID)
+	if imports := beta[filepath.Join("out", "google-beta")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
+		t.Errorf("google-beta: got %+v, want provider google-beta", imports)
+	}
+	ga, _ := importsByDir("google", options, resources, listerID)
+	if imports := ga[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "" {
+		t.Errorf("google: got %+v, want no provider", imports)
+	}
+}
+
 func TestImportsByDirUsesImportIDs(t *testing.T) {
 	resources := map[string][]terraformutils.Resource{
 		"route_table": {
