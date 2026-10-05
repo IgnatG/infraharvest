@@ -199,8 +199,6 @@ github.com/asaskevich/govalidator v0.0.0-20200907205600-7a23bdc65eef/go.mod h1:W
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3dyBCFEj5IhUbnKptjxatkF07cF2ak3yi77so=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
 github.com/aws/aws-sdk-go v1.34.28/go.mod h1:H7NKnBqNVzoTJpGfLrQkkD+ytBA93eiDYi/+8rV9s48=
-github.com/aws/aws-sdk-go v1.44.122 h1:p6mw01WBaNpbdP2xrisz5tIkcNwzj/HysobNoaAHjgo=
-github.com/aws/aws-sdk-go v1.44.122/go.mod h1:y4AeaBuwd2Lk+GepC1E9v0qOiTws0MIWAX4oIKwKHZo=
 github.com/aws/aws-sdk-go-v2 v1.47.1 h1:uOIZnp4PK3ZhKI0dNrJrhTEsLxbpXHTAJlwoS1pvAtw=
 github.com/aws/aws-sdk-go-v2 v1.47.1/go.mod h1:bttEH6JqnUL8LepvDVfdrds/fZ5bCIxzpe3abyUrhDU=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 h1:eBMB84YGghSocM7PsjmmPffTa+1FBUeNvGvFou6V/4o=
@@ -225,6 +223,8 @@ github.com/aws/aws-sdk-go-v2/service/acm v1.22.5 h1:GNTWQH4PWazAsb3VXePxGKwzi7Oi
 github.com/aws/aws-sdk-go-v2/service/acm v1.22.5/go.mod h1:yAwtFXtwrusYjymwgH4ofDG3by5KZvoBt8m87zYzotY=
 github.com/aws/aws-sdk-go-v2/service/apigateway v1.21.5 h1:5ZS6foV/73y4oDZuuwYgPh6htPrTOTdYy6eWnCHGleU=
 github.com/aws/aws-sdk-go-v2/service/apigateway v1.21.5/go.mod h1:P/zwE9uiC6eK/kL3CS60lxTTVC2zAvaS4iW31io41V4=
+github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.44.0 h1:+PUmMN8TCOMwE5sk/fblfq9rBDhFpcS0tVub1jEifmU=
+github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.44.0/go.mod h1:gy2IdCAIthzCjcS6WsPsW2GD+64llLAC3d3XOIH8p7g=
 github.com/aws/aws-sdk-go-v2/service/appsync v1.26.5 h1:sE3C1/KFq6alTwYZRNZz1D+tepwdWP3BijOxh4wipbc=
 github.com/aws/aws-sdk-go-v2/service/appsync v1.26.5/go.mod h1:q6yeacrYIXpYt156QvapKEPTn7X7TpeP3R6mVzRhNKE=
 github.com/aws/aws-sdk-go-v2/service/autoscaling v1.36.5 h1:kyNx3ieC65DxlJvkKYer8/PbP35YN2fn8T4jJYGQBtA=
