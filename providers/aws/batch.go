@@ -38,7 +38,7 @@ func (g *BatchGenerator) InitResources() error {
 }
 
 func (g *BatchGenerator) loadComputeEnvironments(batchClient *batch.Client) error {
-	p := batch.NewDescribeComputeEnvironmentsPaginator(batchClient, &batch.DescribeComputeEnvironmentsInput{})
+	p := batch.NewDescribeComputeEnvironmentsPaginator(batchClient, &batch.DescribeComputeEnvironmentsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -65,7 +65,7 @@ func (g *BatchGenerator) loadComputeEnvironments(batchClient *batch.Client) erro
 func (g *BatchGenerator) loadJobDefinitions(batchClient *batch.Client) error {
 	p := batch.NewDescribeJobDefinitionsPaginator(batchClient, &batch.DescribeJobDefinitionsInput{
 		Status: aws.String("ACTIVE"),
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -90,7 +90,7 @@ func (g *BatchGenerator) loadJobDefinitions(batchClient *batch.Client) error {
 }
 
 func (g *BatchGenerator) loadJobQueues(batchClient *batch.Client) error {
-	p := batch.NewDescribeJobQueuesPaginator(batchClient, &batch.DescribeJobQueuesInput{})
+	p := batch.NewDescribeJobQueuesPaginator(batchClient, &batch.DescribeJobQueuesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

@@ -52,6 +52,9 @@ func (f *fakeAPI) Do(r *http.Request) (*http.Response, error) {
 		// REST-XML (S3) errors; S3's "not configured" errors are 404s.
 		status = http.StatusNotFound
 		contentType = "application/xml"
+	case strings.HasPrefix(respBody, "<ErrorResponse"), strings.HasPrefix(respBody, "<Response><Errors>"):
+		// Query (IAM, SNS) and EC2 query errors wrap the error and send a 4xx status.
+		status = http.StatusBadRequest
 	case strings.HasPrefix(respBody, "<") && contentType == "application/json":
 		contentType = "application/xml" // REST-XML (S3)
 	}

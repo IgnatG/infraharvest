@@ -36,7 +36,7 @@ func (g *EcsGenerator) InitResources() error {
 	}
 	svc := ecs.NewFromConfig(config)
 
-	p := ecs.NewListClustersPaginator(svc, &ecs.ListClustersInput{})
+	p := ecs.NewListClustersPaginator(svc, &ecs.ListClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {
@@ -56,7 +56,7 @@ func (g *EcsGenerator) InitResources() error {
 
 			servicePage := ecs.NewListServicesPaginator(svc, &ecs.ListServicesInput{
 				Cluster: &clusterArn,
-			})
+			}, stopOnDuplicateToken)
 			for servicePage.HasMorePages() {
 				serviceNextPage, err := servicePage.NextPage(g.Context())
 				if err != nil {
@@ -99,7 +99,7 @@ func (g *EcsGenerator) InitResources() error {
 	}
 
 	taskDefinitionsMap := map[string]terraformutils.Resource{}
-	taskDefinitionsPage := ecs.NewListTaskDefinitionsPaginator(svc, &ecs.ListTaskDefinitionsInput{})
+	taskDefinitionsPage := ecs.NewListTaskDefinitionsPaginator(svc, &ecs.ListTaskDefinitionsInput{}, stopOnDuplicateToken)
 	for taskDefinitionsPage.HasMorePages() {
 		taskDefinitionsNextPage, e := taskDefinitionsPage.NextPage(g.Context())
 		if e != nil {

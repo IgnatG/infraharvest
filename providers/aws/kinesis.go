@@ -47,7 +47,7 @@ func (g *KinesisGenerator) InitResources() error {
 	}
 	svc := kinesis.NewFromConfig(config)
 
-	p := kinesis.NewListStreamsPaginator(svc, &kinesis.ListStreamsInput{})
+	p := kinesis.NewListStreamsPaginator(svc, &kinesis.ListStreamsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

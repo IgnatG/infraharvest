@@ -244,7 +244,7 @@ func (g *SecurityGenerator) InitResources() error {
 		return err
 	}
 	svc := ec2.NewFromConfig(config)
-	p := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{})
+	p := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{}, stopOnDuplicateToken)
 	var resourcesToFilter []types.SecurityGroup
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

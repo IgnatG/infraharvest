@@ -48,7 +48,7 @@ func (g *EniGenerator) InitResources() error {
 		return e
 	}
 	svc := ec2.NewFromConfig(config)
-	p := ec2.NewDescribeNetworkInterfacesPaginator(svc, &ec2.DescribeNetworkInterfacesInput{})
+	p := ec2.NewDescribeNetworkInterfacesPaginator(svc, &ec2.DescribeNetworkInterfacesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

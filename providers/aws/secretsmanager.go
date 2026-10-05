@@ -31,7 +31,7 @@ func (g *SecretsManagerGenerator) InitResources() error {
 		return e
 	}
 	svc := secretsmanager.NewFromConfig(config)
-	p := secretsmanager.NewListSecretsPaginator(svc, &secretsmanager.ListSecretsInput{})
+	p := secretsmanager.NewListSecretsPaginator(svc, &secretsmanager.ListSecretsInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

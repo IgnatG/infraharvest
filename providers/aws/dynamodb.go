@@ -31,7 +31,7 @@ func (g *DynamoDbGenerator) InitResources() error {
 		return e
 	}
 	svc := dynamodb.NewFromConfig(config)
-	p := dynamodb.NewListTablesPaginator(svc, &dynamodb.ListTablesInput{})
+	p := dynamodb.NewListTablesPaginator(svc, &dynamodb.ListTablesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

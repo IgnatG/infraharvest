@@ -41,7 +41,7 @@ func (g *WorkspacesGenerator) InitResources() error {
 }
 
 func (g *WorkspacesGenerator) loadWorkspaces(svc *workspaces.Client) error {
-	p := workspaces.NewDescribeWorkspacesPaginator(svc, &workspaces.DescribeWorkspacesInput{})
+	p := workspaces.NewDescribeWorkspacesPaginator(svc, &workspaces.DescribeWorkspacesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

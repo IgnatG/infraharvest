@@ -39,6 +39,12 @@ func WriteSecretFile(path string, data []byte) (err error) {
 		_ = f.Close()
 		return err
 	}
+	// Flush before the rename, so a crash right after it cannot leave path
+	// pointing at a truncated file.
+	if err = f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
 	if err = f.Close(); err != nil {
 		return err
 	}

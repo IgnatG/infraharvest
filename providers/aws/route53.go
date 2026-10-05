@@ -35,7 +35,7 @@ type Route53Generator struct {
 
 func (g *Route53Generator) createZonesResources(svc *route53.Client) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	p := route53.NewListHostedZonesPaginator(svc, &route53.ListHostedZonesInput{})
+	p := route53.NewListHostedZonesPaginator(svc, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -110,7 +110,7 @@ func (g Route53Generator) createRecordsResources(svc *route53.Client, zoneID str
 func (g Route53Generator) createHealthChecksResources(svc *route53.Client) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 
-	p := route53.NewListHealthChecksPaginator(svc, &route53.ListHealthChecksInput{})
+	p := route53.NewListHealthChecksPaginator(svc, &route53.ListHealthChecksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

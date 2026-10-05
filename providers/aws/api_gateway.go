@@ -54,7 +54,7 @@ func (g *APIGatewayGenerator) InitResources() error {
 }
 
 func (g *APIGatewayGenerator) loadRestApis(svc *apigateway.Client) error {
-	p := apigateway.NewGetRestApisPaginator(svc, &apigateway.GetRestApisInput{})
+	p := apigateway.NewGetRestApisPaginator(svc, &apigateway.GetRestApisInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -134,7 +134,7 @@ func (g *APIGatewayGenerator) loadStages(svc *apigateway.Client, restAPIID *stri
 func (g *APIGatewayGenerator) loadResources(svc *apigateway.Client, restAPIID *string) error {
 	p := apigateway.NewGetResourcesPaginator(svc, &apigateway.GetResourcesInput{
 		RestApiId: restAPIID,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -168,7 +168,7 @@ func (g *APIGatewayGenerator) loadResources(svc *apigateway.Client, restAPIID *s
 func (g *APIGatewayGenerator) loadModels(svc *apigateway.Client, restAPIID *string) error {
 	p := apigateway.NewGetModelsPaginator(svc, &apigateway.GetModelsInput{
 		RestApiId: restAPIID,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -390,7 +390,7 @@ func (g *APIGatewayGenerator) loadAuthorizers(svc *apigateway.Client, restAPIID 
 }
 
 func (g *APIGatewayGenerator) loadVpcLinks(svc *apigateway.Client) error {
-	p := apigateway.NewGetVpcLinksPaginator(svc, &apigateway.GetVpcLinksInput{})
+	p := apigateway.NewGetVpcLinksPaginator(svc, &apigateway.GetVpcLinksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -409,7 +409,7 @@ func (g *APIGatewayGenerator) loadVpcLinks(svc *apigateway.Client) error {
 }
 
 func (g *APIGatewayGenerator) loadUsagePlans(svc *apigateway.Client) error {
-	p := apigateway.NewGetUsagePlansPaginator(svc, &apigateway.GetUsagePlansInput{})
+	p := apigateway.NewGetUsagePlansPaginator(svc, &apigateway.GetUsagePlansInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -428,7 +428,7 @@ func (g *APIGatewayGenerator) loadUsagePlans(svc *apigateway.Client) error {
 }
 
 func (g *APIGatewayGenerator) loadAPIKeys(svc *apigateway.Client) error {
-	p := apigateway.NewGetApiKeysPaginator(svc, &apigateway.GetApiKeysInput{})
+	p := apigateway.NewGetApiKeysPaginator(svc, &apigateway.GetApiKeysInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

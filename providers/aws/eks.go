@@ -30,7 +30,7 @@ type EksGenerator struct {
 func (g *EksGenerator) getNodeGroups(clusterName string, svc *eks.Client) error {
 	p := eks.NewListNodegroupsPaginator(svc, &eks.ListNodegroupsInput{
 		ClusterName: &clusterName,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {
@@ -55,7 +55,7 @@ func (g *EksGenerator) InitResources() error {
 		return e
 	}
 	svc := eks.NewFromConfig(config)
-	p := eks.NewListClustersPaginator(svc, &eks.ListClustersInput{})
+	p := eks.NewListClustersPaginator(svc, &eks.ListClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

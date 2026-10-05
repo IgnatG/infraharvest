@@ -52,7 +52,7 @@ func (g *IgwGenerator) InitResources() error {
 		return e
 	}
 	svc := ec2.NewFromConfig(config)
-	p := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{})
+	p := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

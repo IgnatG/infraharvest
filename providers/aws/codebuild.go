@@ -31,7 +31,7 @@ func (g *CodeBuildGenerator) InitResources() error {
 		return e
 	}
 	svc := codebuild.NewFromConfig(config)
-	p := codebuild.NewListProjectsPaginator(svc, &codebuild.ListProjectsInput{})
+	p := codebuild.NewListProjectsPaginator(svc, &codebuild.ListProjectsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

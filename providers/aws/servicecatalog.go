@@ -31,7 +31,7 @@ func (g *ServiceCatalogGenerator) InitResources() error {
 		return e
 	}
 	svc := servicecatalog.NewFromConfig(config)
-	p := servicecatalog.NewListPortfoliosPaginator(svc, &servicecatalog.ListPortfoliosInput{})
+	p := servicecatalog.NewListPortfoliosPaginator(svc, &servicecatalog.ListPortfoliosInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

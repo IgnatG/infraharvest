@@ -53,7 +53,7 @@ func (g *EbsGenerator) InitResources() error {
 	}
 	p := ec2.NewDescribeVolumesPaginator(svc, &ec2.DescribeVolumesInput{
 		Filters: filters,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {
@@ -63,9 +63,12 @@ func (g *EbsGenerator) InitResources() error {
 			isRootDevice := false // Let's leave root device configuration to be done in ec2_instance resources
 
 			for _, attachment := range volume.Attachments {
-				instances, _ := svc.DescribeInstances(g.Context(), &ec2.DescribeInstancesInput{
+				instances, err := svc.DescribeInstances(g.Context(), &ec2.DescribeInstancesInput{
 					InstanceIds: []string{StringValue(attachment.InstanceId)},
 				})
+				if err != nil {
+					return fmt.Errorf("describe instance %s of volume %s: %w", StringValue(attachment.InstanceId), StringValue(volume.VolumeId), err)
+				}
 				for _, reservation := range instances.Reservations {
 					for _, instance := range reservation.Instances {
 						if StringValue(instance.RootDeviceName) == StringValue(attachment.Device) {

@@ -18,7 +18,7 @@ func (g *XrayGenerator) InitResources() error {
 	}
 	svc := xray.NewFromConfig(config)
 
-	p := xray.NewGetSamplingRulesPaginator(svc, &xray.GetSamplingRulesInput{})
+	p := xray.NewGetSamplingRulesPaginator(svc, &xray.GetSamplingRulesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

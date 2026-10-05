@@ -18,7 +18,7 @@ func (g *SWFGenerator) InitResources() error {
 	}
 	svc := swf.NewFromConfig(config)
 	for _, status := range regStatuses {
-		p := swf.NewListDomainsPaginator(svc, &swf.ListDomainsInput{RegistrationStatus: status})
+		p := swf.NewListDomainsPaginator(svc, &swf.ListDomainsInput{RegistrationStatus: status}, stopOnDuplicateToken)
 		for p.HasMorePages() {
 			page, err := p.NextPage(g.Context())
 			if err != nil {

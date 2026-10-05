@@ -41,7 +41,7 @@ func (g *EmrGenerator) InitResources() error {
 }
 
 func (g *EmrGenerator) addClusters(client *emr.Client) error {
-	p := emr.NewListClustersPaginator(client, &emr.ListClustersInput{})
+	p := emr.NewListClustersPaginator(client, &emr.ListClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -61,7 +61,7 @@ func (g *EmrGenerator) addClusters(client *emr.Client) error {
 }
 
 func (g *EmrGenerator) addSecurityConfigurations(client *emr.Client) error {
-	p := emr.NewListSecurityConfigurationsPaginator(client, &emr.ListSecurityConfigurationsInput{})
+	p := emr.NewListSecurityConfigurationsPaginator(client, &emr.ListSecurityConfigurationsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

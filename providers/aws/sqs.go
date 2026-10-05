@@ -47,7 +47,7 @@ func (g *SqsGenerator) InitResources() error {
 		listQueuesInput.QueueNamePrefix = aws.String(sqsPrefix)
 	}
 
-	p := sqs.NewListQueuesPaginator(svc, &listQueuesInput)
+	p := sqs.NewListQueuesPaginator(svc, &listQueuesInput, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

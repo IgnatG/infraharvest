@@ -29,7 +29,7 @@ type RDSGenerator struct {
 }
 
 func (g *RDSGenerator) loadDBClusters(svc *rds.Client) error {
-	p := rds.NewDescribeDBClustersPaginator(svc, &rds.DescribeDBClustersInput{})
+	p := rds.NewDescribeDBClustersPaginator(svc, &rds.DescribeDBClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -50,7 +50,7 @@ func (g *RDSGenerator) loadDBClusters(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadDBClusterSnapshots(svc *rds.Client) error {
-	p := rds.NewDescribeDBClusterSnapshotsPaginator(svc, &rds.DescribeDBClusterSnapshotsInput{})
+	p := rds.NewDescribeDBClusterSnapshotsPaginator(svc, &rds.DescribeDBClusterSnapshotsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -71,7 +71,7 @@ func (g *RDSGenerator) loadDBClusterSnapshots(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadDBProxies(svc *rds.Client) error {
-	p := rds.NewDescribeDBProxiesPaginator(svc, &rds.DescribeDBProxiesInput{})
+	p := rds.NewDescribeDBProxiesPaginator(svc, &rds.DescribeDBProxiesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -92,7 +92,7 @@ func (g *RDSGenerator) loadDBProxies(svc *rds.Client) error {
 
 }
 func (g *RDSGenerator) loadDBInstances(svc *rds.Client) error {
-	p := rds.NewDescribeDBInstancesPaginator(svc, &rds.DescribeDBInstancesInput{})
+	p := rds.NewDescribeDBInstancesPaginator(svc, &rds.DescribeDBInstancesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -115,7 +115,7 @@ func (g *RDSGenerator) loadDBInstances(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadDBInstanceSnapshots(svc *rds.Client) error {
-	p := rds.NewDescribeDBSnapshotsPaginator(svc, &rds.DescribeDBSnapshotsInput{})
+	p := rds.NewDescribeDBSnapshotsPaginator(svc, &rds.DescribeDBSnapshotsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -136,7 +136,7 @@ func (g *RDSGenerator) loadDBInstanceSnapshots(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadDBParameterGroups(svc *rds.Client) error {
-	p := rds.NewDescribeDBParameterGroupsPaginator(svc, &rds.DescribeDBParameterGroupsInput{})
+	p := rds.NewDescribeDBParameterGroupsPaginator(svc, &rds.DescribeDBParameterGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -160,7 +160,7 @@ func (g *RDSGenerator) loadDBParameterGroups(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadDBSubnetGroups(svc *rds.Client) error {
-	p := rds.NewDescribeDBSubnetGroupsPaginator(svc, &rds.DescribeDBSubnetGroupsInput{})
+	p := rds.NewDescribeDBSubnetGroupsPaginator(svc, &rds.DescribeDBSubnetGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -181,7 +181,7 @@ func (g *RDSGenerator) loadDBSubnetGroups(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadOptionGroups(svc *rds.Client) error {
-	p := rds.NewDescribeOptionGroupsPaginator(svc, &rds.DescribeOptionGroupsInput{})
+	p := rds.NewDescribeOptionGroupsPaginator(svc, &rds.DescribeOptionGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -205,7 +205,7 @@ func (g *RDSGenerator) loadOptionGroups(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadEventSubscription(svc *rds.Client) error {
-	p := rds.NewDescribeEventSubscriptionsPaginator(svc, &rds.DescribeEventSubscriptionsInput{})
+	p := rds.NewDescribeEventSubscriptionsPaginator(svc, &rds.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -226,7 +226,7 @@ func (g *RDSGenerator) loadEventSubscription(svc *rds.Client) error {
 }
 
 func (g *RDSGenerator) loadRDSGlobalClusters(svc *rds.Client) error {
-	p := rds.NewDescribeGlobalClustersPaginator(svc, &rds.DescribeGlobalClustersInput{})
+	p := rds.NewDescribeGlobalClustersPaginator(svc, &rds.DescribeGlobalClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

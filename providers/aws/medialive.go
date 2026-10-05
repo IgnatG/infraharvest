@@ -51,7 +51,7 @@ func (g *MediaLiveGenerator) InitResources() error {
 }
 
 func (g *MediaLiveGenerator) GetChannels(svc *medialive.Client) error {
-	p := medialive.NewListChannelsPaginator(svc, &medialive.ListChannelsInput{})
+	p := medialive.NewListChannelsPaginator(svc, &medialive.ListChannelsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -72,7 +72,7 @@ func (g *MediaLiveGenerator) GetChannels(svc *medialive.Client) error {
 }
 
 func (g *MediaLiveGenerator) GetInputs(svc *medialive.Client) error {
-	p := medialive.NewListInputsPaginator(svc, &medialive.ListInputsInput{})
+	p := medialive.NewListInputsPaginator(svc, &medialive.ListInputsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -93,7 +93,7 @@ func (g *MediaLiveGenerator) GetInputs(svc *medialive.Client) error {
 }
 
 func (g *MediaLiveGenerator) GetInputSecurityGroups(svc *medialive.Client) error {
-	p := medialive.NewListInputSecurityGroupsPaginator(svc, &medialive.ListInputSecurityGroupsInput{})
+	p := medialive.NewListInputSecurityGroupsPaginator(svc, &medialive.ListInputSecurityGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

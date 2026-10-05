@@ -75,7 +75,7 @@ func (g *SecurityhubGenerator) addAccount(client *securityhub.Client, accountNum
 }
 
 func (g *SecurityhubGenerator) addMembers(svc *securityhub.Client, accountNumber string) error {
-	p := securityhub.NewListMembersPaginator(svc, &securityhub.ListMembersInput{})
+	p := securityhub.NewListMembersPaginator(svc, &securityhub.ListMembersInput{}, stopOnDuplicateToken)
 
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -107,7 +107,7 @@ func (g *SecurityhubGenerator) addMembers(svc *securityhub.Client, accountNumber
 }
 
 func (g *SecurityhubGenerator) addStandardsSubscription(svc *securityhub.Client, accountNumber string) error {
-	p := securityhub.NewGetEnabledStandardsPaginator(svc, &securityhub.GetEnabledStandardsInput{})
+	p := securityhub.NewGetEnabledStandardsPaginator(svc, &securityhub.GetEnabledStandardsInput{}, stopOnDuplicateToken)
 
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

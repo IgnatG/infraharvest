@@ -44,7 +44,7 @@ func (g *KmsGenerator) InitResources() error {
 }
 
 func (g *KmsGenerator) addKeys(client *kms.Client) error {
-	p := kms.NewListKeysPaginator(client, &kms.ListKeysInput{})
+	p := kms.NewListKeysPaginator(client, &kms.ListKeysInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -81,7 +81,7 @@ func (g *KmsGenerator) addKeys(client *kms.Client) error {
 }
 
 func (g *KmsGenerator) addAliases(client *kms.Client) error {
-	p := kms.NewListAliasesPaginator(client, &kms.ListAliasesInput{})
+	p := kms.NewListAliasesPaginator(client, &kms.ListAliasesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -117,7 +117,7 @@ func (g *KmsGenerator) addAliases(client *kms.Client) error {
 func (g *KmsGenerator) addGrants(keyID *string, client *kms.Client) {
 	p := kms.NewListGrantsPaginator(client, &kms.ListGrantsInput{
 		KeyId: keyID,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

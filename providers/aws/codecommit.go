@@ -28,7 +28,7 @@ type CodeCommitGenerator struct {
 }
 
 func (g *CodeCommitGenerator) loadRepository(svc *codecommit.Client) error {
-	p := codecommit.NewListRepositoriesPaginator(svc, &codecommit.ListRepositoriesInput{})
+	p := codecommit.NewListRepositoriesPaginator(svc, &codecommit.ListRepositoriesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {
@@ -48,7 +48,7 @@ func (g *CodeCommitGenerator) loadRepository(svc *codecommit.Client) error {
 }
 
 func (g *CodeCommitGenerator) loadApprovalRuleTemplate(svc *codecommit.Client) error {
-	p := codecommit.NewListApprovalRuleTemplatesPaginator(svc, &codecommit.ListApprovalRuleTemplatesInput{})
+	p := codecommit.NewListApprovalRuleTemplatesPaginator(svc, &codecommit.ListApprovalRuleTemplatesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

@@ -30,7 +30,7 @@ type AutoScalingGenerator struct {
 }
 
 func (g *AutoScalingGenerator) loadAutoScalingGroups(svc *autoscaling.Client) error {
-	p := autoscaling.NewDescribeAutoScalingGroupsPaginator(svc, &autoscaling.DescribeAutoScalingGroupsInput{})
+	p := autoscaling.NewDescribeAutoScalingGroupsPaginator(svc, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -57,7 +57,7 @@ func (g *AutoScalingGenerator) loadAutoScalingGroups(svc *autoscaling.Client) er
 }
 
 func (g *AutoScalingGenerator) loadLaunchConfigurations(svc *autoscaling.Client) error {
-	p := autoscaling.NewDescribeLaunchConfigurationsPaginator(svc, &autoscaling.DescribeLaunchConfigurationsInput{})
+	p := autoscaling.NewDescribeLaunchConfigurationsPaginator(svc, &autoscaling.DescribeLaunchConfigurationsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -87,7 +87,7 @@ func (g *AutoScalingGenerator) loadLaunchConfigurations(svc *autoscaling.Client)
 func (g *AutoScalingGenerator) loadLaunchTemplates(config aws.Config) error {
 	ec2svc := ec2.NewFromConfig(config)
 
-	p := ec2.NewDescribeLaunchTemplatesPaginator(ec2svc, &ec2.DescribeLaunchTemplatesInput{})
+	p := ec2.NewDescribeLaunchTemplatesPaginator(ec2svc, &ec2.DescribeLaunchTemplatesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

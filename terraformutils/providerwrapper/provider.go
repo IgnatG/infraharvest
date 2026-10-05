@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,8 +37,43 @@ import (
 	tfplugin "github.com/hashicorp/terraform/plugin"
 	"github.com/hashicorp/terraform/providers"
 	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform/tfdiags"
 	"github.com/hashicorp/terraform/version"
 )
+
+// maxRetryDelay caps the wait between two reads of a resource.
+const maxRetryDelay = 5 * time.Second
+
+// nonRetryableReads are fragments of read errors that come back the same
+// every time, so retrying only delays the import fallback.
+var nonRetryableReads = []string{"not found", "does not exist", "accessdenied", "access denied", "unauthorized"}
+
+// retryableRead reports whether a failed read may pass on a retry, as a
+// throttled one does.
+func retryableRead(diags tfdiags.Diagnostics) bool {
+	message := strings.ToLower(diags.Err().Error())
+	for _, fragment := range nonRetryableReads {
+		if strings.Contains(message, fragment) {
+			return false
+		}
+	}
+	return true
+}
+
+// retryDelay is the wait after a failed read attempt (counted from 0): the
+// base delay doubled per attempt, capped, with jitter so that parallel
+// refreshes that were throttled together do not retry together.
+func retryDelay(attempt, baseMs int) time.Duration {
+	delay := time.Duration(baseMs) * time.Millisecond
+	for i := 0; i < attempt && delay < maxRetryDelay; i++ {
+		delay *= 2
+	}
+	delay = min(delay, maxRetryDelay)
+	if delay <= 0 {
+		return 0
+	}
+	return delay/2 + rand.N(delay/2+1)
+}
 
 // DefaultDataDir is the default directory for storing local data.
 const DefaultDataDir = ".terraform"
@@ -172,21 +208,23 @@ func (p *ProviderWrapper) Refresh(info *terraform.InstanceInfo, state *terraform
 	}
 	successReadResource := false
 	resp := providers.ReadResourceResponse{}
-	for i := 0; i < p.retryCount; i++ {
+	for attempt := 0; attempt < p.retryCount; attempt++ {
 		resp = p.Provider.ReadResource(providers.ReadResourceRequest{
 			TypeName:   info.Type,
 			PriorState: priorState,
 			Private:    []byte{},
 		})
-		if resp.Diagnostics.HasErrors() {
-			log.Println(resp.Diagnostics.Err())
-			log.Printf("WARN: Fail read resource from provider, wait %dms before retry\n", p.retrySleepMs)
-			time.Sleep(time.Duration(p.retrySleepMs) * time.Millisecond)
-			continue
-		} else {
+		if !resp.Diagnostics.HasErrors() {
 			successReadResource = true
 			break
 		}
+		log.Println(resp.Diagnostics.Err())
+		if attempt == p.retryCount-1 || !retryableRead(resp.Diagnostics) {
+			break
+		}
+		delay := retryDelay(attempt, p.retrySleepMs)
+		log.Printf("WARN: Fail read resource from provider, wait %s before retry\n", delay)
+		time.Sleep(delay)
 	}
 
 	if !successReadResource {
@@ -197,7 +235,12 @@ func (p *ProviderWrapper) Refresh(info *terraform.InstanceInfo, state *terraform
 			ID:       state.ID,
 		})
 		if importResponse.Diagnostics.HasErrors() {
-			return nil, fmt.Errorf("read failed: %w; import fallback failed: %w", resp.Diagnostics.Err(), importResponse.Diagnostics.Err())
+			readErr := resp.Diagnostics.Err()
+			if readErr == nil {
+				// No read was attempted: the retry count is 0.
+				readErr = errors.New("no read attempted")
+			}
+			return nil, fmt.Errorf("read failed: %w; import fallback failed: %w", readErr, importResponse.Diagnostics.Err())
 		}
 		if len(importResponse.ImportedResources) == 0 {
 			return nil, errors.New("not able to import resource for a given ID")

@@ -18,7 +18,7 @@ func (g *SfnGenerator) InitResources() error {
 	}
 	svc := sfn.NewFromConfig(config)
 
-	p := sfn.NewListStateMachinesPaginator(svc, &sfn.ListStateMachinesInput{})
+	p := sfn.NewListStateMachinesPaginator(svc, &sfn.ListStateMachinesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -35,7 +35,7 @@ func (g *SfnGenerator) InitResources() error {
 		}
 	}
 
-	pActivity := sfn.NewListActivitiesPaginator(svc, &sfn.ListActivitiesInput{})
+	pActivity := sfn.NewListActivitiesPaginator(svc, &sfn.ListActivitiesInput{}, stopOnDuplicateToken)
 	for pActivity.HasMorePages() {
 		pActivityNextPage, err := pActivity.NextPage(g.Context())
 		if err != nil {

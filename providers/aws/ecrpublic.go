@@ -36,7 +36,7 @@ func (g *EcrPublicGenerator) InitResources() error {
 	ecrPublicConfig.Region = MainRegionPublicPartition
 	svc := ecrpublic.NewFromConfig(ecrPublicConfig)
 
-	p := ecrpublic.NewDescribeRepositoriesPaginator(svc, &ecrpublic.DescribeRepositoriesInput{})
+	p := ecrpublic.NewDescribeRepositoriesPaginator(svc, &ecrpublic.DescribeRepositoriesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

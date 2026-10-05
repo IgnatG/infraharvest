@@ -26,7 +26,7 @@ type CodePipelineGenerator struct {
 }
 
 func (g *CodePipelineGenerator) loadPipelines(svc *codepipeline.Client) error {
-	p := codepipeline.NewListPipelinesPaginator(svc, &codepipeline.ListPipelinesInput{})
+	p := codepipeline.NewListPipelinesPaginator(svc, &codepipeline.ListPipelinesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -46,7 +46,7 @@ func (g *CodePipelineGenerator) loadPipelines(svc *codepipeline.Client) error {
 }
 
 func (g *CodePipelineGenerator) loadWebhooks(svc *codepipeline.Client) error {
-	p := codepipeline.NewListWebhooksPaginator(svc, &codepipeline.ListWebhooksInput{})
+	p := codepipeline.NewListWebhooksPaginator(svc, &codepipeline.ListWebhooksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

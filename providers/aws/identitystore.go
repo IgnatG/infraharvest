@@ -55,7 +55,7 @@ func (g *IdentityStoreGenerator) InitGroupResources(identityStoreId string) erro
 	svc := identitystore.NewFromConfig(config)
 	p := identitystore.NewListGroupsPaginator(svc, &identitystore.ListGroupsInput{
 		IdentityStoreId: aws.String(identityStoreId),
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -94,7 +94,7 @@ func (g *IdentityStoreGenerator) InitGroupMembershipResources(identityStoreId st
 	p := identitystore.NewListGroupMembershipsPaginator(svc, &identitystore.ListGroupMembershipsInput{
 		GroupId:         aws.String(groupId),
 		IdentityStoreId: aws.String(identityStoreId),
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -137,7 +137,7 @@ func (g *IdentityStoreGenerator) InitUserResources(identityStoreId string) error
 	svc := identitystore.NewFromConfig(config)
 	p := identitystore.NewListUsersPaginator(svc, &identitystore.ListUsersInput{
 		IdentityStoreId: aws.String(identityStoreId),
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

@@ -109,7 +109,7 @@ func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error
 	svc := ec2.NewFromConfig(config)
 	var errs []error
 
-	vpcs := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{Filters: []ec2types.Filter{ec2Filter("is-default", "true")}})
+	vpcs := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{Filters: []ec2types.Filter{ec2Filter("is-default", "true")}}, stopOnDuplicateToken)
 	for vpcs.HasMorePages() {
 		page, err := vpcs.NextPage(ctx)
 		if err != nil {
@@ -126,7 +126,7 @@ func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error
 	}
 
 	if len(defaultVPCs) > 0 {
-		subnets := ec2.NewDescribeSubnetsPaginator(svc, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", defaultVPCs...)}})
+		subnets := ec2.NewDescribeSubnetsPaginator(svc, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", defaultVPCs...)}}, stopOnDuplicateToken)
 		for subnets.HasMorePages() {
 			page, err := subnets.NextPage(ctx)
 			if err != nil {
@@ -137,7 +137,7 @@ func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error
 				d.parts[aws.ToString(s.SubnetId)] = true
 			}
 		}
-		tables := ec2.NewDescribeRouteTablesPaginator(svc, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", defaultVPCs...)}})
+		tables := ec2.NewDescribeRouteTablesPaginator(svc, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", defaultVPCs...)}}, stopOnDuplicateToken)
 		for tables.HasMorePages() {
 			page, err := tables.NextPage(ctx)
 			if err != nil {
@@ -148,7 +148,7 @@ func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error
 				d.parts[aws.ToString(t.RouteTableId)] = true
 			}
 		}
-		gateways := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{ec2Filter("attachment.vpc-id", defaultVPCs...)}})
+		gateways := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{ec2Filter("attachment.vpc-id", defaultVPCs...)}}, stopOnDuplicateToken)
 		for gateways.HasMorePages() {
 			page, err := gateways.NextPage(ctx)
 			if err != nil {
@@ -161,7 +161,7 @@ func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error
 		}
 	}
 
-	groups := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{ec2Filter("group-name", "default")}})
+	groups := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{ec2Filter("group-name", "default")}}, stopOnDuplicateToken)
 	for groups.HasMorePages() {
 		page, err := groups.NextPage(ctx)
 		if err != nil {

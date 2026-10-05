@@ -50,7 +50,7 @@ func (g *DocDBGenerator) InitResources() error {
 }
 
 func (g *DocDBGenerator) getClusters(svc *docdb.Client) error {
-	clusterPaginator := docdb.NewDescribeDBClustersPaginator(svc, &docdb.DescribeDBClustersInput{})
+	clusterPaginator := docdb.NewDescribeDBClustersPaginator(svc, &docdb.DescribeDBClustersInput{}, stopOnDuplicateToken)
 	for clusterPaginator.HasMorePages() {
 		page, err := clusterPaginator.NextPage(g.Context())
 		if err != nil {
@@ -85,7 +85,7 @@ func (g *DocDBGenerator) getClusters(svc *docdb.Client) error {
 }
 
 func (g *DocDBGenerator) getSubnetGroups(svc *docdb.Client) error {
-	subnetGroupPaginator := docdb.NewDescribeDBSubnetGroupsPaginator(svc, &docdb.DescribeDBSubnetGroupsInput{})
+	subnetGroupPaginator := docdb.NewDescribeDBSubnetGroupsPaginator(svc, &docdb.DescribeDBSubnetGroupsInput{}, stopOnDuplicateToken)
 
 	for subnetGroupPaginator.HasMorePages() {
 		page, err := subnetGroupPaginator.NextPage(g.Context())
@@ -110,7 +110,7 @@ func (g *DocDBGenerator) getSubnetGroups(svc *docdb.Client) error {
 }
 
 func (g *DocDBGenerator) getParameterGroups(svc *docdb.Client) error {
-	parameterGroupPaginator := docdb.NewDescribeDBClusterParameterGroupsPaginator(svc, &docdb.DescribeDBClusterParameterGroupsInput{})
+	parameterGroupPaginator := docdb.NewDescribeDBClusterParameterGroupsPaginator(svc, &docdb.DescribeDBClusterParameterGroupsInput{}, stopOnDuplicateToken)
 
 	for parameterGroupPaginator.HasMorePages() {
 		page, err := parameterGroupPaginator.NextPage(g.Context())

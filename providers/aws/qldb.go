@@ -31,7 +31,7 @@ func (g *QLDBGenerator) InitResources() error {
 		return e
 	}
 	svc := qldb.NewFromConfig(config)
-	p := qldb.NewListLedgersPaginator(svc, &qldb.ListLedgersInput{})
+	p := qldb.NewListLedgersPaginator(svc, &qldb.ListLedgersInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

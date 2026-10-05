@@ -31,7 +31,7 @@ func (g *DataPipelineGenerator) InitResources() error {
 		return e
 	}
 	svc := datapipeline.NewFromConfig(config)
-	p := datapipeline.NewListPipelinesPaginator(svc, &datapipeline.ListPipelinesInput{})
+	p := datapipeline.NewListPipelinesPaginator(svc, &datapipeline.ListPipelinesInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())

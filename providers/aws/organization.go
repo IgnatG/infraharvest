@@ -104,7 +104,7 @@ func (g *OrganizationGenerator) InitResources() error {
 
 	p := organizations.NewListPoliciesPaginator(svc, &organizations.ListPoliciesInput{
 		Filter: types.PolicyTypeServiceControlPolicy,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

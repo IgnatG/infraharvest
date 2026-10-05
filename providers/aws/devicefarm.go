@@ -31,7 +31,7 @@ func (g *DeviceFarmGenerator) InitResources() error {
 		return e
 	}
 	svc := devicefarm.NewFromConfig(config)
-	p := devicefarm.NewListProjectsPaginator(svc, &devicefarm.ListProjectsInput{})
+	p := devicefarm.NewListProjectsPaginator(svc, &devicefarm.ListProjectsInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
