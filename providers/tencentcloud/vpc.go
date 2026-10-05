@@ -80,52 +80,6 @@ func (g *VpcGenerator) InitResources() error {
 			"tencentcloud",
 			map[string]string{})
 
-		// g.loadSubnets(client, *vpcInstance.VpcId)
-		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-func (g *VpcGenerator) loadSubnets(client *vpc.Client, vpcID string) error {
-	request := vpc.NewDescribeSubnetsRequest()
-	request.Filters = make([]*vpc.Filter, 0, 1)
-	idKey := "vpc-id"
-	idFilter := vpc.Filter{
-		Name:   &idKey,
-		Values: []*string{&vpcID},
-	}
-	request.Filters = append(request.Filters, &idFilter)
-
-	offset := 0
-	pageSize := 50
-	allSubnets := make([]*vpc.Subnet, 0)
-
-	for {
-		offsetString := strconv.Itoa(offset)
-		limitString := strconv.Itoa(pageSize)
-		request.Offset = &offsetString
-		request.Limit = &limitString
-		response, err := client.DescribeSubnets(request)
-		if err != nil {
-			return err
-		}
-
-		allSubnets = append(allSubnets, response.Response.SubnetSet...)
-		if len(response.Response.SubnetSet) < pageSize {
-			break
-		}
-		offset += pageSize
-	}
-
-	for _, subnet := range allSubnets {
-		resource := terraformutils.NewResource(
-			*subnet.SubnetId,
-			*subnet.SubnetName+"_"+*subnet.SubnetId,
-			"tencentcloud_subnet",
-			"tencentcloud",
-			map[string]string{})
-
 		g.Resources = append(g.Resources, resource)
 	}
 

@@ -86,15 +86,15 @@ func TestServiceIdCleanupKeepsTypesSharingAnId(t *testing.T) {
 	service := Service{
 		Resources: []Resource{
 			{
-				InstanceInfo:  &InstanceInfo{Type: "aws_iam_role", Id: "admins"},
+				InstanceInfo:  &InstanceInfo{Type: "aws_iam_role", ID: "admins"},
 				InstanceState: &InstanceState{ID: "admins"},
 			},
 			{
-				InstanceInfo:  &InstanceInfo{Type: "aws_iam_group", Id: "admins"},
+				InstanceInfo:  &InstanceInfo{Type: "aws_iam_group", ID: "admins"},
 				InstanceState: &InstanceState{ID: "admins"},
 			},
 			{
-				InstanceInfo:  &InstanceInfo{Type: "aws_iam_group", Id: "admins"},
+				InstanceInfo:  &InstanceInfo{Type: "aws_iam_group", ID: "admins"},
 				InstanceState: &InstanceState{ID: "admins"},
 			},
 		},

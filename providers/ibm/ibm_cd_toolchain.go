@@ -1,6 +1,7 @@
 package ibm
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -352,6 +353,8 @@ func (g *ToolchainGenerator) InitResources() error {
 	}
 
 	var toolWG sync.WaitGroup
+	var toolErrsMu sync.Mutex
+	var toolErrs []error
 
 	// Iterate over toolchains to get tools
 	for _, tc := range tcInstances {
@@ -426,10 +429,16 @@ func (g *ToolchainGenerator) InitResources() error {
 				}
 
 				toolWG.Add(1)
-				go g.HandleTool(t, toolType, tID, tName, &toolWG)
+				go func() {
+					if err := g.HandleTool(t, toolType, tID, tName, &toolWG); err != nil {
+						toolErrsMu.Lock()
+						toolErrs = append(toolErrs, err)
+						toolErrsMu.Unlock()
+					}
+				}()
 			}
 		}
 	}
 	toolWG.Wait()
-	return nil
+	return errors.Join(toolErrs...)
 }

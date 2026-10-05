@@ -24,14 +24,14 @@ import (
 type InstanceInfo struct {
 	// Type is the Terraform resource type, such as aws_sqs_queue.
 	Type string
-	// Id is the resource's address, <type>.<label>.
-	Id string
+	// ID is the resource's address, <type>.<label>.
+	ID string
 }
 
 // ResourceAddress returns the resource's address, <type>.<label>, where the
-// label is the part of Id after the type and a dot.
+// label is the part of ID after the type and a dot.
 func (i *InstanceInfo) ResourceAddress() string {
-	return i.Type + "." + strings.TrimPrefix(i.Id, i.Type+".")
+	return i.Type + "." + strings.TrimPrefix(i.ID, i.Type+".")
 }
 
 // InstanceState is what a lister recorded about a resource.
@@ -112,7 +112,7 @@ func NewResource(id, resourceName, resourceType, provider string, attributes map
 		},
 		InstanceInfo: &InstanceInfo{
 			Type: resourceType,
-			Id:   fmt.Sprintf("%s.%s", resourceType, TfSanitize(resourceName)),
+			ID:   fmt.Sprintf("%s.%s", resourceType, TfSanitize(resourceName)),
 		},
 	}
 }

@@ -59,7 +59,7 @@ func FilterCleanup(s *Service, isInitial bool) {
 		}
 		// Resources of different types can share an ID, such as a role and
 		// a group of the same name, so the type is part of the key.
-		key := resource.InstanceInfo.Type + "\x00" + resource.InstanceInfo.Id
+		key := resource.InstanceInfo.Type + "\x00" + resource.InstanceInfo.ID
 		if _, duplicate := seen[key]; allPredicatesTrue && !duplicate {
 			seen[key] = struct{}{}
 			newListOfResources = append(newListOfResources, resource)
