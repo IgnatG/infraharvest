@@ -242,9 +242,11 @@ func (p *AWSProvider) InitService(serviceName string, verbose bool) error {
 	return nil
 }
 
-// GetAWSSupportService return map of support service for AWS
+// GetSupportedService returns the services the provider lists: those with a
+// lister of their own, and those listed through Cloud Control (see
+// cloudControlServices).
 func (p *AWSProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
-	return map[string]terraformutils.ServiceGenerator{
+	services := map[string]terraformutils.ServiceGenerator{
 		"accessanalyzer":    &AwsFacade{service: &AccessAnalyzerGenerator{}},
 		"acm":               &AwsFacade{service: &ACMGenerator{}},
 		"alb":               &AwsFacade{service: &AlbGenerator{}},
@@ -336,6 +338,10 @@ func (p *AWSProvider) GetSupportedService() map[string]terraformutils.ServiceGen
 		"workspaces":        &AwsFacade{service: &WorkspacesGenerator{}},
 		"xray":              &AwsFacade{service: &XrayGenerator{}},
 	}
+	for name := range cloudControlServices {
+		services[name] = &AwsFacade{service: newCloudControlGenerator(name)}
+	}
+	return services
 }
 
 func StringValue(value *string) string {

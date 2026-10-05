@@ -389,6 +389,39 @@ infraharvest import aws --resources=sg --regions=us-east-1
 *   `xray`
     * `aws_xray_sampling_rule`
 
+#### Services listed through Cloud Control
+
+These services have no lister of their own. They're listed through the [Cloud Control API](https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/what-is-cloudcontrolapi.html) (`cloudformation:ListResources`, which `ReadOnlyAccess` grants), whose identifier for each of these types is the ID Terraform imports it by. A type a region doesn't offer is skipped. The default selection leaves out what AWS creates for the account: the default event bus and schedule group, the `primary` Athena workgroup, the default Backup vaults, and Route 53 Resolver's autodefined rules.
+
+*   `appconfig`
+    * `aws_appconfig_application`
+*   `athena`
+    * `aws_athena_workgroup`
+*   `backup`
+    * `aws_backup_plan`
+    * `aws_backup_vault`
+*   `codeartifact`
+    * `aws_codeartifact_domain`
+    * `aws_codeartifact_repository`
+*   `eventbridge`
+    * `aws_cloudwatch_event_api_destination`
+    * `aws_cloudwatch_event_archive`
+    * `aws_cloudwatch_event_bus`
+    * `aws_cloudwatch_event_connection`
+*   `guardduty`
+    * `aws_guardduty_detector`
+*   `pipes`
+    * `aws_pipes_pipe`
+*   `placement_group`
+    * `aws_placement_group`
+*   `route53resolver`
+    * `aws_route53_resolver_endpoint`
+    * `aws_route53_resolver_rule`
+*   `scheduler`
+    * `aws_scheduler_schedule_group`
+*   `synthetics`
+    * `aws_synthetics_canary`
+
 #### Global services
 
 AWS services that are global will be imported without specified region even if several regions will be passed. It is to ensure only one representation of an AWS resource is imported.
