@@ -20,7 +20,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	mackerel "github.com/mackerelio/mackerel-client-go"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type MackerelProvider struct { //nolint
@@ -67,13 +66,6 @@ func (p *MackerelProvider) GetName() string {
 	return "mackerel"
 }
 
-// GetConfig return map of provider config for Mackerel
-func (p *MackerelProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"api_key": cty.StringVal(p.apiKey),
-	})
-}
-
 // GetSupportedService return map of support service for Mackerel
 func (p *MackerelProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
@@ -93,7 +85,7 @@ func (p MackerelProvider) GetProviderData(arg ...string) map[string]interface{} 
 	return map[string]interface{}{}
 }
 
-// GetResourceConnections return map of resource connections for Mackerel
-func (p *MackerelProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
+// GetSource is the provider's registry source, for required_providers.
+func (p *MackerelProvider) GetSource() string {
+	return "mackerelio-labs/mackerel"
 }

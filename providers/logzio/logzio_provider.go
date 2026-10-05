@@ -20,7 +20,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type LogzioProvider struct { //nolint
@@ -33,21 +32,8 @@ var (
 	disallowedChars = regexp.MustCompile(`[^A-Za-z0-9-]`)
 )
 
-func (p LogzioProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"alerts": {"alert_notification_endpoints": []string{"alert_notification_endpoints", "id"}},
-	}
-}
-
 func (p LogzioProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
-}
-
-func (p *LogzioProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"api_token": cty.StringVal(p.apiToken),
-		"base_url":  cty.StringVal(p.baseURL),
-	})
 }
 
 // Init LogzioProvider with API apiToken
@@ -89,4 +75,9 @@ func createSlug(s string) string {
 	s = strings.ToLower(s)
 
 	return disallowedChars.ReplaceAllString(s, "-")
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *LogzioProvider) GetSource() string {
+	return "logzio/logzio"
 }

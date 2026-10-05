@@ -21,7 +21,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type GithubProvider struct { //nolint
@@ -34,10 +33,6 @@ type GithubProvider struct { //nolint
 	pem            string
 }
 
-func (p GithubProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p GithubProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
@@ -46,28 +41,6 @@ func (p GithubProvider) GetProviderData(arg ...string) map[string]interface{} {
 			},
 		},
 	}
-}
-
-func (p *GithubProvider) GetConfig() cty.Value {
-	if p.appID != 0 && p.installationID != 0 && p.pem != "" {
-		return cty.ObjectVal(map[string]cty.Value{
-			"owner": cty.StringVal(p.owner),
-			"app_auth": cty.ListVal(
-				[]cty.Value{
-					cty.ObjectVal(map[string]cty.Value{
-						"id":              cty.NumberIntVal(p.appID),
-						"installation_id": cty.NumberIntVal(p.installationID),
-						"pem_file":        cty.StringVal(p.pem),
-					}),
-				},
-			),
-		})
-	}
-	return cty.ObjectVal(map[string]cty.Value{
-		"owner":    cty.StringVal(p.owner),
-		"token":    cty.StringVal(p.token),
-		"base_url": cty.StringVal(p.baseURL),
-	})
 }
 
 // Init GithubProvider with owner
@@ -145,4 +118,9 @@ func (p *GithubProvider) GetSupportedService() map[string]terraformutils.Service
 		"teams":                 &TeamsGenerator{},
 		"user_ssh_keys":         &UserSSHKeyGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *GithubProvider) GetSource() string {
+	return "integrations/github"
 }

@@ -19,7 +19,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type Auth0Provider struct { //nolint
@@ -59,14 +58,6 @@ func (p *Auth0Provider) GetSource() string {
 	return "auth0/auth0"
 }
 
-func (p *Auth0Provider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"domain":        cty.StringVal(p.domain),
-		"client_id":     cty.StringVal(p.clientID),
-		"client_secret": cty.StringVal(p.clientSecret),
-	})
-}
-
 func (p *Auth0Provider) InitService(serviceName string, verbose bool) error {
 	var isSupported bool
 	if _, isSupported = p.GetSupportedService()[serviceName]; !isSupported {
@@ -103,10 +94,6 @@ func (p *Auth0Provider) GetSupportedService() map[string]terraformutils.ServiceG
 		"auth0_log_stream":      &LogStreamGenerator{},
 		"auth0_tenant":          &TenantGenerator{},
 	}
-}
-
-func (p Auth0Provider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
 }
 
 func (p Auth0Provider) GetProviderData(arg ...string) map[string]interface{} {

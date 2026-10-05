@@ -36,10 +36,6 @@ func (p *CloudflareProvider) GetProviderData(arg ...string) map[string]interface
 	return map[string]interface{}{}
 }
 
-func (CloudflareProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *CloudflareProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"access":         &AccessGenerator{},
@@ -61,4 +57,9 @@ func (p *CloudflareProvider) InitService(serviceName string, verbose bool) error
 	p.Service.SetProviderName(p.GetName())
 
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *CloudflareProvider) GetSource() string {
+	return "cloudflare/cloudflare"
 }

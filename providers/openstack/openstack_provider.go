@@ -26,10 +26,6 @@ type OpenStackProvider struct { //nolint
 	region string
 }
 
-func (p OpenStackProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p OpenStackProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
@@ -77,4 +73,9 @@ func (p *OpenStackProvider) GetSupportedService() map[string]terraformutils.Serv
 		"compute":      &ComputeGenerator{},
 		"networking":   &NetworkingGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *OpenStackProvider) GetSource() string {
+	return "terraform-provider-openstack/openstack"
 }

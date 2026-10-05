@@ -55,10 +55,6 @@ func (p *FastlyProvider) GetProviderData(arg ...string) map[string]interface{} {
 	}
 }
 
-func (FastlyProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *FastlyProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"service_v1":       &ServiceV1Generator{},
@@ -81,4 +77,9 @@ func (p *FastlyProvider) InitService(serviceName string, verbose bool) error {
 		"api_key":     p.apiKey,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *FastlyProvider) GetSource() string {
+	return "fastly/fastly"
 }

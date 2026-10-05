@@ -49,10 +49,6 @@ func (p *EquinixMetalProvider) GetProviderData(arg ...string) map[string]interfa
 	return map[string]interface{}{}
 }
 
-func (EquinixMetalProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *EquinixMetalProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"device":            &DeviceGenerator{},
@@ -76,4 +72,9 @@ func (p *EquinixMetalProvider) InitService(serviceName string, verbose bool) err
 		"project_id": p.projectID,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *EquinixMetalProvider) GetSource() string {
+	return "equinix/metal"
 }

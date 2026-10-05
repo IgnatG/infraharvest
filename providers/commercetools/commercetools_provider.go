@@ -29,10 +29,6 @@ type CommercetoolsProvider struct { //nolint
 	tokenURL     string
 }
 
-func (p CommercetoolsProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p CommercetoolsProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
@@ -87,4 +83,9 @@ func (p *CommercetoolsProvider) GetSupportedService() map[string]terraformutils.
 		"tax_category":    &TaxCategoryGenerator{},
 		"types":           &TypesGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *CommercetoolsProvider) GetSource() string {
+	return "labd/commercetools"
 }

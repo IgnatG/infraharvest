@@ -20,7 +20,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type AWSProvider struct { //nolint
@@ -53,105 +52,6 @@ var SupportedEastOnlyResources = []string{
 	"wafv2_cloudfront",
 }
 
-func (p AWSProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"alb": {
-			"sg":     []string{"security_groups", "id"},
-			"subnet": []string{"subnets", "id"},
-			"alb": []string{
-				"load_balancer_arn", "id",
-				"listener_arn", "id",
-				// TF ALB TG attachment logic doesn't work well with references (doesn't interpolate)
-			},
-		},
-		"auto_scaling": {
-			"sg":     []string{"security_groups", "id"},
-			"subnet": []string{"vpc_zone_identifier", "id"},
-		},
-		"ec2_instance": {
-			"sg":     []string{"vpc_security_group_ids", "id"},
-			"subnet": []string{"subnet_id", "id"},
-			"ebs":    []string{"ebs_block_device", "id"},
-		},
-		"elasticache": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_ids", "id"},
-			"sg":     []string{"security_group_ids", "id"},
-		},
-		"ebs": {
-			// TF EBS attachment logic doesn't work well with references (doesn't interpolate)
-		},
-		"ecs": {
-			// ECS is not able anymore to support references (doesn't interpolate)
-			"subnet": []string{"network_configuration.subnets", "id"},
-			"sg":     []string{"network_configuration.security_groups", "id"},
-		},
-		"eks": {
-			"subnet": []string{"vpc_config.subnet_ids", "id"},
-			"sg":     []string{"vpc_config.security_group_ids", "id"},
-		},
-		"elb": {
-			"sg":     []string{"security_groups", "id"},
-			"subnet": []string{"subnets", "id"},
-		},
-		"igw": {"vpc": []string{"vpc_id", "id"}},
-		"identitystore": {
-			"identitystore": []string{
-				"group_id", "id",
-				"member_id", "id",
-			},
-		},
-		"msk": {
-			"subnet": []string{"broker_node_group_info.client_subnets", "id"},
-			"sg":     []string{"broker_node_group_info.security_groups", "id"},
-		},
-		"nacl": {
-			"subnet": []string{"subnet_ids", "id"},
-			"vpc":    []string{"vpc_id", "id"},
-		},
-		"organization": {
-			"organization": []string{
-				"policy_id", "id",
-				"parent_id", "id",
-				"target_id", "id",
-			},
-		},
-		"rds": {
-			"subnet": []string{"subnet_ids", "id"},
-			"sg":     []string{"vpc_security_group_ids", "id"},
-		},
-		"route_table": {
-			"route_table": []string{"route_table_id", "id"},
-			"subnet":      []string{"subnet_id", "id"},
-			"vpc":         []string{"vpc_id", "id"},
-		},
-		"sns": {
-			"sns": []string{"topic_arn", "id"},
-			"sqs": []string{"endpoint", "arn"},
-		},
-		"sg": {
-			"sg": []string{
-				"egress.security_groups", "id",
-				"ingress.security_groups", "id",
-				"security_group_id", "id",
-				"source_security_group_id", "id",
-			},
-		},
-		"subnet": {"vpc": []string{"vpc_id", "id"}},
-		"transit_gateway": {
-			"vpc":             []string{"vpc_id", "id"},
-			"transit_gateway": []string{"transit_gateway_id", "id"},
-			"subnet":          []string{"subnet_ids", "id"},
-			"vpn_connection":  []string{"vpn_connection_id", "id"},
-		},
-		"vpn_gateway": {"vpc": []string{"vpc_id", "id"}},
-		"vpn_connection": {
-			"customer_gateway": []string{"customer_gateway_id", "id"},
-			"vpn_gateway":      []string{"vpn_gateway_id", "id"},
-		},
-	}
-}
-
 func (p AWSProvider) GetProviderData(arg ...string) map[string]interface{} {
 	awsConfig := map[string]interface{}{}
 
@@ -171,23 +71,6 @@ func (p AWSProvider) GetProviderData(arg ...string) map[string]interface{} {
 			"aws": awsConfig,
 		},
 	}
-}
-
-func (p *AWSProvider) GetConfig() cty.Value {
-	if p.region != GlobalRegion {
-		return cty.ObjectVal(map[string]cty.Value{
-			"region":                 cty.StringVal(p.region),
-			"skip_region_validation": cty.True,
-		})
-	}
-	return cty.ObjectVal(map[string]cty.Value{
-		"region":                 cty.StringVal(""),
-		"skip_region_validation": cty.True,
-	})
-}
-
-func (p *AWSProvider) GetBasicConfig() cty.Value {
-	return p.GetConfig()
 }
 
 // check projectName in env params

@@ -18,7 +18,6 @@ import (
 	"errors"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type PanosProvider struct { //nolint
@@ -38,14 +37,6 @@ func (p *PanosProvider) GetName() string {
 
 func (p *PanosProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
-}
-
-func (p *PanosProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{})
-}
-
-func (p *PanosProvider) GetBasicConfig() cty.Value {
-	return p.GetConfig()
 }
 
 func (p *PanosProvider) InitService(serviceName string, verbose bool) error {
@@ -80,7 +71,7 @@ func (p *PanosProvider) GetSupportedService() map[string]terraformutils.ServiceG
 	}
 }
 
-func (PanosProvider) GetResourceConnections() map[string]map[string][]string {
-
-	return map[string]map[string][]string{}
+// GetSource is the provider's registry source, for required_providers.
+func (p *PanosProvider) GetSource() string {
+	return "PaloAltoNetworks/panos"
 }

@@ -19,7 +19,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type PagerDutyProvider struct { //nolint
@@ -41,12 +40,6 @@ func (p *PagerDutyProvider) GetName() string {
 	return "pagerduty"
 }
 
-func (p *PagerDutyProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"token": cty.StringVal(p.token),
-	})
-}
-
 func (p *PagerDutyProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
@@ -55,10 +48,6 @@ func (p *PagerDutyProvider) GetProviderData(arg ...string) map[string]interface{
 			},
 		},
 	}
-}
-
-func (PagerDutyProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
 }
 
 func (p *PagerDutyProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
@@ -86,4 +75,9 @@ func (p *PagerDutyProvider) InitService(serviceName string, verbose bool) error 
 		"token": p.token,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *PagerDutyProvider) GetSource() string {
+	return "PagerDuty/pagerduty"
 }

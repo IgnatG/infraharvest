@@ -20,7 +20,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type GrafanaProvider struct { //nolint
@@ -32,14 +31,6 @@ type GrafanaProvider struct { //nolint
 	tlsCert            string
 	caCert             string
 	insecureSkipVerify bool
-}
-
-func (p GrafanaProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"grafana_dashboard": {
-			"grafana_folder": []string{"folder", "id"},
-		},
-	}
 }
 
 func (p GrafanaProvider) GetProviderData(arg ...string) map[string]interface{} {
@@ -56,18 +47,6 @@ func (p GrafanaProvider) GetProviderData(arg ...string) map[string]interface{} {
 			},
 		},
 	}
-}
-
-func (p *GrafanaProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"org_id":               cty.NumberIntVal(int64(p.orgID)),
-		"url":                  cty.StringVal(p.url),
-		"auth":                 cty.StringVal(p.auth),
-		"tls_key":              cty.StringVal(p.tlsKey),
-		"tls_cert":             cty.StringVal(p.tlsCert),
-		"ca_cert":              cty.StringVal(p.caCert),
-		"insecure_skip_verify": cty.BoolVal(p.insecureSkipVerify),
-	})
 }
 
 func (p *GrafanaProvider) Init(args []string) error {
@@ -129,4 +108,9 @@ func (p *GrafanaProvider) GetSupportedService() map[string]terraformutils.Servic
 		"grafana_dashboard": &DashboardGenerator{},
 		"grafana_folder":    &FolderGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *GrafanaProvider) GetSource() string {
+	return "grafana/grafana"
 }

@@ -62,10 +62,6 @@ func (p *YandexProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (YandexProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *YandexProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"disk":     &DiskGenerator{},
@@ -90,4 +86,9 @@ func (p *YandexProvider) InitService(serviceName string, verbose bool) error {
 		KeySaKeyFileOrContent: p.saKeyFileOrContent,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *YandexProvider) GetSource() string {
+	return "yandex-cloud/yandex"
 }

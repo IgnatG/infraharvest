@@ -58,19 +58,6 @@ func (p *AzureDevOpsProvider) GetProviderData(arg ...string) map[string]interfac
 	return map[string]interface{}{}
 }
 
-func (p AzureDevOpsProvider) GetResourceConnections() map[string]map[string][]string {
-	supported := p.GetSupportedService()
-	connections := make(map[string]map[string][]string)
-	for serviceName, service := range supported {
-		if service2, ok := service.(AzureDevOpsServiceGenerator); ok {
-			if conn := service2.GetResourceConnections(); conn != nil {
-				connections[serviceName] = conn
-			}
-		}
-	}
-	return connections
-}
-
 func (p *AzureDevOpsProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"project":        &ProjectGenerator{},
@@ -93,4 +80,9 @@ func (p *AzureDevOpsProvider) InitService(serviceName string, verbose bool) erro
 		"personalAccessToken": p.personalAccessToken,
 	})
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *AzureDevOpsProvider) GetSource() string {
+	return "microsoft/azuredevops"
 }

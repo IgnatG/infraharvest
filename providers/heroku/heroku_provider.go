@@ -53,10 +53,6 @@ func (p *HerokuProvider) GetProviderData(arg ...string) map[string]interface{} {
 	}
 }
 
-func (HerokuProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *HerokuProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"account_feature":   &AccountFeatureGenerator{},

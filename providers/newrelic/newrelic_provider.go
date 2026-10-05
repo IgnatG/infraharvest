@@ -20,7 +20,6 @@ import (
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type NewRelicProvider struct { //nolint
@@ -65,26 +64,14 @@ func (p *NewRelicProvider) GetName() string {
 	return "newrelic"
 }
 
-func (p *NewRelicProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"account_id": cty.NumberIntVal(int64(p.accountID)),
-		"api_key":    cty.StringVal(p.APIKey),
-		"region":     cty.StringVal(p.Region),
-	})
-}
-
 func (p *NewRelicProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (NewRelicProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
-}
-
 func (p *NewRelicProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
-		"alert":      &AlertGenerator{},
-		"alert_channel": &AlertChannelGenerator{},
+		"alert":           &AlertGenerator{},
+		"alert_channel":   &AlertChannelGenerator{},
 		"alert_condition": &AlertConditionGenerator{},
 		"alert_policy":    &AlertPolicyGenerator{},
 		"infra":           &InfraGenerator{},
@@ -105,4 +92,9 @@ func (p *NewRelicProvider) InitService(serviceName string, verbose bool) error {
 	p.Service.SetProviderName(p.GetName())
 
 	return nil
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *NewRelicProvider) GetSource() string {
+	return "newrelic/newrelic"
 }

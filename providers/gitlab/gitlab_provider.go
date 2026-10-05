@@ -19,7 +19,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type GitLabProvider struct { //nolint
@@ -27,10 +26,6 @@ type GitLabProvider struct { //nolint
 	group   string
 	token   string
 	baseURL string
-}
-
-func (p GitLabProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
 }
 
 func (p GitLabProvider) GetProviderData(arg ...string) map[string]interface{} {
@@ -43,14 +38,6 @@ func (p GitLabProvider) GetProviderData(arg ...string) map[string]interface{} {
 			},
 		},
 	}
-}
-
-func (p *GitLabProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"token": cty.StringVal(p.token),
-		// NOTE: Real provider doesn't support empty/null base_url, only set when there's value
-		"base_url": cty.StringVal(p.baseURL),
-	})
 }
 
 // Init GitLabProvider with group
@@ -100,4 +87,9 @@ func (p *GitLabProvider) GetSupportedService() map[string]terraformutils.Service
 		"projects": &ProjectGenerator{},
 		"groups":   &GroupGenerator{},
 	}
+}
+
+// GetSource is the provider's registry source, for required_providers.
+func (p *GitLabProvider) GetSource() string {
+	return "gitlabhq/gitlab"
 }

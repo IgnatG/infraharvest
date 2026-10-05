@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type Provider struct {
@@ -34,13 +33,6 @@ func (p *Provider) Init(args []string) error {
 	}
 
 	return nil
-}
-
-func (p *Provider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"token":   cty.StringVal(p.token),
-		"address": cty.StringVal(p.address),
-	})
 }
 
 func (p *Provider) GetName() string {
@@ -90,10 +82,6 @@ func (p *Provider) GetSupportedService() map[string]terraformutils.ServiceGenera
 	generators["mount"] = &ServiceGenerator{resource: "mount"}
 	generators["generic_secret"] = &ServiceGenerator{resource: "generic_secret", mountType: "kv"}
 	return generators
-}
-
-func (Provider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
 }
 
 func (Provider) GetProviderData(_ ...string) map[string]interface{} {

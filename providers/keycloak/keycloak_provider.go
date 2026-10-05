@@ -19,7 +19,6 @@ import (
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type KeycloakProvider struct { //nolint
@@ -65,24 +64,6 @@ func (p *KeycloakProvider) GetProviderData(arg ...string) map[string]interface{}
 	return map[string]interface{}{}
 }
 
-func (p *KeycloakProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"url":                      cty.StringVal(p.url),
-		"base_path":                cty.StringVal(p.basePath),
-		"client_id":                cty.StringVal(p.clientID),
-		"client_secret":            cty.StringVal(p.clientSecret),
-		"realm":                    cty.StringVal(p.realm),
-		"client_timeout":           cty.NumberIntVal(int64(p.clientTimeout)),
-		"root_ca_certificate":      cty.StringVal(p.caCert),
-		"tls_insecure_skip_verify": cty.BoolVal(p.tlsInsecureSkipVerify),
-		"red_hat_sso":              cty.BoolVal(p.redHatSSO),
-	})
-}
-
-func (p *KeycloakProvider) GetBasicConfig() cty.Value {
-	return p.GetConfig()
-}
-
 func (p *KeycloakProvider) InitService(serviceName string, verbose bool) error {
 	var isSupported bool
 	if _, isSupported = p.GetSupportedService()[serviceName]; !isSupported {
@@ -113,6 +94,7 @@ func (p *KeycloakProvider) GetSupportedService() map[string]terraformutils.Servi
 	}
 }
 
-func (KeycloakProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{}
+// GetSource is the provider's registry source, for required_providers.
+func (p *KeycloakProvider) GetSource() string {
+	return "keycloak/keycloak"
 }

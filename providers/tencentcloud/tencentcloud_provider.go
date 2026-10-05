@@ -21,7 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type TencentCloudProvider struct { //nolint
@@ -47,12 +46,6 @@ func (p *TencentCloudProvider) getCredential() error {
 		Token:     token,
 	}
 	return nil
-}
-
-func (p *TencentCloudProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"region": cty.StringVal(p.region),
-	})
 }
 
 func (p *TencentCloudProvider) GetName() string {
@@ -118,84 +111,6 @@ func (p *TencentCloudProvider) GetSupportedService() map[string]terraformutils.S
 		"tat":            &TatGenerator{},
 		"dnspod":         &DnspodGenerator{},
 		"ses":            &SesGenerator{},
-	}
-}
-
-func (p *TencentCloudProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"cvm": {
-			"vpc":            []string{"vpc_id", "id"},
-			"subnet":         []string{"subnet_id", "id"},
-			"security_group": []string{"security_groups", "id"},
-			"key_pair":       []string{"key_name", "id"},
-		},
-		"as": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_ids", "id"},
-			"clb":    []string{"forward_balancer_ids", "id"},
-		},
-		"clb": {
-			"vpc":            []string{"vpc_id", "id", "target_region_info_vpc_id", "id"},
-			"subnet":         []string{"subnet_id", "id"},
-			"security_group": []string{"security_groups", "id"},
-			"cvm":            []string{"targets.instance_id", "id"},
-		},
-		"cfs": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-		},
-		"elasticsearch": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-		},
-		"mongodb": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-		},
-		"mysql": {
-			"vpc":            []string{"vpc_id", "id"},
-			"subnet":         []string{"subnet_id", "id"},
-			"security_group": []string{"security_groups", "id"},
-		},
-		"redis": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-		},
-		"scf": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-			"cos":    []string{"cos_bucket_name", "id"},
-		},
-		"tcaplus": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-		},
-		"vpn": {
-			"vpc": []string{"vpc_id", "id"},
-		},
-		"subnet": {
-			"vpc":         []string{"vpc_id", "id"},
-			"route_table": []string{"route_table_id", "id"},
-		},
-		"route_table": {
-			"vpc":         []string{"vpc_id", "id"},
-			"route_table": []string{"route_table_id", "id"},
-			"nat_gateway": []string{"next_hub", "id"},
-			"vpn":         []string{"next_hub", "id"},
-		},
-		"nat_gateway": {
-			"vpc": []string{"vpc_id", "id"},
-		},
-		"acl": {
-			"vpc":    []string{"vpc_id", "id"},
-			"subnet": []string{"subnet_id", "id"},
-		},
-		"eip": {
-			"cvm": []string{"instance_id", "id"},
-		},
-		"cbs": {
-			"cvm": []string{"instance_id", "id"},
-		},
 	}
 }
 

@@ -19,7 +19,6 @@ import (
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/zclconf/go-cty/cty"
 )
 
 const opalDefaultURL = "https://api.opal.dev"
@@ -48,36 +47,6 @@ func (p *OpalProvider) GetSource() string {
 	return "opalsecurity/opal"
 }
 
-func (p OpalProvider) GetResourceConnections() map[string]map[string][]string {
-	return map[string]map[string][]string{
-		"resource": {
-			"owner": {
-				"admin_owner_id", "id",
-				"reviewer_stage.reviewer.id", "id",
-			},
-			"group": {"visibility_group.id", "id"},
-		},
-		"group": {
-			"owner": {
-				"admin_owner_id", "id",
-				"reviewer_stage.reviewer.id", "id",
-			},
-			"group": {"visibility_group.id", "id"},
-			"message_channel": {
-				"audit_message_channel.id", "id",
-			},
-			"on_call_schedule": {
-				"on_call_schedule.id", "id",
-			},
-		},
-		"owner": {
-			"message_channel": {
-				"reviewer_message_channel_id", "id",
-			},
-		},
-	}
-}
-
 func (p *OpalProvider) Init(args []string) error {
 	p.token = os.Getenv("OPAL_AUTH_TOKEN")
 	if p.token == "" {
@@ -89,13 +58,6 @@ func (p *OpalProvider) Init(args []string) error {
 	}
 
 	return nil
-}
-
-func (p *OpalProvider) GetConfig() cty.Value {
-	return cty.ObjectVal(map[string]cty.Value{
-		"token":    cty.StringVal(p.token),
-		"base_url": cty.StringVal(p.baseURL),
-	})
 }
 
 func (p *OpalProvider) InitService(serviceName string, verbose bool) error {
