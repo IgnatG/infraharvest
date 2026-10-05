@@ -436,9 +436,10 @@ func importsByDir(providerName string, options ImportOptions, resourcesByService
 				continue
 			}
 			byDir[dir] = append(byDir[dir], engine.Import{
-				Type: r.InstanceInfo.Type,
-				Name: r.RawName,
-				ID:   id,
+				Type:     r.InstanceInfo.Type,
+				Name:     r.RawName,
+				ID:       id,
+				Provider: importProvider(providerName, r.InstanceInfo.Type),
 			})
 		}
 	}
@@ -451,6 +452,18 @@ func importsByDir(providerName string, options ImportOptions, resourcesByService
 		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", providerName, skipped[typ], typ)
 	}
 	return byDir, skipped
+}
+
+// importProvider returns the provider an import block must name:
+// providerName, the local name the root's required_providers declares,
+// when it isn't the one Terraform infers from the resource type (the part
+// before the first underscore), such as google-beta for google_* resources.
+// It returns "" when the two agree.
+func importProvider(providerName, resourceType string) string {
+	if implied, _, _ := strings.Cut(resourceType, "_"); implied == providerName {
+		return ""
+	}
+	return providerName
 }
 
 // importIDFunc returns how to get a resource's import ID: the provider's
