@@ -36,19 +36,9 @@ func (g InstanceGenerator) createInstanceResources(instanceID, instanceName, ins
 		"ibm",
 		map[string]string{
 			"image": instanceImgID,
-		},
-		[]string{},
-		map[string]interface{}{
-			"keys": []string{},
 		})
 
 	// Deprecated parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^port_speed$",
-		"^primary_network_interface.[0-9].port_speed$",
-		"^primary_network_interface.[0-9].primary_ip.[0-9].address$",
-		"^primary_network_interface.[0-9].primary_ip.[0-9].reserved_ip$",
-	)
 	return resource
 }
 
@@ -58,14 +48,7 @@ func (g InstanceGenerator) createVPCVolumeAttachmentResource(instanceID, volumeA
 		normalizeResourceName(volumeAttachedName, true),
 		"ibm_is_instance_volume_attachment",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
-
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^volume$",
-		"^iops$",
-	)
+		map[string]string{})
 
 	return resource
 }
@@ -79,10 +62,6 @@ func (g InstanceGenerator) createInstanceActionResource(instanceID, instanceStat
 		map[string]string{
 			"instance": instanceID,
 			"action":   getAction(instanceStatus),
-		},
-		[]string{},
-		map[string]interface{}{
-			"force_action": false,
 		})
 
 	return resource
@@ -154,37 +133,5 @@ func (g *InstanceGenerator) InitResources() error {
 
 		g.Resources = append(g.Resources, g.createInstanceActionResource(*instance.ID, *instance.Status))
 	}
-	return nil
-}
-
-func (g *InstanceGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_is_instance_volume_attachment" {
-			continue
-		}
-		for _, ri := range g.Resources {
-			if ri.InstanceInfo.Type != "ibm_is_instance" {
-				continue
-			}
-			if r.InstanceState.Attributes["instance"] == ri.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["instance"] = "${ibm_is_instance." + ri.ResourceName + ".id}"
-			}
-		}
-	}
-
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_is_instance_action" {
-			continue
-		}
-		for _, ri := range g.Resources {
-			if ri.InstanceInfo.Type != "ibm_is_instance" {
-				continue
-			}
-			if r.InstanceState.Attributes["instance"] == ri.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["instance"] = "${ibm_is_instance." + ri.ResourceName + ".id}"
-			}
-		}
-	}
-
 	return nil
 }

@@ -61,19 +61,10 @@ func (g *EsGenerator) InitResources() error {
 			*instance.InstanceName+"_"+*instance.InstanceId,
 			"tencentcloud_elasticsearch_instance",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 
-	return nil
-}
-
-func (g *EsGenerator) PostConvertHook() error {
-	for i := range g.Resources {
-		g.Resources[i].Item["password"] = "test1234;"
-	}
 	return nil
 }

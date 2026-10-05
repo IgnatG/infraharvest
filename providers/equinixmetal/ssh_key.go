@@ -39,8 +39,7 @@ func (g SSHKeyGenerator) createResources(sshLeyList []packngo.SSHKey) []terrafor
 			sshKey.ID,
 			sshKey.Label,
 			"metal_ssh_key",
-			"equinixmetal",
-			[]string{}))
+			"equinixmetal"))
 	}
 	return resources
 }

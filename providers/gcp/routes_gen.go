@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var routesAllowEmptyValues = []string{""}
-
-var routesAdditionalFields = map[string]interface{}{}
-
 type RoutesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RoutesGenerator) createResources(ctx context.Context, routesList *comput
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				routesAllowEmptyValues,
-				routesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var sslPoliciesAllowEmptyValues = []string{""}
-
-var sslPoliciesAdditionalFields = map[string]interface{}{}
-
 type SslPoliciesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g SslPoliciesGenerator) createResources(ctx context.Context, sslPoliciesLi
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				sslPoliciesAllowEmptyValues,
-				sslPoliciesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

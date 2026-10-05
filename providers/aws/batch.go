@@ -9,10 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/batch"
 )
 
-var BatchAllowEmptyValues = []string{"tags."}
-
-var BatchAdditionalFields = map[string]interface{}{}
-
 type BatchGenerator struct {
 	AWSService
 }
@@ -53,10 +49,7 @@ func (g *BatchGenerator) loadComputeEnvironments(batchClient *batch.Client) erro
 				"aws",
 				map[string]string{
 					"compute_environment_name": computeEnvironmentName,
-				},
-				BatchAllowEmptyValues,
-				BatchAdditionalFields,
-			))
+				}))
 		}
 	}
 	return nil
@@ -80,10 +73,7 @@ func (g *BatchGenerator) loadJobDefinitions(batchClient *batch.Client) error {
 				"aws",
 				map[string]string{
 					"arn": StringValue(jobDefinition.JobDefinitionArn),
-				},
-				BatchAllowEmptyValues,
-				BatchAdditionalFields,
-			))
+				}))
 		}
 	}
 	return nil
@@ -103,10 +93,7 @@ func (g *BatchGenerator) loadJobQueues(batchClient *batch.Client) error {
 				jobQueueName,
 				"aws_batch_job_queue",
 				"aws",
-				map[string]string{},
-				BatchAllowEmptyValues,
-				BatchAdditionalFields,
-			))
+				map[string]string{}))
 		}
 	}
 	return nil

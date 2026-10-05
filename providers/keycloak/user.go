@@ -29,10 +29,7 @@ func (g RealmGenerator) createUserResources(users []*keycloak.User) []terraformu
 			"keycloak",
 			map[string]string{
 				"realm_id": user.RealmId,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

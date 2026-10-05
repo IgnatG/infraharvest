@@ -58,9 +58,7 @@ func (g *OpsworksGenerator) fetchApps(stackID *string, svc *opsworks.Client) err
 			StringValue(app.AppId),
 			StringValue(app.AppId),
 			"aws_opsworks_application",
-			"aws",
-			[]string{"tags."},
-		))
+			"aws"))
 	}
 	return nil
 }
@@ -79,33 +77,25 @@ func (g *OpsworksGenerator) fetchLayers(stackID *string, svc *opsworks.Client) e
 				StringValue(layer.LayerId),
 				StringValue(layer.LayerId),
 				"aws_opsworks_custom_layer",
-				"aws",
-				[]string{"tags."},
-			))
+				"aws"))
 		case types.LayerTypePhpApp:
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				StringValue(layer.LayerId),
 				StringValue(layer.LayerId),
 				"aws_opsworks_php_app_layer",
-				"aws",
-				[]string{"tags."},
-			))
+				"aws"))
 		case types.LayerTypeJavaApp:
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				StringValue(layer.LayerId),
 				StringValue(layer.LayerId),
 				"aws_opsworks_java_app_layer",
-				"aws",
-				[]string{"tags."},
-			))
+				"aws"))
 		case types.LayerTypeWeb:
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				StringValue(layer.LayerId),
 				StringValue(layer.LayerId),
 				"aws_opsworks_static_web_layer",
-				"aws",
-				[]string{"tags."},
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -123,9 +113,7 @@ func (g *OpsworksGenerator) fetchInstances(stackID *string, svc *opsworks.Client
 			StringValue(instances.InstanceId),
 			StringValue(instances.InstanceId),
 			"aws_opsworks_instance",
-			"aws",
-			[]string{"tags."},
-		))
+			"aws"))
 	}
 	return nil
 }
@@ -145,10 +133,7 @@ func (g *OpsworksGenerator) fetchRdsInstances(stackID *string, svc *opsworks.Cli
 			map[string]string{
 				"rds_db_instance_arn": StringValue(rdsDbInstance.RdsDbInstanceArn),
 				"stack_id":            StringValue(stackID),
-			},
-			[]string{"tags."},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return nil
 }
@@ -163,9 +148,7 @@ func (g *OpsworksGenerator) fetchStacks(svc *opsworks.Client) error {
 			StringValue(stack.StackId),
 			StringValue(stack.StackId),
 			"aws_opsworks_stack",
-			"aws",
-			[]string{"tags."},
-		))
+			"aws"))
 
 		e := g.fetchApps(stack.StackId, svc)
 		if e != nil {
@@ -200,9 +183,7 @@ func (g *OpsworksGenerator) fetchUserProfile(svc *opsworks.Client) error {
 			StringValue(userProfile.IamUserArn),
 			StringValue(userProfile.IamUserArn),
 			"aws_opsworks_user_profile",
-			"aws",
-			[]string{"tags."},
-		))
+			"aws"))
 	}
 	return nil
 }

@@ -37,8 +37,7 @@ func (g *MonitoringJobGenerator) createMonitoringJobResources(client *ns1.Client
 			j.ID,
 			j.ID,
 			"ns1_monitoringjob",
-			"ns1",
-			[]string{}))
+			"ns1"))
 	}
 
 	return nil

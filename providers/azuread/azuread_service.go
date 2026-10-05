@@ -29,11 +29,6 @@ type AzureADService struct { //nolint
 	terraformutils.Service
 }
 
-type ServiceGenerator interface {
-	terraformutils.ServiceGenerator
-	GetResourceConnections() map[string][]string
-}
-
 func (az *AzureADService) getAuthorizer() (auth.Authorizer, error) {
 	environment := environments.Global
 	ctx := context.Background()
@@ -132,13 +127,10 @@ func (az *AzureADService) getAppRoleAssignmentsClient() (*msgraph.AppRoleAssigne
 	return client, nil
 }
 
-func (az *AzureADService) GetResourceConnections() map[string][]string {
-	return nil
-}
-
 func (az *AzureADService) appendSimpleResource(id string, resourceName string, resourceType string) {
 	newResource := terraformutils.NewResource(id, resourceName, resourceType, az.ProviderName, map[string]string{
 		"id": id,
-	}, []string{}, map[string]interface{}{})
+	})
+
 	az.Resources = append(az.Resources, newResource)
 }

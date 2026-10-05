@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var targetPoolsAllowEmptyValues = []string{""}
-
-var targetPoolsAdditionalFields = map[string]interface{}{}
-
 type TargetPoolsGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g TargetPoolsGenerator) createResources(ctx context.Context, targetPoolsLi
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				targetPoolsAllowEmptyValues,
-				targetPoolsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

@@ -22,10 +22,6 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1beta4"
 )
 
-var cloudSQLAllowEmptyValues = []string{}
-
-var cloudSQLAdditionalFields = map[string]interface{}{}
-
 type CloudSQLGenerator struct {
 	GCPService
 }
@@ -44,10 +40,7 @@ func (g *CloudSQLGenerator) loadDBInstances(svc *sqladmin.Service, project strin
 			map[string]string{
 				"project": project,
 				"name":    dbInstance.Name,
-			},
-			cloudSQLAllowEmptyValues,
-			cloudSQLAdditionalFields,
-		))
+			}))
 		err := g.loadDBs(svc, dbInstance.Name, project)
 		if err != nil {
 			return err
@@ -72,11 +65,7 @@ func (g *CloudSQLGenerator) loadDBs(svc *sqladmin.Service, instanceName, project
 				"instance": instanceName,
 				"project":  project,
 				"name":     db.Name,
-			},
-
-			cloudSQLAllowEmptyValues,
-			cloudSQLAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }

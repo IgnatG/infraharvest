@@ -41,15 +41,13 @@ func (g *ServiceV1Generator) loadServices(client *fastly.Client) ([]*fastly.Serv
 				service.ID,
 				service.ID,
 				"fastly_service_v1",
-				"fastly",
-				[]string{}))
+				"fastly"))
 		} else if service.Type == ServiceTypeWasm {
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				service.ID,
 				service.ID,
 				"fastly_service_compute",
-				"fastly",
-				[]string{}))
+				"fastly"))
 		}
 	}
 	return services, nil
@@ -78,9 +76,7 @@ func (g *ServiceV1Generator) loadDictionaryItems(client *fastly.Client, serviceI
 			map[string]string{
 				"service_id":    serviceID,
 				"dictionary_id": dictionary.ID,
-			},
-			[]string{},
-			map[string]interface{}{}))
+			}))
 	}
 	return nil
 }
@@ -108,9 +104,7 @@ func (g *ServiceV1Generator) loadACLEntries(client *fastly.Client, serviceID str
 			map[string]string{
 				"service_id": serviceID,
 				"acl_id":     acl.ID,
-			},
-			[]string{},
-			map[string]interface{}{}))
+			}))
 	}
 	return nil
 }
@@ -140,9 +134,7 @@ func (g *ServiceV1Generator) loadDynamicSnippetContent(client *fastly.Client, se
 				map[string]string{
 					"service_id": serviceID,
 					"snippet_id": snippet.ID,
-				},
-				[]string{},
-				map[string]interface{}{}))
+				}))
 		}
 	}
 	return nil

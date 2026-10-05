@@ -74,8 +74,7 @@ func (g *InstanceGenerator) createResources(instances []*compute.Instance) []ter
 			instance.GetId(),
 			instance.GetId(),
 			"yandex_compute_instance",
-			"yandex",
-			[]string{}))
+			"yandex"))
 	}
 	return resources
 }

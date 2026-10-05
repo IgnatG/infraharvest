@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/workspaces"
 )
 
-var workspacesAllowEmptyValues = []string{"tags."}
-
 type WorkspacesGenerator struct {
 	AWSService
 }
@@ -54,14 +52,12 @@ func (g *WorkspacesGenerator) loadWorkspaces(svc *workspaces.Client) error {
 				directoryID,
 				directoryID,
 				"aws_workspaces_directory",
-				"aws",
-				workspacesAllowEmptyValues))
+				"aws"))
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				workspaceID,
 				workspaceID,
 				"aws_workspaces_workspace",
-				"aws",
-				workspacesAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -79,8 +75,7 @@ func (g *WorkspacesGenerator) loadWorkspacesIPGroup(svc *workspaces.Client) erro
 				groupID,
 				groupID,
 				"aws_workspaces_ip_group",
-				"aws",
-				workspacesAllowEmptyValues))
+				"aws"))
 		}
 		return response.NextToken, nil
 	})

@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
-var ssmAllowEmptyValues = []string{"tags."}
-
 type SsmGenerator struct {
 	AWSService
 }
@@ -43,9 +41,7 @@ func (g *SsmGenerator) InitResources() error {
 				StringValue(parameter.Name),
 				StringValue(parameter.Name),
 				"aws_ssm_parameter",
-				"aws",
-				ssmAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 

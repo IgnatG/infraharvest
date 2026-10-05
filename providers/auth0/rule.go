@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	RuleAllowEmptyValues = []string{}
-)
-
 type RuleGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g RuleGenerator) createResources(rules []*management.Rule) []terraformutil
 			resourceName,
 			resourceName+"_"+*rule.Name,
 			"auth0_rule",
-			"auth0",
-			RuleAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

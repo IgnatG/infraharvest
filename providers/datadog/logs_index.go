@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// LogsIndexAllowEmptyValues ...
-	LogsIndexAllowEmptyValues = []string{"filter"}
-)
-
 // LogsIndexGenerator ...
 type LogsIndexGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *LogsIndexGenerator) createResource(logsIndexName string) terraformutils
 		logsIndexName,
 		fmt.Sprintf("logs_index_%s", logsIndexName),
 		"datadog_logs_index",
-		"datadog",
-		LogsIndexAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

@@ -34,8 +34,8 @@ func (g FlowLogGenerator) createFlowLogResources(flogID, flogName string) terraf
 		flogID,
 		normalizeResourceName(flogName, false),
 		"ibm_is_flow_log",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resource
 }
 

@@ -37,10 +37,7 @@ func (g FactorGenerator) createResources(ctx context.Context, factorList []*okta
 				"okta",
 				map[string]string{
 					"provider_id": factor.Id,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 
 			if factor.FactorType == "token:hotp" {
 				hotpFactorProfiles, _, _ := getHotpFactorProfiles(ctx, client)
@@ -52,17 +49,7 @@ func (g FactorGenerator) createResources(ctx context.Context, factorList []*okta
 							"factor_totp_"+normalizeResourceNameWithRandom(factorProfile.Name, true),
 							"okta_factor_totp",
 							"okta",
-							map[string]string{},
-							[]string{},
-							map[string]interface{}{
-								"name":                   factorProfile.Name,
-								"otp_length":             factorProfile.Settings.OtpLength,
-								"time_step":              factorProfile.Settings.TimeStep,
-								"clock_drift_interval":   factorProfile.Settings.AcceptableAdjacentIntervals,
-								"shared_secret_encoding": factorProfile.Settings.Encoding,
-								"hmac_algorithm":         factorProfile.Settings.TimeStep,
-							},
-						))
+							map[string]string{}))
 					}
 				}
 			}

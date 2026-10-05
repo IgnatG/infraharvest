@@ -35,10 +35,7 @@ func (g *ColumnGenerator) InitResources() error {
 				map[string]string{
 					"dataset":  dataset.Name,
 					"key_name": column.KeyName,
-				},
-				[]string{"hidden", "type"},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 

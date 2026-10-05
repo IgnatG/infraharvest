@@ -49,10 +49,3 @@ func (az *GroupGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *GroupGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"project": {"scope", "id"},
-	}
-}

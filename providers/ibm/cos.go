@@ -41,8 +41,8 @@ func (g COSGenerator) loadCOS(cosID string, cosName string) terraformutils.Resou
 		cosID,
 		normalizeResourceName(cosName, true),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 
@@ -54,9 +54,8 @@ func (g COSGenerator) loadCOSBuckets(bucketID, bucketName string) terraformutils
 		"ibm",
 		map[string]string{
 			"force_delete": "true",
-		},
-		[]string{},
-		map[string]interface{}{})
+		})
+
 	return resources
 }
 
@@ -120,24 +119,6 @@ func (g *COSGenerator) InitResources() error {
 			bucketID := fmt.Sprintf("%s:%s:%s:meta:%s:%s", strings.ReplaceAll(cs.ID, "::", ""), "bucket", *b.Name, apiType, location)
 			g.Resources = append(g.Resources, g.loadCOSBuckets(bucketID, *b.Name))
 
-		}
-	}
-
-	return nil
-}
-
-func (g *COSGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_cos_bucket" {
-			continue
-		}
-		for _, rt := range g.Resources {
-			if rt.InstanceInfo.Type != "ibm_resource_instance" {
-				continue
-			}
-			if r.InstanceState.Attributes["resource_instance_id"] == rt.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["resource_instance_id"] = "${ibm_resource_instance." + rt.ResourceName + ".id}"
-			}
 		}
 	}
 

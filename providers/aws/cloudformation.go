@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 )
 
-var cloudFormationAllowEmptyValues = []string{"tags."}
-
 type CloudFormationGenerator struct {
 	AWSService
 }
@@ -46,9 +44,7 @@ func (g *CloudFormationGenerator) InitResources() error {
 				*stackSummary.StackId,
 				*stackSummary.StackName,
 				"aws_cloudformation_stack",
-				"aws",
-				cloudFormationAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	stackSets, err := svc.ListStackSets(g.Context(), &cloudformation.ListStackSetsInput{})
@@ -63,9 +59,7 @@ func (g *CloudFormationGenerator) InitResources() error {
 			*stackSetSummary.StackSetId,
 			*stackSetSummary.StackSetName,
 			"aws_cloudformation_stack_set",
-			"aws",
-			cloudFormationAllowEmptyValues,
-		))
+			"aws"))
 
 		stackSetInstances, err := svc.ListStackInstances(g.Context(), &cloudformation.ListStackInstancesInput{
 			StackSetName: stackSetSummary.StackSetName,
@@ -80,23 +74,9 @@ func (g *CloudFormationGenerator) InitResources() error {
 				id,
 				id,
 				"aws_cloudformation_stack_set_instance",
-				"aws",
-				cloudFormationAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 
-	return nil
-}
-
-func (g *CloudFormationGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_cloudformation_stack" {
-			delete(resource.Item, "outputs")
-			if templateBody, ok := resource.InstanceState.Attributes["template_body"]; ok {
-				resource.Item["template_body"] = g.escapeAwsInterpolation(templateBody)
-			}
-		}
-	}
 	return nil
 }

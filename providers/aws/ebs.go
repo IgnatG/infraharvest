@@ -16,24 +16,35 @@ package aws
 
 import (
 	"fmt"
+	"hash/crc32"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/hashicorp/terraform/helper/hashcode"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
-
-var ebsAllowEmptyValues = []string{"tags."}
 
 type EbsGenerator struct {
 	AWSService
 }
 
 func (g *EbsGenerator) volumeAttachmentID(device, volumeID, instanceID string) string {
-	return fmt.Sprintf("vai-%d", hashcode.String(fmt.Sprintf("%s-%s-%s-", device, instanceID, volumeID)))
+	return fmt.Sprintf("vai-%d", hashString(fmt.Sprintf("%s-%s-%s-", device, instanceID, volumeID)))
+}
+
+// hashString is the hash Terraform used for volume attachment IDs: the
+// string's CRC-32, made non-negative.
+func hashString(s string) int {
+	v := int(crc32.ChecksumIEEE([]byte(s)))
+	if v >= 0 {
+		return v
+	}
+	if -v >= 0 {
+		return -v
+	}
+	return 0
 }
 
 func (g *EbsGenerator) InitResources() error {
@@ -83,9 +94,7 @@ func (g *EbsGenerator) InitResources() error {
 					StringValue(volume.VolumeId),
 					StringValue(volume.VolumeId),
 					"aws_ebs_volume",
-					"aws",
-					ebsAllowEmptyValues,
-				))
+					"aws"))
 
 				for _, attachment := range volume.Attachments {
 					if attachment.State == types.VolumeAttachmentStateAttached {
@@ -102,10 +111,7 @@ func (g *EbsGenerator) InitResources() error {
 								"device_name": StringValue(attachment.Device),
 								"volume_id":   StringValue(attachment.VolumeId),
 								"instance_id": StringValue(attachment.InstanceId),
-							},
-							[]string{},
-							map[string]interface{}{},
-						))
+							}))
 					}
 				}
 			}

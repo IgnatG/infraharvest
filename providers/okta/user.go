@@ -30,8 +30,7 @@ func (g UserGenerator) createResources(userList []okta.User) []terraformutils.Re
 			user.GetId(),
 			"user_"+user.GetId(),
 			"okta_user",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

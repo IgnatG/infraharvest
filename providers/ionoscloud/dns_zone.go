@@ -36,9 +36,7 @@ func (g *DNSZoneGenerator) InitResources() error {
 			*zone.Properties.ZoneName+"-"+*zone.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

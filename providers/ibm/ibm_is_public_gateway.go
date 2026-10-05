@@ -34,8 +34,8 @@ func (g PublicGatewayGenerator) createPublicGatewayResources(publicGatewayID, pu
 		publicGatewayID,
 		normalizeResourceName(publicGatewayName, false),
 		"ibm_is_public_gateway",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

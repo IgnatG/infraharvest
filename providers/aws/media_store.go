@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/mediastore"
 )
 
-var mediastoreAllowEmptyValues = []string{"tags."}
-
 type MediaStoreGenerator struct {
 	AWSService
 }
@@ -44,8 +42,7 @@ func (g *MediaStoreGenerator) InitResources() error {
 				containerName,
 				containerName,
 				"aws_media_store_container",
-				"aws",
-				mediastoreAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

@@ -116,9 +116,3 @@ func GenerateRandomString(strlen int) string {
 	}
 	return string(RandomSlice)
 }
-
-func asHereDoc(json string) string {
-	return fmt.Sprintf(`<<JSON
-%s
-JSON`, json)
-}

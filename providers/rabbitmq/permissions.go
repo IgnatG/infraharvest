@@ -32,9 +32,6 @@ type Permissions struct {
 
 type AllPermissions []Permissions
 
-var PermissionsAllowEmptyValues = []string{"configure", "write", "read"}
-var PermissionsAdditionalFields = map[string]interface{}{}
-
 func (g PermissionsGenerator) createResources(allPermissions AllPermissions) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, permissions := range allPermissions {
@@ -46,10 +43,7 @@ func (g PermissionsGenerator) createResources(allPermissions AllPermissions) []t
 			map[string]string{
 				"user":  permissions.User,
 				"vhost": permissions.Vhost,
-			},
-			PermissionsAllowEmptyValues,
-			PermissionsAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }

@@ -23,10 +23,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/acm"
 )
 
-var acmAllowEmptyValues = []string{}
-
-var acmAdditionalFields = map[string]interface{}{}
-
 type ACMGenerator struct {
 	AWSService
 }
@@ -50,10 +46,7 @@ func (g *ACMGenerator) createCertificatesResources(svc *acm.Client) []terraformu
 				"aws",
 				map[string]string{
 					"domain_name": *cert.DomainName,
-				},
-				acmAllowEmptyValues,
-				acmAdditionalFields,
-			))
+				}))
 		}
 	}
 	return resources

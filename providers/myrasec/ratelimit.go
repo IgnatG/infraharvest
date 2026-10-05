@@ -9,16 +9,12 @@ import (
 	mgo "github.com/Myra-Security-GmbH/myrasec-go/v2"
 )
 
-//
 // RateLimitGenerator
-//
 type RatelimitGenerator struct {
 	MyrasecService
 }
 
-//
 // createRatelimitResources
-//
 func (g *RatelimitGenerator) createRatelimitResources(api *mgo.API, domainId int, vhost mgo.VHost, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
@@ -45,10 +41,8 @@ func (g *RatelimitGenerator) createRatelimitResources(api *mgo.API, domainId int
 				"myrasec",
 				map[string]string{
 					"subdomain_name": rl.SubDomainName,
-				},
-				[]string{},
-				map[string]interface{}{},
-			)
+				})
+
 			g.Resources = append(g.Resources, r)
 		}
 		if len(ratelimits) < pageSize {
@@ -59,9 +53,7 @@ func (g *RatelimitGenerator) createRatelimitResources(api *mgo.API, domainId int
 	return nil
 }
 
-//
 // InitResources
-//
 func (g *RatelimitGenerator) InitResources() error {
 	wg := sync.WaitGroup{}
 

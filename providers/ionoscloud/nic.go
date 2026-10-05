@@ -63,9 +63,7 @@ func (g *NicGenerator) InitResources() error {
 					"ionoscloud_nic",
 					helpers.Ionos,
 					map[string]string{helpers.DcID: *datacenter.Id,
-						helpers.ServerID: *server.Id},
-					[]string{},
-					map[string]interface{}{}))
+						helpers.ServerID: *server.Id}))
 			}
 		}
 	}

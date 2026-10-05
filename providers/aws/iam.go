@@ -15,7 +15,6 @@
 package aws
 
 import (
-	"fmt"
 	"log"
 	"strings"
 
@@ -24,10 +23,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 )
-
-var IamAllowEmptyValues = []string{"tags."}
-
-var IamAdditionalFields = map[string]interface{}{}
 
 type IamGenerator struct {
 	AWSService
@@ -81,8 +76,7 @@ func (g *IamGenerator) getRoles(svc *iam.Client) error {
 				roleName,
 				roleName,
 				"aws_iam_role",
-				"aws",
-				IamAllowEmptyValues))
+				"aws"))
 			rolePoliciesPage := iam.NewListRolePoliciesPaginator(svc, &iam.ListRolePoliciesInput{RoleName: role.RoleName}, stopOnDuplicateToken)
 			for rolePoliciesPage.HasMorePages() {
 				rolePoliciesNextPage, err := rolePoliciesPage.NextPage(g.Context())
@@ -94,8 +88,7 @@ func (g *IamGenerator) getRoles(svc *iam.Client) error {
 						roleName+":"+policyName,
 						roleName+"_"+policyName,
 						"aws_iam_role_policy",
-						"aws",
-						IamAllowEmptyValues))
+						"aws"))
 				}
 			}
 			roleAttachedPoliciesPage := iam.NewListAttachedRolePoliciesPaginator(svc, &iam.ListAttachedRolePoliciesInput{
@@ -115,9 +108,7 @@ func (g *IamGenerator) getRoles(svc *iam.Client) error {
 						map[string]string{
 							"role":       roleName,
 							"policy_arn": *attachedPolicy.PolicyArn,
-						},
-						IamAllowEmptyValues,
-						map[string]interface{}{}))
+						}))
 				}
 			}
 		}
@@ -141,9 +132,7 @@ func (g *IamGenerator) getUsers(svc *iam.Client) error {
 				"aws",
 				map[string]string{
 					"force_destroy": "false",
-				},
-				IamAllowEmptyValues,
-				map[string]interface{}{}))
+				}))
 			err := g.getUserPolices(svc, user.UserName)
 			if err != nil {
 				log.Println(err)
@@ -156,7 +145,7 @@ func (g *IamGenerator) getUsers(svc *iam.Client) error {
 			if err != nil {
 				log.Println(err)
 			}
-			err = g.getUserAccessKey(svc, user.UserName, StringValue(user.UserId))
+			err = g.getUserAccessKey(svc, user.UserName)
 			if err != nil {
 				log.Println(err)
 			}
@@ -183,10 +172,7 @@ func (g *IamGenerator) getUserGroup(svc *iam.Client, userName *string) error {
 					"user":     *userName,
 					"groups.#": "1",
 					"groups.0": *group.GroupName,
-				},
-				IamAllowEmptyValues,
-				IamAdditionalFields,
-			))
+				}))
 		}
 	}
 	return nil
@@ -207,8 +193,7 @@ func (g *IamGenerator) getUserPolices(svc *iam.Client, userName *string) error {
 				policyID,
 				resourceName,
 				"aws_iam_user_policy",
-				"aws",
-				IamAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -232,9 +217,7 @@ func (g *IamGenerator) getUserPolicyAttachment(svc *iam.Client, userName *string
 				map[string]string{
 					"user":       *userName,
 					"policy_arn": *attachedPolicy.PolicyArn,
-				},
-				IamAllowEmptyValues,
-				map[string]interface{}{}))
+				}))
 		}
 	}
 	return nil
@@ -255,8 +238,7 @@ func (g *IamGenerator) getPolicies(svc *iam.Client) error {
 				policyARN,
 				resourceName,
 				"aws_iam_policy",
-				"aws",
-				IamAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -275,8 +257,7 @@ func (g *IamGenerator) getGroups(svc *iam.Client) error {
 				resourceName,
 				resourceName,
 				"aws_iam_group",
-				"aws",
-				IamAllowEmptyValues))
+				"aws"))
 			if err := g.getGroupPolicies(svc, group); err != nil {
 				return err
 			}
@@ -303,9 +284,7 @@ func (g *IamGenerator) getGroupPolicies(svc *iam.Client, group types.Group) erro
 				groupPolicyName,
 				"aws_iam_group_policy",
 				"aws",
-				map[string]string{},
-				IamAllowEmptyValues,
-				IamAdditionalFields))
+				map[string]string{}))
 		}
 	}
 	return nil
@@ -332,9 +311,7 @@ func (g *IamGenerator) getAttachedGroupPolicies(svc *iam.Client, group types.Gro
 				map[string]string{
 					"group":      *group.GroupName,
 					"policy_arn": *attachedPolicy.PolicyArn,
-				},
-				IamAllowEmptyValues,
-				IamAdditionalFields))
+				}))
 		}
 	}
 	return nil
@@ -357,15 +334,13 @@ func (g *IamGenerator) getInstanceProfiles(svc *iam.Client) error {
 				"aws",
 				map[string]string{
 					"name": resourceName,
-				},
-				IamAllowEmptyValues,
-				IamAdditionalFields))
+				}))
 		}
 	}
 	return nil
 }
 
-func (g *IamGenerator) getUserAccessKey(svc *iam.Client, userName *string, userID string) error {
+func (g *IamGenerator) getUserAccessKey(svc *iam.Client, userName *string) error {
 	p := iam.NewListAccessKeysPaginator(svc, &iam.ListAccessKeysInput{UserName: userName}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -381,35 +356,7 @@ func (g *IamGenerator) getUserAccessKey(svc *iam.Client, userName *string, userI
 				"aws",
 				map[string]string{
 					"user": *userName,
-				},
-				IamAllowEmptyValues,
-				map[string]interface{}{
-					"depends_on": []string{"aws_iam_user.tfer--" + userID},
 				}))
-		}
-	}
-	return nil
-}
-
-// PostGenerateHook for add policy json as heredoc
-func (g *IamGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		switch {
-		case resource.InstanceInfo.Type == "aws_iam_policy" ||
-			resource.InstanceInfo.Type == "aws_iam_user_policy" ||
-			resource.InstanceInfo.Type == "aws_iam_group_policy" ||
-			resource.InstanceInfo.Type == "aws_iam_role_policy":
-			policy := g.escapeAwsInterpolation(resource.Item["policy"].(string))
-			resource.Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
-		case resource.InstanceInfo.Type == "aws_iam_role":
-			policy := g.escapeAwsInterpolation(resource.Item["assume_role_policy"].(string))
-			g.Resources[i].Item["assume_role_policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
-		case resource.InstanceInfo.Type == "aws_iam_instance_profile":
-			delete(resource.Item, "roles")
 		}
 	}
 	return nil

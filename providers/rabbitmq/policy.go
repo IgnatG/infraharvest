@@ -32,9 +32,6 @@ type Policy struct {
 
 type Policies []Policy
 
-var PolicyAllowEmptyValues = []string{}
-var PolicyAdditionalFields = map[string]interface{}{}
-
 func (g PolicyGenerator) createResources(policies Policies) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, policy := range policies {
@@ -46,10 +43,7 @@ func (g PolicyGenerator) createResources(policies Policies) []terraformutils.Res
 			map[string]string{
 				"name":  policy.Name,
 				"vhost": policy.Vhost,
-			},
-			PolicyAllowEmptyValues,
-			PolicyAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }

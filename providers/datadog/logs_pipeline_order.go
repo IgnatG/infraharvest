@@ -21,11 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// LogsPipelineOrderAllowEmptyValues ...
-	LogsPipelineOrderAllowEmptyValues = []string{}
-)
-
 // LogsPipelineOrderGenerator ...
 type LogsPipelineOrderGenerator struct {
 	DatadogService
@@ -42,9 +37,6 @@ func (g *LogsPipelineOrderGenerator) InitResources() error {
 		"datadog",
 		map[string]string{
 			"name": resourceName,
-		},
-		LogsPipelineOrderAllowEmptyValues,
-		map[string]interface{}{},
-	))
+		}))
 	return nil
 }

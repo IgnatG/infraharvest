@@ -36,8 +36,7 @@ func (g SignOnPolicyGenerator) createResources(signOnPolicyList []*okta.Policy) 
 			signOnPolicy.Id,
 			"policy_signon_"+resourceName,
 			resourceType,
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

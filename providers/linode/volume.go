@@ -33,8 +33,7 @@ func (g VolumeGenerator) createResources(volumeList []linodego.Volume) []terrafo
 			strconv.Itoa(volume.ID),
 			strconv.Itoa(volume.ID),
 			"linode_volume",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return resources
 }

@@ -107,7 +107,7 @@ func (az *AzureService) appendResourceAs(resources []terraformutils.Resource, it
 	prefix := strings.ReplaceAll(resourceType, resourceType, abbreviation)
 	suffix := strings.ReplaceAll(itemName, "-", "_")
 	resourceName := prefix + "_" + suffix
-	res := terraformutils.NewSimpleResource(itemID, resourceName, resourceType, az.ProviderName, []string{})
+	res := terraformutils.NewSimpleResource(itemID, resourceName, resourceType, az.ProviderName)
 	resources = append(resources, res)
 	return resources
 }
@@ -365,24 +365,6 @@ func (az *DataFactoryGenerator) InitResources() error {
 			return ero
 		}
 		az.Resources = append(az.Resources, resources...)
-	}
-	return nil
-}
-
-// PostGenerateHook for formatting json properties as heredoc
-// - azurerm_data_factory_pipeline property activities_json
-func (az *DataFactoryGenerator) PostConvertHook() error {
-	for i, resource := range az.Resources {
-		if resource.InstanceInfo.Type == "azurerm_data_factory_pipeline" {
-			if val, ok := az.Resources[i].Item["activities_json"]; ok {
-				if val != nil {
-					json := val.(string)
-					// json := asJson(val)
-					hereDoc := asHereDoc(json)
-					az.Resources[i].Item["activities_json"] = hereDoc
-				}
-			}
-		}
 	}
 	return nil
 }

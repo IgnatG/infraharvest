@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var tgwAllowEmptyValues = []string{"tags."}
-
 type TransitGatewayGenerator struct {
 	AWSService
 }
@@ -40,9 +38,7 @@ func (g *TransitGatewayGenerator) getTransitGateways(svc *ec2.Client) error {
 				StringValue(tgw.TransitGatewayId),
 				StringValue(tgw.TransitGatewayId),
 				"aws_ec2_transit_gateway",
-				"aws",
-				tgwAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -64,9 +60,7 @@ func (g *TransitGatewayGenerator) getTransitGatewayRouteTables(svc *ec2.Client) 
 					StringValue(tgwrt.TransitGatewayRouteTableId),
 					StringValue(tgwrt.TransitGatewayRouteTableId),
 					"aws_ec2_transit_gateway_route_table",
-					"aws",
-					tgwAllowEmptyValues,
-				))
+					"aws"))
 			}
 		}
 	}
@@ -85,9 +79,7 @@ func (g *TransitGatewayGenerator) getTransitGatewayVpcAttachments(svc *ec2.Clien
 				StringValue(tgwa.TransitGatewayAttachmentId),
 				StringValue(tgwa.TransitGatewayAttachmentId),
 				"aws_ec2_transit_gateway_vpc_attachment",
-				"aws",
-				tgwAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil

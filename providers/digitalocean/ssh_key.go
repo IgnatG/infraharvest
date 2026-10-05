@@ -63,8 +63,7 @@ func (g SSHKeyGenerator) createResources(keyList []godo.Key) []terraformutils.Re
 			strconv.Itoa(key.ID),
 			key.Name,
 			"digitalocean_ssh_key",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

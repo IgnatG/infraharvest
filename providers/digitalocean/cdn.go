@@ -62,8 +62,7 @@ func (g CDNGenerator) createResources(cdnList []godo.CDN) []terraformutils.Resou
 			cdn.ID,
 			cdn.ID,
 			"digitalocean_cdn",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

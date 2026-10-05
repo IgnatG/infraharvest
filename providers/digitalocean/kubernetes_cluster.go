@@ -44,8 +44,7 @@ func (g *KubernetesClusterGenerator) loadKubernetesClusters(ctx context.Context,
 				cluster.ID,
 				cluster.Name,
 				"digitalocean_kubernetes_cluster",
-				"digitalocean",
-				[]string{}))
+				"digitalocean"))
 			list = append(list, cluster)
 		}
 
@@ -83,9 +82,7 @@ func (g *KubernetesClusterGenerator) loadKubernetesNodePools(cluster *godo.Kuber
 				nodePool.Name,
 				"digitalocean_kubernetes_node_pool",
 				"digitalocean",
-				map[string]string{"cluster_id": cluster.ID},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{"cluster_id": cluster.ID}))
 		}
 	}
 }

@@ -24,8 +24,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 )
 
-var AlbAllowEmptyValues = []string{"tags.", "^condition."}
-
 type AlbGenerator struct {
 	AWSService
 }
@@ -43,9 +41,7 @@ func (g *AlbGenerator) loadLB(svc *elasticloadbalancingv2.Client) error {
 				*lb.LoadBalancerArn,
 				resourceName,
 				"aws_lb",
-				"aws",
-				AlbAllowEmptyValues,
-			))
+				"aws"))
 			err := g.loadLBListener(svc, lb.LoadBalancerArn)
 			if err != nil {
 				log.Println(err)
@@ -68,9 +64,7 @@ func (g *AlbGenerator) loadLBListener(svc *elasticloadbalancingv2.Client, loadBa
 				resourceName,
 				resourceName,
 				"aws_lb_listener",
-				"aws",
-				AlbAllowEmptyValues,
-			))
+				"aws"))
 			err := g.loadLBListenerRule(svc, ls.ListenerArn)
 			if err != nil {
 				log.Println(err)
@@ -102,9 +96,7 @@ func (g *AlbGenerator) loadLBListenerRule(svc *elasticloadbalancingv2.Client, li
 					resourceName,
 					resourceName,
 					"aws_lb_listener_rule",
-					"aws",
-					AlbAllowEmptyValues,
-				))
+					"aws"))
 			}
 		}
 		return lsrs.NextMarker, nil
@@ -133,10 +125,7 @@ func (g *AlbGenerator) loadLBListenerCertificate(svc *elasticloadbalancingv2.Cli
 			map[string]string{
 				"listener_arn":    *loadBalancer.ListenerArn,
 				"certificate_arn": certificateArn,
-			},
-			AlbAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return err
 }
@@ -154,9 +143,7 @@ func (g *AlbGenerator) loadLBTargetGroup(svc *elasticloadbalancingv2.Client) err
 				*tg.TargetGroupArn,
 				resourceName,
 				"aws_lb_target_group",
-				"aws",
-				AlbAllowEmptyValues,
-			))
+				"aws"))
 			err := g.loadTargetGroupTargets(svc, tg.TargetGroupArn)
 			if err != nil {
 				log.Println(err)
@@ -183,10 +170,7 @@ func (g *AlbGenerator) loadTargetGroupTargets(svc *elasticloadbalancingv2.Client
 			map[string]string{
 				"target_id":        *tgh.Target.Id,
 				"target_group_arn": *targetGroupArn,
-			},
-			AlbAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return nil
 }
@@ -203,44 +187,6 @@ func (g *AlbGenerator) InitResources() error {
 	}
 	if err := g.loadLBTargetGroup(svc); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (g *AlbGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_lb_listener" {
-			continue
-		}
-		if r.InstanceState.Attributes["default_action.0.order"] == "0" {
-			delete(r.Item["default_action"].([]interface{})[0].(map[string]interface{}), "order")
-		}
-	}
-
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_lb_listener_rule" {
-			continue
-		}
-		if r.InstanceState.Attributes["action.0.order"] == "0" {
-			delete(r.Item["action"].([]interface{})[0].(map[string]interface{}), "order")
-		}
-		for _, lb := range g.Resources {
-			if lb.InstanceInfo.Type != "aws_lb_listener_certificate" {
-				continue
-			}
-			if r.InstanceState.Attributes["certificate_arn"] == lb.InstanceState.Attributes["arn"] {
-				g.Resources[i].Item["certificate_arn"] = "${aws_lb_listener_certificate." + lb.ResourceName + ".arn}"
-			}
-		}
-	}
-
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_lb" {
-			continue
-		}
-		if val, ok := r.InstanceState.Attributes["access_logs.0.enabled"]; ok && val == "false" {
-			delete(r.Item, "access_logs")
-		}
 	}
 	return nil
 }

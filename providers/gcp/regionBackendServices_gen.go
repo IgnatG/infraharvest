@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var regionBackendServicesAllowEmptyValues = []string{""}
-
-var regionBackendServicesAdditionalFields = map[string]interface{}{}
-
 type RegionBackendServicesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RegionBackendServicesGenerator) createResources(ctx context.Context, reg
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				regionBackendServicesAllowEmptyValues,
-				regionBackendServicesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

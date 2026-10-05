@@ -40,10 +40,8 @@ func (g *SegmentGenerator) loadSegment(ctx context.Context, client *launchdarkly
 				"key":         segment.Key,
 				"project_key": project,
 				"env_key":     envKey,
-			},
-			[]string{},
-			map[string]interface{}{})
-		resource.IgnoreKeys = append(resource.IgnoreKeys, "include_in_snippet")
+			})
+
 		g.Resources = append(g.Resources, resource)
 	}
 	return nil

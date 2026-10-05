@@ -63,8 +63,7 @@ func (g *DNSGenerator) listRecordSets(resourceGroupName string, zoneName string,
 				*recordSet.ID,
 				*recordSet.Name,
 				resName,
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 
 		if err := recordSetIterator.Next(); err != nil {
@@ -105,8 +104,7 @@ func (g *DNSGenerator) listAndAddForDNSZone() ([]terraformutils.Resource, error)
 			*zone.ID,
 			*zone.Name,
 			"azurerm_dns_zone",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		id, err := ParseAzureResourceID(*zone.ID)
 		if err != nil {

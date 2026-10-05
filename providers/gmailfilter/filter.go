@@ -33,9 +33,7 @@ func (g FilterGenerator) createResources(filters []*gmail.Filter) []terraformuti
 			f.Id,
 			"gmailfilter_filter",
 			"gmailfilter",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return resources
 }

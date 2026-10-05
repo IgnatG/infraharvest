@@ -36,8 +36,7 @@ func (g ApplicationGatewayGenerator) createResources(ctx context.Context, iterat
 			*applicationGateways.ID,
 			*applicationGateways.Name,
 			"azurerm_application_gateway",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 		if err := iterator.NextWithContext(ctx); err != nil {
 			log.Println(err)
 			return resources, err

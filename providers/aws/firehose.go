@@ -33,9 +33,7 @@ func (g *FirehoseGenerator) createResources(streamNames []string) []terraformuti
 			resourceName,
 			"aws_kinesis_firehose_delivery_stream",
 			"aws",
-			map[string]string{"name": resourceName},
-			[]string{".tags"},
-			map[string]interface{}{}))
+			map[string]string{"name": resourceName}))
 	}
 	return resources
 }
@@ -68,16 +66,5 @@ func (g *FirehoseGenerator) InitResources() error {
 
 	g.Resources = g.createResources(streamNames)
 
-	return nil
-}
-
-func (g *FirehoseGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		_, hasExtendedS3Configuration := resource.Item["extended_s3_configuration"]
-		_, hasS3Configuration := resource.Item["s3_configuration"]
-		if hasExtendedS3Configuration && hasS3Configuration {
-			delete(resource.Item, "s3_configuration")
-		}
-	}
 	return nil
 }

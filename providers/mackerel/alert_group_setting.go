@@ -39,9 +39,8 @@ func (g *AlertGroupSettingGenerator) createResource(alertGroupSettingID string) 
 		alertGroupSettingID,
 		fmt.Sprintf("alert_group_setting_%s", alertGroupSettingID),
 		"mackerel_alert_group_setting",
-		"mackerel",
-		[]string{},
-	)
+		"mackerel")
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

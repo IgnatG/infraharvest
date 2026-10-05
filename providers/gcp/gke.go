@@ -18,16 +18,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	container "google.golang.org/api/container/v1beta1"
 )
-
-var GkeAllowEmptyValues = []string{"labels."}
-
-var GkeAdditionalFields = map[string]interface{}{}
 
 type GkeGenerator struct {
 	GCPService
@@ -45,23 +40,12 @@ func (g *GkeGenerator) initClusters(clusters *container.ListClustersResponse) []
 			"google_container_cluster",
 			g.ProviderName,
 			map[string]string{
-				"name":     cluster.Name, // provider need cluster name as Required
+				"name":     cluster.Name,
 				"project":  g.GetArgs()["project"].(string),
 				"location": cluster.Location,
 				"zone":     cluster.Zone,
-			},
-			GkeAllowEmptyValues,
-			GkeAdditionalFields,
-		)
-		resource.IgnoreKeys = append(resource.IgnoreKeys,
-			"^region$",
-			"^additional_zones\\.(.*)",
-			"^zone$",
-			"^node_pool\\.(.*)",   // delete node_pool config from google_container_cluster
-			"^node_config\\.(.*)", // delete node_config config from google_container_cluster
-			"^ip_allocation_policy\\.[0-9]\\.cluster_secondary_range_name$",  // conflict with cluster_ipv4_cidr_block
-			"^ip_allocation_policy\\.[0-9]\\.services_secondary_range_name$", // conflict with services_ipv4_cidr_block
-			"^ip_allocation_policy\\.[0-9]\\.create_subnetwork")              // only for create new cluster conflict with others ip_allocation_policy fields
+			})
+
 		resources = append(resources, resource)
 		resources = append(resources, g.initNodePools(cluster.NodePools, cluster.Name, cluster.Location)...)
 	}
@@ -80,12 +64,9 @@ func (g *GkeGenerator) initNodePools(nodePools []*container.NodePool, clusterNam
 				"location": location,
 				"zone":     location,
 				"project":  g.GetArgs()["project"].(string),
-				"cluster":  clusterName, // provider need cluster name as Required
+				"cluster":  clusterName,
 				"name":     nodePool.Name,
-			},
-			GkeAllowEmptyValues,
-			GkeAdditionalFields,
-		))
+			}))
 	}
 	return resources
 }
@@ -107,47 +88,5 @@ func (g *GkeGenerator) InitResources() error {
 	}
 
 	g.Resources = g.initClusters(clusters)
-	return nil
-}
-
-func (g *GkeGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "google_container_node_pool" {
-			continue
-		}
-		if _, existNodeConfig := g.Resources[i].Item["node_config"]; existNodeConfig {
-			if _, existMetadata := g.Resources[i].Item["node_config"].([]interface{})[0].(map[string]interface{})["metadata"]; existMetadata {
-				for k, v := range g.Resources[i].Item["node_config"].([]interface{})[0].(map[string]interface{})["metadata"].(map[string]interface{}) {
-					switch x := v.(type) {
-					case bool:
-						g.Resources[i].Item["node_config"].([]interface{})[0].(map[string]interface{})["metadata"].(map[string]interface{})[k] = strconv.FormatBool(x)
-					default:
-					}
-				}
-			}
-		}
-		for _, cluster := range g.Resources {
-			if cluster.InstanceState.Attributes["name"] == r.InstanceState.Attributes["cluster"] {
-				g.Resources[i].Item["cluster"] = "${google_container_cluster." + cluster.ResourceName + ".name}"
-			}
-		}
-	}
-
-	// hacks for fix GCP API<=>provider<=>parser inconsistency
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "google_container_cluster" {
-			continue
-		}
-		if r.Item["master_authorized_networks_config"] != nil {
-			if len(r.Item["master_authorized_networks_config"].([]interface{})) == 0 {
-				g.Resources[i].Item["master_authorized_networks_config"] = map[string]interface{}{}
-			}
-		}
-		if r.Item["ip_allocation_policy"] != nil {
-			if len(r.Item["ip_allocation_policy"].([]interface{})) == 0 {
-				g.Resources[i].Item["ip_allocation_policy"] = map[string]interface{}{}
-			}
-		}
-	}
 	return nil
 }

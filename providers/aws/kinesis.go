@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 )
 
-var kinesisAllowEmptyValues = []string{"tags."}
-
 type KinesisGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (g *KinesisGenerator) createResources(streamNames []string) []terraformutil
 			resourceName,
 			"aws_kinesis_stream",
 			"aws",
-			map[string]string{"name": resourceName},
-			kinesisAllowEmptyValues,
-			map[string]interface{}{}))
+			map[string]string{"name": resourceName}))
 	}
 	return resources
 }

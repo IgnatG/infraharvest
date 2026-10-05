@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var firewallAllowEmptyValues = []string{""}
-
-var firewallAdditionalFields = map[string]interface{}{}
-
 type FirewallGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g FirewallGenerator) createResources(ctx context.Context, firewallList *co
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				firewallAllowEmptyValues,
-				firewallAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

@@ -33,8 +33,8 @@ func (g VPCClusterGenerator) loadcluster(clustersID, clusterName string) terrafo
 		clustersID,
 		normalizeResourceName(clusterName, false),
 		"ibm_container_vpc_cluster",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resource
 }
 
@@ -44,9 +44,8 @@ func (g VPCClusterGenerator) loadWorkerPools(clustersID, poolID, poolName string
 		normalizeResourceName(poolName, true),
 		"ibm_container_vpc_worker_pool",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resource
 }
 
@@ -84,24 +83,6 @@ func (g *VPCClusterGenerator) InitResources() error {
 			}
 		}
 
-	}
-
-	return nil
-}
-
-func (g *VPCClusterGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_container_vpc_worker_pool" {
-			continue
-		}
-		for _, rt := range g.Resources {
-			if rt.InstanceInfo.Type != "ibm_container_vpc_cluster" {
-				continue
-			}
-			if r.InstanceState.Attributes["cluster"] == rt.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["cluster"] = "${ibm_container_vpc_cluster." + rt.ResourceName + ".id}"
-			}
-		}
 	}
 
 	return nil

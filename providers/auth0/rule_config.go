@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	RuleConfigAllowEmptyValues = []string{}
-)
-
 type RuleConfigGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g RuleConfigGenerator) createResources(ruleConfigConfigs []*management.Rul
 			resourceName,
 			resourceName,
 			"auth0_rule_config",
-			"auth0",
-			RuleConfigAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

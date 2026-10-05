@@ -61,10 +61,8 @@ func (g *KeyPairGenerator) InitResources() error {
 			*instance.KeyName+"_"+*instance.KeyId,
 			"tencentcloud_key_pair",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

@@ -73,10 +73,8 @@ func (g *PtsGenerator) DescribeProjects(client *pts.Client) error {
 			*instance.ProjectId+"_"+*instance.ProjectId,
 			"tencentcloud_pts_project",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

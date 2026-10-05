@@ -37,9 +37,7 @@ func (g *MessageChannelGenerator) InitResources() error {
 			channel.MessageChannelId,
 			name,
 			"opal_message_channel",
-			"opal",
-			[]string{},
-		))
+			"opal"))
 	}
 
 	return nil

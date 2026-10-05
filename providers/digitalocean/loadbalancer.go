@@ -62,8 +62,7 @@ func (g LoadBalancerGenerator) createResources(loadBalancerList []godo.LoadBalan
 			loadBalancer.ID,
 			loadBalancer.Name,
 			"digitalocean_loadbalancer",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

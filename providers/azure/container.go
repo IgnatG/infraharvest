@@ -56,8 +56,7 @@ func (g *ContainerGenerator) listAndAddForContainerGroup() ([]terraformutils.Res
 			*containerGroup.ID,
 			*containerGroup.Name,
 			"azurerm_container_group",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := containerGroupIterator.Next(); err != nil {
 			log.Println(err)
@@ -86,8 +85,7 @@ func (g *ContainerGenerator) listRegistryWebhooks(resourceGroupName string, regi
 			*webhook.ID,
 			*webhook.Name,
 			"azurerm_container_registry_webhook",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 		if err := webhookIterator.Next(); err != nil {
 			log.Println(err)
 			break
@@ -124,8 +122,7 @@ func (g *ContainerGenerator) listAndAddForContainerRegistry() ([]terraformutils.
 			*containerRegistry.ID,
 			*containerRegistry.Name,
 			"azurerm_container_registry",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		id, err := ParseAzureResourceID(*containerRegistry.ID)
 		if err != nil {

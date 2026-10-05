@@ -23,8 +23,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 )
 
-var ecsAllowEmptyValues = []string{"tags."}
-
 type EcsGenerator struct {
 	AWSService
 }
@@ -50,9 +48,7 @@ func (g *EcsGenerator) InitResources() error {
 				clusterArn,
 				clusterName,
 				"aws_ecs_cluster",
-				"aws",
-				ecsAllowEmptyValues,
-			))
+				"aws"))
 
 			servicePage := ecs.NewListServicesPaginator(svc, &ecs.ListServicesInput{
 				Cluster: &clusterArn,
@@ -89,16 +85,14 @@ func (g *EcsGenerator) InitResources() error {
 							"cluster":         clusterName,
 							"name":            serviceName,
 							"id":              serviceArn,
-						},
-						ecsAllowEmptyValues,
-						map[string]interface{}{},
-					))
+						}))
 				}
 			}
 		}
 	}
 
 	taskDefinitionsMap := map[string]terraformutils.Resource{}
+	latestRevisions := map[string]int{}
 	taskDefinitionsPage := ecs.NewListTaskDefinitionsPaginator(svc, &ecs.ListTaskDefinitionsInput{}, stopOnDuplicateToken)
 	for taskDefinitionsPage.HasMorePages() {
 		taskDefinitionsNextPage, e := taskDefinitionsPage.NextPage(g.Context())
@@ -112,7 +106,8 @@ func (g *EcsGenerator) InitResources() error {
 			revision, _ := strconv.Atoi(arnParts[len(arnParts)-1])
 
 			// fetch only latest revision of task definitions
-			if val, ok := taskDefinitionsMap[definitionWithFamily]; !ok || val.AdditionalFields["revision"].(int) < revision {
+			if latest, ok := latestRevisions[definitionWithFamily]; !ok || latest < revision {
+				latestRevisions[definitionWithFamily] = revision
 				taskDefinitionsMap[definitionWithFamily] = terraformutils.NewResource(
 					taskDefinitionArn,
 					definitionWithFamily,
@@ -123,32 +118,13 @@ func (g *EcsGenerator) InitResources() error {
 						"container_definitions": "{}",
 						"family":                "test-task",
 						"arn":                   taskDefinitionArn,
-					},
-					[]string{},
-					map[string]interface{}{
-						"revision": revision,
-					},
-				)
+					})
+
 			}
 		}
 	}
 	for _, v := range taskDefinitionsMap {
-		delete(v.AdditionalFields, "revision")
 		g.Resources = append(g.Resources, v)
-	}
-
-	return nil
-}
-
-func (g *EcsGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_ecs_service" {
-			continue
-		}
-		if r.InstanceState.Attributes["propagate_tags"] == "NONE" {
-			delete(r.Item, "propagate_tags")
-		}
-		delete(r.Item, "iam_role")
 	}
 
 	return nil

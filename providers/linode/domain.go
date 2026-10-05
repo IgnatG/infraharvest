@@ -36,8 +36,7 @@ func (g *DomainGenerator) loadDomains(client linodego.Client) ([]linodego.Domain
 			strconv.Itoa(domain.ID),
 			strconv.Itoa(domain.ID),
 			"linode_domain",
-			"linode",
-			[]string{}))
+			"linode"))
 	}
 	return domainList, nil
 }
@@ -53,9 +52,7 @@ func (g *DomainGenerator) loadDomainRecords(client linodego.Client, domainID int
 			strconv.Itoa(domainRecord.ID),
 			"linode_domain_record",
 			"linode",
-			map[string]string{"domain_id": strconv.Itoa(domainID)},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{"domain_id": strconv.Itoa(domainID)}))
 	}
 	return nil
 }

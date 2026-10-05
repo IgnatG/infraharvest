@@ -37,10 +37,7 @@ func (g *SLOGenerator) InitResources() error {
 				"honeycombio",
 				map[string]string{
 					"dataset": dataset.Name,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 

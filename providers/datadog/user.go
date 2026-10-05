@@ -25,11 +25,6 @@ import (
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 )
 
-var (
-	// UserAllowEmptyValues ...
-	UserAllowEmptyValues = []string{}
-)
-
 // UserGenerator ...
 type UserGenerator struct {
 	DatadogService
@@ -58,9 +53,8 @@ func (g *UserGenerator) createResource(userID string) terraformutils.Resource {
 		userID,
 		fmt.Sprintf("user_%s", userID),
 		"datadog_user",
-		"datadog",
-		UserAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

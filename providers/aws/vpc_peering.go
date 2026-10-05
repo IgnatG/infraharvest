@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var peeringAllowEmptyValues = []string{"tags."}
-
 type VpcPeeringConnectionGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (g *VpcPeeringConnectionGenerator) createResources(peerings *ec2.DescribeVp
 			StringValue(peering.VpcPeeringConnectionId),
 			StringValue(peering.VpcPeeringConnectionId),
 			"aws_vpc_peering_connection",
-			"aws",
-			peeringAllowEmptyValues,
-		))
+			"aws"))
 	}
 
 	return resources

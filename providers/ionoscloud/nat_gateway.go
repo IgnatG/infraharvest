@@ -46,9 +46,7 @@ func (g *NATGatewayGenerator) InitResources() error {
 				*natGateway.Properties.Name+"-"+*natGateway.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.DcID: *datacenter.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.DcID: *datacenter.Id}))
 		}
 	}
 	return nil

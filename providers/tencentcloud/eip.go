@@ -69,10 +69,8 @@ func (g *EipGenerator) InitResources() error {
 			*instance.AddressId,
 			"tencentcloud_eip",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 
 		if instance.InstanceId != nil && *instance.InstanceId != "" {
@@ -81,11 +79,8 @@ func (g *EipGenerator) InitResources() error {
 				*instance.AddressId,
 				"tencentcloud_eip_association",
 				"tencentcloud",
-				map[string]string{},
-				[]string{},
-				map[string]interface{}{},
-			)
-			association.AdditionalFields["eip_id"] = "${tencentcloud_eip." + resource.ResourceName + ".id}"
+				map[string]string{})
+
 			g.Resources = append(g.Resources, association)
 		}
 	}

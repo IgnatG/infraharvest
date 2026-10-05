@@ -58,10 +58,7 @@ func (g *ServiceGenerator) createResources(services []service.Service) []terrafo
 			fmt.Sprintf("%s-%s", s.Id, s.Name),
 			"opsgenie_service",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 
 	return resources

@@ -22,11 +22,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationPagerdutyServiceObjectAllowEmptyValues ...
-	IntegrationPagerdutyServiceObjectAllowEmptyValues = []string{"tags."}
-)
-
 // IntegrationPagerdutyServiceObjectGenerator ...
 type IntegrationPagerdutyServiceObjectGenerator struct {
 	DatadogService
@@ -47,9 +42,8 @@ func (g *IntegrationPagerdutyServiceObjectGenerator) createResource(serviceName 
 		serviceName,
 		fmt.Sprintf("integration_pagerduty_service_object_%s", serviceName),
 		"datadog_integration_pagerduty_service_object",
-		"datadog",
-		IntegrationPagerdutyServiceObjectAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

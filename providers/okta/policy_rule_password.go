@@ -34,10 +34,7 @@ func (g PasswordPolicyRuleGenerator) createResources(passwordPolicyRuleList []sd
 			"okta",
 			map[string]string{
 				"policy_id": policyID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return resources

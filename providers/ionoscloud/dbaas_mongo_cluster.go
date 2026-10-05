@@ -35,9 +35,7 @@ func (g *DBaaSMongoClusterGenerator) InitResources() error {
 			*cluster.Properties.DisplayName+"-"+*cluster.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

@@ -48,10 +48,7 @@ func (g *TaxCategoryGenerator) InitResources() error {
 			category.Key,
 			"commercetools_tax_category",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

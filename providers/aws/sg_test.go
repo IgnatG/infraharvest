@@ -194,3 +194,29 @@ func Test3Cycle1CycleReference(t *testing.T) {
 		t.Errorf("failed to calculate rules to move out %v", rulesToMoveOut)
 	}
 }
+
+// A rule's attributes are flattened as Terraform state is: lists become
+// "<key>.#" and "<key>.<index>".
+func TestFlattenAttributes(t *testing.T) {
+	got := flattenAttributes(map[string]interface{}{
+		"type":              "ingress",
+		"cidr_blocks":       []string{"10.0.0.0/8", "192.168.0.0/16"},
+		"ipv6_cidr_blocks":  []string{},
+		"from_port":         443,
+		"self":              true,
+		"security_group_id": "sg-1",
+	})
+	want := map[string]string{
+		"type":               "ingress",
+		"cidr_blocks.#":      "2",
+		"cidr_blocks.0":      "10.0.0.0/8",
+		"cidr_blocks.1":      "192.168.0.0/16",
+		"ipv6_cidr_blocks.#": "0",
+		"from_port":          "443",
+		"self":               "true",
+		"security_group_id":  "sg-1",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

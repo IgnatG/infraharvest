@@ -40,8 +40,8 @@ func (g ScaleSetGenerator) createResourcesByResourceGroup(ctx context.Context, c
 			*scaleSet.ID,
 			*scaleSet.Name,
 			"azurerm_virtual_machine_scale_set",
-			"azurerm",
-			[]string{})
+			"azurerm")
+
 		resources = append(resources, newResource)
 		if err := scaleSetIterator.Next(); err != nil {
 			log.Println(err)
@@ -63,8 +63,8 @@ func (g ScaleSetGenerator) createResources(ctx context.Context, client compute.V
 			*scaleSet.ID,
 			*scaleSet.Name,
 			"azurerm_virtual_machine_scale_set",
-			"azurerm",
-			[]string{})
+			"azurerm")
+
 		resources = append(resources, newResource)
 		if err := scaleSetIterator.Next(); err != nil {
 			log.Println(err)

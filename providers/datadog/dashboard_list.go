@@ -25,11 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// DashboardListAllowEmptyValues ...
-	DashboardListAllowEmptyValues = []string{}
-)
-
 // DashboardListGenerator ...
 type DashboardListGenerator struct {
 	DatadogService
@@ -50,9 +45,8 @@ func (g *DashboardListGenerator) createResource(dashboardListID string) terrafor
 		dashboardListID,
 		fmt.Sprintf("dashboard_list_%s", dashboardListID),
 		"datadog_dashboard_list",
-		"datadog",
-		DashboardListAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

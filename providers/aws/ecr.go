@@ -15,14 +15,10 @@
 package aws
 
 import (
-	"fmt"
-
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
-
-var ecrAllowEmptyValues = []string{"tags."}
 
 type EcrGenerator struct {
 	AWSService
@@ -47,8 +43,7 @@ func (g *EcrGenerator) InitResources() error {
 				*repository.RepositoryName,
 				*repository.RepositoryName,
 				"aws_ecr_repository",
-				"aws",
-				ecrAllowEmptyValues))
+				"aws"))
 
 			_, err := svc.GetRepositoryPolicy(g.Context(), &ecr.GetRepositoryPolicyInput{
 				RepositoryName: repository.RepositoryName,
@@ -59,8 +54,7 @@ func (g *EcrGenerator) InitResources() error {
 					*repository.RepositoryName,
 					*repository.RepositoryName,
 					"aws_ecr_repository_policy",
-					"aws",
-					ecrAllowEmptyValues))
+					"aws"))
 			}
 
 			_, err = svc.GetLifecyclePolicy(g.Context(), &ecr.GetLifecyclePolicyInput{
@@ -72,29 +66,7 @@ func (g *EcrGenerator) InitResources() error {
 					*repository.RepositoryName,
 					*repository.RepositoryName,
 					"aws_ecr_lifecycle_policy",
-					"aws",
-					ecrAllowEmptyValues))
-			}
-		}
-	}
-	return nil
-}
-
-func (g *EcrGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_ecr_repository_policy" {
-			if val, ok := g.Resources[i].Item["policy"]; ok {
-				policy := g.escapeAwsInterpolation(val.(string))
-				g.Resources[i].Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
-			}
-		} else if resource.InstanceInfo.Type == "aws_ecr_lifecycle_policy" {
-			if val, ok := g.Resources[i].Item["policy"]; ok {
-				policy := g.escapeAwsInterpolation(val.(string))
-				g.Resources[i].Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
+					"aws"))
 			}
 		}
 	}

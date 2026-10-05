@@ -38,8 +38,7 @@ func (g PasswordPolicyGenerator) createResources(passwordPolicyList []*okta.Poli
 			passwordPolicy.Id,
 			"policy_password_"+resourceName,
 			resourceType,
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

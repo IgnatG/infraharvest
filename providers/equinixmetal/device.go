@@ -39,8 +39,7 @@ func (g DeviceGenerator) createResources(deviceList []packngo.Device) []terrafor
 			device.ID,
 			device.Hostname,
 			"metal_device",
-			"equinixmetal",
-			[]string{}))
+			"equinixmetal"))
 	}
 	return resources
 }

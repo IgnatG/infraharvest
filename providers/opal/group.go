@@ -38,9 +38,7 @@ func (g *GroupGenerator) InitResources() error {
 				group.GroupId,
 				name,
 				"opal_group",
-				"opal",
-				[]string{},
-			))
+				"opal"))
 		}
 
 		if !groups.HasNext() || groups.Next.Get() == nil {

@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/docdb"
 )
 
-var docDBAllowEmptyValues = []string{"tags."}
-
 type DocDBGenerator struct {
 	AWSService
 }
@@ -65,8 +63,7 @@ func (g *DocDBGenerator) getClusters(svc *docdb.Client) error {
 				resourceName,
 				resourceName,
 				"aws_docdb_cluster",
-				"aws",
-				docDBAllowEmptyValues))
+				"aws"))
 
 			for _, member := range cluster.DBClusterMembers {
 				instanceName := StringValue(member.DBInstanceIdentifier)
@@ -74,8 +71,7 @@ func (g *DocDBGenerator) getClusters(svc *docdb.Client) error {
 					instanceName,
 					instanceName,
 					"aws_docdb_cluster_instance",
-					"aws",
-					docDBAllowEmptyValues))
+					"aws"))
 			}
 
 		}
@@ -100,8 +96,7 @@ func (g *DocDBGenerator) getSubnetGroups(svc *docdb.Client) error {
 				resourceName,
 				resourceName,
 				"aws_docdb_subnet_group",
-				"aws",
-				docDBAllowEmptyValues))
+				"aws"))
 
 		}
 	}
@@ -125,16 +120,10 @@ func (g *DocDBGenerator) getParameterGroups(svc *docdb.Client) error {
 				resourceName,
 				resourceName,
 				"aws_docdb_cluster_parameter_group",
-				"aws",
-				docDBAllowEmptyValues))
+				"aws"))
 
 		}
 	}
 
-	return nil
-}
-
-// PostConvertHook for add policy json as heredoc
-func (g *DocDBGenerator) PostConvertHook() error {
 	return nil
 }

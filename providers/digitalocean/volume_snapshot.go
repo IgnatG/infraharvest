@@ -62,8 +62,7 @@ func (g VolumeSnapshotGenerator) createResources(snapshotList []godo.Snapshot) [
 			snapshot.ID,
 			snapshot.Name,
 			"digitalocean_volume_snapshot",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

@@ -15,13 +15,9 @@
 package aws
 
 import (
-	"fmt"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/codecommit"
 )
-
-var codecommitAllowEmptyValues = []string{"tags."}
 
 type CodeCommitGenerator struct {
 	AWSService
@@ -40,8 +36,7 @@ func (g *CodeCommitGenerator) loadRepository(svc *codecommit.Client) error {
 				resourceName,
 				resourceName,
 				"aws_codecommit_repository",
-				"aws",
-				codecommitAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -59,8 +54,7 @@ func (g *CodeCommitGenerator) loadApprovalRuleTemplate(svc *codecommit.Client) e
 				templateName,
 				templateName,
 				"aws_codecommit_approval_rule_template",
-				"aws",
-				codecommitAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -81,18 +75,5 @@ func (g *CodeCommitGenerator) InitResources() error {
 		return err
 	}
 
-	return nil
-}
-
-func (g *CodeCommitGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_codecommit_approval_rule_template" {
-			if content, ok := g.Resources[i].Item["content"]; ok {
-				g.Resources[i].Item["content"] = fmt.Sprintf(`<<CONTENT
-%s
-CONTENT`, content)
-			}
-		}
-	}
 	return nil
 }

@@ -48,9 +48,7 @@ func (g *FirewallPolicyGenerator) createResourcesFromList(o getGeneric, terrafor
 			id,
 			normalizeResourceName(r),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -76,39 +74,6 @@ func (g *FirewallPolicyGenerator) InitResources() error {
 	g.Resources = append(g.Resources, g.createNATRuleGroupResources()...)
 	g.Resources = append(g.Resources, g.createPBFRuleGroupResources()...)
 	g.Resources = append(g.Resources, g.createSecurityRuleGroupResources()...)
-
-	return nil
-}
-
-func (g *FirewallPolicyGenerator) PostConvertHook() error {
-	for _, res := range g.Resources {
-		if res.InstanceInfo.Type == "panos_nat_rule_group" {
-			for _, rule := range res.Item["rule"].([]interface{}) {
-				if _, ok := rule.(map[string]interface{})["translated_packet"]; ok {
-					a := rule.(map[string]interface{})["translated_packet"].([]interface{})
-					for _, b := range a {
-						if _, okb := b.(map[string]interface{})["source"]; !okb {
-							b.(map[string]interface{})["source"] = make(map[string]interface{})
-						}
-					}
-
-					for _, b := range a {
-						if _, okb := b.(map[string]interface{})["destination"]; !okb {
-							b.(map[string]interface{})["destination"] = make(map[string]interface{})
-						}
-					}
-				}
-			}
-		}
-
-		if res.InstanceInfo.Type == "panos_security_rule_group" {
-			for _, rule := range res.Item["rule"].([]interface{}) {
-				if _, ok := rule.(map[string]interface{})["hip_profiles"]; !ok {
-					rule.(map[string]interface{})["hip_profiles"] = []string{"any"}
-				}
-			}
-		}
-	}
 
 	return nil
 }

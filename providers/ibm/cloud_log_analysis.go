@@ -35,8 +35,8 @@ func (g LogAnalysisGenerator) loadCloudMonitoring(logID string, logName string) 
 		logID,
 		normalizeResourceName(logName, true),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

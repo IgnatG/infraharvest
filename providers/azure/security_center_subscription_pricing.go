@@ -36,8 +36,7 @@ func (g SecurityCenterSubscriptionPricingGenerator) listSubscriptionPricing() ([
 			*pricing.ID,
 			*pricing.Name,
 			"azurerm_security_center_subscription_pricing",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 	}
 
 	return resources, nil

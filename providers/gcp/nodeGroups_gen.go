@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var nodeGroupsAllowEmptyValues = []string{""}
-
-var nodeGroupsAdditionalFields = map[string]interface{}{}
-
 type NodeGroupsGenerator struct {
 	GCPService
 }
@@ -48,10 +44,7 @@ func (g NodeGroupsGenerator) createResources(ctx context.Context, nodeGroupsList
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
 					"zone":    zone,
-				},
-				nodeGroupsAllowEmptyValues,
-				nodeGroupsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

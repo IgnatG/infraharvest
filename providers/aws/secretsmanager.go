@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 )
 
-var secretsmanagerAllowEmptyValues = []string{"tags."}
-
 type SecretsManagerGenerator struct {
 	AWSService
 }
@@ -45,8 +43,7 @@ func (g *SecretsManagerGenerator) InitResources() error {
 				secretArn,
 				secretName,
 				"aws_secretsmanager_secret",
-				"aws",
-				secretsmanagerAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

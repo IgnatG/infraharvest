@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	CustomDomainAllowEmptyValues = []string{}
-)
-
 type CustomDomainGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g CustomDomainGenerator) createResources(customDomains []*management.Custo
 			resourceName,
 			resourceName+"_"+*CustomDomain.Domain,
 			"auth0_custom_domain",
-			"auth0",
-			CustomDomainAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

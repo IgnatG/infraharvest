@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/apigatewayv2"
 )
 
-var apiGatewayV2AllowEmptyValues = []string{"tags.", "parent_id", "path_part"}
-
 type APIGatewayV2Generator struct {
 	AWSService
 }
@@ -77,9 +75,7 @@ func (g *APIGatewayV2Generator) processRestApis(svc *apigatewayv2.ApiGatewayV2, 
 			*restAPI.ApiId,
 			*restAPI.ApiId+"_"+*restAPI.Name,
 			"aws_apigatewayv2_api",
-			"aws",
-			apiGatewayV2AllowEmptyValues,
-		))
+			"aws"))
 		if err := g.loadStages(svc, restAPI.ApiId); err != nil {
 			return err
 		}
@@ -138,10 +134,7 @@ func (g *APIGatewayV2Generator) processStages(output []*apigatewayv2.Stage, rest
 			map[string]string{
 				"rest_api_id": *restAPIID,
 				"stage_name":  *stage.StageName,
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return nil
 }
@@ -190,10 +183,7 @@ func (g *APIGatewayV2Generator) processModels(output []*apigatewayv2.Model, rest
 				"content_type": StringValue(model.ContentType),
 				"schema":       StringValue(model.Schema),
 				"api_id":       StringValue(restAPIID),
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return nil
 }
@@ -242,10 +232,7 @@ func (g *APIGatewayV2Generator) processRoutes(svc *apigatewayv2.ApiGatewayV2, ou
 			map[string]string{
 				"api_id":    *restAPIID,
 				"route_key": *route.RouteKey,
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 		if err := g.loadResponses(svc, restAPIID, route.RouteId); err != nil {
 			return err
 		}
@@ -298,10 +285,7 @@ func (g *APIGatewayV2Generator) processResponses(output []*apigatewayv2.RouteRes
 				"api_id":             *restAPIID,
 				"route_id":           *routeID,
 				"route_response_key": "$default",
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 
 	}
 	return nil
@@ -344,10 +328,7 @@ func (g *APIGatewayV2Generator) processAuthorizers(output []*apigatewayv2.Author
 				"api_id":          *restAPIID,
 				"name":            StringValue(authoriser.Name),
 				"authorizer_type": *authoriser.AuthorizerType,
-			},
-			apiGatewayAllowEmptyValues,
-			map[string]interface{}{},
-		))
+			}))
 
 	}
 	return nil
@@ -383,8 +364,7 @@ func (g *APIGatewayV2Generator) processVpcLinks(output []*apigatewayv2.VpcLink) 
 			*vpcLink.VpcLinkId,
 			*vpcLink.VpcLinkId,
 			"aws_apigatewayv2_vpc_link",
-			"aws",
-			apiGatewayAllowEmptyValues))
+			"aws"))
 	}
 	return nil
 }

@@ -17,7 +17,6 @@ package openstack
 import (
 	"log"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -43,10 +42,8 @@ func (g *ComputeGenerator) createResources(list *pagination.Pager, volclient *go
 		}
 
 		for _, s := range servers {
-			var bds = []map[string]interface{}{}
-			var vol []volumes.Volume
-			t := map[string]interface{}{}
 			if volclient != nil {
+				var vol []volumes.Volume
 				for _, av := range s.AttachedVolumes {
 					onevol, err := volumes.Get(volclient, av.ID).Extract()
 					if err == nil {
@@ -58,62 +55,28 @@ func (g *ComputeGenerator) createResources(list *pagination.Pager, volclient *go
 					return vol[i].Attachments[0].Device < vol[j].Attachments[0].Device
 				})
 
-				var bindex = 0
-				var dependsOn = ""
 				for _, v := range vol {
+					// Bootable image volumes belong to the instance itself, not to a volume attachment.
 					if v.Bootable == "true" && v.VolumeImageMetadata != nil {
-						bds = append(bds, map[string]interface{}{
-							"source_type":           "image",
-							"uuid":                  v.VolumeImageMetadata["image_id"],
-							"volume_size":           strconv.Itoa(v.Size),
-							"boot_index":            strconv.Itoa(bindex),
-							"destination_type":      "volume",
-							"delete_on_termination": "false",
-						})
-						bindex++
-					} else {
-						tv := map[string]interface{}{}
-						if dependsOn != "" {
-							tv["depends_on"] = []string{dependsOn}
-						}
-
-						name := s.Name + strings.ReplaceAll(v.Attachments[0].Device, "/dev/", "")
-						rid := s.ID + "/" + v.ID
-						resource := terraformutils.NewResource(
-							rid,
-							name,
-							"openstack_compute_volume_attach_v2",
-							"openstack",
-							map[string]string{},
-							[]string{},
-							tv,
-						)
-						dependsOn = "openstack_compute_volume_attach_v2." + terraformutils.TfSanitize(name)
-						tv["instance_name"] = terraformutils.TfSanitize(s.Name)
-						if v.Name == "" {
-							v.Name = v.ID
-						}
-						tv["volume_name"] = terraformutils.TfSanitize(v.Name)
-						resources = append(resources, resource)
+						continue
 					}
+					name := s.Name + strings.ReplaceAll(v.Attachments[0].Device, "/dev/", "")
+					rid := s.ID + "/" + v.ID
+					resources = append(resources, terraformutils.NewResource(
+						rid,
+						name,
+						"openstack_compute_volume_attach_v2",
+						"openstack",
+						map[string]string{}))
 				}
 			}
 
-			if len(bds) > 0 {
-				t = map[string]interface{}{"block_device": bds}
-			}
-
-			resource := terraformutils.NewResource(
+			resources = append(resources, terraformutils.NewResource(
 				s.ID,
 				s.Name,
 				"openstack_compute_instance_v2",
 				"openstack",
-				map[string]string{},
-				[]string{},
-				t,
-			)
-
-			resources = append(resources, resource)
+				map[string]string{}))
 		}
 
 		return true, nil
@@ -151,50 +114,6 @@ func (g *ComputeGenerator) InitResources() error {
 		volclient = nil
 	}
 	g.Resources = g.createResources(&list, volclient)
-
-	return nil
-}
-
-func (g *ComputeGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type == "openstack_compute_volume_attach_v2" {
-			g.Resources[i].Item["volume_id"] = "${openstack_blockstorage_volume_v3." + r.AdditionalFields["volume_name"].(string) + ".id}"
-			g.Resources[i].Item["instance_id"] = "${openstack_compute_instance_v2." + r.AdditionalFields["instance_name"].(string) + ".id}"
-			delete(g.Resources[i].Item, "volume_name")
-			delete(g.Resources[i].Item, "instance_name")
-			delete(g.Resources[i].Item, "device")
-		}
-		if r.InstanceInfo.Type != "openstack_compute_instance_v2" {
-			continue
-		}
-
-		// Copy "all_metadata.%" to "metadata.%"
-		for k, v := range g.Resources[i].InstanceState.Attributes {
-			if strings.HasPrefix(k, "all_metadata") {
-				newKey := strings.Replace(k, "all_metadata", "metadata", 1)
-				g.Resources[i].InstanceState.Attributes[newKey] = v
-			}
-		}
-		// Replace "all_metadata" to "metadata"
-		// because "all_metadata" field cannot be set as resource argument
-		for k, v := range g.Resources[i].Item {
-			if strings.HasPrefix(k, "all_metadata") {
-				newKey := strings.Replace(k, "all_metadata", "metadata", 1)
-				g.Resources[i].Item[newKey] = v
-				delete(g.Resources[i].Item, k)
-			}
-		}
-		if r.AdditionalFields["block_device"] != nil {
-			bds := r.AdditionalFields["block_device"].([]map[string]interface{})
-			for bi, bd := range bds {
-				for k, v := range bd {
-					g.Resources[i].InstanceState.Attributes["block_device."+strconv.Itoa(bi)+"."+k] = v.(string)
-				}
-			}
-
-			g.Resources[i].InstanceState.Attributes["block_device.#"] = strconv.Itoa(len(bds))
-		}
-	}
 
 	return nil
 }

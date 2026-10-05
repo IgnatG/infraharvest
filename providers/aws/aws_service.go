@@ -17,7 +17,6 @@ package aws
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -32,8 +31,6 @@ import (
 type AWSService struct { //nolint
 	terraformutils.Service
 }
-
-var awsVariable = regexp.MustCompile(`(\${[0-9A-Za-z:]+})`)
 
 // listMaxAttempts is how many times a throttled or failed call is tried.
 const listMaxAttempts = 10
@@ -126,11 +123,6 @@ func (s *AWSService) buildBaseConfig() (aws.Config, error) {
 		loadOptions = append(loadOptions, config.WithRetryMaxAttempts(listMaxAttempts))
 	}
 	return config.LoadDefaultConfig(s.Context(), loadOptions...)
-}
-
-// for CF interpolation and IAM Policy variables
-func (*AWSService) escapeAwsInterpolation(str string) string {
-	return awsVariable.ReplaceAllString(str, "$$$1")
 }
 
 func (s *AWSService) getAccountNumber(config aws.Config) (*string, error) {

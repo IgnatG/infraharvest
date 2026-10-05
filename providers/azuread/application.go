@@ -53,10 +53,3 @@ func (az *ApplicationServiceGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *ApplicationServiceGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"application": {"id"},
-	}
-}

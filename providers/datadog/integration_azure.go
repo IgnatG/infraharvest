@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationAzureAllowEmptyValues ...
-	IntegrationAzureAllowEmptyValues = []string{}
-)
-
 // IntegrationAzureGenerator ...
 type IntegrationAzureGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *IntegrationAzureGenerator) createResource(resourceID string) terraformu
 		resourceID,
 		fmt.Sprintf("integration_azure_%s", resourceID),
 		"datadog_integration_azure",
-		"datadog",
-		IntegrationAzureAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

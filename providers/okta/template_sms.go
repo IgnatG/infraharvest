@@ -31,8 +31,7 @@ func (g SMSTemplateGenerator) createResources(smsTemplateList []*okta.SmsTemplat
 			smsTemplate.Id,
 			"template_sms_"+smsTemplate.Name,
 			"okta_template_sms",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

@@ -36,9 +36,7 @@ func (g *PrivateCrossConnectGenerator) InitResources() error {
 			*pcc.Properties.Name+"-"+*pcc.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

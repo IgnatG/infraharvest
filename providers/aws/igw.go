@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var IgwAllowEmptyValues = []string{"tags."}
-
 type IgwGenerator struct {
 	AWSService
 }
@@ -39,9 +37,7 @@ func (g *IgwGenerator) createResources(igws *ec2.DescribeInternetGatewaysOutput)
 			StringValue(internetGateway.InternetGatewayId),
 			StringValue(internetGateway.InternetGatewayId),
 			"aws_internet_gateway",
-			"aws",
-			IgwAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return resources
 }

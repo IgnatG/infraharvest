@@ -84,9 +84,7 @@ func (k *Kind) InitResources() error {
 			name,
 			name,
 			extractTfResourceName(k.Name),
-			"kubernetes",
-			[]string{},
-		))
+			"kubernetes"))
 	}
 	return nil
 }

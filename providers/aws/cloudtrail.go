@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 )
 
-var cloudtrailAllowEmptyValues = []string{"tags."}
-
 type CloudTrailGenerator struct {
 	AWSService
 }
@@ -34,8 +32,7 @@ func (g *CloudTrailGenerator) createResources(trailList []types.Trail) []terrafo
 			resourceName,
 			resourceName,
 			"aws_cloudtrail",
-			"aws",
-			cloudtrailAllowEmptyValues))
+			"aws"))
 	}
 	return resources
 }

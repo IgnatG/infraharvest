@@ -34,8 +34,8 @@ func (g SSHKeyGenerator) createSSHKeyResources(sshKeyID, sshKeyName string) terr
 		sshKeyID,
 		normalizeResourceName(sshKeyName, true),
 		"ibm_is_ssh_key",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

@@ -32,8 +32,7 @@ func (g ServerGenerator) createResources(serverList []govultr.Server) []terrafor
 			server.InstanceID,
 			server.InstanceID,
 			"vultr_server",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

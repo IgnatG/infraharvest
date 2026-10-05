@@ -27,14 +27,12 @@ type NatGatewayGenerator struct {
 
 func resourceFromNatGatewayResponse(natGateway vpc.NatGateway) terraformutils.Resource {
 	return terraformutils.NewResource(
-		natGateway.NatGatewayId,                      // id
-		natGateway.NatGatewayId+"__"+natGateway.Name, // name
+		natGateway.NatGatewayId,
+		natGateway.NatGatewayId+"__"+natGateway.Name,
 		"alicloud_nat_gateway",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 // InitResources Gets the list of all natgateway NatGateway ids and generates resources

@@ -23,8 +23,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-var AsgAllowEmptyValues = []string{"tags."}
-
 type AutoScalingGenerator struct {
 	AWSService
 }
@@ -47,10 +45,7 @@ func (g *AutoScalingGenerator) loadAutoScalingGroups(svc *autoscaling.Client) er
 					"force_delete":              "false",
 					"metrics_granularity":       "1Minute",
 					"wait_for_capacity_timeout": "10m",
-				},
-				AsgAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -75,10 +70,7 @@ func (g *AutoScalingGenerator) loadLaunchConfigurations(svc *autoscaling.Client)
 				resourceName,
 				"aws_launch_configuration",
 				"aws",
-				attributes,
-				AsgAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				attributes))
 		}
 	}
 	return nil
@@ -98,9 +90,7 @@ func (g *AutoScalingGenerator) loadLaunchTemplates(config aws.Config) error {
 				StringValue(lt.LaunchTemplateId),
 				StringValue(lt.LaunchTemplateName),
 				"aws_launch_template",
-				"aws",
-				AsgAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -125,64 +115,5 @@ func (g *AutoScalingGenerator) InitResources() error {
 	if err := g.loadLaunchTemplates(config); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (g *AutoScalingGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_autoscaling_group" {
-			continue
-		}
-		if lcName, exist := r.InstanceState.Attributes["launch_configuration"]; exist {
-			for _, lc := range g.Resources {
-				if lc.InstanceInfo.Type != "aws_launch_configuration" {
-					continue
-				}
-				if lcName == lc.InstanceState.Attributes["name"] {
-					g.Resources[i].Item["launch_configuration"] = "${aws_launch_configuration." + lc.ResourceName + ".name}"
-					continue
-				}
-			}
-		}
-		// TODO add LaunchTemplate and mix policy connection naming
-	}
-	// TODO fix tfVar value
-	/*
-		templateFiles := []terraformutils.Resource{}
-		for i, r := range g.Resources {
-			if r.InstanceInfo.Type != "aws_launch_configuration" {
-				continue
-			}
-			if userDataBase64, exist := r.InstanceState.Attributes["user_data_base64"]; exist {
-				userData, err := base64.StdEncoding.DecodeString(userDataBase64)
-				if err != nil {
-					continue
-				}
-				fileName := "userdata-" + r.ServiceName + ".txt"
-				err = ioutil.WriteFile(fileName, userData, os.ModePerm) // TODO write files in tf file path
-				if err != nil {
-					continue
-				}
-				userDataFile := terraformutils.NewResource(
-					r.ServiceName+"_userdata",
-					r.ServiceName+"_userdata",
-					"template_file",
-					"",
-					map[string]string{},
-					[]string{},
-					map[string]string{},
-				)
-				tfVar := strings.Replace(fmt.Sprintf("${base64decode(file(\"%s\"))}", fileName), "\\\"", "\"", -1)
-				userDataFile.Item = map[string]interface{}{
-					"template": tfVar,
-				}
-
-				delete(g.Resources[i].Item, "user_data_base64")
-				g.Resources[i].Item["user_data"] = "${template_file." + userDataFile.ServiceName + ".rendered}"
-				templateFiles = append(templateFiles, userDataFile)
-			}
-		}
-		g.Resources = append(g.Resources, templateFiles...)
-	*/
 	return nil
 }

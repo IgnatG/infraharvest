@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloud9/types"
 )
 
-var cloud9AllowEmptyValues = []string{"tags."}
-
 type Cloud9Generator struct {
 	AWSService
 }
@@ -53,8 +51,7 @@ func (g *Cloud9Generator) InitResources() error {
 				environmentID,
 				environmentID,
 				"aws_cloud9_environment_ec2",
-				"aws",
-				cloud9AllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil

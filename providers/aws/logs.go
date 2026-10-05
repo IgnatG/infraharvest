@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
-var logsAllowEmptyValues = []string{"tags."}
-
 type LogsGenerator struct {
 	AWSService
 }
@@ -47,9 +45,7 @@ func (g *LogsGenerator) createResources(logGroups *cloudwatchlogs.DescribeLogGro
 			resourceName,
 			"aws_cloudwatch_log_group",
 			"aws",
-			attributes,
-			logsAllowEmptyValues,
-			map[string]interface{}{}))
+			attributes))
 	}
 	return resources
 }
@@ -69,16 +65,6 @@ func (g *LogsGenerator) InitResources() error {
 			return err
 		}
 		g.Resources = append(g.Resources, g.createResources(page)...)
-	}
-	return nil
-}
-
-// remove retention_in_days if it is 0 (it gets added by the "refresh" stage)
-func (g *LogsGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.Item["retention_in_days"] == "0" {
-			delete(resource.Item, "retention_in_days")
-		}
 	}
 	return nil
 }

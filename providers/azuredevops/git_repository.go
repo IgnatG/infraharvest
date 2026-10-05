@@ -41,10 +41,3 @@ func (az *GitRepositoryGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *GitRepositoryGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"project": {"project_id", "id"},
-	}
-}

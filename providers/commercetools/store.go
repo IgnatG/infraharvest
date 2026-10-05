@@ -48,10 +48,7 @@ func (g *StoreGenerator) InitResources() error {
 			store.Key,
 			"commercetools_store",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

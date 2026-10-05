@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 )
 
-var cloudFrontAllowEmptyValues = []string{"tags."}
-
 type CloudFrontGenerator struct {
 	AWSService
 }
@@ -58,11 +56,8 @@ func (g *CloudFrontGenerator) loadDistribution(svc *cloudfront.Client) error {
 				"aws",
 				map[string]string{
 					"retain_on_delete": "false",
-				},
-				cloudFrontAllowEmptyValues,
-				map[string]interface{}{},
-			)
-			r.IgnoreKeys = append(r.IgnoreKeys, "^active_trusted_signers.(.*)")
+				})
+
 			g.Resources = append(g.Resources, r)
 
 		}
@@ -84,44 +79,12 @@ func (g *CloudFrontGenerator) loadCachePolicy(svc *cloudfront.Client) error {
 				StringValue(cachePolicy.CachePolicy.Id),
 				StringValue(cachePolicy.CachePolicy.Id),
 				"aws_cloudfront_cache_policy",
-				"aws",
-				cloudFrontAllowEmptyValues,
-			))
+				"aws"))
 		}
 		marker = out.CachePolicyList.NextMarker
 		if marker == nil {
 			break
 		}
-	}
-	return nil
-}
-
-func (g *CloudFrontGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_cloudfront_distribution" {
-			continue
-		}
-
-		for _, cachePolicy := range g.Resources {
-			if cachePolicy.InstanceInfo.Type != "aws_cloudfront_cache_policy" {
-				continue
-			}
-
-			if defaultCacheBehavior, ok := r.Item["default_cache_behavior"].([]interface{})[0].(map[string]interface{})["cache_policy_id"]; ok {
-				if defaultCacheBehavior.(string) == cachePolicy.InstanceState.Attributes["id"] {
-					g.Resources[i].Item["default_cache_behavior"].([]interface{})[0].(map[string]interface{})["cache_policy_id"] = "${aws_cloudfront_cache_policy." + cachePolicy.ResourceName + ".id}"
-				}
-			}
-
-			if orderedCacheBehavior, ok := r.Item["ordered_cache_behavior"].([]interface{}); ok {
-				for j, behavior := range orderedCacheBehavior {
-					if behavior, ok := behavior.(map[string]interface{})["cache_policy_id"]; ok && behavior.(string) == cachePolicy.InstanceState.Attributes["id"] {
-						g.Resources[i].Item["ordered_cache_behavior"].([]interface{})[j].(map[string]interface{})["cache_policy_id"] = "${aws_cloudfront_cache_policy." + cachePolicy.ResourceName + ".id}"
-					}
-				}
-			}
-		}
-
 	}
 	return nil
 }

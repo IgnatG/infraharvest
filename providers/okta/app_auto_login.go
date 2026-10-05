@@ -32,8 +32,7 @@ func (g AppAutoLoginGenerator) createResources(appList []*okta.Application) []te
 			app.Id,
 			normalizeResourceName(app.Id+"_"+app.Name),
 			"okta_app_auto_login",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

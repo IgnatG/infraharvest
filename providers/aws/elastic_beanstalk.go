@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 )
 
-var beanstalkAllowEmptyValues = []string{"tags."}
-
 type BeanstalkGenerator struct {
 	AWSService
 }
@@ -51,9 +49,7 @@ func (g *BeanstalkGenerator) addApplications(client *elasticbeanstalk.Client) er
 			*application.ApplicationName,
 			*application.ApplicationName,
 			"aws_elastic_beanstalk_application",
-			"aws",
-			beanstalkAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return nil
 }
@@ -68,9 +64,7 @@ func (g *BeanstalkGenerator) addEnvironments(client *elasticbeanstalk.Client) er
 			*environment.EnvironmentId,
 			*environment.EnvironmentName,
 			"aws_elastic_beanstalk_environment",
-			"aws",
-			beanstalkAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return nil
 }

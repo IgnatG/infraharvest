@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	TriggerBindingAllowEmptyValues = []string{}
-)
-
 type TriggerBindingGenerator struct {
 	Auth0Service
 }
@@ -37,12 +33,7 @@ func (g TriggerBindingGenerator) createResources(bindings map[string]*management
 			*binding.ID,
 			"auth0_trigger_binding",
 			"auth0",
-			map[string]string{},
-			TriggerBindingAllowEmptyValues,
-			map[string]interface{}{
-				"trigger": *binding.TriggerID,
-			},
-		))
+			map[string]string{}))
 	}
 	return resources
 }

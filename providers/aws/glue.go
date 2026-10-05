@@ -24,7 +24,6 @@ type GlueGenerator struct {
 }
 
 func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
-	var GlueCrawlerAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetCrawlersPaginator(svc, &glue.GetCrawlersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -34,8 +33,7 @@ func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 		for _, crawler := range page.Crawlers {
 			resource := terraformutils.NewSimpleResource(*crawler.Name, *crawler.Name,
 				"aws_glue_crawler",
-				"aws",
-				GlueCrawlerAllowEmptyValues)
+				"aws")
 			g.Resources = append(g.Resources, resource)
 		}
 	}
@@ -43,7 +41,6 @@ func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 }
 
 func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *string) (databaseNames []*string, err error) {
-	var GlueCatalogDatabaseAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetDatabasesPaginator(svc, &glue.GetDatabasesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -57,8 +54,7 @@ func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *strin
 			id := *account + ":" + *catalogDatabase.Name
 			resource := terraformutils.NewSimpleResource(id, *catalogDatabase.Name,
 				"aws_glue_catalog_database",
-				"aws",
-				GlueCatalogDatabaseAllowEmptyValues)
+				"aws")
 			g.Resources = append(g.Resources, resource)
 			databaseNames = append(databaseNames, catalogDatabase.Name)
 		}
@@ -70,7 +66,6 @@ func (g *GlueGenerator) loadGlueCatalogTable(svc *glue.Client, account *string, 
 	// format of ID is "CATALOG-ID:DATABASE-NAME:TABLE-NAME".
 	// CATALOG-ID is AWS Account ID
 	// https://docs.aws.amazon.com/cli/latest/reference/glue/create-database.html#options
-	var GlueCatalogTableAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetTablesPaginator(svc, &glue.GetTablesInput{DatabaseName: databaseName}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -82,8 +77,7 @@ func (g *GlueGenerator) loadGlueCatalogTable(svc *glue.Client, account *string, 
 			id := *account + ":" + databaseTable
 			resource := terraformutils.NewSimpleResource(id, databaseTable,
 				"aws_glue_catalog_table",
-				"aws",
-				GlueCatalogTableAllowEmptyValues)
+				"aws")
 			g.Resources = append(g.Resources, resource)
 		}
 	}
@@ -91,7 +85,6 @@ func (g *GlueGenerator) loadGlueCatalogTable(svc *glue.Client, account *string, 
 }
 
 func (g *GlueGenerator) loadGlueJobs(svc *glue.Client) error {
-	var GlueJobAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetJobsPaginator(svc, &glue.GetJobsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -101,8 +94,7 @@ func (g *GlueGenerator) loadGlueJobs(svc *glue.Client) error {
 		for _, job := range page.Jobs {
 			resource := terraformutils.NewSimpleResource(*job.Name, *job.Name,
 				"aws_glue_job",
-				"aws",
-				GlueJobAllowEmptyValues)
+				"aws")
 			g.Resources = append(g.Resources, resource)
 		}
 	}
@@ -110,7 +102,6 @@ func (g *GlueGenerator) loadGlueJobs(svc *glue.Client) error {
 }
 
 func (g *GlueGenerator) loadGlueTriggers(svc *glue.Client) error {
-	var GlueTriggerAllowEmptyValues = []string{"tags."}
 	p := glue.NewGetTriggersPaginator(svc, &glue.GetTriggersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -120,8 +111,7 @@ func (g *GlueGenerator) loadGlueTriggers(svc *glue.Client) error {
 		for _, trigger := range page.Triggers {
 			resource := terraformutils.NewSimpleResource(*trigger.Name, *trigger.Name,
 				"aws_glue_trigger",
-				"aws",
-				GlueTriggerAllowEmptyValues)
+				"aws")
 			g.Resources = append(g.Resources, resource)
 		}
 	}

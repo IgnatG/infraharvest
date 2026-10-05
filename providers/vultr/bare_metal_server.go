@@ -32,8 +32,7 @@ func (g BareMetalServerGenerator) createResources(serverList []govultr.BareMetal
 			server.BareMetalServerID,
 			server.BareMetalServerID,
 			"vultr_bare_metal_server",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

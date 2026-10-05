@@ -103,11 +103,11 @@ func TestCloudControlName(t *testing.T) {
 func TestExcludedByDefaultCreatedByAWS(t *testing.T) {
 	p := &AWSProvider{}
 	excluded, err := p.ExcludedByDefault(t.Context(), []terraformutils.Resource{
-		terraformutils.NewSimpleResource("default", "default", "aws_cloudwatch_event_bus", "aws", nil),
-		terraformutils.NewSimpleResource("orders", "orders", "aws_cloudwatch_event_bus", "aws", nil),
-		terraformutils.NewSimpleResource("primary", "primary", "aws_athena_workgroup", "aws", nil),
-		terraformutils.NewSimpleResource("rslvr-autodefined-rr-internet-resolver", "internet", "aws_route53_resolver_rule", "aws", nil),
-		terraformutils.NewSimpleResource("rslvr-rr-0abc", "corp", "aws_route53_resolver_rule", "aws", nil),
+		terraformutils.NewSimpleResource("default", "default", "aws_cloudwatch_event_bus", "aws"),
+		terraformutils.NewSimpleResource("orders", "orders", "aws_cloudwatch_event_bus", "aws"),
+		terraformutils.NewSimpleResource("primary", "primary", "aws_athena_workgroup", "aws"),
+		terraformutils.NewSimpleResource("rslvr-autodefined-rr-internet-resolver", "internet", "aws_route53_resolver_rule", "aws"),
+		terraformutils.NewSimpleResource("rslvr-rr-0abc", "corp", "aws_route53_resolver_rule", "aws"),
 	})
 	if err != nil {
 		t.Fatal(err)

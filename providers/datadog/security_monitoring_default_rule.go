@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// SecurityMonitoringDefaultRuleAllowEmptyValues ...
-	SecurityMonitoringDefaultRuleAllowEmptyValues = []string{"tags."}
-)
-
 // SecurityMonitoringDefaultRuleGenerator ...
 type SecurityMonitoringDefaultRuleGenerator struct {
 	DatadogService
@@ -60,9 +55,8 @@ func (g *SecurityMonitoringDefaultRuleGenerator) createResource(ruleID string) t
 		ruleID,
 		fmt.Sprintf("security_monitoring_default_rule_%s", ruleID),
 		"datadog_security_monitoring_default_rule",
-		"datadog",
-		SecurityMonitoringDefaultRuleAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

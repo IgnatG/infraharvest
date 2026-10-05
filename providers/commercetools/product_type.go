@@ -52,10 +52,7 @@ func (g *ProductTypeGenerator) InitResources() error {
 			resourceName,
 			"commercetools_product_type",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

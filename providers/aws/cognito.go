@@ -7,10 +7,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 )
 
-var CognitoAllowEmptyValues = []string{"tags."}
-
-var CognitoAdditionalFields = map[string]interface{}{}
-
 type CognitoGenerator struct {
 	AWSService
 }
@@ -33,8 +29,7 @@ func (g *CognitoGenerator) loadIdentityPools(svc *cognitoidentity.Client) error 
 				id,
 				resourceName+"_"+id,
 				"aws_cognito_identity_pool",
-				"aws",
-				[]string{}))
+				"aws"))
 		}
 	}
 
@@ -59,8 +54,7 @@ func (g *CognitoGenerator) loadUserPools(svc *cognitoidentityprovider.Client) ([
 				id,
 				resourceName+"_"+id,
 				"aws_cognito_user_pool",
-				"aws",
-				[]string{}))
+				"aws"))
 
 			userPoolIds = append(userPoolIds, *pool.Id)
 		}
@@ -90,9 +84,7 @@ func (g *CognitoGenerator) loadUserPoolClients(svc *cognitoidentityprovider.Clie
 					"aws",
 					map[string]string{
 						"user_pool_id": *poolClient.UserPoolId,
-					},
-					CognitoAllowEmptyValues,
-					CognitoAdditionalFields))
+					}))
 			}
 		}
 	}
@@ -119,34 +111,5 @@ func (g *CognitoGenerator) InitResources() error {
 		return err
 	}
 
-	return nil
-}
-
-func (g *CognitoGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_cognito_user_pool" {
-			continue
-		}
-		if _, ok := r.InstanceState.Attributes["admin_create_user_config.0.unused_account_validity_days"]; ok {
-			if _, okpp := r.InstanceState.Attributes["admin_create_user_config.0.unused_account_validity_days"]; okpp {
-				delete(r.Item["admin_create_user_config"].([]interface{})[0].(map[string]interface{}), "unused_account_validity_days")
-			}
-		}
-		if _, ok := r.InstanceState.Attributes["sms_verification_message"]; ok {
-			if _, oktmp := r.InstanceState.Attributes["verification_message_template.0.sms_message"]; oktmp {
-				delete(r.Item, "sms_verification_message")
-			}
-		}
-		if _, ok := r.InstanceState.Attributes["email_verification_message"]; ok {
-			if _, oktmp := r.InstanceState.Attributes["verification_message_template.0.email_message"]; oktmp {
-				delete(r.Item, "email_verification_message")
-			}
-		}
-		if _, ok := r.InstanceState.Attributes["email_verification_subject"]; ok {
-			if _, oktmp := r.InstanceState.Attributes["verification_message_template.0.email_subject"]; oktmp {
-				delete(r.Item, "email_verification_subject")
-			}
-		}
-	}
 	return nil
 }

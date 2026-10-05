@@ -74,10 +74,8 @@ func (g *SecurityGroupGenerator) InitResources() error {
 			*instance.SecurityGroupName+"_"+*instance.SecurityGroupId,
 			"tencentcloud_security_group",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 
 		ruleResource := terraformutils.NewResource(
@@ -85,11 +83,8 @@ func (g *SecurityGroupGenerator) InitResources() error {
 			*instance.SecurityGroupName+"_"+*instance.SecurityGroupId,
 			"tencentcloud_security_group_lite_rule",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
-		ruleResource.AdditionalFields["security_group_id"] = "${tencentcloud_security_group." + resource.ResourceName + ".id}"
+			map[string]string{})
+
 		g.Resources = append(g.Resources, ruleResource)
 	}
 

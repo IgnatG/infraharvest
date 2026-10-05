@@ -27,14 +27,12 @@ type VpcGenerator struct {
 
 func resourceFromVpcResponse(vpc vpc.Vpc) terraformutils.Resource {
 	return terraformutils.NewResource(
-		vpc.VpcId,                  // id
-		vpc.VpcId+"__"+vpc.VpcName, // name
+		vpc.VpcId,
+		vpc.VpcId+"__"+vpc.VpcName,
 		"alicloud_vpc",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 // InitResources Gets the list of all vpc Vpc ids and generates resources

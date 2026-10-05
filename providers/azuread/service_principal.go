@@ -53,10 +53,3 @@ func (az *ServicePrincipalServiceGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *ServicePrincipalServiceGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"servicePrincipal": {"id"},
-	}
-}

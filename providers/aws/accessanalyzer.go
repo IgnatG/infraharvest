@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/accessanalyzer"
 )
 
-var accessanalyzerAllowEmptyValues = []string{"tags."}
-
 type AccessAnalyzerGenerator struct {
 	AWSService
 }
@@ -44,8 +42,7 @@ func (g *AccessAnalyzerGenerator) InitResources() error {
 				resourceName,
 				resourceName,
 				"aws_accessanalyzer_analyzer",
-				"aws",
-				accessanalyzerAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

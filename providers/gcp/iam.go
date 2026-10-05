@@ -27,10 +27,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var IamAllowEmptyValues = []string{"tags."}
-
-var IamAdditionalFields = map[string]interface{}{}
-
 type IamGenerator struct {
 	GCPService
 }
@@ -55,9 +51,7 @@ func (g IamGenerator) createServiceAccountResources(serviceAccountsIterator *adm
 			serviceAccount.Name,
 			serviceAccount.UniqueId,
 			"google_service_account",
-			g.ProviderName,
-			IamAllowEmptyValues,
-		))
+			g.ProviderName))
 	}
 	return resources
 }
@@ -77,12 +71,7 @@ func (g *IamGenerator) createIamCustomRoleResources(rolesResponse *adminpb.ListR
 			map[string]string{
 				"role_id": role.Name,
 				"project": project,
-			},
-			IamAllowEmptyValues,
-			map[string]interface{}{
-				"stage": role.Stage.String(),
-			},
-		))
+			}))
 	}
 
 	return resources
@@ -101,10 +90,7 @@ func (g *IamGenerator) createIamMemberResources(policy *cloudresourcemanager.Pol
 					"role":    b.Role,
 					"project": project,
 					"member":  m,
-				},
-				IamAllowEmptyValues,
-				IamAdditionalFields,
-			))
+				}))
 		}
 	}
 

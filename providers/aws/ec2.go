@@ -24,8 +24,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-var ec2AllowEmptyValues = []string{"tags."}
-
 type Ec2Generator struct {
 	AWSService
 }
@@ -77,34 +75,11 @@ func (g *Ec2Generator) InitResources() error {
 					map[string]string{
 						"user_data_base64":  userDataBase64,
 						"source_dest_check": "true",
-					},
-					ec2AllowEmptyValues,
-					map[string]interface{}{},
-				)
+					})
+
 				g.Resources = append(g.Resources, r)
 			}
 		}
 	}
-	return nil
-}
-
-func (g *Ec2Generator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_instance" {
-			continue
-		}
-		if r.Item["root_block_device"] == nil {
-			continue
-		}
-
-		rootDeviceVolumeType := r.InstanceState.Attributes["root_block_device.0.volume_type"]
-		if !(rootDeviceVolumeType == "io1" || rootDeviceVolumeType == "io2" || rootDeviceVolumeType == "gp3") {
-			delete(r.Item["root_block_device"].([]interface{})[0].(map[string]interface{}), "iops")
-		}
-		if rootDeviceVolumeType != "gp3" {
-			delete(r.Item["root_block_device"].([]interface{})[0].(map[string]interface{}), "throughput")
-		}
-	}
-
 	return nil
 }

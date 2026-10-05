@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var eipAllowEmptyValues = []string{"tags."}
-
 type ElasticIPGenerator struct {
 	AWSService
 }
@@ -42,9 +40,7 @@ func (g *ElasticIPGenerator) createElasticIpsResources(svc *ec2.Client) []terraf
 			StringValue(eip.AllocationId),
 			StringValue(eip.AllocationId),
 			"aws_eip",
-			"aws",
-			eipAllowEmptyValues,
-		))
+			"aws"))
 	}
 
 	return resources

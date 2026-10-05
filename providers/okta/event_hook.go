@@ -31,8 +31,7 @@ func (g EventHookGenerator) createResources(eventHookList []*okta.EventHook) []t
 			eventHook.Id,
 			"event_hook_"+eventHook.Name,
 			"okta_event_hook",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

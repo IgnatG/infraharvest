@@ -61,10 +61,8 @@ func (g *SslGenerator) InitResources() error {
 			*instance.CertificateId,
 			"tencentcloud_ssl_certificate",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

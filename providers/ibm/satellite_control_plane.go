@@ -37,35 +37,25 @@ func (g SatelliteControlPlaneGenerator) loadLocations(locID, locName string) ter
 		normalizeResourceName(locName, false),
 		"ibm_satellite_location",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	// Remove parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^labels$",
-	)
 
 	return resource
 }
 
-func (g SatelliteControlPlaneGenerator) loadAssignHostControlPlane(locID, hostID string, labels []string, dependsOn []string) terraformutils.Resource {
+func (g SatelliteControlPlaneGenerator) loadAssignHostControlPlane(locID, hostID string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		fmt.Sprintf("%s/%s", locID, hostID),
 		normalizeResourceName("ibm_satellite_host", true),
 		"ibm_satellite_host",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"labels":     labels,
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
 
 	return resource
 }
 
-func (g SatelliteControlPlaneGenerator) loadROKSCluster(clusterName, locationID string, dependsOn []string) terraformutils.Resource {
+func (g SatelliteControlPlaneGenerator) loadROKSCluster(clusterName, locationID string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		clusterName,
 		clusterName,
@@ -74,10 +64,6 @@ func (g SatelliteControlPlaneGenerator) loadROKSCluster(clusterName, locationID 
 		map[string]string{
 			"location":               locationID,
 			"wait_for_worker_update": "true",
-		},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
 		})
 
 	return resource
@@ -125,14 +111,10 @@ func (g *SatelliteControlPlaneGenerator) InitResources() error {
 	}
 
 	for _, loc := range locations {
-		var locDependsOn []string
 
 		// Location
 		if loc.Deployments != nil && !strings.Contains(*loc.Deployments.Message, "R0037") {
 			g.Resources = append(g.Resources, g.loadLocations(*loc.ID, *loc.Name))
-			resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
-			locDependsOn = append(locDependsOn,
-				"ibm_satellite_location."+resourceName)
 
 			// Assign Host - Control plane
 			getSatHostOpts := &kubernetesserviceapiv1.GetSatelliteHostsOptions{
@@ -145,11 +127,7 @@ func (g *SatelliteControlPlaneGenerator) InitResources() error {
 
 			for _, host := range hosts {
 				if *host.Assignment.ClusterName == "infrastructure" {
-					hostLabels := []string{}
-					for key, value := range host.Labels {
-						hostLabels = append(hostLabels, fmt.Sprintf("%s=%s", key, value))
-					}
-					g.Resources = append(g.Resources, g.loadAssignHostControlPlane(*loc.ID, *host.ID, hostLabels, locDependsOn))
+					g.Resources = append(g.Resources, g.loadAssignHostControlPlane(*loc.ID, *host.ID))
 				}
 			}
 
@@ -162,7 +140,7 @@ func (g *SatelliteControlPlaneGenerator) InitResources() error {
 
 			for _, cluster := range clusterFields {
 				if *cluster.Location == *loc.Name {
-					g.Resources = append(g.Resources, g.loadROKSCluster(*cluster.Name, *loc.ID, locDependsOn))
+					g.Resources = append(g.Resources, g.loadROKSCluster(*cluster.Name, *loc.ID))
 				}
 			}
 

@@ -52,8 +52,7 @@ func (g *CosmosDBGenerator) listSQLDatabasesAndContainersBehind(resourceGroupNam
 			sqlDatabaseIDInOldFormat,
 			*sqlDatabase.Name,
 			"azurerm_cosmosdb_sql_database",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		sqlContainers, err := SQLResourcesClient.ListSQLContainers(ctx, resourceGroupName, accountName, *sqlDatabase.Name)
 		if err != nil {
@@ -70,8 +69,7 @@ func (g *CosmosDBGenerator) listSQLDatabasesAndContainersBehind(resourceGroupNam
 				sqlContainerIDInOldFormat,
 				*sqlContainer.Name,
 				"azurerm_cosmosdb_sql_container",
-				g.ProviderName,
-				[]string{}))
+				g.ProviderName))
 		}
 	}
 
@@ -95,8 +93,7 @@ func (g *CosmosDBGenerator) listTables(resourceGroupName string, accountName str
 			*table.ID,
 			*table.Name,
 			"azurerm_cosmosdb_table",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 	}
 
 	return resources, nil
@@ -127,8 +124,7 @@ func (g *CosmosDBGenerator) listAndAddForDatabaseAccounts() ([]terraformutils.Re
 			*account.ID,
 			*account.Name,
 			"azurerm_cosmosdb_account",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		id, err := ParseAzureResourceID(*account.ID)
 		if err != nil {

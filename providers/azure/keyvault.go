@@ -40,8 +40,7 @@ func (g KeyVaultGenerator) createResources(ctx context.Context, client keyvault.
 			*vault.ID,
 			*vault.Name,
 			"azurerm_key_vault",
-			"azurerm",
-			[]string{}))
+			"azurerm"))
 		if err := resourceListResultIterator.NextWithContext(ctx); err != nil {
 			log.Println(err)
 			return resources, err
@@ -62,8 +61,7 @@ func (g KeyVaultGenerator) createResourcesByResourceGroup(ctx context.Context, r
 			*vault.ID,
 			*vault.Name,
 			"azurerm_key_vault",
-			"azurerm",
-			[]string{}))
+			"azurerm"))
 		if err := iterator.NextWithContext(ctx); err != nil {
 			log.Println(err)
 			return resources, err

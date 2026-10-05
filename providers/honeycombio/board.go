@@ -41,9 +41,7 @@ func (g *BoardGenerator) InitResources() error {
 				board.ID,
 				board.ID,
 				"honeycombio_board",
-				"honeycombio",
-				[]string{},
-			))
+				"honeycombio"))
 		}
 	}
 

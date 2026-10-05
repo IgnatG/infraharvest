@@ -53,10 +53,7 @@ func (g *ShippingZoneGenerator) InitResources() error {
 			resourceName,
 			"commercetools_shipping_zone",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

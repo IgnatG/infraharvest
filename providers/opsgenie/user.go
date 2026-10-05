@@ -58,10 +58,7 @@ func (g *UserGenerator) createResources(users []user.User) []terraformutils.Reso
 			fmt.Sprintf("%s-%s", u.Id, u.Username),
 			"opsgenie_user",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 
 	return resources

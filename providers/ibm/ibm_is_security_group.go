@@ -34,8 +34,8 @@ func (g SecurityGroupGenerator) createSecurityGroupResources(sgID, sgName string
 		sgID,
 		normalizeResourceName(sgName, true),
 		"ibm_is_security_group",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 
@@ -45,9 +45,8 @@ func (g SecurityGroupGenerator) createSecurityGroupRuleResources(sgID, sgRuleID 
 		normalizeResourceName(sgRuleID, false),
 		"ibm_is_security_group_rule",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -132,23 +131,5 @@ func (g *SecurityGroupGenerator) InitResources() error {
 			}
 		}
 	}
-	return nil
-}
-
-func (g *SecurityGroupGenerator) PostConvertHook() error {
-	for i, rule := range g.Resources {
-		if rule.InstanceInfo.Type != "ibm_is_security_group_rule" {
-			continue
-		}
-		for _, sg := range g.Resources {
-			if sg.InstanceInfo.Type != "ibm_is_security_group" {
-				continue
-			}
-			if rule.InstanceState.Attributes["group"] == sg.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["group"] = "${ibm_is_security_group." + sg.ResourceName + ".id}"
-			}
-		}
-	}
-
 	return nil
 }

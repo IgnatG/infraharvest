@@ -62,9 +62,8 @@ func (g StorageContainerGenerator) ListBlobContainers() ([]terraformutils.Resour
 					map[string]string{
 						"storage_account_name": *storageAccount.Name,
 						"name":                 *containerItem.Name,
-					},
-					[]string{},
-					map[string]interface{}{}))
+					}),
+			)
 
 			if err := containerItemsIterator.NextWithContext(ctx); err != nil {
 				return containerResources, err

@@ -39,10 +39,7 @@ func (g *FolderGenerator) createFolderResources(client *gapi.Client) error {
 			"grafana",
 			map[string]string{
 				"uid": folder.UID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 
 	return nil

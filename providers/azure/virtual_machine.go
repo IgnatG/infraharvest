@@ -39,15 +39,15 @@ func (g VirtualMachineGenerator) createResources(virtualMachineListResultIterato
 					*vm.ID,
 					*vm.Name,
 					"azurerm_windows_virtual_machine",
-					"azurerm",
-					[]string{})
+					"azurerm")
+
 			} else {
 				newResource = terraformutils.NewSimpleResource(
 					*vm.ID,
 					*vm.Name,
 					"azurerm_linux_virtual_machine",
-					"azurerm",
-					[]string{})
+					"azurerm")
+
 			}
 		} else {
 			if vm.VirtualMachineProperties.OsProfile.WindowsConfiguration != nil {
@@ -55,15 +55,15 @@ func (g VirtualMachineGenerator) createResources(virtualMachineListResultIterato
 					*vm.ID,
 					*vm.Name,
 					"azurerm_windows_virtual_machine",
-					"azurerm",
-					[]string{})
+					"azurerm")
+
 			} else {
 				newResource = terraformutils.NewSimpleResource(
 					*vm.ID,
 					*vm.Name,
 					"azurerm_linux_virtual_machine",
-					"azurerm",
-					[]string{})
+					"azurerm")
+
 			}
 		}
 

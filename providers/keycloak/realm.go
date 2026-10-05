@@ -30,9 +30,7 @@ func (g RealmGenerator) createRealmResources(realms []*keycloak.Realm) []terrafo
 			realm.Realm,
 			"realm_"+normalizeResourceName(realm.Realm),
 			"keycloak_realm",
-			"keycloak",
-			[]string{},
-		))
+			"keycloak"))
 	}
 	return resources
 }
@@ -48,10 +46,7 @@ func (g RealmGenerator) createRequiredActionResources(requiredActions []*keycloa
 			map[string]string{
 				"realm_id": requiredAction.RealmId,
 				"alias":    requiredAction.Alias,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }
@@ -77,10 +72,7 @@ func (g RealmGenerator) createCustomUserFederationResources(customUserFederation
 						"realm_id":    customUserFederation.RealmId,
 						"provider_id": customUserFederation.ProviderId,
 						"bind_dn":     bindDn,
-					},
-					[]string{},
-					map[string]interface{}{},
-				))
+					}))
 			} else {
 				resources = append(resources, terraformutils.NewResource(
 					customUserFederation.Id,
@@ -90,10 +82,7 @@ func (g RealmGenerator) createCustomUserFederationResources(customUserFederation
 					map[string]string{
 						"realm_id":    customUserFederation.RealmId,
 						"provider_id": customUserFederation.ProviderId,
-					},
-					[]string{},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}
@@ -171,10 +160,7 @@ func (g RealmGenerator) createLdapMapperResources(realmID, providerName string, 
 			map[string]string{
 				"realm_id":    realmID,
 				"provider_id": providerID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

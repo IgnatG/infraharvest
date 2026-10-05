@@ -62,8 +62,7 @@ func (g DropletSnapshotGenerator) createResources(snapshotList []godo.Snapshot) 
 			snapshot.ID,
 			snapshot.Name,
 			"digitalocean_droplet_snapshot",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

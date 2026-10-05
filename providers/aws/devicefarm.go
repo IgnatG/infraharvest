@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/devicefarm"
 )
 
-var devicefarmAllowEmptyValues = []string{"tags."}
-
 type DeviceFarmGenerator struct {
 	AWSService
 }
@@ -45,8 +43,7 @@ func (g *DeviceFarmGenerator) InitResources() error {
 				projectArn,
 				projectName,
 				"aws_devicefarm_project",
-				"aws",
-				devicefarmAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

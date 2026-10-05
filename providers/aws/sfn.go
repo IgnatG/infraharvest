@@ -5,8 +5,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 )
 
-var sfnAllowEmptyValues = []string{"tags."}
-
 type SfnGenerator struct {
 	AWSService
 }
@@ -29,9 +27,7 @@ func (g *SfnGenerator) InitResources() error {
 				*stateMachine.StateMachineArn,
 				*stateMachine.Name,
 				"aws_sfn_state_machine",
-				"aws",
-				sfnAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 
@@ -46,9 +42,7 @@ func (g *SfnGenerator) InitResources() error {
 				*stateMachine.ActivityArn,
 				*stateMachine.Name,
 				"aws_sfn_activity",
-				"aws",
-				sfnAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 

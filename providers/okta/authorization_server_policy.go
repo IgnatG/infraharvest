@@ -34,10 +34,7 @@ func (g AuthorizationServerPolicyGenerator) createResources(authorizationServerP
 			"okta",
 			map[string]string{
 				"auth_server_id": authorizationServerID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// SyntheticsAllowEmptyValues ...
-	SyntheticsAllowEmptyValues = []string{"tags."}
-)
-
 // SyntheticsTestGenerator ...
 type SyntheticsTestGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *SyntheticsTestGenerator) createResource(syntheticsID string) terraformu
 		syntheticsID,
 		fmt.Sprintf("synthetics_%s", syntheticsID),
 		"datadog_synthetics_test",
-		"datadog",
-		SyntheticsAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

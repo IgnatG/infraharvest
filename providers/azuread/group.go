@@ -53,10 +53,3 @@ func (az *GroupServiceGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *GroupServiceGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"group": {"id"},
-	}
-}

@@ -76,8 +76,7 @@ func (g *NetworkGenerator) createResources(networks []*vpc.Network) []terraformu
 			network.GetId(),
 			network.GetId(),
 			"yandex_vpc_network",
-			"yandex",
-			[]string{}))
+			"yandex"))
 	}
 	return resources
 }

@@ -20,8 +20,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var cloudHsmAllowEmptyValues = []string{"tags."}
-
 type CloudHsmGenerator struct {
 	AWSService
 }
@@ -44,9 +42,7 @@ func (g *CloudHsmGenerator) InitResources() error {
 				StringValue(cluster.ClusterId),
 				StringValue(cluster.ClusterId),
 				"aws_cloudhsm_v2_cluster",
-				"aws",
-				cloudHsmAllowEmptyValues,
-			))
+				"aws"))
 
 			for _, hsm := range cluster.Hsms {
 				g.Resources = append(g.Resources, terraformutils.NewResource(
@@ -56,10 +52,7 @@ func (g *CloudHsmGenerator) InitResources() error {
 					"aws",
 					map[string]string{
 						"cluster_id": StringValue(hsm.ClusterId),
-					},
-					cloudHsmAllowEmptyValues,
-					map[string]interface{}{},
-				))
+					}))
 
 			}
 		}

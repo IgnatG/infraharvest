@@ -48,10 +48,7 @@ func (g *CustomObjectGenerator) InitResources() error {
 			customObject.Key,
 			"commercetools_custom_object",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

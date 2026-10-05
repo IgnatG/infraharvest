@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var ngwAllowEmptyValues = []string{"tags."}
-
 type NatGatewayGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (g *NatGatewayGenerator) createResources(ngws *ec2.DescribeNatGatewaysOutpu
 			StringValue(ngw.NatGatewayId),
 			StringValue(ngw.NatGatewayId),
 			"aws_nat_gateway",
-			"aws",
-			ngwAllowEmptyValues,
-		))
+			"aws"))
 	}
 
 	return resources

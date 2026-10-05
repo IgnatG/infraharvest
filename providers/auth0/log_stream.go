@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	LogStreamAllowEmptyValues = []string{}
-)
-
 type LogStreamGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g LogStreamGenerator) createResources(logStreams []*management.LogStream) 
 			resourceName,
 			resourceName+"_"+*LogStream.Name,
 			"auth0_log_stream",
-			"auth0",
-			LogStreamAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

@@ -54,8 +54,7 @@ func (g *PublicIPGenerator) listAndAddForPublicIPAddress() ([]terraformutils.Res
 			*publicIP.ID,
 			*publicIP.Name,
 			"azurerm_public_ip",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := publicIPAddressIterator.Next(); err != nil {
 			log.Println(err)
@@ -93,8 +92,7 @@ func (g *PublicIPGenerator) listAndAddForPublicIPPrefix() ([]terraformutils.Reso
 			*publicIPPrefix.ID,
 			*publicIPPrefix.Name,
 			"azurerm_public_ip_prefix",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := publicIPPrefixIterator.Next(); err != nil {
 			log.Println(err)

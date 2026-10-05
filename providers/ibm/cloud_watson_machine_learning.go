@@ -35,8 +35,8 @@ func (g WatsonMachineLearningGenerator) loadWatsonMachineLearning(wmlID string, 
 		wmlID,
 		normalizeResourceName(wmlName, false),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

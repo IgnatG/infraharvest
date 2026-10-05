@@ -126,7 +126,7 @@ func (p *AWSProvider) ChildImports(ctx context.Context, r terraformutils.Resourc
 		case err != nil:
 			errs = append(errs, fmt.Errorf("%s: %w", child.resourceType, err))
 		case configured:
-			children = append(children, terraformutils.NewSimpleResource(bucket, bucket, child.resourceType, "aws", S3AllowEmptyValues))
+			children = append(children, terraformutils.NewSimpleResource(bucket, bucket, child.resourceType, "aws"))
 		}
 	}
 	return children, errors.Join(errs...)

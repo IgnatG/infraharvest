@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var globalForwardingRulesAllowEmptyValues = []string{""}
-
-var globalForwardingRulesAdditionalFields = map[string]interface{}{}
-
 type GlobalForwardingRulesGenerator struct {
 	GCPService
 }
@@ -45,10 +41,7 @@ func (g GlobalForwardingRulesGenerator) createResources(ctx context.Context, glo
 				map[string]string{
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
-				},
-				globalForwardingRulesAllowEmptyValues,
-				globalForwardingRulesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

@@ -38,10 +38,7 @@ func (g *BurnAlertGenerator) InitResources() error {
 					map[string]string{
 						"dataset": dataset.Name,
 						"slo_id":  slo.ID,
-					},
-					[]string{"recipient"},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}

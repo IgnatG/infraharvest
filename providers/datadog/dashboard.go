@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// DashboardAllowEmptyValues ...
-	DashboardAllowEmptyValues = []string{"tags.", "manage_status_definition.*.query"}
-)
-
 // DashboardGenerator ...
 type DashboardGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *DashboardGenerator) createResource(dashboardID string) terraformutils.R
 		dashboardID,
 		fmt.Sprintf("dashboard_%s", dashboardID),
 		"datadog_dashboard",
-		"datadog",
-		DashboardAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

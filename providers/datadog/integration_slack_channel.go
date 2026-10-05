@@ -25,11 +25,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationSlackChannelAllowEmptyValues ...
-	IntegrationSlackChannelAllowEmptyValues = []string{}
-)
-
 // IntegrationSlackChannelGenerator ...
 type IntegrationSlackChannelGenerator struct {
 	DatadogService
@@ -50,9 +45,8 @@ func (g *IntegrationSlackChannelGenerator) createResource(id string) terraformut
 		id,
 		fmt.Sprintf("integration_slack_channel_%s", id),
 		"datadog_integration_slack_channel",
-		"datadog",
-		IntegrationSlackChannelAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

@@ -60,9 +60,7 @@ func (g *NetworkLoadBalancerForwardingRuleGenerator) InitResources() error {
 					*fr.Properties.Name+"-"+*fr.Id,
 					resourceType,
 					helpers.Ionos,
-					map[string]string{helpers.DcID: *datacenter.Id, "networkloadbalancer_id": *nlb.Id},
-					[]string{},
-					map[string]interface{}{}))
+					map[string]string{helpers.DcID: *datacenter.Id, "networkloadbalancer_id": *nlb.Id}))
 			}
 		}
 	}

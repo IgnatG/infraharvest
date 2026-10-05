@@ -31,10 +31,7 @@ func (g RealmGenerator) createGroupResources(groups []*keycloak.Group) []terrafo
 			"keycloak",
 			map[string]string{
 				"realm_id": group.RealmId,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }
@@ -47,10 +44,8 @@ func (g RealmGenerator) createDefaultGroupResource(realmID string) terraformutil
 		"keycloak",
 		map[string]string{
 			"realm_id": realmID,
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 }
 
 func (g RealmGenerator) createGroupMembershipsResource(realmID, groupID, groupName string, members []string) terraformutils.Resource {
@@ -63,10 +58,8 @@ func (g RealmGenerator) createGroupMembershipsResource(realmID, groupID, groupNa
 			"realm_id": realmID,
 			"group_id": groupID,
 			"members":  strings.Join(members, ","),
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 }
 
 func (g RealmGenerator) createGroupRolesResource(realmID, groupID, groupName string, roles []string) terraformutils.Resource {
@@ -79,10 +72,8 @@ func (g RealmGenerator) createGroupRolesResource(realmID, groupID, groupName str
 			"realm_id":  realmID,
 			"group_id":  groupID,
 			"roles_ids": strings.Join(roles, ","),
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 }
 
 func (g *RealmGenerator) flattenGroups(groups []*keycloak.Group, realmID string) []*keycloak.Group {

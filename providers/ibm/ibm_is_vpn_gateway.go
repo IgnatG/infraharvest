@@ -33,8 +33,8 @@ func (g VPNGatewayGenerator) createVPNGatewayResources(vpngwID, vpngwName string
 		vpngwID,
 		normalizeResourceName(vpngwName, false),
 		"ibm_is_vpn_gateway",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 
@@ -44,9 +44,8 @@ func (g VPNGatewayGenerator) createVPNGatewayConnectionResources(vpngwID, vpngwC
 		normalizeResourceName(vpngwConnectionName, false),
 		"ibm_is_vpn_gateway_connection",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -111,23 +110,5 @@ func (g *VPNGatewayGenerator) InitResources() error {
 			g.Resources = append(g.Resources, g.createVPNGatewayConnectionResources(*vpngw.ID, *vpngwConnection.ID, *vpngwConnection.Name))
 		}
 	}
-	return nil
-}
-
-func (g *VPNGatewayGenerator) PostConvertHook() error {
-	for i, con := range g.Resources {
-		if con.InstanceInfo.Type != "ibm_is_vpn_gateway_connection" {
-			continue
-		}
-		for _, vpn := range g.Resources {
-			if vpn.InstanceInfo.Type != "ibm_is_vpn_gateway" {
-				continue
-			}
-			if con.InstanceState.Attributes["vpn_gateway"] == vpn.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["vpn_gateway"] = "${ibm_is_vpn_gateway." + vpn.ResourceName + ".id}"
-			}
-		}
-	}
-
 	return nil
 }

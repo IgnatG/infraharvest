@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var instancesAllowEmptyValues = []string{"labels."}
-
-var instancesAdditionalFields = map[string]interface{}{}
-
 type InstancesGenerator struct {
 	GCPService
 }
@@ -50,11 +46,8 @@ func (g InstancesGenerator) createResources(ctx context.Context, instancesList *
 					"project": g.GetArgs()["project"].(string),
 					"zone":    zone,
 					"disk.#":  "0",
-				},
-				instancesAllowEmptyValues,
-				instancesAdditionalFields,
-			)
-			resource.IgnoreKeys = append(resource.IgnoreKeys, "^boot_disk.[0-9].initialize_params\\.(.*)")
+				})
+
 			resources = append(resources, resource)
 		}
 		return nil

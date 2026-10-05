@@ -37,9 +37,7 @@ func (g *OnCallScheduleGenerator) InitResources() error {
 			*onCallSchedule.OnCallScheduleId,
 			name,
 			"opal_on_call_schedule",
-			"opal",
-			[]string{},
-		))
+			"opal"))
 	}
 
 	return nil

@@ -53,10 +53,3 @@ func (az *UserServiceGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *UserServiceGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"user": {"id"},
-	}
-}

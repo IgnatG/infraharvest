@@ -43,8 +43,7 @@ func (g VirtualNetworkGenerator) createResources(ctx context.Context, iterator n
 			*virtualNetwork.ID,
 			*virtualNetwork.Name,
 			"azurerm_virtual_network",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 		if err := iterator.NextWithContext(ctx); err != nil {
 			log.Println(err)
 			return resources, err
@@ -76,18 +75,4 @@ func (g *VirtualNetworkGenerator) InitResources() error {
 	}
 	g.Resources, err = g.createResources(ctx, output)
 	return err
-}
-
-// NOTE on Virtual Networks and Subnet's:
-// Terraform currently provides both a standalone Subnet resource, and allows for Subnets to be defined in-line within the Virtual Network
-// resource. At this time you cannot use a Virtual Network with in-line Subnets in conjunction with any Subnet resources.
-// Doing so will cause a conflict of Subnet configurations and will overwrite Subnet's.
-func (g *VirtualNetworkGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.InstanceInfo.Type != "azurerm_virtual_network" {
-			continue
-		}
-		delete(resource.Item, "subnet")
-	}
-	return nil
 }

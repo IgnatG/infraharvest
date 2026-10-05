@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	UserAllowEmptyValues = []string{}
-)
-
 type UserGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g UserGenerator) createResources(users []*management.User) []terraformutil
 			*resourceName,
 			*resourceName,
 			"auth0_user",
-			"auth0",
-			UserAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

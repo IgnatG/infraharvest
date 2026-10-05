@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
 )
 
-var wafv2AllowEmptyValues = []string{"tags."}
-
 type Wafv2Generator struct {
 	AWSService
 	scope types.Scope
@@ -78,10 +76,7 @@ func (g *Wafv2Generator) loadWebACL(svc *wafv2.Client) error {
 				map[string]string{
 					"name":  *acl.Name,
 					"scope": string(g.scope),
-				},
-				wafv2AllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 			if g.scope == types.ScopeRegional {
 				// cloudfront associations are not listed here since they should to defined in
 				// aws_cloudfront_distribution resource instead
@@ -117,10 +112,7 @@ func (g *Wafv2Generator) loadWebACLAssociations(svc *wafv2.Client, webACLArn *st
 				map[string]string{
 					"resource_arn": resource,
 					"web_acl_arn":  *webACLArn,
-				},
-				wafv2AllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -141,10 +133,7 @@ func (g *Wafv2Generator) loadIPSet(svc *wafv2.Client) error {
 				map[string]string{
 					"name":  *IPSet.Name,
 					"scope": string(g.scope),
-				},
-				wafv2AllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		return output.NextMarker, nil
 	})
@@ -165,10 +154,7 @@ func (g *Wafv2Generator) loadRegexPatternSets(svc *wafv2.Client) error {
 				map[string]string{
 					"name":  *regexPatternSet.Name,
 					"scope": string(g.scope),
-				},
-				wafv2AllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		return output.NextMarker, nil
 	})
@@ -190,10 +176,7 @@ func (g *Wafv2Generator) loadWafRuleGroups(svc *wafv2.Client) error {
 					"arn":   *ruleGroup.ARN,
 					"name":  *ruleGroup.Name,
 					"scope": string(g.scope),
-				},
-				wafv2AllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		return output.NextMarker, nil
 	})
@@ -213,10 +196,7 @@ func (g *Wafv2Generator) loadWebACLLoggingConfiguration(svc *wafv2.Client) error
 				"aws",
 				map[string]string{
 					"resource_arn": *logConfig.ResourceArn,
-				},
-				wafv2AllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		return output.NextMarker, nil
 	})

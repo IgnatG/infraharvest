@@ -17,14 +17,10 @@ package aws
 import (
 	"strings"
 
-	"log"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
 )
-
-var RedshiftAllowEmptyValues = []string{"tags."}
 
 type RedshiftGenerator struct {
 	AWSService
@@ -43,9 +39,7 @@ func (g *RedshiftGenerator) loadClusters(svc *redshift.Client) error {
 				resourceName,
 				resourceName,
 				"aws_redshift_cluster",
-				"aws",
-				RedshiftAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -67,9 +61,7 @@ func (g *RedshiftGenerator) loadParameterGroups(svc *redshift.Client) error {
 				resourceName,
 				resourceName,
 				"aws_redshift_parameter_group",
-				"aws",
-				RedshiftAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -88,9 +80,7 @@ func (g *RedshiftGenerator) loadSubnetGroups(svc *redshift.Client) error {
 				resourceName,
 				resourceName,
 				"aws_redshift_subnet_group",
-				"aws",
-				RedshiftAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -109,9 +99,7 @@ func (g *RedshiftGenerator) loadEventSubscription(svc *redshift.Client) error {
 				resourceName,
 				resourceName,
 				"aws_redshift_event_subscription",
-				"aws",
-				RedshiftAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -130,9 +118,7 @@ func (g *RedshiftGenerator) loadSnapshotSchedules(svc *redshift.Client) error {
 				resourceName,
 				resourceName,
 				"aws_redshift_snapshot_schedule",
-				"aws",
-				RedshiftAllowEmptyValues,
-			))
+				"aws"))
 
 			for _, associatedCluster := range snapshotSchedule.AssociatedClusters {
 				clusterName := StringValue(associatedCluster.ClusterIdentifier)
@@ -140,9 +126,7 @@ func (g *RedshiftGenerator) loadSnapshotSchedules(svc *redshift.Client) error {
 					clusterName+"/"+resourceName,
 					clusterName+"_"+resourceName,
 					"aws_redshift_snapshot_schedule_association",
-					"aws",
-					RedshiftAllowEmptyValues,
-				))
+					"aws"))
 			}
 		}
 	}
@@ -176,32 +160,5 @@ func (g *RedshiftGenerator) InitResources() error {
 		return err
 	}
 
-	return nil
-}
-
-func (g *RedshiftGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "aws_redshift_cluster" {
-			continue
-		}
-		for _, parameterGroup := range g.Resources {
-			log.Print(parameterGroup.InstanceInfo.Type)
-			if parameterGroup.InstanceInfo.Type != "aws_redshift_parameter_group" {
-				continue
-			}
-			if parameterGroup.InstanceState.Attributes["name"] == r.InstanceState.Attributes["cluster_parameter_group_name"] {
-				g.Resources[i].Item["cluster_parameter_group_name"] = "${aws_redshift_parameter_group." + parameterGroup.ResourceName + ".name}"
-			}
-		}
-
-		for _, subnet := range g.Resources {
-			if subnet.InstanceInfo.Type != "aws_redshift_subnet_group" {
-				continue
-			}
-			if subnet.InstanceState.Attributes["name"] == r.InstanceState.Attributes["cluster_subnet_group_name"] {
-				g.Resources[i].Item["cluster_subnet_group_name"] = "${aws_redshift_subnet_group." + subnet.ResourceName + ".name}"
-			}
-		}
-	}
 	return nil
 }

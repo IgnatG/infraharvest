@@ -34,10 +34,7 @@ func (g AuthorizationServerScopeGenerator) createResources(authorizationServerSc
 			"okta",
 			map[string]string{
 				"auth_server_id": authorizationServerID,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }

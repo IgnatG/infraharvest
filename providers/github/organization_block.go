@@ -59,10 +59,7 @@ func createOrganizationBlocksResources(ctx context.Context, client *githubAPI.Cl
 				block.GetLogin(),
 				block.GetLogin(),
 				"github_organization_block",
-				"github",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"github")
 
 			resources = append(resources, resource)
 		}

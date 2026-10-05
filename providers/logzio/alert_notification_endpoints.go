@@ -40,9 +40,7 @@ func (g *AlertNotificationEndpointsGenerator) InitResources() error {
 			strconv.FormatInt(endpoint.Id, 10),
 			createSlug(endpoint.Title+"-"+string(endpoint.EndpointType)+"-"+strconv.FormatInt(endpoint.Id, 10)),
 			"logzio_endpoint",
-			"logzio",
-			[]string{},
-		))
+			"logzio"))
 	}
 	return nil
 }

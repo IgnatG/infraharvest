@@ -62,8 +62,7 @@ func (g FirewallGenerator) createResources(firewallList []godo.Firewall) []terra
 			firewall.ID,
 			firewall.Name,
 			"digitalocean_firewall",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

@@ -32,8 +32,7 @@ func (g SSHKeyGenerator) createResources(keyList []govultr.SSHKey) []terraformut
 			key.SSHKeyID,
 			key.SSHKeyID,
 			"vultr_ssh_key",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

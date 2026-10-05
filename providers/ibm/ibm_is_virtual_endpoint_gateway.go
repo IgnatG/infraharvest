@@ -33,8 +33,8 @@ func (g VPEGenerator) createVPEGatewayResources(gatewayID, gatewayName string) t
 		gatewayID,
 		normalizeResourceName(gatewayName, false),
 		"ibm_is_virtual_endpoint_gateway",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 
@@ -44,9 +44,8 @@ func (g VPEGenerator) createVPEGatewayIPResources(gatewayID, gatewayIPID, gatewa
 		normalizeResourceName(gatewayIPName, false),
 		"ibm_is_virtual_endpoint_gateway_ip",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
+
 	return resources
 }
 
@@ -120,23 +119,5 @@ func (g *VPEGenerator) InitResources() error {
 			g.Resources = append(g.Resources, g.createVPEGatewayIPResources(*gateway.ID, *ip.ID, *ip.Name))
 		}
 	}
-	return nil
-}
-
-func (g *VPEGenerator) PostConvertHook() error {
-	for i, r := range g.Resources {
-		if r.InstanceInfo.Type != "ibm_is_virtual_endpoint_gateway" {
-			continue
-		}
-		for _, gIP := range g.Resources {
-			if gIP.InstanceInfo.Type != "ibm_is_virtual_endpoint_gateway_ip" {
-				continue
-			}
-			if gIP.InstanceState.Attributes["gateway"] == r.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["gateway"] = "${ibm_is_virtual_endpoint_gateway." + r.ResourceName + ".id}"
-			}
-		}
-	}
-
 	return nil
 }

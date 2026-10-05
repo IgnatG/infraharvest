@@ -23,8 +23,6 @@ import (
 	"google.golang.org/api/bigquery/v2"
 )
 
-var bigQueryAllowEmptyValues = []string{""}
-
 type BigQueryGenerator struct {
 	GCPService
 }
@@ -47,10 +45,7 @@ func (g BigQueryGenerator) createDatasets(ctx context.Context, dataSetsList *big
 				map[string]string{
 					"project":    g.GetArgs()["project"].(string),
 					"dataset_id": ID,
-				},
-				bigQueryAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 			resources = append(resources, g.createResourcesTables(ctx, ID, bigQueryService)...)
 		}
 		return nil
@@ -79,10 +74,7 @@ func (g *BigQueryGenerator) createResourcesTables(ctx context.Context, datasetID
 					"project":    g.GetArgs()["project"].(string),
 					"table_id":   ID,
 					"dataset_id": datasetID,
-				},
-				bigQueryAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 		return nil
 	}); err != nil {
@@ -102,29 +94,5 @@ func (g *BigQueryGenerator) InitResources() error {
 	datasetsList := bigQueryService.Datasets.List(g.GetArgs()["project"].(string))
 
 	g.Resources = g.createDatasets(ctx, datasetsList, bigQueryService)
-	return nil
-}
-
-// PostGenerateHook for convert schema json as heredoc
-func (g *BigQueryGenerator) PostConvertHook() error {
-	for i, dataset := range g.Resources {
-		if dataset.InstanceInfo.Type != "google_bigquery_dataset" {
-			continue
-		}
-		if val, ok := dataset.Item["default_table_expiration_ms"].(string); ok { // TODO zero int issue
-			if val == "0" {
-				delete(g.Resources[i].Item, "default_table_expiration_ms")
-			}
-		}
-		for j, table := range g.Resources {
-			if table.InstanceInfo.Type != "google_bigquery_table" {
-				continue
-			}
-			if table.InstanceState.Attributes["dataset_id"] == dataset.InstanceState.Attributes["dataset_id"] {
-				g.Resources[j].Item["dataset_id"] = "${google_bigquery_dataset." + dataset.ResourceName + ".dataset_id}"
-			}
-		}
-	}
-
 	return nil
 }

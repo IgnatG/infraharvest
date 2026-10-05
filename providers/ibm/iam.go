@@ -39,8 +39,8 @@ func (g IAMGenerator) loadUserPolicies(policyID string, user string) terraformut
 		fmt.Sprintf("%s/%s", user, policyID),
 		normalizeResourceName("iam_user_policy", true),
 		"ibm_iam_user_policy",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 
@@ -53,8 +53,8 @@ func (g IAMGenerator) loadAccessGroups() func(grpID, grpName string) terraformut
 			grpID,
 			normalizeResourceName(grpName, random),
 			"ibm_iam_access_group",
-			"ibm",
-			[]string{})
+			"ibm")
+
 		return resources
 	}
 }
@@ -68,8 +68,8 @@ func (g IAMGenerator) loadServiceIDs() func(serviceID, grpName string) terraform
 			grpID,
 			normalizeResourceName(grpName, random),
 			"ibm_iam_service_id",
-			"ibm",
-			[]string{})
+			"ibm")
+
 		return resources
 	}
 }
@@ -80,18 +80,9 @@ func (g IAMGenerator) loadAuthPolicies(policyID string) terraformutils.Resource 
 		normalizeResourceName("iam_authorization_policy", true),
 		"ibm_iam_authorization_policy",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	// Conflict parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^subject_attributes$",
-		"^resource_attributes$",
-		"^source_resource_instance_id$",
-		"^target_resource_instance_id$",
-		"^transaction_id$",
-	)
 	return resource
 }
 
@@ -104,74 +95,62 @@ func (g IAMGenerator) loadCustomRoles() func(roleID, roleName string) terraformu
 			roleID,
 			normalizeResourceName(roleName, random),
 			"ibm_iam_custom_role",
-			"ibm",
-			[]string{})
+			"ibm")
+
 		return resources
 	}
 }
 
-func (g IAMGenerator) loadServicePolicies(serviceID, policyID string, dependsOn []string) terraformutils.Resource {
+func (g IAMGenerator) loadServicePolicies(serviceID, policyID string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		fmt.Sprintf("%s/%s", serviceID, policyID),
 		normalizeResourceName("iam_service_policy", true),
 		"ibm_iam_service_policy",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
+
 	return resources
 }
 
-func (g IAMGenerator) loadAccessGroupMembers() func(grpID string, dependsOn []string, grpName string) terraformutils.Resource {
+func (g IAMGenerator) loadAccessGroupMembers() func(grpID string, grpName string) terraformutils.Resource {
 	names := make(map[string]struct{})
 	random := false
-	return func(grpID string, dependsOn []string, grpName string) terraformutils.Resource {
+	return func(grpID string, grpName string) terraformutils.Resource {
 		names, random = getRandom(names, grpName, random)
 		resources := terraformutils.NewResource(
 			fmt.Sprintf("%s/%s", grpID, grpID),
 			normalizeResourceName(grpName, random),
 			"ibm_iam_access_group_members",
 			"ibm",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"depends_on": dependsOn,
-			})
+			map[string]string{})
+
 		return resources
 	}
 }
 
-func (g IAMGenerator) loadAccessGroupPolicies(grpID, policyID string, dependsOn []string) terraformutils.Resource {
+func (g IAMGenerator) loadAccessGroupPolicies(grpID, policyID string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		fmt.Sprintf("%s/%s", grpID, policyID),
 		normalizeResourceName("iam_access_group_policy", true),
 		"ibm_iam_access_group_policy",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
+
 	return resources
 }
 
-func (g IAMGenerator) loadAccessGroupDynamicPolicies() func(grpID, ruleID, name string, dependsOn []string) terraformutils.Resource {
+func (g IAMGenerator) loadAccessGroupDynamicPolicies() func(grpID, ruleID, name string) terraformutils.Resource {
 	names := make(map[string]struct{})
 	random := false
-	return func(grpID, ruleID, name string, dependsOn []string) terraformutils.Resource {
+	return func(grpID, ruleID, name string) terraformutils.Resource {
 		names, random = getRandom(names, name, random)
 		resources := terraformutils.NewResource(
 			fmt.Sprintf("%s/%s", grpID, ruleID),
 			normalizeResourceName(name, random),
 			"ibm_iam_access_group_dynamic_rule",
 			"ibm",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{
-				"depends_on": dependsOn,
-			})
+			map[string]string{})
+
 		return resources
 	}
 }
@@ -241,11 +220,7 @@ func (g *IAMGenerator) InitResources() error {
 	agmfnObj := g.loadAccessGroupMembers()
 	for _, group := range agrps {
 		g.Resources = append(g.Resources, fnObjt(group.ID, group.Name))
-		resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
-		var dependsOn []string
-		dependsOn = append(dependsOn,
-			"ibm_iam_access_group."+resourceName)
-		g.Resources = append(g.Resources, agmfnObj(group.ID, dependsOn, group.Name))
+		g.Resources = append(g.Resources, agmfnObj(group.ID, group.Name))
 
 		policies, err := iampap.V1Policy().List(iampapv1.SearchParams{
 			AccountID:     accountID,
@@ -256,7 +231,7 @@ func (g *IAMGenerator) InitResources() error {
 			return fmt.Errorf("error retrieving access group policy: %s", err)
 		}
 		for _, p := range policies {
-			g.Resources = append(g.Resources, g.loadAccessGroupPolicies(group.ID, p.ID, dependsOn))
+			g.Resources = append(g.Resources, g.loadAccessGroupPolicies(group.ID, p.ID))
 		}
 
 		dynamicPolicies, err := iamuumClient.DynamicRule().List(group.ID)
@@ -265,7 +240,7 @@ func (g *IAMGenerator) InitResources() error {
 		}
 		dpfnObj := g.loadAccessGroupDynamicPolicies()
 		for _, d := range dynamicPolicies {
-			g.Resources = append(g.Resources, dpfnObj(group.ID, d.RuleID, d.Name, dependsOn))
+			g.Resources = append(g.Resources, dpfnObj(group.ID, d.RuleID, d.Name))
 		}
 	}
 
@@ -327,10 +302,6 @@ func (g *IAMGenerator) InitResources() error {
 	// loop through all service IDs and fetch policies correspponds to each service ID
 	for _, service := range allrecs {
 		g.Resources = append(g.Resources, servicefnObjt(*service.ID, *service.Name))
-		resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
-		var dependsOn []string
-		dependsOn = append(dependsOn,
-			"ibm_iam_service_id."+resourceName)
 
 		listServicePolicyOptions := iampolicymanagementv1.ListPoliciesOptions{
 			AccountID: core.StringPtr(accountID),
@@ -346,7 +317,7 @@ func (g *IAMGenerator) InitResources() error {
 		}
 
 		for _, p := range policies {
-			g.Resources = append(g.Resources, g.loadServicePolicies(*service.ID, *p.ID, dependsOn))
+			g.Resources = append(g.Resources, g.loadServicePolicies(*service.ID, *p.ID))
 		}
 	}
 

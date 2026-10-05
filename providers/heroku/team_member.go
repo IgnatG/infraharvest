@@ -39,8 +39,7 @@ func (g TeamMemberGenerator) createResources(svc *heroku.Service, teamList []her
 				fmt.Sprintf("%s:%s", team.ID, member.Email),
 				member.ID,
 				"heroku_team_member",
-				"heroku",
-				[]string{}))
+				"heroku"))
 		}
 	}
 	return resources

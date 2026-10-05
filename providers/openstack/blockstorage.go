@@ -56,9 +56,7 @@ func (g *BlockStorageGenerator) createResources(list *pagination.Pager, clientTy
 				v.ID,
 				name,
 				resourceType[clientType],
-				"openstack",
-				[]string{},
-			)
+				"openstack")
 
 			resources = append(resources, resource)
 		}

@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/waf"
 )
 
-var wafAllowEmptyValues = []string{"tags."}
-
 type WafGenerator struct {
 	AWSService
 }
@@ -83,8 +81,7 @@ func (g *WafGenerator) loadWebACL(svc *waf.Client) error {
 				*acl.WebACLId,
 				*acl.Name+"_"+(*acl.WebACLId)[0:8],
 				"aws_waf_web_acl",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -101,8 +98,7 @@ func (g *WafGenerator) loadByteMatchSet(svc *waf.Client) error {
 				*byteMatchSet.ByteMatchSetId,
 				*byteMatchSet.Name+"_"+(*byteMatchSet.ByteMatchSetId)[0:8],
 				"aws_waf_byte_match_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -119,8 +115,7 @@ func (g *WafGenerator) loadGeoMatchSet(svc *waf.Client) error {
 				*matchSet.GeoMatchSetId,
 				*matchSet.Name+"_"+(*matchSet.GeoMatchSetId)[0:8],
 				"aws_waf_geo_match_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -137,8 +132,7 @@ func (g *WafGenerator) loadIPSet(svc *waf.Client) error {
 				*IPSet.IPSetId,
 				*IPSet.Name+"_"+(*IPSet.IPSetId)[0:8],
 				"aws_waf_ipset",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -155,8 +149,7 @@ func (g *WafGenerator) loadRateBasedRules(svc *waf.Client) error {
 				*rule.RuleId,
 				*rule.Name+"_"+(*rule.RuleId)[0:8],
 				"aws_waf_rate_based_rule",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -173,8 +166,7 @@ func (g *WafGenerator) loadRegexMatchSets(svc *waf.Client) error {
 				*regexMatchSet.RegexMatchSetId,
 				*regexMatchSet.Name+"_"+(*regexMatchSet.RegexMatchSetId)[0:8],
 				"aws_waf_regex_match_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -191,8 +183,7 @@ func (g *WafGenerator) loadRegexPatternSets(svc *waf.Client) error {
 				*regexPatternSet.RegexPatternSetId,
 				*regexPatternSet.Name+"_"+(*regexPatternSet.RegexPatternSetId)[0:8],
 				"aws_waf_regex_pattern_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -209,8 +200,7 @@ func (g *WafGenerator) loadWafRules(svc *waf.Client) error {
 				*rule.RuleId,
 				*rule.Name+"_"+(*rule.RuleId)[0:8],
 				"aws_waf_rule",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -227,8 +217,7 @@ func (g *WafGenerator) loadWafRuleGroups(svc *waf.Client) error {
 				*ruleGroup.RuleGroupId,
 				*ruleGroup.Name+"_"+(*ruleGroup.RuleGroupId)[0:8],
 				"aws_waf_rule_group",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -245,8 +234,7 @@ func (g *WafGenerator) loadSizeConstraintSets(svc *waf.Client) error {
 				*sizeConstraintSet.SizeConstraintSetId,
 				*sizeConstraintSet.Name+"_"+(*sizeConstraintSet.SizeConstraintSetId)[0:8],
 				"aws_waf_size_constraint_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -263,8 +251,7 @@ func (g *WafGenerator) loadSQLInjectionMatchSets(svc *waf.Client) error {
 				*sqlInjectionMatchSet.SqlInjectionMatchSetId,
 				*sqlInjectionMatchSet.Name+"_"+(*sqlInjectionMatchSet.SqlInjectionMatchSetId)[0:8],
 				"aws_waf_sql_injection_match_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})
@@ -281,8 +268,7 @@ func (g *WafGenerator) loadXSSMatchSet(svc *waf.Client) error {
 				*xssMatchSet.XssMatchSetId,
 				*xssMatchSet.Name+"_"+(*xssMatchSet.XssMatchSetId)[0:8],
 				"aws_waf_xss_match_set",
-				"aws",
-				wafAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextMarker, nil
 	})

@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var nodeTemplatesAllowEmptyValues = []string{""}
-
-var nodeTemplatesAdditionalFields = map[string]interface{}{}
-
 type NodeTemplatesGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g NodeTemplatesGenerator) createResources(ctx context.Context, nodeTemplat
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				nodeTemplatesAllowEmptyValues,
-				nodeTemplatesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

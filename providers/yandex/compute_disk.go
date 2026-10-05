@@ -74,8 +74,7 @@ func (g *DiskGenerator) createResources(disks []*compute.Disk) []terraformutils.
 			disk.GetId(),
 			disk.GetId(),
 			"yandex_compute_disk",
-			"yandex",
-			[]string{}))
+			"yandex"))
 	}
 	return resources
 }

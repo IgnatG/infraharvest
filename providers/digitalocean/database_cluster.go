@@ -42,8 +42,7 @@ func (g *DatabaseClusterGenerator) loadDatabaseClusters(ctx context.Context, cli
 				cluster.ID,
 				cluster.Name,
 				"digitalocean_database_cluster",
-				"digitalocean",
-				[]string{}))
+				"digitalocean"))
 			list = append(list, cluster)
 		}
 
@@ -78,8 +77,7 @@ func (g *DatabaseClusterGenerator) loadDatabaseConnectionPools(ctx context.Conte
 				fmt.Sprintf("%s/%s", clusterID, pool.Name),
 				pool.Name,
 				"digitalocean_database_connection_pool",
-				"digitalocean",
-				[]string{}))
+				"digitalocean"))
 		}
 
 		// if we are at the last page, break out the for loop
@@ -119,9 +117,7 @@ func (g *DatabaseClusterGenerator) loadDatabaseDBs(ctx context.Context, client *
 					map[string]string{
 						"cluster_id": clusterID,
 						"name":       db.Name,
-					},
-					[]string{},
-					map[string]interface{}{}))
+					}))
 			}
 		}
 
@@ -160,9 +156,7 @@ func (g *DatabaseClusterGenerator) loadDatabaseReplicas(ctx context.Context, cli
 				map[string]string{
 					"cluster_id": clusterID,
 					"name":       replica.Name,
-				},
-				[]string{},
-				map[string]interface{}{}))
+				}))
 		}
 
 		// if we are at the last page, break out the for loop
@@ -202,9 +196,7 @@ func (g *DatabaseClusterGenerator) loadDatabaseUsers(ctx context.Context, client
 					map[string]string{
 						"cluster_id": clusterID,
 						"name":       user.Name,
-					},
-					[]string{},
-					map[string]interface{}{}))
+					}))
 			}
 		}
 

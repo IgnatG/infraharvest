@@ -9,16 +9,12 @@ import (
 	mgo "github.com/Myra-Security-GmbH/myrasec-go/v2"
 )
 
-//
 // CacheSettingGenerator
-//
 type CacheSettingGenerator struct {
 	MyrasecService
 }
 
-//
 // createCacheSettingResources
-//
 func (g *CacheSettingGenerator) createCacheSettingResources(api *mgo.API, domainId int, vhost mgo.VHost, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
@@ -46,11 +42,8 @@ func (g *CacheSettingGenerator) createCacheSettingResources(api *mgo.API, domain
 				"myrasec",
 				map[string]string{
 					"subdomain_name": vhost.Label,
-				},
-				[]string{},
-				map[string]interface{}{},
-			)
-			r.IgnoreKeys = append(r.IgnoreKeys, "^Metadata")
+				})
+
 			g.Resources = append(g.Resources, r)
 		}
 		if len(settings) < pageSize {
@@ -61,9 +54,7 @@ func (g *CacheSettingGenerator) createCacheSettingResources(api *mgo.API, domain
 	return nil
 }
 
-//
 // InitResources
-//
 func (g *CacheSettingGenerator) InitResources() error {
 	wg := sync.WaitGroup{}
 

@@ -34,12 +34,12 @@ func (g CMGenerator) loadCM(cmID, cmGuID string) terraformutils.Resource {
 		cmID,
 		cmGuID,
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 
-func (g CMGenerator) loadImportedCM(cmID, certificateID, cisInstance string, dependsOn []string) terraformutils.Resource {
+func (g CMGenerator) loadImportedCM(cmID, certificateID, cisInstance string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		cmID,
 		certificateID,
@@ -47,15 +47,12 @@ func (g CMGenerator) loadImportedCM(cmID, certificateID, cisInstance string, dep
 		"ibm",
 		map[string]string{
 			"dns_provider_instance_crn": cisInstance,
-		},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
 		})
+
 	return resources
 }
 
-func (g CMGenerator) loadOrderedCM(cmID, certificateID, cisInstance string, dependsOn []string) terraformutils.Resource {
+func (g CMGenerator) loadOrderedCM(cmID, certificateID, cisInstance string) terraformutils.Resource {
 	resources := terraformutils.NewResource(
 		cmID,
 		certificateID,
@@ -63,11 +60,8 @@ func (g CMGenerator) loadOrderedCM(cmID, certificateID, cisInstance string, depe
 		"ibm",
 		map[string]string{
 			"dns_provider_instance_crn": cisInstance,
-		},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
 		})
+
 	return resources
 }
 
@@ -158,14 +152,10 @@ func (g *CMGenerator) InitResources() error {
 				return err
 			}
 
-			var dependsOn []string
-			dependsOn = append(dependsOn,
-				"ibm_resource_instance."+terraformutils.TfSanitize(cmInstance.Guid))
-
 			if certificatedata.Imported {
-				g.Resources = append(g.Resources, g.loadImportedCM(cert.ID, cert.ID, cisID, dependsOn))
+				g.Resources = append(g.Resources, g.loadImportedCM(cert.ID, cert.ID, cisID))
 			} else {
-				g.Resources = append(g.Resources, g.loadOrderedCM(cert.ID, cert.ID, cisID, dependsOn))
+				g.Resources = append(g.Resources, g.loadOrderedCM(cert.ID, cert.ID, cisID))
 			}
 		}
 	}

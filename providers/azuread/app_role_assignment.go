@@ -73,10 +73,3 @@ func (az *AppRoleAssignmentServiceGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *AppRoleAssignmentServiceGenerator) GetResourceConnections() map[string][]string {
-
-	return map[string][]string{
-		"app_role_assignment": {"id"},
-	}
-}

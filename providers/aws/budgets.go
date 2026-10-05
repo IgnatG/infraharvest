@@ -34,8 +34,7 @@ func (g *BudgetsGenerator) createResources(budgets []types.Budget, account *stri
 			fmt.Sprintf("%s:%s", *account, resourceName),
 			resourceName,
 			"aws_budgets_budget",
-			"aws",
-			[]string{}))
+			"aws"))
 	}
 	return resources
 }

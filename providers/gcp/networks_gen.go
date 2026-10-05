@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var networksAllowEmptyValues = []string{""}
-
-var networksAdditionalFields = map[string]interface{}{}
-
 type NetworksGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g NetworksGenerator) createResources(ctx context.Context, networksList *co
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				networksAllowEmptyValues,
-				networksAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

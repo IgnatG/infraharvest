@@ -164,13 +164,3 @@ func (az *SubnetGenerator) InitResources() error {
 	}
 	return nil
 }
-
-func (az *SubnetGenerator) PostConvertHook() error {
-	for _, resource := range az.Resources {
-		if resource.InstanceInfo.Type != "azurerm_subnet" {
-			continue
-		}
-		delete(resource.Item, "address_prefix")
-	}
-	return nil
-}

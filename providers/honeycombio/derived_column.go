@@ -32,12 +32,9 @@ func (g *DerivedColumnGenerator) InitResources() error {
 				map[string]string{
 					"dataset": dataset.Name,
 					"alias":   column.Alias,
-					// TODO: is there a nicer way to format the expression?
+
 					"expression": column.Expression,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 

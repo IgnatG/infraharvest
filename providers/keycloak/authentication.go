@@ -30,10 +30,7 @@ func (g RealmGenerator) createAuthenticationFlowResources(authenticationFlows []
 			map[string]string{
 				"realm_id": authenticationFlow.RealmId,
 				"alias":    authenticationFlow.Alias,
-			},
-			[]string{},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }
@@ -49,10 +46,8 @@ func (g RealmGenerator) createAuthenticationSubFlowResource(authenticationSubFlo
 			"parent_flow_alias": authenticationSubFlow.ParentFlowAlias,
 			"alias":             authenticationSubFlow.Alias,
 			"requirement":       authenticationSubFlow.Requirement,
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 	return resource
 }
 
@@ -66,10 +61,8 @@ func (g RealmGenerator) createAuthenticationExecutionResource(authenticationExec
 			"realm_id":          authenticationExecution.RealmId,
 			"parent_flow_alias": authenticationExecution.ParentFlowAlias,
 			"authenticator":     authenticationExecution.Authenticator,
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 	return resource
 }
 
@@ -83,10 +76,6 @@ func (g RealmGenerator) createAuthenticationExecutionConfigResource(authenticati
 			"realm_id":     authenticationExecutionConfig.RealmId,
 			"execution_id": authenticationExecutionConfig.ExecutionId,
 			"alias":        authenticationExecutionConfig.Alias,
-		},
-		[]string{},
-		map[string]interface{}{
-			"config": authenticationExecutionConfig.Config,
-		},
-	)
+		})
+
 }

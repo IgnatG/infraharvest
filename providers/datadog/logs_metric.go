@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// LogsMetricAllowEmptyValues ...
-	LogsMetricAllowEmptyValues = []string{}
-)
-
 // LogsMetricGenerator ...
 type LogsMetricGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *LogsMetricGenerator) createResource(logsMetricName string) terraformuti
 		logsMetricName,
 		fmt.Sprintf("logs_metric_%s", logsMetricName),
 		"datadog_logs_metric",
-		"datadog",
-		LogsMetricAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

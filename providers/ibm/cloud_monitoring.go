@@ -40,9 +40,8 @@ func (g MonitoringGenerator) loadCloudMonitoring(cdID, cdName, service, region s
 			"name":     cdName,
 			"service":  service,
 			"location": region,
-		},
-		[]string{},
-		map[string]interface{}{})
+		})
+
 	return resources
 }
 

@@ -80,9 +80,7 @@ func (g *FirewallGenerator) InitResources() error {
 						*firewall.Properties.Name+"-"+*firewall.Id,
 						resourceType,
 						helpers.Ionos,
-						map[string]string{helpers.DcID: *datacenter.Id, helpers.ServerID: *server.Id, helpers.NicID: *nic.Id},
-						[]string{},
-						map[string]interface{}{}))
+						map[string]string{helpers.DcID: *datacenter.Id, helpers.ServerID: *server.Id, helpers.NicID: *nic.Id}))
 				}
 			}
 		}

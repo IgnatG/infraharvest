@@ -33,9 +33,7 @@ func (g AccountFeatureGenerator) createResources(accountFeatureList []heroku.Acc
 			accountFeature.Name,
 			"heroku_account_feature",
 			"heroku",
-			map[string]string{"name": accountFeature.Name},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{"name": accountFeature.Name}))
 	}
 	return resources
 }

@@ -36,8 +36,7 @@ func (g *DNSDomainGenerator) loadDNSDomains(client *govultr.Client) ([]govultr.D
 			domain.Domain,
 			domain.Domain,
 			"vultr_dns_domain",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return domainList, nil
 }
@@ -53,9 +52,7 @@ func (g *DNSDomainGenerator) loadDNSRecords(client *govultr.Client, domain strin
 			strconv.Itoa(record.RecordID),
 			"vultr_dns_record",
 			"vultr",
-			map[string]string{"domain": domain},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{"domain": domain}))
 	}
 	return nil
 }

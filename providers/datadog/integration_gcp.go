@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// IntegrationGCPAllowEmptyValues ...
-	IntegrationGCPAllowEmptyValues = []string{}
-)
-
 // IntegrationGCPGenerator ...
 type IntegrationGCPGenerator struct {
 	DatadogService
@@ -49,9 +44,8 @@ func (g *IntegrationGCPGenerator) createResource(resourceID string) terraformuti
 		resourceID,
 		fmt.Sprintf("integration_gcp_%s", resourceID),
 		"datadog_integration_gcp",
-		"datadog",
-		IntegrationGCPAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

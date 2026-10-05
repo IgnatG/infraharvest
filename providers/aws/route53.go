@@ -25,10 +25,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 )
 
-var route53AllowEmptyValues = []string{}
-
-var route53AdditionalFields = map[string]interface{}{}
-
 type Route53Generator struct {
 	AWSService
 }
@@ -52,10 +48,7 @@ func (g *Route53Generator) createZonesResources(svc *route53.Client) []terraform
 				map[string]string{
 					"name":          StringValue(zone.Name),
 					"force_destroy": "false",
-				},
-				route53AllowEmptyValues,
-				route53AdditionalFields,
-			))
+				}))
 			records := g.createRecordsResources(svc, zoneID)
 			resources = append(resources, records...)
 		}
@@ -90,10 +83,7 @@ func (g Route53Generator) createRecordsResources(svc *route53.Client, zoneID str
 					"zone_id":        zoneID,
 					"type":           typeString,
 					"set_identifier": StringValue(record.SetIdentifier),
-				},
-				route53AllowEmptyValues,
-				route53AdditionalFields,
-			))
+				}))
 		}
 
 		if sets.IsTruncated {
@@ -124,9 +114,7 @@ func (g Route53Generator) createHealthChecksResources(svc *route53.Client) []ter
 				StringValue(healthCheck.Id),
 				fmt.Sprintf("%s_%s", StringValue(healthCheck.Id), healthCheckStringType),
 				"aws_route53_health_check",
-				"aws",
-				route53AllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return resources
@@ -145,41 +133,6 @@ func (g *Route53Generator) InitResources() error {
 	healthCheckResources := g.createHealthChecksResources(svc)
 	g.Resources = append(g.Resources, healthCheckResources...)
 
-	return nil
-}
-
-func (g *Route53Generator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		resourceType := resource.InstanceInfo.Type
-		if resourceType == "aws_route53_zone" {
-			continue
-		}
-
-		if resourceType == "aws_route53_health_check" {
-			if _, childHealthChecksExist := resource.Item["child_healthchecks"]; !childHealthChecksExist {
-				if _, childHealthCheckThreshholdExist := resource.Item["child_health_threshold"]; childHealthCheckThreshholdExist {
-					delete(g.Resources[i].Item, "child_health_threshold")
-				}
-			}
-			continue
-		}
-
-		item := resource.Item
-		zoneID := item["zone_id"].(string)
-		for _, resourceZone := range g.Resources {
-			if resourceZone.InstanceInfo.Type != "aws_route53_zone" {
-				continue
-			}
-			if zoneID == resourceZone.InstanceState.ID {
-				g.Resources[i].Item["zone_id"] = "${aws_route53_zone." + resourceZone.ResourceName + ".zone_id}"
-			}
-		}
-		if _, aliasExist := resource.Item["alias"]; aliasExist {
-			if _, ttlExist := resource.Item["ttl"]; ttlExist {
-				delete(g.Resources[i].Item, "ttl")
-			}
-		}
-	}
 	return nil
 }
 

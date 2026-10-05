@@ -48,10 +48,7 @@ func (g *TypesGenerator) InitResources() error {
 			customType.Key,
 			"commercetools_type",
 			"commercetools",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 	return nil
 }

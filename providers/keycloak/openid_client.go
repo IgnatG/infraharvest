@@ -29,10 +29,7 @@ func (g RealmGenerator) createOpenIDClientResources(openIDClients []*keycloak.Op
 			"keycloak",
 			map[string]string{
 				"realm_id": openIDClient.RealmId,
-			},
-			[]string{"web_origins"},
-			map[string]interface{}{},
-		))
+			}))
 	}
 	return resources
 }
@@ -59,10 +56,7 @@ func (g RealmGenerator) createServiceAccountClientRolesResources(realmID string,
 						"service_account_user_id": user.Id,
 						"client_id":               role.ClientId,
 						"role":                    role.Name,
-					},
-					[]string{},
-					map[string]interface{}{},
-				))
+					}))
 			}
 		}
 	}
@@ -79,10 +73,8 @@ func (g RealmGenerator) createOpenIDGenericProtocolMapperResource(protocolMapper
 		map[string]string{
 			"realm_id":  realmID,
 			"client_id": clientID,
-		},
-		[]string{},
-		map[string]interface{}{},
-	)
+		})
+
 }
 
 func (g RealmGenerator) createOpenIDProtocolMapperResources(clientID string, openidClient *keycloak.OpenidClientWithGenericProtocolMappers) []terraformutils.Resource {

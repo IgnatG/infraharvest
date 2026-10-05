@@ -30,38 +30,32 @@ type PvtzGenerator struct {
 
 func resourceFromZoneResponse(zone pvtz.Zone) terraformutils.Resource {
 	return terraformutils.NewResource(
-		zone.ZoneId,                    // id
-		zone.ZoneId+"__"+zone.ZoneName, // name
+		zone.ZoneId,
+		zone.ZoneId+"__"+zone.ZoneName,
 		"alicloud_pvtz_zone",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromZoneAttachmentResponse(zone pvtz.Zone) terraformutils.Resource {
 	return terraformutils.NewResource(
-		zone.ZoneId, // id
-		zone.ZoneId+"__"+zone.ZoneName+"_attachment", // name
+		zone.ZoneId,
+		zone.ZoneId+"__"+zone.ZoneName+"_attachment",
 		"alicloud_pvtz_zone_attachment",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromZoneRecordResponse(record pvtz.Record, zoneID string) terraformutils.Resource {
 	return terraformutils.NewResource(
-		strconv.FormatInt(record.RecordId, 10)+":"+zoneID,     // id
-		strconv.FormatInt(record.RecordId, 10)+"__"+record.Rr, // name
+		strconv.FormatInt(record.RecordId, 10)+":"+zoneID,
+		strconv.FormatInt(record.RecordId, 10)+"__"+record.Rr,
 		"alicloud_pvtz_zone_record",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func initZones(client *connectivity.AliyunClient) ([]pvtz.Zone, error) {
@@ -157,21 +151,6 @@ func (g *PvtzGenerator) InitResources() error {
 	for i, record := range allRecords {
 		resource := resourceFromZoneRecordResponse(record, zoneIds[i])
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-// PostConvertHook Runs before HCL files are generated
-func (g *PvtzGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "alicloud_pvtz_zone_record" {
-			// https://www.terraform.io/docs/providers/alicloud/r/pvtz_zone_record.html#priority
-			v, e := strconv.Atoi(r.Item["priority"].(string))
-			if v < 1 || v > 50 || e != nil {
-				delete(r.Item, "priority")
-			}
-		}
 	}
 
 	return nil

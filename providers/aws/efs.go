@@ -22,8 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/efs"
 )
 
-var efsAllowEmptyValues = []string{"tags."}
-
 type EfsGenerator struct {
 	AWSService
 }
@@ -55,8 +53,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 				StringValue(fileSystem.FileSystemId),
 				StringValue(fileSystem.FileSystemId),
 				"aws_efs_file_system",
-				"aws",
-				efsAllowEmptyValues))
+				"aws"))
 
 			targetsResponse, err := svc.DescribeMountTargets(g.Context(), &efs.DescribeMountTargetsInput{
 				FileSystemId: fileSystem.FileSystemId,
@@ -70,8 +67,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 					StringValue(mountTarget.MountTargetId),
 					StringValue(mountTarget.MountTargetId),
 					"aws_efs_mount_target",
-					"aws",
-					efsAllowEmptyValues))
+					"aws"))
 			}
 
 			policyResponse, err := svc.DescribeFileSystemPolicy(g.Context(), &efs.DescribeFileSystemPolicyInput{
@@ -89,9 +85,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 				map[string]string{
 					"file_system_id": StringValue(fileSystem.FileSystemId),
 					"policy":         StringValue(policyResponse.Policy),
-				},
-				efsAllowEmptyValues,
-				map[string]interface{}{}))
+				}))
 		}
 	}
 	return nil
@@ -110,23 +104,7 @@ func (g *EfsGenerator) loadAccessPoint(svc *efs.Client) error {
 				id,
 				id,
 				"aws_efs_access_point",
-				"aws",
-				efsAllowEmptyValues))
-		}
-	}
-	return nil
-}
-
-// PostConvertHook for add policy json as heredoc
-func (g *EfsGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "aws_efs_file_system_policy" {
-			if val, ok := g.Resources[i].Item["policy"]; ok {
-				policy := g.escapeAwsInterpolation(val.(string))
-				g.Resources[i].Item["policy"] = fmt.Sprintf(`<<POLICY
-%s
-POLICY`, policy)
-			}
+				"aws"))
 		}
 	}
 	return nil

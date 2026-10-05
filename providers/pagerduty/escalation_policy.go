@@ -38,9 +38,7 @@ func (g *EscalationPolicyGenerator) createEscalationPolicyResources(client *page
 				policy.ID,
 				policy.Name,
 				"pagerduty_escalation_policy",
-				g.ProviderName,
-				[]string{},
-			))
+				g.ProviderName))
 		}
 
 		if !resp.More {

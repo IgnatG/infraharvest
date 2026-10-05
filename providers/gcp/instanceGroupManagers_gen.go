@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var instanceGroupManagersAllowEmptyValues = []string{"^version.[0-9].name", "^auto_healing_policies.[0-9].health_check"}
-
-var instanceGroupManagersAdditionalFields = map[string]interface{}{}
-
 type InstanceGroupManagersGenerator struct {
 	GCPService
 }
@@ -48,10 +44,7 @@ func (g InstanceGroupManagersGenerator) createResources(ctx context.Context, ins
 					"project": g.GetArgs()["project"].(string),
 
 					"zone": zone,
-				},
-				instanceGroupManagersAllowEmptyValues,
-				instanceGroupManagersAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

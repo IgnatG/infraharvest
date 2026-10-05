@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/datapipeline"
 )
 
-var datapipelineAllowEmptyValues = []string{"tags."}
-
 type DataPipelineGenerator struct {
 	AWSService
 }
@@ -45,8 +43,7 @@ func (g *DataPipelineGenerator) InitResources() error {
 				pipelineID,
 				pipelineName,
 				"aws_datapipeline_pipeline",
-				"aws",
-				datapipelineAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

@@ -13,10 +13,6 @@ import (
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2"
 )
 
-var cloudTasksAllowEmptyValues = []string{}
-
-var cloudTasksAdditionalFields = map[string]interface{}{}
-
 type CloudTaskGenerator struct {
 	GCPService
 }
@@ -51,10 +47,7 @@ func (g *CloudTaskGenerator) loadCloudTaskQueues(ctx context.Context, client *cl
 				"name":     queueName,
 				"project":  project,
 				"location": region,
-			},
-			cloudTasksAllowEmptyValues,
-			cloudTasksAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }

@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	ActionAllowEmptyValues = []string{}
-)
-
 type ActionGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g ActionGenerator) createResources(actions []*management.Action) []terrafo
 			resourceName,
 			resourceName+"_"+*action.Name,
 			"auth0_action",
-			"auth0",
-			ActionAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

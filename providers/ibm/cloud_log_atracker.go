@@ -35,8 +35,8 @@ func (g ActivityTrackerGenerator) loadCloudAtracker(aTrackerID string, aTrackerN
 		aTrackerID,
 		normalizeResourceName(aTrackerName, true),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

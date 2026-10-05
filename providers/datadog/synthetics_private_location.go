@@ -26,9 +26,7 @@ import (
 )
 
 var (
-	// SyntheticsPrivateLocationAllowEmptyValues ...
-	SyntheticsPrivateLocationAllowEmptyValues = []string{"tags."}
-	plIDRegex                                 = regexp.MustCompile("^pl:.*")
+	plIDRegex = regexp.MustCompile("^pl:.*")
 )
 
 // SyntheticsPrivateLocationGenerator ...
@@ -52,9 +50,8 @@ func (g *SyntheticsPrivateLocationGenerator) createResource(plID string) terrafo
 		plID,
 		fmt.Sprintf("synthetics_private_location_%s", plID),
 		"datadog_synthetics_private_location",
-		"datadog",
-		SyntheticsPrivateLocationAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

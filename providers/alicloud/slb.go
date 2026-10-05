@@ -31,38 +31,32 @@ type SlbGenerator struct {
 func resourceFromSlbListener(loadBalancer slb.LoadBalancer, suffix string) terraformutils.Resource {
 	id := loadBalancer.LoadBalancerId + ":" + suffix
 	return terraformutils.NewResource(
-		id, // id
-		id+"__"+loadBalancer.LoadBalancerName, // name
+		id,
+		id+"__"+loadBalancer.LoadBalancerName,
 		"alicloud_slb_listener",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromSlbResponse(loadBalancer slb.LoadBalancer) terraformutils.Resource {
 	return terraformutils.NewResource(
-		loadBalancer.LoadBalancerId,                                    // id
-		loadBalancer.LoadBalancerId+"__"+loadBalancer.LoadBalancerName, // name
+		loadBalancer.LoadBalancerId,
+		loadBalancer.LoadBalancerId+"__"+loadBalancer.LoadBalancerName,
 		"alicloud_slb",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromVServerGroupResponse(vServerGroup slb.VServerGroup) terraformutils.Resource {
 	return terraformutils.NewResource(
-		vServerGroup.VServerGroupId,                                    // id
-		vServerGroup.VServerGroupId+"__"+vServerGroup.VServerGroupName, // name
+		vServerGroup.VServerGroupId,
+		vServerGroup.VServerGroupId+"__"+vServerGroup.VServerGroupName,
 		"alicloud_slb_server_group",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func initSlb(client *connectivity.AliyunClient) ([]slb.LoadBalancer, error) {
@@ -176,24 +170,6 @@ func (g *SlbGenerator) InitResources() error {
 	for i, alignedSlb := range alignedLoadBalancers {
 		resource := resourceFromSlbListener(alignedSlb, suffixes[i])
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-// PostConvertHook Runs before HCL files are generated
-func (g *SlbGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "alicloud_slb" {
-			// internet is deprecrated
-			// https://www.terraform.io/docs/providers/alicloud/r/slb.html#internet
-			delete(r.Item, "internet")
-
-			// https://www.terraform.io/docs/providers/alicloud/r/slb.html#bandwidth
-			if r.Item["internet_charge_type"] == "PayByTraffic" {
-				delete(r.Item, "bandwidth")
-			}
-		}
 	}
 
 	return nil

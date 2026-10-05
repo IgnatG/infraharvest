@@ -46,9 +46,7 @@ func (g *ContainerRegistryTokenGenerator) InitResources() error {
 				*crToken.Properties.Name+"-"+*crToken.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{"registry_id": *registry.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{"registry_id": *registry.Id}))
 		}
 	}
 	return nil

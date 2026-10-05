@@ -39,9 +39,8 @@ func (g *DowntimeGenerator) createResource(downtimeID string) terraformutils.Res
 		downtimeID,
 		fmt.Sprintf("downtime_%s", downtimeID),
 		"mackerel_downtime",
-		"mackerel",
-		[]string{},
-	)
+		"mackerel")
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

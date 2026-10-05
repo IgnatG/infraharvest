@@ -39,9 +39,8 @@ func (g *AWSIntegrationGenerator) createResource(awsIntegrationID string) terraf
 		awsIntegrationID,
 		fmt.Sprintf("aws_integration_%s", awsIntegrationID),
 		"mackerel_aws_integration",
-		"mackerel",
-		[]string{},
-	)
+		"mackerel")
+
 }
 
 // InitResources Generate TerraformResources from Mackerel API,

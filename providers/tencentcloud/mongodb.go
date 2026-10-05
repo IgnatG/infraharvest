@@ -61,21 +61,10 @@ func (g *MongodbGenerator) InitResources() error {
 			*instance.InstanceName+"_"+*instance.InstanceId,
 			"tencentcloud_mongodb_instance",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 
-	return nil
-}
-
-func (g *MongodbGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "tencentcloud_mongodb_instance" {
-			g.Resources[i].Item["password"] = "test1234;"
-		}
-	}
 	return nil
 }

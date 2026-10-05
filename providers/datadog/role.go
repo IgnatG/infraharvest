@@ -24,11 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// RoleAllowEmptyValues ...
-	RoleAllowEmptyValues = []string{}
-)
-
 // RoleGenerator ...
 type RoleGenerator struct {
 	DatadogService
@@ -39,7 +34,6 @@ func (g *RoleGenerator) createResources(roles []datadogV2.Role) []terraformutils
 	for _, role := range roles {
 		resourceName := role.GetId()
 		resource := g.createResource(resourceName)
-		resource.IgnoreKeys = append(resource.IgnoreKeys, "permission.([0-9]+).name")
 		resources = append(resources, resource)
 	}
 
@@ -51,9 +45,8 @@ func (g *RoleGenerator) createResource(roleID string) terraformutils.Resource {
 		roleID,
 		fmt.Sprintf("role_%s", roleID),
 		"datadog_role",
-		"datadog",
-		RoleAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

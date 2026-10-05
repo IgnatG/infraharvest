@@ -24,10 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var kmsAllowEmptyValues = []string{""}
-
-var kmsAdditionalFields = map[string]interface{}{}
-
 type KmsGenerator struct {
 	GCPService
 }
@@ -47,10 +43,7 @@ func (g KmsGenerator) createKmsRingResources(ctx context.Context, keyRingList *c
 					"project":  g.GetArgs()["project"].(string),
 					"location": tm[3],
 					"name":     tm[5],
-				},
-				kmsAllowEmptyValues,
-				kmsAdditionalFields,
-			))
+				}))
 			resources = append(resources, g.createKmsKeyResources(ctx, obj.Name, kmsService)...)
 		}
 		return nil
@@ -74,10 +67,7 @@ func (g *KmsGenerator) createKmsKeyResources(ctx context.Context, keyRingName st
 				map[string]string{
 					"project": g.GetArgs()["project"].(string),
 					"name":    key.Name,
-				},
-				kmsAllowEmptyValues,
-				kmsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {
@@ -97,22 +87,5 @@ func (g *KmsGenerator) InitResources() error {
 	keyRingList := kmsService.Projects.Locations.KeyRings.List("projects/" + g.GetArgs()["project"].(string) + "/locations/global")
 
 	g.Resources = g.createKmsRingResources(ctx, keyRingList, kmsService)
-	return nil
-}
-
-func (g *KmsGenerator) PostConvertHook() error {
-	for i, key := range g.Resources {
-		if key.InstanceInfo.Type != "google_kms_crypto_key" {
-			continue
-		}
-		for _, keyRing := range g.Resources {
-			if keyRing.InstanceInfo.Type != "google_kms_key_ring" {
-				continue
-			}
-			if key.Item["key_ring"] == keyRing.InstanceState.ID {
-				g.Resources[i].Item["key_ring"] = "${google_kms_key_ring." + keyRing.ResourceName + ".self_link}"
-			}
-		}
-	}
 	return nil
 }

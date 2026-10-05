@@ -34,9 +34,7 @@ func (g VPCRouteGenerator) loadVPCRouteResources(vpcID, routeID, routeName strin
 		normalizeResourceName(routeName, false),
 		"ibm_is_vpc_route",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	return resources
 }

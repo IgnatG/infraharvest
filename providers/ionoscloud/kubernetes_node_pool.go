@@ -49,9 +49,7 @@ func (g *KubernetesNodePoolGenerator) InitResources() error {
 				*kubernetesNodePool.Properties.Name+"-"+*kubernetesNodePool.Id,
 				resourceType,
 				helpers.Ionos,
-				map[string]string{helpers.K8sClusterID: *kubernetesCluster.Id},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{helpers.K8sClusterID: *kubernetesCluster.Id}))
 		}
 	}
 	return nil

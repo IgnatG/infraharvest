@@ -40,10 +40,7 @@ func (g *TeamGenerator) createResources(teams []team.ListedTeams) []terraformuti
 			t.Name,
 			"opsgenie_team",
 			g.ProviderName,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 
 	return resources

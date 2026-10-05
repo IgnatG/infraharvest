@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var interconnectAttachmentsAllowEmptyValues = []string{""}
-
-var interconnectAttachmentsAdditionalFields = map[string]interface{}{}
-
 type InterconnectAttachmentsGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g InterconnectAttachmentsGenerator) createResources(ctx context.Context, i
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				interconnectAttachmentsAllowEmptyValues,
-				interconnectAttachmentsAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

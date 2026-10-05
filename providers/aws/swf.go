@@ -29,9 +29,7 @@ func (g *SWFGenerator) InitResources() error {
 					*domain.Name,
 					*domain.Name,
 					"aws_swf_domain",
-					"aws",
-					[]string{},
-				))
+					"aws"))
 			}
 		}
 	}

@@ -23,11 +23,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// LogsIntegrationPipelineAllowEmptyValues ...
-	LogsIntegrationPipelineAllowEmptyValues = []string{}
-)
-
 // LogsIntegrationPipelineGenerator ...
 type LogsIntegrationPipelineGenerator struct {
 	DatadogService
@@ -52,9 +47,8 @@ func (g *LogsIntegrationPipelineGenerator) createResource(logsIntegrationPipelin
 		logsIntegrationPipelineID,
 		logsIntegrationPipelineName,
 		"datadog_logs_integration_pipeline",
-		"datadog",
-		LogsIntegrationPipelineAllowEmptyValues,
-	)
+		"datadog")
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,

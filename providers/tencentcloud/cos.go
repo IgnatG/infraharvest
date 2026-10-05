@@ -57,30 +57,10 @@ func (g *CosGenerator) InitResources() error {
 			"tencentcloud",
 			map[string]string{
 				"acl": "private",
-			},
-			[]string{},
-			map[string]interface{}{},
-		)
+			})
+
 		g.Resources = append(g.Resources, resource)
 	}
 
-	return nil
-}
-
-func (g *CosGenerator) PostConvertHook() error {
-	for _, resource := range g.Resources {
-		if resource.InstanceInfo.Type == "tencentcloud_cos_bucket" {
-			if _, ok := resource.Item["lifecycle_rules"]; ok {
-				lifecycleRules := resource.Item["lifecycle_rules"].([]interface{})
-				for i := range lifecycleRules {
-					rule := lifecycleRules[i].(map[string]interface{})
-					if _, ok := rule["filter_prefix"]; !ok {
-						rule["filter_prefix"] = ""
-						lifecycleRules[i] = rule
-					}
-				}
-			}
-		}
-	}
 	return nil
 }

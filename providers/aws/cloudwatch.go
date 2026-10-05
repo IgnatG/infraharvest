@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
 )
 
-var cloudwatchAllowEmptyValues = []string{"tags."}
-
 type CloudWatchGenerator struct {
 	AWSService
 }
@@ -64,8 +62,7 @@ func (g *CloudWatchGenerator) createMetricAlarms(cloudwatchSvc *cloudwatch.Clien
 				*metricAlarm.AlarmName,
 				*metricAlarm.AlarmName,
 				"aws_cloudwatch_metric_alarm",
-				"aws",
-				cloudwatchAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextToken, nil
 	})
@@ -84,8 +81,7 @@ func (g *CloudWatchGenerator) createDashboards(cloudwatchSvc *cloudwatch.Client)
 				*dashboardEntry.DashboardName,
 				*dashboardEntry.DashboardName,
 				"aws_cloudwatch_dashboard",
-				"aws",
-				cloudwatchAllowEmptyValues))
+				"aws"))
 		}
 		return output.NextToken, nil
 	})
@@ -104,8 +100,7 @@ func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.
 				*rule.Name,
 				*rule.Name,
 				"aws_cloudwatch_event_rule",
-				"aws",
-				cloudwatchAllowEmptyValues))
+				"aws"))
 			if err := g.createTargets(cloudwatcheventsSvc, rule.Name); err != nil {
 				return nil, err
 			}
@@ -133,9 +128,7 @@ func (g *CloudWatchGenerator) createTargets(cloudwatcheventsSvc *cloudwatchevent
 				map[string]string{
 					"rule":      *ruleName,
 					"target_id": *target.Id,
-				},
-				cloudwatchAllowEmptyValues,
-				map[string]interface{}{}))
+				}))
 		}
 		return output.NextToken, nil
 	})

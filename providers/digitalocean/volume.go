@@ -62,8 +62,7 @@ func (g VolumeGenerator) createResources(volumeList []godo.Volume) []terraformut
 			volume.ID,
 			volume.Name,
 			"digitalocean_volume",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

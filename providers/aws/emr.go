@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/emr"
 )
 
-var emrAllowEmptyValues = []string{"tags."}
-
 type EmrGenerator struct {
 	AWSService
 }
@@ -52,9 +50,7 @@ func (g *EmrGenerator) addClusters(client *emr.Client) error {
 				*cluster.Id,
 				*cluster.Name,
 				"aws_emr_cluster",
-				"aws",
-				emrAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil
@@ -72,9 +68,7 @@ func (g *EmrGenerator) addSecurityConfigurations(client *emr.Client) error {
 				*securityConfiguration.Name,
 				*securityConfiguration.Name,
 				"aws_emr_security_configuration",
-				"aws",
-				emrAllowEmptyValues,
-			))
+				"aws"))
 		}
 	}
 	return nil

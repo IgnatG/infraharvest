@@ -50,9 +50,7 @@ func (g *IPFailoverGenerator) InitResources() error {
 					id,
 					resourceType,
 					helpers.Ionos,
-					map[string]string{helpers.DcID: *datacenter.Id, "lan_id": *lan.Id, "ip": *ipFailover.Ip, "nicuuid": *ipFailover.NicUuid},
-					[]string{},
-					map[string]interface{}{}))
+					map[string]string{helpers.DcID: *datacenter.Id, "lan_id": *lan.Id, "ip": *ipFailover.Ip, "nicuuid": *ipFailover.NicUuid}))
 			}
 		}
 	}

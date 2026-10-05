@@ -54,9 +54,7 @@ func (g *PanoramaDeviceConfigGenerator) createResourcesFromList(o getGeneric, id
 				return r
 			}()),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -84,10 +82,7 @@ func (g *PanoramaDeviceConfigGenerator) createDeviceGroupParentResources() (reso
 				map[string]string{
 					"device_group": dg,
 					"parent":       parent,
-				},
-				[]string{},
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 
@@ -120,10 +115,7 @@ func createServerProfileResources(tmpl, ts, vsys, dg, terraformResourceName stri
 			normalizeResourceName(id),
 			terraformResourceName,
 			"panos",
-			attributes,
-			[]string{},
-			map[string]interface{}{},
-		))
+			attributes))
 	}
 
 	return resources

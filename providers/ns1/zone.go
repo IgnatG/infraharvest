@@ -44,10 +44,7 @@ func (g *ZoneGenerator) createZoneRecordResources(client *ns1.Client, zone_name 
 			r.ID,
 			"ns1_record",
 			"ns1",
-			map[string]string{"zone": r.Zone, "domain": r.Domain, "type": r.Type},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{"zone": r.Zone, "domain": r.Domain, "type": r.Type}))
 
 	}
 
@@ -81,10 +78,7 @@ func (g *ZoneGenerator) createZoneResources(client *ns1.Client, includeZones []s
 			zone.Zone,
 			"ns1_zone",
 			"ns1",
-			map[string]string{"zone": zone.Zone},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{"zone": zone.Zone}))
 
 		g.createZoneRecordResources(client, zone.Zone)
 	}

@@ -34,14 +34,9 @@ func (g VPCGenerator) createVPCResources(vpcID, vpcName string) terraformutils.R
 		normalizeResourceName(vpcName, false),
 		"ibm_is_vpc",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{})
+		map[string]string{})
 
 	// Deprecated parameters
-	resource.IgnoreKeys = append(resource.IgnoreKeys,
-		"^default_network_acl$",
-	)
 
 	return resource
 }

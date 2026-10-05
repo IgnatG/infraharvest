@@ -60,10 +60,7 @@ func (g *NATGatewayRuleGenerator) InitResources() error {
 					*rule.Properties.Name+"-"+*rule.Id,
 					resourceType,
 					helpers.Ionos,
-					map[string]string{helpers.DcID: *datacenter.Id, "natgateway_id": *natGateway.Id},
-					[]string{},
-					map[string]interface{}{},
-				))
+					map[string]string{helpers.DcID: *datacenter.Id, "natgateway_id": *natGateway.Id}))
 			}
 		}
 	}

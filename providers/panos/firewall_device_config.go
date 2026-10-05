@@ -35,9 +35,7 @@ func (g *FirewallDeviceConfigGenerator) createResourcesFromList(o getGeneric, id
 			id,
 			normalizeResourceName(r),
 			terraformResourceName,
-			"panos",
-			[]string{},
-		))
+			"panos"))
 	}
 
 	return resources
@@ -48,9 +46,8 @@ func (g *FirewallDeviceConfigGenerator) createGeneralSettingsResource(hostname s
 		hostname,
 		normalizeResourceName(hostname),
 		"panos_general_settings",
-		"panos",
-		[]string{},
-	)
+		"panos")
+
 }
 
 func (g *FirewallDeviceConfigGenerator) createTelemetryResource(ipAddress, hostname string) terraformutils.Resource {
@@ -58,9 +55,8 @@ func (g *FirewallDeviceConfigGenerator) createTelemetryResource(ipAddress, hostn
 		ipAddress,
 		normalizeResourceName(hostname),
 		"panos_telemetry",
-		"panos",
-		[]string{},
-	)
+		"panos")
+
 }
 
 func (g *FirewallDeviceConfigGenerator) createEmailServerProfileResources() []terraformutils.Resource {

@@ -24,10 +24,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var regionAutoscalersAllowEmptyValues = []string{""}
-
-var regionAutoscalersAdditionalFields = map[string]interface{}{}
-
 type RegionAutoscalersGenerator struct {
 	GCPService
 }
@@ -46,10 +42,7 @@ func (g RegionAutoscalersGenerator) createResources(ctx context.Context, regionA
 					"name":    obj.Name,
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
-				},
-				regionAutoscalersAllowEmptyValues,
-				regionAutoscalersAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

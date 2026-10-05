@@ -35,10 +35,8 @@ func (g *TeamsGenerator) createTeamsResources(ctx context.Context, teams []*gith
 			strconv.FormatInt(team.GetID(), 10),
 			team.GetName(),
 			"github_team",
-			"github",
-			[]string{},
-		)
-		resource.SlowQueryRequired = true
+			"github")
+
 		resources = append(resources, resource)
 		resources = append(resources, g.createTeamMembersResources(ctx, team, client)...)
 		resources = append(resources, g.createTeamRepositoriesResources(ctx, team, client)...)
@@ -57,9 +55,7 @@ func (g *TeamsGenerator) createTeamMembersResources(ctx context.Context, team *g
 			strconv.FormatInt(team.GetID(), 10)+":"+member.GetLogin(),
 			team.GetName()+"_"+member.GetLogin(),
 			"github_team_membership",
-			"github",
-			[]string{},
-		))
+			"github"))
 	}
 	return resources
 }
@@ -75,9 +71,7 @@ func (g *TeamsGenerator) createTeamRepositoriesResources(ctx context.Context, te
 			strconv.FormatInt(team.GetID(), 10)+":"+repo.GetName(),
 			team.GetName()+"_"+repo.GetName(),
 			"github_team_repository",
-			"github",
-			[]string{},
-		))
+			"github"))
 	}
 	return resources
 }
@@ -107,31 +101,5 @@ func (g *TeamsGenerator) InitResources() error {
 		opt.Page = resp.NextPage
 	}
 
-	return nil
-}
-
-// PostConvertHook for connect between team and members
-func (g *TeamsGenerator) PostConvertHook() error {
-	for _, team := range g.Resources {
-		if team.InstanceInfo.Type != "github_team" {
-			continue
-		}
-		for i, member := range g.Resources {
-			if member.InstanceInfo.Type != "github_team_membership" {
-				continue
-			}
-			if member.InstanceState.Attributes["team_id"] == team.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["team_id"] = "${github_team." + team.ResourceName + ".id}"
-			}
-		}
-		for i, repo := range g.Resources {
-			if repo.InstanceInfo.Type != "github_team_repository" {
-				continue
-			}
-			if repo.InstanceState.Attributes["team_id"] == team.InstanceState.Attributes["id"] {
-				g.Resources[i].Item["team_id"] = "${github_team." + team.ResourceName + ".id}"
-			}
-		}
-	}
 	return nil
 }

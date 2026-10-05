@@ -58,10 +58,8 @@ func (g *SesGenerator) ListEmailIdentities(client *ses.Client) error {
 			*instance.IdentityName,
 			"tencentcloud_ses_domain",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 		if err := g.ListEmailAddress(client); err != nil {
 			return err
@@ -86,10 +84,8 @@ func (g *SesGenerator) ListEmailAddress(client *ses.Client) error {
 			*instance.EmailAddress,
 			"tencentcloud_ses_email_address",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 
@@ -122,10 +118,8 @@ func (g *SesGenerator) ListEmailTemplates(client *ses.Client) error {
 			strconv.FormatUint(*instance.TemplateID, 10),
 			"tencentcloud_ses_template",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

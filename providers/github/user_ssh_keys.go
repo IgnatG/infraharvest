@@ -51,10 +51,8 @@ func (g *UserSSHKeyGenerator) InitResources() error {
 				strconv.FormatInt(key.GetID(), 10),
 				strconv.FormatInt(key.GetID(), 10),
 				"github_user_ssh_key",
-				"github",
-				[]string{},
-			)
-			resource.SlowQueryRequired = true
+				"github")
+
 			g.Resources = append(g.Resources, resource)
 		}
 

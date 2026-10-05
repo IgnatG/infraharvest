@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-var VpcEndpointAllowEmptyValues = []string{"tags."}
-
 type VpcEndpointGenerator struct {
 	AWSService
 }
@@ -34,9 +32,7 @@ func (g *VpcEndpointGenerator) createResources(vpcEndpoints []types.VpcEndpoint)
 			StringValue(vpcEndpoint.VpcEndpointId),
 			StringValue(vpcEndpoint.VpcEndpointId),
 			"aws_vpc_endpoint",
-			"aws",
-			VpcAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return resources
 }

@@ -33,9 +33,7 @@ func (g *AppSamlGenerator) createResources(appList []okta.ListApplications200Res
 				*app.SamlApplication.Id,
 				normalizeResourceName(*app.SamlApplication.Id+"_"+app.SamlApplication.Label),
 				"okta_app_saml",
-				"okta",
-				[]string{},
-			))
+				"okta"))
 		}
 
 		if app.Saml11Application != nil && app.Saml11Application.Id != nil && app.Saml11Application.Label != "" {
@@ -43,9 +41,7 @@ func (g *AppSamlGenerator) createResources(appList []okta.ListApplications200Res
 				*app.Saml11Application.Id,
 				normalizeResourceName(*app.Saml11Application.Id+"_"+app.Saml11Application.Label),
 				"okta_app_saml",
-				"okta",
-				[]string{},
-			))
+				"okta"))
 		}
 	}
 	return resources
@@ -74,12 +70,5 @@ func (g *AppSamlGenerator) InitResources() error {
 	}
 
 	g.Resources = g.createResources(allApplications)
-	return nil
-}
-
-func (g *AppSamlGenerator) PostConvertHook() error {
-	for i := range g.Resources {
-		g.Resources[i].Item = escapeDollar(g.Resources[i].Item)
-	}
 	return nil
 }

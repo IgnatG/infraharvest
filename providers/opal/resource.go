@@ -69,9 +69,7 @@ func (g *ResourceGenerator) InitResources() error {
 			resource.ResourceId,
 			tfname,
 			"opal_resource",
-			"opal",
-			[]string{},
-		))
+			"opal"))
 	}
 
 	return nil

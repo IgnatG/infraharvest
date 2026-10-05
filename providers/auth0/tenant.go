@@ -21,10 +21,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	TenantAllowEmptyValues = []string{}
-)
-
 type TenantGenerator struct {
 	Auth0Service
 }
@@ -36,9 +32,7 @@ func (g TenantGenerator) createResources(tenant *management.Tenant) []terraformu
 		resourceName,
 		resourceName,
 		"auth0_tenant",
-		"auth0",
-		TenantAllowEmptyValues,
-	))
+		"auth0"))
 	return resources
 }
 

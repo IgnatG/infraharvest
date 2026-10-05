@@ -32,8 +32,7 @@ func (g UserGenerator) createResources(userList []govultr.User) []terraformutils
 			user.UserID,
 			user.UserID,
 			"vultr_user",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

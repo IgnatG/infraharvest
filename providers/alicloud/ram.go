@@ -29,14 +29,12 @@ type RAMGenerator struct {
 
 func resourceFromRAMRole(role ram.RoleInListRoles) terraformutils.Resource {
 	return terraformutils.NewResource(
-		role.RoleName,                  // id
-		role.RoleId+"__"+role.RoleName, // name
+		role.RoleName,
+		role.RoleId+"__"+role.RoleName,
 		"alicloud_ram_role",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func resourceFromRAMPolicy(policy ram.PolicyInListPoliciesForRole, roleName string) terraformutils.Resource {
@@ -44,14 +42,12 @@ func resourceFromRAMPolicy(policy ram.PolicyInListPoliciesForRole, roleName stri
 	id := strings.Join([]string{"role", policy.PolicyName, policy.PolicyType, roleName}, ":")
 
 	return terraformutils.NewResource(
-		id, // id
-		id+"__"+roleName+"_"+policy.PolicyName, // name
+		id,
+		id+"__"+roleName+"_"+policy.PolicyName,
 		"alicloud_ram_role_policy_attachment",
 		"alicloud",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{},
-	)
+		map[string]string{})
+
 }
 
 func initRoles(client *connectivity.AliyunClient) ([]ram.RoleInListRoles, error) {
@@ -122,20 +118,6 @@ func (g *RAMGenerator) InitResources() error {
 	for i, ramPolicy := range allRAMPolicyAttachment {
 		resource := resourceFromRAMPolicy(ramPolicy, roleNames[i])
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-// PostConvertHook Runs before HCL files are generated
-func (g *RAMGenerator) PostConvertHook() error {
-	for _, r := range g.Resources {
-		if r.InstanceInfo.Type == "alicloud_ram_role" {
-			// https://www.terraform.io/docs/providers/alicloud/r/ram_role.html
-			delete(r.Item, "services")  // deprecated
-			delete(r.Item, "ram_users") // deprecated
-			delete(r.Item, "version")   // deprecated
-		}
 	}
 
 	return nil

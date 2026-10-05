@@ -32,8 +32,7 @@ func (g BlockStorageGenerator) createResources(blockStorageList []govultr.BlockS
 			blockStorage.BlockStorageID,
 			blockStorage.BlockStorageID,
 			"vultr_block_storage",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-var customerGatewayAllowEmptyValues = []string{"tags."}
-
 type CustomerGatewayGenerator struct {
 	AWSService
 }
@@ -33,9 +31,7 @@ func (CustomerGatewayGenerator) createResources(cgws *ec2.DescribeCustomerGatewa
 			StringValue(cgws.CustomerGatewayId),
 			StringValue(cgws.CustomerGatewayId),
 			"aws_customer_gateway",
-			"aws",
-			customerGatewayAllowEmptyValues,
-		))
+			"aws"))
 	}
 	return resources
 }

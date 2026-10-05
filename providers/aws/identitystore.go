@@ -23,8 +23,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 )
 
-var identityStoreAllowEmptyValues = []string{"tags."}
-
 type IdentityStoreGenerator struct {
 	AWSService
 }
@@ -72,10 +70,7 @@ func (g *IdentityStoreGenerator) InitGroupResources(identityStoreId string) erro
 				map[string]string{
 					"identity_store_id": identityStoreId,
 					"description":       StringValue(group.Description),
-				},
-				identityStoreAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 			err = g.InitGroupMembershipResources(identityStoreId, groupId)
 			if err != nil {
 				return err
@@ -120,10 +115,7 @@ func (g *IdentityStoreGenerator) InitGroupMembershipResources(identityStoreId st
 					"identity_store_id": identityStoreId,
 					"group_id":          groupId,
 					"member_id":         memberId,
-				},
-				identityStoreAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil
@@ -157,10 +149,7 @@ func (g *IdentityStoreGenerator) InitUserResources(identityStoreId string) error
 					"identity_store_id": identityStoreId,
 					"display_name":      displayName,
 					"use_name":          userName,
-				},
-				identityStoreAllowEmptyValues,
-				map[string]interface{}{},
-			))
+				}))
 		}
 	}
 	return nil

@@ -32,8 +32,7 @@ func (g ReservedIPGenerator) createResources(ipList []govultr.ReservedIP) []terr
 			ip.ReservedIPID,
 			ip.ReservedIPID,
 			"vultr_reserved_ip",
-			"vultr",
-			[]string{}))
+			"vultr"))
 	}
 	return resources
 }

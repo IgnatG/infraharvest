@@ -36,9 +36,7 @@ func (g *CertificateGenerator) InitResources() error {
 			*certificate.Properties.Name+"-"+*certificate.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

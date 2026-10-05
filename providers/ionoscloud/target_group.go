@@ -38,9 +38,7 @@ func (g *TargetGroupGenerator) InitResources() error {
 			*targetGroup.Properties.Name+"-"+*targetGroup.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

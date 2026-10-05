@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 )
 
-var resourcegroupsAllowEmptyValues = []string{"tags."}
-
 type ResourceGroupsGenerator struct {
 	AWSService
 }
@@ -44,8 +42,7 @@ func (g *ResourceGroupsGenerator) InitResources() error {
 				groupName,
 				groupName,
 				"aws_resourcegroups_group",
-				"aws",
-				resourcegroupsAllowEmptyValues))
+				"aws"))
 		}
 	}
 	g.Resources = resources

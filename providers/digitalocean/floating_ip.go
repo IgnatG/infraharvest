@@ -62,8 +62,7 @@ func (g FloatingIPGenerator) createResources(floatingIPList []godo.FloatingIP) [
 			floatingIP.IP,
 			floatingIP.IP,
 			"digitalocean_floating_ip",
-			"digitalocean",
-			[]string{}))
+			"digitalocean"))
 	}
 	return resources
 }

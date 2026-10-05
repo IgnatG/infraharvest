@@ -31,8 +31,7 @@ func (g InlineHookGenerator) createResources(inlineHookList []*okta.InlineHook) 
 			inlineHook.Id,
 			"inline_hook_"+inlineHook.Name,
 			"okta_inline_hook",
-			"okta",
-			[]string{}))
+			"okta"))
 	}
 	return resources
 }

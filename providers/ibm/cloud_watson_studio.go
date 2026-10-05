@@ -35,8 +35,8 @@ func (g WatsonStudioGenerator) loadWatsonStudio(wsID string, wsName string) terr
 		wsID,
 		normalizeResourceName(wsName, false),
 		"ibm_resource_instance",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resources
 }
 

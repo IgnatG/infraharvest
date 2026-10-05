@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	RoleAllowEmptyValues = []string{}
-)
-
 type RoleGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g RoleGenerator) createResources(roles []*management.Role) []terraformutil
 			resourceName,
 			resourceName+"_"+*role.Name,
 			"auth0_role",
-			"auth0",
-			RoleAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

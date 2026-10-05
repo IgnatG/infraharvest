@@ -78,18 +78,16 @@ func (g *VpcGenerator) InitResources() error {
 			*vpcInstance.VpcName+"_"+*vpcInstance.VpcId,
 			"tencentcloud_vpc",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
-		// g.loadSubnets(client, *vpcInstance.VpcId, resource.ResourceName)
+			map[string]string{})
+
+		// g.loadSubnets(client, *vpcInstance.VpcId)
 		g.Resources = append(g.Resources, resource)
 	}
 
 	return nil
 }
 
-func (g *VpcGenerator) loadSubnets(client *vpc.Client, vpcID, resourceName string) error {
+func (g *VpcGenerator) loadSubnets(client *vpc.Client, vpcID string) error {
 	request := vpc.NewDescribeSubnetsRequest()
 	request.Filters = make([]*vpc.Filter, 0, 1)
 	idKey := "vpc-id"
@@ -126,11 +124,8 @@ func (g *VpcGenerator) loadSubnets(client *vpc.Client, vpcID, resourceName strin
 			*subnet.SubnetName+"_"+*subnet.SubnetId,
 			"tencentcloud_subnet",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
-		resource.AdditionalFields["vpc_id"] = "${tencentcloud_vpc." + resourceName + ".id}"
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 

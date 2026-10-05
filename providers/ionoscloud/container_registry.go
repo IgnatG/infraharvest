@@ -36,9 +36,7 @@ func (g *ContainerRegistryGenerator) InitResources() error {
 			*registry.Properties.Name+"-"+*registry.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

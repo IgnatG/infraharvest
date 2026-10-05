@@ -26,10 +26,6 @@ import (
 	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
 )
 
-var monitoringAllowEmptyValues = []string{}
-
-var monitoringAdditionalFields = map[string]interface{}{}
-
 type MonitoringGenerator struct {
 	GCPService
 }
@@ -63,10 +59,7 @@ func (g *MonitoringGenerator) loadAlerts(ctx context.Context, project string) er
 			map[string]string{
 				"name":    alert.Name,
 				"project": project,
-			},
-			monitoringAllowEmptyValues,
-			monitoringAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }
@@ -99,10 +92,7 @@ func (g *MonitoringGenerator) loadGroups(ctx context.Context, project string) er
 			map[string]string{
 				"name":    group.Name,
 				"project": project,
-			},
-			monitoringAllowEmptyValues,
-			monitoringAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }
@@ -135,10 +125,7 @@ func (g *MonitoringGenerator) loadNotificationChannel(ctx context.Context, proje
 			map[string]string{
 				"name":    notificationChannel.Name,
 				"project": project,
-			},
-			monitoringAllowEmptyValues,
-			monitoringAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }
@@ -170,10 +157,7 @@ func (g *MonitoringGenerator) loadUptimeCheck(ctx context.Context, project strin
 			map[string]string{
 				"name":    uptimeCheckConfigs.Name,
 				"project": project,
-			},
-			monitoringAllowEmptyValues,
-			monitoringAdditionalFields,
-		))
+			}))
 	}
 	return nil
 }

@@ -25,10 +25,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-var targetInstancesAllowEmptyValues = []string{""}
-
-var targetInstancesAdditionalFields = map[string]interface{}{}
-
 type TargetInstancesGenerator struct {
 	GCPService
 }
@@ -48,10 +44,7 @@ func (g TargetInstancesGenerator) createResources(ctx context.Context, targetIns
 					"project": g.GetArgs()["project"].(string),
 					"region":  g.GetArgs()["region"].(compute.Region).Name,
 					"zone":    zone,
-				},
-				targetInstancesAllowEmptyValues,
-				targetInstancesAdditionalFields,
-			))
+				}))
 		}
 		return nil
 	}); err != nil {

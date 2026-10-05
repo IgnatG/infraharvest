@@ -42,8 +42,7 @@ func (g *DomainGenerator) loadDomains(ctx context.Context, client *godo.Client) 
 				domain.Name,
 				domain.Name,
 				"digitalocean_domain",
-				"digitalocean",
-				[]string{}))
+				"digitalocean"))
 			list = append(list, domain)
 		}
 
@@ -79,9 +78,7 @@ func (g *DomainGenerator) loadRecords(ctx context.Context, client *godo.Client, 
 				strconv.Itoa(record.ID),
 				"digitalocean_record",
 				"digitalocean",
-				map[string]string{"domain": domain},
-				[]string{},
-				map[string]interface{}{}))
+				map[string]string{"domain": domain}))
 		}
 
 		// if we are at the last page, break out the for loop

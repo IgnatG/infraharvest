@@ -19,8 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codepipeline"
 )
 
-var codepipelineAllowEmptyValues = []string{"tags."}
-
 type CodePipelineGenerator struct {
 	AWSService
 }
@@ -38,8 +36,7 @@ func (g *CodePipelineGenerator) loadPipelines(svc *codepipeline.Client) error {
 				resourceName,
 				resourceName,
 				"aws_codepipeline",
-				"aws",
-				codepipelineAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil
@@ -58,8 +55,7 @@ func (g *CodePipelineGenerator) loadWebhooks(svc *codepipeline.Client) error {
 				resourceArn,
 				resourceArn,
 				"aws_codepipeline_webhook",
-				"aws",
-				codepipelineAllowEmptyValues))
+				"aws"))
 		}
 	}
 	return nil

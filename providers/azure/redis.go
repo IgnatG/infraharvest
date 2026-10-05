@@ -45,8 +45,7 @@ func (g *RedisGenerator) listRedisServers() ([]terraformutils.Resource, error) {
 			*redisServer.ID,
 			*redisServer.Name,
 			"azurerm_redis_cache",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := redisServersIterator.Next(); err != nil {
 			log.Println(err)

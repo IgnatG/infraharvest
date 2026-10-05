@@ -19,10 +19,6 @@ import (
 	"gopkg.in/auth0.v5/management"
 )
 
-var (
-	ResourceServerAllowEmptyValues = []string{}
-)
-
 type ResourceServerGenerator struct {
 	Auth0Service
 }
@@ -35,9 +31,7 @@ func (g ResourceServerGenerator) createResources(resourceServers []*management.R
 			resourceName,
 			resourceName+"_"+*resourceServer.Name,
 			"auth0_resource_server",
-			"auth0",
-			ResourceServerAllowEmptyValues,
-		))
+			"auth0"))
 	}
 	return resources
 }

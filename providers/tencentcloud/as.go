@@ -72,10 +72,8 @@ func (g *AsGenerator) loadScalingGroups(client *as.Client) error {
 			*instance.AutoScalingGroupName+"_"+*instance.AutoScalingGroupId,
 			"tencentcloud_as_scaling_group",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
 	}
 
@@ -110,31 +108,9 @@ func (g *AsGenerator) loadScalingConfigs(client *as.Client) error {
 			*instance.LaunchConfigurationName+"_"+*instance.LaunchConfigurationId,
 			"tencentcloud_as_scaling_config",
 			"tencentcloud",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		)
+			map[string]string{})
+
 		g.Resources = append(g.Resources, resource)
-	}
-
-	return nil
-}
-
-func (g *AsGenerator) PostConvertHook() error {
-	for i, resource := range g.Resources {
-		if resource.InstanceInfo.Type != "tencentcloud_as_scaling_group" {
-			continue
-		}
-		if configID, exist := resource.InstanceState.Attributes["configuration_id"]; exist {
-			for _, r := range g.Resources {
-				if r.InstanceInfo.Type != "tencentcloud_as_scaling_config" {
-					continue
-				}
-				if configID == r.InstanceState.Attributes["id"] {
-					g.Resources[i].Item["configuration_id"] = "${tencentcloud_as_scaling_config." + r.ResourceName + ".id}"
-				}
-			}
-		}
 	}
 
 	return nil

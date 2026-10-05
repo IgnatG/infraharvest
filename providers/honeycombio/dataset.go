@@ -26,10 +26,7 @@ func (g *DatasetGenerator) InitResources() error {
 			dataset.Slug,
 			"honeycombio_dataset",
 			"honeycombio",
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{},
-		))
+			map[string]string{}))
 	}
 
 	return nil

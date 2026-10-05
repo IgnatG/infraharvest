@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/IgnatG/infraharvest/terraformutils/providerwrapper"
 )
 
 type GCPFacade struct { //nolint
@@ -14,6 +13,10 @@ type GCPFacade struct { //nolint
 
 func (s *GCPFacade) SetProviderName(providerName string) {
 	s.service.SetProviderName(providerName)
+}
+
+func (s *GCPFacade) GetProviderName() string {
+	return s.service.GetProviderName()
 }
 
 func (s *GCPFacade) SetVerbose(verbose bool) {
@@ -43,10 +46,6 @@ func (s *GCPFacade) InitialCleanup() {
 	s.service.InitialCleanup()
 }
 
-func (s *GCPFacade) PostRefreshCleanup() {
-	s.service.PostRefreshCleanup()
-}
-
 func (s *GCPFacade) GetArgs() map[string]interface{} {
 	return s.service.GetArgs()
 }
@@ -67,15 +66,4 @@ func (s *GCPFacade) InitResources() error {
 		return nil
 	}
 	return err
-}
-
-func (s *GCPFacade) PostConvertHook() error {
-	if s.service.GetProviderName() != "google" {
-		s.service.SetResources(s.applyCustomProviderType(s.service.GetResources(), s.service.GetProviderName()))
-	}
-	return s.service.PostConvertHook()
-}
-
-func (s *GCPFacade) PopulateIgnoreKeys(providerWrapper *providerwrapper.ProviderWrapper) {
-	s.service.PopulateIgnoreKeys(providerWrapper)
 }

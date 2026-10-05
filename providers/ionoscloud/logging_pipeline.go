@@ -36,9 +36,7 @@ func (g *LoggingPipelineGenerator) InitResources() error {
 			*pipeline.Properties.Name+"-"+*pipeline.Id,
 			resourceType,
 			helpers.Ionos,
-			map[string]string{},
-			[]string{},
-			map[string]interface{}{}))
+			map[string]string{}))
 	}
 	return nil
 }

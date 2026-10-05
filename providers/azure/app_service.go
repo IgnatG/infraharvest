@@ -41,8 +41,7 @@ func (g AppServiceGenerator) listApps() ([]terraformutils.Resource, error) {
 			*site.ID,
 			*site.Name,
 			"azurerm_app_service",
-			g.ProviderName,
-			[]string{}))
+			g.ProviderName))
 
 		if err := appsIterator.NextWithContext(ctx); err != nil {
 			log.Println(err)

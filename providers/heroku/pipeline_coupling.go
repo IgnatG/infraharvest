@@ -32,8 +32,7 @@ func (g PipelineCouplingGenerator) createResources(pipelineCouplingList []heroku
 			pipelineCoupling.ID,
 			pipelineCoupling.ID,
 			"heroku_pipeline_coupling",
-			"heroku",
-			[]string{}))
+			"heroku"))
 	}
 	return resources
 }

@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/securityhub"
 )
 
-var securityhubAllowEmptyValues = []string{"tags."}
-
 type SecurityhubGenerator struct {
 	AWSService
 }
@@ -46,11 +44,11 @@ func (g *SecurityhubGenerator) InitResources() error {
 	if err != nil {
 		return err
 	}
-	err = g.addMembers(client, *account)
+	err = g.addMembers(client)
 	if err != nil {
 		return err
 	}
-	err = g.addStandardsSubscription(client, *account)
+	err = g.addStandardsSubscription(client)
 	return err
 }
 
@@ -68,13 +66,11 @@ func (g *SecurityhubGenerator) addAccount(client *securityhub.Client, accountNum
 		accountNumber,
 		accountNumber,
 		"aws_securityhub_account",
-		"aws",
-		securityhubAllowEmptyValues,
-	))
+		"aws"))
 	return false, nil
 }
 
-func (g *SecurityhubGenerator) addMembers(svc *securityhub.Client, accountNumber string) error {
+func (g *SecurityhubGenerator) addMembers(svc *securityhub.Client) error {
 	p := securityhub.NewListMembersPaginator(svc, &securityhub.ListMembersInput{}, stopOnDuplicateToken)
 
 	for p.HasMorePages() {
@@ -95,18 +91,13 @@ func (g *SecurityhubGenerator) addMembers(svc *securityhub.Client, accountNumber
 				"securityhub_member_"+id,
 				"aws_securityhub_member",
 				"aws",
-				attributes,
-				securityhubAllowEmptyValues,
-				map[string]interface{}{
-					"depends_on": []string{"${aws_securityhub_account.tfer--" + accountNumber + "}"},
-				},
-			))
+				attributes))
 		}
 	}
 	return nil
 }
 
-func (g *SecurityhubGenerator) addStandardsSubscription(svc *securityhub.Client, accountNumber string) error {
+func (g *SecurityhubGenerator) addStandardsSubscription(svc *securityhub.Client) error {
 	p := securityhub.NewGetEnabledStandardsPaginator(svc, &securityhub.GetEnabledStandardsInput{}, stopOnDuplicateToken)
 
 	for p.HasMorePages() {
@@ -123,12 +114,7 @@ func (g *SecurityhubGenerator) addStandardsSubscription(svc *securityhub.Client,
 				"aws",
 				map[string]string{
 					"standards_arn": id,
-				},
-				securityhubAllowEmptyValues,
-				map[string]interface{}{
-					"depends_on": []string{"aws_securityhub_account.tfer--" + accountNumber},
-				},
-			))
+				}))
 		}
 	}
 	return nil

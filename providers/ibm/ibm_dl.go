@@ -34,22 +34,19 @@ func (g DLGenerator) createDirectLinkGatewayResources(gatewayID, gatewayName str
 		gatewayID,
 		normalizeResourceName(gatewayName, false),
 		"ibm_dl_gateway",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resource
 }
 
-func (g DLGenerator) createDirectLinkVirtualConnectionResources(gatewayID, connectionID, connectionName string, dependsOn []string) terraformutils.Resource {
+func (g DLGenerator) createDirectLinkVirtualConnectionResources(gatewayID, connectionID, connectionName string) terraformutils.Resource {
 	resource := terraformutils.NewResource(
 		fmt.Sprintf("%s/%s", gatewayID, connectionID),
 		normalizeResourceName(connectionName, false),
 		"ibm_dl_virtual_connection",
 		"ibm",
-		map[string]string{},
-		[]string{},
-		map[string]interface{}{
-			"depends_on": dependsOn,
-		})
+		map[string]string{})
+
 	return resource
 }
 
@@ -58,8 +55,8 @@ func (g DLGenerator) createDirectLinkProviderGatewayResources(providerGatewayID,
 		providerGatewayID,
 		normalizeResourceName(providerGatewayName, false),
 		"ibm_dl_provider_gateway",
-		"ibm",
-		[]string{})
+		"ibm")
+
 	return resource
 }
 
@@ -90,9 +87,6 @@ func (g *DLGenerator) InitResources() error {
 	if gateways.Gateways != nil {
 		for _, gateway := range gateways.Gateways {
 			g.Resources = append(g.Resources, g.createDirectLinkGatewayResources(*gateway.ID, *gateway.Name))
-			resourceName := g.Resources[len(g.Resources)-1:][0].ResourceName
-			var dependsOn []string
-			dependsOn = append(dependsOn, "ibm_dl_gateway."+resourceName)
 			listGatewayVirtualConnectionsOptions := &dl.ListGatewayVirtualConnectionsOptions{
 				GatewayID: gateway.ID,
 			}
@@ -101,7 +95,7 @@ func (g *DLGenerator) InitResources() error {
 				return fmt.Errorf("Error Fetching Direct Link Virtual connections %s\n%s", err, response)
 			}
 			for _, connection := range connections.VirtualConnections {
-				g.Resources = append(g.Resources, g.createDirectLinkVirtualConnectionResources(*gateway.ID, *connection.ID, *connection.Name, dependsOn))
+				g.Resources = append(g.Resources, g.createDirectLinkVirtualConnectionResources(*gateway.ID, *connection.ID, *connection.Name))
 			}
 		}
 	}

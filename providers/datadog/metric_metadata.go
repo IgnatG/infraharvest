@@ -21,11 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-var (
-	// MetricMetadataAllowEmptyValues ...
-	MetricMetadataAllowEmptyValues = []string{}
-)
-
 // MetricMetadataGenerator ...
 type MetricMetadataGenerator struct {
 	DatadogService
@@ -39,10 +34,8 @@ func (g *MetricMetadataGenerator) createResource(metricName string) terraformuti
 		"datadog",
 		map[string]string{
 			"metric": metricName,
-		},
-		MetricMetadataAllowEmptyValues,
-		map[string]interface{}{},
-	)
+		})
+
 }
 
 // InitResources Generate TerraformResources from Datadog API,
