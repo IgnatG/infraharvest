@@ -33,7 +33,7 @@ func (g *CodeDeployGenerator) InitResources() error {
 		return e
 	}
 	svc := codedeploy.NewFromConfig(config)
-	p := codedeploy.NewListApplicationsPaginator(svc, &codedeploy.ListApplicationsInput{})
+	p := codedeploy.NewListApplicationsPaginator(svc, &codedeploy.ListApplicationsInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())

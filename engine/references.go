@@ -69,38 +69,68 @@ func addReferences(dir string, values map[string]map[string]any) (bool, error) {
 	return true, generated.save()
 }
 
-// referenceIndex maps each id and ARN value to the attribute to refer to,
-// leaving out values several resources share unless one of them is the
-// others' parent (an S3 bucket, whose versioning and policy resources have
-// the bucket's name as their id too).
-func referenceIndex(values map[string]map[string]any) map[string]referenceTarget {
-	owners := map[string][]string{}
+// referenceIndex maps each id and ARN value to the attributes to refer to
+// instead, one per resource that has the value, by address. Which of them
+// a literal refers to, if any, depends on where it is (see uniqueTarget).
+func referenceIndex(values map[string]map[string]any) map[string][]referenceTarget {
+	index := map[string][]referenceTarget{}
 	for address, attrs := range values {
 		for _, key := range []string{"id", "arn"} {
-			if v, ok := attrs[key].(string); ok && v != "" && !slices.Contains(owners[v], address) {
-				owners[v] = append(owners[v], address)
+			v, ok := attrs[key].(string)
+			if !ok || v == "" || slices.ContainsFunc(index[v], func(t referenceTarget) bool { return t.address == address }) {
+				continue
+			}
+			attribute := "id"
+			switch {
+			case attrs["arn"] == v:
+				attribute = "arn"
+			case attrs["name"] == v:
+				attribute = "name"
+			case attrs["bucket"] == v:
+				attribute = "bucket"
+			}
+			index[v] = append(index[v], referenceTarget{address: address, attribute: attribute})
+		}
+	}
+	for _, targets := range index {
+		sort.Slice(targets, func(i, j int) bool { return targets[i].address < targets[j].address })
+	}
+	return index
+}
+
+// uniqueTarget picks, of the resources that have value, the one the
+// argument refers to: the one resource, or the others' parent (an S3
+// bucket, whose versioning and policy resources have the bucket's name as
+// their id too), if the value identifies a resource on its own (see
+// referenceable) or the argument is named after the parent's type; else
+// the one resource whose type the argument is named after (role = "ci"
+// names aws_iam_role.ci, not aws_iam_instance_profile.ci). It reports
+// false when there is none.
+func uniqueTarget(argument, value string, targets []referenceTarget) (referenceTarget, bool) {
+	addresses := make([]string, 0, len(targets))
+	for _, t := range targets {
+		addresses = append(addresses, t.address)
+	}
+	if parent := parentOf(addresses); parent != "" && (referenceable(value) || namedAfter(argument, parent)) {
+		for _, t := range targets {
+			if t.address == parent {
+				return t, true
 			}
 		}
 	}
-	index := map[string]referenceTarget{}
-	for value, addresses := range owners {
-		address := parentOf(addresses)
-		if address == "" {
-			continue
-		}
-		attrs := values[address]
-		attribute := "id"
-		switch {
-		case attrs["arn"] == value:
-			attribute = "arn"
-		case attrs["name"] == value:
-			attribute = "name"
-		case attrs["bucket"] == value:
-			attribute = "bucket"
-		}
-		index[value] = referenceTarget{address: address, attribute: attribute}
+	if referenceable(value) {
+		return referenceTarget{}, false
 	}
-	return index
+	var named []referenceTarget
+	for _, t := range targets {
+		if namedAfter(argument, t.address) {
+			named = append(named, t)
+		}
+	}
+	if len(named) != 1 {
+		return referenceTarget{}, false
+	}
+	return named[0], true
 }
 
 // parentOf returns the one address, or the address whose type starts every
@@ -149,7 +179,7 @@ func namedAfter(argument, address string) bool {
 // referenceAttributes replaces the literals in body, of the resource at
 // address, and in its nested blocks. It records the references it adds in
 // g and skips those that would close a cycle.
-func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, index map[string]referenceTarget, g dependencies, src []byte) bool {
+func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, index map[string][]referenceTarget, g dependencies, src []byte) bool {
 	changed := false
 	names := make([]string, 0, len(syntax.Attributes))
 	for name := range syntax.Attributes {
@@ -159,8 +189,8 @@ func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.
 		return syntax.Attributes[names[i]].SrcRange.Start.Byte < syntax.Attributes[names[j]].SrcRange.Start.Byte
 	})
 	target := func(argument, value string) (referenceTarget, bool) {
-		t, ok := index[value]
-		if !ok || t.address == address || (!referenceable(value) && !namedAfter(argument, t.address)) {
+		t, ok := uniqueTarget(argument, value, index[value])
+		if !ok || t.address == address {
 			return referenceTarget{}, false
 		}
 		return t, g.add(address, t.node())

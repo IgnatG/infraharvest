@@ -20,7 +20,7 @@ const CognitoMaxResults = 60 // Required field for Cognito API
 func (g *CognitoGenerator) loadIdentityPools(svc *cognitoidentity.Client) error {
 	p := cognitoidentity.NewListIdentityPoolsPaginator(svc, &cognitoidentity.ListIdentityPoolsInput{
 		MaxResults: aws.Int32(CognitoMaxResults),
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -44,7 +44,7 @@ func (g *CognitoGenerator) loadIdentityPools(svc *cognitoidentity.Client) error 
 func (g *CognitoGenerator) loadUserPools(svc *cognitoidentityprovider.Client) ([]string, error) {
 	p := cognitoidentityprovider.NewListUserPoolsPaginator(svc, &cognitoidentityprovider.ListUserPoolsInput{
 		MaxResults: aws.Int32(CognitoMaxResults),
-	})
+	}, stopOnDuplicateToken)
 
 	var userPoolIds []string
 	for p.HasMorePages() {
@@ -73,7 +73,7 @@ func (g *CognitoGenerator) loadUserPoolClients(svc *cognitoidentityprovider.Clie
 		p := cognitoidentityprovider.NewListUserPoolClientsPaginator(svc, &cognitoidentityprovider.ListUserPoolClientsInput{
 			UserPoolId: aws.String(userPoolID),
 			MaxResults: aws.Int32(CognitoMaxResults),
-		})
+		}, stopOnDuplicateToken)
 
 		for p.HasMorePages() {
 			page, err := p.NextPage(g.Context())

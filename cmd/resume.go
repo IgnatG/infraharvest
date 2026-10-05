@@ -109,10 +109,20 @@ var generatedFiles = []string{
 }
 
 // clearGenerated removes what a previous run generated in dir, so that the
-// root can be generated again.
+// root can be generated again: generatedFiles, and the files --incremental
+// added (see engine.AddedFileName).
 func clearGenerated(dir string) error {
 	for _, name := range generatedFiles {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	added, err := filepath.Glob(filepath.Join(dir, "generated_*.tf"))
+	if err != nil {
+		return err
+	}
+	for _, path := range added {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}

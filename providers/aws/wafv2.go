@@ -15,6 +15,8 @@
 package aws
 
 import (
+	"errors"
+
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/aws/aws-sdk-go-v2/service/wafv2"
 	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
@@ -97,6 +99,12 @@ func (g *Wafv2Generator) loadWebACLAssociations(svc *wafv2.Client, webACLArn *st
 	for _, resourceType := range types.ResourceTypeApplicationLoadBalancer.Values() {
 		output, err := svc.ListResourcesForWebACL(g.Context(),
 			&wafv2.ListResourcesForWebACLInput{WebACLArn: webACLArn, ResourceType: resourceType})
+		var invalidParameter *types.WAFInvalidParameterException
+		var nonexistent *types.WAFNonexistentItemException
+		if errors.As(err, &invalidParameter) || errors.As(err, &nonexistent) {
+			// Not every region offers every resource type.
+			continue
+		}
 		if err != nil {
 			return err
 		}

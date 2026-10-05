@@ -33,7 +33,7 @@ func (g *CloudHsmGenerator) InitResources() error {
 	}
 	svc := cloudhsmv2.NewFromConfig(config)
 
-	p := cloudhsmv2.NewDescribeClustersPaginator(svc, &cloudhsmv2.DescribeClustersInput{})
+	p := cloudhsmv2.NewDescribeClustersPaginator(svc, &cloudhsmv2.DescribeClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

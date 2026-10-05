@@ -52,7 +52,7 @@ func (g *BudgetsGenerator) InitResources() error {
 		return err
 	}
 
-	p := budgets.NewDescribeBudgetsPaginator(budgetsSvc, &budgets.DescribeBudgetsInput{AccountId: account})
+	p := budgets.NewDescribeBudgetsPaginator(budgetsSvc, &budgets.DescribeBudgetsInput{AccountId: account}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

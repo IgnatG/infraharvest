@@ -32,7 +32,7 @@ func (g *CloudFormationGenerator) InitResources() error {
 		return e
 	}
 	svc := cloudformation.NewFromConfig(config)
-	p := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{})
+	p := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

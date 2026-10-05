@@ -3,12 +3,18 @@ package aws
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 )
 
 // Each fake API below serves two pages. The second page is returned when the
@@ -376,4 +382,108 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 
 	assertIDs(t, g.Resources, "aws_cloudwatch_event_rule", "rule-1", "rule-2")
 	assertIDs(t, g.Resources, "aws_cloudwatch_event_target", "rule-1/target-1", "rule-1/target-2", "rule-2/target-1", "rule-2/target-2")
+}
+
+func TestStopOnDuplicateToken(t *testing.T) {
+	var options cloudcontrol.ListResourcesPaginatorOptions
+	stopOnDuplicateToken(&options)
+	if !options.StopOnDuplicateToken {
+		t.Error("StopOnDuplicateToken not set")
+	}
+}
+
+// Every SDK paginator must stop on a repeated token, or a service that
+// returns the same token twice is listed forever.
+func TestEveryPaginatorStopsOnDuplicateToken(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || !strings.HasPrefix(sel.Sel.Name, "New") || !strings.HasSuffix(sel.Sel.Name, "Paginator") || len(call.Args) == 0 {
+				return true
+			}
+			if last, ok := call.Args[len(call.Args)-1].(*ast.Ident); !ok || last.Name != "stopOnDuplicateToken" {
+				t.Errorf("%s: %s is not passed stopOnDuplicateToken", fset.Position(call.Pos()), sel.Sel.Name)
+			}
+			return true
+		})
+	}
+}
+
+// A paginator does not advance after an error, so a lister that logged the
+// error and went on asked for the same page forever.
+func TestIamGroupPoliciesStopOnError(t *testing.T) {
+	calls := 0
+	useFakeAPI(t, func(call apiCall) string {
+		calls++
+		if calls > 5 {
+			t.Fatal("pagination does not stop on error")
+		}
+		const ns = `xmlns="https://iam.amazonaws.com/doc/2010-05-08/"`
+		switch call.Op {
+		case "ListGroups":
+			return `<ListGroupsResponse ` + ns + `><ListGroupsResult><Groups><member>
+				<GroupName>admins</GroupName><GroupId>AGPA1</GroupId><Path>/</Path>
+				<Arn>arn:aws:iam::123456789012:group/admins</Arn>
+				</member></Groups><IsTruncated>false</IsTruncated></ListGroupsResult></ListGroupsResponse>`
+		case "ListGroupPolicies":
+			return `<ErrorResponse ` + ns + `><Error><Code>Throttling</Code><Message>Rate exceeded</Message></Error></ErrorResponse>`
+		}
+		t.Fatalf("unexpected call %s", call.Op)
+		return ""
+	})
+	g := &IamGenerator{}
+	config, err := g.generateConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = g.getGroups(iam.NewFromConfig(config))
+
+	if err == nil || !strings.Contains(err.Error(), "Throttling") {
+		t.Errorf("want the ListGroupPolicies error, got %v", err)
+	}
+}
+
+func TestSnsSubscriptionsStopOnError(t *testing.T) {
+	calls := 0
+	useFakeAPI(t, func(call apiCall) string {
+		calls++
+		if calls > 5 {
+			t.Fatal("pagination does not stop on error")
+		}
+		const ns = `xmlns="http://sns.amazonaws.com/doc/2010-03-31/"`
+		switch call.Op {
+		case "ListTopics":
+			return `<ListTopicsResponse ` + ns + `><ListTopicsResult><Topics><member>
+				<TopicArn>arn:aws:sns:us-east-1:123456789012:alerts</TopicArn>
+				</member></Topics></ListTopicsResult></ListTopicsResponse>`
+		case "ListSubscriptionsByTopic":
+			return `<ErrorResponse ` + ns + `><Error><Code>AuthorizationError</Code><Message>not allowed</Message></Error></ErrorResponse>`
+		}
+		t.Fatalf("unexpected call %s", call.Op)
+		return ""
+	})
+	g := &SnsGenerator{}
+
+	err := g.InitResources()
+
+	if err == nil || !strings.Contains(err.Error(), "AuthorizationError") {
+		t.Errorf("want the ListSubscriptionsByTopic error, got %v", err)
+	}
 }

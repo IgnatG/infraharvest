@@ -22,28 +22,49 @@ var importedValues = map[string]map[string]any{
 	"aws_s3_bucket_versioning.logs": {"id": "logs"},
 	"aws_iam_role.app":              {"id": "app", "name": "app", "arn": "arn:aws:iam::1:role/app"},
 	"aws_ecr_repository.app":        {"id": "app"},
+	"aws_codecommit_repository.app": {"id": "app"},
 	"aws_sfn_state_machine.flow":    {"id": "arn:aws:states:us-east-1:1:stateMachine:flow", "arn": "arn:aws:states:us-east-1:1:stateMachine:flow"},
 }
 
 func TestReferenceIndex(t *testing.T) {
 	index := referenceIndex(importedValues)
 
-	for value, want := range map[string]referenceTarget{
-		"vpc-0abc1234": {address: "aws_vpc.main", attribute: "id"},
-		"arn:aws:ec2:us-east-1:1:vpc/vpc-0abc1234": {address: "aws_vpc.main", attribute: "arn"},
+	for value, want := range map[string][]referenceTarget{
+		"vpc-0abc1234": {{address: "aws_vpc.main", attribute: "id"}},
+		"arn:aws:ec2:us-east-1:1:vpc/vpc-0abc1234": {{address: "aws_vpc.main", attribute: "arn"}},
 		// The versioning resource's id is the bucket's name too.
-		"logs":                    {address: "aws_s3_bucket.logs", attribute: "bucket"},
-		"arn:aws:iam::1:role/app": {address: "aws_iam_role.app", attribute: "arn"},
+		"logs":                    {{address: "aws_s3_bucket.logs", attribute: "bucket"}, {address: "aws_s3_bucket_versioning.logs", attribute: "id"}},
+		"arn:aws:iam::1:role/app": {{address: "aws_iam_role.app", attribute: "arn"}},
 		// id and ARN of one resource: the ARN.
-		"arn:aws:states:us-east-1:1:stateMachine:flow": {address: "aws_sfn_state_machine.flow", attribute: "arn"},
+		"arn:aws:states:us-east-1:1:stateMachine:flow": {{address: "aws_sfn_state_machine.flow", attribute: "arn"}},
+		// Every resource called app, by address.
+		"app": {{address: "aws_codecommit_repository.app", attribute: "id"}, {address: "aws_ecr_repository.app", attribute: "id"}, {address: "aws_iam_role.app", attribute: "name"}},
 	} {
-		if got := index[value]; got != want {
+		if got := index[value]; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: got %+v, want %+v", value, got, want)
 		}
 	}
-	// A role and a repository both called app: no telling which is meant.
-	if got, ok := index["app"]; ok {
-		t.Errorf("ambiguous value indexed: %+v", got)
+}
+
+func TestUniqueTarget(t *testing.T) {
+	index := referenceIndex(importedValues)
+	for _, tc := range []struct {
+		argument, value, want string
+	}{
+		{"vpc_id", "vpc-0abc1234", "aws_vpc.main"},
+		// The bucket is its versioning's parent.
+		{"bucket", "logs", "aws_s3_bucket.logs"},
+		{"name", "logs", ""},
+		// Named after the role's type, not the repositories'.
+		{"role", "app", "aws_iam_role.app"},
+		// Two repositories: no telling which is meant.
+		{"repository", "app", ""},
+		{"name", "app", ""},
+	} {
+		got, ok := uniqueTarget(tc.argument, tc.value, index[tc.value])
+		if ok != (tc.want != "") || got.address != tc.want {
+			t.Errorf("%s = %q: got %+v, %v, want %q", tc.argument, tc.value, got, ok, tc.want)
+		}
 	}
 }
 
@@ -78,6 +99,10 @@ resource "aws_iam_role_policy_attachment" "app" {
   role = "app"
 }
 
+resource "aws_ecr_lifecycle_policy" "app" {
+  repository = "app"
+}
+
 resource "aws_sfn_state_machine" "flow" {
   role_arn = "arn:aws:iam::1:role/app"
 }
@@ -100,6 +125,8 @@ func TestAddReferences(t *testing.T) {
 		// Named after the type: the bucket's name refers to the bucket.
 		"bucket = aws_s3_bucket.logs.bucket",
 		"role_arn = aws_iam_role.app.arn",
+		// Named after the role's type: not the repositories called app.
+		"role = aws_iam_role.app.name",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -115,12 +142,56 @@ func TestAddReferences(t *testing.T) {
 		"resource \"aws_s3_bucket\" \"logs\" {\n  bucket = \"logs\"",
 		// A name isn't an ID: only arguments named after the type refer.
 		`name   = "logs"`,
-		// Ambiguous.
-		`role = "app"`,
+		// Ambiguous: two repositories are called app.
+		`repository = "app"`,
 	} {
 		if !strings.Contains(got, kept) {
 			t.Errorf("%q changed:\n%s", kept, got)
 		}
+	}
+}
+
+// A role and its instance profile share their name as id: the arguments
+// named role refer to the role, the names stay.
+func TestAddReferencesToTheOwnerNamedAfterTheArgument(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_instance_profile" "ci" {
+  name = "ci"
+  role = "ci"
+}
+
+resource "aws_iam_role" "ci" {
+  name = "ci"
+}
+
+resource "aws_iam_role_policy" "ci" {
+  name = "ci"
+  role = "ci"
+}
+
+resource "aws_iam_role_policy_attachment" "ci" {
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+  role       = "ci"
+}
+`)
+	values := map[string]map[string]any{
+		"aws_iam_role.ci":                   {"id": "ci", "name": "ci", "arn": "arn:aws:iam::1:role/ci"},
+		"aws_iam_instance_profile.ci":       {"id": "ci", "name": "ci", "arn": "arn:aws:iam::1:instance-profile/ci"},
+		"aws_iam_role_policy.ci":            {"id": "ci:ci", "name": "ci"},
+		"aws_iam_role_policy_attachment.ci": {"id": "ci-20260101"},
+	}
+
+	changed, err := addReferences(dir, values)
+	if err != nil || !changed {
+		t.Fatalf("want references, got changed=%v err=%v", changed, err)
+	}
+
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	if strings.Count(got, "role = aws_iam_role.ci.name") != 3 {
+		t.Errorf("want every role argument to refer to the role:\n%s", got)
+	}
+	if strings.Count(got, `name = "ci"`) != 3 {
+		t.Errorf("want the names left as they are:\n%s", got)
 	}
 }
 

@@ -44,7 +44,7 @@ func (g *EfsGenerator) InitResources() error {
 }
 
 func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
-	p := efs.NewDescribeFileSystemsPaginator(svc, &efs.DescribeFileSystemsInput{})
+	p := efs.NewDescribeFileSystemsPaginator(svc, &efs.DescribeFileSystemsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -98,7 +98,7 @@ func (g *EfsGenerator) loadFileSystem(svc *efs.Client) error {
 }
 
 func (g *EfsGenerator) loadAccessPoint(svc *efs.Client) error {
-	p := efs.NewDescribeAccessPointsPaginator(svc, &efs.DescribeAccessPointsInput{})
+	p := efs.NewDescribeAccessPointsPaginator(svc, &efs.DescribeAccessPointsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

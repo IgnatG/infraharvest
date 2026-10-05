@@ -210,7 +210,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	var rejected bytes.Buffer
 	repaired := false
 	for round := 0; ; round++ {
-		errs, err := unresolved(dir, diags)
+		errs, err := unresolved("terraform plan", dir, diags)
 		if err != nil {
 			return nil, err
 		}
@@ -290,7 +290,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 // unresolved returns the errors in diags by resource, leaving out errors
 // about secret attributes, which variables resolve (see useVariables). It
 // fails on errors it can't attribute to a resource.
-func unresolved(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, error) {
+func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, error) {
 	if len(diags) == 0 {
 		return nil, nil
 	}
@@ -304,7 +304,7 @@ func unresolved(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diag
 	}
 	errs, general := byResource(diags, generated, imports)
 	if len(general) > 0 {
-		return nil, fmt.Errorf("terraform plan: %w", diagnosticsError(diags))
+		return nil, fmt.Errorf("%s: %w", command, diagnosticsError(diags))
 	}
 	secrets := findSecrets(generated)
 	for addr, ds := range errs {
@@ -361,7 +361,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, re
 	if validation.Valid {
 		return secrets, nil
 	}
-	errs, err := unresolved(dir, errorDiagnostics(validation.Diagnostics))
+	errs, err := unresolved("terraform validate", dir, errorDiagnostics(validation.Diagnostics))
 	if err != nil {
 		return nil, err
 	}

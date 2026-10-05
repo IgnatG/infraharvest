@@ -120,7 +120,8 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 	}
 	changed, err := edit()
 	if err != nil {
-		return false, err
+		// The edit may have changed some of the files before failing.
+		return false, errors.Join(err, backup.restore())
 	}
 	if !changed {
 		return false, nil

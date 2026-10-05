@@ -33,7 +33,7 @@ type ACMGenerator struct {
 
 func (g *ACMGenerator) createCertificatesResources(svc *acm.Client) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	p := acm.NewListCertificatesPaginator(svc, &acm.ListCertificatesInput{})
+	p := acm.NewListCertificatesPaginator(svc, &acm.ListCertificatesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

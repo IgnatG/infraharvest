@@ -13,9 +13,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -75,6 +77,9 @@ type moduleInput struct {
 	ty       cty.Type // cty.DynamicPseudoType if unknown
 	what     string   // for the description
 	values   []hclwrite.Tokens
+	// sensitive is set when a value reads a root variable, which only
+	// secrets do (see useVariables): the module's variable is then too.
+	sensitive bool
 }
 
 // moduleGroup is clusters of one shape, which share a module.
@@ -84,6 +89,9 @@ type moduleGroup struct {
 	main     []byte
 	inputs   []moduleInput
 	outputs  []string // output names, sorted
+	// variables and outputsFile are variables.tf and outputs.tf.
+	variables   []byte
+	outputsFile []byte
 }
 
 // modularize moves clusters of resources that occur at least twice with the
@@ -141,7 +149,8 @@ func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]stri
 
 // findClusters finds each resource's children: resources whose type is the
 // resource's type plus a suffix and that refer to it. A child goes to the
-// parent with the longest type; a resource with children isn't a child.
+// parent with the longest type, the first by address of those; a resource
+// with children isn't a child.
 func findClusters(f *hclFile) []*cluster {
 	resources := f.resources()
 	byAddress := map[string]resourceBlock{}
@@ -157,7 +166,8 @@ func findClusters(f *hclFile) []*cluster {
 			if !ok || p.address == r.address || !strings.HasPrefix(resourceTypeOf(r.address), resourceTypeOf(p.address)+"_") {
 				continue
 			}
-			if parent == "" || len(resourceTypeOf(p.address)) > len(resourceTypeOf(parent)) {
+			pt, parentT := resourceTypeOf(p.address), resourceTypeOf(parent)
+			if parent == "" || len(pt) > len(parentT) || (len(pt) == len(parentT) && p.address < parent) {
 				parent = p.address
 			}
 		}
@@ -213,9 +223,15 @@ func groupClusters(clusters []*cluster) []*moduleGroup {
 	return groups
 }
 
-// referencedAddresses lists the resources an expression in body refers to.
+// referencedAddresses lists the resources the expressions in body refer
+// to, sorted, each once.
 func referencedAddresses(body *hclsyntax.Body) []string {
-	var addresses []string
+	addresses := collectReferencedAddresses(body, nil)
+	sort.Strings(addresses)
+	return slices.Compact(addresses)
+}
+
+func collectReferencedAddresses(body *hclsyntax.Body, addresses []string) []string {
 	for _, attr := range body.Attributes {
 		for _, t := range attr.Expr.Variables() {
 			if a := resourceAddress(t); a != "" {
@@ -224,7 +240,7 @@ func referencedAddresses(body *hclsyntax.Body) []string {
 		}
 	}
 	for _, b := range body.Blocks {
-		addresses = append(addresses, referencedAddresses(b.Body)...)
+		addresses = collectReferencedAddresses(b.Body, addresses)
 	}
 	return addresses
 }
@@ -288,11 +304,6 @@ func buildModule(g *moduleGroup, schemas *tfjson.ProviderSchemas) (bool, error) 
 		f.Body().AppendBlock(block)
 	}
 	g.main = hclwrite.Format(f.Bytes())
-	sum := sha256.Sum256(g.main)
-	// Named after the parent's type, without its provider, and its content:
-	// identical clusters in different roots share the module.
-	_, kind, _ := strings.Cut(resourceTypeOf(first.members[0].address), "_")
-	g.name = kind + "_" + hex.EncodeToString(sum[:])[:8]
 	for i, m := range first.members {
 		for _, attr := range moduleOutputs {
 			if schemaAttribute(schemas, resourceTypeOf(m.address), []string{attr}) != nil {
@@ -301,6 +312,22 @@ func buildModule(g *moduleGroup, schemas *tfjson.ProviderSchemas) (bool, error) 
 		}
 	}
 	sort.Strings(g.outputs)
+	var err error
+	if g.variables, err = moduleVariablesFile(g); err != nil {
+		return false, err
+	}
+	g.outputsFile = moduleOutputsFile(g)
+	// Named after the parent's type, without its provider, and the module's
+	// content, variables and outputs included: identical clusters in
+	// different roots share the module, and a module with other variables
+	// or outputs is another module.
+	sum := sha256.New()
+	for _, content := range [][]byte{g.main, g.variables, g.outputsFile} {
+		sum.Write(content)
+		sum.Write([]byte{0})
+	}
+	_, kind, _ := strings.Cut(resourceTypeOf(first.members[0].address), "_")
+	g.name = kind + "_" + hex.EncodeToString(sum.Sum(nil))[:8]
 	return true, nil
 }
 
@@ -348,11 +375,18 @@ func makeInputs(g *moduleGroup, bodies []*hclwrite.Body, first *cluster, resourc
 		if prefix != "" {
 			variable = prefix + "_" + name
 		}
+		sensitive := false
+		for _, v := range values {
+			if readsVariable(v) {
+				sensitive = true
+			}
+		}
 		g.inputs = append(g.inputs, moduleInput{
-			variable: variable,
-			ty:       attributeTypeOrAny(schemas, resourceType, append(append([]string(nil), schemaPath...), name)),
-			what:     fmt.Sprintf("%s of the module's %s", strings.Join(append(append([]string(nil), schemaPath...), name), "."), resourceType),
-			values:   values,
+			variable:  variable,
+			ty:        attributeTypeOrAny(schemas, resourceType, append(append([]string(nil), schemaPath...), name)),
+			what:      fmt.Sprintf("%s of the module's %s", strings.Join(append(append([]string(nil), schemaPath...), name), "."), resourceType),
+			values:    values,
+			sensitive: sensitive,
 		})
 		bodies[0].SetAttributeTraversal(name, hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: variable}})
 	}
@@ -398,6 +432,20 @@ func indexOf(blocks []*hclwrite.Block, block *hclwrite.Block) int {
 		}
 	}
 	return i
+}
+
+// readsVariable reports whether tokens refer to a root variable.
+func readsVariable(tokens hclwrite.Tokens) bool {
+	expr, diags := hclsyntax.ParseExpression(tokens.Bytes(), "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return false
+	}
+	for _, t := range expr.Variables() {
+		if t.RootName() == "var" {
+			return true
+		}
+	}
+	return false
 }
 
 // references reports whether tokens refer to a resource inside the cluster
@@ -522,14 +570,9 @@ func allTraversals(body *hclsyntax.Body) []hcl.Traversal {
 	return ts
 }
 
-// writeModule writes a group's module: main.tf, variables.tf, outputs.tf,
-// versions.tf and a README.
-func writeModule(path string, g *moduleGroup, versions []byte) error {
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return err
-	}
-	first := g.clusters[0]
-
+// moduleVariablesFile renders a group's variables.tf: a variable per
+// input, sensitive where the input is.
+func moduleVariablesFile(g *moduleGroup) ([]byte, error) {
 	variables := hclwrite.NewEmptyFile()
 	for i, in := range g.inputs {
 		if i > 0 {
@@ -539,11 +582,19 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 		body.SetAttributeValue("description", cty.StringVal(strings.ToUpper(in.what[:1])+in.what[1:]+"."))
 		tokens, err := typeTokens(in.ty)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body.SetAttributeRaw("type", tokens)
+		if in.sensitive {
+			body.SetAttributeValue("sensitive", cty.True)
+		}
 	}
+	return hclwrite.Format(variables.Bytes()), nil
+}
 
+// moduleOutputsFile renders a group's outputs.tf.
+func moduleOutputsFile(g *moduleGroup) []byte {
+	first := g.clusters[0]
 	outputs := hclwrite.NewEmptyFile()
 	for i, name := range g.outputs {
 		if i > 0 {
@@ -565,6 +616,16 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 		body.SetAttributeValue("description", cty.StringVal(fmt.Sprintf("The %s of the module's %s.", attr, typ)))
 		body.SetAttributeTraversal("value", hcl.Traversal{hcl.TraverseRoot{Name: typ}, hcl.TraverseAttr{Name: slot}, hcl.TraverseAttr{Name: attr}})
 	}
+	return hclwrite.Format(outputs.Bytes())
+}
+
+// writeModule writes a group's module: main.tf, variables.tf, outputs.tf,
+// versions.tf and a README.
+func writeModule(path string, g *moduleGroup, versions []byte) error {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return err
+	}
+	first := g.clusters[0]
 
 	var readme strings.Builder
 	fmt.Fprintf(&readme, "# %s\n\nGenerated by infraharvest for %d resources of the same shape: ", g.name, len(g.clusters))
@@ -583,8 +644,8 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 
 	for name, content := range map[string][]byte{
 		"main.tf":        g.main,
-		"variables.tf":   hclwrite.Format(variables.Bytes()),
-		"outputs.tf":     hclwrite.Format(outputs.Bytes()),
+		"variables.tf":   g.variables,
+		"outputs.tf":     g.outputsFile,
 		"README.md":      []byte(readme.String()),
 		VersionsFileName: versions,
 	} {
@@ -728,8 +789,11 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 		}
 		if attr, ok := b.Body.Attributes["required_version"]; ok {
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
-				lower, _, _ := strings.Cut(v.AsString(), ",")
-				terraform.SetAttributeValue("required_version", cty.StringVal(strings.TrimSpace(lower)))
+				lower, err := lowerBound(v.AsString())
+				if err != nil {
+					return nil, fmt.Errorf("%s: required_version: %w", rootVersions, err)
+				}
+				terraform.SetAttributeValue("required_version", cty.StringVal(lower))
 			}
 		}
 		for _, inner := range b.Body.Blocks {
@@ -752,11 +816,51 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 					requirement["source"] = v.GetAttr("source")
 				}
 				if v.Type().HasAttribute("version") {
-					requirement["version"] = cty.StringVal(">= " + strings.TrimSpace(strings.TrimPrefix(v.GetAttr("version").AsString(), "~>")))
+					lower, err := lowerBound(v.GetAttr("version").AsString())
+					if err != nil {
+						return nil, fmt.Errorf("%s: required_providers.%s: %w", rootVersions, name, err)
+					}
+					requirement["version"] = cty.StringVal(lower)
 				}
 				providers.SetAttributeValue(name, cty.ObjectVal(requirement))
 			}
 		}
 	}
 	return hclwrite.Format(f.Bytes()), nil
+}
+
+// lowerBound renders a version constraint as its lower bound only, as
+// ">= 6.14": the highest version its =, >=, ~> and > parts require. It
+// fails when the constraint doesn't parse or has no such part.
+func lowerBound(constraint string) (string, error) {
+	cs, err := version.NewConstraint(constraint)
+	if err != nil {
+		return "", err
+	}
+	var bound *version.Version
+	for _, c := range cs {
+		text := strings.TrimSpace(c.String())
+		op := ""
+		for _, candidate := range []string{">=", "<=", "!=", "~>", "=", ">", "<"} {
+			if strings.HasPrefix(text, candidate) {
+				op = candidate
+				break
+			}
+		}
+		switch op {
+		case "<", "<=", "!=":
+			continue
+		}
+		v, err := version.NewVersion(strings.TrimSpace(strings.TrimPrefix(text, op)))
+		if err != nil {
+			return "", err
+		}
+		if bound == nil || v.GreaterThan(bound) {
+			bound = v
+		}
+	}
+	if bound == nil {
+		return "", fmt.Errorf("%q has no lower bound", constraint)
+	}
+	return ">= " + bound.Original(), nil
 }

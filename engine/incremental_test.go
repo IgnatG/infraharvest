@@ -4,6 +4,8 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -245,8 +247,9 @@ import {
 `)
 	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
 
-	if err := merge(staging, root, existing, awsDataSources); err != nil {
-		t.Fatal(err)
+	addedFile, err := merge(staging, root, existing, awsDataSources)
+	if err != nil || addedFile != AddedFileName(2) {
+		t.Fatalf("got %q, %v", addedFile, err)
 	}
 
 	if got := readFile(t, root, GeneratedFileName); got != generatedBefore {
@@ -290,11 +293,80 @@ import {
 			t.Fatal(err)
 		}
 	}
-	if err := merge(staging, root, existing, awsDataSources); err != nil {
-		t.Fatal(err)
+	if added, err := merge(staging, root, existing, awsDataSources); err != nil || added != AddedFileName(3) {
+		t.Fatalf("got %q, %v", added, err)
 	}
 	if got := readFile(t, root, AddedFileName(3)); !strings.Contains(got, `resource "aws_sqs_queue" "jobs"`) {
 		t.Errorf("%s:\n%s", AddedFileName(3), got)
+	}
+}
+
+// dirFiles returns the files of dir by name, to compare before and after.
+func dirFiles(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			files[e.Name()] = readFile(t, dir, e.Name())
+		}
+	}
+	return files
+}
+
+const queueGenerated = "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"jobs\"\n}\n"
+
+// addOptions are Generate's options for the staging directory.
+var addOptions = Options{Config: map[string][]byte{VersionsFileName: []byte("# versions\n"), ProvidersFileName: []byte("# providers\n")}}
+
+func TestAdd(t *testing.T) {
+	root := existingRoot(t)
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root}
+	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
+
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Imported) != 1 || len(result.Gate) == 0 {
+		t.Errorf("result: %+v", result)
+	}
+	if got := readFile(t, root, AddedFileName(2)); !strings.Contains(got, `resource "aws_sqs_queue" "jobs"`) {
+		t.Errorf("%s:\n%s", AddedFileName(2), got)
+	}
+	if imports := readFile(t, root, ImportsFileName); !strings.Contains(imports, "to = aws_sqs_queue.jobs") || !strings.Contains(imports, "to = module.logs.aws_s3_bucket.this[0]") {
+		t.Errorf("imports.tf:\n%s", imports)
+	}
+	if got := strings.Join(rootTF.calls, ","); got != "init,fmt,validate" {
+		t.Errorf("root calls: %s", got)
+	}
+	if _, err := os.Stat(staging); !os.IsNotExist(err) {
+		t.Errorf("staging left behind: %v", err)
+	}
+}
+
+// A root that doesn't initialize, or whose checks fail to run, stays as it
+// was: the next run adds the resources again.
+func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {
+	root := existingRoot(t)
+	before := dirFiles(t, root)
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
+
+	_, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, nil)
+	if err == nil || !strings.Contains(err.Error(), "terraform init: no provider") {
+		t.Fatalf("want the init error, got %v", err)
+	}
+
+	if after := dirFiles(t, root); !reflect.DeepEqual(after, before) {
+		t.Errorf("root changed:\nbefore %v\nafter %v", before, after)
 	}
 }
 

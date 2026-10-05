@@ -67,7 +67,7 @@ func selectedIDs(selected map[string][]terraformutils.Resource) []string {
 func TestSelectResourcesWithAll(t *testing.T) {
 	run := newEngineRun()
 
-	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, nil, importIDForSelection)
+	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, nil, "", importIDForSelection)
 
 	// Unimportable resources go on, for importsByDir to count.
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -89,13 +89,91 @@ func TestSelectResourcesWithFile(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "old-archive", Include: false, Note: "to be deleted"},
 	}}
 
-	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, f, importIDForSelection)
+	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, f, "", importIDForSelection)
 
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
 	if len(run.report.Excluded) != 1 || run.report.Excluded[0].ID != "old-archive" {
 		t.Errorf("excluded %+v", run.report.Excluded)
+	}
+}
+
+// With --accounts, the same type and ID in two accounts are two resources:
+// the file's entry for the account being imported decides.
+func TestSelectResourcesByScope(t *testing.T) {
+	const a, b = "aws/111122223333/global", "aws/444455556666/global"
+	listed := map[string][]terraformutils.Resource{
+		"iam": {terraformutils.NewSimpleResource("admin", "admin", "aws_iam_role", "aws", nil)},
+	}
+	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: []selection.Resource{
+		{Type: "aws_iam_role", ID: "admin", Scope: a, Include: true},
+		{Type: "aws_iam_role", ID: "admin", Scope: b, Include: false, Note: "the other account's"},
+	}}
+
+	run := newEngineRun()
+	selected, _ := run.selectResources(listed, nil, f, a, importIDForSelection)
+	if !reflect.DeepEqual(selectedIDs(selected), []string{"admin"}) {
+		t.Errorf("account %s: selected %v, want the role", a, selectedIDs(selected))
+	}
+
+	run = newEngineRun()
+	selected, leftOut := run.selectResources(listed, nil, f, b, importIDForSelection)
+	if len(selectedIDs(selected)) != 0 || len(leftOut) != 1 {
+		t.Errorf("account %s: selected %v, left out %v; want the role excluded", b, selectedIDs(selected), leftOut)
+	}
+}
+
+// A rule in the file decides an unlisted resource before the provider's
+// defaults do, as the file's header says.
+func TestSelectResourcesRulesBeforeDefaults(t *testing.T) {
+	run := newEngineRun()
+	f := &selection.File{
+		Version:  selection.Version,
+		Defaults: selection.Defaults{Include: true},
+		Rules: []selection.Rule{
+			{Include: &selection.Match{Type: selection.Patterns{"aws_vpc"}}},
+			{Exclude: &selection.Match{Type: selection.Patterns{"aws_s3_bucket"}}},
+		},
+	}
+
+	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, f, "", importIDForSelection)
+
+	// The default VPC is included by the rule; the bucket excluded by one.
+	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
+		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
+	}
+	if len(run.report.Excluded) != 1 || run.report.Excluded[0].ID != "old-archive" || run.report.Excluded[0].Reason != "excluded by a rule in the selection file" {
+		t.Errorf("excluded %+v", run.report.Excluded)
+	}
+}
+
+// A resource listed twice, such as by two Import calls of one command,
+// gets one entry, and nothing is new in a first file.
+func TestDiscoverWritesEachResourceOnce(t *testing.T) {
+	run := newEngineRun()
+	run.options = ImportOptions{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
+
+	run.addDiscovered(listedForSelection, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listedForSelection, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	if err := run.writeSelection(); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := selection.Load(run.options.Selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Resources) != 3 {
+		t.Errorf("want the 3 importable resources once, got %+v", f.Resources)
+	}
+	for _, r := range f.Resources {
+		if r.New {
+			t.Errorf("%s %s is marked new in a first file", r.Type, r.ID)
+		}
+	}
+	if d := f.Decide("aws_vpc", "vpc-default", ""); d.Include || d.Reason != "default VPC" {
+		t.Errorf("default VPC: %+v", d)
 	}
 }
 

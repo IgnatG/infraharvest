@@ -82,6 +82,37 @@ func TestServiceIdCleanupWithFilter(t *testing.T) {
 	}
 }
 
+// Resources of different types can share an ID, like a role and a group of
+// the same name. The cleanup used to drop one of them as a duplicate.
+func TestServiceIdCleanupKeepsTypesSharingAnId(t *testing.T) {
+	service := Service{
+		Resources: []Resource{
+			{
+				InstanceInfo:  &terraform.InstanceInfo{Type: "aws_iam_role", Id: "admins"},
+				InstanceState: &terraform.InstanceState{ID: "admins"},
+			},
+			{
+				InstanceInfo:  &terraform.InstanceInfo{Type: "aws_iam_group", Id: "admins"},
+				InstanceState: &terraform.InstanceState{ID: "admins"},
+			},
+			{
+				InstanceInfo:  &terraform.InstanceInfo{Type: "aws_iam_group", Id: "admins"},
+				InstanceState: &terraform.InstanceState{ID: "admins"},
+			},
+		},
+	}
+	service.ParseFilters([]string{"aws_iam_user=:other"})
+	service.InitialCleanup()
+
+	var kept []string
+	for _, r := range service.Resources {
+		kept = append(kept, r.InstanceInfo.Type)
+	}
+	if want := []string{"aws_iam_role", "aws_iam_group"}; !reflect.DeepEqual(kept, want) {
+		t.Errorf("kept %v, want %v", kept, want)
+	}
+}
+
 func TestServiceAttributeCleanupWithFilter(t *testing.T) {
 	service := Service{
 		Resources: []Resource{

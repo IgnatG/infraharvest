@@ -3,7 +3,25 @@
 
 package aws
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
+
+// stopOnDuplicateToken is an option for every SDK paginator: it stops the
+// paginator when a page returns the token that was just sent, which would
+// otherwise be requested forever. Each paginator has its own options type
+// with the same StopOnDuplicateToken field, so the field is set by name;
+// a type without it is left alone.
+func stopOnDuplicateToken[O any](options *O) {
+	value := reflect.ValueOf(options).Elem()
+	if value.Kind() != reflect.Struct {
+		return
+	}
+	if field := value.FieldByName("StopOnDuplicateToken"); field.IsValid() && field.Kind() == reflect.Bool {
+		field.SetBool(true)
+	}
+}
 
 // paginateByMarker calls listPage with the marker returned by the previous
 // page until a page returns no marker. Use it for APIs that page by

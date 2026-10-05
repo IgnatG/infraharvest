@@ -154,14 +154,29 @@ func TestImportRejectsUnknownEngine(t *testing.T) {
 	}
 }
 
-func TestListedName(t *testing.T) {
-	for sanitized, want := range map[string]string{
-		terraformutils.TfSanitize("/infraharvest-e2e/endpoint"): "/infraharvest-e2e/endpoint",
-		terraformutils.TfSanitize("orders queue"):               "orders queue",
-		"plain": "plain",
-	} {
-		if got := listedName(sanitized); got != want {
-			t.Errorf("listedName(%q): got %q, want %q", sanitized, got, want)
+// The engine labels resources by the name the lister gave, not by undoing
+// the legacy sanitizing: "-" is part of names like my-2024-backups, and
+// "-2024-" is not an escape.
+func TestImportsByDirKeepRawNames(t *testing.T) {
+	resources := map[string][]terraformutils.Resource{
+		"s3": {
+			terraformutils.NewSimpleResource("my-2024-backups", "my-2024-backups", "aws_s3_bucket", "aws", nil),
+			terraformutils.NewSimpleResource("logs-2024-a", "logs-2024-a", "aws_s3_bucket", "aws", nil),
+			terraformutils.NewSimpleResource("logs-2025-a", "logs-2025-a", "aws_s3_bucket", "aws", nil),
+		},
+		"ssm": {terraformutils.NewSimpleResource("/infraharvest-e2e/endpoint", "/infraharvest-e2e/endpoint", "aws_ssm_parameter", "aws", nil)},
+	}
+	options := ImportOptions{PathPattern: "{output}/{provider}/", PathOutput: "out"}
+
+	got, _ := importsByDir("aws", options, resources, listerID)
+
+	names := map[string]bool{}
+	for _, imp := range got[filepath.Join("out", "aws")] {
+		names[imp.Name] = true
+	}
+	for _, want := range []string{"my-2024-backups", "logs-2024-a", "logs-2025-a", "/infraharvest-e2e/endpoint"} {
+		if !names[want] {
+			t.Errorf("name %q lost; got %v", want, names)
 		}
 	}
 }
@@ -217,11 +232,13 @@ func (scopedProvider) Scope(context.Context) (string, string, error) {
 
 func TestRootPathPattern(t *testing.T) {
 	for pattern, want := range map[string]string{
-		// The legacy default, which the AWS command may extend with a region.
-		DefaultPathPattern:                "{output}/{provider}/111122223333/eu-west-2/",
-		DefaultPathPattern + "eu-west-2/": "{output}/{provider}/111122223333/eu-west-2/",
-		"{output}/{account}/{service}/":   "{output}/111122223333/{service}/",
-		"{output}/{provider}/":            "{output}/{provider}/",
+		// Not given: one root per account and region.
+		"": "{output}/{provider}/111122223333/eu-west-2/",
+		// Given as the legacy default: followed as it is (see
+		// defaultPathPattern).
+		DefaultPathPattern:              DefaultPathPattern,
+		"{output}/{account}/{service}/": "{output}/111122223333/{service}/",
+		"{output}/{provider}/":          "{output}/{provider}/",
 	} {
 		got, err := rootPathPattern(t.Context(), scopedProvider{}, pattern)
 		if err != nil || got != want {

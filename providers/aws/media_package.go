@@ -31,7 +31,7 @@ func (g *MediaPackageGenerator) InitResources() error {
 		return e
 	}
 	svc := mediapackage.NewFromConfig(config)
-	p := mediapackage.NewListChannelsPaginator(svc, &mediapackage.ListChannelsInput{})
+	p := mediapackage.NewListChannelsPaginator(svc, &mediapackage.ListChannelsInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

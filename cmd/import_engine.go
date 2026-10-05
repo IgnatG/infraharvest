@@ -11,9 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/adapters"
@@ -100,18 +98,19 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	if defaults, err = excludeManaged(ctx, run, options.ManagedState, listed, defaults, importIDFunc(provider)); err != nil {
 		return err
 	}
+	scope := discoveryScope(ctx, provider)
 	if options.Discover {
 		run.used = true
 		run.options = options
 		run.failures = append(run.failures, failures...)
-		run.addDiscovered(listed, defaults, discoveryScope(ctx, provider), importIDFunc(provider))
+		run.addDiscovered(listed, defaults, scope, importIDFunc(provider))
 		return nil
 	}
 	chosen, err := run.selectionFile(options.Selection)
 	if err != nil {
 		return err
 	}
-	selected, leftOut := run.selectResources(listed, defaults, chosen, importIDFunc(provider))
+	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, importIDFunc(provider))
 	if options.PathPattern, err = rootPathPattern(ctx, provider, options.PathPattern); err != nil {
 		return err
 	}
@@ -434,7 +433,7 @@ func importsByDir(providerName string, options ImportOptions, resourcesByService
 			}
 			byDir[dir] = append(byDir[dir], engine.Import{
 				Type: r.InstanceInfo.Type,
-				Name: listedName(r.ResourceName),
+				Name: r.RawName,
 				ID:   id,
 			})
 		}
@@ -481,21 +480,6 @@ func infraharvestCacheDir() (string, error) {
 	return filepath.Join(dir, "infraharvest"), nil
 }
 
-var legacyEscape = regexp.MustCompile(`-([0-9A-F]{4})-`)
-
-// listedName undoes the legacy sanitizing of a resource name ("tfer--"
-// prefix, "-002F-" for "/"), so the engine labels the name as listed.
-func listedName(sanitized string) string {
-	name := strings.TrimPrefix(sanitized, "tfer--")
-	return legacyEscape.ReplaceAllStringFunc(name, func(escaped string) string {
-		code, err := strconv.ParseUint(escaped[1:5], 16, 32)
-		if err != nil {
-			return escaped
-		}
-		return string(rune(code))
-	})
-}
-
 // qualifiedSource adds registry to a provider source without a host:
 // hashicorp/aws resolves to registry.terraform.io/hashicorp/aws in
 // Terraform and registry.opentofu.org/hashicorp/aws in OpenTofu.
@@ -537,11 +521,11 @@ const BackendFileName = "backend.tf"
 const DefaultRootPathPattern = "{output}/{provider}/{account}/{region}/"
 
 // rootPathPattern returns the path pattern for the Terraform engine's
-// roots: DefaultRootPathPattern unless --path-pattern says otherwise (the
-// legacy default, which the AWS command may extend with a region, doesn't),
-// with {account} and {region} filled in from the provider.
+// roots: DefaultRootPathPattern unless pattern says otherwise (see
+// defaultPathPattern for what --path-pattern passes), with {account} and
+// {region} filled in from the provider.
 func rootPathPattern(ctx context.Context, provider terraformutils.ProviderGenerator, pattern string) (string, error) {
-	if strings.HasPrefix(pattern, DefaultPathPattern) {
+	if pattern == "" {
 		pattern = DefaultRootPathPattern
 	}
 	if !strings.Contains(pattern, "{account}") && !strings.Contains(pattern, "{region}") {

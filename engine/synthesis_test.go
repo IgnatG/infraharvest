@@ -224,6 +224,27 @@ func TestSynthesizeOnAPlanError(t *testing.T) {
 	}
 }
 
+// A plan that reports neither errors nor a result tells nothing: the calls
+// are taken back, not planned again.
+func TestSynthesizeWhenThePlanReportsNothing(t *testing.T) {
+	dir, _ := moduleRoot(t, twoBuckets)
+	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{nil}}
+
+	declined, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(declined) != 2 || declined[0].Declined != "the plan reported no result" || declined[1].Declined != "the plan reported no result" {
+		t.Errorf("declined: %+v", declined)
+	}
+	if got := strings.Join(tf.calls, ","); got != "init,plan,show" {
+		t.Errorf("calls: %s", got)
+	}
+	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+		t.Errorf("generated.tf not restored:\n%s", got)
+	}
+}
+
 func TestMapClustersDeclines(t *testing.T) {
 	for name, tc := range map[string]struct {
 		root, reason string

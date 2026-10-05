@@ -32,7 +32,7 @@ func (g *Cloud9Generator) InitResources() error {
 		return e
 	}
 	svc := cloud9.NewFromConfig(config)
-	p := cloud9.NewListEnvironmentsPaginator(svc, &cloud9.ListEnvironmentsInput{})
+	p := cloud9.NewListEnvironmentsPaginator(svc, &cloud9.ListEnvironmentsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

@@ -83,7 +83,7 @@ func (g *LambdaGenerator) PostConvertHook() error {
 }
 
 func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
-	p := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{})
+	p := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -142,7 +142,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 			pi := lambda.NewListFunctionEventInvokeConfigsPaginator(svc,
 				&lambda.ListFunctionEventInvokeConfigsInput{
 					FunctionName: function.FunctionName,
-				})
+				}, stopOnDuplicateToken)
 			for pi.HasMorePages() {
 				piage, err := pi.NextPage(g.Context())
 				if err != nil {
@@ -164,7 +164,7 @@ func (g *LambdaGenerator) addFunctions(svc *lambda.Client) error {
 }
 
 func (g *LambdaGenerator) addEventSourceMappings(svc *lambda.Client) error {
-	p := lambda.NewListEventSourceMappingsPaginator(svc, &lambda.ListEventSourceMappingsInput{})
+	p := lambda.NewListEventSourceMappingsPaginator(svc, &lambda.ListEventSourceMappingsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -189,7 +189,7 @@ func (g *LambdaGenerator) addEventSourceMappings(svc *lambda.Client) error {
 }
 
 func (g *LambdaGenerator) addLayerVersions(svc *lambda.Client) error {
-	pl := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{})
+	pl := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{}, stopOnDuplicateToken)
 	for pl.HasMorePages() {
 		plage, err := pl.NextPage(g.Context())
 		if err != nil {
@@ -198,7 +198,7 @@ func (g *LambdaGenerator) addLayerVersions(svc *lambda.Client) error {
 		for _, layer := range plage.Layers {
 			pv := lambda.NewListLayerVersionsPaginator(svc, &lambda.ListLayerVersionsInput{
 				LayerName: layer.LayerName,
-			})
+			}, stopOnDuplicateToken)
 			for pv.HasMorePages() {
 				pvage, err := pv.NextPage(g.Context())
 				if err != nil {

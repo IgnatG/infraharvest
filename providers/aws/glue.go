@@ -25,7 +25,7 @@ type GlueGenerator struct {
 
 func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 	var GlueCrawlerAllowEmptyValues = []string{"tags."}
-	p := glue.NewGetCrawlersPaginator(svc, &glue.GetCrawlersInput{})
+	p := glue.NewGetCrawlersPaginator(svc, &glue.GetCrawlersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -44,7 +44,7 @@ func (g *GlueGenerator) loadGlueCrawlers(svc *glue.Client) error {
 
 func (g *GlueGenerator) loadGlueCatalogDatabase(svc *glue.Client, account *string) (databaseNames []*string, err error) {
 	var GlueCatalogDatabaseAllowEmptyValues = []string{"tags."}
-	p := glue.NewGetDatabasesPaginator(svc, &glue.GetDatabasesInput{})
+	p := glue.NewGetDatabasesPaginator(svc, &glue.GetDatabasesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -71,7 +71,7 @@ func (g *GlueGenerator) loadGlueCatalogTable(svc *glue.Client, account *string, 
 	// CATALOG-ID is AWS Account ID
 	// https://docs.aws.amazon.com/cli/latest/reference/glue/create-database.html#options
 	var GlueCatalogTableAllowEmptyValues = []string{"tags."}
-	p := glue.NewGetTablesPaginator(svc, &glue.GetTablesInput{DatabaseName: databaseName})
+	p := glue.NewGetTablesPaginator(svc, &glue.GetTablesInput{DatabaseName: databaseName}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -92,7 +92,7 @@ func (g *GlueGenerator) loadGlueCatalogTable(svc *glue.Client, account *string, 
 
 func (g *GlueGenerator) loadGlueJobs(svc *glue.Client) error {
 	var GlueJobAllowEmptyValues = []string{"tags."}
-	p := glue.NewGetJobsPaginator(svc, &glue.GetJobsInput{})
+	p := glue.NewGetJobsPaginator(svc, &glue.GetJobsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -111,7 +111,7 @@ func (g *GlueGenerator) loadGlueJobs(svc *glue.Client) error {
 
 func (g *GlueGenerator) loadGlueTriggers(svc *glue.Client) error {
 	var GlueTriggerAllowEmptyValues = []string{"tags."}
-	p := glue.NewGetTriggersPaginator(svc, &glue.GetTriggersInput{})
+	p := glue.NewGetTriggersPaginator(svc, &glue.GetTriggersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

@@ -56,9 +56,17 @@ jobs:
           docker run --rm --entrypoint tofu "$image" version
           docker run --rm --entrypoint git "$image" --version
       - name: Install with install.sh
+        env:
+          INFRAHARVEST_BASE_URL: file://${{ github.workspace }}/dist
+          INFRAHARVEST_INSTALL_DIR: ${{ runner.temp }}/bin
         run: |
           shellcheck install.sh
           version=$(jq -r .version dist/metadata.json)
-          INFRAHARVEST_VERSION="$version" INFRAHARVEST_BASE_URL="file://$PWD/dist" \
-            INFRAHARVEST_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
-          "$RUNNER_TEMP/bin/infraharvest" version
+          # The snapshot is unsigned: by default the script must refuse it.
+          if INFRAHARVEST_VERSION="$version" sh install.sh; then
+            echo "::error::install.sh installed an unsigned release without INFRAHARVEST_SKIP_SIGNATURE=1"
+            exit 1
+          fi
+          test ! -e "$INFRAHARVEST_INSTALL_DIR/infraharvest"
+          INFRAHARVEST_VERSION="$version" INFRAHARVEST_SKIP_SIGNATURE=1 sh install.sh
+          "$INFRAHARVEST_INSTALL_DIR/infraharvest" version

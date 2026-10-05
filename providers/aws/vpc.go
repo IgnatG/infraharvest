@@ -49,7 +49,7 @@ func (g *VpcGenerator) InitResources() error {
 		return e
 	}
 	svc := ec2.NewFromConfig(config)
-	p := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{})
+	p := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

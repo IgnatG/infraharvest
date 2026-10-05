@@ -31,7 +31,7 @@ func (g *AccessAnalyzerGenerator) InitResources() error {
 		return e
 	}
 	svc := accessanalyzer.NewFromConfig(config)
-	p := accessanalyzer.NewListAnalyzersPaginator(svc, &accessanalyzer.ListAnalyzersInput{})
+	p := accessanalyzer.NewListAnalyzersPaginator(svc, &accessanalyzer.ListAnalyzersInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())

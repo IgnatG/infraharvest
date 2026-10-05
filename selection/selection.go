@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/IgnatG/infraharvest/managed"
 )
 
 // Version is the selection file format's version.
@@ -34,7 +36,10 @@ type File struct {
 	// Resources decide the resources they list.
 	Resources []Resource `yaml:"resources"`
 
-	byKey map[string]*Resource
+	// byKey indexes Resources by scope, type and ID (see key); anyScope by
+	// type and ID only, for lookups that don't know the scope.
+	byKey    map[string]*Resource
+	anyScope map[string]*Resource
 }
 
 // Defaults decide resources nothing else decides.
@@ -99,11 +104,16 @@ type Decision struct {
 }
 
 // Decide returns the decision for the resource of resourceType with id and
-// name: its entry in Resources if it has one, else the last rule that
-// matches it, else Defaults.
+// name, whatever scope it is listed in (see DecideIn).
 func (f *File) Decide(resourceType, id, name string) Decision {
-	f.index()
-	if r, ok := f.byKey[resourceType+" "+id]; ok {
+	return f.DecideIn("", resourceType, id, name)
+}
+
+// DecideIn returns the decision for the resource of resourceType with id
+// and name in scope: its entry in Resources if it has one (see HasIn), else
+// the last rule that matches it, else Defaults.
+func (f *File) DecideIn(scope, resourceType, id, name string) Decision {
+	if r, ok := f.lookup(scope, resourceType, id); ok {
 		if r.Include {
 			return Decision{Include: true}
 		}
@@ -113,19 +123,29 @@ func (f *File) Decide(resourceType, id, name string) Decision {
 		}
 		return Decision{Reason: reason}
 	}
-	decision := Decision{Include: f.Defaults.Include, Reason: "excluded by the selection file's defaults"}
-	if decision.Include {
-		decision.Reason = ""
+	if d, ok := f.ByRule(resourceType, id, name); ok {
+		return d
 	}
+	if f.Defaults.Include {
+		return Decision{Include: true}
+	}
+	return Decision{Reason: "excluded by the selection file's defaults"}
+}
+
+// ByRule returns the decision of the last rule that matches the resource
+// of resourceType with id and name, and whether one does.
+func (f *File) ByRule(resourceType, id, name string) (Decision, bool) {
+	var decision Decision
+	matched := false
 	for _, rule := range f.Rules {
 		if rule.Include != nil && rule.Include.matches(resourceType, id, name) {
-			decision = Decision{Include: true}
+			decision, matched = Decision{Include: true}, true
 		}
 		if rule.Exclude != nil && rule.Exclude.matches(resourceType, id, name) {
-			decision = Decision{Reason: "excluded by a rule in the selection file"}
+			decision, matched = Decision{Reason: "excluded by a rule in the selection file"}, true
 		}
 	}
-	return decision
+	return decision, matched
 }
 
 func (m *Match) matches(resourceType, id, name string) bool {
@@ -206,7 +226,10 @@ func (f *File) Save(path string) error {
 		if a.Type != b.Type {
 			return a.Type < b.Type
 		}
-		return a.ID < b.ID
+		if a.ID != b.ID {
+			return a.ID < b.ID
+		}
+		return a.Scope < b.Scope
 	})
 	var out bytes.Buffer
 	out.WriteString(header)
@@ -224,11 +247,41 @@ func (f *File) Save(path string) error {
 // ErrNoSelection explains that an import must say what to import.
 var ErrNoSelection = errors.New("say what to import: --selection with a file from infraharvest discover, or --all for everything the default rules select")
 
-// Has reports whether the file lists the resource of resourceType with id.
+// Has reports whether the file lists the resource of resourceType with id
+// in any scope.
 func (f *File) Has(resourceType, id string) bool {
-	f.index()
-	_, ok := f.byKey[resourceType+" "+id]
+	_, ok := f.lookup("", resourceType, id)
 	return ok
+}
+
+// HasIn reports whether the file lists the resource of resourceType with
+// id in scope: an entry in that scope, or one listed without a scope.
+func (f *File) HasIn(scope, resourceType, id string) bool {
+	_, ok := f.lookup(scope, resourceType, id)
+	return ok
+}
+
+// key identifies an entry: the same type and ID can be listed in several
+// scopes, such as one IAM role name in two accounts.
+func key(scope, resourceType, id string) string {
+	return scope + "\n" + resourceType + " " + id
+}
+
+// lookup returns the entry for the resource of resourceType with id in
+// scope: the one listed in that scope, else one listed without a scope
+// (files written before discover recorded scopes have none). With no scope
+// given, an entry in any scope counts, a scope-less one first.
+func (f *File) lookup(scope, resourceType, id string) (*Resource, bool) {
+	f.index()
+	if r, ok := f.byKey[key(scope, resourceType, id)]; ok {
+		return r, true
+	}
+	if scope != "" {
+		r, ok := f.byKey[key("", resourceType, id)]
+		return r, ok
+	}
+	r, ok := f.anyScope[resourceType+" "+id]
+	return r, ok
 }
 
 func (f *File) index() {
@@ -236,34 +289,50 @@ func (f *File) index() {
 		return
 	}
 	f.byKey = make(map[string]*Resource, len(f.Resources))
+	f.anyScope = make(map[string]*Resource, len(f.Resources))
 	for i := range f.Resources {
-		f.byKey[f.Resources[i].Type+" "+f.Resources[i].ID] = &f.Resources[i]
+		r := &f.Resources[i]
+		f.byKey[key(r.Scope, r.Type, r.ID)] = r
+		if _, ok := f.anyScope[r.Type+" "+r.ID]; !ok || r.Scope == "" {
+			f.anyScope[r.Type+" "+r.ID] = r
+		}
 	}
 }
 
 // Merge updates f with the resources discover listed now. Entries f has
-// keep their decisions and notes. Listed resources it lacks are added with
-// New set: excluded with listed's reason if listed excludes them (the
-// provider's defaults), else decided by f's rules and defaults. Entries no
-// longer listed are dropped. It returns how many were added and dropped.
+// keep their decisions and notes, except that one included without a note
+// is excluded once Terraform manages the resource (listed's reason says
+// so), marked New for review. Listed resources it lacks are added with New
+// set: decided by f's rules if one matches, else excluded with listed's
+// reason if listed excludes them (the provider's defaults), else by f's
+// defaults. Entries no longer listed are dropped. It returns how many were
+// added and dropped.
 func (f *File) Merge(listed []Resource) (added, dropped int) {
 	f.index()
-	keep := map[string]bool{}
+	seen := map[string]bool{}
+	kept := map[string]bool{}
 	var merged []Resource
 	for _, l := range listed {
-		key := l.Type + " " + l.ID
-		if keep[key] {
+		k := key(l.Scope, l.Type, l.ID)
+		if seen[k] {
 			continue
 		}
-		keep[key] = true
-		if r, ok := f.byKey[key]; ok {
-			merged = append(merged, *r)
+		seen[k] = true
+		if r, ok := f.lookup(l.Scope, l.Type, l.ID); ok {
+			kept[key(r.Scope, r.Type, r.ID)] = true
+			m := *r
 			// Where it is listed is discover's to say.
-			merged[len(merged)-1].Scope = l.Scope
+			m.Scope = l.Scope
+			if m.Include && m.Note == "" && isManaged(l.Reason) {
+				m.Include, m.Reason, m.New = false, l.Reason, true
+			}
+			merged = append(merged, m)
 			continue
 		}
-		if l.Include {
-			d := f.Decide(l.Type, l.ID, l.Name)
+		if d, ok := f.ByRule(l.Type, l.ID, l.Name); ok {
+			l.Include, l.Reason = d.Include, d.Reason
+		} else if l.Include {
+			d := f.DecideIn(l.Scope, l.Type, l.ID, l.Name)
 			l.Include, l.Reason = d.Include, d.Reason
 		}
 		l.New = true
@@ -271,11 +340,17 @@ func (f *File) Merge(listed []Resource) (added, dropped int) {
 		added++
 	}
 	for _, r := range f.Resources {
-		if !keep[r.Type+" "+r.ID] {
+		if !kept[key(r.Scope, r.Type, r.ID)] {
 			dropped++
 		}
 	}
 	f.Resources = merged
-	f.byKey = nil
+	f.byKey, f.anyScope = nil, nil
 	return added, dropped
+}
+
+// isManaged reports whether reason says Terraform already manages the
+// resource (see managed.Reason).
+func isManaged(reason string) bool {
+	return strings.HasPrefix(reason, managed.Reason)
 }

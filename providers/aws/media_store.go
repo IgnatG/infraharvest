@@ -31,7 +31,7 @@ func (g *MediaStoreGenerator) InitResources() error {
 		return e
 	}
 	svc := mediastore.NewFromConfig(config)
-	p := mediastore.NewListContainersPaginator(svc, &mediastore.ListContainersInput{})
+	p := mediastore.NewListContainersPaginator(svc, &mediastore.ListContainersInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

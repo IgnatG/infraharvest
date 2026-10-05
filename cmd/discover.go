@@ -25,7 +25,6 @@ func newDiscoverCmd() *cobra.Command {
 		providerCommand := subcommand(options)
 		providerCommand.Short = "List " + providerCommand.Name() + " resources into a selection file"
 		providerCommand.Long = providerCommand.Short
-		_ = providerCommand.MarkPersistentFlagRequired("resources")
 		if providerCommand.RunE != nil {
 			providerCommand.RunE = withEngineRun(providerCommand.RunE)
 		}

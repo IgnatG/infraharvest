@@ -49,7 +49,7 @@ func (g *IotGenerator) InitResources() error {
 }
 
 func (g *IotGenerator) loadThingTypes(svc *iot.Client) error {
-	p := iot.NewListThingTypesPaginator(svc, &iot.ListThingTypesInput{})
+	p := iot.NewListThingTypesPaginator(svc, &iot.ListThingTypesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -73,7 +73,7 @@ func (g *IotGenerator) loadThingTypes(svc *iot.Client) error {
 }
 
 func (g *IotGenerator) loadThings(svc *iot.Client) error {
-	p := iot.NewListThingsPaginator(svc, &iot.ListThingsInput{})
+	p := iot.NewListThingsPaginator(svc, &iot.ListThingsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -97,7 +97,7 @@ func (g *IotGenerator) loadThings(svc *iot.Client) error {
 }
 
 func (g *IotGenerator) loadTopicRules(svc *iot.Client) error {
-	p := iot.NewListTopicRulesPaginator(svc, &iot.ListTopicRulesInput{})
+	p := iot.NewListTopicRulesPaginator(svc, &iot.ListTopicRulesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -116,7 +116,7 @@ func (g *IotGenerator) loadTopicRules(svc *iot.Client) error {
 }
 
 func (g *IotGenerator) loadRoleAliases(svc *iot.Client) error {
-	p := iot.NewListRoleAliasesPaginator(svc, &iot.ListRoleAliasesInput{})
+	p := iot.NewListRoleAliasesPaginator(svc, &iot.ListRoleAliasesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

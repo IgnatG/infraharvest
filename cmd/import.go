@@ -124,7 +124,6 @@ func newImportCmd() *cobra.Command {
 	})
 	for _, subcommand := range providerImporterSubcommands() {
 		providerCommand := subcommand(options)
-		_ = providerCommand.MarkPersistentFlagRequired("resources")
 		if providerCommand.RunE != nil {
 			providerCommand.RunE = withEngineRun(providerCommand.RunE)
 		}
@@ -139,8 +138,11 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 	}
 	switch options.Engine {
 	case engineLegacy, "":
-		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume || options.Incremental || options.RoleARN != "" {
-			return errors.New("--selection, --all, --managed-state, --resume, --incremental, --accounts, --organization and --assume-role need --engine=terraform or tofu")
+		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume || options.Incremental || options.ReuseInventory || options.RoleARN != "" || (options.Modules != "" && options.Modules != modulesRegistry) {
+			return errors.New("--selection, --all, --managed-state, --resume, --incremental, --reuse-inventory, --modules, --accounts, --organization and --assume-role need --engine=terraform or tofu")
+		}
+		if options.PathPattern == "" {
+			options.PathPattern = DefaultPathPattern
 		}
 	case engineTerraform, engineTofu:
 		return importWithEngine(provider, options, args)
@@ -400,7 +402,9 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 		}
 		// create Bucket file
 		if bucketStateDataFile, err := terraformutils.Print(bucket.BucketGetTfData(path), map[string]struct{}{}, options.Output, !options.NoSort); err == nil {
-			terraformoutput.PrintFile(path+"/bucket.tf", bucketStateDataFile)
+			if err := terraformoutput.PrintFile(path+"/bucket.tf", bucketStateDataFile); err != nil {
+				return err
+			}
 		}
 	} else {
 		if serviceName == "" {
@@ -454,7 +458,9 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 				if err != nil {
 					return err
 				}
-				terraformoutput.PrintFile(path+"/variables."+terraformoutput.GetFileExtension(options.Output), variablesFile)
+				if err := terraformoutput.PrintFile(path+"/variables."+terraformoutput.GetFileExtension(options.Output), variablesFile); err != nil {
+					return err
+				}
 			}
 		}
 	} else {
@@ -484,7 +490,9 @@ func printService(provider terraformutils.ProviderGenerator, serviceName string,
 				if err != nil {
 					return err
 				}
-				terraformoutput.PrintFile(path+"/variables."+terraformoutput.GetFileExtension(options.Output), variablesFile)
+				if err := terraformoutput.PrintFile(path+"/variables."+terraformoutput.GetFileExtension(options.Output), variablesFile); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -514,7 +522,7 @@ func listCmd(provider terraformutils.ProviderGenerator) *cobra.Command {
 		Use:   "list",
 		Short: "List supported resources for " + provider.GetName() + " provider",
 		Long:  "List supported resources for " + provider.GetName() + " provider",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			services := providerServices(provider)
 			for _, k := range services {
 				fmt.Println(k)
@@ -522,7 +530,6 @@ func listCmd(provider terraformutils.ProviderGenerator) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().AddFlag(&pflag.Flag{Name: "resources"})
 	return cmd
 }
 
@@ -540,7 +547,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.BoolVarP(&options.Compact, "compact", "C", false, "")
 	flag.StringSliceVarP(&options.Resources, "resources", "r", []string{}, sampleRes)
 	flag.StringSliceVarP(&options.Excludes, "excludes", "x", []string{}, sampleRes)
-	flag.StringVarP(&options.PathPattern, "path-pattern", "p", DefaultPathPattern, "{output}/{provider}/")
+	flag.StringVarP(&options.PathPattern, "path-pattern", "p", DefaultPathPattern, "layout of the output directories; --engine=terraform or tofu lays roots out as "+DefaultRootPathPattern+" unless this is given")
 	flag.StringVarP(&options.PathOutput, "path-output", "o", DefaultPathOutput, "")
 	flag.StringVarP(&options.State, "state", "s", DefaultState, "local or bucket")
 	flag.StringVarP(&options.Bucket, "bucket", "b", "", "gs://terraform-state")

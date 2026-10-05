@@ -31,7 +31,7 @@ func (g *MskGenerator) InitResources() error {
 		return e
 	}
 	svc := kafka.NewFromConfig(config)
-	p := kafka.NewListClustersPaginator(svc, &kafka.ListClustersInput{})
+	p := kafka.NewListClustersPaginator(svc, &kafka.ListClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

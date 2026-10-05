@@ -16,7 +16,6 @@ package aws
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -40,7 +39,7 @@ func (g *SnsGenerator) InitResources() error {
 		return e
 	}
 	svc := sns.NewFromConfig(config)
-	p := sns.NewListTopicsPaginator(svc, &sns.ListTopicsInput{})
+	p := sns.NewListTopicsPaginator(svc, &sns.ListTopicsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -60,12 +59,11 @@ func (g *SnsGenerator) InitResources() error {
 
 			topicSubsPage := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{
 				TopicArn: topic.TopicArn,
-			})
+			}, stopOnDuplicateToken)
 			for topicSubsPage.HasMorePages() {
 				topicSubsNextPage, err := topicSubsPage.NextPage(g.Context())
 				if err != nil {
-					log.Println(err)
-					continue
+					return err
 				}
 				for _, subscription := range topicSubsNextPage.Subscriptions {
 					subscriptionArnParts := strings.Split(StringValue(subscription.SubscriptionArn), ":")

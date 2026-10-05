@@ -47,7 +47,7 @@ func (g *Ec2Generator) InitResources() error {
 	}
 	p := ec2.NewDescribeInstancesPaginator(svc, &ec2.DescribeInstancesInput{
 		Filters: filters,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

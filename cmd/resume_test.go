@@ -85,7 +85,8 @@ func TestFingerprintIgnoresOrder(t *testing.T) {
 
 func TestClearGenerated(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName, "notes.md"} {
+	// generated_2.tf is what --incremental added to the root.
+	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName, engine.AddedFileName(2), "notes.md"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +94,7 @@ func TestClearGenerated(t *testing.T) {
 	if err := clearGenerated(dir); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{engine.GeneratedFileName: false, engine.ImportsFileName: false, engine.VersionsFileName: true, "notes.md": true} {
+	for name, want := range map[string]bool{engine.GeneratedFileName: false, engine.ImportsFileName: false, engine.AddedFileName(2): false, engine.VersionsFileName: true, "notes.md": true} {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != want {
 			t.Errorf("%s: exists=%v, want %v", name, err == nil, want)
 		}

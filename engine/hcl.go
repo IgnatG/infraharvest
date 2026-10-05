@@ -5,6 +5,7 @@ package engine
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 
 	"github.com/hashicorp/hcl/v2"
@@ -75,10 +76,51 @@ func VersionsFile(requiredVersion string, p Provider) []byte {
 	return hclwrite.Format(f.Bytes())
 }
 
-// ProvidersFile renders the provider block.
+// credentialArgument matches provider arguments that hold a credential,
+// such as token, api_key, access_token, password or client_secret. The
+// generated configuration never sets them: the provider reads them from
+// its environment when the user plans.
+var credentialArgument = regexp.MustCompile(`(?i)(^|_)(token|password|passwd|secret|secret_key|api_?key|access_key|private_key|credentials?)$`)
+
+// IsCredentialArgument reports whether a provider argument holds a
+// credential, by its name.
+func IsCredentialArgument(name string) bool {
+	return credentialArgument.MatchString(name)
+}
+
+// WithoutCredentials returns args without the arguments that hold
+// credentials (see IsCredentialArgument), at any depth, and the names it
+// left out, sorted.
+func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
+	if args == nil {
+		return nil, nil
+	}
+	var dropped []string
+	kept := make(map[string]interface{}, len(args))
+	for k, v := range args {
+		if IsCredentialArgument(k) {
+			dropped = append(dropped, k)
+			continue
+		}
+		if nested, ok := v.(map[string]interface{}); ok {
+			var nestedDropped []string
+			v, nestedDropped = WithoutCredentials(nested)
+			for _, name := range nestedDropped {
+				dropped = append(dropped, k+"."+name)
+			}
+		}
+		kept[k] = v
+	}
+	sort.Strings(dropped)
+	return kept, dropped
+}
+
+// ProvidersFile renders the provider block, without the arguments that
+// hold credentials (see WithoutCredentials).
 func ProvidersFile(p Provider) ([]byte, error) {
 	f := hclwrite.NewEmptyFile()
-	if err := writeBody(f.Body().AppendNewBlock("provider", []string{p.Name}).Body(), p.Config); err != nil {
+	config, _ := WithoutCredentials(p.Config)
+	if err := writeBody(f.Body().AppendNewBlock("provider", []string{p.Name}).Body(), config); err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.Name, err)
 	}
 	return hclwrite.Format(f.Bytes()), nil

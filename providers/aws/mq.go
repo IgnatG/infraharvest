@@ -26,7 +26,7 @@ type MQGenerator struct {
 }
 
 func (g *MQGenerator) loadBrokers(svc *mq.Client) error {
-	p := mq.NewListBrokersPaginator(svc, &mq.ListBrokersInput{})
+	p := mq.NewListBrokersPaginator(svc, &mq.ListBrokersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

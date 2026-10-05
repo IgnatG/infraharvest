@@ -93,6 +93,11 @@ func TestCheckStandardsFindings(t *testing.T) {
 		"undocumented-output": func(t *testing.T, _, module string) {
 			writeConfig(t, module, "outputs.tf", "output \"id\" {\n  value = aws_s3_bucket.this.id\n}\n")
 		},
+		"invalid-block": func(t *testing.T, _, module string) {
+			// A hand-edited root with a label-less block must fail, not
+			// panic.
+			writeConfig(t, module, "outputs.tf", "output {\n  value = aws_s3_bucket.this.id\n}\n")
+		},
 		"secret-persisted-to-state": func(t *testing.T, root, _ string) {
 			writeConfig(t, root, VariablesFileName, "variable \"suffix\" {\n  description = \"A secret.\"\n  type        = string\n  sensitive   = true\n  default     = \"x\"\n}\n")
 		},

@@ -32,7 +32,7 @@ func (g *SsmGenerator) InitResources() error {
 		return e
 	}
 	svc := ssm.NewFromConfig(config)
-	p := ssm.NewDescribeParametersPaginator(svc, &ssm.DescribeParametersInput{})
+	p := ssm.NewDescribeParametersPaginator(svc, &ssm.DescribeParametersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

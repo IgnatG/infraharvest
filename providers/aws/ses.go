@@ -54,7 +54,7 @@ func (g *SesGenerator) InitResources() error {
 func (g *SesGenerator) loadDomainIdentities(svc *ses.Client) error {
 	p := ses.NewListIdentitiesPaginator(svc, &ses.ListIdentitiesInput{
 		IdentityType: "Domain",
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -75,7 +75,7 @@ func (g *SesGenerator) loadDomainIdentities(svc *ses.Client) error {
 func (g *SesGenerator) loadMailIdentities(svc *ses.Client) error {
 	p := ses.NewListIdentitiesPaginator(svc, &ses.ListIdentitiesInput{
 		IdentityType: "EmailAddress",
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

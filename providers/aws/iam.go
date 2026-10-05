@@ -69,7 +69,7 @@ func (g *IamGenerator) InitResources() error {
 }
 
 func (g *IamGenerator) getRoles(svc *iam.Client) error {
-	p := iam.NewListRolesPaginator(svc, &iam.ListRolesInput{})
+	p := iam.NewListRolesPaginator(svc, &iam.ListRolesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -83,12 +83,11 @@ func (g *IamGenerator) getRoles(svc *iam.Client) error {
 				"aws_iam_role",
 				"aws",
 				IamAllowEmptyValues))
-			rolePoliciesPage := iam.NewListRolePoliciesPaginator(svc, &iam.ListRolePoliciesInput{RoleName: role.RoleName})
+			rolePoliciesPage := iam.NewListRolePoliciesPaginator(svc, &iam.ListRolePoliciesInput{RoleName: role.RoleName}, stopOnDuplicateToken)
 			for rolePoliciesPage.HasMorePages() {
 				rolePoliciesNextPage, err := rolePoliciesPage.NextPage(g.Context())
 				if err != nil {
-					log.Println(err)
-					continue
+					return err
 				}
 				for _, policyName := range rolePoliciesNextPage.PolicyNames {
 					g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
@@ -101,12 +100,11 @@ func (g *IamGenerator) getRoles(svc *iam.Client) error {
 			}
 			roleAttachedPoliciesPage := iam.NewListAttachedRolePoliciesPaginator(svc, &iam.ListAttachedRolePoliciesInput{
 				RoleName: &roleName,
-			})
+			}, stopOnDuplicateToken)
 			for roleAttachedPoliciesPage.HasMorePages() {
 				roleAttachedPoliciesNextPage, err := roleAttachedPoliciesPage.NextPage(g.Context())
 				if err != nil {
-					log.Println(err)
-					continue
+					return err
 				}
 				for _, attachedPolicy := range roleAttachedPoliciesNextPage.AttachedPolicies {
 					g.Resources = append(g.Resources, terraformutils.NewResource(
@@ -128,7 +126,7 @@ func (g *IamGenerator) getRoles(svc *iam.Client) error {
 }
 
 func (g *IamGenerator) getUsers(svc *iam.Client) error {
-	p := iam.NewListUsersPaginator(svc, &iam.ListUsersInput{})
+	p := iam.NewListUsersPaginator(svc, &iam.ListUsersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -168,7 +166,7 @@ func (g *IamGenerator) getUsers(svc *iam.Client) error {
 }
 
 func (g *IamGenerator) getUserGroup(svc *iam.Client, userName *string) error {
-	p := iam.NewListGroupsForUserPaginator(svc, &iam.ListGroupsForUserInput{UserName: userName})
+	p := iam.NewListGroupsForUserPaginator(svc, &iam.ListGroupsForUserInput{UserName: userName}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -195,7 +193,7 @@ func (g *IamGenerator) getUserGroup(svc *iam.Client, userName *string) error {
 }
 
 func (g *IamGenerator) getUserPolices(svc *iam.Client, userName *string) error {
-	p := iam.NewListUserPoliciesPaginator(svc, &iam.ListUserPoliciesInput{UserName: userName})
+	p := iam.NewListUserPoliciesPaginator(svc, &iam.ListUserPoliciesInput{UserName: userName}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -219,7 +217,7 @@ func (g *IamGenerator) getUserPolices(svc *iam.Client, userName *string) error {
 func (g *IamGenerator) getUserPolicyAttachment(svc *iam.Client, userName *string) error {
 	p := iam.NewListAttachedUserPoliciesPaginator(svc, &iam.ListAttachedUserPoliciesInput{
 		UserName: userName,
-	})
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -243,7 +241,7 @@ func (g *IamGenerator) getUserPolicyAttachment(svc *iam.Client, userName *string
 }
 
 func (g *IamGenerator) getPolicies(svc *iam.Client) error {
-	p := iam.NewListPoliciesPaginator(svc, &iam.ListPoliciesInput{Scope: types.PolicyScopeTypeLocal})
+	p := iam.NewListPoliciesPaginator(svc, &iam.ListPoliciesInput{Scope: types.PolicyScopeTypeLocal}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -265,7 +263,7 @@ func (g *IamGenerator) getPolicies(svc *iam.Client) error {
 }
 
 func (g *IamGenerator) getGroups(svc *iam.Client) error {
-	p := iam.NewListGroupsPaginator(svc, &iam.ListGroupsInput{})
+	p := iam.NewListGroupsPaginator(svc, &iam.ListGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -279,20 +277,23 @@ func (g *IamGenerator) getGroups(svc *iam.Client) error {
 				"aws_iam_group",
 				"aws",
 				IamAllowEmptyValues))
-			g.getGroupPolicies(svc, group)
-			g.getAttachedGroupPolicies(svc, group)
+			if err := g.getGroupPolicies(svc, group); err != nil {
+				return err
+			}
+			if err := g.getAttachedGroupPolicies(svc, group); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (g *IamGenerator) getGroupPolicies(svc *iam.Client, group types.Group) {
-	groupPoliciesPage := iam.NewListGroupPoliciesPaginator(svc, &iam.ListGroupPoliciesInput{GroupName: group.GroupName})
+func (g *IamGenerator) getGroupPolicies(svc *iam.Client, group types.Group) error {
+	groupPoliciesPage := iam.NewListGroupPoliciesPaginator(svc, &iam.ListGroupPoliciesInput{GroupName: group.GroupName}, stopOnDuplicateToken)
 	for groupPoliciesPage.HasMorePages() {
 		groupPoliciesNextPage, err := groupPoliciesPage.NextPage(g.Context())
 		if err != nil {
-			log.Println(err)
-			continue
+			return err
 		}
 		for _, policy := range groupPoliciesNextPage.PolicyNames {
 			id := *group.GroupName + ":" + policy
@@ -307,16 +308,16 @@ func (g *IamGenerator) getGroupPolicies(svc *iam.Client, group types.Group) {
 				IamAdditionalFields))
 		}
 	}
+	return nil
 }
 
-func (g *IamGenerator) getAttachedGroupPolicies(svc *iam.Client, group types.Group) {
+func (g *IamGenerator) getAttachedGroupPolicies(svc *iam.Client, group types.Group) error {
 	groupAttachedPoliciesPage := iam.NewListAttachedGroupPoliciesPaginator(svc,
-		&iam.ListAttachedGroupPoliciesInput{GroupName: group.GroupName})
+		&iam.ListAttachedGroupPoliciesInput{GroupName: group.GroupName}, stopOnDuplicateToken)
 	for groupAttachedPoliciesPage.HasMorePages() {
 		groupAttachedPoliciesNextPage, err := groupAttachedPoliciesPage.NextPage(g.Context())
 		if err != nil {
-			log.Println(err)
-			continue
+			return err
 		}
 		for _, attachedPolicy := range groupAttachedPoliciesNextPage.AttachedPolicies {
 			if !strings.Contains(*attachedPolicy.PolicyArn, "arn:aws:iam::aws") {
@@ -336,10 +337,11 @@ func (g *IamGenerator) getAttachedGroupPolicies(svc *iam.Client, group types.Gro
 				IamAdditionalFields))
 		}
 	}
+	return nil
 }
 
 func (g *IamGenerator) getInstanceProfiles(svc *iam.Client) error {
-	p := iam.NewListInstanceProfilesPaginator(svc, &iam.ListInstanceProfilesInput{})
+	p := iam.NewListInstanceProfilesPaginator(svc, &iam.ListInstanceProfilesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -364,7 +366,7 @@ func (g *IamGenerator) getInstanceProfiles(svc *iam.Client) error {
 }
 
 func (g *IamGenerator) getUserAccessKey(svc *iam.Client, userName *string, userID string) error {
-	p := iam.NewListAccessKeysPaginator(svc, &iam.ListAccessKeysInput{UserName: userName})
+	p := iam.NewListAccessKeysPaginator(svc, &iam.ListAccessKeysInput{UserName: userName}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

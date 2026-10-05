@@ -95,6 +95,44 @@ func TestVersionsFile(t *testing.T) {
 	}
 }
 
+func TestProvidersFileLeavesOutCredentials(t *testing.T) {
+	got, err := ProvidersFile(Provider{
+		Name:   "pagerduty",
+		Source: "PagerDuty/pagerduty",
+		Config: map[string]interface{}{
+			"token":            "u+secret",
+			"api_url_override": "https://api.eu.pagerduty.com",
+			"service_region":   "eu",
+			"nested":           map[string]interface{}{"client_secret": "s", "url": "https://x"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `provider "pagerduty" {
+  api_url_override = "https://api.eu.pagerduty.com"
+  nested {
+    url = "https://x"
+  }
+  service_region = "eu"
+}
+`
+	if string(got) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	_, dropped := WithoutCredentials(map[string]interface{}{
+		"token": "t", "access_token": "a", "api_key": "k", "apikey": "k", "password": "p", "client_secret": "s",
+		"secret_key": "s", "private_key": "pk", "credentials": "c", "nested": map[string]interface{}{"token": "t"},
+		"region": "eu", "token_url": "u", "skip_credentials_validation": true, "api_url": "u",
+	})
+	wantDropped := []string{"access_token", "api_key", "apikey", "client_secret", "credentials", "nested.token", "password", "private_key", "secret_key", "token"}
+	if !reflect.DeepEqual(dropped, wantDropped) {
+		t.Errorf("dropped %v, want %v", dropped, wantDropped)
+	}
+}
+
 func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
 	_, err := ProvidersFile(Provider{Name: "aws", Source: "hashicorp/aws", Config: map[string]interface{}{"region": struct{}{}}})
 	if err == nil || !strings.Contains(err.Error(), "region") {
@@ -190,12 +228,53 @@ func (f *fakeTerraform) ShowPlanFile(context.Context, string, ...tfexec.ShowOpti
 	if len(f.showns) > 0 {
 		p := f.showns[0]
 		f.showns = f.showns[1:]
-		return p, nil
+		if p == nil {
+			return nil, nil // a plan that reports nothing
+		}
+		return f.withImports(p)
 	}
 	if f.shown == nil {
-		return &tfjson.Plan{}, nil
+		return f.withImports(&tfjson.Plan{})
 	}
-	return f.shown, nil
+	return f.withImports(f.shown)
+}
+
+// withImports makes p consistent with the configuration's import blocks,
+// as Terraform's plan is: every import block imports a resource, so each
+// one's address has a change marked as importing, unchanged unless the
+// plan says otherwise.
+func (f *fakeTerraform) withImports(p *tfjson.Plan) (*tfjson.Plan, error) {
+	files, err := configFiles(f.dir)
+	if err != nil {
+		return nil, err
+	}
+	var addresses []string
+	for _, file := range files {
+		for _, b := range file.syntax.Blocks {
+			if to, ok := b.Body.Attributes["to"]; b.Type == "import" && ok {
+				addresses = append(addresses, string(to.Expr.Range().SliceBytes(file.src)))
+			}
+		}
+	}
+	planned := map[string]bool{}
+	for _, rc := range p.ResourceChanges {
+		planned[rc.Address] = true
+		if rc.Change != nil && rc.Change.Importing == nil && !rc.Change.Actions.Create() && !rc.Change.Actions.Delete() {
+			rc.Change.Importing = &tfjson.Importing{ID: rc.Address}
+		}
+	}
+	for _, address := range addresses {
+		if planned[address] {
+			continue
+		}
+		planned[address] = true
+		p.ResourceChanges = append(p.ResourceChanges, &tfjson.ResourceChange{
+			Address: address,
+			Mode:    tfjson.ManagedResourceMode,
+			Change:  &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}, Importing: &tfjson.Importing{ID: address}},
+		})
+	}
+	return p, nil
 }
 
 func (f *fakeTerraform) FormatCheck(context.Context, ...tfexec.FormatOption) (bool, []string, error) {

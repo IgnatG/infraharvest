@@ -94,15 +94,24 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 				if checkTerraformBlock(b, root, where, fail) {
 					requiredVersion = true
 				}
-			case "variable":
-				checkVariable(b, where, fail)
-			case "output":
-				if _, ok := b.Body.Attributes["description"]; !ok {
-					fail("undocumented-output", "%s: output %s has no description", where(b.DefRange()), b.Labels[0])
+			case "variable", "output", "module":
+				// The syntax allows a block without its label; validate
+				// (G2) reports it, and the checks below need it.
+				if len(b.Labels) != 1 {
+					fail("invalid-block", "%s: %s block needs one label", where(b.DefRange()), b.Type)
+					continue
 				}
-			case "module":
-				if m := checkModuleCall(dir, b, where, fail); m != "" {
-					modules = append(modules, m)
+				switch b.Type {
+				case "variable":
+					checkVariable(b, where, fail)
+				case "output":
+					if _, ok := b.Body.Attributes["description"]; !ok {
+						fail("undocumented-output", "%s: output %s has no description", where(b.DefRange()), b.Labels[0])
+					}
+				case "module":
+					if m := checkModuleCall(dir, b, where, fail); m != "" {
+						modules = append(modules, m)
+					}
 				}
 			case "resource":
 				checkOmitted(b, omit, where, fail)

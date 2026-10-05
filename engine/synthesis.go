@@ -108,6 +108,12 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 			return nil, baseline, errors.Join(err, backup.restore())
 		}
 		if !judge(active, p, summary, diags, baseline, changes, opts.StateOnly) {
+			if len(activeTrials(trials)) == len(active) {
+				// Nothing to take back (the plan reported neither errors
+				// nor a result): planning again would show the same.
+				reject("the plan reported no result", active...)
+				break
+			}
 			continue
 		}
 		return append(declined, rejections(trials)...), *summary, nil

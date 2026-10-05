@@ -59,6 +59,10 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 		if err := run.applyConfig(c); err != nil {
 			return err
 		}
+		if err := requireResources(c); err != nil {
+			return err
+		}
+		defaultPathPattern(c)
 		if c != nil {
 			if f := c.Flag("pick"); f != nil {
 				run.openPicker = f.Value.String() == "true"
@@ -68,6 +72,55 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 		defer func() { activeRun = nil }()
 		return run.finish(runE(c, args))
 	}
+}
+
+// errNoResources says that a provider command needs --resources.
+var errNoResources = errors.New("--resources is required (flag or config file)")
+
+// requireResources checks that the command has resources to import, from
+// --resources or the configuration file (see applyConfig). Cobra's required
+// flags are checked before the file is read, so they can't.
+func requireResources(c *cobra.Command) error {
+	if c == nil || c.Flags().Lookup("resources") == nil {
+		return nil
+	}
+	resources, err := c.Flags().GetStringSlice("resources")
+	if err != nil {
+		return err
+	}
+	if len(resources) == 0 {
+		return errNoResources
+	}
+	return nil
+}
+
+// defaultPathPattern lays the roots of --engine=terraform or tofu out by
+// account and region (DefaultRootPathPattern) when --path-pattern is not
+// given, on the command line or in the configuration file. Given, it is
+// followed as it is, even when it equals the legacy default.
+func defaultPathPattern(c *cobra.Command) {
+	if c == nil {
+		return
+	}
+	pattern, engineFlag := c.Flags().Lookup("path-pattern"), c.Flags().Lookup("engine")
+	if pattern == nil || pattern.Changed || engineFlag == nil {
+		return
+	}
+	if v := engineFlag.Value.String(); v == engineTerraform || v == engineTofu {
+		_ = pattern.Value.Set(DefaultRootPathPattern)
+	}
+}
+
+// recordFailure records that part of the command couldn't run, such as one
+// of the accounts --accounts names, so that the rest goes on and the
+// command still ends with a report and the exit code for what failed.
+func (r *engineRun) recordFailure(options ImportOptions, err error) {
+	if !r.used {
+		r.used = true
+		r.options = options
+	}
+	r.failures = append(r.failures, err)
+	r.report.Failures = append(r.report.Failures, err.Error())
 }
 
 // applyConfig loads the --config file, if any: it sets the command's flags
@@ -100,7 +153,7 @@ func (r *engineRun) finish(err error) error {
 	}
 	if r.options.Discover {
 		if writeErr := r.writeSelection(); writeErr != nil {
-			return errors.Join(err, writeErr)
+			return couldNotRun(err, writeErr)
 		}
 		if err != nil {
 			return err
@@ -117,16 +170,23 @@ func (r *engineRun) finish(err error) error {
 	}
 	r.report.Finish(r.discovered, r.failed, r.options.AllowPartial)
 	if writeErr := r.report.WriteFiles(r.options.PathOutput); writeErr != nil {
-		return errors.Join(err, writeErr)
+		return couldNotRun(err, writeErr)
 	}
 	log.Printf("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.PathOutput, report.Dir, "report.md"))
 	if r.options.Output == outputJSON {
 		if writeErr := r.report.WriteJSON(os.Stdout); writeErr != nil {
-			return errors.Join(err, writeErr)
+			return couldNotRun(err, writeErr)
 		}
 	}
 	if err != nil {
 		return err
 	}
 	return checkFailures(r.failures, r.options.AllowPartial)
+}
+
+// couldNotRun returns the error for a run whose report or selection file
+// couldn't be written: it exits with report.ExitCouldNotRun, whatever the
+// import's own err says.
+func couldNotRun(err, writeErr error) error {
+	return &ExitError{Code: report.ExitCouldNotRun, Err: errors.Join(err, writeErr)}
 }

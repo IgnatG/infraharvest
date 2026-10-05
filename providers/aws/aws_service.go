@@ -67,7 +67,8 @@ func (s *AWSService) generateConfig() (aws.Config, error) {
 		return baseConfig, e
 	}
 	if s.Verbose {
-		baseConfig.ClientLogMode = aws.LogRequestWithBody & aws.LogResponseWithBody
+		// Headers only: bodies would log STS credentials.
+		baseConfig.ClientLogMode = aws.LogRequest | aws.LogResponse | aws.LogRetries
 	}
 
 	creds, e := baseConfig.Credentials.Retrieve(s.Context())

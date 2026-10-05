@@ -31,7 +31,7 @@ func (g *ResourceGroupsGenerator) InitResources() error {
 		return e
 	}
 	svc := resourcegroups.NewFromConfig(config)
-	p := resourcegroups.NewListGroupsPaginator(svc, &resourcegroups.ListGroupsInput{})
+	p := resourcegroups.NewListGroupsPaginator(svc, &resourcegroups.ListGroupsInput{}, stopOnDuplicateToken)
 	var resources []terraformutils.Resource
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())

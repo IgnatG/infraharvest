@@ -23,9 +23,11 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # reviewdog falls back to `git fetch` when a PR diff is too large for
-        # the GitHub API; the token here only reads code and posts reviews.
-        persist-credentials: true
+        # reviewdog gets the token as an input below; the checkout must not
+        # leave it in .git for every later step. Its `git fetch` fallback for
+        # a PR diff too large for the GitHub API reads the public repository
+        # without credentials.
+        persist-credentials: false
         fetch-depth: 0
     - name: golangci-lint
       uses: reviewdog/action-golangci-lint@284129a3ac23bc5d8ac1522e0b6511df74a8836d # v2.10.2

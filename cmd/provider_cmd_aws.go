@@ -33,7 +33,7 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 		Use:   "aws",
 		Short: "Import current state to Terraform configuration from AWS",
 		Long:  "Import current state to Terraform configuration from AWS",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
@@ -49,15 +49,7 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 				}
 				return importAWSAccount(options)
 			}
-			for _, account := range accounts {
-				log.Printf("aws: importing account %s", account)
-				accountOptions := options
-				accountOptions.RoleARN = strings.ReplaceAll(options.AssumeRole, "{account}", account)
-				if err := importAWSAccount(accountOptions); err != nil {
-					return err
-				}
-			}
-			return nil
+			return importAWSAccounts(options, accounts, importAWSAccount)
 		},
 	}
 	cmd.AddCommand(listCmd(newAWSProvider()))
@@ -71,10 +63,32 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 	return cmd
 }
 
+// importAWSAccounts imports accounts one by one, each through the role
+// --assume-role names with {account} filled in (see awsAccounts), with
+// importAccount. An account that can't be imported, such as one whose role
+// can't be assumed, is recorded as a failure of the run and the others go
+// on; an interrupt stops the run.
+func importAWSAccounts(options ImportOptions, accounts []string, importAccount func(ImportOptions) error) error {
+	for _, account := range accounts {
+		log.Printf("aws: importing account %s", account)
+		accountOptions := options
+		accountOptions.RoleARN = strings.ReplaceAll(options.AssumeRole, "{account}", account)
+		err := importAccount(accountOptions)
+		if err == nil {
+			continue
+		}
+		if activeRun == nil || errors.Is(err, context.Canceled) {
+			return err
+		}
+		log.Printf("aws: account %s: %v", account, err)
+		activeRun.recordFailure(options, fmt.Errorf("account %s: %w", account, err))
+	}
+	return nil
+}
+
 // importAWSAccount imports one account: global, us-east-1-only and regional
 // resources, through options.RoleARN if set.
 func importAWSAccount(options ImportOptions) error {
-	originalResources := options.Resources
 	originalRegions := options.Regions
 	originalPathPattern := options.PathPattern
 	if len(options.Regions) == 0 {
@@ -82,7 +96,7 @@ func importAWSAccount(options ImportOptions) error {
 	}
 
 	shouldSpecifyPathRegion := len(options.Regions) > 1
-	globalResources, eastOnlyResources, regionalResources := parseAndGroupResources(originalResources)
+	globalResources, eastOnlyResources, regionalResources := groupAWSResources(options)
 	options.Resources = globalResources
 	options.Regions = []string{awsterraformer.GlobalRegion}
 	if err := importGlobalResources(options); err != nil {
@@ -121,7 +135,15 @@ func awsAccounts(ctx context.Context, options ImportOptions) ([]string, error) {
 	switch {
 	case options.Organization && len(options.Accounts) > 0:
 		return nil, errors.New("use either --accounts or --organization")
-	case options.Organization:
+	case !options.Organization && len(options.Accounts) == 0:
+		return nil, nil
+	}
+	// Several accounts, one role each: a role ARN of one account would
+	// import that account every time.
+	if !strings.Contains(options.AssumeRole, "{account}") {
+		return nil, fmt.Errorf("--assume-role %q needs {account} to reach several accounts", options.AssumeRole)
+	}
+	if options.Organization {
 		accounts, err := awsterraformer.OrganizationAccounts(ctx, options.Profile)
 		if err != nil {
 			return nil, fmt.Errorf("list the organization's accounts: %w", err)
@@ -130,24 +152,28 @@ func awsAccounts(ctx context.Context, options ImportOptions) ([]string, error) {
 			return nil, errors.New("the organization has no active accounts")
 		}
 		return accounts, nil
-	case len(options.Accounts) > 0:
-		if !strings.Contains(options.AssumeRole, "{account}") {
-			return nil, fmt.Errorf("--assume-role %q needs {account} to reach several accounts", options.AssumeRole)
-		}
-		return options.Accounts, nil
 	}
-	return nil, nil
+	return options.Accounts, nil
+}
+
+// groupAWSResources returns the global, us-east-1-only and regional
+// services of options.Resources. "*" is expanded first (see
+// resolveServices), so that the global services it stands for are
+// imported once, not once per region.
+func groupAWSResources(options ImportOptions) (global, eastOnly, regional []string) {
+	return parseAndGroupResources(resolveServices(newAWSProvider(), options).Resources)
 }
 
 // returns global, east-only, regional resources
 func parseAndGroupResources(allResources []string) ([]string, []string, []string) {
 	var globalResources, eastOnlyResources, regionalResources []string
 	for _, resourceName := range allResources {
-		if contains(awsterraformer.SupportedGlobalResources, resourceName) {
+		switch {
+		case contains(awsterraformer.SupportedGlobalResources, resourceName):
 			globalResources = append(globalResources, resourceName)
-		} else if contains(awsterraformer.SupportedEastOnlyResources, resourceName) {
+		case contains(awsterraformer.SupportedEastOnlyResources, resourceName):
 			eastOnlyResources = append(eastOnlyResources, resourceName)
-		} else {
+		default:
 			regionalResources = append(regionalResources, resourceName)
 		}
 	}

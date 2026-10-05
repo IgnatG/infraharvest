@@ -65,12 +65,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        id: goreleaser
         with:
           distribution: goreleaser
           version: v2.18.2
           args: release --clean --parallelism=1
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # The tag was pushed before GoReleaser ran: take it back when the
+      # release failed, so the version can be released again.
+      - name: Delete the tag of the failed release
+        if: failure() && steps.goreleaser.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$VERSION"
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

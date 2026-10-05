@@ -44,7 +44,7 @@ func (g *CloudFrontGenerator) InitResources() error {
 }
 
 func (g *CloudFrontGenerator) loadDistribution(svc *cloudfront.Client) error {
-	p := cloudfront.NewListDistributionsPaginator(svc, &cloudfront.ListDistributionsInput{})
+	p := cloudfront.NewListDistributionsPaginator(svc, &cloudfront.ListDistributionsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, e := p.NextPage(g.Context())
 		if e != nil {

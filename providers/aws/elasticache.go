@@ -29,7 +29,7 @@ type ElastiCacheGenerator struct {
 }
 
 func (g *ElastiCacheGenerator) loadCacheClusters(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeCacheClustersPaginator(svc, &elasticache.DescribeCacheClustersInput{})
+	p := elasticache.NewDescribeCacheClustersPaginator(svc, &elasticache.DescribeCacheClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -76,7 +76,7 @@ func (g *ElastiCacheGenerator) loadCacheClusters(svc *elasticache.Client) error 
 }
 
 func (g *ElastiCacheGenerator) loadParameterGroups(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeCacheParameterGroupsPaginator(svc, &elasticache.DescribeCacheParameterGroupsInput{})
+	p := elasticache.NewDescribeCacheParameterGroupsPaginator(svc, &elasticache.DescribeCacheParameterGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -100,7 +100,7 @@ func (g *ElastiCacheGenerator) loadParameterGroups(svc *elasticache.Client) erro
 }
 
 func (g *ElastiCacheGenerator) loadSubnetGroups(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeCacheSubnetGroupsPaginator(svc, &elasticache.DescribeCacheSubnetGroupsInput{})
+	p := elasticache.NewDescribeCacheSubnetGroupsPaginator(svc, &elasticache.DescribeCacheSubnetGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -121,7 +121,7 @@ func (g *ElastiCacheGenerator) loadSubnetGroups(svc *elasticache.Client) error {
 }
 
 func (g *ElastiCacheGenerator) loadReplicationGroups(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeReplicationGroupsPaginator(svc, &elasticache.DescribeReplicationGroupsInput{})
+	p := elasticache.NewDescribeReplicationGroupsPaginator(svc, &elasticache.DescribeReplicationGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

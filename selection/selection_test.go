@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/managed"
 )
 
 func write(t *testing.T, content string) string {
@@ -153,5 +155,115 @@ func TestMerge(t *testing.T) {
 	}
 	if !f.Has("aws_s3_bucket", "new-bucket") || f.Has("aws_s3_bucket", "gone") {
 		t.Error("the index doesn't follow the merge")
+	}
+}
+
+// The same type and ID in two scopes, such as one IAM role name in two
+// accounts, are two entries.
+func TestScopes(t *testing.T) {
+	const a, b = "aws/111122223333/global", "aws/444455556666/global"
+	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
+		{Type: "aws_iam_role", ID: "admin", Scope: a, Include: true},
+		{Type: "aws_iam_role", ID: "admin", Scope: b, Include: false, Note: "the other account's"},
+	}}
+
+	if !f.HasIn(a, "aws_iam_role", "admin") || !f.HasIn(b, "aws_iam_role", "admin") || !f.Has("aws_iam_role", "admin") {
+		t.Error("both entries must be found")
+	}
+	if f.HasIn("aws/777788889999/global", "aws_iam_role", "admin") {
+		t.Error("an entry of another scope must not count")
+	}
+	if d := f.DecideIn(a, "aws_iam_role", "admin", ""); !d.Include {
+		t.Errorf("scope %s: %+v", a, d)
+	}
+	if d := f.DecideIn(b, "aws_iam_role", "admin", ""); d.Include || d.Reason != "excluded in the selection file" {
+		t.Errorf("scope %s: %+v", b, d)
+	}
+
+	// Discover lists both again: both are kept, with their decisions.
+	added, dropped := f.Merge([]Resource{
+		{Type: "aws_iam_role", ID: "admin", Scope: b, Include: true},
+		{Type: "aws_iam_role", ID: "admin", Scope: a, Include: true},
+	})
+	if added != 0 || dropped != 0 || len(f.Resources) != 2 {
+		t.Errorf("merge: added %d, dropped %d, resources %+v", added, dropped, f.Resources)
+	}
+	if d := f.DecideIn(b, "aws_iam_role", "admin", ""); d.Include {
+		t.Errorf("the decision for scope %s was lost: %+v", b, d)
+	}
+
+	// The file round trips with both.
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Resources) != 2 || loaded.DecideIn(b, "aws_iam_role", "admin", "").Include {
+		t.Errorf("round trip: %+v", loaded.Resources)
+	}
+}
+
+// An entry written without a scope decides the resource in any scope.
+func TestScopelessEntryApplies(t *testing.T) {
+	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
+		{Type: "aws_vpc", ID: "vpc-1", Include: false, Note: "the network team's"},
+	}}
+	const scope = "aws/111122223333/eu-west-2"
+
+	if !f.HasIn(scope, "aws_vpc", "vpc-1") || f.DecideIn(scope, "aws_vpc", "vpc-1", "").Include {
+		t.Error("the scope-less entry must decide")
+	}
+	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: scope, Include: true}})
+	if added != 0 || dropped != 0 || len(f.Resources) != 1 || f.Resources[0].Include || f.Resources[0].Scope != scope {
+		t.Errorf("merge: added %d, dropped %d, resources %+v", added, dropped, f.Resources)
+	}
+}
+
+// Discover with --managed-state excludes what Terraform manages since the
+// file was written, unless a person noted why it is included.
+func TestMergeExcludesManaged(t *testing.T) {
+	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
+		{Type: "aws_s3_bucket", ID: "logs", Include: true},
+		{Type: "aws_s3_bucket", ID: "assets", Include: true, Note: "moving it to this root"},
+		{Type: "aws_s3_bucket", ID: "old", Include: false, Reason: "excluded in the selection file"},
+	}}
+	reason := managed.Reason + " (prod.tfstate)"
+
+	f.Merge([]Resource{
+		{Type: "aws_s3_bucket", ID: "logs", Reason: reason},
+		{Type: "aws_s3_bucket", ID: "assets", Reason: reason},
+		{Type: "aws_s3_bucket", ID: "old", Reason: reason},
+	})
+
+	want := map[string]Resource{
+		"logs":   {Type: "aws_s3_bucket", ID: "logs", Include: false, Reason: reason, New: true},
+		"assets": {Type: "aws_s3_bucket", ID: "assets", Include: true, Note: "moving it to this root"},
+		"old":    {Type: "aws_s3_bucket", ID: "old", Include: false, Reason: "excluded in the selection file"},
+	}
+	for _, r := range f.Resources {
+		if r != want[r.ID] {
+			t.Errorf("%s: got %+v, want %+v", r.ID, r, want[r.ID])
+		}
+	}
+}
+
+// A rule decides a new resource before the provider's defaults do.
+func TestMergeRulesBeforeDefaults(t *testing.T) {
+	f := &File{
+		Version:  Version,
+		Defaults: Defaults{Include: true},
+		Rules:    []Rule{{Include: &Match{Type: Patterns{"aws_vpc"}}}},
+	}
+
+	f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}})
+
+	if r := f.Resources[0]; !r.Include || r.Reason != "" || !r.New {
+		t.Errorf("got %+v, want included by the rule", r)
+	}
+	if d, ok := f.ByRule("aws_subnet", "subnet-1", ""); ok || d.Include {
+		t.Errorf("no rule matches a subnet: %+v, %v", d, ok)
 	}
 }

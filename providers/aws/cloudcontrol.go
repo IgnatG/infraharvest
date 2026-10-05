@@ -120,7 +120,7 @@ func (g *CloudControlGenerator) InitResources() error {
 
 // list adds the resources of one type, if the region has the type.
 func (g *CloudControlGenerator) list(ctx context.Context, client cloudcontrol.ListResourcesAPIClient, t cloudControlType) error {
-	p := cloudcontrol.NewListResourcesPaginator(client, &cloudcontrol.ListResourcesInput{TypeName: aws.String(t.CloudFormation)})
+	p := cloudcontrol.NewListResourcesPaginator(client, &cloudcontrol.ListResourcesInput{TypeName: aws.String(t.CloudFormation)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		var notFound *cctypes.TypeNotFoundException

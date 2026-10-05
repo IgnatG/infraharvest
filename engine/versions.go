@@ -7,13 +7,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+)
+
+// registryTimeout bounds one registry request; registryBodyLimit bounds
+// what the registry's answer may hold.
+const (
+	registryTimeout   = 30 * time.Second
+	registryBodyLimit = 4 << 20
 )
 
 // DefaultRegistry is the registry provider sources without a host use.
@@ -54,6 +63,9 @@ func LatestProviderVersion(ctx context.Context, client *http.Client, baseURL, so
 	if baseURL == "" {
 		baseURL = "https://" + parts[0]
 	}
+	// A registry that hangs must not hold the import up for good.
+	ctx, cancel := context.WithTimeout(ctx, registryTimeout)
+	defer cancel()
 	url := fmt.Sprintf("%s/v1/providers/%s/%s/versions", baseURL, parts[1], parts[2])
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -72,7 +84,7 @@ func LatestProviderVersion(ctx context.Context, client *http.Client, baseURL, so
 			Version string `json:"version"`
 		} `json:"versions"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, registryBodyLimit)).Decode(&body); err != nil {
 		return nil, fmt.Errorf("look up %s versions: %w", source, err)
 	}
 	var latest *version.Version
