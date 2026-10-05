@@ -208,3 +208,102 @@ func TestLiftModulesKeeps(t *testing.T) {
 		t.Errorf("calls: got %v, want [schema init plan]", tf.calls)
 	}
 }
+
+// A child that refers to two parents of the same type goes to the first by
+// address, whatever order its attributes come in.
+func TestFindClustersPicksTheFirstParentByAddress(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_security_group" "b" {
+  name = "b"
+}
+
+resource "aws_security_group" "a" {
+  name = "a"
+}
+
+resource "aws_security_group_rule" "ab" {
+  security_group_id        = aws_security_group.b.id
+  source_security_group_id = aws_security_group.a.id
+  type                     = "ingress"
+}
+`)
+
+	for i := 0; i < 20; i++ {
+		clusters := findClusters(f)
+		if len(clusters) != 1 || clusters[0].members[0].address != "aws_security_group.a" || len(clusters[0].members) != 2 {
+			t.Fatalf("want the rule clustered with aws_security_group.a, got %+v", clusters)
+		}
+	}
+	if got := referencedAddresses(f.resources()[2].syntax.Body); strings.Join(got, ",") != "aws_security_group.a,aws_security_group.b" {
+		t.Errorf("referencedAddresses: got %v", got)
+	}
+}
+
+// An input fed by a secret variable is sensitive in the module too.
+func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
+	dir, modulesDir := moduleRoot(t, strings.Replace(strings.Replace(twoBuckets,
+		"bucket = \"logs\"\n", "bucket = \"logs\"\n  key    = var.aws_s3_bucket_logs_key\n", 1),
+		"bucket = \"state\"\n", "bucket = \"state\"\n  key    = var.aws_s3_bucket_state_key\n", 1))
+
+	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	if err != nil || !changed || len(created) != 1 {
+		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
+	}
+
+	variables := squashed(readFile(t, created[0], "variables.tf"))
+	if !strings.Contains(variables, `variable "key" { description = "Key of the module's aws_s3_bucket." type = any sensitive = true }`) {
+		t.Errorf("variables.tf misses the sensitive variable:\n%s", variables)
+	}
+	if strings.Count(variables, "sensitive") != 1 {
+		t.Errorf("want only key sensitive:\n%s", variables)
+	}
+	if main := readFile(t, created[0], "main.tf"); !strings.Contains(main, "key    = var.key") {
+		t.Errorf("main.tf:\n%s", main)
+	}
+	if root := readFile(t, dir, GeneratedFileName); !strings.Contains(root, "key    = var.aws_s3_bucket_logs_key") {
+		t.Errorf("generated.tf doesn't pass the secret:\n%s", root)
+	}
+}
+
+func TestLowerBound(t *testing.T) {
+	for constraint, want := range map[string]string{
+		"~> 6.14":        ">= 6.14",
+		">= 1.5, < 2.0":  ">= 1.5",
+		"1.16.5":         ">= 1.16.5",
+		">= 1.5, >= 1.7": ">= 1.7",
+		"> 1.5, != 1.6":  ">= 1.5",
+	} {
+		got, err := lowerBound(constraint)
+		if err != nil || got != want {
+			t.Errorf("%q: got %q, %v, want %q", constraint, got, err, want)
+		}
+	}
+	for _, constraint := range []string{"< 2.0", "not a version"} {
+		if got, err := lowerBound(constraint); err == nil {
+			t.Errorf("%q: got %q, want an error", constraint, got)
+		}
+	}
+}
+
+// A module is reused only when its variables and outputs match too.
+func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
+	dir, modulesDir := moduleRoot(t, twoBuckets)
+	created, _, err := modularize(dir, modulesDir, bucketSchemas)
+	if err != nil || len(created) != 1 {
+		t.Fatalf("got created=%v err=%v", created, err)
+	}
+	// The same clusters, with a schema that outputs less.
+	less := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+		"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+			"aws_s3_bucket":            {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{"id": {AttributeType: cty.String}, "arn": {AttributeType: cty.String}}}},
+			"aws_s3_bucket_versioning": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{"id": {AttributeType: cty.String}}}},
+		}},
+	}}
+	other, otherModules := moduleRoot(t, twoBuckets)
+	createdLess, _, err := modularize(other, otherModules, less)
+	if err != nil || len(createdLess) != 1 {
+		t.Fatalf("got created=%v err=%v", createdLess, err)
+	}
+	if filepath.Base(created[0]) == filepath.Base(createdLess[0]) {
+		t.Errorf("modules with other outputs share the name %s", filepath.Base(created[0]))
+	}
+}

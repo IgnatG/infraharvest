@@ -213,18 +213,34 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	if err != nil {
 		return nil, err
 	}
-	if err := merge(staging, root, existing, opts.DataSources); err != nil {
+	// What follows changes root: undo it on failure, so that root stays as
+	// it was and a rerun adds the resources again.
+	backup, err := backupFiles(root, DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName)
+	if err != nil {
 		return nil, err
 	}
+	added, err := merge(staging, root, existing, opts.DataSources)
+	undo := func() error {
+		if added != "" {
+			if err := os.Remove(filepath.Join(root, added)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+		return backup.restore()
+	}
+	if err != nil {
+		return nil, errors.Join(err, undo())
+	}
+	// After merge: the calls it added need their modules installed.
 	if err := rootTF.Init(ctx, tfexec.Backend(false)); err != nil {
-		return nil, fmt.Errorf("terraform init: %w", err)
+		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	staged := result.Gate
 	gate, err := gateWith(ctx, rootTF, root, opts, func() (Check, []string, error) {
 		return staged.check(CheckPlan), nil, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, undo())
 	}
 	// Only staging's plan knew the values to look for.
 	if secrets := staged.check(CheckSecrets); !secrets.Passed {
@@ -247,13 +263,18 @@ func sortedExternal(m map[External]string) []External {
 	for e := range m {
 		list = append(list, e)
 	}
+	sortExternal(list)
+	return list
+}
+
+// sortExternal sorts list by type, then ID.
+func sortExternal(list []External) {
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Type != list[j].Type {
 			return list[i].Type < list[j].Type
 		}
 		return list[i].ID < list[j].ID
 	})
-	return list
 }
 
 // With returns what a root holds once an incremental import added added
@@ -282,15 +303,17 @@ func AddedFileName(n int) string {
 // blocks, variables, locals, data sources and resources left out after
 // root's own. References to data sources that read a resource root has,
 // existing, as a resource block, or that root already has, use root's.
-// The provider configuration and the locals it uses stay root's.
-func merge(staging, root string, existing map[External]string, sources map[string]DataSource) error {
+// The provider configuration and the locals it uses stay root's. It
+// returns the name of the file of resources it added to root, "" if it
+// failed before writing it.
+func merge(staging, root string, existing map[External]string, sources map[string]DataSource) (string, error) {
 	generated, err := loadHCL(filepath.Join(staging, GeneratedFileName))
 	if err != nil {
-		return err
+		return "", err
 	}
 	rootFiles, err := configFiles(root)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Where root reads or has each resource, by data source type and ID.
 	rootData := map[string][]string{}
@@ -313,7 +336,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	var data []*hclwrite.Block
 	staged, err := loadOptionalHCL(filepath.Join(staging, DataFileName))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if staged != nil {
 		blocks := staged.file.Body().Blocks()
@@ -337,44 +360,45 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		if _, err := os.Stat(filepath.Join(root, AddedFileName(n))); errors.Is(err, fs.ErrNotExist) {
 			break
 		} else if err != nil {
-			return err
+			return "", err
 		}
 	}
-	generated.path = filepath.Join(root, AddedFileName(n))
+	added := AddedFileName(n)
+	generated.path = filepath.Join(root, added)
 	if err := generated.save(); err != nil {
-		return err
+		return added, err
 	}
 	if err := appendBlocks(filepath.Join(root, DataFileName), dataFileHeader, data); err != nil {
-		return err
+		return added, err
 	}
 	for _, name := range []string{ImportsFileName, VariablesFileName} {
 		f, err := loadOptionalHCL(filepath.Join(staging, name))
 		if err != nil {
-			return err
+			return added, err
 		}
 		if f != nil {
 			if err := appendBlocks(filepath.Join(root, name), "", f.file.Body().Blocks()); err != nil {
-				return err
+				return added, err
 			}
 		}
 	}
 	if err := mergeLocals(staging, root); err != nil {
-		return err
+		return added, err
 	}
 	if rejected, err := os.ReadFile(filepath.Join(staging, RejectedFileName)); err == nil {
 		if err := appendFile(filepath.Join(root, RejectedFileName), rejected); err != nil {
-			return err
+			return added, err
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return added, err
 	}
 	lock := filepath.Join(root, LockFileName)
 	if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
 		if content, err := os.ReadFile(filepath.Join(staging, LockFileName)); err == nil {
-			return os.WriteFile(lock, content, 0o644)
+			return added, os.WriteFile(lock, content, 0o644)
 		}
 	}
-	return nil
+	return added, nil
 }
 
 // replaceTraversals replaces the start of references that begin with

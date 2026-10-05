@@ -71,6 +71,41 @@ resource "aws_lambda_function" "f" {
 	}
 }
 
+// Two IDs with the same label are named in one order, whatever order the
+// caller lists them in.
+func TestAddDataSourcesNamesInOneOrder(t *testing.T) {
+	for _, reversed := range []bool{false, true} {
+		dir := t.TempDir()
+		writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
+  role = "admin-x"
+}
+
+resource "aws_lambda_function" "b" {
+  role = "admin_x"
+}
+`)
+		external := []External{{Type: "aws_iam_role", ID: "admin-x"}, {Type: "aws_iam_role", ID: "admin_x"}}
+		if reversed {
+			external[0], external[1] = external[1], external[0]
+		}
+
+		changed, err := addDataSources(dir, external, awsDataSources, nil)
+		if err != nil || !changed {
+			t.Fatalf("reversed=%v: want data sources, got %v, %v", reversed, changed, err)
+		}
+
+		data := squashed(readFile(t, dir, DataFileName))
+		for _, want := range []string{
+			`data "aws_iam_role" "admin_x" { name = "admin-x" }`,
+			`data "aws_iam_role" "admin_x_2" { name = "admin_x" }`,
+		} {
+			if !strings.Contains(data, want) {
+				t.Errorf("reversed=%v: data.tf misses %q:\n%s", reversed, want, data)
+			}
+		}
+	}
+}
+
 func TestAddDataSourcesWithoutReferences(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_vpc\" \"a\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")

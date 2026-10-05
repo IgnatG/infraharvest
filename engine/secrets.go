@@ -139,7 +139,8 @@ var notInVariableName = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
 // secretsToVariables makes every secret attribute read from a new sensitive
 // variable, named other than the variables in taken, and returns the
-// variables, in file order. It edits f's tree.
+// variables, by resource in file order and by attribute as secretsIn
+// lists them (by name, then nested blocks in order). It edits f's tree.
 func secretsToVariables(f *hclFile, secrets map[string][]secretAttribute, taken Names) []Secret {
 	var vars []Secret
 	used := map[string]bool{}

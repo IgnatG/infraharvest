@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -43,7 +44,10 @@ type DataSource struct {
 // sources are named other than those in taken. It reports whether it
 // changed anything.
 func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
-	index := map[string]referenceTarget{}
+	// In one order whatever the caller's, as the names depend on it.
+	external = slices.Clone(external)
+	sortExternal(external)
+	index := map[string][]referenceTarget{}
 	blocks := map[string]External{} // data address -> resource
 	used := map[string]bool{}
 	for name := range taken {
@@ -71,7 +75,7 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 			address = fmt.Sprintf("%s_%d", base, n)
 		}
 		used[address] = true
-		index[e.ID] = referenceTarget{address: address, attribute: "id", data: true}
+		index[e.ID] = []referenceTarget{{address: address, attribute: "id", data: true}}
 		blocks[address] = e
 	}
 	if len(index) == 0 {
