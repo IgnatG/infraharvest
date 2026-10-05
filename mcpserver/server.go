@@ -38,7 +38,7 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 
 1. Call discover to list a provider's resources into a selection file. Each resource is marked included or not, with the reason for exclusions.
 2. Edit the selection file if the user wants a different selection, and show it to them.
-3. Call import with the selection file. The user is asked to confirm before anything is imported.
+3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them.
 4. Call report to read what was imported, what was left out and why, and the results of the checks.`
 
 // New returns the server, which runs infraharvest with run. The tools read
@@ -137,7 +137,8 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if err := t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	args = append(args, "--selection="+in.Selection)
+	// Never the picker: the client talks to this process over stdio.
+	args = append(args, "--pick=false", "--selection="+in.Selection)
 	_, stderr, code, err := t.run(ctx, args)
 	if err != nil {
 		return nil, nil, err
@@ -194,6 +195,8 @@ type ImportInput struct {
 	Selection string `json:"selection" jsonschema:"the selection file to import, from discover"`
 	Output    string `json:"output" jsonschema:"the directory to write the configuration and report to"`
 	Engine    string `json:"engine,omitempty" jsonschema:"terraform (the default) or tofu"`
+	// Incremental adds to the roots Output already has (--incremental).
+	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, in files of their own, without changing what they have; needed to import into an output directory again"`
 }
 
 // ImportResult is what an import did.
@@ -228,6 +231,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, nil, fmt.Errorf("engine must be terraform or tofu, not %q", engine)
 	}
 	args = append(args, "--engine="+engine, "--selection="+in.Selection, "--path-output="+in.Output, "--output=json")
+	if in.Incremental {
+		args = append(args, "--incremental")
+	}
 	summary, err := summarize(in.Selection)
 	if err != nil {
 		return nil, nil, err
@@ -239,6 +245,10 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// ties the answer to this exact import.
 	message := fmt.Sprintf("Import the %d resources that %s includes (%d excluded) into Terraform configuration in %s? infraharvest reads %s and writes files; it never applies anything.",
 		summary.Included, in.Selection, summary.Excluded, in.Output, scopeText(in.Scope))
+	if in.Incremental {
+		message = fmt.Sprintf("Add the resources that %s includes (%d excluded) and that the roots in %s don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
+			in.Selection, summary.Excluded, in.Output, scopeText(in.Scope))
+	}
 	state := confirmationState(args, summary)
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {

@@ -56,6 +56,32 @@ jobs:
           test "$EXIT_CODE" = 0
           test -f "$REPORT"
           grep -r --include=imports.tf "aws_sqs_queue" "$RUNNER_TEMP/generated"
+      # A scheduled run on a fresh checkout: the roots are there, infraharvest's
+      # checkpoints (gitignored) are not, and a queue is new.
+      - name: Add a queue
+        run: |
+          find "$RUNNER_TEMP/generated" -name generated.tf -exec sha256sum {} + > "$RUNNER_TEMP/generated.sha256"
+          rm -rf "$RUNNER_TEMP/generated/.infraharvest"
+          aws sqs create-queue --queue-name infraharvest-action-new
+      - name: Run the action again
+        id: again
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          resources: sqs
+          regions: us-east-1
+          output: ${{ runner.temp }}/generated
+      - name: Check the new queue was added
+        env:
+          EXIT_CODE: ${{ steps.again.outputs.exit-code }}
+        run: |
+          test "$EXIT_CODE" = 0
+          sha256sum --check "$RUNNER_TEMP/generated.sha256"
+          added=$(find "$RUNNER_TEMP/generated" -name generated_2.tf)
+          test -n "$added"
+          grep -q "infraharvest-action-new" $added
+          ! grep -q '"infraharvest-action"' $added
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs

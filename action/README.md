@@ -39,6 +39,8 @@ jobs:
 
 The role only needs read access: see [permissions/aws](../permissions/aws).
 
+Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go into `generated_2.tf`, `generated_3.tf` and so on, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
+
 ## Inputs
 
 | Input | Default | Description |
@@ -53,6 +55,8 @@ The role only needs read access: see [permissions/aws](../permissions/aws).
 | `engine` | `terraform` | `terraform` or `tofu` |
 | `output` | `generated` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
+| `incremental` | `true` | Add what is new to the roots `output` already has, in files of their own (`--incremental`), instead of failing on them |
+| `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `pull-request` | `false` | Open or update a pull request with the output |
 | `pull-request-branch` | `infraharvest/import` | The pull request's branch |

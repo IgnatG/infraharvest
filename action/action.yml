@@ -41,6 +41,12 @@ inputs:
   config:
     description: infraharvest configuration file (--config), for example with the state backend.
     required: false
+  incremental:
+    description: Add what is new to the roots the output directory already has (--incremental), in files of their own, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
+    default: "true"
+  managed-state:
+    description: State that says what Terraform already manages (--managed-state), such as backend for the configuration file's S3 backend. Needed to add to roots whose import blocks were deleted after they were applied.
+    required: false
   allow-partial:
     description: Succeed when some resources couldn't be imported (exit code 3), keeping the rest.
     default: "false"
@@ -126,6 +132,8 @@ runs:
         OUTPUT: ${{ inputs.output }}
         CONFIG: ${{ inputs.config }}
         ALLOW_PARTIAL: ${{ inputs.allow-partial }}
+        INCREMENTAL: ${{ inputs.incremental }}
+        MANAGED_STATE: ${{ inputs.managed-state }}
       run: |
         if [[ ! "$PROVIDER" =~ ^[a-z][a-z0-9_]*$ ]]; then
           echo "::error::unknown provider '$PROVIDER'"
@@ -136,6 +144,8 @@ runs:
         [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
         [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
         [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
+        [[ "$INCREMENTAL" == true ]] && args+=(--incremental)
+        [[ -n "$MANAGED_STATE" ]] && args+=("--managed-state=$MANAGED_STATE")
         if [[ -n "$SELECTION" ]]; then args+=("--selection=$SELECTION"); else args+=(--all); fi
         code=0
         "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?

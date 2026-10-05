@@ -97,7 +97,7 @@ func TestDiscover(t *testing.T) {
 	if res.IsError || !strings.Contains(text, "lists 3 resources: 2 included, 1 excluded") {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"discover", "aws", "--resources=vpc,subnet", "--regions=eu-west-2", "--selection=" + path}
+	want := []string{"discover", "aws", "--resources=vpc,subnet", "--regions=eu-west-2", "--pick=false", "--selection=" + path}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -157,6 +157,34 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 	want := []string{"import", "aws", "--resources=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=" + path, "--path-output=" + out, "--output=json"}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+}
+
+// An incremental import adds to the roots the output directory has, and
+// the user is told so.
+func TestImportIncremental(t *testing.T) {
+	runner := &fakeRunner{}
+	var asked string
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = req.Params.Message
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	args := importArgs(path, filepath.Join(dir, "generated"))
+	args["incremental"] = true
+
+	if res, text := call(t, session, "import", args); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if !strings.Contains(asked, "don't have yet") || !strings.Contains(asked, "stays as it is") {
+		t.Errorf("confirmation %q doesn't say the import adds to the roots", asked)
+	}
+	if len(runner.runs) != 1 || !slices.Contains(runner.runs[0], "--incremental") {
+		t.Errorf("runs: %v, want --incremental", runner.runs)
 	}
 }
 
