@@ -112,7 +112,7 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 				continue
 			}
 			r.discovered[typ]++
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason})
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason, Scope: scope})
 			leftOut = append(leftOut, engine.External{Type: typ, ID: id})
 		}
 	}

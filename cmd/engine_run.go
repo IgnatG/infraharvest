@@ -40,7 +40,10 @@ type engineRun struct {
 	// openPicker opens the picker on the selection file discover writes,
 	// when run in a terminal (see pick).
 	openPicker bool
-	used       bool
+	// scope is where the provider call being imported lists (see
+	// discoveryScope); the report counts by it.
+	scope string
+	used  bool
 }
 
 // activeRun is the run of the provider command being executed, if any.

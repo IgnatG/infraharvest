@@ -48,7 +48,7 @@ func (r *engineRun) addToRoot(ctx context.Context, dir string, imports []engine.
 	var added []engine.Import
 	for _, imp := range imports {
 		if _, ok := existing[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason})
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope})
 			continue
 		}
 		added = append(added, imp)

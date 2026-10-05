@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -177,7 +179,43 @@ func TestManagedCounts(t *testing.T) {
 	if r.Totals.Managed != 1 || r.Totals.Excluded != 2 {
 		t.Errorf("totals: %+v", r.Totals)
 	}
-	if md := r.Markdown(); !strings.Contains(md, "## Managed and unmanaged") || !strings.Contains(md, "| `aws_s3_bucket` | 2 | 1 | 1 |") {
+	if md := r.Markdown(); !strings.Contains(md, "## Managed and unmanaged") || !strings.Contains(md, "| `aws_s3_bucket` | 2 | 1 | 0 | 1 |") {
 		t.Errorf("markdown:\n%s", md)
+	}
+}
+
+// What another tool manages, and every count by account and region.
+func TestScopeCounts(t *testing.T) {
+	const prod, dev = "aws/111111111111/eu-west-2", "aws/222222222222/eu-west-2"
+	r := &Report{}
+	r.AddDiscovered(prod, 3)
+	r.AddDiscovered(dev, 1)
+	r.AddDiscovered(prod, 1)
+	r.Excluded = []Excluded{
+		{Type: "aws_s3_bucket", ID: "cdk-assets", Reason: OtherToolPrefix + "CloudFormation stack CDKToolkit", Scope: prod},
+		{Type: "aws_s3_bucket", ID: "state", Reason: managed.Reason + " (backend)", Scope: prod},
+	}
+	r.Directories = []Directory{
+		{Path: prod, Scope: prod, Imported: []Resource{{Address: "aws_s3_bucket.logs", ID: "logs"}, {Address: "aws_sqs_queue.jobs", ID: "jobs"}}},
+		{Path: dev, Scope: dev, Imported: []Resource{{Address: "aws_s3_bucket.dev", ID: "dev"}}},
+	}
+	r.Finish(map[string]int{"aws_s3_bucket": 4, "aws_sqs_queue": 1}, nil, false)
+
+	want := []ScopeCount{
+		{Scope: prod, CoverageTotal: CoverageTotal{Discovered: 4, Imported: 2, Excluded: 2, Managed: 1, OtherTool: 1}},
+		{Scope: dev, CoverageTotal: CoverageTotal{Discovered: 1, Imported: 1}},
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i].Scope < want[j].Scope })
+	if !reflect.DeepEqual(r.Scopes, want) {
+		t.Errorf("scopes: got %+v, want %+v", r.Scopes, want)
+	}
+	if r.Totals.OtherTool != 1 || r.Totals.Managed != 1 {
+		t.Errorf("totals: %+v", r.Totals)
+	}
+	md := r.Markdown()
+	for _, want := range []string{"| `" + prod + "` | 4 | 1 | 1 | 2 |", "| `" + dev + "` | 1 | 0 | 0 | 1 |", "| `aws_s3_bucket` | 4 | 1 | 1 | 2 |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown misses %q:\n%s", want, md)
+		}
 	}
 }
