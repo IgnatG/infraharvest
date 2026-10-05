@@ -320,7 +320,7 @@ require (
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/term v0.45.0
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
@@ -372,7 +372,15 @@ require (
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.8 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/charmbracelet/colorprofile v0.4.3 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
+	github.com/charmbracelet/x/ansi v0.11.8 // indirect
+	github.com/charmbracelet/x/term v0.2.2 // indirect
+	github.com/charmbracelet/x/termios v0.1.1 // indirect
+	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clbanning/mxj v1.8.4 // indirect
+	github.com/clipperhouse/displaywidth v0.11.0 // indirect
+	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
@@ -405,17 +413,22 @@ require (
 	github.com/lestrrat-go/iter v1.0.2 // indirect
 	github.com/lestrrat-go/jwx v1.2.29 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
+	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/manicminer/hamilton-autorest v0.2.0 // indirect
+	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
+	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.7.0 // indirect
 	github.com/valyala/fastjson v1.6.3 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.44.0 // indirect
@@ -435,6 +448,8 @@ require (
 )
 
 require (
+	charm.land/bubbletea/v2 v2.0.10
+	charm.land/lipgloss/v2 v2.0.6
 	github.com/IBM/continuous-delivery-go-sdk/v2 v2.0.2
 	github.com/aws/aws-sdk-go v1.44.122
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.1
