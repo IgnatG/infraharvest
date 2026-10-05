@@ -139,7 +139,7 @@ func TestInitialCleanupLeavesAttributeFiltersToListers(t *testing.T) {
 			NewSimpleResource("vpc2", "vpc2", "aws_vpc", "aws"),
 		},
 	}
-	service.ParseFilters([]string{"Name=tags.Name;Value=default", "aws_vpc=vpc2"})
+	service.ParseFilters([]string{"Name=tags.Name;Value=default", "vpc=vpc2"})
 	service.InitialCleanup()
 
 	if len(service.Resources) != 1 || service.Resources[0].InstanceState.ID != "vpc2" {

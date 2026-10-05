@@ -150,7 +150,7 @@ func main() {
 		log.Fatal(err)
 	}
 	funcMap := template.FuncMap{
-		"title":   strings.Title,
+		"title":   upperFirst,
 		"toLower": strings.ToLower,
 		"join":    strings.Join,
 	}
@@ -174,7 +174,7 @@ func main() {
 			var tpl bytes.Buffer
 			t := template.Must(template.New("resource.go").Funcs(funcMap).Parse(serviceTemplate))
 			err := t.Execute(&tpl, map[string]interface{}{
-				"titleResourceName":   strings.Title(resource),
+				"titleResourceName":   upperFirst(resource),
 				"resource":            resource,
 				"responseName":        value.(map[string]interface{})["response"].(map[string]interface{})["$ref"].(string),
 				"terraformName":       terraformResources[resource].getTerraformName(),
@@ -225,4 +225,13 @@ func codeFormat(src []byte) []byte {
 		log.Println(err)
 	}
 	return code
+}
+
+// upperFirst upper-cases the first letter of an ASCII name, such as a
+// Compute API resource name (regionBackendServices).
+func upperFirst(name string) string {
+	if name == "" {
+		return name
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
 }
