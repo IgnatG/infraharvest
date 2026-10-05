@@ -74,7 +74,7 @@ func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
+	declined, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
 	if err != nil || len(declined) != 0 {
 		t.Fatalf("want every cluster moved, got declined=%v err=%v", declined, err)
 	}
@@ -127,7 +127,7 @@ func TestSynthesizeTakesBackCallsThatChangeThePlan(t *testing.T) {
 	second := importedPlan("aws_iam_policy.read", "aws_s3_bucket.state", "aws_s3_bucket_versioning.state", "module.logs.aws_s3_bucket.this[0]", "module.logs.aws_s3_bucket_versioning.this[0]")
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{first, second}}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
+	declined, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,13 +141,47 @@ func TestSynthesizeTakesBackCallsThatChangeThePlan(t *testing.T) {
 	}
 }
 
+// A module may set arguments the provider keeps only in state, which
+// import can't: the plan then updates them, and nothing else.
+func TestSynthesizeAllowsStateOnlyUpdates(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		stateOnly map[string][]string
+		kept      bool
+	}{
+		{"state-only", map[string][]string{"aws_s3_bucket": {"force_destroy"}}, true},
+		{"other", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _ := moduleRoot(t, twoBuckets)
+			p := importedPlan(bothCalls...)
+			p.ResourceChanges[1] = resourceChange(bothCalls[1], tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"force_destroy": false}, map[string]any{"force_destroy": true})
+			p.ResourceChanges[1].Type = "aws_s3_bucket"
+			updated := changeSummary{Change: 1}
+			tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: updated}}, showns: []*tfjson.Plan{p}}
+
+			declined, settled, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}, StateOnly: tc.stateOnly}, changeSummary{}, rootChanges(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kept := !strings.Contains(squashed(readFile(t, dir, GeneratedFileName)), `resource "aws_s3_bucket" "logs"`)
+			if kept != tc.kept {
+				t.Errorf("logs moved: %v, want %v; declined %+v", kept, tc.kept, declined)
+			}
+			if tc.kept && (len(declined) != 0 || settled != updated) {
+				t.Errorf("declined %+v, summary %+v", declined, settled)
+			}
+		})
+	}
+}
+
 func TestSynthesizeTakesBackCallsThatCreate(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	p := importedPlan(bothCalls...)
 	p.ResourceChanges = append(p.ResourceChanges, resourceChange("module.logs.aws_s3_bucket_public_access_block.this[0]", tfjson.Actions{tfjson.ActionCreate}, nil, map[string]any{}))
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{p, importedPlan(bothCalls[0], "aws_s3_bucket.logs", "aws_s3_bucket_versioning.logs", bothCalls[3], bothCalls[4])}}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
+	declined, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +195,7 @@ func TestSynthesizeWithoutTheModules(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, initErr: errors.New("registry unreachable")}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
+	declined, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +212,7 @@ func TestSynthesizeOnAPlanError(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
+	declined, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

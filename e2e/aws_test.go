@@ -172,22 +172,25 @@ func TestAWSRoundTrip(t *testing.T) {
 	if !readsDefaultGroup {
 		t.Errorf("no %s reads the default security group through %s", engine.GeneratedFileName, engine.DataFileName)
 	}
-	// Each bucket becomes a call of the curated S3 module, and the two roles
-	// of the same shape share a generated local module; the plans above
+	// Each bucket becomes a call of the curated S3 module, the role shaped
+	// like the iam-role module a call of it, and the two other roles, of
+	// the same shape, share a generated local module; the plans above
 	// check that changes nothing.
-	s3Calls := 0
+	calls := map[string]int{}
 	for _, d := range coverage.Directories {
 		for _, m := range d.Modules {
-			if m.Source == adapters.S3Bucket.Source && m.Declined == "" {
-				s3Calls++
+			if m.Declined == "" {
+				calls[m.Source]++
 			}
 		}
 	}
-	if s3Calls < 3 {
-		t.Errorf("%d buckets are calls of %s, want 3 or more; modules:", s3Calls, adapters.S3Bucket.Source)
-		for _, d := range coverage.Directories {
-			for _, m := range d.Modules {
-				t.Logf("%s: %+v", d.Path, m)
+	for source, want := range map[string]int{adapters.S3Bucket.Source: 3, adapters.IAMRole.Source: 1} {
+		if calls[source] < want {
+			t.Errorf("%d calls of %s, want %d or more; modules:", calls[source], source, want)
+			for _, d := range coverage.Directories {
+				for _, m := range d.Modules {
+					t.Logf("%s: %+v", d.Path, m)
+				}
 			}
 		}
 	}

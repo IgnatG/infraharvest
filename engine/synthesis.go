@@ -63,16 +63,18 @@ func (t *trial) moduleAddress(member string) string {
 // writes every call, installs the modules and plans, and takes back the
 // calls whose resources would plan differently than baseline, which has
 // each resource's planned change (see changeSignature), until the plan
-// matches. Calls are named other than the modules in taken. It returns
-// the clusters it didn't move, with why.
-func synthesize(ctx context.Context, tf Terraform, dir string, list []adapters.Adapter, taken Names, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, error) {
+// matches. A module may set the arguments opts.StateOnly names, which
+// import can't. Calls are named other than the modules in opts.Taken. It
+// returns the clusters it didn't move, with why, and the plan's change
+// summary with the calls it kept.
+func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, changeSummary, error) {
 	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName)
 	if err != nil {
-		return nil, err
+		return nil, baseline, err
 	}
-	trials, declined, err := mapClusters(dir, list, taken)
+	trials, declined, err := mapClusters(dir, opts.Adapters, opts.Taken)
 	if err != nil || len(trials) == 0 {
-		return declined, err
+		return declined, baseline, err
 	}
 	reject := func(reason string, ts ...*trial) {
 		for _, t := range ts {
@@ -82,7 +84,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, list []adapters.A
 		}
 	}
 	if err := writeCalls(dir, trials); err != nil {
-		return nil, errors.Join(err, backup.restore())
+		return nil, baseline, errors.Join(err, backup.restore())
 	}
 	if err := tf.Init(ctx); err != nil {
 		// Typically: the registry can't be reached.
@@ -95,26 +97,26 @@ func synthesize(ctx context.Context, tf Terraform, dir string, list []adapters.A
 		}
 		if round > 0 {
 			if err := backup.restore(); err != nil {
-				return nil, err
+				return nil, baseline, err
 			}
 			if err := writeCalls(dir, active); err != nil {
-				return nil, errors.Join(err, backup.restore())
+				return nil, baseline, errors.Join(err, backup.restore())
 			}
 		}
 		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
-			return nil, errors.Join(err, backup.restore())
+			return nil, baseline, errors.Join(err, backup.restore())
 		}
-		if !judge(active, p, summary, diags, baseline, changes) {
+		if !judge(active, p, summary, diags, baseline, changes, opts.StateOnly) {
 			continue
 		}
-		return append(declined, rejections(trials)...), nil
+		return append(declined, rejections(trials)...), *summary, nil
 	}
 	reject("the plan didn't settle", trials...)
 	if err := backup.restore(); err != nil {
-		return nil, err
+		return nil, baseline, err
 	}
-	return append(declined, rejections(trials)...), nil
+	return append(declined, rejections(trials)...), baseline, nil
 }
 
 func activeTrials(trials []*trial) []*trial {
@@ -129,9 +131,10 @@ func activeTrials(trials []*trial) []*trial {
 
 // judge rejects the trials the plan shows a problem with, and reports
 // whether there was none: the plan has no errors, every member plans as
-// it did in the root, the modules create nothing else, and the totals
-// match baseline.
-func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjson.Diagnostic, baseline changeSummary, changes map[string]string) bool {
+// it did in the root, or only also updates arguments stateOnly names for
+// its type, the modules create nothing else, and the totals match
+// baseline, with those updates.
+func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjson.Diagnostic, baseline changeSummary, changes map[string]string, stateOnly map[string][]string) bool {
 	if len(diags) > 0 || p == nil {
 		for _, d := range diags {
 			t := trialOf(active, d)
@@ -149,6 +152,7 @@ func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjs
 		return false
 	}
 	ok := true
+	expected := baseline
 	for _, rc := range p.ResourceChanges {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 			continue
@@ -170,12 +174,18 @@ func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjs
 					ok = false
 				}
 			case changeSignature(rc) != changes[member]:
-				t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(changeSignature(rc)), describeSignature(changes[member]))
-				ok = false
+				updates, same := sameButStateOnly(changeSignature(rc), changes[member], stateOnly[rc.Type])
+				if !same {
+					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(changeSignature(rc)), describeSignature(changes[member]))
+					ok = false
+				}
+				if updates {
+					expected.Change++
+				}
 			}
 		}
 	}
-	if ok && (summary == nil || *summary != baseline) {
+	if ok && (summary == nil || *summary != expected) {
 		// A change outside the modules: nothing to tell the calls apart by.
 		for _, t := range active {
 			t.rejected = "the plan changed outside the module calls"
@@ -211,6 +221,36 @@ func changeSignature(rc *tfjson.ResourceChange) string {
 	return strings.Join(actionNames(rc.Change.Actions), ",") + ":" + strings.Join(changedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown), ",")
 }
 
+// sameButStateOnly reports whether the change signatures in and root
+// differ only in arguments of stateOnly, which import can't set and a
+// module may, and whether that makes an import without changes in root an
+// update in.
+func sameButStateOnly(in, root string, stateOnly []string) (updates, same bool) {
+	inActions, inAttributes, _ := strings.Cut(in, ":")
+	rootActions, rootAttributes, _ := strings.Cut(root, ":")
+	withoutStateOnly := func(attributes string) []string {
+		var kept []string
+		for _, a := range strings.Split(attributes, ",") {
+			if a != "" && !slices.Contains(stateOnly, a) {
+				kept = append(kept, a)
+			}
+		}
+		return kept
+	}
+	if !slices.Equal(withoutStateOnly(inAttributes), withoutStateOnly(rootAttributes)) {
+		return false, false
+	}
+	update := string(tfjson.ActionUpdate)
+	noOp := string(tfjson.ActionNoop)
+	switch {
+	case inActions == rootActions:
+		return false, true
+	case inActions == update && rootActions == noOp:
+		return true, true
+	}
+	return false, false
+}
+
 func describeSignature(s string) string {
 	actions, attributes, _ := strings.Cut(s, ":")
 	if actions == "" {
@@ -244,8 +284,9 @@ func rejections(trials []*trial) []ModuleCall {
 
 // mapClusters builds each adapter's clusters in generated.tf, anchors in
 // address order, and maps them. A resource joins the first cluster whose
-// anchor it refers to, if that cluster has no member of its type yet. It
-// returns the clusters the adapters mapped and the ones they declined.
+// anchor it refers to, if that cluster has no member of its type yet or
+// the type may repeat. It returns the clusters the adapters mapped and the
+// ones they declined.
 func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []ModuleCall, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
@@ -276,7 +317,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []
 			types := map[string]bool{}
 			for _, r := range resources {
 				typ := resourceTypeOf(r.address)
-				if clustered[r.address] || types[typ] || !slices.Contains(a.Members, typ) || !slices.Contains(referencedAddresses(r.syntax.Body), anchor.address) {
+				if clustered[r.address] || (types[typ] && !slices.Contains(a.Repeated, typ)) || !slices.Contains(a.Members, typ) || !slices.Contains(referencedAddresses(r.syntax.Body), anchor.address) {
 					continue
 				}
 				types[typ] = true

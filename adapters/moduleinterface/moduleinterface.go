@@ -61,9 +61,19 @@ func (c *Client) get(ctx context.Context, u string) (*http.Response, error) {
 	return c.HTTP.Do(req)
 }
 
+// SplitSource splits a module source into the registry module and the
+// directory of a submodule in it, if any:
+// terraform-aws-modules/iam/aws//modules/iam-role is the iam module's
+// modules/iam-role.
+func SplitSource(source string) (module, subdir string) {
+	module, subdir, _ = strings.Cut(source, "//")
+	return module, subdir
+}
+
 // Latest returns the newest release of a module (no pre-releases).
 func (c *Client) Latest(ctx context.Context, source string) (string, error) {
-	resp, err := c.get(ctx, c.Registry+"/v1/modules/"+source+"/versions")
+	module, _ := SplitSource(source)
+	resp, err := c.get(ctx, c.Registry+"/v1/modules/"+module+"/versions")
 	if err != nil {
 		return "", err
 	}
@@ -99,10 +109,12 @@ func (c *Client) Latest(ctx context.Context, source string) (string, error) {
 	return newest.Original(), nil
 }
 
-// Fetch reads a module version's interface from its root module's .tf
-// files. Only modules hosted on GitHub are supported.
+// Fetch reads a module version's interface from the .tf files of its root
+// module, or of the submodule source names (see SplitSource). Only modules
+// hosted on GitHub are supported.
 func (c *Client) Fetch(ctx context.Context, source, ver string) (*Interface, error) {
-	resp, err := c.get(ctx, c.Registry+"/v1/modules/"+source+"/"+ver+"/download")
+	module, subdir := SplitSource(source)
+	resp, err := c.get(ctx, c.Registry+"/v1/modules/"+module+"/"+ver+"/download")
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +141,7 @@ func (c *Client) Fetch(ctx context.Context, source, ver string) (*Interface, err
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s %s archive: %s", source, ver, resp.Status)
 	}
-	iface, err := Read(resp.Body)
+	iface, err := Read(resp.Body, subdir)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", source, ver, err)
 	}
@@ -151,9 +163,11 @@ func githubSource(location string) (owner, repo, ref string, err error) {
 	return parts[0], parts[1], ref, nil
 }
 
-// Read reads the interface of the root module in a tar.gz of a module's
-// repository: the .tf files at the top level of its one directory.
-func Read(r io.Reader) (*Interface, error) {
+// Read reads the interface of a module from a tar.gz of its repository:
+// the .tf files of subdir, such as modules/iam-role, in the archive's one
+// top-level directory, or of that directory itself if subdir is "".
+func Read(r io.Reader, subdir string) (*Interface, error) {
+	subdir = strings.Trim(subdir, "/")
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return nil, err
@@ -169,7 +183,8 @@ func Read(r io.Reader) (*Interface, error) {
 			return nil, err
 		}
 		dir, name := path.Split(strings.TrimPrefix(h.Name, "./"))
-		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(name, ".tf") || strings.Count(strings.Trim(dir, "/"), "/") != 0 || dir == "" {
+		top, rest, _ := strings.Cut(strings.Trim(dir, "/"), "/")
+		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(name, ".tf") || top == "" || rest != subdir {
 			continue
 		}
 		src, err := io.ReadAll(tr)
@@ -192,7 +207,7 @@ func Read(r io.Reader) (*Interface, error) {
 	}
 	sort.Strings(iface.Outputs)
 	if len(iface.Variables) == 0 {
-		return nil, errors.New("no variables in the module's root")
+		return nil, errors.New("no variables in the module")
 	}
 	return iface, nil
 }

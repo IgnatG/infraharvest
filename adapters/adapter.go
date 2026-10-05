@@ -30,9 +30,10 @@ type Adapter struct {
 	Version string
 	// Anchor is the type of the resource a cluster is built around, and
 	// Members the types of the resources that join it by referring to
-	// the anchor, at most one of each.
-	Anchor  string
-	Members []string
+	// the anchor: at most one of each, but for the types in Repeated.
+	Anchor   string
+	Members  []string
+	Repeated []string
 	// Inputs are every argument Map can set, and Outputs every module
 	// output it can name, for the check against the module's interface.
 	Inputs  []string

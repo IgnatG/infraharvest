@@ -79,6 +79,18 @@ func TestClient(t *testing.T) {
 		t.Errorf("interface: got %+v, want %+v", iface, want)
 	}
 
+	// A submodule's interface is its directory's.
+	if latest, err := client.Latest(t.Context(), "acme/thing/aws//modules/sub"); err != nil || latest != "1.2.0" {
+		t.Fatalf("latest of a submodule: %q, %v", latest, err)
+	}
+	sub, err := client.Fetch(t.Context(), "acme/thing/aws//modules/sub", latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]Variable{"ignored": {Required: true}}; !reflect.DeepEqual(sub.Variables, want) || sub.Source != "acme/thing/aws//modules/sub" {
+		t.Errorf("submodule interface: got %+v", sub)
+	}
+
 	problems := Check(adapters.Adapter{Inputs: []string{"tags", "size"}, Outputs: []string{"id", "arn"}}, iface)
 	wantProblems := []string{`no variable "size"`, `the adapter doesn't set the required variable "name"`, `no output "arn"`}
 	if !reflect.DeepEqual(problems, wantProblems) {

@@ -237,6 +237,9 @@ Clusters of resources that a curated public module can manage move into a call o
 | Resources | Module |
 |---|---|
 | `aws_s3_bucket` with its versioning, encryption, public access block, ownership controls, lifecycle and policy | [`terraform-aws-modules/s3-bucket/aws`](https://registry.terraform.io/modules/terraform-aws-modules/s3-bucket/aws) 5.16.1 |
+| `aws_iam_role` with its policy attachments, and an inline policy and instance profile named after it | [`terraform-aws-modules/iam/aws//modules/iam-role`](https://registry.terraform.io/modules/terraform-aws-modules/iam/aws/latest/submodules/iam-role) 6.8.2 |
+
+A module may set arguments the provider keeps only in state, such as the iam-role module's `force_detach_policies`. Import can't set those. The plan then updates them in state alone, and the verification gate lists those updates.
 
 Each adapter pins an exact module version and is checked against that version's variables and outputs. A nightly job opens an issue when a newer release comes out, saying whether the adapter fits it; `go run ./adapters/cmd/adaptercheck -write` refreshes the interfaces after a bump.
 

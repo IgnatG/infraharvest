@@ -21,6 +21,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -73,7 +74,7 @@ func run(write bool) error {
 }
 
 // writeSnapshot writes the interface of the version an adapter pins to
-// adapters/testdata/interfaces/<module name>.json.
+// adapters/testdata/interfaces/<module name>.json, or <submodule name>.json.
 func writeSnapshot(ctx context.Context, client *moduleinterface.Client, a adapters.Adapter) error {
 	iface, err := client.Fetch(ctx, a.Source, a.Version)
 	if err != nil {
@@ -83,8 +84,12 @@ func writeSnapshot(ctx context.Context, client *moduleinterface.Client, a adapte
 	if err != nil {
 		return err
 	}
-	name := strings.Split(a.Source, "/")[1]
-	path := filepath.Join("adapters", "testdata", "interfaces", name+".json")
-	log.Printf("writing %s", path)
-	return os.WriteFile(path, append(content, '\n'), 0o644)
+	module, subdir := moduleinterface.SplitSource(a.Source)
+	name := strings.Split(module, "/")[1]
+	if subdir != "" {
+		name = path.Base(subdir)
+	}
+	file := filepath.Join("adapters", "testdata", "interfaces", name+".json")
+	log.Printf("writing %s", file)
+	return os.WriteFile(file, append(content, '\n'), 0o644)
 }

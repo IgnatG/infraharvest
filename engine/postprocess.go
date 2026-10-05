@@ -76,7 +76,8 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	// Last, as clusters reach the modules through the references above.
 	var declined []ModuleCall
 	if len(opts.Adapters) > 0 {
-		if declined, err = synthesize(ctx, tf, dir, opts.Adapters, opts.Taken, *baseline, changes, vars); err != nil {
+		// Module calls may update arguments import can't set.
+		if declined, *baseline, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
 			return nil, err
 		}
 	}
