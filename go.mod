@@ -495,6 +495,7 @@ replace gopkg.in/ns1/ns1-go.v2 => github.com/ns1/ns1-go/v2 v2.6.5
 replace github.com/tencentcloud/tencentcloud-sdk-go => github.com/tencentcloud/tencentcloud-sdk-go v1.0.392
 
 // dgrijalva/jwt-go is unmaintained and has no fix for GHSA-w73w-5m7g-f7qc;
-// golang-jwt/jwt v3.2.2 is its maintained fork with the fix, same API.
+// golang-jwt/jwt v3.2.1 is its maintained fork with the fix, same API (v3.2.2
+// is in the graph under its own path, and one version can't serve both).
 // Azure go-autorest (Track 1) and the IBM SDK still require it.
-replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.2+incompatible
+replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
