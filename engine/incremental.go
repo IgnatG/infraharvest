@@ -327,7 +327,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 				continue
 			}
 			for _, block := range generated.file.Body().Blocks() {
-				renameIn(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
+				replaceTraversals(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
 			}
 		}
 	}
@@ -375,6 +375,59 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		}
 	}
 	return nil
+}
+
+// replaceTraversals replaces the start of references that begin with
+// search, such as data.aws_vpc.main, with replacement, which may have
+// another length, such as aws_vpc.main, in body and its nested blocks.
+func replaceTraversals(body *hclwrite.Body, search, replacement []string) {
+	for name, attr := range body.Attributes() {
+		if tokens, ok := replacedTokens(attr.Expr().BuildTokens(nil), search, replacement); ok {
+			body.SetAttributeRaw(name, tokens)
+		}
+	}
+	for _, b := range body.Blocks() {
+		replaceTraversals(b.Body(), search, replacement)
+	}
+}
+
+// replacedTokens replaces each traversal start search in tokens, and
+// reports whether there was one: identifiers separated by dots, not
+// preceded by a dot.
+func replacedTokens(tokens hclwrite.Tokens, search, replacement []string) (hclwrite.Tokens, bool) {
+	n := 2*len(search) - 1
+	var out hclwrite.Tokens
+	replaced := false
+	for i := 0; i < len(tokens); i++ {
+		if i+n <= len(tokens) && (i == 0 || tokens[i-1].Type != hclsyntax.TokenDot) && matchesTraversal(tokens[i:i+n], search) {
+			out = append(out, hclwrite.TokensForTraversal(traversalOf(replacement))...)
+			i += n - 1
+			replaced = true
+			continue
+		}
+		out = append(out, tokens[i])
+	}
+	return out, replaced
+}
+
+func matchesTraversal(tokens hclwrite.Tokens, names []string) bool {
+	for i, name := range names {
+		if tokens[2*i].Type != hclsyntax.TokenIdent || string(tokens[2*i].Bytes) != name {
+			return false
+		}
+		if i > 0 && tokens[2*i-1].Type != hclsyntax.TokenDot {
+			return false
+		}
+	}
+	return true
+}
+
+func traversalOf(names []string) hcl.Traversal {
+	t := hcl.Traversal{hcl.TraverseRoot{Name: names[0]}}
+	for _, name := range names[1:] {
+		t = append(t, hcl.TraverseAttr{Name: name})
+	}
+	return t
 }
 
 // dataKey identifies what a data block reads: its type and the ID its
