@@ -25,7 +25,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/session"
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	"github.com/IBM/go-sdk-core/v3/core"
+	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 

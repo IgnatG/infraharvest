@@ -19,7 +19,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/IBM/go-sdk-core/v4/core"
+	"github.com/IBM/go-sdk-core/v5/core"
 	tg "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )

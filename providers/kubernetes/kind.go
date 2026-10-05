@@ -15,7 +15,7 @@
 package kubernetes
 
 import (
-	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -46,9 +46,14 @@ func (k *Kind) InitResources() error {
 		return err
 	}
 
-	group := reflect.ValueOf(clientset).MethodByName(
-		extractClientSetFuncGroupName(k.Group, k.Version)).Call(
-		[]reflect.Value{})[0]
+	// The cluster names the group versions it prefers; client-go only has
+	// clients for those it ships, which leaves out removed beta versions.
+	groupName := extractClientSetFuncGroupName(k.Group, k.Version)
+	groupMethod := reflect.ValueOf(clientset).MethodByName(groupName)
+	if !groupMethod.IsValid() {
+		return fmt.Errorf("%s %s/%s: no client for this API version", k.Name, k.Group, k.Version)
+	}
+	group := groupMethod.Call([]reflect.Value{})[0]
 
 	param := []reflect.Value{}
 	namespace := ""
@@ -56,9 +61,13 @@ func (k *Kind) InitResources() error {
 		param = append(param, reflect.ValueOf(namespace))
 	}
 
-	resource := group.MethodByName(extractClientSetFuncTypeName(k.Name)).Call(param)[0]
+	resourceMethod := group.MethodByName(extractClientSetFuncTypeName(k.Name))
+	if !resourceMethod.IsValid() {
+		return fmt.Errorf("%s %s/%s: no client for this kind", k.Name, k.Group, k.Version)
+	}
+	resource := resourceMethod.Call(param)[0]
 
-	results := resource.MethodByName("List").Call([]reflect.Value{reflect.ValueOf(context.Background()),
+	results := resource.MethodByName("List").Call([]reflect.Value{reflect.ValueOf(k.Context()),
 		reflect.ValueOf(metav1.ListOptions{})})
 
 	if !results[1].IsNil() {

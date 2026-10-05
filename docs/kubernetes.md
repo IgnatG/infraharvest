@@ -9,6 +9,8 @@ infraharvest import kubernetes --all --resources=deployments,services,storagecla
 
 `--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover kubernetes` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
+infraharvest connects with your kubeconfig, as kubectl does. Credential plugins in the kubeconfig (`exec`) work; the old built-in `gcp` auth provider doesn't. For GKE, install `gke-gcloud-auth-plugin` and run `gcloud container clusters get-credentials` again, which writes the plugin into the kubeconfig.
+
 All Kubernetes resources that are currently supported by the Kubernetes provider, are also supported by this module. Here is the list of resources which are currently supported by Kubernetes provider v.1.4:
 
 *   `clusterrolebinding`
