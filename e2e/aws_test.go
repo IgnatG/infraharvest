@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -98,6 +99,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	if after := generatedTimes(t, out); !reflect.DeepEqual(before, after) {
 		t.Errorf("--resume generated roots again: %v, then %v", before, after)
 	}
+	checkIncremental(ctx, t, engineName, execPath, filepath.Join(cache, "plugins"), selectionFile, state)
 
 	readFile(t, filepath.Join(out, ".gitignore"))
 	var coverage report.Report
@@ -744,6 +746,100 @@ func checkAssumeRole(ctx context.Context, t *testing.T, created []*tfjson.StateR
 		}
 		if id, _ := r.AttributeValues["id"].(string); !f.Has(r.Type, id) {
 			t.Errorf("listing through the role misses %s %s", r.Type, id)
+		}
+	}
+}
+
+// referencesVPC matches an argument that refers to a VPC resource.
+var referencesVPC = regexp.MustCompile(`vpc_id\s+= aws_vpc\.`)
+
+// incrementalTypes are the types the first import of checkIncremental
+// leaves out, for the incremental import to add.
+var incrementalTypes = []string{"aws_sqs_queue", "aws_subnet"}
+
+// checkIncremental imports everything selectionFile selects but
+// incrementalTypes, then imports again with --incremental: the second
+// import adds those resources to the roots, in a file of their own,
+// referring to what the roots have, and changes nothing else. A third adds
+// nothing.
+func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, pluginCache, selectionFile string, created []*tfjson.StateResource) {
+	t.Helper()
+	f, err := selection.Load(selectionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range f.Resources {
+		if slices.Contains(incrementalTypes, r.Type) {
+			f.Resources[i].Include = false
+		}
+	}
+	partial := filepath.Join(t.TempDir(), "selection.yaml")
+	if err := f.Save(partial); err != nil {
+		t.Fatal(err)
+	}
+	out := importAWS(ctx, t, engineName, execPath, "--selection="+partial)
+	before := outputFiles(t, out)
+
+	importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile, "--incremental", "--path-output="+out)
+	after := outputFiles(t, out)
+	added := map[string]bool{}
+	for name, content := range after {
+		if path.Base(name) == engine.AddedFileName(2) {
+			added[path.Dir(name)] = true
+			if !referencesVPC.MatchString(content) {
+				t.Errorf("%s doesn't refer to the VPC the root has:\n%s", name, content)
+			}
+			continue
+		}
+		if path.Base(name) == engine.GeneratedFileName && content != before[name] {
+			t.Errorf("--incremental changed %s", name)
+		}
+	}
+	if len(added) == 0 {
+		t.Fatalf("--incremental added no %s", engine.AddedFileName(2))
+	}
+	var coverage report.Report
+	if err := json.Unmarshal([]byte(after[report.Dir+"/coverage.json"]), &coverage); err != nil {
+		t.Fatal(err)
+	}
+	inRoot := 0
+	for _, e := range coverage.Excluded {
+		if e.Reason == cmd.InRootReason {
+			inRoot++
+		}
+	}
+	if inRoot == 0 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
+		t.Errorf("coverage.json of --incremental: %d in the roots already, %+v, failures %v", inRoot, coverage.Totals, coverage.Failures)
+	}
+	for _, d := range coverage.Directories {
+		for _, c := range d.Checks {
+			if !c.Passed && (c.Name != engine.CheckPlan || !emulatorGapsOnly(c.Details)) {
+				t.Errorf("--incremental: %s: %s failed: %v", d.Path, c.Name, c.Details)
+			}
+		}
+	}
+	imported := map[string]int{}
+	for _, dir := range generatedDirs(t, out) {
+		for typ, n := range checkNoChanges(ctx, t, dir, execPath, pluginCache, secretValues(t, dir, created)) {
+			imported[typ] += n
+		}
+	}
+	for _, typ := range incrementalTypes {
+		want := 0
+		for _, r := range created {
+			if r.Type == typ {
+				want++
+			}
+		}
+		if imported[typ] < want {
+			t.Errorf("%s: created %d, the roots import %d after --incremental", typ, want, imported[typ])
+		}
+	}
+
+	importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile, "--incremental", "--path-output="+out)
+	for name := range outputFiles(t, out) {
+		if path.Base(name) == engine.AddedFileName(3) {
+			t.Errorf("--incremental with nothing new wrote %s", name)
 		}
 	}
 }

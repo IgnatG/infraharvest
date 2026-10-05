@@ -26,6 +26,9 @@ type External struct {
 	Type, ID string
 }
 
+// dataFileHeader starts data.tf.
+const dataFileHeader = "# Resources this configuration refers to but doesn't manage: the import\n# listed them, and the selection left them out.\n"
+
 // DataSource reads one resource of a type: the data source's type, and the
 // argument that takes the resource's ID.
 type DataSource struct {
@@ -36,15 +39,26 @@ type DataSource struct {
 // external resource with a reference to a data source that reads it, such
 // as vpc_id = data.aws_vpc.vpc_0abc1234.id, and writes the data sources to
 // data.tf. Like addReferences, a value counts if it identifies a resource
-// on its own, or if the argument is named after the resource's type. It
-// reports whether it changed anything.
-func addDataSources(dir string, external []External, sources map[string]DataSource) (bool, error) {
+// on its own, or if the argument is named after the resource's type. Data
+// sources are named other than those in taken. It reports whether it
+// changed anything.
+func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
 	index := map[string]referenceTarget{}
 	blocks := map[string]External{} // data address -> resource
 	used := map[string]bool{}
+	for name := range taken {
+		if address, ok := strings.CutPrefix(name, "data."); ok {
+			used[address] = true
+		}
+	}
+	// An ID two resources with data sources share is ambiguous. Children,
+	// such as a bucket's versioning, share their parent's ID, but have no
+	// data source.
 	ids := map[string]int{}
 	for _, e := range external {
-		ids[e.ID]++
+		if _, ok := sources[e.Type]; ok {
+			ids[e.ID]++
+		}
 	}
 	for _, e := range external {
 		source, ok := sources[e.Type]
@@ -106,7 +120,7 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 	}
 	sort.Strings(addresses)
 	f := hclwrite.NewEmptyFile()
-	f.Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte("# Resources this configuration refers to but doesn't manage: the import\n# listed them, and the selection left them out.\n")}})
+	f.Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(dataFileHeader)}})
 	for _, address := range addresses {
 		e := blocks[address]
 		typ, name, _ := strings.Cut(address, ".")

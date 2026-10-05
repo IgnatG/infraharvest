@@ -74,7 +74,7 @@ func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, changeSummary{}, rootChanges(), nil)
+	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
 	if err != nil || len(declined) != 0 {
 		t.Fatalf("want every cluster moved, got declined=%v err=%v", declined, err)
 	}
@@ -127,7 +127,7 @@ func TestSynthesizeTakesBackCallsThatChangeThePlan(t *testing.T) {
 	second := importedPlan("aws_iam_policy.read", "aws_s3_bucket.state", "aws_s3_bucket_versioning.state", "module.logs.aws_s3_bucket.this[0]", "module.logs.aws_s3_bucket_versioning.this[0]")
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{first, second}}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, changeSummary{}, rootChanges(), nil)
+	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestSynthesizeTakesBackCallsThatCreate(t *testing.T) {
 	p.ResourceChanges = append(p.ResourceChanges, resourceChange("module.logs.aws_s3_bucket_public_access_block.this[0]", tfjson.Actions{tfjson.ActionCreate}, nil, map[string]any{}))
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{p, importedPlan(bothCalls[0], "aws_s3_bucket.logs", "aws_s3_bucket_versioning.logs", bothCalls[3], bothCalls[4])}}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, changeSummary{}, rootChanges(), nil)
+	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSynthesizeWithoutTheModules(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, initErr: errors.New("registry unreachable")}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, changeSummary{}, rootChanges(), nil)
+	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestSynthesizeOnAPlanError(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
-	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, changeSummary{}, rootChanges(), nil)
+	declined, err := synthesize(context.Background(), tf, dir, []adapters.Adapter{testAdapter}, nil, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestMapClustersDeclines(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, _ := moduleRoot(t, tc.root)
-			trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter})
+			trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

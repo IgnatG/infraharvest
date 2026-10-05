@@ -60,7 +60,7 @@ func TestFindSecrets(t *testing.T) {
 func TestSecretsToVariables(t *testing.T) {
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, secretsConfig)
 
-	secrets := secretsToVariables(f, findSecrets(f))
+	secrets := secretsToVariables(f, findSecrets(f), nil)
 
 	var names []string
 	for _, s := range secrets {

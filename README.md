@@ -153,6 +153,13 @@ Resources that Terraform already manages can be left out too. `--managed-state` 
 
 A run that fails part way, such as on one region, can be run again with `--resume`: roots generated from the same resources and options since then are kept as they are, with their results. The others are generated again from scratch. Checkpoints go into `<path-output>/.infraharvest`, which `.gitignore` excludes.
 
+Once the roots are in use, `--incremental` adds what is new to them instead, without changing what they have. Each new resource goes into a file of its own, `generated_2.tf`, then `generated_3.tf` and so on. Its import blocks, variables, locals and data sources are added after the root's own, and nothing new takes a name the root uses. New resources refer to the resources the root has, such as `vpc_id = aws_vpc.main.id`. They don't repeat the tags the root's provider already applies. A root's resources are found from its import blocks and from the checkpoint of the import that generated it; for roots applied since, with their import blocks deleted, add `--managed-state` too. The new resources are generated and planned in a directory of their own first, because planning the root itself would need its state. In the root, the other checks run on the files as merged. Clusters of new resources can become curated module calls, but they aren't moved into generated local modules.
+
+```sh
+infraharvest discover aws --regions=eu-west-2 --selection=selection.yaml   # marks what is new
+infraharvest import aws --engine=terraform --regions=eu-west-2 --selection=selection.yaml --incremental --managed-state=backend
+```
+
 #### Configuration file and state backend
 
 `--config infraharvest.yaml` sets any flag the command line doesn't, and the state backend of the generated roots:

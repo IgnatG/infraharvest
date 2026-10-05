@@ -138,10 +138,16 @@ var notInIdentifier = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 var notInVariableName = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
 // secretsToVariables makes every secret attribute read from a new sensitive
-// variable and returns the variables, in file order. It edits f's tree.
-func secretsToVariables(f *hclFile, secrets map[string][]secretAttribute) []Secret {
+// variable, named other than the variables in taken, and returns the
+// variables, in file order. It edits f's tree.
+func secretsToVariables(f *hclFile, secrets map[string][]secretAttribute, taken Names) []Secret {
 	var vars []Secret
 	used := map[string]bool{}
+	for name := range taken {
+		if v, ok := strings.CutPrefix(name, "var."); ok {
+			used[v] = true
+		}
+	}
 	for _, r := range f.resources() {
 		for _, s := range secrets[r.address] {
 			// Shells can only set TF_VAR_<name> for names without dashes.

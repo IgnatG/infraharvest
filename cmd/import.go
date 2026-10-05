@@ -79,6 +79,9 @@ type ImportOptions struct {
 	// Resume skips the roots a previous run generated from the same imports
 	// and options (see resumed).
 	Resume bool
+	// Incremental adds the resources a root doesn't have yet to the roots
+	// earlier imports generated (see addToRoot).
+	Incremental bool
 	// ReuseInventory imports from the resources discover listed, if it
 	// listed the same services (see listResources).
 	ReuseInventory bool
@@ -136,8 +139,8 @@ func Import(provider terraformutils.ProviderGenerator, options ImportOptions, ar
 	}
 	switch options.Engine {
 	case engineLegacy, "":
-		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume || options.RoleARN != "" {
-			return errors.New("--selection, --all, --managed-state, --resume, --accounts, --organization and --assume-role need --engine=terraform or tofu")
+		if options.Selection != "" || options.All || len(options.ManagedState) > 0 || options.Resume || options.Incremental || options.RoleARN != "" {
+			return errors.New("--selection, --all, --managed-state, --resume, --incremental, --accounts, --organization and --assume-role need --engine=terraform or tofu")
 		}
 	case engineTerraform, engineTofu:
 		return importWithEngine(provider, options, args)
@@ -552,6 +555,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.StringVar(&options.Selection, "selection", "", "--engine=terraform or tofu: selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")
 	flag.StringSliceVar(&options.ManagedState, "managed-state", nil, "--engine=terraform or tofu: leave out what Terraform already manages, according to this state: state files, directories of them, or s3://bucket/prefix[?region=...] (all its .tfstate objects); backend reads the configured S3 backend's state")
 	flag.BoolVar(&options.Resume, "resume", false, "--engine=terraform or tofu: skip the roots a previous run generated from the same resources and options, such as after a run that failed part way")
+	flag.BoolVar(&options.Incremental, "incremental", false, "--engine=terraform or tofu: add what is new to the roots earlier imports generated in --path-output, in a file of its own, without changing what they have")
 	flag.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "--engine=terraform or tofu: import from the resources infraharvest discover listed into the same --path-output, instead of listing them again")
 	flag.BoolVar(&options.All, "all", false, "--engine=terraform or tofu: import everything the default selection includes, without a selection file")
 	flag.StringVar(&options.Modules, "modules", modulesRegistry, "--engine=terraform or tofu: registry moves clusters of resources into curated public modules (terraform-aws-modules) where the plan stays the same, else into generated local modules; local uses generated local modules only; none keeps every resource in the root")
