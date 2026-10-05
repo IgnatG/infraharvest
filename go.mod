@@ -31,6 +31,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.26.5
 	github.com/aws/aws-sdk-go-v2/service/acm v1.22.5
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.21.5
+	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.44.0
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.26.5
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.36.5
 	github.com/aws/aws-sdk-go-v2/service/batch v1.30.5
@@ -394,7 +395,6 @@ require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/IBM/continuous-delivery-go-sdk/v2 v2.0.2
-	github.com/aws/aws-sdk-go v1.44.122
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.1
 	github.com/aws/aws-sdk-go-v2/service/directconnect v1.30.1
 	github.com/gofrs/uuid/v3 v3.1.2
