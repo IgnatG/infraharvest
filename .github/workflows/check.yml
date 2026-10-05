@@ -29,11 +29,15 @@ jobs:
         shell: bash
     steps:
       - name: Validate packages
+        # Each pattern on its own, so that none can start with '-' and be
+        # read by go vet or go test as a flag.
         run: |
-          if ! [[ "$PACKAGES" =~ ^[A-Za-z0-9_./\ -]+$ ]]; then
-            echo "::error::packages may contain only letters, digits, '_', '.', '/', '-' and spaces"
-            exit 1
-          fi
+          for package in $PACKAGES; do
+            if ! [[ "$package" =~ ^[A-Za-z0-9_.][A-Za-z0-9_./-]*$ ]]; then
+              echo "::error::package pattern '$package' may contain only letters, digits, '_', '.', '/' and '-', and may not start with '-'"
+              exit 1
+            fi
+          done
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

@@ -29,3 +29,11 @@ updates:
         patterns: ["*"]
     cooldown:
       default-days: 1
+
+  # The base image digests pinned in the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1

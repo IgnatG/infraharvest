@@ -3,13 +3,17 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
 #
-# It checks the archive against the release's checksum file and, when
-# cosign is installed, checks that this repository's release workflow
-# signed that file. Settings, from the environment:
+# It checks that this repository's release workflow signed the release's
+# checksum file, with cosign, and the archive against that file. It needs
+# cosign (https://docs.sigstore.dev/cosign/system_config/installation/)
+# unless told to skip the signature. Settings, from the environment:
 #
 #   INFRAHARVEST_VERSION      release to install, such as v0.2.0 (default: latest)
 #   INFRAHARVEST_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
-#   INFRAHARVEST_REQUIRE_SIGNATURE=1  fail if cosign isn't installed
+#   INFRAHARVEST_SKIP_SIGNATURE=1  don't verify the signature: check only the
+#                             checksum, which comes from the same place as the
+#                             archive, so it proves nothing about who built it
+#   INFRAHARVEST_REQUIRE_SIGNATURE=1  the default; wins over SKIP_SIGNATURE
 #   GITHUB_TOKEN              token for the GitHub API and downloads, if needed
 #   INFRAHARVEST_BASE_URL     where the release files are (for testing)
 
@@ -75,7 +79,9 @@ echo "Installing infraharvest $version ($os/$arch) into $install_dir"
 fetch "$base/$archive" "$tmp/$archive"
 fetch "$base/$sums" "$tmp/$sums"
 
-if command -v cosign > /dev/null 2>&1; then
+if [ "${INFRAHARVEST_SKIP_SIGNATURE:-}" = 1 ] && [ "${INFRAHARVEST_REQUIRE_SIGNATURE:-}" != 1 ]; then
+	echo "INFRAHARVEST_SKIP_SIGNATURE=1: not verifying the release's signature, checking the checksum only." >&2
+elif command -v cosign > /dev/null 2>&1; then
 	fetch "$base/$sums.sigstore.json" "$tmp/$sums.sigstore.json"
 	cosign verify-blob \
 		--certificate-identity "https://github.com/$repo/.github/workflows/release.yaml@refs/heads/main" \
@@ -83,10 +89,8 @@ if command -v cosign > /dev/null 2>&1; then
 		--bundle "$tmp/$sums.sigstore.json" "$tmp/$sums" > /dev/null 2>&1 ||
 		fail "the checksum file's signature doesn't verify: not installing"
 	echo "Verified the release's signature."
-elif [ "${INFRAHARVEST_REQUIRE_SIGNATURE:-}" = 1 ]; then
-	fail "INFRAHARVEST_REQUIRE_SIGNATURE=1 needs cosign: https://docs.sigstore.dev/cosign/system_config/installation/"
 else
-	echo "cosign isn't installed: checking the checksum only. Install cosign to also verify the release's signature." >&2
+	fail "cosign isn't installed, so the release's signature can't be verified: not installing. Install cosign (https://docs.sigstore.dev/cosign/system_config/installation/), or set INFRAHARVEST_SKIP_SIGNATURE=1 to check only the checksum"
 fi
 
 expected=$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/$sums")

@@ -412,7 +412,7 @@ docker run --rm -v "$PWD:/work" -v "$HOME/.aws:/home/git/.aws:ro" -e AWS_PROFILE
 
 **With the install script**
 
-For Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell. It checks the archive's checksum and, if cosign is installed, the release's signature. Set `INFRAHARVEST_REQUIRE_SIGNATURE=1` to refuse to install without cosign:
+For Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell. It checks the archive's checksum and the release's signature, so it needs [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) installed. Set `INFRAHARVEST_SKIP_SIGNATURE=1` to install with the checksum check only:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
