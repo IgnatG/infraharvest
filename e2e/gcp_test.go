@@ -75,6 +75,11 @@ func TestGCPRoundTrip(t *testing.T) {
 		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, coverage.Failures)
 	}
 	for _, d := range coverage.Directories {
+		for _, l := range d.LeftOut {
+			t.Errorf("%s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
+		}
+	}
+	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {
 			if !c.Passed {
 				t.Errorf("%s: %s failed: %v", d.Path, c.Name, c.Details)

@@ -60,3 +60,20 @@ func TestSupportedServicesAreNew(t *testing.T) {
 		}
 	}
 }
+
+// Roots are laid out by project and region, and don't get the provider's
+// attribution label, which would change every imported resource's labels.
+func TestProviderDataAndScope(t *testing.T) {
+	p := &GCPProvider{projectName: "acme-prod"}
+	p.region.Name = "europe-west1"
+	config := p.GetProviderData()["provider"].(map[string]interface{})["google"].(map[string]interface{})
+	if config["project"] != "acme-prod" || config["add_terraform_attribution_label"] != false {
+		t.Errorf("provider config: %v", config)
+	}
+	if account, region, err := p.Scope(context.Background()); err != nil || account != "acme-prod" || region != "europe-west1" {
+		t.Errorf("scope: %s %s %v", account, region, err)
+	}
+	if _, region, _ := (&GCPProvider{projectName: "acme-prod"}).Scope(context.Background()); region != "global" {
+		t.Errorf("global scope: %s", region)
+	}
+}

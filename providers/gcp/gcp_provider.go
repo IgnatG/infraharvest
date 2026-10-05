@@ -116,12 +116,27 @@ func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGen
 	return services
 }
 
+// GetProviderData configures the provider block of the generated roots: the
+// project, and no attribution label. The provider adds
+// goog-terraform-provisioned to the labels of every resource it manages,
+// so an imported resource would plan an update of its labels.
 func (p GCPProvider) GetProviderData(arg ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			p.GetName(): map[string]interface{}{
-				"project": p.projectName,
+				"project":                         p.projectName,
+				"add_terraform_attribution_label": false,
 			},
 		},
 	}
+}
+
+// Scope names the project and region this import covers, for the output
+// layout: global for the region global.
+func (p *GCPProvider) Scope(context.Context) (account, region string, err error) {
+	region = p.region.Name
+	if region == "" {
+		region = "global"
+	}
+	return p.projectName, region, nil
 }
