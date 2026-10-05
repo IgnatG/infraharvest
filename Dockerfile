@@ -30,7 +30,7 @@ RUN set -eu; \
     tar -xzf /tmp/tofu.tar.gz -C /out tofu
 
 # Non-root, with CA certificates and git.
-FROM cgr.dev/chainguard/git:latest@sha256:38a29868940b05694da49c4675d6b108cbfb327a7974d939d49901eddbbe1c54
+FROM cgr.dev/chainguard/git:latest@sha256:beba52e2cd9f5000eed00a52a02ff301a6308ef08b8ce976a9ced8f90c1b8f61
 ARG TARGETPLATFORM
 COPY --from=engines /out/terraform /out/tofu /usr/local/bin/
 COPY --from=engines --chown=65532:65532 /work /work
