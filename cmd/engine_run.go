@@ -59,8 +59,10 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 		if err := run.applyConfig(c); err != nil {
 			return err
 		}
-		if f := c.Flag("pick"); f != nil {
-			run.openPicker = f.Value.String() == "true"
+		if c != nil {
+			if f := c.Flag("pick"); f != nil {
+				run.openPicker = f.Value.String() == "true"
+			}
 		}
 		activeRun = run
 		defer func() { activeRun = nil }()
