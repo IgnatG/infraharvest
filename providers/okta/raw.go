@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/okta/okta-sdk-golang/v5/okta"
 )
@@ -24,7 +26,20 @@ type rawClient struct {
 	token      string
 	userAgent  string
 	httpClient *http.Client
+	// retryBackoff is the wait before retrying a rate-limited request whose
+	// response names no reset time; zero means defaultRetryBackoff.
+	retryBackoff time.Duration
 }
+
+const (
+	// rateLimitAttempts caps the attempts at a rate-limited request.
+	rateLimitAttempts = 4
+	// defaultRetryBackoff is the wait before retrying a rate-limited request
+	// when the response does not say when the limit resets.
+	defaultRetryBackoff = time.Second
+	// maxRateLimitWait caps the wait for a rate limit to reset.
+	maxRateLimitWait = 2 * time.Minute
+)
 
 func newRawClient(client *okta.APIClient) (*rawClient, error) {
 	config := client.GetConfig()
@@ -80,10 +95,31 @@ func rawList[T any](ctx context.Context, c *rawClient, path string) ([]T, error)
 	return all, nil
 }
 
+// get GETs target and decodes its JSON body into out. A rate-limited (429)
+// request is retried, up to rateLimitAttempts attempts in all, once the
+// limit resets.
 func (c *rawClient) get(ctx context.Context, target string, out interface{}) (http.Header, error) {
+	for attempt := 1; ; attempt++ {
+		header, wait, err := c.getOnce(ctx, target, out)
+		if wait == 0 || attempt == rateLimitAttempts {
+			return header, err
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// getOnce makes one request. When the request was rate limited, it returns
+// the error with how long to wait before trying again.
+func (c *rawClient) getOnce(ctx context.Context, target string, out interface{}) (http.Header, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "SSWS "+c.token)
@@ -92,17 +128,41 @@ func (c *rawClient) get(ctx context.Context, target string, out interface{}) (ht
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("okta: GET %s: %s: %s", req.URL.Path, resp.Status, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("okta: GET %s: %s: %s", req.URL.Path, resp.Status, strings.TrimSpace(string(body)))
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, c.rateLimitWait(resp.Header, time.Now()), err
+		}
+		return nil, 0, err
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return nil, fmt.Errorf("okta: GET %s: decoding response: %w", req.URL.Path, err)
+		return nil, 0, fmt.Errorf("okta: GET %s: decoding response: %w", req.URL.Path, err)
 	}
-	return resp.Header, nil
+	return resp.Header, 0, nil
+}
+
+// rateLimitWait returns how long to wait after a 429 response: until the
+// X-Rate-Limit-Reset epoch time it names, or the client's backoff when the
+// header is missing, invalid or already past. It never waits longer than
+// maxRateLimitWait.
+func (c *rawClient) rateLimitWait(header http.Header, now time.Time) time.Duration {
+	wait := c.retryBackoff
+	if wait <= 0 {
+		wait = defaultRetryBackoff
+	}
+	if reset, err := strconv.ParseInt(header.Get("X-Rate-Limit-Reset"), 10, 64); err == nil {
+		if untilReset := time.Unix(reset, 0).Sub(now); untilReset > wait {
+			wait = untilReset
+		}
+	}
+	if wait > maxRateLimitWait {
+		wait = maxRateLimitWait
+	}
+	return wait
 }
 
 // nextLink returns the target of the rel="next" Link header, or "".

@@ -6,12 +6,17 @@ package okta
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/okta/okta-sdk-golang/v5/okta"
@@ -267,5 +272,103 @@ func TestFactorResources(t *testing.T) {
 	}
 	if got[2].ID != "fhp1" || got[2].Type != "okta_factor_totp" {
 		t.Errorf("HOTP profile listed as %+v", got[2])
+	}
+}
+
+// rateLimitedServer answers the first limited requests with 429 (with
+// reset as X-Rate-Limit-Reset when it is set) and the rest with one rule.
+func rateLimitedServer(t *testing.T, limited int32, reset string) (*rawClient, *atomic.Int32) {
+	t.Helper()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) <= limited {
+			if reset != "" {
+				w.Header().Set("X-Rate-Limit-Reset", reset)
+			}
+			http.Error(w, `{"errorCode":"E0000047"}`, http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{"id":"r1","name":"First"}]`)
+	}))
+	t.Cleanup(server.Close)
+	orgURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &rawClient{orgURL: orgURL, token: "token", httpClient: server.Client(), retryBackoff: time.Millisecond}, &requests
+}
+
+func TestRawRetriesRateLimitedRequest(t *testing.T) {
+	// The reset time is already past, so the retry waits the short backoff.
+	client, requests := rateLimitedServer(t, 1, strconv.FormatInt(time.Now().Add(-time.Second).Unix(), 10))
+
+	rules, err := listPolicyRules(context.Background(), client, "00p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []oktaPolicyRule{{ID: "r1", Name: "First"}}; !reflect.DeepEqual(rules, want) {
+		t.Errorf("got %+v, want %+v", rules, want)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Errorf("made %d requests, want 2", got)
+	}
+}
+
+func TestRawGivesUpOnRepeatedRateLimit(t *testing.T) {
+	client, requests := rateLimitedServer(t, 1000, "")
+
+	_, err := listPolicyRules(context.Background(), client, "00p1")
+	if err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("err = %v, want the 429 error", err)
+	}
+	if got := requests.Load(); got != rateLimitAttempts {
+		t.Errorf("made %d requests, want %d", got, rateLimitAttempts)
+	}
+}
+
+func TestRawRateLimitWaitHonoursContext(t *testing.T) {
+	client, requests := rateLimitedServer(t, 1000, "")
+	client.retryBackoff = time.Hour
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := listPolicyRules(ctx, client, "00p1")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("made %d requests, want 1", got)
+	}
+}
+
+func TestRateLimitWait(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	client := &rawClient{retryBackoff: 2 * time.Second}
+	header := func(reset string) http.Header {
+		h := http.Header{}
+		if reset != "" {
+			h.Set("X-Rate-Limit-Reset", reset)
+		}
+		return h
+	}
+
+	for _, tc := range []struct {
+		reset string
+		want  time.Duration
+	}{
+		{"1700000010", 10 * time.Second}, // until the reset
+		{"", 2 * time.Second},            // no header: the backoff
+		{"soon", 2 * time.Second},        // invalid header: the backoff
+		{"1699999990", 2 * time.Second},  // reset already past: the backoff
+		{"1700086400", maxRateLimitWait}, // a day away: capped
+	} {
+		if got := client.rateLimitWait(header(tc.reset), now); got != tc.want {
+			t.Errorf("reset %q: wait %v, want %v", tc.reset, got, tc.want)
+		}
+	}
+
+	if got := (&rawClient{}).rateLimitWait(http.Header{}, now); got != defaultRetryBackoff {
+		t.Errorf("zero backoff: wait %v, want %v", got, defaultRetryBackoff)
 	}
 }
