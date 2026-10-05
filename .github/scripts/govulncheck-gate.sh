@@ -18,6 +18,9 @@ while read -r id module; do
   [ -n "$id" ] || continue
   if ! grep -qxF -e "$id" -e "$module" <<< "$allowed"; then
     blocked+="  $id in $module"$'\n'
+  else
+    # Allowed, but still reachable: say so, so the allowlist stays honest.
+    echo "::notice::allowlisted: $id in $module ($(jq -r --arg id "$id" 'select(.osv.id? == $id) | .osv.summary' govulncheck.json | head -n 1))"
   fi
 done <<< "$found"
 
