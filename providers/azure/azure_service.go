@@ -15,23 +15,62 @@
 package azure
 
 import (
+	"context"
+	"log"
 	"strings"
 
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type AzureService struct { //nolint
 	terraformutils.Service
 }
 
-func (az *AzureService) getClientArgs() (subscriptionID string, resourceGroup string, authorizer autorest.Authorizer, resourceManagerEndpoint string) {
-	subs := az.Args["config"].(authentication.Config).SubscriptionID
-	auth := az.Args["authorizer"].(autorest.Authorizer)
-	resg := az.Args["resource_group"].(string)
-	rEndpoint := az.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	return subs, resg, auth, rEndpoint
+// getClientArgs returns what every Azure SDK client constructor takes, plus
+// the --resource-group scope ("" for the whole subscription).
+func (az *AzureService) getClientArgs() (subscriptionID string, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
+	subscriptionID, _ = az.Args["subscription_id"].(string)
+	resourceGroup, _ = az.Args["resource_group"].(string)
+	credential, _ = az.Args["credential"].(azcore.TokenCredential)
+	options, _ = az.Args["client_options"].(*arm.ClientOptions)
+	return subscriptionID, resourceGroup, credential, options
+}
+
+// listAll walks every page of pager and returns the items of all pages.
+// It stops at the first page that fails and returns the items read so far
+// with the error.
+func listAll[P any, T any](ctx context.Context, pager *runtime.Pager[P], items func(P) []*T) ([]*T, error) {
+	return walkPages(ctx, pager, items, false)
+}
+
+// listAllLenient is listAll for listers that only fail when the first page
+// fails: an error on a later page is logged and the items read so far are
+// returned without an error.
+func listAllLenient[P any, T any](ctx context.Context, pager *runtime.Pager[P], items func(P) []*T) ([]*T, error) {
+	return walkPages(ctx, pager, items, true)
+}
+
+func walkPages[P any, T any](ctx context.Context, pager *runtime.Pager[P], items func(P) []*T, lenient bool) ([]*T, error) {
+	var all []*T
+	for first := true; pager.More(); first = false {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			if lenient && !first {
+				log.Println(err)
+				return all, nil
+			}
+			return all, err
+		}
+		for _, item := range items(page) {
+			if item != nil {
+				all = append(all, item)
+			}
+		}
+	}
+	return all, nil
 }
 
 func (az *AzureService) AppendSimpleResource(id string, resourceName string, resourceType string) {

@@ -16,45 +16,37 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2019-05-01/resources"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v4"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type ResourceGroupGenerator struct {
 	AzureService
 }
 
-func (g ResourceGroupGenerator) createResources(groupListResultIterator resources.GroupListResultIterator) []terraformutils.Resource {
+func (g ResourceGroupGenerator) createResources(groups []*armresources.ResourceGroup) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	for groupListResultIterator.NotDone() {
-		group := groupListResultIterator.Value()
+	for _, group := range groups {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*group.ID,
 			*group.Name,
 			"azurerm_resource_group",
 			"azurerm"))
-		if err := groupListResultIterator.Next(); err != nil {
-			log.Println(err)
-			break
-		}
 	}
 	return resources
 }
 
 func (g *ResourceGroupGenerator) InitResources() error {
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	groupsClient := resources.NewGroupsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	groupsClient, err := armresources.NewResourceGroupsClient(subscriptionID, credential, options)
+	if err != nil {
+		return err
+	}
 
-	groupsClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		group, err := groupsClient.Get(ctx, rg)
+	if resourceGroup != "" {
+		group, err := groupsClient.Get(ctx, resourceGroup, nil)
 		if err != nil {
 			return err
 		}
@@ -67,10 +59,11 @@ func (g *ResourceGroupGenerator) InitResources() error {
 		}
 		return nil
 	}
-	output, err := groupsClient.ListComplete(ctx, "", nil)
+	groups, err := listAllLenient(ctx, groupsClient.NewListPager(nil),
+		func(p armresources.ResourceGroupsClientListResponse) []*armresources.ResourceGroup { return p.Value })
 	if err != nil {
 		return err
 	}
-	g.Resources = g.createResources(output)
+	g.Resources = g.createResources(groups)
 	return nil
 }

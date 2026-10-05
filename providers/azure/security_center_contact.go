@@ -3,10 +3,7 @@ package azure
 import (
 	"context"
 
-	"github.com/Azure/go-autorest/autorest"
-	"github.com/hashicorp/go-azure-helpers/authentication"
-
-	"github.com/Azure/azure-sdk-for-go/services/preview/security/mgmt/v3.0/security"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/security/armsecurity"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
@@ -17,31 +14,27 @@ type SecurityCenterContactGenerator struct {
 func (g SecurityCenterContactGenerator) listContacts() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 
-	securityCenterContactClient := security.NewContactsClientWithBaseURI(resourceManagerEndpoint, subscriptionID, "")
-	securityCenterContactClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
+	// Security contacts belong to the subscription, not to a resource group.
+	if resourceGroup != "" {
 		return resources, nil
 	}
-	contactsIterator, err := securityCenterContactClient.ListComplete(ctx)
+	securityCenterContactClient, err := armsecurity.NewContactsClient(subscriptionID, credential, options)
 	if err != nil {
 		return resources, err
 	}
-
-	for contactsIterator.NotDone() {
-		contact := contactsIterator.Value()
+	contacts, err := listAll(ctx, securityCenterContactClient.NewListPager(nil),
+		func(p armsecurity.ContactsClientListResponse) []*armsecurity.Contact { return p.Value })
+	for _, contact := range contacts {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*contact.ID,
 			*contact.Name,
 			"azurerm_security_center_contact",
 			g.ProviderName))
-
-		if err := contactsIterator.NextWithContext(ctx); err != nil {
-			return resources, err
-		}
+	}
+	if err != nil {
+		return resources, err
 	}
 
 	return resources, nil

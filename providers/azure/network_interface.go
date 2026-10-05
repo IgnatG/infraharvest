@@ -16,54 +16,43 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2019-08-01/network"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type NetworkInterfaceGenerator struct {
 	AzureService
 }
 
-func (g NetworkInterfaceGenerator) createResources(interfaceListResult network.InterfaceListResultIterator) ([]terraformutils.Resource, error) {
+func (g NetworkInterfaceGenerator) createResources(interfaces []*armnetwork.Interface) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	for interfaceListResult.NotDone() {
-		networkInterface := interfaceListResult.Value()
+	for _, networkInterface := range interfaces {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*networkInterface.ID,
 			*networkInterface.Name,
 			"azurerm_network_interface",
 			"azurerm"))
-		if err := interfaceListResult.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
-	return resources, nil
+	return resources
 }
 
 func (g *NetworkInterfaceGenerator) InitResources() error {
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	interfacesClient := network.NewInterfacesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-
-	interfacesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-	var (
-		output network.InterfaceListResultIterator
-		err    error
-	)
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		output, err = interfacesClient.ListComplete(ctx, rg)
-	} else {
-		output, err = interfacesClient.ListAllComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	interfacesClient, err := armnetwork.NewInterfacesClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	g.Resources, err = g.createResources(output)
+
+	var interfaces []*armnetwork.Interface
+	if resourceGroup != "" {
+		interfaces, err = listAll(ctx, interfacesClient.NewListPager(resourceGroup, nil),
+			func(p armnetwork.InterfacesClientListResponse) []*armnetwork.Interface { return p.Value })
+	} else {
+		interfaces, err = listAll(ctx, interfacesClient.NewListAllPager(nil),
+			func(p armnetwork.InterfacesClientListAllResponse) []*armnetwork.Interface { return p.Value })
+	}
+	g.Resources = g.createResources(interfaces)
 	return err
 }

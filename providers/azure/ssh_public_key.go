@@ -16,45 +16,34 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2020-12-01/compute"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
 )
 
 type SSHPublicKeyGenerator struct {
 	AzureService
 }
 
-func (az *SSHPublicKeyGenerator) listResources() ([]compute.SSHPublicKeyResource, error) {
-	subscriptionID, resourceGroup, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := compute.NewSSHPublicKeysClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	var (
-		iterator compute.SSHPublicKeysGroupListResultIterator
-		err      error
-	)
-	ctx := context.Background()
-	if resourceGroup != "" {
-		iterator, err = client.ListByResourceGroupComplete(ctx, resourceGroup)
-	} else {
-		iterator, err = client.ListBySubscriptionComplete(ctx)
-	}
+func (az *SSHPublicKeyGenerator) listResources() ([]*armcompute.SSHPublicKeyResource, error) {
+	subscriptionID, resourceGroup, credential, options := az.getClientArgs()
+	client, err := armcompute.NewSSHPublicKeysClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	var resources []compute.SSHPublicKeyResource
-	for iterator.NotDone() {
-		item := iterator.Value()
-		resources = append(resources, item)
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return resources, err
-		}
+	ctx := context.Background()
+	if resourceGroup != "" {
+		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armcompute.SSHPublicKeysClientListByResourceGroupResponse) []*armcompute.SSHPublicKeyResource {
+				return p.Value
+			})
 	}
-	return resources, nil
+	return listAll(ctx, client.NewListBySubscriptionPager(nil),
+		func(p armcompute.SSHPublicKeysClientListBySubscriptionResponse) []*armcompute.SSHPublicKeyResource {
+			return p.Value
+		})
 }
 
-func (az *SSHPublicKeyGenerator) appendResource(resource *compute.SSHPublicKeyResource) {
+func (az *SSHPublicKeyGenerator) appendResource(resource *armcompute.SSHPublicKeyResource) {
 	az.AppendSimpleResource(*resource.ID, *resource.Name, "azurerm_ssh_public_key")
 }
 
@@ -65,7 +54,7 @@ func (az *SSHPublicKeyGenerator) InitResources() error {
 		return err
 	}
 	for _, resource := range resources {
-		az.appendResource(&resource)
+		az.appendResource(resource)
 	}
 	return nil
 }

@@ -16,12 +16,9 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-03-01/network"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type PublicIPGenerator struct {
@@ -31,76 +28,59 @@ type PublicIPGenerator struct {
 func (g *PublicIPGenerator) listAndAddForPublicIPAddress() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	PublicIPAddressesClient := network.NewPublicIPAddressesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	PublicIPAddressesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	var (
-		publicIPAddressIterator network.PublicIPAddressListResultIterator
-		err                     error
-	)
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		publicIPAddressIterator, err = PublicIPAddressesClient.ListComplete(ctx, rg)
-	} else {
-		publicIPAddressIterator, err = PublicIPAddressesClient.ListAllComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	publicIPAddressesClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for publicIPAddressIterator.NotDone() {
-		publicIP := publicIPAddressIterator.Value()
+
+	var publicIPs []*armnetwork.PublicIPAddress
+	if resourceGroup != "" {
+		publicIPs, err = listAll(ctx, publicIPAddressesClient.NewListPager(resourceGroup, nil),
+			func(p armnetwork.PublicIPAddressesClientListResponse) []*armnetwork.PublicIPAddress { return p.Value })
+	} else {
+		publicIPs, err = listAll(ctx, publicIPAddressesClient.NewListAllPager(nil),
+			func(p armnetwork.PublicIPAddressesClientListAllResponse) []*armnetwork.PublicIPAddress {
+				return p.Value
+			})
+	}
+	for _, publicIP := range publicIPs {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*publicIP.ID,
 			*publicIP.Name,
 			"azurerm_public_ip",
 			g.ProviderName))
-
-		if err := publicIPAddressIterator.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
 
-	return resources, nil
+	return resources, err
 }
 
 func (g *PublicIPGenerator) listAndAddForPublicIPPrefix() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	PublicIPPrefixesClient := network.NewPublicIPPrefixesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	PublicIPPrefixesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	var (
-		publicIPPrefixIterator network.PublicIPPrefixListResultIterator
-		err                    error
-	)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		publicIPPrefixIterator, err = PublicIPPrefixesClient.ListComplete(ctx, rg)
-	} else {
-		publicIPPrefixIterator, err = PublicIPPrefixesClient.ListAllComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	publicIPPrefixesClient, err := armnetwork.NewPublicIPPrefixesClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for publicIPPrefixIterator.NotDone() {
-		publicIPPrefix := publicIPPrefixIterator.Value()
+
+	var publicIPPrefixes []*armnetwork.PublicIPPrefix
+	if resourceGroup != "" {
+		publicIPPrefixes, err = listAll(ctx, publicIPPrefixesClient.NewListPager(resourceGroup, nil),
+			func(p armnetwork.PublicIPPrefixesClientListResponse) []*armnetwork.PublicIPPrefix { return p.Value })
+	} else {
+		publicIPPrefixes, err = listAll(ctx, publicIPPrefixesClient.NewListAllPager(nil),
+			func(p armnetwork.PublicIPPrefixesClientListAllResponse) []*armnetwork.PublicIPPrefix { return p.Value })
+	}
+	for _, publicIPPrefix := range publicIPPrefixes {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*publicIPPrefix.ID,
 			*publicIPPrefix.Name,
 			"azurerm_public_ip_prefix",
 			g.ProviderName))
-
-		if err := publicIPPrefixIterator.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
 
-	return resources, nil
+	return resources, err
 }
 
 func (g *PublicIPGenerator) InitResources() error {

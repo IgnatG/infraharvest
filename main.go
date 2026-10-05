@@ -25,8 +25,8 @@ import (
 
 // TerraformerWriter writes log messages to stderr, so stdout carries only
 // results (--output json), and hides trace and debug messages that client
-// libraries log through the standard logger: go-azure-helpers, for one,
-// logs whole HTTP requests at [DEBUG].
+// libraries log through the standard logger, some of them whole HTTP
+// requests at [DEBUG].
 type TerraformerWriter struct {
 	io.Writer
 }

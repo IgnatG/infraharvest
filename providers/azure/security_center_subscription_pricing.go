@@ -3,10 +3,7 @@ package azure
 import (
 	"context"
 
-	"github.com/Azure/go-autorest/autorest"
-	"github.com/hashicorp/go-azure-helpers/authentication"
-
-	"github.com/Azure/azure-sdk-for-go/services/preview/security/mgmt/v3.0/security"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/security/armsecurity"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
@@ -17,21 +14,25 @@ type SecurityCenterSubscriptionPricingGenerator struct {
 func (g SecurityCenterSubscriptionPricingGenerator) listSubscriptionPricing() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 
-	securityCenterPricingClient := security.NewPricingsClientWithBaseURI(resourceManagerEndpoint, subscriptionID, "")
-	securityCenterPricingClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
+	// Pricings are set per subscription, not per resource group.
+	if resourceGroup != "" {
 		return resources, nil
 	}
-	pricingList, err := securityCenterPricingClient.List(ctx)
+	securityCenterPricingClient, err := armsecurity.NewPricingsClient(credential, options)
+	if err != nil {
+		return resources, err
+	}
+	pricingList, err := securityCenterPricingClient.List(ctx, "subscriptions/"+subscriptionID, nil)
 	if err != nil {
 		return resources, err
 	}
 
-	for _, pricing := range *pricingList.Value {
+	for _, pricing := range pricingList.Value {
+		if pricing == nil {
+			continue
+		}
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*pricing.ID,
 			*pricing.Name,

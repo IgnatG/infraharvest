@@ -2,12 +2,8 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/go-autorest/autorest"
-	"github.com/hashicorp/go-azure-helpers/authentication"
-
-	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2019-08-01/web"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v6"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
@@ -18,35 +14,29 @@ type AppServiceGenerator struct {
 func (g AppServiceGenerator) listApps() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	appServiceClient := web.NewAppsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	appServiceClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-	var (
-		appsIterator web.AppCollectionIterator
-		err          error
-	)
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		appsIterator, err = appServiceClient.ListByResourceGroupComplete(ctx, rg, nil)
-	} else {
-		appsIterator, err = appServiceClient.ListComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	appServiceClient, err := armappservice.NewWebAppsClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for appsIterator.NotDone() {
-		site := appsIterator.Value()
+
+	var sites []*armappservice.Site
+	if resourceGroup != "" {
+		sites, err = listAll(ctx, appServiceClient.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armappservice.WebAppsClientListByResourceGroupResponse) []*armappservice.Site { return p.Value })
+	} else {
+		sites, err = listAll(ctx, appServiceClient.NewListPager(nil),
+			func(p armappservice.WebAppsClientListResponse) []*armappservice.Site { return p.Value })
+	}
+	for _, site := range sites {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*site.ID,
 			*site.Name,
 			"azurerm_app_service",
 			g.ProviderName))
-
-		if err := appsIterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return resources, err
-		}
+	}
+	if err != nil {
+		return resources, err
 	}
 
 	return resources, nil

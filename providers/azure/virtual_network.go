@@ -16,63 +16,51 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2021-02-01/network"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type VirtualNetworkGenerator struct {
 	AzureService
 }
 
-func (g VirtualNetworkGenerator) createResources(ctx context.Context, iterator network.VirtualNetworkListResultIterator) ([]terraformutils.Resource, error) {
+func (g VirtualNetworkGenerator) createResources(virtualNetworks []*armnetwork.VirtualNetwork) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	for iterator.NotDone() {
-		virtualNetwork := iterator.Value()
-		tferName := terraformutils.TfSanitize(*virtualNetwork.Name)
+	for _, virtualNetwork := range virtualNetworks {
+		name := *virtualNetwork.Name
+		tferName := terraformutils.TfSanitize(name)
 		for _, resource := range resources {
 			if tferName == resource.ResourceName {
-				*virtualNetwork.Name = *virtualNetwork.Name + "_" + *virtualNetwork.ID
+				name = name + "_" + *virtualNetwork.ID
 			}
 		}
 
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*virtualNetwork.ID,
-			*virtualNetwork.Name,
+			name,
 			"azurerm_virtual_network",
 			g.ProviderName))
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
-	return resources, nil
+	return resources
 }
 
 func (g *VirtualNetworkGenerator) InitResources() error {
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	virtualNetworkClient := network.NewVirtualNetworksClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-
-	virtualNetworkClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	var (
-		output network.VirtualNetworkListResultIterator
-		err    error
-	)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		output, err = virtualNetworkClient.ListComplete(ctx, rg)
-	} else {
-		output, err = virtualNetworkClient.ListAllComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	virtualNetworkClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	g.Resources, err = g.createResources(ctx, output)
+
+	var virtualNetworks []*armnetwork.VirtualNetwork
+	if resourceGroup != "" {
+		virtualNetworks, err = listAll(ctx, virtualNetworkClient.NewListPager(resourceGroup, nil),
+			func(p armnetwork.VirtualNetworksClientListResponse) []*armnetwork.VirtualNetwork { return p.Value })
+	} else {
+		virtualNetworks, err = listAll(ctx, virtualNetworkClient.NewListAllPager(nil),
+			func(p armnetwork.VirtualNetworksClientListAllResponse) []*armnetwork.VirtualNetwork { return p.Value })
+	}
+	g.Resources = g.createResources(virtualNetworks)
 	return err
 }
