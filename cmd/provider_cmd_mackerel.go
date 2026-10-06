@@ -28,7 +28,7 @@ func newCmdMackerelImporter(options ImportOptions) *cobra.Command {
 		Use:   "mackerel",
 		Short: "Import current state to Terraform configuration from Mackerel",
 		Long:  "Import current state to Terraform configuration from Mackerel",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			provider := newMackerelProvider()
 			err := Import(provider, options, []string{apiKey})
 			if err != nil {
