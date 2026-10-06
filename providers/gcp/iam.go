@@ -15,13 +15,13 @@
 package gcp
 
 import (
+	"context"
 	"log"
 	"regexp"
+	"strings"
 
-	admin "cloud.google.com/go/iam/admin/apiv1"
 	"google.golang.org/api/cloudresourcemanager/v1"
-	"google.golang.org/api/iterator"
-	adminpb "google.golang.org/genproto/googleapis/iam/admin/v1"
+	iam "google.golang.org/api/iam/v1"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -30,59 +30,63 @@ type IamGenerator struct {
 	GCPService
 }
 
-func (g IamGenerator) createServiceAccountResources(serviceAccountsIterator *admin.ServiceAccountIterator) []terraformutils.Resource {
-	resources := []terraformutils.Resource{}
-	re := regexp.MustCompile(`^[a-z]`)
-	for {
-		serviceAccount, err := serviceAccountsIterator.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			log.Println("error with service account:", err)
-			continue
-		}
-		if !re.MatchString(serviceAccount.Email) {
-			log.Printf("skipping %s: service account email must start with [a-z]\n", serviceAccount.Name)
+// serviceAccountEmail is what google_service_account accepts.
+var serviceAccountEmail = regexp.MustCompile(`^[a-z]`)
+
+func (g *IamGenerator) createServiceAccountResources(accounts []*iam.ServiceAccount) []terraformutils.Resource {
+	var resources []terraformutils.Resource
+	for _, account := range accounts {
+		if !serviceAccountEmail.MatchString(account.Email) {
+			log.Printf("skipping %s: service account email must start with [a-z]\n", account.Name)
 			continue
 		}
 		resources = append(resources, terraformutils.NewSimpleResource(
-			serviceAccount.Name,
-			serviceAccount.UniqueId,
+			account.Name,
+			account.UniqueId,
 			"google_service_account",
 			g.ProviderName))
 	}
 	return resources
 }
 
-func (g *IamGenerator) createIamCustomRoleResources(rolesResponse *adminpb.ListRolesResponse, project string) []terraformutils.Resource {
-	resources := []terraformutils.Resource{}
-	for _, role := range rolesResponse.Roles {
+func (g *IamGenerator) createIamCustomRoleResources(roles []*iam.Role, project string) []terraformutils.Resource {
+	var resources []terraformutils.Resource
+	for _, role := range roles {
 		if role.Deleted {
-			// Note: no need to log that the resource has been deleted
 			continue
 		}
+		// projects/<project>/roles/<role ID>
+		roleID := role.Name[strings.LastIndex(role.Name, "/")+1:]
 		resources = append(resources, terraformutils.NewResource(
 			role.Name,
 			role.Name,
 			"google_project_iam_custom_role",
 			g.ProviderName,
 			map[string]string{
-				"role_id": role.Name,
+				"role_id": roleID,
 				"project": project,
 			}))
 	}
-
 	return resources
 }
 
+// createIamMemberResources returns a google_project_iam_member for each
+// member of each binding, with the ID Terraform imports it by: the project,
+// the role and the member, and the condition's title for a conditional
+// binding, separated by spaces.
 func (g *IamGenerator) createIamMemberResources(policy *cloudresourcemanager.Policy, project string) []terraformutils.Resource {
-	resources := []terraformutils.Resource{}
+	var resources []terraformutils.Resource
 	for _, b := range policy.Bindings {
 		for _, m := range b.Members {
+			id := project + " " + b.Role + " " + m
+			name := b.Role + "_" + m
+			if b.Condition != nil && b.Condition.Title != "" {
+				id += " " + b.Condition.Title
+				name += "_" + b.Condition.Title
+			}
 			resources = append(resources, terraformutils.NewResource(
-				b.Role+m,
-				b.Role+m,
+				id,
+				name,
 				"google_project_iam_member",
 				g.ProviderName,
 				map[string]string{
@@ -92,20 +96,20 @@ func (g *IamGenerator) createIamMemberResources(policy *cloudresourcemanager.Pol
 				}))
 		}
 	}
-
 	return resources
 }
 
+// InitResources lists the project's service accounts, custom roles and IAM
+// members through the IAM and Resource Manager REST APIs.
 func (g *IamGenerator) InitResources() error {
 	ctx := g.Context()
+	project := g.GetArgs()["project"].(string)
 
-	projectID := g.GetArgs()["project"].(string)
-	client, err := admin.NewIamClient(ctx, grpcClientOptions()...)
+	service, err := iam.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}
-	serviceAccountsIterator := client.ListServiceAccounts(ctx, &adminpb.ListServiceAccountsRequest{Name: "projects/" + projectID})
-	rolesResponse, err := client.ListRoles(ctx, &adminpb.ListRolesRequest{Parent: "projects/" + projectID})
+	accounts, roles, err := listIam(ctx, service, project)
 	if err != nil {
 		return err
 	}
@@ -114,14 +118,39 @@ func (g *IamGenerator) InitResources() error {
 	if err != nil {
 		return err
 	}
-	rb := &cloudresourcemanager.GetIamPolicyRequest{}
-	policyResponse, err := cm.Projects.GetIamPolicy(projectID, rb).Context(ctx).Do()
+	// Version 3 returns conditional bindings as they are, with their
+	// conditions; earlier versions rename their roles.
+	policy, err := cm.Projects.GetIamPolicy(project, &cloudresourcemanager.GetIamPolicyRequest{
+		Options: &cloudresourcemanager.GetPolicyOptions{RequestedPolicyVersion: 3},
+	}).Context(ctx).Do()
 	if err != nil {
 		return err
 	}
 
-	g.Resources = g.createServiceAccountResources(serviceAccountsIterator)
-	g.Resources = append(g.Resources, g.createIamCustomRoleResources(rolesResponse, projectID)...)
-	g.Resources = append(g.Resources, g.createIamMemberResources(policyResponse, projectID)...)
+	g.Resources = g.createServiceAccountResources(accounts)
+	g.Resources = append(g.Resources, g.createIamCustomRoleResources(roles, project)...)
+	g.Resources = append(g.Resources, g.createIamMemberResources(policy, project)...)
 	return nil
+}
+
+// listIam returns every page of the project's service accounts and custom
+// roles.
+func listIam(ctx context.Context, service *iam.Service, project string) ([]*iam.ServiceAccount, []*iam.Role, error) {
+	var accounts []*iam.ServiceAccount
+	err := service.Projects.ServiceAccounts.List("projects/"+project).Pages(ctx, func(page *iam.ListServiceAccountsResponse) error {
+		accounts = append(accounts, page.Accounts...)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	var roles []*iam.Role
+	err = service.Projects.Roles.List("projects/"+project).Pages(ctx, func(page *iam.ListRolesResponse) error {
+		roles = append(roles, page.Roles...)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return accounts, roles, nil
 }

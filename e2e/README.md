@@ -49,7 +49,7 @@ docker compose -f e2e/compose.yaml --profile gcp down
 
 `INFRAHARVEST_GCP_ENDPOINT` sends the listers' Google API calls to the emulator, without credentials. The test points the Terraform provider there through its `GOOGLE_*_CUSTOM_ENDPOINT` variables, with a placeholder access token. It refuses any endpoint other than localhost.
 
-Not covered yet: the listers that use gRPC clients (IAM, Cloud Tasks, Cloud Build, Logging). floci-gcp serves IAM over REST only.
+Not covered yet: the listers that use gRPC clients (Cloud Tasks, Cloud Build, Logging), and IAM, which lists through REST but needs custom roles floci-gcp doesn't serve; a unit test covers it.
 
 ## Azure (floci-az)
 
