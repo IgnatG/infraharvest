@@ -45,7 +45,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := map[string][]byte{VersionsFileName: VersionsFile(RequiredVersion(tfVersion), p), ProvidersFileName: providers}
-	tf, err := NewTerraform(dir, execPath, filepath.Join(cache, "plugins"))
+	tf, err := NewTerraform(dir, execPath, filepath.Join(cache, "plugins"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

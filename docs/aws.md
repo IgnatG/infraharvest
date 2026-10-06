@@ -18,6 +18,8 @@ AWS configuration including environmental variables, shared credentials file (\~
 infraharvest import aws --all --resources=vpc,subnet --regions=eu-west-1 --profile=prod
 ```
 
+Any profile the AWS CLI can use works: static keys, `credential_process`, IAM Identity Center (SSO, after `aws sso login --profile prod`), or a role assumed from another profile, which asks for an MFA code on the terminal if the role requires one. Terraform runs with the credentials the profile resolves to, fresh for each root, so an SSO session or MFA role can run a long import. With `--assume-role`, Terraform gets the profile's credentials and its provider block assumes the role itself.
+
 You can also provide no regions when importing resources:
 ```
 infraharvest import aws --all --resources=cloudfront --profile=prod

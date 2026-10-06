@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/terraform-exec/tfexec"
+
 	"github.com/IgnatG/infraharvest/adapters"
 	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/report"
@@ -183,6 +185,12 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 				return err
 			}
 		}
+		tr := terraformRun{execPath: execPath, pluginCacheDir: filepath.Join(cacheDir, "plugins")}
+		if result == nil {
+			if tr.env, err = terraformEnv(ctx, provider); err != nil {
+				return err
+			}
+		}
 		incremental := false
 		if result == nil && options.Incremental {
 			if incremental, err = engine.HasConfiguration(dir); err != nil {
@@ -196,7 +204,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 				run.lock, _ = os.ReadFile(filepath.Join(dir, engine.LockFileName))
 			}
 		case incremental:
-			added, addedResult, holds, err := run.addToRoot(ctx, dir, byDir[dir], opts, execPath, filepath.Join(cacheDir, "plugins"))
+			added, addedResult, holds, err := run.addToRoot(ctx, dir, byDir[dir], opts, tr)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -218,7 +226,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 				}
 			}
 			log.Printf("%s: generating configuration for %d resources in %s", provider.GetName(), len(byDir[dir]), dir)
-			result, err = generateDir(ctx, dir, execPath, filepath.Join(cacheDir, "plugins"), byDir[dir], opts, &run.lock)
+			result, err = generateDir(ctx, dir, tr, byDir[dir], opts, &run.lock)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -322,10 +330,37 @@ func relativePath(outputDir, dir string) string {
 	return filepath.ToSlash(rel)
 }
 
+// terraformRun is how a root's Terraform runs: the binary, the plugin cache
+// every root shares, and what the provider adds to its environment, such
+// as fresh credentials (see terraformEnv).
+type terraformRun struct {
+	execPath, pluginCacheDir string
+	env                      map[string]string
+}
+
+func (t terraformRun) in(dir string) (*tfexec.Terraform, error) {
+	return engine.NewTerraform(dir, t.execPath, t.pluginCacheDir, t.env)
+}
+
+// terraformEnv returns what Terraform needs in its environment to import
+// provider's resources, such as the credentials it lists with (see
+// terraformutils.ProviderWithTerraformEnv), fresh for each root.
+func terraformEnv(ctx context.Context, provider terraformutils.ProviderGenerator) (map[string]string, error) {
+	withEnv, ok := provider.(terraformutils.ProviderWithTerraformEnv)
+	if !ok {
+		return nil, nil
+	}
+	env, err := withEnv.TerraformEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%s: credentials for Terraform: %w", provider.GetName(), err)
+	}
+	return env, nil
+}
+
 // generateDir runs engine.Generate in dir, seeding it with *lock if set and
 // keeping its lock file in *lock otherwise.
-func generateDir(ctx context.Context, dir, execPath, pluginCacheDir string, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
-	tf, err := engine.NewTerraform(dir, execPath, pluginCacheDir)
+func generateDir(ctx context.Context, dir string, tr terraformRun, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
+	tf, err := tr.in(dir)
 	if err != nil {
 		return nil, err
 	}

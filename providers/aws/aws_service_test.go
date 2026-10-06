@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestGenerateConfigPerRegion(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "test")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("AWS_PROFILE", "")
-	t.Setenv("AWS_REGION", "") // generateConfig sets it; restore it afterwards
+	t.Setenv("AWS_REGION", "")
 	configs = map[configKey]aws.Config{}
 	t.Cleanup(func() { configs = map[configKey]aws.Config{} })
 
@@ -54,5 +55,39 @@ func TestGenerateConfigWithoutSharedConfig(t *testing.T) {
 	s.SetArgs(map[string]interface{}{"region": "us-east-1", "profile": "default"})
 	if _, err := s.generateConfig(); err != nil {
 		t.Errorf("want the environment's credentials used, got %v", err)
+	}
+}
+
+// Terraform gets the credentials a profile resolves to through its own
+// environment (TerraformEnv), not the process's.
+func TestTerraformEnv(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"config":      "[profile prod]\nregion = eu-west-2\n",
+		"credentials": "[prod]\naws_access_key_id = AKIDPROD\naws_secret_access_key = prod-secret\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_REGION"} {
+		t.Setenv(k, "")
+	}
+	configs = map[configKey]aws.Config{}
+	t.Cleanup(func() { configs = map[configKey]aws.Config{} })
+	p := &AWSProvider{region: "eu-west-2", profile: "prod"}
+
+	env, err := p.TerraformEnv(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["AWS_ACCESS_KEY_ID"] != "AKIDPROD" || env["AWS_SECRET_ACCESS_KEY"] != "prod-secret" || env["AWS_SESSION_TOKEN"] != "" {
+		t.Errorf("env: %v", env)
+	}
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_REGION") != "" {
+		t.Error("the process environment changed")
 	}
 }

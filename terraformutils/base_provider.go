@@ -87,6 +87,15 @@ type ProviderWithDefaultTags interface {
 	DefaultTags() (attribute, block, reservedPrefix string)
 }
 
+// ProviderWithTerraformEnv gives Terraform the environment it needs to
+// import the provider's resources, such as the credentials the provider
+// lists with, which Terraform may not resolve on its own (an SSO session,
+// a role assumed with an MFA code). It is asked again for each root, so
+// it can return fresh credentials.
+type ProviderWithTerraformEnv interface {
+	TerraformEnv(ctx context.Context) (map[string]string, error)
+}
+
 type Provider struct {
 	Service ServiceGenerator
 }

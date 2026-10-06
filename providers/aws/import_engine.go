@@ -99,3 +99,26 @@ func (p *AWSProvider) Scope(ctx context.Context) (account, region string, err er
 	}
 	return aws.ToString(id), region, nil
 }
+
+// TerraformEnv gives Terraform the credentials infraharvest lists with, as
+// resolved from --profile or the environment: an SSO session's, or a
+// role's assumed with an MFA code, which Terraform couldn't resolve
+// without asking. They are the base credentials: with --assume-role, the
+// provider block assumes the role itself (see GetProviderData). Each call
+// returns them fresh, so a long import never hands Terraform expired ones.
+func (p *AWSProvider) TerraformEnv(ctx context.Context) (map[string]string, error) {
+	service := &AWSService{}
+	service.SetArgs(p.serviceArgs())
+	service.SetContext(ctx)
+	creds, err := service.baseCredentials()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"AWS_ACCESS_KEY_ID":     creds.AccessKeyID,
+		"AWS_SECRET_ACCESS_KEY": creds.SecretAccessKey,
+		// Empty unless temporary, so that a token from the environment
+		// doesn't pair with other keys.
+		"AWS_SESSION_TOKEN": creds.SessionToken,
+	}, nil
+}
