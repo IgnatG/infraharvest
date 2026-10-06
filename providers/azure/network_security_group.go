@@ -16,66 +16,46 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-03-01/network"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
 type NetworkSecurityGroupGenerator struct {
 	AzureService
 }
 
-func (az *NetworkSecurityGroupGenerator) listResources() ([]network.SecurityGroup, error) {
-	subscriptionID, resourceGroup, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := network.NewSecurityGroupsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	var (
-		iterator network.SecurityGroupListResultIterator
-		err      error
-	)
-	ctx := context.Background()
-	if resourceGroup != "" {
-		iterator, err = client.ListComplete(ctx, resourceGroup)
-	} else {
-		iterator, err = client.ListAllComplete(ctx)
-	}
+func (az *NetworkSecurityGroupGenerator) listResources() ([]*armnetwork.SecurityGroup, error) {
+	subscriptionID, resourceGroup, credential, options := az.getClientArgs()
+	client, err := armnetwork.NewSecurityGroupsClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	var resources []network.SecurityGroup
-	for iterator.NotDone() {
-		item := iterator.Value()
-		resources = append(resources, item)
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return resources, err
-		}
+	ctx := context.Background()
+	if resourceGroup != "" {
+		return listAll(ctx, client.NewListPager(resourceGroup, nil),
+			func(p armnetwork.SecurityGroupsClientListResponse) []*armnetwork.SecurityGroup { return p.Value })
 	}
-	return resources, nil
+	return listAll(ctx, client.NewListAllPager(nil),
+		func(p armnetwork.SecurityGroupsClientListAllResponse) []*armnetwork.SecurityGroup { return p.Value })
 }
 
-func (az *NetworkSecurityGroupGenerator) appendResource(resource *network.SecurityGroup) {
+func (az *NetworkSecurityGroupGenerator) appendResource(resource *armnetwork.SecurityGroup) {
 	az.AppendSimpleResourceWithDuplicateCheck(*resource.ID, *resource.Name, "azurerm_network_security_group")
 }
 
-func (az *NetworkSecurityGroupGenerator) appendRules(parent *network.SecurityGroup, resourceGroupID *ResourceID) error {
-	subscriptionID, _, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := network.NewSecurityRulesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	ctx := context.Background()
-	iterator, err := client.ListComplete(ctx, resourceGroupID.ResourceGroup, *parent.Name)
+func (az *NetworkSecurityGroupGenerator) appendRules(parent *armnetwork.SecurityGroup, resourceGroupID *ResourceID) error {
+	subscriptionID, _, credential, options := az.getClientArgs()
+	client, err := armnetwork.NewSecurityRulesClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	for iterator.NotDone() {
-		item := iterator.Value()
+	ctx := context.Background()
+	rules, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
+		func(p armnetwork.SecurityRulesClientListResponse) []*armnetwork.SecurityRule { return p.Value })
+	for _, item := range rules {
 		az.AppendSimpleResourceWithDuplicateCheck(*item.ID, *item.Name, "azurerm_network_security_rule")
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return err
-		}
 	}
-	return nil
+	return err
 }
 
 func (az *NetworkSecurityGroupGenerator) InitResources() error {
@@ -85,12 +65,12 @@ func (az *NetworkSecurityGroupGenerator) InitResources() error {
 		return err
 	}
 	for _, resource := range resources {
-		az.appendResource(&resource)
+		az.appendResource(resource)
 		resourceGroupID, err := ParseAzureResourceID(*resource.ID)
 		if err != nil {
 			return err
 		}
-		err = az.appendRules(&resource, resourceGroupID)
+		err = az.appendRules(resource, resourceGroupID)
 		if err != nil {
 			return err
 		}

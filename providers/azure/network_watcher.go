@@ -16,69 +16,61 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-03-01/network"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
 type NetworkWatcherGenerator struct {
 	AzureService
 }
 
-func (az *NetworkWatcherGenerator) listResources() ([]network.Watcher, error) {
-	subscriptionID, resourceGroup, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := network.NewWatchersClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	var (
-		resources network.WatcherListResult
-		err       error
-	)
-	ctx := context.Background()
-	if resourceGroup != "" {
-		resources, err = client.List(ctx, resourceGroup)
-	} else {
-		resources, err = client.ListAll(ctx)
-	}
+func (az *NetworkWatcherGenerator) listResources() ([]*armnetwork.Watcher, error) {
+	subscriptionID, resourceGroup, credential, options := az.getClientArgs()
+	client, err := armnetwork.NewWatchersClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	return *resources.Value, nil
+	ctx := context.Background()
+	if resourceGroup != "" {
+		return listAll(ctx, client.NewListPager(resourceGroup, nil),
+			func(p armnetwork.WatchersClientListResponse) []*armnetwork.Watcher { return p.Value })
+	}
+	return listAll(ctx, client.NewListAllPager(nil),
+		func(p armnetwork.WatchersClientListAllResponse) []*armnetwork.Watcher { return p.Value })
 }
 
-func (az *NetworkWatcherGenerator) appendResource(resource *network.Watcher) {
+func (az *NetworkWatcherGenerator) appendResource(resource *armnetwork.Watcher) {
 	az.AppendSimpleResource(*resource.ID, *resource.Name, "azurerm_network_watcher")
 }
 
-func (az *NetworkWatcherGenerator) appendFlowLogs(parent *network.Watcher, resourceGroupID *ResourceID) error {
-	subscriptionID, _, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := network.NewFlowLogsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	ctx := context.Background()
-	iterator, err := client.ListComplete(ctx, resourceGroupID.ResourceGroup, *parent.Name)
+func (az *NetworkWatcherGenerator) appendFlowLogs(parent *armnetwork.Watcher, resourceGroupID *ResourceID) error {
+	subscriptionID, _, credential, options := az.getClientArgs()
+	client, err := armnetwork.NewFlowLogsClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	for iterator.NotDone() {
-		item := iterator.Value()
+	ctx := context.Background()
+	flowLogs, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
+		func(p armnetwork.FlowLogsClientListResponse) []*armnetwork.FlowLog { return p.Value })
+	for _, item := range flowLogs {
 		az.AppendSimpleResource(*item.ID, *item.Name, "azurerm_network_watcher_flow_log")
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return err
-		}
 	}
-	return nil
+	return err
 }
 
-func (az *NetworkWatcherGenerator) appendPacketCaptures(parent *network.Watcher, resourceGroupID *ResourceID) error {
-	subscriptionID, _, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := network.NewPacketCapturesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	ctx := context.Background()
-	resources, err := client.List(ctx, resourceGroupID.ResourceGroup, *parent.Name)
+func (az *NetworkWatcherGenerator) appendPacketCaptures(parent *armnetwork.Watcher, resourceGroupID *ResourceID) error {
+	subscriptionID, _, credential, options := az.getClientArgs()
+	client, err := armnetwork.NewPacketCapturesClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	for _, item := range *resources.Value {
+	ctx := context.Background()
+	captures, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
+		func(p armnetwork.PacketCapturesClientListResponse) []*armnetwork.PacketCaptureResult { return p.Value })
+	if err != nil {
+		return err
+	}
+	for _, item := range captures {
 		az.AppendSimpleResource(*item.ID, *item.Name, "azurerm_network_packet_capture")
 	}
 	return nil
@@ -91,16 +83,16 @@ func (az *NetworkWatcherGenerator) InitResources() error {
 		return err
 	}
 	for _, resource := range resources {
-		az.appendResource(&resource)
+		az.appendResource(resource)
 		resourceGroupID, err := ParseAzureResourceID(*resource.ID)
 		if err != nil {
 			return err
 		}
-		err = az.appendFlowLogs(&resource, resourceGroupID)
+		err = az.appendFlowLogs(resource, resourceGroupID)
 		if err != nil {
 			return err
 		}
-		err = az.appendPacketCaptures(&resource, resourceGroupID)
+		err = az.appendPacketCaptures(resource, resourceGroupID)
 		if err != nil {
 			return err
 		}

@@ -16,11 +16,9 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/redis/mgmt/2018-03-01/redis"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v4"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type RedisGenerator struct {
@@ -30,27 +28,24 @@ type RedisGenerator struct {
 func (g *RedisGenerator) listRedisServers() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	RedisClient := redis.NewClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-
-	redisServersIterator, err := RedisClient.ListComplete(ctx)
+	subscriptionID, _, credential, options := g.getClientArgs()
+	redisClient, err := armredis.NewClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
 
-	for redisServersIterator.NotDone() {
-		redisServer := redisServersIterator.Value()
+	redisServers, err := listAllLenient(ctx, redisClient.NewListBySubscriptionPager(nil),
+		func(p armredis.ClientListBySubscriptionResponse) []*armredis.ResourceInfo { return p.Value })
+	if err != nil {
+		return nil, err
+	}
+
+	for _, redisServer := range redisServers {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*redisServer.ID,
 			*redisServer.Name,
 			"azurerm_redis_cache",
 			g.ProviderName))
-
-		if err := redisServersIterator.Next(); err != nil {
-			log.Println(err)
-			break
-		}
 	}
 
 	return resources, nil

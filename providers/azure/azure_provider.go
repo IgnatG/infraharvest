@@ -15,118 +15,42 @@
 package azure
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"os"
-	"strings"
 
-	"github.com/Azure/go-autorest/autorest"
-	"github.com/hashicorp/go-azure-helpers/authentication"
-	"github.com/hashicorp/go-azure-helpers/sender"
-	"github.com/manicminer/hamilton/environments"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 type AzureProvider struct { //nolint
 	terraformutils.Provider
-	config        authentication.Config
-	authorizer    autorest.Authorizer
-	resourceGroup string
-}
-
-func (p *AzureProvider) setEnvConfig() error {
-	subscriptionID := os.Getenv("ARM_SUBSCRIPTION_ID")
-	if subscriptionID == "" {
-		return errors.New("set ARM_SUBSCRIPTION_ID env var")
-	}
-	var auxTenants []string
-	if v := os.Getenv("ARM_AUXILIARY_TENANT_IDS"); v != "" {
-		auxTenants = strings.Split(v, ";")
-		if len(auxTenants) > 3 {
-			return fmt.Errorf("the provider only supports 3 auxiliary tenant IDs for ARM_AUXILIARY_TENANT_IDS")
-		}
-	}
-	builder := &authentication.Builder{
-		ClientID:            os.Getenv("ARM_CLIENT_ID"),
-		SubscriptionID:      subscriptionID,
-		TenantID:            os.Getenv("ARM_TENANT_ID"),
-		AuxiliaryTenantIDs:  auxTenants,
-		Environment:         os.Getenv("ARM_ENVIRONMENT"),
-		MetadataHost:        os.Getenv("ARM_METADATA_HOSTNAME"),
-		MsiEndpoint:         os.Getenv("ARM_MSI_ENDPOINT"),
-		ClientSecret:        os.Getenv("ARM_CLIENT_SECRET"),
-		ClientCertPath:      os.Getenv("ARM_CLIENT_CERTIFICATE_PATH"),
-		ClientCertPassword:  os.Getenv("ARM_CLIENT_CERTIFICATE_PASSWORD"),
-		IDTokenRequestToken: os.Getenv("ARM_OIDC_REQUEST_TOKEN"),
-		IDTokenRequestURL:   os.Getenv("ARM_OIDC_REQUEST_URL"),
-
-		// Feature Toggles
-		SupportsAzureCliToken:          true,
-		SupportsClientSecretAuth:       true,
-		SupportsClientCertAuth:         true,
-		SupportsManagedServiceIdentity: os.Getenv("ARM_USE_MSI") != "",
-		SupportsOIDCAuth:               os.Getenv("ARM_USE_OIDC") != "",
-		UseMicrosoftGraph:              os.Getenv("ARM_USE_ADAL") == "",
-	}
-
-	if builder.Environment == "" {
-		builder.Environment = "public"
-	}
-	config, err := builder.Build()
-	if err != nil {
-		return nil
-	}
-	p.config = *config
-
-	return nil
-}
-
-func (p *AzureProvider) getAuthorizer() (autorest.Authorizer, error) {
-	env, err := authentication.DetermineEnvironment(p.config.Environment)
-	if err != nil {
-		return nil, err
-	}
-	p.config.CustomResourceManagerEndpoint = env.ResourceManagerEndpoint
-	oauthConfig, err := p.config.BuildOAuthConfig(env.ActiveDirectoryEndpoint)
-	if err != nil {
-		return nil, err
-	}
-	if oauthConfig == nil {
-		return nil, fmt.Errorf("unable to configure OAuthConfig for tenant %s", p.config.TenantID)
-	}
-	sender := sender.BuildSender("infraharvest")
-	ctx := context.Background()
-	var auth autorest.Authorizer
-
-	if p.config.UseMicrosoftGraph {
-		hamiltonEnv, ero := environments.EnvironmentFromString(p.config.Environment)
-		if ero != nil {
-			return nil, ero
-		}
-		auth, err = p.config.GetMSALToken(ctx, hamiltonEnv.ResourceManager, sender, oauthConfig, env.TokenAudience)
-	} else {
-		// Deprecated
-		auth, err = p.config.GetADALToken(ctx, sender, oauthConfig, env.ResourceManagerEndpoint)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return auth, nil
+	subscriptionID string
+	credential     azcore.TokenCredential
+	clientOptions  *arm.ClientOptions
+	resourceGroup  string
 }
 
 func (p *AzureProvider) Init(args []string) error {
-	err := p.setEnvConfig()
+	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
 		return err
 	}
-
-	authorizer, err := p.getAuthorizer()
+	credential, err := newCredential(cfg)
 	if err != nil {
 		return err
 	}
-	p.authorizer = authorizer
+	p.subscriptionID = cfg.subscriptionID
+	p.credential = credential
+	p.clientOptions = &arm.ClientOptions{
+		ClientOptions: policy.ClientOptions{
+			Cloud:     cfg.cloud,
+			Telemetry: policy.TelemetryOptions{ApplicationID: "infraharvest"},
+		},
+		AuxiliaryTenants: cfg.auxiliaryTenants,
+	}
 	p.resourceGroup = args[0]
 
 	return nil
@@ -198,9 +122,10 @@ func (p *AzureProvider) InitService(serviceName string, verbose bool) error {
 	p.Service.SetVerbose(verbose)
 	p.Service.SetProviderName(p.GetName())
 	p.Service.SetArgs(map[string]interface{}{
-		"config":         p.config,
-		"authorizer":     p.authorizer,
-		"resource_group": p.resourceGroup,
+		"subscription_id": p.subscriptionID,
+		"credential":      p.credential,
+		"client_options":  p.clientOptions,
+		"resource_group":  p.resourceGroup,
 	})
 	return nil
 }

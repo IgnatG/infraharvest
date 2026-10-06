@@ -16,56 +16,43 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-07-01/compute"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type DiskGenerator struct {
 	AzureService
 }
 
-func (g DiskGenerator) createResources(diskListIterator compute.DiskListIterator) ([]terraformutils.Resource, error) {
+func (g DiskGenerator) createResources(disks []*armcompute.Disk) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	for diskListIterator.NotDone() {
-		disk := diskListIterator.Value()
+	for _, disk := range disks {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*disk.ID,
 			*disk.Name,
 			"azurerm_managed_disk",
 			"azurerm"))
-		if err := diskListIterator.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
-	return resources, nil
+	return resources
 }
 
 func (g *DiskGenerator) InitResources() error {
 	ctx := context.Background()
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	disksClient := compute.NewDisksClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-
-	disksClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	var (
-		output compute.DiskListIterator
-		err    error
-	)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		output, err = disksClient.ListByResourceGroupComplete(ctx, rg)
-	} else {
-		output, err = disksClient.ListComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	disksClient, err := armcompute.NewDisksClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	g.Resources, err = g.createResources(output)
+
+	var disks []*armcompute.Disk
+	if resourceGroup != "" {
+		disks, err = listAll(ctx, disksClient.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armcompute.DisksClientListByResourceGroupResponse) []*armcompute.Disk { return p.Value })
+	} else {
+		disks, err = listAll(ctx, disksClient.NewListPager(nil),
+			func(p armcompute.DisksClientListResponse) []*armcompute.Disk { return p.Value })
+	}
+	g.Resources = g.createResources(disks)
 	return err
 }

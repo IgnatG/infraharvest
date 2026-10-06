@@ -16,14 +16,24 @@ package azure
 
 import (
 	"context"
-	"log"
-	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/services/privatedns/mgmt/2018-09-01/privatedns"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/privatedns/armprivatedns/v2"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
+
+// privateDNSRecordResourceTypes maps the record type at the end of a private
+// DNS record set type (for example "Microsoft.Network/privateDnsZones/CNAME")
+// to its Terraform type.
+var privateDNSRecordResourceTypes = map[string]string{
+	"A":     "azurerm_private_dns_a_record",
+	"AAAA":  "azurerm_private_dns_aaaa_record",
+	"CNAME": "azurerm_private_dns_cname_record",
+	"MX":    "azurerm_private_dns_mx_record",
+	"PTR":   "azurerm_private_dns_ptr_record",
+	"SRV":   "azurerm_private_dns_srv_record",
+	"TXT":   "azurerm_private_dns_txt_record",
+}
 
 type PrivateDNSGenerator struct {
 	AzureService
@@ -32,43 +42,26 @@ type PrivateDNSGenerator struct {
 func (g *PrivateDNSGenerator) listRecordSets(resourceGroupName string, privateZoneName string, top *int32) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	RecordSetsClient := privatedns.NewRecordSetsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	RecordSetsClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	recordSetIterator, err := RecordSetsClient.ListComplete(ctx, resourceGroupName, privateZoneName, top, "")
+	subscriptionID, _, credential, options := g.getClientArgs()
+	recordSetsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for recordSetIterator.NotDone() {
-		recordSet := recordSetIterator.Value()
-		// NOTE:
-		// Format example: "Microsoft.Network/privateDnsZones/CNAME"
-		recordTypeSplitted := strings.Split(*recordSet.Type, "/")
-		recordType := recordTypeSplitted[len(recordTypeSplitted)-1]
-		typeResourceNameMap := map[string]string{
-			"A":     "azurerm_private_dns_a_record",
-			"AAAA":  "azurerm_private_dns_aaaa_record",
-			"CNAME": "azurerm_private_dns_cname_record",
-			"MX":    "azurerm_private_dns_mx_record",
-			"PTR":   "azurerm_private_dns_ptr_record",
-			"SRV":   "azurerm_private_dns_srv_record",
-			"TXT":   "azurerm_private_dns_txt_record",
-		}
-		if resName, exist := typeResourceNameMap[recordType]; exist {
+
+	recordSets, err := listAllLenient(ctx,
+		recordSetsClient.NewListPager(resourceGroupName, privateZoneName, &armprivatedns.RecordSetsClientListOptions{Top: top}),
+		func(p armprivatedns.RecordSetsClientListResponse) []*armprivatedns.RecordSet { return p.Value })
+	if err != nil {
+		return nil, err
+	}
+	for _, recordSet := range recordSets {
+		if resName, exist := recordResourceType(*recordSet.Type, privateDNSRecordResourceTypes); exist {
 			resources = append(resources, terraformutils.NewSimpleResource(
 				*recordSet.ID,
 				*recordSet.Name,
 				resName,
 				g.ProviderName))
 		}
-
-		if err := recordSetIterator.Next(); err != nil {
-			log.Println(err)
-			break
-		}
-
 	}
 	return resources, nil
 }
@@ -76,28 +69,26 @@ func (g *PrivateDNSGenerator) listRecordSets(resourceGroupName string, privateZo
 func (g *PrivateDNSGenerator) listVirtualNetworkLinks(resourceGroupName string, privateZoneName string, pageSize *int32) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	VirtualNetworkLinksClient := privatedns.NewVirtualNetworkLinksClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	VirtualNetworkLinksClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	virtualNetworkLinkIterator, err := VirtualNetworkLinksClient.ListComplete(ctx, resourceGroupName, privateZoneName, pageSize)
+	subscriptionID, _, credential, options := g.getClientArgs()
+	virtualNetworkLinksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for virtualNetworkLinkIterator.NotDone() {
-		virtualNetworkLink := virtualNetworkLinkIterator.Value()
+
+	virtualNetworkLinks, err := listAllLenient(ctx,
+		virtualNetworkLinksClient.NewListPager(resourceGroupName, privateZoneName, &armprivatedns.VirtualNetworkLinksClientListOptions{Top: pageSize}),
+		func(p armprivatedns.VirtualNetworkLinksClientListResponse) []*armprivatedns.VirtualNetworkLink {
+			return p.Value
+		})
+	if err != nil {
+		return nil, err
+	}
+	for _, virtualNetworkLink := range virtualNetworkLinks {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*virtualNetworkLink.ID,
 			*virtualNetworkLink.Name,
 			"azurerm_private_dns_zone_virtual_network_link",
 			g.ProviderName))
-
-		if err := virtualNetworkLinkIterator.Next(); err != nil {
-			log.Println(err)
-			break
-		}
-
 	}
 
 	return resources, nil
@@ -106,27 +97,30 @@ func (g *PrivateDNSGenerator) listVirtualNetworkLinks(resourceGroupName string, 
 func (g *PrivateDNSGenerator) listAndAddForPrivateDNSZone() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	PrivateDNSZonesClient := privatedns.NewPrivateZonesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	PrivateDNSZonesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	privateDNSZonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, credential, options)
+	if err != nil {
+		return nil, err
+	}
 
-	var pageSize int32 = 50
+	pageSize := to.Ptr[int32](50)
 
-	var (
-		dnsZoneIterator privatedns.PrivateZoneListResultIterator
-		err             error
-	)
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		dnsZoneIterator, err = PrivateDNSZonesClient.ListByResourceGroupComplete(ctx, rg, &pageSize)
+	var zones []*armprivatedns.PrivateZone
+	if resourceGroup != "" {
+		zones, err = listAll(ctx,
+			privateDNSZonesClient.NewListByResourceGroupPager(resourceGroup, &armprivatedns.PrivateZonesClientListByResourceGroupOptions{Top: pageSize}),
+			func(p armprivatedns.PrivateZonesClientListByResourceGroupResponse) []*armprivatedns.PrivateZone {
+				return p.Value
+			})
 	} else {
-		dnsZoneIterator, err = PrivateDNSZonesClient.ListComplete(ctx, &pageSize)
+		zones, err = listAll(ctx,
+			privateDNSZonesClient.NewListPager(&armprivatedns.PrivateZonesClientListOptions{Top: pageSize}),
+			func(p armprivatedns.PrivateZonesClientListResponse) []*armprivatedns.PrivateZone { return p.Value })
 	}
 	if err != nil {
 		return nil, err
 	}
-	for dnsZoneIterator.NotDone() {
-		zone := dnsZoneIterator.Value()
+	for _, zone := range zones {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*zone.ID,
 			*zone.Name,
@@ -138,22 +132,17 @@ func (g *PrivateDNSGenerator) listAndAddForPrivateDNSZone() ([]terraformutils.Re
 			return nil, err
 		}
 
-		records, err := g.listRecordSets(id.ResourceGroup, *zone.Name, &pageSize)
+		records, err := g.listRecordSets(id.ResourceGroup, *zone.Name, pageSize)
 		if err != nil {
 			return nil, err
 		}
 		resources = append(resources, records...)
 
-		networkLinks, err := g.listVirtualNetworkLinks(id.ResourceGroup, *zone.Name, &pageSize)
+		networkLinks, err := g.listVirtualNetworkLinks(id.ResourceGroup, *zone.Name, pageSize)
 		if err != nil {
 			return nil, err
 		}
 		resources = append(resources, networkLinks...)
-
-		if err := dnsZoneIterator.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
 
 	return resources, nil

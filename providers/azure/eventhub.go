@@ -16,112 +16,87 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/eventhub/mgmt/2017-04-01/eventhub"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 )
 
 type EventHubGenerator struct {
 	AzureService
 }
 
-func (az *EventHubGenerator) listNamespaces() ([]eventhub.EHNamespace, error) {
-	subscriptionID, resourceGroup, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := eventhub.NewNamespacesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	var (
-		iterator eventhub.EHNamespaceListResultIterator
-		err      error
-	)
-	ctx := context.Background()
-	if resourceGroup != "" {
-		iterator, err = client.ListByResourceGroupComplete(ctx, resourceGroup)
-	} else {
-		iterator, err = client.ListComplete(ctx)
-	}
+func (az *EventHubGenerator) listNamespaces() ([]*armeventhub.EHNamespace, error) {
+	subscriptionID, resourceGroup, credential, options := az.getClientArgs()
+	client, err := armeventhub.NewNamespacesClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	var resources []eventhub.EHNamespace
-	for iterator.NotDone() {
-		item := iterator.Value()
-		resources = append(resources, item)
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return resources, err
-		}
+	ctx := context.Background()
+	if resourceGroup != "" {
+		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armeventhub.NamespacesClientListByResourceGroupResponse) []*armeventhub.EHNamespace {
+				return p.Value
+			})
 	}
-	return resources, nil
+	return listAll(ctx, client.NewListPager(nil),
+		func(p armeventhub.NamespacesClientListResponse) []*armeventhub.EHNamespace { return p.Value })
 }
 
-func (az *EventHubGenerator) AppendNamespace(namespace *eventhub.EHNamespace) {
+func (az *EventHubGenerator) AppendNamespace(namespace *armeventhub.EHNamespace) {
 	az.AppendSimpleResource(*namespace.ID, *namespace.Name, "azurerm_eventhub_namespace")
 }
 
-func (az *EventHubGenerator) appendEventHubs(namespace *eventhub.EHNamespace, namespaceRg *ResourceID) error {
-	subscriptionID, _, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := eventhub.NewEventHubsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	ctx := context.Background()
-	iterator, err := client.ListByNamespaceComplete(ctx, namespaceRg.ResourceGroup, *namespace.Name, nil, nil)
+func (az *EventHubGenerator) appendEventHubs(namespace *armeventhub.EHNamespace, namespaceRg *ResourceID) error {
+	subscriptionID, _, credential, options := az.getClientArgs()
+	client, err := armeventhub.NewEventHubsClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	for iterator.NotDone() {
-		item := iterator.Value()
-
+	ctx := context.Background()
+	eventHubs, listErr := listAll(ctx, client.NewListByNamespacePager(namespaceRg.ResourceGroup, *namespace.Name, nil),
+		func(p armeventhub.EventHubsClientListByNamespaceResponse) []*armeventhub.Eventhub { return p.Value })
+	for _, item := range eventHubs {
 		az.AppendSimpleResource(*item.ID, *item.Name, "azurerm_eventhub")
 		err = az.appendConsumerGroups(namespace, namespaceRg, *item.Name)
 		if err != nil {
 			return err
 		}
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return err
-		}
 	}
-	return nil
+	return listErr
 }
 
-func (az *EventHubGenerator) appendConsumerGroups(namespace *eventhub.EHNamespace, namespaceRg *ResourceID, eventHubName string) error {
-	subscriptionID, _, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := eventhub.NewConsumerGroupsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	ctx := context.Background()
-	iterator, err := client.ListByEventHubComplete(ctx, namespaceRg.ResourceGroup, *namespace.Name, eventHubName, nil, nil)
+func (az *EventHubGenerator) appendConsumerGroups(namespace *armeventhub.EHNamespace, namespaceRg *ResourceID, eventHubName string) error {
+	subscriptionID, _, credential, options := az.getClientArgs()
+	client, err := armeventhub.NewConsumerGroupsClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	for iterator.NotDone() {
-		item := iterator.Value()
+	ctx := context.Background()
+	consumerGroups, err := listAll(ctx,
+		client.NewListByEventHubPager(namespaceRg.ResourceGroup, *namespace.Name, eventHubName, nil),
+		func(p armeventhub.ConsumerGroupsClientListByEventHubResponse) []*armeventhub.ConsumerGroup {
+			return p.Value
+		})
+	for _, item := range consumerGroups {
 		az.AppendSimpleResource(*item.ID, *item.Name, "azurerm_eventhub_consumer_group")
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return err
-		}
 	}
-	return nil
+	return err
 }
 
-func (az *EventHubGenerator) appendAuthorizationRules(namespace *eventhub.EHNamespace, namespaceRg *ResourceID) error {
-	subscriptionID, _, authorizer, resourceManagerEndpoint := az.getClientArgs()
-	client := eventhub.NewNamespacesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	client.Authorizer = authorizer
-	ctx := context.Background()
-	iterator, err := client.ListAuthorizationRulesComplete(ctx, namespaceRg.ResourceGroup, *namespace.Name)
+func (az *EventHubGenerator) appendAuthorizationRules(namespace *armeventhub.EHNamespace, namespaceRg *ResourceID) error {
+	subscriptionID, _, credential, options := az.getClientArgs()
+	client, err := armeventhub.NewNamespacesClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
 	}
-	for iterator.NotDone() {
-		item := iterator.Value()
-
+	ctx := context.Background()
+	rules, err := listAll(ctx, client.NewListAuthorizationRulesPager(namespaceRg.ResourceGroup, *namespace.Name, nil),
+		func(p armeventhub.NamespacesClientListAuthorizationRulesResponse) []*armeventhub.AuthorizationRule {
+			return p.Value
+		})
+	for _, item := range rules {
 		az.AppendSimpleResource(*item.ID, *item.Name, "azurerm_eventhub_namespace_authorization_rule")
-		if err := iterator.NextWithContext(ctx); err != nil {
-			log.Println(err)
-			return err
-		}
 	}
-	return nil
+	return err
 }
 
 func (az *EventHubGenerator) InitResources() error {
@@ -131,16 +106,16 @@ func (az *EventHubGenerator) InitResources() error {
 		return err
 	}
 	for _, namespace := range namespaces {
-		az.AppendNamespace(&namespace)
+		az.AppendNamespace(namespace)
 		namespaceRg, err := ParseAzureResourceID(*namespace.ID)
 		if err != nil {
 			return err
 		}
-		err = az.appendEventHubs(&namespace, namespaceRg)
+		err = az.appendEventHubs(namespace, namespaceRg)
 		if err != nil {
 			return err
 		}
-		err = az.appendAuthorizationRules(&namespace, namespaceRg)
+		err = az.appendAuthorizationRules(namespace, namespaceRg)
 		if err != nil {
 			return err
 		}

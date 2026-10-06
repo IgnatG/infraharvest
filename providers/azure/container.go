@@ -16,13 +16,10 @@ package azure
 
 import (
 	"context"
-	"log"
 
-	"github.com/Azure/azure-sdk-for-go/services/containerinstance/mgmt/2018-10-01/containerinstance"
-	"github.com/Azure/azure-sdk-for-go/services/containerregistry/mgmt/2019-05-01/containerregistry"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry/v3"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type ContainerGenerator struct {
@@ -32,65 +29,57 @@ type ContainerGenerator struct {
 func (g *ContainerGenerator) listAndAddForContainerGroup() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	ContainerGroupsClient := containerinstance.NewContainerGroupsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	ContainerGroupsClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	var (
-		containerGroupIterator containerinstance.ContainerGroupListResultIterator
-		err                    error
-	)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		containerGroupIterator, err = ContainerGroupsClient.ListByResourceGroupComplete(ctx, rg)
-	} else {
-		containerGroupIterator, err = ContainerGroupsClient.ListComplete(ctx)
-	}
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	containerGroupsClient, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for containerGroupIterator.NotDone() {
-		containerGroup := containerGroupIterator.Value()
+
+	var containerGroups []*armcontainerinstance.ContainerGroup
+	if resourceGroup != "" {
+		containerGroups, err = listAll(ctx, containerGroupsClient.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armcontainerinstance.ContainerGroupsClientListByResourceGroupResponse) []*armcontainerinstance.ContainerGroup {
+				return p.Value
+			})
+	} else {
+		containerGroups, err = listAll(ctx, containerGroupsClient.NewListPager(nil),
+			func(p armcontainerinstance.ContainerGroupsClientListResponse) []*armcontainerinstance.ContainerGroup {
+				return p.Value
+			})
+	}
+	for _, containerGroup := range containerGroups {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*containerGroup.ID,
 			*containerGroup.Name,
 			"azurerm_container_group",
 			g.ProviderName))
-
-		if err := containerGroupIterator.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
 
-	return resources, nil
+	return resources, err
 }
 
 func (g *ContainerGenerator) listRegistryWebhooks(resourceGroupName string, registryName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	WebhooksClient := containerregistry.NewWebhooksClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	WebhooksClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	webhookIterator, err := WebhooksClient.ListComplete(ctx, resourceGroupName, registryName)
+	subscriptionID, _, credential, options := g.getClientArgs()
+	webhooksClient, err := armcontainerregistry.NewWebhooksClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for webhookIterator.NotDone() {
-		webhook := webhookIterator.Value()
+
+	webhooks, err := listAllLenient(ctx, webhooksClient.NewListPager(resourceGroupName, registryName, nil),
+		func(p armcontainerregistry.WebhooksClientListResponse) []*armcontainerregistry.Webhook {
+			return p.Value
+		})
+	if err != nil {
+		return nil, err
+	}
+	for _, webhook := range webhooks {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*webhook.ID,
 			*webhook.Name,
 			"azurerm_container_registry_webhook",
 			g.ProviderName))
-		if err := webhookIterator.Next(); err != nil {
-			log.Println(err)
-			break
-		}
-
 	}
 	return resources, nil
 }
@@ -98,26 +87,28 @@ func (g *ContainerGenerator) listRegistryWebhooks(resourceGroupName string, regi
 func (g *ContainerGenerator) listAndAddForContainerRegistry() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	ContainerRegistriesClient := containerregistry.NewRegistriesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	ContainerRegistriesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	containerRegistriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, credential, options)
+	if err != nil {
+		return nil, err
+	}
 
-	var (
-		containerRegistryIterator containerregistry.RegistryListResultIterator
-		err                       error
-	)
-
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		containerRegistryIterator, err = ContainerRegistriesClient.ListByResourceGroupComplete(ctx, rg)
+	var containerRegistries []*armcontainerregistry.Registry
+	if resourceGroup != "" {
+		containerRegistries, err = listAll(ctx, containerRegistriesClient.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armcontainerregistry.RegistriesClientListByResourceGroupResponse) []*armcontainerregistry.Registry {
+				return p.Value
+			})
 	} else {
-		containerRegistryIterator, err = ContainerRegistriesClient.ListComplete(ctx)
+		containerRegistries, err = listAll(ctx, containerRegistriesClient.NewListPager(nil),
+			func(p armcontainerregistry.RegistriesClientListResponse) []*armcontainerregistry.Registry {
+				return p.Value
+			})
 	}
 	if err != nil {
 		return nil, err
 	}
-	for containerRegistryIterator.NotDone() {
-		containerRegistry := containerRegistryIterator.Value()
+	for _, containerRegistry := range containerRegistries {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*containerRegistry.ID,
 			*containerRegistry.Name,
@@ -134,11 +125,6 @@ func (g *ContainerGenerator) listAndAddForContainerRegistry() ([]terraformutils.
 			return nil, err
 		}
 		resources = append(resources, webhooks...)
-
-		if err := containerRegistryIterator.Next(); err != nil {
-			log.Println(err)
-			return resources, err
-		}
 	}
 
 	return resources, nil

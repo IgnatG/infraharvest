@@ -18,55 +18,61 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/services/cosmos-db/mgmt/2021-06-15/documentdb"
-	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/cosmos/armcosmos/v4"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/hashicorp/go-azure-helpers/authentication"
 )
 
 type CosmosDBGenerator struct {
 	AzureService
 }
 
+// cosmosDBSQLIDInOldFormat rewrites a Cosmos DB SQL database or container ID
+// to the "databases" form the azurerm provider imports.
+//
+// NOTE:
+// For a similar reason as
+// https://github.com/terraform-providers/terraform-provider-azurerm/issues/7472#issuecomment-650684349
+// The cosmosdb resource format change is NOT yet addressed in terraform provider
+// This is a workaround to convert to old format, and might be removed if they deprecate the old format
+func cosmosDBSQLIDInOldFormat(id string) string {
+	return strings.Replace(id, "sqlDatabases", "databases", 1)
+}
+
 func (g *CosmosDBGenerator) listSQLDatabasesAndContainersBehind(resourceGroupName string, accountName string) ([]terraformutils.Resource, []terraformutils.Resource, error) {
 	var resourcesDatabase []terraformutils.Resource
 	var resourcesContainer []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	SQLResourcesClient := documentdb.NewSQLResourcesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	SQLResourcesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	sqlDatabases, err := SQLResourcesClient.ListSQLDatabases(ctx, resourceGroupName, accountName)
+	subscriptionID, _, credential, options := g.getClientArgs()
+	sqlResourcesClient, err := armcosmos.NewSQLResourcesClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, sqlDatabase := range *sqlDatabases.Value {
-		// NOTE:
-		// For a similar reason as
-		// https://github.com/terraform-providers/terraform-provider-azurerm/issues/7472#issuecomment-650684349
-		// The cosmosdb resource format change is NOT yet addressed in terraform provider
-		// This line is a workaround to convert to old format, and might be removed if they deprecate the old format
-		sqlDatabaseIDInOldFormat := strings.Replace(*sqlDatabase.ID, "sqlDatabases", "databases", 1)
+
+	sqlDatabases, err := listAll(ctx, sqlResourcesClient.NewListSQLDatabasesPager(resourceGroupName, accountName, nil),
+		func(p armcosmos.SQLResourcesClientListSQLDatabasesResponse) []*armcosmos.SQLDatabaseGetResults {
+			return p.Value
+		})
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, sqlDatabase := range sqlDatabases {
 		resourcesDatabase = append(resourcesDatabase, terraformutils.NewSimpleResource(
-			sqlDatabaseIDInOldFormat,
+			cosmosDBSQLIDInOldFormat(*sqlDatabase.ID),
 			*sqlDatabase.Name,
 			"azurerm_cosmosdb_sql_database",
 			g.ProviderName))
 
-		sqlContainers, err := SQLResourcesClient.ListSQLContainers(ctx, resourceGroupName, accountName, *sqlDatabase.Name)
+		sqlContainers, err := listAll(ctx,
+			sqlResourcesClient.NewListSQLContainersPager(resourceGroupName, accountName, *sqlDatabase.Name, nil),
+			func(p armcosmos.SQLResourcesClientListSQLContainersResponse) []*armcosmos.SQLContainerGetResults {
+				return p.Value
+			})
 		if err != nil {
 			return nil, nil, err
 		}
-		for _, sqlContainer := range *sqlContainers.Value {
-			// NOTE:
-			// For a similar reason as
-			// https://github.com/terraform-providers/terraform-provider-azurerm/issues/7472#issuecomment-650684349
-			// The cosmosdb resource format change is NOT yet addressed in terraform provider
-			// This line is a workaround to convert to old format, and might be removed if they deprecate the old format
-			sqlContainerIDInOldFormat := strings.Replace(*sqlContainer.ID, "sqlDatabases", "databases", 1)
+		for _, sqlContainer := range sqlContainers {
 			resourcesContainer = append(resourcesContainer, terraformutils.NewSimpleResource(
-				sqlContainerIDInOldFormat,
+				cosmosDBSQLIDInOldFormat(*sqlContainer.ID),
 				*sqlContainer.Name,
 				"azurerm_cosmosdb_sql_container",
 				g.ProviderName))
@@ -79,16 +85,18 @@ func (g *CosmosDBGenerator) listSQLDatabasesAndContainersBehind(resourceGroupNam
 func (g *CosmosDBGenerator) listTables(resourceGroupName string, accountName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	TableResourcesClient := documentdb.NewTableResourcesClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	TableResourcesClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
-
-	tables, err := TableResourcesClient.ListTables(ctx, resourceGroupName, accountName)
+	subscriptionID, _, credential, options := g.getClientArgs()
+	tableResourcesClient, err := armcosmos.NewTableResourcesClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
-	for _, table := range *tables.Value {
+
+	tables, err := listAll(ctx, tableResourcesClient.NewListTablesPager(resourceGroupName, accountName, nil),
+		func(p armcosmos.TableResourcesClientListTablesResponse) []*armcosmos.TableGetResults { return p.Value })
+	if err != nil {
+		return nil, err
+	}
+	for _, table := range tables {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*table.ID,
 			*table.Name,
@@ -102,24 +110,28 @@ func (g *CosmosDBGenerator) listTables(resourceGroupName string, accountName str
 func (g *CosmosDBGenerator) listAndAddForDatabaseAccounts() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID := g.Args["config"].(authentication.Config).SubscriptionID
-	resourceManagerEndpoint := g.Args["config"].(authentication.Config).CustomResourceManagerEndpoint
-	DatabaseAccountsClient := documentdb.NewDatabaseAccountsClientWithBaseURI(resourceManagerEndpoint, subscriptionID)
-	DatabaseAccountsClient.Authorizer = g.Args["authorizer"].(autorest.Authorizer)
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
+	databaseAccountsClient, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, credential, options)
+	if err != nil {
+		return nil, err
+	}
 
-	var (
-		accounts documentdb.DatabaseAccountsListResult
-		err      error
-	)
-	if rg := g.Args["resource_group"].(string); rg != "" {
-		accounts, err = DatabaseAccountsClient.ListByResourceGroup(ctx, rg)
+	var accounts []*armcosmos.DatabaseAccountGetResults
+	if resourceGroup != "" {
+		accounts, err = listAll(ctx, databaseAccountsClient.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armcosmos.DatabaseAccountsClientListByResourceGroupResponse) []*armcosmos.DatabaseAccountGetResults {
+				return p.Value
+			})
 	} else {
-		accounts, err = DatabaseAccountsClient.List(ctx)
+		accounts, err = listAll(ctx, databaseAccountsClient.NewListPager(nil),
+			func(p armcosmos.DatabaseAccountsClientListResponse) []*armcosmos.DatabaseAccountGetResults {
+				return p.Value
+			})
 	}
 	if err != nil {
 		return nil, err
 	}
-	for _, account := range *accounts.Value {
+	for _, account := range accounts {
 		resources = append(resources, terraformutils.NewSimpleResource(
 			*account.ID,
 			*account.Name,

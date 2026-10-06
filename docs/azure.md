@@ -10,22 +10,29 @@
 - [Service Principal with Client Secret](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_secret)
 - [Service Principal with Open ID Connect](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc)
 
+The provider signs in with the first method whose settings are present, in this order: client certificate (`ARM_CLIENT_CERTIFICATE_PATH`), client secret (`ARM_CLIENT_SECRET`), OpenID Connect (`ARM_USE_OIDC` plus an ID token request URL and token), managed identity (`ARM_USE_MSI`), and otherwise the Azure CLI login. `ARM_SUBSCRIPTION_ID` is always required.
+
+Other settings:
+
+- `ARM_ENVIRONMENT`: the Azure cloud, `public` (default), `usgovernment` or `china`.
+- `ARM_AUXILIARY_TENANT_IDS`: up to 3 more tenant IDs, separated by `;`, for resources linked across tenants.
+
 ### Examples
 
 ``` sh
 # Using Azure CLI (az login)
 export ARM_SUBSCRIPTION_ID=[SUBSCRIPTION_ID]
+export ARM_TENANT_ID=[TENANT_ID] # optional, to use a tenant other than the CLI's default
 
 # Using Managed identities for Azure resources
 export ARM_SUBSCRIPTION_ID=[SUBSCRIPTION_ID]
 export ARM_CLIENT_ID=[CLIENT_ID]  # only necessary for user assigned identity
-export ARM_TENANT_ID=[TENANT_ID]
 export ARM_USE_MSI=true
 export ARM_MSI_ENDPOINT=[ARM_MSI_ENDPOINT] # only necessary when the msi endpoint is different than the well-known one
 
 # Using Service Principal with Client Certificate
 export ARM_SUBSCRIPTION_ID=[SUBSCRIPTION_ID]
-export ARM_CLIENT_ID=[CLIENT_ID] # only necessary for user assigned identity
+export ARM_CLIENT_ID=[CLIENT_ID]
 export ARM_TENANT_ID=[TENANT_ID]
 export ARM_CLIENT_CERTIFICATE_PATH="/path/to/my/client/certificate.pfx"
 export ARM_CLIENT_CERTIFICATE_PASSWORD=[CLIENT_CERTIFICATE_PASSWORD]
@@ -36,14 +43,14 @@ export ARM_CLIENT_ID=[CLIENT_ID]
 export ARM_TENANT_ID=[TENANT_ID]
 export ARM_CLIENT_SECRET=[CLIENT_SECRET]
 
-# Using Service Principal with Open ID Connect
+# Using Service Principal with Open ID Connect (GitHub Actions)
 export ARM_SUBSCRIPTION_ID=[SUBSCRIPTION_ID]
 export ARM_CLIENT_ID=[CLIENT_ID]
 export ARM_TENANT_ID=[TENANT_ID]
 export ARM_USE_OIDC=true
-
-# Using deprecated ADAL authentication for throubleshooting
-export ARM_USE_ADAL=true
+# The ID token is requested from ARM_OIDC_REQUEST_URL with ARM_OIDC_REQUEST_TOKEN;
+# in a GitHub Actions job with `permissions: id-token: write` they default to
+# ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.
 
 infraharvest import azure --all --resources=resource_group
 infraharvest import azure --all --resource-group=my_resource_group --resources=virtual_network,resource_group
