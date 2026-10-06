@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 type GroupGenerator struct {
@@ -45,14 +45,14 @@ func (g *GroupGenerator) InitResources() error {
 
 func createGroups(ctx context.Context, client *gitlab.Client, groupID string) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	group, _, err := client.Groups.GetGroup(groupID, gitlab.WithContext(ctx))
+	group, _, err := client.Groups.GetGroup(groupID, nil, gitlab.WithContext(ctx))
 	if err != nil {
 		log.Println(err)
 		return nil
 	}
 
 	resource := terraformutils.NewSimpleResource(
-		strconv.FormatInt(int64(group.ID), 10),
+		strconv.FormatInt(group.ID, 10),
 		getGroupResourceName(group),
 		"gitlab_group",
 		"gitlab")
@@ -63,62 +63,47 @@ func createGroups(ctx context.Context, client *gitlab.Client, groupID string) []
 
 	return resources
 }
+
 func createGroupVariables(ctx context.Context, client *gitlab.Client, group *gitlab.Group) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	opt := &gitlab.ListGroupVariablesOptions{}
+	groupVariables, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.GroupVariable, *gitlab.Response, error) {
+		return client.GroupVariables.ListVariables(group.ID, &gitlab.ListGroupVariablesOptions{}, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		groupVariables, resp, err := client.GroupVariables.ListVariables(group.ID, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, groupVariable := range groupVariables {
+		resource := terraformutils.NewSimpleResource(
+			fmt.Sprintf("%d:%s:%s", group.ID, groupVariable.Key, groupVariable.EnvironmentScope),
+			fmt.Sprintf("%s___%s___%s", getGroupResourceName(group), groupVariable.Key, groupVariable.EnvironmentScope),
+			"gitlab_group_variable",
+			"gitlab")
 
-		for _, groupVariable := range groupVariables {
-
-			resource := terraformutils.NewSimpleResource(
-				fmt.Sprintf("%d:%s:%s", group.ID, groupVariable.Key, groupVariable.EnvironmentScope),
-				fmt.Sprintf("%s___%s___%s", getGroupResourceName(group), groupVariable.Key, groupVariable.EnvironmentScope),
-				"gitlab_group_variable",
-				"gitlab")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
 	}
 	return resources
 }
 
 func createGroupMembership(ctx context.Context, client *gitlab.Client, group *gitlab.Group) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	opt := &gitlab.ListGroupMembersOptions{}
+	groupMembers, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.GroupMember, *gitlab.Response, error) {
+		return client.Groups.ListGroupMembers(group.ID, &gitlab.ListGroupMembersOptions{}, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		groupMembers, resp, err := client.Groups.ListGroupMembers(group.ID, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, groupMember := range groupMembers {
+		resource := terraformutils.NewSimpleResource(
+			fmt.Sprintf("%d:%d", group.ID, groupMember.ID),
+			fmt.Sprintf("%s___%s", getGroupResourceName(group), groupMember.Username),
+			"gitlab_group_membership",
+			"gitlab")
 
-		for _, groupMember := range groupMembers {
-
-			resource := terraformutils.NewSimpleResource(
-				fmt.Sprintf("%d:%d", group.ID, groupMember.ID),
-				fmt.Sprintf("%s___%s", getGroupResourceName(group), groupMember.Username),
-				"gitlab_group_membership",
-				"gitlab")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
 	}
 	return resources
 }

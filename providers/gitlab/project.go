@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 type ProjectGenerator struct {
@@ -50,151 +50,114 @@ func createProjects(ctx context.Context, client *gitlab.Client, group string) []
 			PerPage: 100,
 		},
 	}
+	projects, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.Project, *gitlab.Response, error) {
+		return client.Groups.ListGroupProjects(group, opt, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		projects, resp, err := client.Groups.ListGroupProjects(group, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, project := range projects {
+		resource := terraformutils.NewSimpleResource(
+			strconv.FormatInt(project.ID, 10),
+			getProjectResourceName(project),
+			"gitlab_project",
+			"gitlab")
 
-		for _, project := range projects {
-			resource := terraformutils.NewSimpleResource(
-				strconv.FormatInt(int64(project.ID), 10),
-				getProjectResourceName(project),
-				"gitlab_project",
-				"gitlab")
-
-			resources = append(resources, resource)
-			resources = append(resources, createProjectVariables(ctx, client, project)...)
-			resources = append(resources, createBranchProtections(ctx, client, project)...)
-			resources = append(resources, createTagProtections(ctx, client, project)...)
-			resources = append(resources, createProjectMembership(ctx, client, project)...)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
+		resources = append(resources, createProjectVariables(ctx, client, project)...)
+		resources = append(resources, createBranchProtections(ctx, client, project)...)
+		resources = append(resources, createTagProtections(ctx, client, project)...)
+		resources = append(resources, createProjectMembership(ctx, client, project)...)
 	}
 	return resources
 }
+
 func createProjectVariables(ctx context.Context, client *gitlab.Client, project *gitlab.Project) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	opt := &gitlab.ListProjectVariablesOptions{}
+	projectVariables, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectVariable, *gitlab.Response, error) {
+		return client.ProjectVariables.ListVariables(project.ID, &gitlab.ListProjectVariablesOptions{}, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		projectVariables, resp, err := client.ProjectVariables.ListVariables(project.ID, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, projectVariable := range projectVariables {
+		resource := terraformutils.NewSimpleResource(
+			fmt.Sprintf("%d:%s:%s", project.ID, projectVariable.Key, projectVariable.EnvironmentScope),
+			fmt.Sprintf("%s___%s___%s", getProjectResourceName(project), projectVariable.Key, projectVariable.EnvironmentScope),
+			"gitlab_project_variable",
+			"gitlab")
 
-		for _, projectVariable := range projectVariables {
-
-			resource := terraformutils.NewSimpleResource(
-				fmt.Sprintf("%d:%s:%s", project.ID, projectVariable.Key, projectVariable.EnvironmentScope),
-				fmt.Sprintf("%s___%s___%s", getProjectResourceName(project), projectVariable.Key, projectVariable.EnvironmentScope),
-				"gitlab_project_variable",
-				"gitlab")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
 	}
 	return resources
 }
 
 func createBranchProtections(ctx context.Context, client *gitlab.Client, project *gitlab.Project) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	opt := &gitlab.ListProtectedBranchesOptions{}
+	protectedBranches, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.ProtectedBranch, *gitlab.Response, error) {
+		return client.ProtectedBranches.ListProtectedBranches(project.ID, &gitlab.ListProtectedBranchesOptions{}, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		protectedBranches, resp, err := client.ProtectedBranches.ListProtectedBranches(project.ID, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, protectedBranch := range protectedBranches {
+		resource := terraformutils.NewSimpleResource(
+			fmt.Sprintf("%d:%s", project.ID, protectedBranch.Name),
+			fmt.Sprintf("%s___%s", getProjectResourceName(project), protectedBranch.Name),
+			"gitlab_branch_protection",
+			"gitlab")
 
-		for _, protectedBranch := range protectedBranches {
-
-			resource := terraformutils.NewSimpleResource(
-				fmt.Sprintf("%d:%s", project.ID, protectedBranch.Name),
-				fmt.Sprintf("%s___%s", getProjectResourceName(project), protectedBranch.Name),
-				"gitlab_branch_protection",
-				"gitlab")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
 	}
 	return resources
 }
 
 func createTagProtections(ctx context.Context, client *gitlab.Client, project *gitlab.Project) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	opt := &gitlab.ListProtectedTagsOptions{}
+	protectedTags, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.ProtectedTag, *gitlab.Response, error) {
+		return client.ProtectedTags.ListProtectedTags(project.ID, &gitlab.ListProtectedTagsOptions{}, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		protectedTags, resp, err := client.ProtectedTags.ListProtectedTags(project.ID, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, protectedTag := range protectedTags {
+		resource := terraformutils.NewSimpleResource(
+			fmt.Sprintf("%d:%s", project.ID, protectedTag.Name),
+			fmt.Sprintf("%s___%s", getProjectResourceName(project), protectedTag.Name),
+			"gitlab_tag_protection",
+			"gitlab")
 
-		for _, protectedTag := range protectedTags {
-
-			resource := terraformutils.NewSimpleResource(
-				fmt.Sprintf("%d:%s", project.ID, protectedTag.Name),
-				fmt.Sprintf("%s___%s", getProjectResourceName(project), protectedTag.Name),
-				"gitlab_tag_protection",
-				"gitlab")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
 	}
 	return resources
 }
 
 func createProjectMembership(ctx context.Context, client *gitlab.Client, project *gitlab.Project) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	opt := &gitlab.ListProjectMembersOptions{}
+	projectMembers, err := listAll(ctx, func(options ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectMember, *gitlab.Response, error) {
+		return client.ProjectMembers.ListProjectMembers(project.ID, &gitlab.ListProjectMembersOptions{}, options...)
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	for {
-		projectMembers, resp, err := client.ProjectMembers.ListProjectMembers(project.ID, opt, gitlab.WithContext(ctx))
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
+	for _, projectMember := range projectMembers {
+		resource := terraformutils.NewSimpleResource(
+			fmt.Sprintf("%d:%d", project.ID, projectMember.ID),
+			fmt.Sprintf("%s___%s", getProjectResourceName(project), projectMember.Username),
+			"gitlab_project_membership",
+			"gitlab")
 
-		for _, projectMember := range projectMembers {
-
-			resource := terraformutils.NewSimpleResource(
-				fmt.Sprintf("%d:%d", project.ID, projectMember.ID),
-				fmt.Sprintf("%s___%s", getProjectResourceName(project), projectMember.Username),
-				"gitlab_project_membership",
-				"gitlab")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, resource)
 	}
 	return resources
 }

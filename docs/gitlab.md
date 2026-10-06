@@ -19,5 +19,5 @@ List of supported resources:
   * `gitlab_branch_protection`
   * `gitlab_project`
   * `gitlab_project_membership`
-  * `gitlab_project_value`
+  * `gitlab_project_variable`
   * `gitlab_tag_protection`
