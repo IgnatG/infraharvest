@@ -15,56 +15,73 @@
 package cloudflare
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	cf "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v7"
+	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
 )
 
 type AccessGenerator struct {
 	CloudflareService
 }
 
-func (g *AccessGenerator) createAccessApplications(api *cf.API, zoneID string) ([]terraformutils.Resource, error) {
-	resources := []terraformutils.Resource{}
-	accessApplications, _, err := api.AccessApplications(zoneID, cf.PaginationOptions{})
-	if err != nil {
-		return []terraformutils.Resource{}, err
+// accessApplicationResources records an account's or a zone's Access
+// applications as cloudflare_zero_trust_access_application
+// (cloudflare_access_application before provider 5), imported as
+// accounts/<account_id>/<app_id> or zones/<zone_id>/<app_id>. scope is
+// accounts or zones, and ownerID the account's or zone's ID.
+func accessApplicationResources(scope, ownerID string, apps []zero_trust.AccessApplicationListResponse) []terraformutils.Resource {
+	ownerAttribute := "zone_id"
+	if scope == "accounts" {
+		ownerAttribute = "account_id"
 	}
-
-	for _, app := range accessApplications {
+	resources := []terraformutils.Resource{}
+	for _, app := range apps {
 		resources = append(resources, terraformutils.NewResource(
-			app.ID,
+			scope+"/"+ownerID+"/"+app.ID,
 			fmt.Sprintf("%s_%s", app.Name, app.ID),
-			"cloudflare_access_application",
+			"cloudflare_zero_trust_access_application",
 			"cloudflare",
 			map[string]string{
-				"zone_id": zoneID,
-				"name":    app.Name,
+				ownerAttribute: ownerID,
+				"name":         app.Name,
 			}))
 	}
+	return resources
+}
 
-	return resources, nil
+func listAccessApplications(ctx context.Context, client *cloudflare.Client, params zero_trust.AccessApplicationListParams) ([]zero_trust.AccessApplicationListResponse, error) {
+	return collect(client.ZeroTrust.Access.Applications.ListAutoPaging(ctx, params))
 }
 
 func (g *AccessGenerator) InitResources() error {
-	api, err := g.initializeAPI()
+	ctx := g.Context()
+	client, err := g.initializeAPI()
 	if err != nil {
 		return err
 	}
 
-	zones, err := api.ListZones()
-	if err != nil {
-		return err
-	}
-
-	for _, zone := range zones {
-		tmpRes, err := g.createAccessApplications(api, zone.ID)
+	if accountID := g.accountID(); accountID != "" {
+		apps, err := listAccessApplications(ctx, client, zero_trust.AccessApplicationListParams{AccountID: cloudflare.F(accountID)})
 		if err != nil {
 			return err
 		}
+		g.Resources = append(g.Resources, accessApplicationResources("accounts", accountID, apps)...)
+	}
 
-		g.Resources = append(g.Resources, tmpRes...)
+	zoneList, err := listZones(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	for _, zone := range zoneList {
+		apps, err := listAccessApplications(ctx, client, zero_trust.AccessApplicationListParams{ZoneID: cloudflare.F(zone.ID)})
+		if err != nil {
+			return err
+		}
+		g.Resources = append(g.Resources, accessApplicationResources("zones", zone.ID, apps)...)
 	}
 
 	return nil

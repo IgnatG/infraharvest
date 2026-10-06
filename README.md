@@ -37,7 +37,7 @@ Coming from Terraformer? See [Migrating from Terraformer](docs/migrating-from-te
         * [OctopusDeploy](/docs/octopus.md)
         * [RabbitMQ](/docs/rabbitmq.md)
     * Network
-        * [Cloudflare](/docs/cloudflare.md) (listers written for provider 3.x, see the docs page)
+        * [Cloudflare](/docs/cloudflare.md)
         * [Myrasec](/docs/myrasec.md)
         * [PAN-OS](/docs/panos.md)
     * VCS

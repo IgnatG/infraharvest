@@ -15,57 +15,49 @@
 package cloudflare
 
 import (
+	"errors"
+
 	"github.com/IgnatG/infraharvest/terraformutils"
-	cf "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v7"
+	"github.com/cloudflare/cloudflare-go/v7/accounts"
+	"github.com/cloudflare/cloudflare-go/v7/shared"
 )
 
 type AccountMemberGenerator struct {
 	CloudflareService
 }
 
-func (g *AccountMemberGenerator) createAccountMemberResources(api *cf.API) ([]terraformutils.Resource, error) {
+// accountMemberResources records an account's members as
+// cloudflare_account_member, imported as <account_id>/<member_id>.
+func accountMemberResources(accountID string, members []shared.Member) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	pageOpt := cf.PaginationOptions{
-		Page:    1,
-		PerPage: 10}
-
-	for {
-		members, info, err := api.AccountMembers(api.AccountID, pageOpt)
-		if err != nil {
-			return resources, err
-		}
-
-		for _, member := range members {
-			resources = append(resources, terraformutils.NewResource(
-				member.ID,
-				member.ID,
-				"cloudflare_account_member",
-				"cloudflare",
-				map[string]string{
-					"email_address": member.User.Email,
-				}))
-		}
-
-		if pageOpt.Page < info.TotalPages {
-			pageOpt.Page++
-		} else {
-			break
-		}
+	for _, member := range members {
+		resources = append(resources, terraformutils.NewResource(
+			accountID+"/"+member.ID,
+			member.ID,
+			"cloudflare_account_member",
+			"cloudflare",
+			map[string]string{
+				"email_address": member.User.Email,
+			}))
 	}
-
-	return resources, nil
+	return resources
 }
 
 func (g *AccountMemberGenerator) InitResources() error {
-	api, err := g.initializeAPI()
+	accountID := g.accountID()
+	if accountID == "" {
+		return errors.New("cloudflare: account_member needs CLOUDFLARE_ACCOUNT_ID")
+	}
+	client, err := g.initializeAPI()
 	if err != nil {
 		return err
 	}
-	resources, err := g.createAccountMemberResources(api)
+	members, err := collect(client.Accounts.Members.ListAutoPaging(g.Context(), accounts.MemberListParams{AccountID: cloudflare.F(accountID)}))
 	if err != nil {
 		return err
 	}
-	g.Resources = append(g.Resources, resources...)
+	g.Resources = append(g.Resources, accountMemberResources(accountID, members)...)
 
 	return nil
 }
