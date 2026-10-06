@@ -60,10 +60,18 @@ func TestLoad(t *testing.T) {
 		"other/terraform.tfstate":        `{"version": 4, "resources": [{"mode": "managed", "type": "aws_iam_role", "instances": [{"attributes": {"id": "other"}}]}]}`,
 	}
 
-	r, err := Load(context.Background(), []string{dir, "s3://acme-state/imported/?region=eu-west-2"}, func(_ context.Context, rgn string) (ObjectStore, error) {
-		region = rgn
-		return store, nil
-	})
+	gcs := fakeStore{
+		"roots/aws/global/default.tfstate": `{"version": 4, "resources": [{"mode": "managed", "type": "aws_iam_policy", "instances": [{"attributes": {"id": "arn:aws:iam::1:policy/app"}}]}]}`,
+	}
+	stores := Stores{
+		S3: func(_ context.Context, rgn string) (ObjectStore, error) {
+			region = rgn
+			return store, nil
+		},
+		GCS: func(context.Context) (ObjectStore, error) { return gcs, nil },
+	}
+
+	r, err := Load(context.Background(), []string{dir, "s3://acme-state/imported/?region=eu-west-2", "gs://acme-gcs/roots/"}, stores)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +86,7 @@ func TestLoad(t *testing.T) {
 		{"aws_s3_bucket", []string{"logs"}, true},
 		{"aws_iam_role", []string{"app"}, true},
 		{"aws_iam_role", []string{"other"}, false}, // outside the prefix
+		{"aws_iam_policy", []string{"arn:aws:iam::1:policy/app"}, true},
 		{"aws_caller_identity", []string{"1"}, false},
 		{"aws_subnet", []string{"vpc-0abc1234"}, false},
 	} {
@@ -86,6 +95,9 @@ func TestLoad(t *testing.T) {
 		}
 	}
 	if where, _ := r.Lookup("aws_iam_role", "app"); where != "s3://acme-state/imported/iam/terraform.tfstate" {
+		t.Errorf("where: %s", where)
+	}
+	if where, _ := r.Lookup("aws_iam_policy", "arn:aws:iam::1:policy/app"); where != "gs://acme-gcs/roots/aws/global/default.tfstate" {
 		t.Errorf("where: %s", where)
 	}
 	if region != "eu-west-2" {
@@ -98,7 +110,7 @@ func TestLoadRejectsOtherFiles(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"version": 2}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(context.Background(), []string{path}, nil); err == nil || !strings.Contains(err.Error(), "version 3 or 4") {
+	if _, err := Load(context.Background(), []string{path}, Stores{}); err == nil || !strings.Contains(err.Error(), "version 3 or 4") {
 		t.Errorf("want a version error, got %v", err)
 	}
 }
