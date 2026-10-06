@@ -11,7 +11,8 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -mode binary -format json "$bina
 
 # "<osv id> <module>" for each vulnerable function found in the binary.
 found=$(jq -r 'select(.finding.trace[0].function? != null) | "\(.finding.osv) \(.finding.trace[0].module)"' govulncheck.json | sort -u)
-allowed=$(grep -vE '^[[:space:]]*(#|$)' "$allowlist" | awk '{print $1}')
+# grep exits 1 when the allowlist has no entries; that is not an error.
+allowed=$({ grep -vE '^[[:space:]]*(#|$)' "$allowlist" || true; } | awk '{print $1}')
 
 blocked=""
 while read -r id module; do
