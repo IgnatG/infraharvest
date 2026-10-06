@@ -86,7 +86,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 	if err := writeCalls(dir, trials); err != nil {
 		return nil, baseline, errors.Join(err, backup.restore())
 	}
-	if err := tf.Init(ctx); err != nil {
+	if err := initTerraform(ctx, tf); err != nil {
 		// Typically: the registry can't be reached.
 		reject(fmt.Sprintf("terraform init: %v", err), trials...)
 	}

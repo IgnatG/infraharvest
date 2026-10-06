@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"go.yaml.in/yaml/v3"
 
@@ -38,7 +39,10 @@ type File struct {
 	Resources []Resource `yaml:"resources"`
 
 	// byKey indexes Resources by scope, type and ID (see key); anyScope by
-	// type and ID only, for lookups that don't know the scope.
+	// type and ID only, for lookups that don't know the scope. indexMu
+	// guards building them: the accounts of one import decide in parallel.
+	// Merge is not safe for concurrent use.
+	indexMu  sync.Mutex
 	byKey    map[string]*Resource
 	anyScope map[string]*Resource
 }
@@ -286,6 +290,8 @@ func (f *File) lookup(scope, resourceType, id string) (*Resource, bool) {
 }
 
 func (f *File) index() {
+	f.indexMu.Lock()
+	defer f.indexMu.Unlock()
 	if f.byKey != nil {
 		return
 	}

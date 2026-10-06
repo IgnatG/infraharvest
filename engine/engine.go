@@ -175,7 +175,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	if err := tf.Init(ctx); err != nil {
+	if err := initTerraform(ctx, tf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	// Plan reports changes because every import is pending; only errors matter.

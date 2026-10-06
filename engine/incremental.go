@@ -234,7 +234,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, errors.Join(err, undo())
 	}
 	// After merge: the calls it added need their modules installed.
-	if err := rootTF.Init(ctx, tfexec.Backend(false)); err != nil {
+	if err := initTerraform(ctx, rootTF, tfexec.Backend(false)); err != nil {
 		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	staged := result.Gate

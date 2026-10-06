@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
@@ -50,6 +51,9 @@ var (
 	}
 )
 
+// findMu serializes Binary.Find (see there).
+var findMu sync.Mutex
+
 // versionOf reports the version of the engine binary at execPath.
 type versionOf func(ctx context.Context, execPath string) (*version.Version, error)
 
@@ -64,6 +68,10 @@ func FindTerraform(ctx context.Context, explicitPath, cacheDir string) (string, 
 // cacheDir. Terraform downloads are verified against HashiCorp's signed
 // checksums.
 func (b Binary) Find(ctx context.Context, explicitPath, cacheDir string) (string, error) {
+	// One at a time: imports running in parallel would download into the
+	// same cache.
+	findMu.Lock()
+	defer findMu.Unlock()
 	return b.find(ctx, explicitPath, cacheDir, binaryVersion)
 }
 
@@ -144,4 +152,17 @@ func installLatestTerraform(ctx context.Context, dir string) (string, error) {
 		return "", fmt.Errorf("install terraform: %w", err)
 	}
 	return path, nil
+}
+
+// initMu serializes terraform init within the process. The roots of
+// several accounts can generate in parallel, sharing one plugin cache,
+// which Terraform doesn't guarantee to be safe for concurrent installs.
+var initMu sync.Mutex
+
+// initTerraform runs terraform init in tf's working directory, one at a
+// time (see initMu).
+func initTerraform(ctx context.Context, tf *tfexec.Terraform, opts ...tfexec.InitOption) error {
+	initMu.Lock()
+	defer initMu.Unlock()
+	return tf.Init(ctx, opts...)
 }
