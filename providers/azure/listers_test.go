@@ -260,3 +260,16 @@ func TestSynapseDevScope(t *testing.T) {
 		t.Error("want an error for an endpoint without a workspace label")
 	}
 }
+
+func TestScope(t *testing.T) {
+	for resourceGroup, want := range map[string]string{"app": "app", "": "all"} {
+		p := &AzureProvider{subscriptionID: "00000000-0000-0000-0000-000000000001", resourceGroup: resourceGroup}
+		account, region, err := p.Scope(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if account != "00000000-0000-0000-0000-000000000001" || region != want {
+			t.Errorf("resource group %q: scope %s/%s, want the subscription and %s", resourceGroup, account, region, want)
+		}
+	}
+}

@@ -139,3 +139,15 @@ func (p *AzureProvider) InitService(serviceName string, verbose bool) error {
 	})
 	return nil
 }
+
+// Scope names the subscription and the resource group this import covers,
+// for the output layout: all for the whole subscription. Azure resources
+// of one subscription span locations, so roots are split by resource group
+// rather than by location.
+func (p *AzureProvider) Scope(context.Context) (account, region string, err error) {
+	region = p.resourceGroup
+	if region == "" {
+		region = "all"
+	}
+	return p.subscriptionID, region, nil
+}
