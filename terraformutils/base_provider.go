@@ -96,28 +96,15 @@ type ProviderWithTerraformEnv interface {
 	TerraformEnv(ctx context.Context) (map[string]string, error)
 }
 
+// Provider holds the service a provider generator initialised. Providers
+// embed it and implement the rest of ProviderGenerator themselves, so a
+// missing method fails to compile instead of panicking at run time.
 type Provider struct {
 	Service ServiceGenerator
 }
 
-func (p *Provider) Init(args []string) error {
-	panic("implement me")
-}
-
-func (p *Provider) GetName() string {
-	panic("implement me")
-}
-
-func (p *Provider) InitService(serviceName string) error {
-	panic("implement me")
-}
-
 func (p *Provider) GetService() ServiceGenerator {
 	return p.Service
-}
-
-func (p *Provider) GetSupportedService() map[string]ServiceGenerator {
-	panic("implement me")
 }
 
 // DataSource reads one resource: the data source's type and the argument
