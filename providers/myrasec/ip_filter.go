@@ -29,7 +29,7 @@ func (g *IPFilterGenerator) createIPFilterResources(api *mgo.API, domainId int, 
 		params["page"] = strconv.Itoa(page)
 
 		filters, err := api.ListIPFilters(domainId, vhost.Label, params)
-		if err != err {
+		if err != nil {
 			return err
 		}
 
