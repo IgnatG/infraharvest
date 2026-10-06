@@ -1,0 +1,38 @@
+name: cloudcontrol
+
+# The Cloud Control lister takes each resource's identifier as its Terraform
+# import ID, which holds while the type's CloudFormation primary identifier
+# is the one property it declares. Checks that against the schemas AWS
+# publishes, every week and when the types change.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  pull_request:
+    branches: [main]
+    paths:
+      - providers/aws/cloudcontrol*.go
+      - .github/workflows/cloudcontrol.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identifiers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Download the CloudFormation schemas
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/schemas.zip" https://schema.cloudformation.us-east-1.amazonaws.com/CloudformationSchema.zip
+          unzip -q "$RUNNER_TEMP/schemas.zip" -d "$RUNNER_TEMP/schemas"
+      - name: Check the identifiers
+        env:
+          INFRAHARVEST_CFN_SCHEMAS: ${{ runner.temp }}/schemas
+        run: go test -run 'TestCloudControlIdentifiers' -v ./providers/aws/

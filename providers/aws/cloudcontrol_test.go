@@ -5,6 +5,8 @@ package aws
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -120,5 +122,55 @@ func TestExcludedByDefaultCreatedByAWS(t *testing.T) {
 	}
 	if !reflect.DeepEqual(excluded, want) {
 		t.Errorf("got %v, want %v", excluded, want)
+	}
+}
+
+// CloudFormationSchemasEnv names a directory of the CloudFormation registry
+// schemas, unzipped from
+// https://schema.cloudformation.us-east-1.amazonaws.com/CloudformationSchema.zip,
+// for TestCloudControlIdentifiersMatchSchemas.
+const CloudFormationSchemasEnv = "INFRAHARVEST_CFN_SCHEMAS"
+
+// Every Cloud Control type names the identifier its import IDs come from.
+func TestCloudControlIdentifiers(t *testing.T) {
+	for service, types := range cloudControlServices {
+		for _, typ := range types {
+			if typ.Identifier == "" || strings.Contains(typ.Identifier, "/") {
+				t.Errorf("%s: %s: Identifier %q, want the primary identifier's property", service, typ.CloudFormation, typ.Identifier)
+			}
+		}
+	}
+}
+
+// The primary identifier of each Cloud Control type, in the CloudFormation
+// schemas, is the one property its Identifier names: Cloud Control's
+// identifiers stay the Terraform import IDs. The cloudcontrol workflow runs
+// it against the published schemas every week.
+func TestCloudControlIdentifiersMatchSchemas(t *testing.T) {
+	dir := os.Getenv(CloudFormationSchemasEnv)
+	if dir == "" {
+		t.Skip(CloudFormationSchemasEnv + " is not set")
+	}
+	for _, types := range cloudControlServices {
+		for _, typ := range types {
+			// AWS::Events::EventBus is in aws-events-eventbus.json.
+			name := strings.ToLower(strings.ReplaceAll(typ.CloudFormation, "::", "-")) + ".json"
+			content, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Errorf("%s: %v", typ.CloudFormation, err)
+				continue
+			}
+			var schema struct {
+				PrimaryIdentifier []string `json:"primaryIdentifier"`
+			}
+			if err := json.Unmarshal(content, &schema); err != nil {
+				t.Errorf("%s: %v", name, err)
+				continue
+			}
+			want := []string{"/properties/" + typ.Identifier}
+			if !reflect.DeepEqual(schema.PrimaryIdentifier, want) {
+				t.Errorf("%s: primary identifier %v, want %v: check the Terraform import ID", typ.CloudFormation, schema.PrimaryIdentifier, want)
+			}
+		}
 	}
 }
