@@ -150,7 +150,3 @@ func (s *Service) GetResources() []Resource {
 func (s *Service) SetResources(resources []Resource) {
 	s.Resources = resources
 }
-
-func (s *Service) InitResources() error {
-	panic("implement me")
-}
