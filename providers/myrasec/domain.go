@@ -114,7 +114,7 @@ func createResourcesPerSubDomain(api *mgo.API, funcs []func(*mgo.API, int, mgo.V
 
 		wg.Add(len(domains))
 		for _, d := range domains {
-			// try to load data for ALL-{domainID}.
+			// try to load data for ALL-{domainId}.
 			if onDomainLevel {
 				wg.Add(len(funcs))
 				for _, f := range funcs {

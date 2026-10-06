@@ -38,16 +38,16 @@ func (g *VpcGenerator) InitResources() error {
 
 	request := vpc.NewDescribeVpcsRequest()
 	request.Filters = make([]*vpc.Filter, 0)
-	vpcIds := make([]string, 0)
+	vpcIDs := make([]string, 0)
 	for _, filter := range g.Filter {
 		if filter.FieldPath == "id" && filter.IsApplicable("tencentcloud_vpc") {
-			vpcIds = append(vpcIds, filter.AcceptableValues...)
+			vpcIDs = append(vpcIDs, filter.AcceptableValues...)
 		}
 	}
-	if len(vpcIds) > 0 {
-		request.VpcIds = make([]*string, 0, len(vpcIds))
-		for i := range vpcIds {
-			request.VpcIds = append(request.VpcIds, &vpcIds[i])
+	if len(vpcIDs) > 0 {
+		request.VpcIds = make([]*string, 0, len(vpcIDs))
+		for i := range vpcIDs {
+			request.VpcIds = append(request.VpcIds, &vpcIDs[i])
 		}
 	}
 

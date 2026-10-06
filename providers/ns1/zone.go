@@ -27,15 +27,15 @@ type ZoneGenerator struct {
 	Ns1Service
 }
 
-func (g *ZoneGenerator) createZoneRecordResources(client *ns1.Client, zone_name string) error {
+func (g *ZoneGenerator) createZoneRecordResources(client *ns1.Client, zoneName string) error {
 
-	zone, _, err := client.Zones.Get(zone_name)
+	zone, _, err := client.Zones.Get(zoneName)
 	if err != nil {
 		return err
 	}
 
 	for _, record := range zone.Records {
-		r, _, err := client.Records.Get(zone_name, record.Domain, record.Type)
+		r, _, err := client.Records.Get(zoneName, record.Domain, record.Type)
 		if err != nil {
 			return err
 		}
