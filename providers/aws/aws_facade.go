@@ -2,9 +2,14 @@ package aws
 
 import (
 	"context"
+	"crypto/x509"
+	"errors"
+	"log"
+	"net"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/aws/smithy-go"
 )
 
 type AwsFacade struct { //nolint
@@ -57,16 +62,33 @@ func (s *AwsFacade) SetResources(resources []terraformutils.Resource) {
 	s.service.SetResources(resources)
 }
 
+// InitResources lists the service. A service AWS doesn't offer in the region
+// is skipped with a log message; any other error, including a timeout, is
+// returned, so a failed listing isn't mistaken for an empty one.
 func (s *AwsFacade) InitResources() error {
 	err := s.service.InitResources()
-	if err == nil {
-		return nil
+	if err == nil || !unavailableInRegion(err) {
+		return err
 	}
-	message := err.Error()
-	if strings.Contains(message, "no such host") || strings.Contains(message, "i/o timeout") ||
-		strings.Contains(message, "x509: certificate is valid for") ||
-		strings.Contains(message, "Unavailable Operation") { // skip not available AWS services
-		return nil
+	log.Printf("aws: %s isn't available in this region; skipping it (%v)", s.service.GetName(), err)
+	return nil
+}
+
+// unavailableInRegion reports whether err says the service doesn't exist in
+// the region: its endpoint has no DNS name, answers with a certificate for
+// another host, or the API reports the operation unavailable.
+func unavailableInRegion(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return true
 	}
-	return err
+	var hostErr x509.HostnameError
+	if errors.As(err, &hostErr) {
+		return true
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode() == "UnavailableOperation" || strings.Contains(apiErr.ErrorMessage(), "Unavailable Operation")
+	}
+	return false
 }
