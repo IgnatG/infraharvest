@@ -216,8 +216,11 @@ func excludeManaged(ctx context.Context, run *engineRun, options ImportOptions, 
 			resolved = append(resolved, withProfile(fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region), options.Profile))
 		case run.backend != nil && run.backend.GCS != nil:
 			resolved = append(resolved, fmt.Sprintf("gs://%s/%s", run.backend.GCS.Bucket, run.backend.GCS.Prefix))
+		case run.backend != nil && run.backend.AzureRM != nil:
+			az := run.backend.AzureRM
+			resolved = append(resolved, fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", az.StorageAccountName, az.ContainerName, az.KeyPrefix))
 		default:
-			return nil, errors.New("--managed-state=backend needs an S3 or GCS backend in the configuration file")
+			return nil, errors.New("--managed-state=backend needs an S3, GCS or azurerm backend in the configuration file")
 		}
 	}
 	state, err := managed.Load(ctx, resolved, managed.DefaultStores)
