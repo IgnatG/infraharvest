@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"time"
 
 	restclient "k8s.io/client-go/rest"
@@ -28,8 +29,8 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 
 	"github.com/pkg/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
 )
 
@@ -63,26 +64,32 @@ func (p *KubernetesProvider) InitService(serviceName string, verbose bool) error
 
 // GetSupportService return map of supported resource for Kubernetes
 func (p *KubernetesProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
-	resources := make(map[string]terraformutils.ServiceGenerator)
-
 	config, _, err := initClientAndConfig()
 	if err != nil {
-		return resources
+		return map[string]terraformutils.ServiceGenerator{}
 	}
 
 	dc, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		log.Println(err)
-		return resources
+		return map[string]terraformutils.ServiceGenerator{}
 	}
 
 	lists, err := dc.ServerPreferredResources()
 	if err != nil {
 		log.Println(err)
-		return resources
+		return map[string]terraformutils.ServiceGenerator{}
 	}
+	return supportedKinds(lists)
+}
+
+// supportedKinds keeps, from the resources discovery returns, those that
+// support list and that the Terraform kubernetes provider has a type for,
+// keyed by plural resource name.
+func supportedKinds(lists []*metav1.APIResourceList) map[string]terraformutils.ServiceGenerator {
+	resources := make(map[string]terraformutils.ServiceGenerator)
 	for _, list := range lists {
-		if len(list.APIResources) == 0 {
+		if list == nil || len(list.APIResources) == 0 {
 			continue
 		}
 
@@ -97,7 +104,7 @@ func (p *KubernetesProvider) GetSupportedService() map[string]terraformutils.Ser
 			}
 
 			// filter to resources that support list
-			if len(resource.Verbs) > 0 && !sets.NewString(resource.Verbs...).Has("list") {
+			if !slices.Contains(resource.Verbs, "list") {
 				continue
 			}
 
@@ -110,6 +117,7 @@ func (p *KubernetesProvider) GetSupportedService() map[string]terraformutils.Ser
 				Group:      gv.Group,
 				Version:    gv.Version,
 				Name:       resource.Kind,
+				Resource:   resource.Name,
 				Namespaced: resource.Namespaced,
 			}
 		}
