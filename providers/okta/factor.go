@@ -45,7 +45,7 @@ func (g FactorGenerator) createResources(factorList []orgFactor, hotpFactorProfi
 		if factor.Status == "ACTIVE" {
 			resources = append(resources, terraformutils.NewResource(
 				factor.ID,
-				"factor_"+normalizeResourceNameWithRandom(factor.ID, true),
+				"factor_"+normalizeResourceNameWithRandom(factor.ID),
 				"okta_factor",
 				"okta",
 				map[string]string{
@@ -56,7 +56,7 @@ func (g FactorGenerator) createResources(factorList []orgFactor, hotpFactorProfi
 				for _, factorProfile := range hotpFactorProfiles {
 					resources = append(resources, terraformutils.NewResource(
 						factorProfile.ID,
-						"factor_totp_"+normalizeResourceNameWithRandom(factorProfile.Name, true),
+						"factor_totp_"+normalizeResourceNameWithRandom(factorProfile.Name),
 						"okta_factor_totp",
 						"okta",
 						map[string]string{}))
