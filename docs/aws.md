@@ -394,7 +394,7 @@ infraharvest import aws --all --resources=sg --regions=us-east-1
 
 #### Services listed through Cloud Control
 
-These services have no lister of their own. They're listed through the [Cloud Control API](https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/what-is-cloudcontrolapi.html) (`cloudformation:ListResources`, which `ReadOnlyAccess` grants), whose identifier for each of these types is the ID Terraform imports it by. A type a region doesn't offer is skipped. The default selection leaves out what AWS creates for the account: the default event bus and schedule group, the `primary` Athena workgroup, the default Backup vaults, and Route 53 Resolver's autodefined rules.
+These services have no lister of their own. They're listed through the [Cloud Control API](https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/what-is-cloudcontrolapi.html) (`cloudformation:ListResources`, which `ReadOnlyAccess` grants), whose identifier for each of these types is the ID Terraform imports it by: each type's CloudFormation primary identifier is one property, the one Terraform's import takes. A weekly check compares that with the schemas AWS publishes. A type a region doesn't offer is skipped. The default selection leaves out what AWS creates for the account: the default event bus and schedule group, the `primary` Athena workgroup, the default Backup vaults, and Route 53 Resolver's autodefined rules.
 
 *   `appconfig`
     * `aws_appconfig_application`
