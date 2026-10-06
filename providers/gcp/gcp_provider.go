@@ -17,7 +17,7 @@ package gcp
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"os"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -31,22 +31,23 @@ type GCPProvider struct { //nolint
 	providerType string
 }
 
-func getRegion(project, regionName string) *compute.Region {
+// getRegion looks up a region and its zones, which the zonal listers list
+// in; nothing for global. A region it can't look up fails, rather than
+// leave the zonal listers nothing to list.
+func getRegion(project, regionName string) (*compute.Region, error) {
 	if regionName == "global" {
-		return &compute.Region{}
+		return &compute.Region{}, nil
 	}
-	computeService, err := compute.NewService(context.Background())
+	ctx := context.Background()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
-		log.Println(err)
-		return &compute.Region{}
+		return nil, err
 	}
-	regionsGetCall := computeService.Regions.Get(project, regionName).Fields("name", "zones")
-	region, err := regionsGetCall.Do()
+	region, err := computeService.Regions.Get(project, regionName).Fields("name", "zones").Context(ctx).Do()
 	if err != nil {
-		log.Println(err)
-		return &compute.Region{}
+		return nil, fmt.Errorf("region %s of project %s: %w", regionName, project, err)
 	}
-	return region
+	return region, nil
 }
 
 // check projectName in env params
@@ -59,7 +60,11 @@ func (p *GCPProvider) Init(args []string) error {
 		return errors.New("google cloud project name must be set")
 	}
 	p.projectName = projectName
-	p.region = *getRegion(projectName, args[0])
+	region, err := getRegion(projectName, args[0])
+	if err != nil {
+		return err
+	}
+	p.region = *region
 	p.providerType = args[2]
 	return nil
 }
@@ -89,7 +94,7 @@ func (p *GCPProvider) InitService(serviceName string, verbose bool) error {
 
 // GetGCPSupportService return map of support service for GCP
 func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
-	services := ComputeServices
+	services := computeServices()
 	services["bigQuery"] = &BigQueryGenerator{}
 	services["cloudFunctions"] = &CloudFunctionsGenerator{}
 	services["cloudsql"] = &CloudSQLGenerator{}
@@ -111,12 +116,41 @@ func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGen
 	return services
 }
 
+// GetProviderData configures the provider block of the generated roots: the
+// project, the region, in which regional resources imported by name are
+// found, and no attribution label. The provider adds
+// goog-terraform-provisioned to the labels of every resource it manages,
+// so an imported resource would plan an update of its labels.
 func (p GCPProvider) GetProviderData(arg ...string) map[string]interface{} {
-	return map[string]interface{}{
-		"provider": map[string]interface{}{
-			p.GetName(): map[string]interface{}{
-				"project": p.projectName,
-			},
-		},
+	config := map[string]interface{}{
+		"project":                         p.projectName,
+		"add_terraform_attribution_label": false,
 	}
+	if p.region.Name != "" {
+		config["region"] = p.region.Name
+	}
+	return map[string]interface{}{"provider": map[string]interface{}{p.GetName(): config}}
+}
+
+// notImportable are the resource types the listers list that the provider
+// can't import: the import reports them as such instead of trying.
+var notImportable = map[string]bool{
+	"google_storage_bucket_acl":         true,
+	"google_storage_default_object_acl": true,
+}
+
+// ImportID returns the ID Terraform imports r with, and false for types it
+// can't import (see notImportable).
+func (GCPProvider) ImportID(r terraformutils.Resource) (string, bool) {
+	return r.InstanceState.ID, !notImportable[r.InstanceInfo.Type]
+}
+
+// Scope names the project and region this import covers, for the output
+// layout: global for the region global.
+func (p *GCPProvider) Scope(context.Context) (account, region string, err error) {
+	region = p.region.Name
+	if region == "" {
+		region = "global"
+	}
+	return p.projectName, region, nil
 }

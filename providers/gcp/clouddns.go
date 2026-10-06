@@ -84,8 +84,8 @@ func (g CloudDNSGenerator) createRecordsResources(ctx context.Context, svc *dns.
 // create terraform resource for each zone + each record
 func (g *CloudDNSGenerator) InitResources() error {
 	project := g.GetArgs()["project"].(string)
-	ctx := context.Background()
-	svc, err := dns.NewService(ctx)
+	ctx := g.Context()
+	svc, err := dns.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

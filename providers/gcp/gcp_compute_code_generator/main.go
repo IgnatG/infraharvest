@@ -86,8 +86,8 @@ func (g {{.titleResourceName}}Generator) createResources(ctx context.Context, {{
 // from each {{.resource}} create 1 TerraformResource
 // Need {{.resource}} name as ID for terraform resource
 func (g *{{.titleResourceName}}Generator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}
@@ -130,11 +130,14 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-// Map of supported GCP compute service with code generate
-var ComputeServices = map[string]terraformutils.ServiceGenerator{
+// computeServices returns a new generator of each compute service: listers
+// keep what they list, so each provider gets its own.
+func computeServices() map[string]terraformutils.ServiceGenerator {
+	return map[string]terraformutils.ServiceGenerator{
 {{ range $key, $value := .services }}
 	"{{$key}}":                   &{{title $key}}Generator{},{{ end }}
 
+	}
 }
 
 `

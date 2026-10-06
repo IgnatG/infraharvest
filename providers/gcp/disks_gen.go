@@ -57,8 +57,8 @@ func (g DisksGenerator) createResources(ctx context.Context, disksList *compute.
 // from each disks create 1 TerraformResource
 // Need disks name as ID for terraform resource
 func (g *DisksGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

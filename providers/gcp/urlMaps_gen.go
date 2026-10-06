@@ -55,8 +55,8 @@ func (g UrlMapsGenerator) createResources(ctx context.Context, urlMapsList *comp
 // from each urlMaps create 1 TerraformResource
 // Need urlMaps name as ID for terraform resource
 func (g *UrlMapsGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

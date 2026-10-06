@@ -55,8 +55,8 @@ func (g GlobalAddressesGenerator) createResources(ctx context.Context, globalAdd
 // from each globalAddresses create 1 TerraformResource
 // Need globalAddresses name as ID for terraform resource
 func (g *GlobalAddressesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

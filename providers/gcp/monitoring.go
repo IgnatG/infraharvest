@@ -167,7 +167,7 @@ func (g *MonitoringGenerator) loadUptimeCheck(ctx context.Context, project strin
 // Need alert name as ID for terraform resource
 func (g *MonitoringGenerator) InitResources() error {
 	project := g.GetArgs()["project"].(string)
-	ctx := context.Background()
+	ctx := g.Context()
 
 	if err := g.loadAlerts(ctx, project); err != nil {
 		return err

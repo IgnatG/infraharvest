@@ -55,8 +55,8 @@ func (g HttpHealthChecksGenerator) createResources(ctx context.Context, httpHeal
 // from each httpHealthChecks create 1 TerraformResource
 // Need httpHealthChecks name as ID for terraform resource
 func (g *HttpHealthChecksGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

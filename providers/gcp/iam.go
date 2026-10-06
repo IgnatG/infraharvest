@@ -15,7 +15,6 @@
 package gcp
 
 import (
-	"context"
 	"log"
 	"regexp"
 
@@ -98,10 +97,10 @@ func (g *IamGenerator) createIamMemberResources(policy *cloudresourcemanager.Pol
 }
 
 func (g *IamGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 
 	projectID := g.GetArgs()["project"].(string)
-	client, err := admin.NewIamClient(ctx)
+	client, err := admin.NewIamClient(ctx, grpcClientOptions()...)
 	if err != nil {
 		return err
 	}
@@ -111,12 +110,12 @@ func (g *IamGenerator) InitResources() error {
 		return err
 	}
 
-	cm, err := cloudresourcemanager.NewService(context.Background())
+	cm, err := cloudresourcemanager.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}
 	rb := &cloudresourcemanager.GetIamPolicyRequest{}
-	policyResponse, err := cm.Projects.GetIamPolicy(projectID, rb).Context(context.Background()).Do()
+	policyResponse, err := cm.Projects.GetIamPolicy(projectID, rb).Context(ctx).Do()
 	if err != nil {
 		return err
 	}

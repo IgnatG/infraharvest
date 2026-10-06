@@ -55,8 +55,8 @@ func (g SubnetworksGenerator) createResources(ctx context.Context, subnetworksLi
 // from each subnetworks create 1 TerraformResource
 // Need subnetworks name as ID for terraform resource
 func (g *SubnetworksGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

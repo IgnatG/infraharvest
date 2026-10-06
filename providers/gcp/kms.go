@@ -78,8 +78,8 @@ func (g *KmsGenerator) createKmsKeyResources(ctx context.Context, keyRingName st
 
 // Generate TerraformResources from GCP API,
 func (g *KmsGenerator) InitResources() error {
-	ctx := context.Background()
-	kmsService, err := cloudkms.NewService(ctx)
+	ctx := g.Context()
+	kmsService, err := cloudkms.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

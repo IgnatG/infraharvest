@@ -72,7 +72,7 @@ func TestAWSRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state := seed(ctx, t, execPath, filepath.Join(cache, "plugins"))
+	state := seed(ctx, t, "aws", execPath, filepath.Join(cache, "plugins"))
 
 	out := importAWS(ctx, t, engineName, execPath, "--all")
 
@@ -238,11 +238,11 @@ func isolateAWSConfig(t *testing.T) {
 	}
 }
 
-// seed applies testdata/aws and returns the resources it created.
-func seed(ctx context.Context, t *testing.T, execPath, pluginCache string) []*tfjson.StateResource {
+// seed applies testdata/<fixture> and returns the resources it created.
+func seed(ctx context.Context, t *testing.T, fixture, execPath, pluginCache string) []*tfjson.StateResource {
 	t.Helper()
 	dir := t.TempDir()
-	src := filepath.Join("testdata", "aws", "main.tf")
+	src := filepath.Join("testdata", fixture, "main.tf")
 	content, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatal(err)

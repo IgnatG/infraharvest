@@ -55,8 +55,8 @@ func (g *LoggingGenerator) loadLoggingMetrics(ctx context.Context, client *logad
 // Generate TerraformResources from GCP API
 func (g *LoggingGenerator) InitResources() error {
 	project := g.GetArgs()["project"].(string)
-	ctx := context.Background()
-	client, err := logadmin.NewClient(ctx, project)
+	ctx := g.Context()
+	client, err := logadmin.NewClient(ctx, project, grpcClientOptions()...)
 	if err != nil {
 		return err
 	}

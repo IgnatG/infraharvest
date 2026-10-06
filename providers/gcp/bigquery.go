@@ -85,8 +85,8 @@ func (g *BigQueryGenerator) createResourcesTables(ctx context.Context, datasetID
 
 // Generate TerraformResources from GCP API,
 func (g *BigQueryGenerator) InitResources() error {
-	ctx := context.Background()
-	bigQueryService, err := bigquery.NewService(ctx)
+	ctx := g.Context()
+	bigQueryService, err := bigquery.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}

@@ -154,8 +154,8 @@ func (g *GcsGenerator) createTransferJobsResources(ctx context.Context, storageT
 // from each bucket  create 1 TerraformResource
 // Need bucket name as ID for terraform resource
 func (g *GcsGenerator) InitResources() error {
-	ctx := context.Background()
-	gcsService, err := storage.NewService(ctx)
+	ctx := g.Context()
+	gcsService, err := storage.NewService(ctx, clientOptions()...)
 	if err != nil {
 		log.Print(err)
 		return err
@@ -163,7 +163,7 @@ func (g *GcsGenerator) InitResources() error {
 	g.Resources = g.createBucketsResources(ctx, gcsService)
 
 	// TODO find bug with storageTransferService.TransferJobs.List().Pages
-	// storageTransferService, err := storagetransfer.NewService(ctx)
+	// storageTransferService, err := storagetransfer.NewService(ctx, clientOptions()...)
 	// if err != nil {
 	// 	log.Print(err)
 	// 		return err

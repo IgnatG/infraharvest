@@ -57,8 +57,8 @@ func (g TargetInstancesGenerator) createResources(ctx context.Context, targetIns
 // from each targetInstances create 1 TerraformResource
 // Need targetInstances name as ID for terraform resource
 func (g *TargetInstancesGenerator) InitResources() error {
-	ctx := context.Background()
-	computeService, err := compute.NewService(ctx)
+	ctx := g.Context()
+	computeService, err := compute.NewService(ctx, clientOptions()...)
 	if err != nil {
 		return err
 	}
