@@ -45,27 +45,28 @@ func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
 }
 
 // Stores open the object stores state is read from: S3 in a region, with
-// the credentials of a shared config profile ("" for the defaults), and
-// Cloud Storage.
+// the credentials of a shared config profile ("" for the defaults), Cloud
+// Storage, and the Azure Blob Storage account at a service URL.
 type Stores struct {
-	S3  func(ctx context.Context, region, profile string) (ObjectStore, error)
-	GCS func(ctx context.Context) (ObjectStore, error)
+	S3        func(ctx context.Context, region, profile string) (ObjectStore, error)
+	GCS       func(ctx context.Context) (ObjectStore, error)
+	AzureBlob func(ctx context.Context, serviceURL string) (ObjectStore, error)
 }
 
 // DefaultStores read with each cloud's default credentials.
-var DefaultStores = Stores{S3: NewS3, GCS: NewGCS}
+var DefaultStores = Stores{S3: NewS3, GCS: NewGCS, AzureBlob: NewAzureBlob}
 
 // Load reads the state in sources: state files, directories with state
 // files (*.tfstate, outside .terraform), s3://bucket/prefix (?region=
-// names the bucket's region, ?profile= the profile to read it with) and
-// gs://bucket/prefix, all of whose *.tfstate objects are read, from
-// stores.
+// names the bucket's region, ?profile= the profile to read it with),
+// gs://bucket/prefix and https://<account>.blob.core.windows.net/
+// container/prefix, all of whose *.tfstate objects are read, from stores.
 func Load(ctx context.Context, sources []string, stores Stores) (Resources, error) {
 	r := Resources{}
 	for _, source := range sources {
 		var err error
 		switch {
-		case strings.HasPrefix(source, "s3://"), strings.HasPrefix(source, "gs://"):
+		case strings.HasPrefix(source, "s3://"), strings.HasPrefix(source, "gs://"), isAzureBlob(source):
 			err = r.loadObjects(ctx, source, stores)
 		default:
 			err = r.loadLocal(source)
@@ -77,23 +78,46 @@ func Load(ctx context.Context, sources []string, stores Stores) (Resources, erro
 	return r, nil
 }
 
-// loadObjects reads the *.tfstate objects under an s3:// or gs:// source.
+// isAzureBlob tells whether source is a Blob Storage URL, whose host is
+// <account>.blob.<the cloud's storage suffix>.
+func isAzureBlob(source string) bool {
+	u, err := url.Parse(source)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	_, rest, _ := strings.Cut(u.Hostname(), ".")
+	return strings.HasPrefix(rest, "blob.")
+}
+
+// loadObjects reads the *.tfstate objects under an s3://, gs:// or Blob
+// Storage source.
 func (r Resources) loadObjects(ctx context.Context, source string, stores Stores) error {
 	u, err := url.Parse(source)
 	if err != nil {
 		return err
 	}
+	// The bucket, and where its objects are named from.
+	bucket, prefix := u.Host, strings.TrimPrefix(u.Path, "/")
+	base := u.Scheme + "://" + u.Host + "/"
 	var store ObjectStore
-	if u.Scheme == "gs" {
+	switch u.Scheme {
+	case "gs":
 		store, err = stores.GCS(ctx)
-	} else {
+	case "s3":
 		store, err = stores.S3(ctx, u.Query().Get("region"), u.Query().Get("profile"))
+	default:
+		// https://<account>.blob.core.windows.net/<container>/<prefix>
+		bucket, prefix, _ = strings.Cut(prefix, "/")
+		if bucket == "" {
+			return errors.New("name a container: https://<account>.blob.core.windows.net/<container>/<prefix>")
+		}
+		store, err = stores.AzureBlob(ctx, base)
+		base += bucket + "/"
 	}
 	if err != nil {
 		return err
 	}
-	prefix := strings.TrimPrefix(u.Path, "/")
-	keys, err := store.List(ctx, u.Host, prefix)
+	keys, err := store.List(ctx, bucket, prefix)
 	if err != nil {
 		return err
 	}
@@ -101,11 +125,11 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 		if !strings.HasSuffix(key, ".tfstate") {
 			continue
 		}
-		content, err := store.Get(ctx, u.Host, key)
+		content, err := store.Get(ctx, bucket, key)
 		if err != nil {
 			return err
 		}
-		if err := r.Parse(content, u.Scheme+"://"+u.Host+"/"+key); err != nil {
+		if err := r.Parse(content, base+key); err != nil {
 			return err
 		}
 	}

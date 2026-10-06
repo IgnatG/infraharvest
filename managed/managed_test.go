@@ -5,6 +5,7 @@ package managed
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,15 +64,23 @@ func TestLoad(t *testing.T) {
 	gcs := fakeStore{
 		"roots/aws/global/default.tfstate": `{"version": 4, "resources": [{"mode": "managed", "type": "aws_iam_policy", "instances": [{"attributes": {"id": "arn:aws:iam::1:policy/app"}}]}]}`,
 	}
+	blobs := fakeStore{
+		"azure/westeurope/default.tfstate": `{"version": 4, "resources": [{"mode": "managed", "type": "azurerm_resource_group", "instances": [{"attributes": {"id": "/subscriptions/1/resourceGroups/app"}}]}]}`,
+	}
+	var serviceURL string
 	stores := Stores{
 		S3: func(_ context.Context, rgn, prof string) (ObjectStore, error) {
 			region, profile = rgn, prof
 			return store, nil
 		},
 		GCS: func(context.Context) (ObjectStore, error) { return gcs, nil },
+		AzureBlob: func(_ context.Context, u string) (ObjectStore, error) {
+			serviceURL = u
+			return containerStore{"tfstate", blobs}, nil
+		},
 	}
 
-	r, err := Load(context.Background(), []string{dir, "s3://acme-state/imported/?region=eu-west-2&profile=state", "gs://acme-gcs/roots/"}, stores)
+	r, err := Load(context.Background(), []string{dir, "s3://acme-state/imported/?region=eu-west-2&profile=state", "gs://acme-gcs/roots/", "https://acmestate.blob.core.windows.net/tfstate/azure/"}, stores)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,8 +109,45 @@ func TestLoad(t *testing.T) {
 	if where, _ := r.Lookup("aws_iam_policy", "arn:aws:iam::1:policy/app"); where != "gs://acme-gcs/roots/aws/global/default.tfstate" {
 		t.Errorf("where: %s", where)
 	}
+	if where, _ := r.Lookup("azurerm_resource_group", "/subscriptions/1/resourceGroups/app"); where != "https://acmestate.blob.core.windows.net/tfstate/azure/westeurope/default.tfstate" {
+		t.Errorf("where: %s", where)
+	}
 	if region != "eu-west-2" || profile != "state" {
 		t.Errorf("region, profile: %q, %q", region, profile)
+	}
+	if serviceURL != "https://acmestate.blob.core.windows.net/" {
+		t.Errorf("service URL: %q", serviceURL)
+	}
+}
+
+// containerStore is a fakeStore that is one Blob Storage container.
+type containerStore struct {
+	name string
+	fakeStore
+}
+
+func (c containerStore) List(ctx context.Context, container, prefix string) ([]string, error) {
+	if container != c.name {
+		return nil, fmt.Errorf("no container %q", container)
+	}
+	return c.fakeStore.List(ctx, container, prefix)
+}
+
+func TestIsAzureBlob(t *testing.T) {
+	for source, want := range map[string]bool{
+		"https://acmestate.blob.core.windows.net/tfstate/":      true,
+		"https://acmestate.blob.core.usgovcloudapi.net/tfstate": true,
+		"https://acmestate.file.core.windows.net/share/":        false,
+		"http://acmestate.blob.core.windows.net/tfstate/":       false,
+		"s3://acme-state/blob.json":                             false,
+		"terraform.tfstate":                                     false,
+	} {
+		if got := isAzureBlob(source); got != want {
+			t.Errorf("isAzureBlob(%q) = %v, want %v", source, got, want)
+		}
+	}
+	if _, err := Load(context.Background(), []string{"https://acmestate.blob.core.windows.net/"}, Stores{}); err == nil {
+		t.Error("want an error for a source without a container")
 	}
 }
 
