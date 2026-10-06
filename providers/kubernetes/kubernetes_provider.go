@@ -229,7 +229,7 @@ func applyGlobalOptionsToConfig(config *restclient.Config) error {
 		impersonateGroupJSON := []string{}
 		err := json.Unmarshal([]byte(impersonateGroup), &impersonateGroupJSON)
 		if err != nil {
-			return errors.New(fmt.Sprintf("error parsing global option %q: %v", "--as-group", err))
+			return fmt.Errorf("error parsing global option %q: %v", "--as-group", err)
 		}
 		if len(impersonateGroupJSON) > 0 {
 			config.Impersonate.Groups = impersonateGroupJSON
@@ -257,7 +257,7 @@ func applyGlobalOptionsToConfig(config *restclient.Config) error {
 	if len(requestTimeout) > 0 {
 		t, err := time.ParseDuration(requestTimeout)
 		if err != nil {
-			return errors.New(fmt.Sprintf("%v", err))
+			return fmt.Errorf("%v", err)
 		}
 		config.Timeout = t
 	}
