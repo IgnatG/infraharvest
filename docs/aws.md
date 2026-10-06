@@ -38,7 +38,9 @@ infraharvest import aws --all --resources=vpc,s3,iam --regions=eu-west-2 --organ
 
 `--organization` imports every active account of the organization. It needs `organizations:ListAccounts`, which the management account, or a delegated administrator, has. `--assume-role` names the role in each account. It defaults to `arn:aws:iam::{account}:role/infraharvest-readonly`, the read-only role that [permissions/aws](../permissions/aws) creates. Given a full ARN without `{account}`, it imports that one account through that role.
 
-Each account gets its own roots (`{output}/aws/{account}/{region}/`). Their provider block assumes the same role, so `terraform plan` works with the credentials that ran the import.
+Each account gets its own roots (`{output}/aws/{account}/{region}/`). Their provider block assumes the same role, so `terraform plan` works with the credentials that ran the import. A `--path-pattern` must keep `{account}` for that.
+
+Accounts are imported one after another unless `--parallel` says how many to import at once. An account that can't be imported, such as one whose role can't be assumed, is reported and the others go on. In parallel, the first account runs alone, to download Terraform and the provider once, then the others follow, several at a time. AWS throttles each account on its own, so accounts don't slow each other down, but each runs its own Terraform and provider, so memory use grows with `--parallel`. The report lists the accounts in the order given, whichever finished first.
 
 #### Throttling and timeouts
 

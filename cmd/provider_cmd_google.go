@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -33,21 +34,26 @@ func newCmdGoogleImporter(options ImportOptions) *cobra.Command {
 		Long:  "Import current state to Terraform configuration from Google Cloud",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			originalPathPattern := options.PathPattern
-			for _, project := range options.Projects {
+			// Each project gets roots of its own: without {account}, they
+			// would write over each other's.
+			if len(options.Projects) > 1 && originalPathPattern != "" && !strings.Contains(originalPathPattern, "{account}") && !strings.Contains(originalPathPattern, "{provider}/{service}") {
+				return fmt.Errorf("--path-pattern %q needs {account} to keep several projects apart", originalPathPattern)
+			}
+			// A project that can't be imported doesn't stop the others.
+			return importEach(options, "project", options.Projects, func(options ImportOptions, project string) error {
 				for _, region := range options.Regions {
 					provider := newGoogleProvider()
-					options.PathPattern = originalPathPattern
-					options.PathPattern = strings.ReplaceAll(options.PathPattern, "{provider}/{service}", "{provider}/"+project+"/{service}/"+region)
+					options.PathPattern = strings.ReplaceAll(originalPathPattern, "{provider}/{service}", "{provider}/"+project+"/{service}/"+region)
 					log.Println(provider.GetName() + " importing project " + project + " region " + region)
-					err := Import(provider, options, []string{region, project, providerType})
-					if err != nil {
+					if err := Import(provider, options, []string{region, project, providerType}); err != nil {
 						return err
 					}
 				}
-			}
-			return nil
+				return nil
+			})
 		},
 	}
+	parallelFlag(cmd, &options, "projects of --projects")
 	cmd.AddCommand(listCmd(newGoogleProvider()))
 	baseProviderFlags(cmd.PersistentFlags(), &options, "firewalls,networks", "compute_firewall=id1:id2:id4")
 	cmd.PersistentFlags().StringSliceVarP(&options.Regions, "regions", "z", []string{"global"}, "europe-west1,")

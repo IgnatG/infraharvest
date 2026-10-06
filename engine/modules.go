@@ -760,7 +760,7 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, base
 		return false, nil
 	}
 	// The module calls need their modules installed.
-	if err := tf.Init(ctx); err != nil {
+	if err := initTerraform(ctx, tf); err != nil {
 		return false, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	diags, summary, err := plan(ctx, tf, vars...)

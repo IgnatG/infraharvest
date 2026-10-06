@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/adapters"
 	"github.com/IgnatG/infraharvest/engine"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/report"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -65,9 +66,13 @@ func importWithEngine(provider terraformutils.ProviderGenerator, options ImportO
 	if err := checkSelectionOptions(options); err != nil {
 		return err
 	}
-	// Commands share one run across their Import calls (see withEngineRun);
-	// a call on its own finishes its own.
-	run := activeRun
+	// Commands share one run across their Import calls (see withEngineRun),
+	// and an account imported alongside others has its own (see
+	// importEach); a call on its own finishes its own.
+	run := options.run
+	if run == nil {
+		run = activeRun
+	}
 	if run == nil {
 		run = newEngineRun()
 		return run.finish(importInto(run, provider, options, args))
@@ -426,7 +431,8 @@ func writeGitignore(outputDir string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	return os.WriteFile(path, []byte(engine.GitignoreFile), 0o644)
+	// Atomically: accounts imported in parallel write it at the same time.
+	return fsutil.WriteFile(path, []byte(engine.GitignoreFile), 0o644)
 }
 
 // checkImportOptions rejects values of --output and --modules the import

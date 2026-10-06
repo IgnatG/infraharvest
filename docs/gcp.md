@@ -19,6 +19,8 @@ infraharvest import google --all --resources=gcs,forwardingRules,httpHealthCheck
 
 `--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover google` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
+Each project gets its own roots (`{output}/google/{project}/{region}/`). Projects are imported one after another unless `--parallel` says how many to import at once; a project that can't be imported is reported and the others go on. Each runs its own Terraform and provider, so memory use grows with `--parallel`.
+
 List of supported GCP services:
 
 *   `addresses`

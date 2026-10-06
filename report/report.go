@@ -208,6 +208,24 @@ func (r *Report) AddDiscovered(scope string, n int) {
 	r.Scopes = append(r.Scopes, ScopeCount{Scope: scope, CoverageTotal: CoverageTotal{Discovered: n}})
 }
 
+// Merge adds what other, the report of another part of the same import
+// (such as one account of several), recorded before Finish: its
+// directories, exclusions, failures and discovered counts by scope, and its
+// manifest if r has none yet. Finish then counts the whole.
+func (r *Report) Merge(other *Report) {
+	if r.Tool.Name == "" {
+		r.Manifest = other.Manifest
+	} else if r.Provider.Version == "" {
+		r.Provider.Version = other.Provider.Version
+	}
+	r.Directories = append(r.Directories, other.Directories...)
+	r.Excluded = append(r.Excluded, other.Excluded...)
+	r.Failures = append(r.Failures, other.Failures...)
+	for _, s := range other.Scopes {
+		r.AddDiscovered(s.Scope, s.Discovered)
+	}
+}
+
 // Finish sorts the report, counts it, and sets the exit code. discovered
 // counts what the listers found, by type; failed counts resources in
 // directories that failed, by type.
