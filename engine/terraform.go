@@ -161,7 +161,7 @@ var initMu sync.Mutex
 
 // initTerraform runs terraform init in tf's working directory, one at a
 // time (see initMu).
-func initTerraform(ctx context.Context, tf *tfexec.Terraform, opts ...tfexec.InitOption) error {
+func initTerraform(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
 	initMu.Lock()
 	defer initMu.Unlock()
 	return tf.Init(ctx, opts...)
