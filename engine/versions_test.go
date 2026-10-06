@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/go-version"
 )
@@ -80,5 +82,52 @@ provider "registry.terraform.io/hashicorp/aws" {
 	}
 	if got := LockedVersion(nil, "registry.terraform.io/hashicorp/aws"); got != "" {
 		t.Errorf("no lock file: got %q, want none", got)
+	}
+}
+
+// A connection that fails, or a registry that answers 429 or 5xx, is tried
+// again; a 404 isn't; an answer is asked for once.
+func TestLatestProviderVersionRetries(t *testing.T) {
+	backoff := registryBackoff
+	registryBackoff = time.Millisecond
+	t.Cleanup(func() { registryBackoff = backoff })
+
+	var calls atomic.Int32
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		switch {
+		case strings.Contains(r.URL.Path, "missing"):
+			http.NotFound(w, r)
+		case strings.Contains(r.URL.Path, "down"):
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		case n == 1:
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		case n == 2:
+			// The connection drops.
+			hijacked, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = hijacked.Close()
+			}
+		default:
+			_, _ = w.Write([]byte(`{"versions":[{"version":"6.1.0"}]}`))
+		}
+	}))
+	defer registry.Close()
+
+	got, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/flaky")
+	if err != nil || got.String() != "6.1.0" || calls.Load() != 3 {
+		t.Fatalf("got %v, %v after %d calls, want 6.1.0 on the third", got, err, calls.Load())
+	}
+	if got, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/flaky"); err != nil || got.String() != "6.1.0" || calls.Load() != 3 {
+		t.Errorf("asked again: %v, %v after %d calls", got, err, calls.Load())
+	}
+
+	calls.Store(10)
+	if _, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/missing"); err == nil || calls.Load() != 11 {
+		t.Errorf("404: %v after %d calls, want one", err, calls.Load()-10)
+	}
+	calls.Store(10)
+	if _, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/down"); err == nil || calls.Load() != 10+registryAttempts {
+		t.Errorf("503: %v after %d calls, want %d", err, calls.Load()-10, registryAttempts)
 	}
 }

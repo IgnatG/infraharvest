@@ -6,10 +6,12 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-version"
@@ -48,6 +50,18 @@ func ProviderConstraint(v *version.Version) string {
 	return fmt.Sprintf("~> %d.%d", s[0], s[1])
 }
 
+// registryAttempts is how many times a registry lookup is tried when the
+// connection fails or the registry answers 429 or 5xx; registryBackoff is
+// the wait before the second attempt, doubled before each later one.
+const registryAttempts = 3
+
+var registryBackoff = time.Second
+
+// latestVersions remembers the registry's answers by URL: one import asks
+// once, however many accounts and regions it covers, and every root it
+// generates pins the same release.
+var latestVersions sync.Map
+
 // LatestProviderVersion asks the registry for the newest release of the
 // provider at source ("hashicorp/aws" or "registry.terraform.io/hashicorp/aws"),
 // leaving out prereleases. baseURL replaces https://<host> when not empty,
@@ -63,28 +77,35 @@ func LatestProviderVersion(ctx context.Context, client *http.Client, baseURL, so
 	if baseURL == "" {
 		baseURL = "https://" + parts[0]
 	}
-	// A registry that hangs must not hold the import up for good.
-	ctx, cancel := context.WithTimeout(ctx, registryTimeout)
-	defer cancel()
 	url := fmt.Sprintf("%s/v1/providers/%s/%s/versions", baseURL, parts[1], parts[2])
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+	if v, ok := latestVersions.Load(url); ok {
+		return v.(*version.Version), nil
 	}
-	resp, err := client.Do(req)
+	var content []byte
+	var err error
+	wait := registryBackoff
+	for attempt := 1; ; attempt++ {
+		var retry bool
+		content, retry, err = fetchVersions(ctx, client, url)
+		if err == nil || !retry || attempt == registryAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("look up %s versions: %w", source, ctx.Err())
+		case <-time.After(wait):
+		}
+		wait *= 2
+	}
 	if err != nil {
 		return nil, fmt.Errorf("look up %s versions: %w", source, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("look up %s versions: %s returned %s", source, url, resp.Status)
 	}
 	var body struct {
 		Versions []struct {
 			Version string `json:"version"`
 		} `json:"versions"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, registryBodyLimit)).Decode(&body); err != nil {
+	if err := json.Unmarshal(content, &body); err != nil {
 		return nil, fmt.Errorf("look up %s versions: %w", source, err)
 	}
 	var latest *version.Version
@@ -100,7 +121,31 @@ func LatestProviderVersion(ctx context.Context, client *http.Client, baseURL, so
 	if latest == nil {
 		return nil, fmt.Errorf("look up %s versions: %s lists no releases", source, url)
 	}
+	latestVersions.Store(url, latest)
 	return latest, nil
+}
+
+// fetchVersions returns what the registry answers at url, within
+// registryTimeout: a registry that hangs must not hold the import up for
+// good. retry says whether another attempt may succeed: after a failed
+// connection or a timeout, or a 429 or 5xx answer.
+func fetchVersions(ctx context.Context, client *http.Client, url string) (content []byte, retry bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, registryTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, !errors.Is(err, context.Canceled), err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500, fmt.Errorf("%s returned %s", url, resp.Status)
+	}
+	content, err = io.ReadAll(io.LimitReader(resp.Body, registryBodyLimit))
+	return content, err != nil, err
 }
 
 // LockedVersion returns the version of the provider at source
