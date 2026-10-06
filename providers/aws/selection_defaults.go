@@ -31,7 +31,8 @@ const (
 // by "type id", with the reason: resources AWS creates and manages itself,
 // such as the default VPC and its subnets, default security groups and
 // network ACLs, service-linked roles, Lambda's log groups, and the
-// defaults of services listed through Cloud Control.
+// defaults of services listed through Cloud Control; and what
+// CloudFormation stacks manage, which would otherwise have two owners.
 func (p *AWSProvider) ExcludedByDefault(ctx context.Context, resources []terraformutils.Resource) (map[string]string, error) {
 	excluded := map[string]string{}
 	network := false
@@ -51,10 +52,34 @@ func (p *AWSProvider) ExcludedByDefault(ctx context.Context, resources []terrafo
 			network = true
 		}
 	}
-	if !network || p.region == GlobalRegion {
+	if len(resources) == 0 {
 		return excluded, nil
 	}
-	defaults, err := p.defaultNetwork(ctx)
+	config, err := p.config(ctx)
+	if err != nil {
+		return excluded, err
+	}
+	stacks, stacksErr := p.cloudFormationManaged(ctx, config)
+	for _, r := range resources {
+		key := r.InstanceInfo.Type + " " + r.InstanceState.ID
+		if _, ok := excluded[key]; ok {
+			continue
+		}
+		stack, ok := stacks[r.InstanceState.ID]
+		if !ok {
+			if id, importable := p.ImportID(r); importable {
+				stack, ok = stacks[id]
+			}
+		}
+		if ok {
+			excluded[key] = reasonCloudFormation(stack)
+		}
+	}
+	if !network || p.region == GlobalRegion {
+		return excluded, stacksErr
+	}
+	defaults, err := p.defaultNetwork(ctx, config)
+	err = errors.Join(stacksErr, err)
 	for _, r := range resources {
 		id := r.InstanceState.ID
 		reason := ""
@@ -97,15 +122,16 @@ type defaultNetwork struct {
 	vpcs, parts, securityGroups map[string]bool
 }
 
-func (p *AWSProvider) defaultNetwork(ctx context.Context) (defaultNetwork, error) {
-	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}, securityGroups: map[string]bool{}}
+// config returns the AWS configuration the provider's services list with.
+func (p *AWSProvider) config(ctx context.Context) (aws.Config, error) {
 	service := &AWSService{}
 	service.SetArgs(p.serviceArgs())
 	service.SetContext(ctx)
-	config, err := service.generateConfig()
-	if err != nil {
-		return d, err
-	}
+	return service.generateConfig()
+}
+
+func (p *AWSProvider) defaultNetwork(ctx context.Context, config aws.Config) (defaultNetwork, error) {
+	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}, securityGroups: map[string]bool{}}
 	svc := ec2.NewFromConfig(config)
 	var errs []error
 
