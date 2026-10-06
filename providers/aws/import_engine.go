@@ -106,6 +106,8 @@ func (p *AWSProvider) Scope(ctx context.Context) (account, region string, err er
 // without asking. They are the base credentials: with --assume-role, the
 // provider block assumes the role itself (see GetProviderData). Each call
 // returns them fresh, so a long import never hands Terraform expired ones.
+// Without --regions, it also gives the region the profile or environment
+// resolves to, which the provider block then leaves out.
 func (p *AWSProvider) TerraformEnv(ctx context.Context) (map[string]string, error) {
 	service := &AWSService{}
 	service.SetArgs(p.serviceArgs())
@@ -114,11 +116,22 @@ func (p *AWSProvider) TerraformEnv(ctx context.Context) (map[string]string, erro
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{
+	env := map[string]string{
 		"AWS_ACCESS_KEY_ID":     creds.AccessKeyID,
 		"AWS_SECRET_ACCESS_KEY": creds.SecretAccessKey,
 		// Empty unless temporary, so that a token from the environment
 		// doesn't pair with other keys.
 		"AWS_SESSION_TOKEN": creds.SessionToken,
-	}, nil
+		// The AWS provider prefers a profile to keys from the environment.
+		"AWS_PROFILE":         "",
+		"AWS_DEFAULT_PROFILE": "",
+	}
+	if p.region == NoRegion {
+		config, err := service.generateConfig()
+		if err != nil {
+			return nil, err
+		}
+		env["AWS_REGION"] = config.Region
+	}
+	return env, nil
 }

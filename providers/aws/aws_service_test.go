@@ -87,7 +87,26 @@ func TestTerraformEnv(t *testing.T) {
 	if env["AWS_ACCESS_KEY_ID"] != "AKIDPROD" || env["AWS_SECRET_ACCESS_KEY"] != "prod-secret" || env["AWS_SESSION_TOKEN"] != "" {
 		t.Errorf("env: %v", env)
 	}
-	if os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_REGION") != "" {
+	if profile, ok := env["AWS_PROFILE"]; !ok || profile != "" {
+		t.Errorf("AWS_PROFILE: %q, %t; want it empty, so that Terraform uses the keys", profile, ok)
+	}
+	if region, ok := env["AWS_REGION"]; ok {
+		t.Errorf("AWS_REGION: %q; the provider block names the region", region)
+	}
+
+	// Without --regions, the region the profile resolves to.
+	defaultRegion := &AWSProvider{}
+	if err := defaultRegion.Init([]string{NoRegion, "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	env, err = defaultRegion.TerraformEnv(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["AWS_REGION"] != "eu-west-2" {
+		t.Errorf("AWS_REGION: %q, want the profile's eu-west-2", env["AWS_REGION"])
+	}
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_REGION") != "" || os.Getenv("AWS_PROFILE") != "" {
 		t.Error("the process environment changed")
 	}
 }

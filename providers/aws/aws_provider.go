@@ -15,9 +15,6 @@
 package aws
 
 import (
-	"os"
-	"strconv"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/pkg/errors"
 )
@@ -73,37 +70,15 @@ func (p AWSProvider) GetProviderData(arg ...string) map[string]interface{} {
 	}
 }
 
-// check projectName in env params
+// Init takes the region, the profile and, optionally, a role to assume.
+// They configure each service's SDK client (see AWSService.generateConfig)
+// and Terraform (see GetProviderData and TerraformEnv), never the process
+// environment: several accounts and regions can import in one process.
 func (p *AWSProvider) Init(args []string) error {
 	p.region = args[0]
 	p.profile = args[1]
 	if len(args) > 2 {
 		p.roleARN = args[2]
-	}
-
-	// Terraformer accepts region and profile configuration, so we must detect what env variables to adjust to make Go SDK rely on them. AWS_SDK_LOAD_CONFIG here must be checked to determine correct variable to set.
-	enableSharedConfig, _ := strconv.ParseBool(os.Getenv("AWS_SDK_LOAD_CONFIG"))
-	var err error
-	if p.region != GlobalRegion && p.region != NoRegion {
-		if enableSharedConfig {
-			err = os.Setenv("AWS_DEFAULT_REGION", p.region)
-		} else {
-			err = os.Setenv("AWS_REGION", p.region)
-		}
-		if err != nil {
-			return err
-		}
-	}
-
-	if p.profile != "" && p.profile != "default" {
-		envVar := "AWS_PROFILE"
-		if enableSharedConfig {
-			envVar = "AWS_DEFAULT_PROFILE"
-		}
-
-		if err := os.Setenv(envVar, p.profile); err != nil {
-			return err
-		}
 	}
 	return nil
 }

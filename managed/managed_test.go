@@ -53,7 +53,7 @@ func TestLoad(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var region string
+	var region, profile string
 	store := fakeStore{
 		"imported/iam/terraform.tfstate": `{"version": 4, "resources": [{"mode": "managed", "type": "aws_iam_role", "instances": [{"attributes": {"id": "app"}}]}]}`,
 		"imported/iam/notes.txt":         "not state",
@@ -64,14 +64,14 @@ func TestLoad(t *testing.T) {
 		"roots/aws/global/default.tfstate": `{"version": 4, "resources": [{"mode": "managed", "type": "aws_iam_policy", "instances": [{"attributes": {"id": "arn:aws:iam::1:policy/app"}}]}]}`,
 	}
 	stores := Stores{
-		S3: func(_ context.Context, rgn string) (ObjectStore, error) {
-			region = rgn
+		S3: func(_ context.Context, rgn, prof string) (ObjectStore, error) {
+			region, profile = rgn, prof
 			return store, nil
 		},
 		GCS: func(context.Context) (ObjectStore, error) { return gcs, nil },
 	}
 
-	r, err := Load(context.Background(), []string{dir, "s3://acme-state/imported/?region=eu-west-2", "gs://acme-gcs/roots/"}, stores)
+	r, err := Load(context.Background(), []string{dir, "s3://acme-state/imported/?region=eu-west-2&profile=state", "gs://acme-gcs/roots/"}, stores)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,8 +100,8 @@ func TestLoad(t *testing.T) {
 	if where, _ := r.Lookup("aws_iam_policy", "arn:aws:iam::1:policy/app"); where != "gs://acme-gcs/roots/aws/global/default.tfstate" {
 		t.Errorf("where: %s", where)
 	}
-	if region != "eu-west-2" {
-		t.Errorf("region: %q", region)
+	if region != "eu-west-2" || profile != "state" {
+		t.Errorf("region, profile: %q, %q", region, profile)
 	}
 }
 

@@ -214,7 +214,7 @@ func TestExcludeManaged(t *testing.T) {
 	}
 	run := newEngineRun()
 
-	defaults, err := excludeManaged(t.Context(), run, []string{path}, listedForSelection, map[string]string{"aws_vpc vpc-default": "default VPC"}, importIDForSelection)
+	defaults, err := excludeManaged(t.Context(), run, ImportOptions{ManagedState: []string{path}}, listedForSelection, map[string]string{"aws_vpc vpc-default": "default VPC"}, importIDForSelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,8 +224,23 @@ func TestExcludeManaged(t *testing.T) {
 	if len(defaults) != 2 {
 		t.Errorf("defaults: %v", defaults)
 	}
-	if _, err := excludeManaged(t.Context(), run, []string{"backend"}, listedForSelection, nil, importIDForSelection); err == nil {
+	if _, err := excludeManaged(t.Context(), run, ImportOptions{ManagedState: []string{"backend"}}, listedForSelection, nil, importIDForSelection); err == nil {
 		t.Error("want an error for backend without a configured backend")
+	}
+}
+
+func TestWithProfile(t *testing.T) {
+	for _, tc := range []struct{ source, profile, want string }{
+		{"s3://state/roots/?region=eu-west-2", "prod", "s3://state/roots/?profile=prod&region=eu-west-2"},
+		{"s3://state/roots/?profile=state", "prod", "s3://state/roots/?profile=state"},
+		{"s3://state/roots/", "default", "s3://state/roots/"},
+		{"s3://state/roots/", "", "s3://state/roots/"},
+		{"gs://state/roots/", "prod", "gs://state/roots/"},
+		{"terraform.tfstate", "prod", "terraform.tfstate"},
+	} {
+		if got := withProfile(tc.source, tc.profile); got != tc.want {
+			t.Errorf("withProfile(%q, %q) = %q, want %q", tc.source, tc.profile, got, tc.want)
+		}
 	}
 }
 
