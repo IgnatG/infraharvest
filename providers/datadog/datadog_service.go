@@ -14,8 +14,26 @@
 
 package datadog
 
-import "github.com/IgnatG/infraharvest/terraformutils"
+import (
+	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
+
+	"github.com/IgnatG/infraharvest/terraformutils"
+)
 
 type DatadogService struct { //nolint
 	terraformutils.Service
+}
+
+// collectPages drains the channel a datadog-api-client *WithPagination call
+// returns, stopping at the first error.
+func collectPages[T any](items <-chan datadog.PaginationResult[T], cancel func()) ([]T, error) {
+	defer cancel()
+	var all []T
+	for item := range items {
+		if item.Error != nil {
+			return nil, item.Error
+		}
+		all = append(all, item.Item)
+	}
+	return all, nil
 }

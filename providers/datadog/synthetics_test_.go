@@ -29,7 +29,7 @@ type SyntheticsTestGenerator struct {
 	DatadogService
 }
 
-func (g *SyntheticsTestGenerator) createResources(syntheticsList []datadogV1.SyntheticsTestDetails) []terraformutils.Resource {
+func (g *SyntheticsTestGenerator) createResources(syntheticsList []datadogV1.SyntheticsTestDetailsWithoutSteps) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
 	for _, synthetics := range syntheticsList {
 		resourceName := synthetics.GetPublicId()
@@ -75,10 +75,10 @@ func (g *SyntheticsTestGenerator) InitResources() error {
 		return nil
 	}
 
-	syntheticsTests, _, err := api.ListTests(auth)
+	syntheticsTests, err := collectPages(api.ListTestsWithPagination(auth))
 	if err != nil {
 		return err
 	}
-	g.Resources = g.createResources(syntheticsTests.GetTests())
+	g.Resources = g.createResources(syntheticsTests)
 	return nil
 }
