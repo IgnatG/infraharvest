@@ -117,18 +117,32 @@ func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGen
 }
 
 // GetProviderData configures the provider block of the generated roots: the
-// project, and no attribution label. The provider adds
+// project, the region, in which regional resources imported by name are
+// found, and no attribution label. The provider adds
 // goog-terraform-provisioned to the labels of every resource it manages,
 // so an imported resource would plan an update of its labels.
 func (p GCPProvider) GetProviderData(arg ...string) map[string]interface{} {
-	return map[string]interface{}{
-		"provider": map[string]interface{}{
-			p.GetName(): map[string]interface{}{
-				"project":                         p.projectName,
-				"add_terraform_attribution_label": false,
-			},
-		},
+	config := map[string]interface{}{
+		"project":                         p.projectName,
+		"add_terraform_attribution_label": false,
 	}
+	if p.region.Name != "" {
+		config["region"] = p.region.Name
+	}
+	return map[string]interface{}{"provider": map[string]interface{}{p.GetName(): config}}
+}
+
+// notImportable are the resource types the listers list that the provider
+// can't import: the import reports them as such instead of trying.
+var notImportable = map[string]bool{
+	"google_storage_bucket_acl":         true,
+	"google_storage_default_object_acl": true,
+}
+
+// ImportID returns the ID Terraform imports r with, and false for types it
+// can't import (see notImportable).
+func (GCPProvider) ImportID(r terraformutils.Resource) (string, bool) {
+	return r.InstanceState.ID, !notImportable[r.InstanceInfo.Type]
 }
 
 // Scope names the project and region this import covers, for the output

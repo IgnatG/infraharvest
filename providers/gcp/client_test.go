@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"google.golang.org/api/compute/v1"
+
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 // With an emulator set, Google API calls go there, keeping their paths.
@@ -67,7 +69,7 @@ func TestProviderDataAndScope(t *testing.T) {
 	p := &GCPProvider{projectName: "acme-prod"}
 	p.region.Name = "europe-west1"
 	config := p.GetProviderData()["provider"].(map[string]interface{})["google"].(map[string]interface{})
-	if config["project"] != "acme-prod" || config["add_terraform_attribution_label"] != false {
+	if config["project"] != "acme-prod" || config["region"] != "europe-west1" || config["add_terraform_attribution_label"] != false {
 		t.Errorf("provider config: %v", config)
 	}
 	if account, region, err := p.Scope(context.Background()); err != nil || account != "acme-prod" || region != "europe-west1" {
@@ -75,5 +77,14 @@ func TestProviderDataAndScope(t *testing.T) {
 	}
 	if _, region, _ := (&GCPProvider{projectName: "acme-prod"}).Scope(context.Background()); region != "global" {
 		t.Errorf("global scope: %s", region)
+	}
+}
+
+func TestImportID(t *testing.T) {
+	if _, ok := (GCPProvider{}).ImportID(terraformutils.NewSimpleResource("logs", "logs", "google_storage_bucket_acl", "google")); ok {
+		t.Error("google_storage_bucket_acl can't be imported")
+	}
+	if id, ok := (GCPProvider{}).ImportID(terraformutils.NewSimpleResource("logs", "logs", "google_storage_bucket", "google")); !ok || id != "logs" {
+		t.Errorf("google_storage_bucket: %q %v", id, ok)
 	}
 }
