@@ -11,41 +11,16 @@ infraharvest import kubernetes --all --resources=deployments,services,storagecla
 
 infraharvest connects with your kubeconfig, as kubectl does. Credential plugins in the kubeconfig (`exec`) work; the old built-in `gcp` auth provider doesn't. For GKE, install `gke-gcloud-auth-plugin` and run `gcloud container clusters get-credentials` again, which writes the plugin into the kubeconfig.
 
-All Kubernetes resources that are currently supported by the Kubernetes provider, are also supported by this module. Here is the list of resources which are currently supported by Kubernetes provider v.1.4:
+#### Supported resources
 
-*   `clusterrolebinding`
-    * `kubernetes_cluster_role_binding`
-*   `configmaps`
-    * `kubernetes_config_map`
-*   `deployments`
-    * `kubernetes_deployment`
-*   `horizontalpodautoscalers`
-    * `kubernetes_horizontal_pod_autoscaler`
-*   `limitranges`
-    * `kubernetes_limit_range`
-*   `namespaces`
-    * `kubernetes_namespace`
-*   `persistentvolumes`
-    * `kubernetes_persistent_volume`
-*   `persistentvolumeclaims`
-    * `kubernetes_persistent_volume_claim`
-*   `pods`
-    * `kubernetes_pod`
-*   `replicationcontrollers`
-    * `kubernetes_replication_controller`
-*   `resourcequotas`
-    * `kubernetes_resource_quota`
-*   `secrets`
-    * `kubernetes_secret`
-*   `services`
-    * `kubernetes_service`
-*   `serviceaccounts`
-    * `kubernetes_service_account`
-*   `statefulsets`
-    * `kubernetes_stateful_set`
-*   `storageclasses`
-    * `kubernetes_storage_class`
-    
+infraharvest asks the cluster which API resources it serves (discovery, using the version the cluster prefers for each group) and imports every one that supports `list` and has a resource type in the Terraform kubernetes provider v3. The type is `kubernetes_` plus the kind in snake case: a `Deployment` becomes `kubernetes_deployment`, an `APIService` `kubernetes_api_service`. Kinds without a provider type, such as events and custom resources, are left out.
+
+Each resource is a service named by its plural resource name, as `kubectl api-resources` shows it: `deployments`, `services`, `configmaps`, `clusterrolebindings`, and so on. `infraharvest import kubernetes list` prints the services your cluster offers, and `infraharvest discover kubernetes` lists the objects themselves into a selection file.
+
+Objects owned by another object (with `ownerReferences`, such as the pods of a ReplicaSet or the ReplicaSets of a Deployment) are skipped, since their owner creates them. Namespaced objects are listed across all namespaces, imported with the ID `<namespace>/<name>`; cluster-scoped objects, such as namespaces or cluster roles, with `<name>`.
+
+The provider types infraharvest knows are listed in [providers/kubernetes/supported_types.go](../providers/kubernetes/supported_types.go), taken from the docs of hashicorp/kubernetes v3.3.0.
+
 #### Known issues
 
 * The Terraform Kubernetes provider rejects resources with ":" characters in their names (as they don't meet DNS-1123), while Kubernetes allows them for certain types, e.g. ClusterRoleBinding.
