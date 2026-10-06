@@ -59,6 +59,8 @@ infraharvest import azure --all --resources=resource_group --filter=resource_gro
 
 `--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover azure` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
+The roots are laid out by subscription and resource group: `{output}/azurerm/{subscription}/{resource group}/` with `--resource-group`, and `{output}/azurerm/{subscription}/all/` for the whole subscription.
+
 ## List of supported Azure resources
 
 *   `analysis`
