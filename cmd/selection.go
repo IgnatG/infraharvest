@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net/url"
 	"sort"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/engine"
 	"github.com/IgnatG/infraharvest/managed"
@@ -194,22 +196,24 @@ func (r *engineRun) writeSelection() error {
 const backendState = "backend"
 
 // excludeManaged adds to defaults the listed resources Terraform already
-// manages, according to the state in sources (see managed.Load), so that
-// an import leaves them out unless a selection file says otherwise.
-func excludeManaged(ctx context.Context, run *engineRun, sources []string, listed map[string][]terraformutils.Resource, defaults map[string]string, importID func(terraformutils.Resource) (string, bool)) (map[string]string, error) {
-	if len(sources) == 0 {
+// manages, according to the state in --managed-state (see managed.Load),
+// so that an import leaves them out unless a selection file says
+// otherwise. S3 state is read with --profile unless its source names a
+// profile.
+func excludeManaged(ctx context.Context, run *engineRun, options ImportOptions, listed map[string][]terraformutils.Resource, defaults map[string]string, importID func(terraformutils.Resource) (string, bool)) (map[string]string, error) {
+	if len(options.ManagedState) == 0 {
 		return defaults, nil
 	}
-	resolved := make([]string, 0, len(sources))
-	for _, s := range sources {
+	resolved := make([]string, 0, len(options.ManagedState))
+	for _, s := range options.ManagedState {
 		if s != backendState {
-			resolved = append(resolved, s)
+			resolved = append(resolved, withProfile(s, options.Profile))
 			continue
 		}
 		switch {
 		case run.backend != nil && run.backend.S3 != nil:
 			s3 := run.backend.S3
-			resolved = append(resolved, fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region))
+			resolved = append(resolved, withProfile(fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region), options.Profile))
 		case run.backend != nil && run.backend.GCS != nil:
 			resolved = append(resolved, fmt.Sprintf("gs://%s/%s", run.backend.GCS.Bucket, run.backend.GCS.Prefix))
 		default:
@@ -232,6 +236,26 @@ func excludeManaged(ctx context.Context, run *engineRun, sources []string, liste
 		}
 	}
 	return defaults, nil
+}
+
+// withProfile adds profile, the import's --profile, to an s3:// source that
+// names none, which would otherwise read with the default credential chain:
+// the profile the import was told to use. Other sources stay as they are.
+func withProfile(source, profile string) string {
+	if !strings.HasPrefix(source, "s3://") || profile == "" || profile == "default" {
+		return source
+	}
+	u, err := url.Parse(source)
+	if err != nil {
+		return source // managed.Load reports it.
+	}
+	query := u.Query()
+	if query.Get("profile") != "" {
+		return source
+	}
+	query.Set("profile", profile)
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 // discoveryScope names where provider lists, as the roots are laid out:

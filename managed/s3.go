@@ -12,16 +12,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// S3 reads state from Amazon S3 with the default credential chain.
+// S3 reads state from Amazon S3.
 type S3 struct {
 	client *s3.Client
 }
 
-// NewS3 opens S3 in region, or the default region if it's empty.
-func NewS3(ctx context.Context, region string) (ObjectStore, error) {
+// NewS3 opens S3 in region with the credentials of profile, or the default
+// region and credential chain for those that are empty.
+func NewS3(ctx context.Context, region, profile string) (ObjectStore, error) {
 	var opts []func(*config.LoadOptions) error
 	if region != "" {
 		opts = append(opts, config.WithRegion(region))
+	}
+	if profile != "" {
+		opts = append(opts, config.WithSharedConfigProfile(profile))
 	}
 	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {

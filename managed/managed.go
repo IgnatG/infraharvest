@@ -44,10 +44,11 @@ func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
 	return "", false
 }
 
-// Stores open the object stores state is read from: S3 in a region ("" for
-// the default), and Cloud Storage.
+// Stores open the object stores state is read from: S3 in a region, with
+// the credentials of a shared config profile ("" for the defaults), and
+// Cloud Storage.
 type Stores struct {
-	S3  func(ctx context.Context, region string) (ObjectStore, error)
+	S3  func(ctx context.Context, region, profile string) (ObjectStore, error)
 	GCS func(ctx context.Context) (ObjectStore, error)
 }
 
@@ -56,8 +57,9 @@ var DefaultStores = Stores{S3: NewS3, GCS: NewGCS}
 
 // Load reads the state in sources: state files, directories with state
 // files (*.tfstate, outside .terraform), s3://bucket/prefix (?region=
-// names the bucket's region) and gs://bucket/prefix, all of whose
-// *.tfstate objects are read, from stores.
+// names the bucket's region, ?profile= the profile to read it with) and
+// gs://bucket/prefix, all of whose *.tfstate objects are read, from
+// stores.
 func Load(ctx context.Context, sources []string, stores Stores) (Resources, error) {
 	r := Resources{}
 	for _, source := range sources {
@@ -85,7 +87,7 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	if u.Scheme == "gs" {
 		store, err = stores.GCS(ctx)
 	} else {
-		store, err = stores.S3(ctx, u.Query().Get("region"))
+		store, err = stores.S3(ctx, u.Query().Get("region"), u.Query().Get("profile"))
 	}
 	if err != nil {
 		return err
