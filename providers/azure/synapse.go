@@ -184,8 +184,10 @@ func (az *SynapseGenerator) appendManagedPrivateEndpoint(workspace *armsynapse.W
 	if workspace.Properties == nil || workspace.Properties.ManagedVirtualNetwork == nil {
 		return nil
 	}
+	// A workspace with a managed virtual network names it "default"; without
+	// one the property is empty, and there are no managed private endpoints.
 	virtualNetworkName := *workspace.Properties.ManagedVirtualNetwork
-	if virtualNetworkName == "" || virtualNetworkName == "default" {
+	if virtualNetworkName == "" {
 		return nil
 	}
 	devEndpoint := ""
