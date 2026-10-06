@@ -17,9 +17,8 @@ package commercetools
 import (
 	"context"
 
-	"github.com/IgnatG/infraharvest/providers/commercetools/connectivity"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/labd/commercetools-go-sdk/commercetools"
+	"github.com/labd/commercetools-go-sdk/platform"
 )
 
 type ProductTypeGenerator struct {
@@ -28,31 +27,38 @@ type ProductTypeGenerator struct {
 
 // InitResources generates Terraform Resources from Commercetools API
 func (g *ProductTypeGenerator) InitResources() error {
-	cfg := connectivity.Config{
-		ClientID:     g.GetArgs()["client_id"].(string),
-		ClientSecret: g.GetArgs()["client_secret"].(string),
-		ClientScope:  g.GetArgs()["client_scope"].(string),
-		TokenURL:     g.GetArgs()["token_url"].(string) + "/oauth/token",
-		BaseURL:      g.GetArgs()["base_url"].(string),
-	}
-
-	client := cfg.NewClient()
-
-	productTypes, err := client.ProductTypeQuery(context.Background(), &commercetools.QueryInput{})
+	client, err := g.client()
 	if err != nil {
 		return err
 	}
-	for _, productType := range productTypes.Results {
-		resourceName := productType.Key
-		if resourceName == "" {
-			resourceName = normalizeResourceName(productType.Name)
+	ctx := context.Background()
+	items, err := listAll(func(where []string) ([]platform.ProductType, error) {
+		page, err := client.ProductTypes().Get().Sort(sortByID).Limit(pageSize).WithTotal(false).Where(where).Execute(ctx)
+		if err != nil {
+			return nil, err
 		}
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			productType.ID,
-			resourceName,
+		return page.Results, nil
+	}, func(item platform.ProductType) string { return item.ID })
+	if err != nil {
+		return err
+	}
+	g.Resources = productTypeResources(items)
+	return nil
+}
+
+func productTypeResources(items []platform.ProductType) []terraformutils.Resource {
+	var resources []terraformutils.Resource
+	for _, item := range items {
+		name := deref(item.Key)
+		if name == "" {
+			name = normalizeResourceName(item.Name)
+		}
+		resources = append(resources, terraformutils.NewResource(
+			item.ID,
+			name,
 			"commercetools_product_type",
 			"commercetools",
 			map[string]string{}))
 	}
-	return nil
+	return resources
 }

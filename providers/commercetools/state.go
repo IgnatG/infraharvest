@@ -17,9 +17,8 @@ package commercetools
 import (
 	"context"
 
-	"github.com/IgnatG/infraharvest/providers/commercetools/connectivity"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/labd/commercetools-go-sdk/commercetools"
+	"github.com/labd/commercetools-go-sdk/platform"
 )
 
 type StateGenerator struct {
@@ -28,27 +27,35 @@ type StateGenerator struct {
 
 // InitResources generates Terraform Resources from Commercetools API
 func (g *StateGenerator) InitResources() error {
-	cfg := connectivity.Config{
-		ClientID:     g.GetArgs()["client_id"].(string),
-		ClientSecret: g.GetArgs()["client_secret"].(string),
-		ClientScope:  g.GetArgs()["client_scope"].(string),
-		TokenURL:     g.GetArgs()["token_url"].(string) + "/oauth/token",
-		BaseURL:      g.GetArgs()["base_url"].(string),
-	}
-
-	client := cfg.NewClient()
-
-	states, err := client.StateQuery(context.Background(), &commercetools.QueryInput{})
+	client, err := g.client()
 	if err != nil {
 		return err
 	}
-	for _, state := range states.Results {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			state.ID,
-			state.Key,
+	ctx := context.Background()
+	items, err := listAll(func(where []string) ([]platform.State, error) {
+		page, err := client.States().Get().Sort(sortByID).Limit(pageSize).WithTotal(false).Where(where).Execute(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return page.Results, nil
+	}, func(item platform.State) string { return item.ID })
+	if err != nil {
+		return err
+	}
+	g.Resources = stateResources(items)
+	return nil
+}
+
+func stateResources(items []platform.State) []terraformutils.Resource {
+	var resources []terraformutils.Resource
+	for _, item := range items {
+		name := item.Key
+		resources = append(resources, terraformutils.NewResource(
+			item.ID,
+			name,
 			"commercetools_state",
 			"commercetools",
 			map[string]string{}))
 	}
-	return nil
+	return resources
 }
