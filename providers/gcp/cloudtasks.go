@@ -9,8 +9,8 @@ import (
 	"google.golang.org/api/iterator"
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
+	taskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"google.golang.org/api/compute/v1"
-	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2"
 )
 
 type CloudTaskGenerator struct {
