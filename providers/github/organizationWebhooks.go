@@ -21,7 +21,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	githubAPI "github.com/google/go-github/v35/github"
+	githubAPI "github.com/google/go-github/v92/github"
 )
 
 type OrganizationWebhooksGenerator struct {
@@ -39,27 +39,16 @@ func (g *OrganizationWebhooksGenerator) InitResources() error {
 	opt := &githubAPI.ListOptions{PerPage: 100}
 
 	// List all organization hooks for the authenticated user
-	for {
-		hooks, resp, err := client.Organizations.ListHooks(ctx, g.Args["owner"].(string), opt)
+	for hook, err := range client.Organizations.ListHooksIter(ctx, g.Args["owner"].(string), opt) {
 		if err != nil {
 			log.Println(err)
 			return nil
 		}
-
-		for _, hook := range hooks {
-			resource := terraformutils.NewSimpleResource(
-				strconv.FormatInt(hook.GetID(), 10),
-				strconv.FormatInt(hook.GetID(), 10),
-				"github_organization_webhook",
-				"github")
-
-			g.Resources = append(g.Resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+			strconv.FormatInt(hook.GetID(), 10),
+			strconv.FormatInt(hook.GetID(), 10),
+			"github_organization_webhook",
+			"github"))
 	}
 	return nil
 }

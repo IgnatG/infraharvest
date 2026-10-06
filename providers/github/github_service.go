@@ -15,13 +15,12 @@
 package github
 
 import (
-	"context"
 	"net/http"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/bradleyfalzon/ghinstallation/v2"
-	"github.com/google/go-github/v35/github"
-	"golang.org/x/oauth2"
+	"github.com/google/go-github/v92/github"
 )
 
 const githubDefaultURL = "https://api.github.com/"
@@ -30,42 +29,44 @@ type GithubService struct { //nolint
 	terraformutils.Service
 }
 
+// createClient returns a GitHub client for base_url (github.com when it is
+// empty or the default), authenticated as the GitHub App installation when
+// app_id, installation_id and pem are all set, and with the token otherwise.
 func (g *GithubService) createClient() (*github.Client, error) {
-	if g.GetArgs()["base_url"].(string) == githubDefaultURL {
-		return g.createRegularClient(), nil
-	}
-	return g.createEnterpriseClient()
+	baseURL, _ := g.GetArgs()["base_url"].(string)
+	appID, _ := g.GetArgs()["app_id"].(int64)
+	installationID, _ := g.GetArgs()["installation_id"].(int64)
+	pem, _ := g.GetArgs()["pem"].(string)
+	token, _ := g.GetArgs()["token"].(string)
+	return newClient(baseURL, token, appID, installationID, pem)
 }
 
-func (g *GithubService) createRegularClient() *github.Client {
-	ctx := context.Background()
-	if g.Args["app_id"].(int64) != 0 && g.Args["installation_id"].(int64) != 0 && g.Args["pem"].(string) != "" {
-		itr, err := ghinstallation.New(http.DefaultTransport, g.Args["app_id"].(int64), g.Args["installation_id"].(int64), []byte(g.Args["pem"].(string)))
-		if err != nil {
-			return nil
-		}
-		return github.NewClient(&http.Client{Transport: itr})
+func newClient(baseURL, token string, appID, installationID int64, pem string) (*github.Client, error) {
+	enterprise := baseURL != "" && baseURL != githubDefaultURL
+	var opts []github.ClientOptionsFunc
+	if enterprise {
+		opts = append(opts, github.WithEnterpriseURLs(baseURL, baseURL))
 	}
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: g.Args["token"].(string)},
-	)
-	tc := oauth2.NewClient(ctx, ts)
-	return github.NewClient(tc)
-}
 
-func (g *GithubService) createEnterpriseClient() (*github.Client, error) {
-	ctx := context.Background()
-	baseURL := g.GetArgs()["base_url"].(string)
-	if g.Args["app_id"].(int64) != 0 && g.Args["installation_id"].(int64) != 0 && g.Args["pem"].(string) != "" {
-		itr, err := ghinstallation.New(http.DefaultTransport, g.Args["app_id"].(int64), g.Args["installation_id"].(int64), []byte(g.Args["pem"].(string)))
+	var installation *ghinstallation.Transport
+	if appID != 0 && installationID != 0 && pem != "" {
+		itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(pem))
 		if err != nil {
 			return nil, err
 		}
-		return github.NewEnterpriseClient(baseURL, baseURL, &http.Client{Transport: itr})
+		installation = itr
+		opts = append(opts, github.WithTransport(itr))
+	} else if token != "" {
+		opts = append(opts, github.WithAuthToken(token))
 	}
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: g.Args["token"].(string)},
-	)
-	tc := oauth2.NewClient(ctx, ts)
-	return github.NewEnterpriseClient(baseURL, baseURL, tc)
+
+	client, err := github.NewClient(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if installation != nil && enterprise {
+		// Installation tokens come from the same API as everything else.
+		installation.BaseURL = strings.TrimSuffix(client.BaseURL(), "/")
+	}
+	return client, nil
 }

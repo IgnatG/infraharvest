@@ -1,4 +1,4 @@
-// Copyright 2020 The Terraformer Authors.
+// Copyright 2018 The Terraformer Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,13 +16,20 @@ package github
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	githubAPI "github.com/google/go-github/v35/github"
+	githubAPI "github.com/google/go-github/v92/github"
 )
+
+// classicProjectsMediaType is the media type the Projects (classic) API
+// answers with.
+const classicProjectsMediaType = "application/vnd.github.inertia-preview+json"
 
 type OrganizationProjectGenerator struct {
 	GithubService
@@ -42,35 +49,53 @@ func (g *OrganizationProjectGenerator) InitResources() error {
 	return nil
 }
 
+// classicProject is the part of a Projects (classic) project the lister reads.
+type classicProject struct {
+	ID int64 `json:"id"`
+}
+
+// createOrganizationProjects lists the organization's Projects (classic),
+// which github_organization_project manages. go-github only covers Projects
+// (the new ones) now, so this calls GET /orgs/{org}/projects directly.
 func createOrganizationProjects(ctx context.Context, client *githubAPI.Client, owner string) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
 
-	opt := &githubAPI.ProjectListOptions{
-		ListOptions: githubAPI.ListOptions{PerPage: 100},
-	}
-
-	// List all organization projects for the authenticated user
+	page := 1
 	for {
-		projects, resp, err := client.Organizations.ListProjects(ctx, owner, opt)
+		projects, nextPage, err := listOrganizationClassicProjects(ctx, client, owner, page)
 		if err != nil {
 			log.Println(err)
 			return nil
 		}
 
 		for _, project := range projects {
-			resource := terraformutils.NewSimpleResource(
-				strconv.FormatInt(project.GetID(), 10),
-				strconv.FormatInt(project.GetID(), 10),
+			resources = append(resources, terraformutils.NewSimpleResource(
+				strconv.FormatInt(project.ID, 10),
+				strconv.FormatInt(project.ID, 10),
 				"github_organization_project",
-				"github")
-
-			resources = append(resources, resource)
+				"github"))
 		}
 
-		if resp.NextPage == 0 {
+		if nextPage == 0 {
 			break
 		}
-		opt.Page = resp.NextPage
+		page = nextPage
 	}
 	return resources
+}
+
+func listOrganizationClassicProjects(ctx context.Context, client *githubAPI.Client, owner string, page int) ([]classicProject, int, error) {
+	u := fmt.Sprintf("orgs/%s/projects?per_page=100&page=%d", url.PathEscape(owner), page)
+	req, err := client.NewRequest(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Accept", classicProjectsMediaType)
+
+	var projects []classicProject
+	resp, err := client.Do(req, &projects)
+	if err != nil {
+		return nil, 0, err
+	}
+	return projects, resp.NextPage, nil
 }

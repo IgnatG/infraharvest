@@ -20,7 +20,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	githubAPI "github.com/google/go-github/v35/github"
+	githubAPI "github.com/google/go-github/v92/github"
 )
 
 // MembersGenerator holds GithubService struct of Terraform service information
@@ -50,27 +50,16 @@ func createMembershipsResources(ctx context.Context, client *githubAPI.Client, o
 	}
 
 	// List all organization members for the authenticated user
-	for {
-		members, resp, err := client.Organizations.ListMembers(ctx, owner, opt)
+	for member, err := range client.Organizations.ListMembersIter(ctx, owner, opt) {
 		if err != nil {
 			log.Println(err)
 			return nil
 		}
-
-		for _, member := range members {
-			resource := terraformutils.NewSimpleResource(
-				owner+":"+member.GetLogin(),
-				member.GetLogin(),
-				"github_membership",
-				"github")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, terraformutils.NewSimpleResource(
+			owner+":"+member.GetLogin(),
+			member.GetLogin(),
+			"github_membership",
+			"github"))
 	}
 
 	return resources

@@ -64,20 +64,19 @@ func (p *GithubProvider) Init(args []string) error {
 	}
 
 	p.owner = args[0]
-	if len(args) < 2 {
-		if os.Getenv("GITHUB_TOKEN") == "" {
-			return errors.New("token requirement")
-		}
-		p.token = os.Getenv("GITHUB_TOKEN")
-	} else {
+	// --token wins; without it, GITHUB_TOKEN. A GitHub App needs neither.
+	if len(args) > 1 {
 		p.token = args[1]
 	}
-	if len(args) > 2 {
-		if args[2] != "" {
-			p.baseURL = args[2]
-		} else {
-			p.baseURL = githubDefaultURL
-		}
+	if p.token == "" {
+		p.token = os.Getenv("GITHUB_TOKEN")
+	}
+	if p.token == "" && (p.appID == 0 || p.installationID == 0 || p.pem == "") {
+		return errors.New("token requirement")
+	}
+	p.baseURL = githubDefaultURL
+	if len(args) > 2 && args[2] != "" {
+		p.baseURL = args[2]
 	}
 	return nil
 }
