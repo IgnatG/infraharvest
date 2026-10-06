@@ -18,8 +18,8 @@ import (
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	newrelic "github.com/newrelic/newrelic-client-go/newrelic"
-	"github.com/newrelic/newrelic-client-go/pkg/common"
+	newrelic "github.com/newrelic/newrelic-client-go/v2/newrelic"
+	"github.com/newrelic/newrelic-client-go/v2/pkg/common"
 )
 
 type TagsGenerator struct {
