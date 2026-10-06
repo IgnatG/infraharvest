@@ -24,3 +24,14 @@ services:
     profiles: [gcp]
     ports:
       - "127.0.0.1:4588:4588"
+  # floci-az, the Azure emulator, for TestAzureRoundTrip: docker compose
+  # --profile azure up -d floci-az. The azurerm provider reads the cloud's
+  # endpoints over HTTPS only: TLS on, with a CA served at /_floci/tls-cert
+  # for the host to trust.
+  floci-az:
+    image: floci/floci-az:0.14.0@sha256:a35e74dfca9a5e811090d8ae98876044fc8990a8874ee525231f524ca56679db
+    profiles: [azure]
+    ports:
+      - "127.0.0.1:4577:4577"
+    environment:
+      FLOCI_AZ_TLS_ENABLED: "true"

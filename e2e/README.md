@@ -50,3 +50,20 @@ docker compose -f e2e/compose.yaml --profile gcp down
 `INFRAHARVEST_GCP_ENDPOINT` sends the listers' Google API calls to the emulator, without credentials. The test points the Terraform provider there through its `GOOGLE_*_CUSTOM_ENDPOINT` variables, with a placeholder access token. It refuses any endpoint other than localhost.
 
 Not covered yet: the listers that use gRPC clients (IAM, Cloud Tasks, Cloud Build, Logging). floci-gcp serves IAM over REST only.
+
+## Azure (floci-az)
+
+[`TestAzureRoundTrip`](azure_test.go) uses [floci-az](https://github.com/floci-io/floci-az), the Azure member of the same emulator family:
+
+1. Terraform creates the resources in [`testdata/azure`](testdata/azure/main.tf) in floci-az: a resource group with a virtual network and subnet, a network security group with a rule, a public IP, and a network interface.
+2. `infraharvest import azure --all --resource-group=infraharvest-e2e` imports them.
+3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
+
+```sh
+docker compose -f e2e/compose.yaml --profile azure up -d floci-az
+curl -sf http://localhost:4577/_floci/tls-cert -o floci-az.crt   # then trust it, as CI does
+E2E_AZURE_METADATA_HOST=localhost:4577 go test -tags e2e,minimal,azure -run TestAzure -v ./e2e/
+docker compose -f e2e/compose.yaml --profile azure down
+```
+
+The test points the listers and the azurerm provider at the emulator as a custom cloud (`ARM_ENVIRONMENT=stack`, `ARM_METADATA_HOSTNAME`), with a placeholder service principal. Both read the cloud's endpoints over HTTPS, so the host must trust the CA floci-az generates; CI installs it into the system store. The test refuses any metadata host other than localhost. floci-az lists network resources by resource group only, hence `--resource-group`.

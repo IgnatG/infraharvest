@@ -190,6 +190,54 @@ jobs:
       if: failure()
       run: docker compose -f e2e/compose.yaml --profile gcp logs floci-gcp
 
+  e2e-azure:
+    name: e2e-azure (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [terraform, tofu]
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: matrix.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: matrix.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    # The azurerm provider and the listers reach floci-az over HTTPS: trust
+    # the CA it generates at startup.
+    - name: Start floci-az
+      run: |
+        docker compose -f e2e/compose.yaml --profile azure up -d floci-az
+        for _ in $(seq 60); do
+          if curl -sf http://localhost:4577/_floci/tls-cert -o floci-az.crt && grep -q "BEGIN CERTIFICATE" floci-az.crt; then
+            sudo cp floci-az.crt /usr/local/share/ca-certificates/floci-az.crt
+            sudo update-ca-certificates
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "floci-az didn't start"; exit 1
+    - name: Test
+      env:
+        E2E_AZURE_METADATA_HOST: localhost:4577
+        E2E_ENGINE: ${{ matrix.engine }}
+      run: go test -tags e2e,minimal,azure -timeout 20m -v -run TestAzure ./e2e/
+    - name: floci-az logs
+      if: failure()
+      run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
+
   # The read-only permission templates must stay formatted and valid.
   permissions:
     runs-on: ubuntu-latest
