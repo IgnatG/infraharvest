@@ -29,9 +29,7 @@ func (az *UserServiceGenerator) listResources() ([]msgraph.User, error) {
 		return nil, err
 	}
 
-	for _, user := range *users {
-		resources = append(resources, user)
-	}
+	resources = append(resources, *users...)
 
 	return resources, nil
 }

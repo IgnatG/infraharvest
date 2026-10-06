@@ -29,9 +29,7 @@ func (az *GroupServiceGenerator) listResources() ([]msgraph.Group, error) {
 		return nil, err
 	}
 
-	for _, group := range *groups {
-		resources = append(resources, group)
-	}
+	resources = append(resources, *groups...)
 
 	return resources, nil
 }
