@@ -15,11 +15,24 @@
 package newrelic
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	newrelic "github.com/newrelic/newrelic-client-go/newrelic"
+	newrelic "github.com/newrelic/newrelic-client-go/v2/newrelic"
+	"github.com/newrelic/newrelic-client-go/v2/pkg/alerts"
+	"github.com/newrelic/newrelic-client-go/v2/pkg/region"
 )
+
+// infraConditionsPageSize is the Infrastructure API's default page size.
+const infraConditionsPageSize = 50
 
 type InfraGenerator struct {
 	NewRelicService
@@ -31,8 +44,16 @@ func (g *InfraGenerator) createAlertInfraConditionResources(client *newrelic.New
 		return err
 	}
 
+	reg, err := region.Get(region.Default)
+	if err != nil {
+		return err
+	}
+	conditionsURL := reg.InfrastructureURL("/alerts/conditions")
+	httpClient := &http.Client{Timeout: time.Minute}
+	apiKey := g.GetArgs()["apiKey"].(string)
+
 	for _, alertPolicy := range alertPolicies {
-		alertInfraConditions, err := client.Alerts.ListInfrastructureConditions(alertPolicy.ID)
+		alertInfraConditions, err := listInfraConditions(context.Background(), httpClient, conditionsURL, apiKey, alertPolicy.ID)
 		if err != nil {
 			return err
 		}
@@ -48,6 +69,68 @@ func (g *InfraGenerator) createAlertInfraConditionResources(client *newrelic.New
 		}
 	}
 	return nil
+}
+
+type infraConditionsPage struct {
+	Data []alerts.InfrastructureCondition `json:"data"`
+	Meta struct {
+		Total int `json:"total"`
+	} `json:"meta"`
+}
+
+// listInfraConditions lists a policy's infrastructure alert conditions page
+// by page. The SDK's ListInfrastructureConditions reads only the first page.
+func listInfraConditions(ctx context.Context, client *http.Client, conditionsURL, apiKey string, policyID int) ([]alerts.InfrastructureCondition, error) {
+	var all []alerts.InfrastructureCondition
+	for {
+		page, err := getInfraConditionsPage(ctx, client, conditionsURL, apiKey, policyID, len(all))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.Data...)
+		if page.Meta.Total > 0 {
+			if len(page.Data) == 0 || len(all) >= page.Meta.Total {
+				return all, nil
+			}
+		} else if len(page.Data) < infraConditionsPageSize {
+			return all, nil
+		}
+	}
+}
+
+func getInfraConditionsPage(ctx context.Context, client *http.Client, conditionsURL, apiKey string, policyID, offset int) (*infraConditionsPage, error) {
+	u, err := url.Parse(conditionsURL)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("policy_id", strconv.Itoa(policyID))
+	q.Set("limit", strconv.Itoa(infraConditionsPageSize))
+	q.Set("offset", strconv.Itoa(offset))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Api-Key", apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("listing infrastructure conditions of policy %d: %s: %s",
+			policyID, resp.Status, strings.TrimSpace(string(body)))
+	}
+	var page infraConditionsPage
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return nil, fmt.Errorf("listing infrastructure conditions of policy %d: %w", policyID, err)
+	}
+	return &page, nil
 }
 
 func (g *InfraGenerator) InitResources() error {

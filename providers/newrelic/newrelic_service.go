@@ -16,7 +16,7 @@ package newrelic
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	newrelic "github.com/newrelic/newrelic-client-go/newrelic"
+	newrelic "github.com/newrelic/newrelic-client-go/v2/newrelic"
 )
 
 type NewRelicService struct { //nolint
