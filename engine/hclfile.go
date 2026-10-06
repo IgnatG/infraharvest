@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // hclFile is a configuration file parsed twice: as an editable tree, and as
@@ -45,7 +47,7 @@ func loadHCL(path string) (*hclFile, error) {
 // save writes the edited file back, formatted. Removing the first block
 // leaves the blank line that separated it from the next; save drops it.
 func (f *hclFile) save() error {
-	return os.WriteFile(f.path, bytes.TrimLeft(hclwrite.Format(f.file.Bytes()), "\n"), 0o644)
+	return fsutil.WriteFile(f.path, bytes.TrimLeft(hclwrite.Format(f.file.Bytes()), "\n"), 0o644)
 }
 
 // resourceBlock is a top-level resource block in both trees.

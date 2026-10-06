@@ -19,6 +19,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // configFiles parses the .tf files of dir, in name order, without override
@@ -395,7 +397,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	lock := filepath.Join(root, LockFileName)
 	if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
 		if content, err := os.ReadFile(filepath.Join(staging, LockFileName)); err == nil {
-			return added, os.WriteFile(lock, content, 0o644)
+			return added, fsutil.WriteFile(lock, content, 0o644)
 		}
 	}
 	return added, nil
@@ -567,7 +569,7 @@ func appendFile(path string, content []byte) error {
 	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n\n")) {
 		existing = append(bytes.TrimRight(existing, "\n"), '\n', '\n')
 	}
-	return os.WriteFile(path, append(existing, content...), 0o644)
+	return fsutil.WriteFile(path, append(existing, content...), 0o644)
 }
 
 // loadOptionalHCL loads the file at path, or returns nil if there is none.
