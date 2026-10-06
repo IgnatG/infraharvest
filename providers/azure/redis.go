@@ -28,14 +28,20 @@ type RedisGenerator struct {
 func (g *RedisGenerator) listRedisServers() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
 	ctx := context.Background()
-	subscriptionID, _, credential, options := g.getClientArgs()
+	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	redisClient, err := armredis.NewClient(subscriptionID, credential, options)
 	if err != nil {
 		return nil, err
 	}
 
-	redisServers, err := listAllLenient(ctx, redisClient.NewListBySubscriptionPager(nil),
-		func(p armredis.ClientListBySubscriptionResponse) []*armredis.ResourceInfo { return p.Value })
+	var redisServers []*armredis.ResourceInfo
+	if resourceGroup != "" {
+		redisServers, err = listAllLenient(ctx, redisClient.NewListByResourceGroupPager(resourceGroup, nil),
+			func(p armredis.ClientListByResourceGroupResponse) []*armredis.ResourceInfo { return p.Value })
+	} else {
+		redisServers, err = listAllLenient(ctx, redisClient.NewListBySubscriptionPager(nil),
+			func(p armredis.ClientListBySubscriptionResponse) []*armredis.ResourceInfo { return p.Value })
+	}
 	if err != nil {
 		return nil, err
 	}
