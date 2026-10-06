@@ -14,6 +14,7 @@ import (
 	"sort"
 
 	"github.com/IgnatG/infraharvest/engine"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // CheckpointDir holds, in the output directory, a checkpoint of each root
@@ -98,7 +99,7 @@ func saveCheckpoint(out, dir, fp string, result *engine.Result) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(content, '\n'), 0o644)
+	return fsutil.WriteFile(path, append(content, '\n'), 0o644)
 }
 
 // generatedFiles are the files a previous run wrote into a root, which

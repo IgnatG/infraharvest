@@ -5,8 +5,8 @@ package terraformutils
 
 import (
 	"io/fs"
-	"os"
-	"path/filepath"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // SecretFilePerm is the permission of output that can contain secrets, such
@@ -14,35 +14,10 @@ import (
 const SecretFilePerm fs.FileMode = 0o600
 
 // WriteSecretFile writes data to path so that only the owner can read it.
-// The data goes to a private temporary file that then replaces path, so a
-// file left by an earlier run with wider permissions is replaced rather than
-// rewritten in place, and the data is never readable by others.
-func WriteSecretFile(path string, data []byte) (err error) {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = os.Remove(f.Name())
-		}
-	}()
-	if err = f.Chmod(SecretFilePerm); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if _, err = f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	// Flush before the rename, so a crash right after it cannot leave path
-	// pointing at a truncated file.
-	if err = f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
+// The data goes to a private temporary file that then replaces path (see
+// fsutil.WriteFile), so a file left by an earlier run with wider
+// permissions is replaced rather than rewritten in place, and the data is
+// never readable by others.
+func WriteSecretFile(path string, data []byte) error {
+	return fsutil.WriteFile(path, data, SecretFilePerm)
 }

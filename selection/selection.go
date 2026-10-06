@@ -19,6 +19,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/managed"
 )
 
@@ -241,7 +242,7 @@ func (f *File) Save(path string) error {
 	if err := encoder.Close(); err != nil {
 		return err
 	}
-	return os.WriteFile(path, out.Bytes(), 0o644)
+	return fsutil.WriteFile(path, out.Bytes(), 0o644)
 }
 
 // ErrNoSelection explains that an import must say what to import.

@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/managed"
 )
 
@@ -364,7 +365,7 @@ func (r *Report) WriteFiles(outputDir string) error {
 		"manifest.json": manifest,
 		"report.md":     []byte(r.Markdown()),
 	} {
-		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
 			return err
 		}
 	}
