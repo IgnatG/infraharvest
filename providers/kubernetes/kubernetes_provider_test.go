@@ -4,11 +4,14 @@
 package kubernetes
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 )
 
 func TestSupportedKinds(t *testing.T) {
@@ -31,6 +34,8 @@ func TestSupportedKinds(t *testing.T) {
 			GroupVersion: "apps/v1",
 			APIResources: []metav1.APIResource{
 				{Name: "deployments", Kind: "Deployment", Namespaced: true, Verbs: []string{"list"}},
+				{Name: "daemonsets", Kind: "DaemonSet", Namespaced: true, Verbs: []string{"list"}},
+				{Name: "replicasets", Kind: "ReplicaSet", Namespaced: true, Verbs: []string{"list"}},
 			},
 		},
 		{
@@ -51,6 +56,7 @@ func TestSupportedKinds(t *testing.T) {
 		"endpoints":   {Name: "Endpoints", Resource: "endpoints", Version: "v1", Namespaced: true},
 		"deployments": {Name: "Deployment", Resource: "deployments", Group: "apps", Version: "v1", Namespaced: true},
 		"apiservices": {Name: "APIService", Resource: "apiservices", Group: "apiregistration.k8s.io", Version: "v1"},
+		"daemonsets":  {Name: "DaemonSet", Resource: "daemonsets", Group: "apps", Version: "v1", Namespaced: true},
 	}
 	gotNames := slices.Sorted(maps.Keys(got))
 	wantNames := slices.Sorted(maps.Keys(want))
@@ -68,5 +74,32 @@ func TestSupportedKinds(t *testing.T) {
 				k.Name, k.Resource, k.Group, k.Version, k.Namespaced,
 				w.Name, w.Resource, w.Group, w.Version, w.Namespaced)
 		}
+	}
+}
+
+func TestDiscoveredLists(t *testing.T) {
+	lists := []*metav1.APIResourceList{{GroupVersion: "v1"}, {GroupVersion: "apps/v1"}}
+	groupsFailed := &discovery.ErrGroupDiscoveryFailed{Groups: map[schema.GroupVersion]error{
+		{Group: "metrics.k8s.io", Version: "v1beta1"}: errors.New("the server is currently unable to handle the request"),
+	}}
+
+	tests := []struct {
+		name  string
+		lists []*metav1.APIResourceList
+		err   error
+		want  int
+	}{
+		{name: "complete", lists: lists, want: 2},
+		{name: "some groups failed", lists: lists, err: groupsFailed, want: 2},
+		{name: "other error with lists", lists: lists, err: errors.New("partial"), want: 2},
+		{name: "groups failed, no lists", err: groupsFailed, want: 0},
+		{name: "unreachable", err: errors.New("connection refused"), want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := discoveredLists(tt.lists, tt.err); len(got) != tt.want {
+				t.Errorf("got %d lists, want %d", len(got), tt.want)
+			}
+		})
 	}
 }

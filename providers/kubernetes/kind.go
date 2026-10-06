@@ -16,6 +16,7 @@ package kubernetes
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
@@ -63,7 +64,10 @@ func (k *Kind) InitResources() error {
 // namespaced kind and "name" for a cluster-scoped one.
 func (k *Kind) listResources(ctx context.Context, client dynamic.Interface) error {
 	resource := client.Resource(k.GroupVersionResource())
-	tfType := extractTfResourceName(k.Name)
+	tfType, ok := terraformType(k.Name)
+	if !ok {
+		return fmt.Errorf("kubernetes: %s has no Terraform resource type", k.Name)
+	}
 
 	opts := metav1.ListOptions{Limit: listPageSize}
 	for {

@@ -5,7 +5,7 @@ package kubernetes
 
 // supportedResourceTypes are the resource types of the hashicorp/kubernetes
 // Terraform provider. GetSupportedService keeps only the API resource kinds
-// whose Terraform type (see extractTfResourceName) is in this set.
+// whose Terraform type (see terraformType) is in this set.
 //
 // Source: the "resources" docs of hashicorp/kubernetes v3.3.0 in the
 // Terraform Registry
