@@ -17,10 +17,9 @@ services:
       retries: 30
   # floci-gcp, the GCP emulator, for TestGCPRoundTrip: docker compose
   # --profile gcp up -d floci-gcp. Control planes only, without Docker.
-  # A nightly build: Compute Engine came after release 0.9.0. Move to the
-  # first release after it.
+  # 0.10.0 is the first release with Compute Engine.
   floci-gcp:
-    image: floci/floci-gcp:nightly-10052026@sha256:fbae016263578fcdb4b2355ac9daf0a8ef8148ceadca8780a1b1b6904642e169
+    image: floci/floci-gcp:0.10.0@sha256:405c128b685afbc461276820f2286defcc3a6fa478755067d3e3f740c5503c07
     profiles: [gcp]
     ports:
       - "127.0.0.1:4588:4588"
