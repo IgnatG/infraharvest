@@ -56,13 +56,10 @@ func (g *ServiceLevelObjectiveGenerator) InitResources() error {
 	auth := g.Args["auth"].(context.Context)
 	api := datadogV1.NewServiceLevelObjectivesApi(datadogClient)
 
-	var slos []datadogV1.ServiceLevelObjective
-	resp, _, err := api.ListSLOs(auth)
+	slos, err := collectPages(api.ListSLOsWithPagination(auth))
 	if err != nil {
 		return err
 	}
-
-	slos = append(slos, resp.GetData()...)
 	g.Resources = g.createResources(slos)
 	return nil
 }

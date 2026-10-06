@@ -75,10 +75,10 @@ func (g *DashboardJSONGenerator) InitResources() error {
 		return nil
 	}
 
-	summary, _, err := api.ListDashboards(auth)
+	dashboards, err := collectPages(api.ListDashboardsWithPagination(auth))
 	if err != nil {
 		return err
 	}
-	g.Resources = g.createResources(summary.GetDashboards())
+	g.Resources = g.createResources(dashboards)
 	return nil
 }

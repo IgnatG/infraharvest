@@ -132,7 +132,7 @@ require (
 	github.com/ddelnano/terraform-provider-mikrotik/client v0.0.0-20210401060029-7f652169b2c4
 	github.com/ddelnano/terraform-provider-xenorchestra/client v0.0.0-20210401070256-0d721c6762ef
 	github.com/denverdino/aliyungo v0.0.0-20200327235253-d59c209c7e93
-	github.com/digitalocean/godo v1.83.0
+	github.com/digitalocean/godo v1.217.0
 	github.com/fastly/go-fastly/v7 v7.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-github/v92 v92.0.0
@@ -292,7 +292,7 @@ require (
 	cloud.google.com/go/cloudtasks v1.13.7
 	cloud.google.com/go/iam v1.5.3 // indirect
 	cloud.google.com/go/monitoring v1.24.3
-	github.com/DataDog/datadog-api-client-go/v2 v2.11.0
+	github.com/DataDog/datadog-api-client-go/v2 v2.66.0
 	github.com/Myra-Security-GmbH/myrasec-go/v2 v2.28.0
 	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
 	github.com/manicminer/hamilton v0.44.0
