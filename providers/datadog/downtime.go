@@ -66,7 +66,7 @@ func (g *DowntimeGenerator) InitResources() error {
 					return err
 				}
 
-				monitor, _, err := api.GetDowntime(auth, i)
+				monitor, _, err := api.GetDowntime(auth, i) //nolint:staticcheck // datadog_downtime imports by the v1 downtime ID; the v2 API lists datadog_downtime_schedule IDs
 				if err != nil {
 					return err
 				}
@@ -81,7 +81,7 @@ func (g *DowntimeGenerator) InitResources() error {
 		return nil
 	}
 
-	downtimes, _, err := api.ListDowntimes(auth)
+	downtimes, _, err := api.ListDowntimes(auth) //nolint:staticcheck // datadog_downtime imports by the v1 downtime ID; the v2 API lists datadog_downtime_schedule IDs
 	if err != nil {
 		return err
 	}
