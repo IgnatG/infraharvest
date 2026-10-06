@@ -14,7 +14,7 @@ The provider signs in with the first method whose settings are present, in this 
 
 Other settings:
 
-- `ARM_ENVIRONMENT`: the Azure cloud, `public` (default), `usgovernment` or `china`.
+- `ARM_ENVIRONMENT`: the Azure cloud, `public` (default), `usgovernment`, `china`, or `stack` for a custom cloud such as Azure Stack Hub, whose endpoints `ARM_METADATA_HOSTNAME` serves (as for the azurerm provider: a host name, read over HTTPS).
 - `ARM_AUXILIARY_TENANT_IDS`: up to 3 more tenant IDs, separated by `;`, for resources linked across tenants.
 
 ### Examples

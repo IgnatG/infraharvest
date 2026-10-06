@@ -64,6 +64,10 @@ type authConfig struct {
 	msiEndpoint        string
 	auxiliaryTenants   []string
 	cloud              cloud.Configuration
+	// metadataHost, for ARM_ENVIRONMENT=stack, serves the endpoints of a
+	// custom cloud, such as Azure Stack Hub (see cloudFromMetadata), which
+	// then replace cloud.
+	metadataHost string
 }
 
 // loadAuthConfig reads the sign-in configuration through getenv (os.Getenv
@@ -95,6 +99,13 @@ func loadAuthConfig(getenv func(string) string) (authConfig, error) {
 			return authConfig{}, errors.New("the provider only supports 3 auxiliary tenant IDs for ARM_AUXILIARY_TENANT_IDS")
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(getenv("ARM_ENVIRONMENT")), stackEnvironment) {
+		cfg.metadataHost = getenv("ARM_METADATA_HOSTNAME")
+		if cfg.metadataHost == "" {
+			return authConfig{}, errors.New("ARM_ENVIRONMENT=stack needs ARM_METADATA_HOSTNAME, the host that serves the cloud's endpoints")
+		}
+		return cfg, nil
+	}
 	c, err := cloudFromEnvironment(getenv("ARM_ENVIRONMENT"))
 	if err != nil {
 		return authConfig{}, err
@@ -103,9 +114,69 @@ func loadAuthConfig(getenv func(string) string) (authConfig, error) {
 	return cfg, nil
 }
 
+// stackEnvironment is the ARM_ENVIRONMENT of a custom cloud whose endpoints
+// ARM_METADATA_HOSTNAME serves, as with the azurerm provider.
+const stackEnvironment = "stack"
+
+// cloudFromMetadata reads a custom cloud's endpoints from host, its
+// metadata host, over HTTPS, as the azurerm provider does for
+// ARM_ENVIRONMENT=stack: the sign-in authority, and Resource Manager's
+// endpoint and token audience. Without a Resource Manager endpoint, as
+// with Azure Stack Hub, Resource Manager is the metadata host itself.
+func cloudFromMetadata(ctx context.Context, client *http.Client, host string) (cloud.Configuration, error) {
+	u := url.URL{Scheme: "https", Host: host, Path: "/metadata/endpoints", RawQuery: "api-version=2022-09-01"}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
+	if err != nil {
+		return cloud.Configuration{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return cloud.Configuration{}, fmt.Errorf("reading the cloud's endpoints: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return cloud.Configuration{}, fmt.Errorf("reading the cloud's endpoints: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return cloud.Configuration{}, fmt.Errorf("reading the cloud's endpoints from %s: %s", u.String(), resp.Status)
+	}
+	type endpoints struct {
+		ResourceManager string `json:"resourceManager"`
+		Authentication  struct {
+			LoginEndpoint string   `json:"loginEndpoint"`
+			Audiences     []string `json:"audiences"`
+		} `json:"authentication"`
+	}
+	// Azure Stack Hub answers with its cloud, Azure's metadata host with a
+	// list of clouds.
+	var e endpoints
+	if err := json.Unmarshal(body, &e); err != nil {
+		var list []endpoints
+		if err := json.Unmarshal(body, &list); err != nil || len(list) != 1 {
+			return cloud.Configuration{}, fmt.Errorf("%s: want the endpoints of one cloud", u.String())
+		}
+		e = list[0]
+	}
+	if e.Authentication.LoginEndpoint == "" || len(e.Authentication.Audiences) == 0 {
+		return cloud.Configuration{}, fmt.Errorf("%s: no sign-in endpoint or audience", u.String())
+	}
+	if e.ResourceManager == "" {
+		e.ResourceManager = "https://" + host
+	}
+	return cloud.Configuration{
+		ActiveDirectoryAuthorityHost: e.Authentication.LoginEndpoint,
+		Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
+			cloud.ResourceManager: {Endpoint: e.ResourceManager, Audience: e.Authentication.Audiences[0]},
+		},
+	}, nil
+}
+
 // cloudFromEnvironment maps ARM_ENVIRONMENT to an Azure cloud. It accepts the
 // short names the azurerm provider uses (public, usgovernment, china) and the
-// AZURE<NAME>CLOUD spelling; empty means the public cloud.
+// AZURE<NAME>CLOUD spelling; empty means the public cloud. A custom cloud
+// (stack) is read from its metadata host instead (see cloudFromMetadata).
 func cloudFromEnvironment(name string) (cloud.Configuration, error) {
 	n := strings.ToLower(strings.TrimSpace(name))
 	n = strings.TrimSuffix(strings.TrimPrefix(n, "azure"), "cloud")
@@ -117,7 +188,7 @@ func cloudFromEnvironment(name string) (cloud.Configuration, error) {
 	case "china":
 		return cloud.AzureChina, nil
 	}
-	return cloud.Configuration{}, fmt.Errorf("unsupported ARM_ENVIRONMENT %q: use public, usgovernment or china", name)
+	return cloud.Configuration{}, fmt.Errorf("unsupported ARM_ENVIRONMENT %q: use public, usgovernment, china or stack", name)
 }
 
 // selectAuthMethod picks how to sign in: a client certificate, a client
@@ -141,6 +212,8 @@ func selectAuthMethod(cfg authConfig) string {
 // newCredential builds the credential for the sign-in method cfg selects.
 func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 	clientOptions := azcore.ClientOptions{Cloud: cfg.cloud}
+	// A custom cloud's authority isn't one Microsoft Entra ID knows.
+	customCloud := cfg.metadataHost != ""
 	method := selectAuthMethod(cfg)
 	switch method {
 	case authClientCertificate, authClientSecret, authOIDC:
@@ -166,12 +239,14 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 			&azidentity.ClientCertificateCredentialOptions{
 				ClientOptions:              clientOptions,
 				AdditionallyAllowedTenants: cfg.auxiliaryTenants,
+				DisableInstanceDiscovery:   customCloud,
 			})
 	case authClientSecret:
 		return azidentity.NewClientSecretCredential(cfg.tenantID, cfg.clientID, cfg.clientSecret,
 			&azidentity.ClientSecretCredentialOptions{
 				ClientOptions:              clientOptions,
 				AdditionallyAllowedTenants: cfg.auxiliaryTenants,
+				DisableInstanceDiscovery:   customCloud,
 			})
 	case authOIDC:
 		httpClient := &http.Client{Timeout: time.Minute}
@@ -180,6 +255,7 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 			&azidentity.ClientAssertionCredentialOptions{
 				ClientOptions:              clientOptions,
 				AdditionallyAllowedTenants: cfg.auxiliaryTenants,
+				DisableInstanceDiscovery:   customCloud,
 			})
 	case authManagedIdentity:
 		if cfg.msiEndpoint != "" {

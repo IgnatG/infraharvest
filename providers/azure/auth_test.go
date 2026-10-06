@@ -125,6 +125,68 @@ func TestCloudFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAuthConfigStack(t *testing.T) {
+	vars := map[string]string{"ARM_SUBSCRIPTION_ID": "sub", "ARM_ENVIRONMENT": "Stack"}
+	if _, err := loadAuthConfig(envFrom(vars)); err == nil || !strings.Contains(err.Error(), "ARM_METADATA_HOSTNAME") {
+		t.Fatalf("err = %v, want one naming ARM_METADATA_HOSTNAME", err)
+	}
+	vars["ARM_METADATA_HOSTNAME"] = "management.local.azurestack.external"
+	cfg, err := loadAuthConfig(envFrom(vars))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.metadataHost != "management.local.azurestack.external" {
+		t.Errorf("metadata host %q", cfg.metadataHost)
+	}
+}
+
+func TestCloudFromMetadata(t *testing.T) {
+	responses := map[string]string{
+		// floci-az, an Azure emulator.
+		"cloud": `{"name": "floci-az", "resourceManager": "https://localhost:4577", "authentication": {"loginEndpoint": "https://localhost:4577/", "audiences": ["https://localhost:4577/"]}}`,
+		// Azure's metadata host.
+		"list": `[{"name": "AzureCloud", "resourceManager": "https://localhost:4577", "authentication": {"loginEndpoint": "https://localhost:4577/", "audiences": ["https://localhost:4577/"]}}]`,
+		// Azure Stack Hub, which names no Resource Manager endpoint.
+		"stack":   `{"authentication": {"loginEndpoint": "https://localhost:4577/", "audiences": ["https://localhost:4577/"]}}`,
+		"two":     `[{}, {}]`,
+		"no-sign": `{"resourceManager": "https://localhost:4577"}`,
+	}
+	serve := func(response string) *httptest.Server {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			content, ok := responses[response]
+			if !ok || r.URL.Path != "/metadata/endpoints" || r.URL.Query().Get("api-version") == "" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write([]byte(content))
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+
+	for _, response := range []string{"cloud", "list", "stack"} {
+		server := serve(response)
+		got, err := cloudFromMetadata(t.Context(), server.Client(), strings.TrimPrefix(server.URL, "https://"))
+		if err != nil {
+			t.Fatalf("%s: %v", response, err)
+		}
+		rm := got.Services[cloud.ResourceManager]
+		wantEndpoint := "https://localhost:4577"
+		if response == "stack" {
+			wantEndpoint = server.URL
+		}
+		if got.ActiveDirectoryAuthorityHost != "https://localhost:4577/" || rm.Endpoint != wantEndpoint || rm.Audience != "https://localhost:4577/" {
+			t.Errorf("%s: %+v", response, got)
+		}
+	}
+	for _, response := range []string{"two", "no-sign", "missing"} {
+		server := serve(response)
+		if _, err := cloudFromMetadata(t.Context(), server.Client(), strings.TrimPrefix(server.URL, "https://")); err == nil {
+			t.Errorf("%s: want an error", response)
+		}
+	}
+}
+
 func TestSelectAuthMethod(t *testing.T) {
 	cases := []struct {
 		name string

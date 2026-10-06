@@ -15,8 +15,11 @@
 package azure
 
 import (
+	"context"
 	"errors"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -37,6 +40,13 @@ func (p *AzureProvider) Init(args []string) error {
 	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
 		return err
+	}
+	if cfg.metadataHost != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if cfg.cloud, err = cloudFromMetadata(ctx, http.DefaultClient, cfg.metadataHost); err != nil {
+			return err
+		}
 	}
 	credential, err := newCredential(cfg)
 	if err != nil {
