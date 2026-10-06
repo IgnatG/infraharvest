@@ -34,15 +34,15 @@ func newCmdAuth0Importer(options ImportOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain := os.Getenv("AUTH0_DOMAIN")
 			if len(domain) == 0 {
-				return errors.New("Domain for Auth0 must be set through `AUTH0_DOMAIN` env var")
+				return errors.New("domain for Auth0 must be set through `AUTH0_DOMAIN` env var")
 			}
 			clientID := os.Getenv("AUTH0_CLIENT_ID")
 			if len(clientID) == 0 {
-				return errors.New("Client ID for Auht0 must be set through `AUTH0_CLIENT_ID` env var")
+				return errors.New("client ID for Auth0 must be set through `AUTH0_CLIENT_ID` env var")
 			}
 			clientSecret := os.Getenv("AUTH0_CLIENT_SECRET")
 			if len(clientSecret) == 0 {
-				return errors.New("Clien Secret for Auth0 must be set through `AUTH0_CLIENT_SECRET` env var")
+				return errors.New("client secret for Auth0 must be set through `AUTH0_CLIENT_SECRET` env var")
 			}
 
 			provider := newAuth0Provider()

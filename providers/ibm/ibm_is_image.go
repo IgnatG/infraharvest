@@ -70,13 +70,13 @@ func (g *ImageGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			options.ResourceGroupID = &rg
 		}
 		images, response, err := vpcclient.ListImages(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching Images %s\n%s", err, response)
+			return fmt.Errorf("error fetching Images %s\n%s", err, response)
 		}
 		start = GetNext(images.Next)
 		allrecs = append(allrecs, images.Images...)

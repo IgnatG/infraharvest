@@ -79,7 +79,7 @@ func (g *InstanceGroupGenerator) handlePolicies(sess *vpcv1.VpcV1, instanceGroup
 		}
 		data, response, err := sess.GetInstanceGroupManagerPolicy(&getInstanceGroupManagerPolicyOptions)
 		if err != nil {
-			g.fatalErrors <- fmt.Errorf("Error Getting InstanceGroup Manager Policy: %s\n%s", err, response)
+			g.fatalErrors <- fmt.Errorf("error getting InstanceGroup Manager Policy: %s\n%s", err, response)
 		}
 		instanceGroupManagerPolicy := data.(*vpcv1.InstanceGroupManagerPolicy)
 		resourceMutex.Lock()
@@ -101,7 +101,7 @@ func (g *InstanceGroupGenerator) handleManagers(sess *vpcv1.VpcV1, instanceGroup
 		}
 		instanceGroupManagerIntf, response, err := sess.GetInstanceGroupManager(&getInstanceGroupManagerOptions)
 		if err != nil {
-			g.fatalErrors <- fmt.Errorf("Error Getting InstanceGroup Manager: %s\n%s", err, response)
+			g.fatalErrors <- fmt.Errorf("error getting InstanceGroup Manager: %s\n%s", err, response)
 		}
 		instanceGroupManager := instanceGroupManagerIntf.(*vpcv1.InstanceGroupManager)
 		resourceMutex.Lock()
@@ -131,7 +131,7 @@ func (g *InstanceGroupGenerator) handleInstanceGroups(sess *vpcv1.VpcV1, waitGro
 		}
 		instanceGroupsCollection, response, err := sess.ListInstanceGroups(&listInstanceGroupOptions)
 		if err != nil {
-			g.fatalErrors <- fmt.Errorf("Error Fetching InstanceGroups %s\n%s", err, response)
+			g.fatalErrors <- fmt.Errorf("error fetching InstanceGroups %s\n%s", err, response)
 		}
 		start = GetNext(instanceGroupsCollection.Next)
 		allrecs = append(allrecs, instanceGroupsCollection.InstanceGroups...)

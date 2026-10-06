@@ -70,13 +70,13 @@ func (g *NetworkACLGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			options.ResourceGroupID = &rg
 		}
 		nwacls, response, err := vpcclient.ListNetworkAcls(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching Network ACLs %s\n%s", err, response)
+			return fmt.Errorf("error fetching Network ACLs %s\n%s", err, response)
 		}
 		start = GetNext(nwacls.Next)
 		allrecs = append(allrecs, nwacls.NetworkAcls...)

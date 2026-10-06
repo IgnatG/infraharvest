@@ -35,7 +35,7 @@ func newCmdHerokuImporter(options ImportOptions) *cobra.Command {
 		Long:  "Import current state to Terraform configuration from Heroku",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if apiKey = os.Getenv("HEROKU_API_KEY"); apiKey == "" {
-				return errors.New("Requires HEROKU_API_KEY env var")
+				return errors.New("requires HEROKU_API_KEY env var")
 			}
 			provider := newHerokuProvider()
 			err := Import(provider, options, []string{apiKey, team})

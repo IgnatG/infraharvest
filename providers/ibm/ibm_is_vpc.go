@@ -72,13 +72,13 @@ func (g *VPCGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			listVpcsOptions.ResourceGroupID = &rg
 		}
 		vpcs, response, err := vpcclient.ListVpcs(listVpcsOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching vpcs %s\n%s", err, response)
+			return fmt.Errorf("error fetching vpcs %s\n%s", err, response)
 		}
 		start = GetNext(vpcs.Next)
 		allrecs = append(allrecs, vpcs.Vpcs...)

@@ -70,13 +70,13 @@ func (g *FlowLogGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			options.ResourceGroupID = &rg
 		}
 		flogs, response, err := vpcclient.ListFlowLogCollectors(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching Flow Logs %s\n%s", err, response)
+			return fmt.Errorf("error fetching Flow Logs %s\n%s", err, response)
 		}
 		start = GetNext(flogs.Next)
 		allrecs = append(allrecs, flogs.FlowLogCollectors...)

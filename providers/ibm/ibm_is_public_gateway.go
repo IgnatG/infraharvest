@@ -70,13 +70,13 @@ func (g *PublicGatewayGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			options.ResourceGroupID = &rg
 		}
 		pgs, response, err := vpcclient.ListPublicGateways(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching Public Gateways %s\n%s", err, response)
+			return fmt.Errorf("error fetching Public Gateways %s\n%s", err, response)
 		}
 		start = GetNext(pgs.Next)
 		allrecs = append(allrecs, pgs.PublicGateways...)

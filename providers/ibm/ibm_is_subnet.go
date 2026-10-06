@@ -44,7 +44,7 @@ func (g *SubnetGenerator) InitResources() error {
 	region := g.Args["region"].(string)
 	apiKey := os.Getenv("IC_API_KEY")
 	if apiKey == "" {
-		return fmt.Errorf("No API key set")
+		return fmt.Errorf("no API key set")
 	}
 
 	isURL := GetVPCEndPoint(region)
@@ -70,13 +70,13 @@ func (g *SubnetGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			listVpcsOptions.ResourceGroupID = &rg
 		}
 		vpcs, response, err := vpcclient.ListVpcs(listVpcsOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching vpcs %s\n%s", err, response)
+			return fmt.Errorf("error fetching vpcs %s\n%s", err, response)
 		}
 		start = GetNext(vpcs.Next)
 		allrecs = append(allrecs, vpcs.Vpcs...)
@@ -96,7 +96,7 @@ func (g *SubnetGenerator) InitResources() error {
 
 			subnets, response, err := vpcclient.ListSubnets(options)
 			if err != nil {
-				return fmt.Errorf("Error Fetching subnets %s\n%s", err, response)
+				return fmt.Errorf("error fetching subnets %s\n%s", err, response)
 			}
 			start = GetNext(subnets.Next)
 			allSubNetRecs = append(allSubNetRecs, subnets.Subnets...)

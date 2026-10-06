@@ -80,13 +80,13 @@ func (g *VPNGatewayGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			listVPNGatewaysOptions.ResourceGroupID = &rg
 		}
 		vpngws, response, err := vpcclient.ListVPNGateways(listVPNGatewaysOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching VPN Gateways %s\n%s", err, response)
+			return fmt.Errorf("error fetching VPN Gateways %s\n%s", err, response)
 		}
 		start = GetNext(vpngws.Next)
 		allrecs = append(allrecs, vpngws.VPNGateways...)
@@ -103,7 +103,7 @@ func (g *VPNGatewayGenerator) InitResources() error {
 		}
 		vpngwConnections, response, err := vpcclient.ListVPNGatewayConnections(listVPNGatewayConnectionsOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching VPN Gateway Connections %s\n%s", err, response)
+			return fmt.Errorf("error fetching VPN Gateway Connections %s\n%s", err, response)
 		}
 		for _, connection := range vpngwConnections.Connections {
 			vpngwConnection := connection.(*vpcv1.VPNGatewayConnection)

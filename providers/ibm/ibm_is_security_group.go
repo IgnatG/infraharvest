@@ -55,7 +55,7 @@ func (g *SecurityGroupGenerator) InitResources() error {
 	region := g.Args["region"].(string)
 	apiKey := os.Getenv("IC_API_KEY")
 	if apiKey == "" {
-		return fmt.Errorf("No API key set")
+		return fmt.Errorf("no API key set")
 	}
 
 	isURL := GetVPCEndPoint(region)
@@ -84,14 +84,14 @@ func (g *SecurityGroupGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			options.ResourceGroupID = &rg
 		}
 
 		sgs, response, err := vpcclient.ListSecurityGroups(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching security Groups %s\n%s", err, response)
+			return fmt.Errorf("error fetching security Groups %s\n%s", err, response)
 		}
 		start = GetNext(sgs.Next)
 		allrecs = append(allrecs, sgs.SecurityGroups...)
@@ -107,7 +107,7 @@ func (g *SecurityGroupGenerator) InitResources() error {
 		}
 		rules, response, err := vpcclient.ListSecurityGroupRules(listSecurityGroupRulesOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching security group rules %s\n%s", err, response)
+			return fmt.Errorf("error fetching security group rules %s\n%s", err, response)
 		}
 		for _, sgrule := range rules.Rules {
 			switch reflect.TypeOf(sgrule).String() {

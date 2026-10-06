@@ -186,7 +186,7 @@ func GetResourceGroupID(apiKey, name, region string) (string, error) {
 		return grp[0].ID, nil
 	}
 
-	return "", fmt.Errorf("Unable to get ID of resource group")
+	return "", fmt.Errorf("unable to get ID of resource group")
 }
 
 func GetVPCEndPoint(region string) string {
