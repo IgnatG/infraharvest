@@ -83,6 +83,12 @@ type ImportOptions struct {
 	// Modules says which modules hold clusters of resources: registry,
 	// local or none.
 	Modules string
+	// Parallel is how many of the accounts (AWS) or projects (Google) the
+	// import covers are imported at once (see importEach).
+	Parallel int
+	// run is the run an account or project imported alongside others
+	// records into (see importEach); nil for the command's run.
+	run *engineRun
 }
 
 const DefaultPathOutput = "generated"

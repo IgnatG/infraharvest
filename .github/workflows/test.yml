@@ -40,6 +40,11 @@ jobs:
       run: go build -o infraharvest .
     - name: Test
       run: go test ./...
+    # Accounts and projects import in parallel (--parallel): the run state
+    # they share, under the race detector. Two providers keep the build
+    # small.
+    - name: Race
+      run: go test -race -tags minimal,aws,google ./cmd/ ./selection/ ./report/ ./internal/...
 
   # Windows runners are slow to compile all providers, so test the packages
   # with OS-specific behaviour (file modes, paths, home directory lookup).
@@ -55,7 +60,7 @@ jobs:
         go-version-file: go.mod
         cache: true
     - name: Test
-      run: go test ./engine/... ./terraformutils/... ./providers/aws/... ./providers/alicloud/...
+      run: go test ./engine/... ./terraformutils/... ./internal/... ./managed/... ./providers/aws/... ./providers/alicloud/...
 
   govulncheck:
     runs-on: ubuntu-latest

@@ -60,30 +60,19 @@ func newCmdAwsImporter(options ImportOptions) *cobra.Command {
 	cmd.PersistentFlags().StringSliceVar(&options.Accounts, "accounts", nil, "accounts to import, each through the role --assume-role names")
 	cmd.PersistentFlags().BoolVar(&options.Organization, "organization", false, "import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names")
 	cmd.PersistentFlags().StringVar(&options.AssumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
+	parallelFlag(cmd, &options, "accounts of --accounts or --organization")
 	return cmd
 }
 
-// importAWSAccounts imports accounts one by one, each through the role
-// --assume-role names with {account} filled in (see awsAccounts), with
-// importAccount. An account that can't be imported, such as one whose role
-// can't be assumed, is recorded as a failure of the run and the others go
-// on; an interrupt stops the run.
+// importAWSAccounts imports accounts, each through the role --assume-role
+// names with {account} filled in (see awsAccounts), with importAccount,
+// --parallel at a time (see importEach).
 func importAWSAccounts(options ImportOptions, accounts []string, importAccount func(ImportOptions) error) error {
-	for _, account := range accounts {
+	return importEach(options, "account", accounts, func(accountOptions ImportOptions, account string) error {
 		log.Printf("aws: importing account %s", account)
-		accountOptions := options
 		accountOptions.RoleARN = strings.ReplaceAll(options.AssumeRole, "{account}", account)
-		err := importAccount(accountOptions)
-		if err == nil {
-			continue
-		}
-		if activeRun == nil || errors.Is(err, context.Canceled) {
-			return err
-		}
-		log.Printf("aws: account %s: %v", account, err)
-		activeRun.recordFailure(options, fmt.Errorf("account %s: %w", account, err))
-	}
-	return nil
+		return importAccount(accountOptions)
+	})
 }
 
 // importAWSAccount imports one account: global, us-east-1-only and regional
@@ -142,6 +131,11 @@ func awsAccounts(ctx context.Context, options ImportOptions) ([]string, error) {
 	// import that account every time.
 	if !strings.Contains(options.AssumeRole, "{account}") {
 		return nil, fmt.Errorf("--assume-role %q needs {account} to reach several accounts", options.AssumeRole)
+	}
+	// Each account gets roots of its own: without {account}, they would
+	// write over each other's.
+	if options.PathPattern != "" && !strings.Contains(options.PathPattern, "{account}") {
+		return nil, fmt.Errorf("--path-pattern %q needs {account} to keep several accounts apart", options.PathPattern)
 	}
 	if options.Organization {
 		accounts, err := awsterraformer.OrganizationAccounts(ctx, options.Profile)

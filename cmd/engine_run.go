@@ -175,3 +175,39 @@ func (r *engineRun) finish(err error) error {
 func couldNotRun(err, writeErr error) error {
 	return &ExitError{Code: report.ExitCouldNotRun, Err: errors.Join(err, writeErr)}
 }
+
+// child returns a run for one of several accounts or projects of r's
+// command, imported alongside the others (see importEach): it shares r's
+// selection file, state backend and lock file, and keeps everything else
+// to itself until r merges it.
+func (r *engineRun) child() *engineRun {
+	c := newEngineRun()
+	c.selection, c.backend, c.lock = r.selection, r.backend, r.lock
+	return c
+}
+
+// merge adds what child (see child) did to r.
+func (r *engineRun) merge(child *engineRun) {
+	if !child.used {
+		return
+	}
+	if !r.used {
+		r.used = true
+		r.options = child.options
+	}
+	r.report.Merge(&child.report)
+	for typ, n := range child.discovered {
+		r.discovered[typ] += n
+	}
+	for typ, n := range child.failed {
+		r.failed[typ] += n
+	}
+	for typ, n := range child.skipped {
+		r.skipped[typ] += n
+	}
+	r.failures = append(r.failures, child.failures...)
+	r.listed = append(r.listed, child.listed...)
+	if r.lock == nil {
+		r.lock = child.lock
+	}
+}
