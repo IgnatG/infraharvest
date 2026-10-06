@@ -1,4 +1,4 @@
-// Copyright 2020 The Terraformer Authors.
+// Copyright 2018 The Terraformer Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	githubAPI "github.com/google/go-github/v35/github"
+	githubAPI "github.com/google/go-github/v92/github"
 )
 
 type UserSSHKeyGenerator struct {
@@ -39,27 +39,16 @@ func (g *UserSSHKeyGenerator) InitResources() error {
 	opt := &githubAPI.ListOptions{PerPage: 100}
 
 	// List all ssh keys for the authenticated user
-	for {
-		keys, resp, err := client.Users.ListKeys(ctx, "", opt)
+	for key, err := range client.Users.ListKeysIter(ctx, "", opt) {
 		if err != nil {
 			log.Println(err)
 			return nil
 		}
-
-		for _, key := range keys {
-			resource := terraformutils.NewSimpleResource(
-				strconv.FormatInt(key.GetID(), 10),
-				strconv.FormatInt(key.GetID(), 10),
-				"github_user_ssh_key",
-				"github")
-
-			g.Resources = append(g.Resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+			strconv.FormatInt(key.GetID(), 10),
+			strconv.FormatInt(key.GetID(), 10),
+			"github_user_ssh_key",
+			"github"))
 	}
 	return nil
 }

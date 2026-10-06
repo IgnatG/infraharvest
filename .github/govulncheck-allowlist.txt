@@ -1,5 +1,3 @@
 # Vulnerabilities govulncheck may report without failing CI.
 # One entry per line: an OSV ID or a module path, then the reason.
 # Remove an entry as soon as it no longer applies; CI warns about stale ones.
-
-GO-2026-5932                golang.org/x/crypto openpgp: no fixed version released.

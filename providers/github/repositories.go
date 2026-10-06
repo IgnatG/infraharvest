@@ -20,7 +20,7 @@ import (
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	githubAPI "github.com/google/go-github/v35/github"
+	githubAPI "github.com/google/go-github/v92/github"
 )
 
 type RepositoriesGenerator struct {
@@ -39,30 +39,22 @@ func (g *RepositoriesGenerator) InitResources() error {
 		ListOptions: githubAPI.ListOptions{PerPage: 100},
 	}
 	// list all repositories for the authenticated user
-	for {
-		repos, resp, err := client.Repositories.ListByOrg(ctx, g.GetArgs()["owner"].(string), opt)
+	for repo, err := range client.Repositories.ListByOrgIter(ctx, g.GetArgs()["owner"].(string), opt) {
 		if err != nil {
 			log.Println(err)
 			return nil
 		}
-		for _, repo := range repos {
-			resource := terraformutils.NewSimpleResource(
-				repo.GetName(),
-				repo.GetName(),
-				"github_repository",
-				"github")
+		resource := terraformutils.NewSimpleResource(
+			repo.GetName(),
+			repo.GetName(),
+			"github_repository",
+			"github")
 
-			g.Resources = append(g.Resources, resource)
-			g.Resources = append(g.Resources, g.createRepositoryWebhookResources(ctx, client, repo)...)
-			g.Resources = append(g.Resources, g.createRepositoryBranchProtectionResources(ctx, client, repo)...)
-			g.Resources = append(g.Resources, g.createRepositoryCollaboratorResources(ctx, client, repo)...)
-			g.Resources = append(g.Resources, g.createRepositoryDeployKeyResources(ctx, client, repo)...)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		g.Resources = append(g.Resources, resource)
+		g.Resources = append(g.Resources, g.createRepositoryWebhookResources(ctx, client, repo)...)
+		g.Resources = append(g.Resources, g.createRepositoryBranchProtectionResources(ctx, client, repo)...)
+		g.Resources = append(g.Resources, g.createRepositoryCollaboratorResources(ctx, client, repo)...)
+		g.Resources = append(g.Resources, g.createRepositoryDeployKeyResources(ctx, client, repo)...)
 	}
 
 	return nil
@@ -70,11 +62,12 @@ func (g *RepositoriesGenerator) InitResources() error {
 
 func (g *RepositoriesGenerator) createRepositoryWebhookResources(ctx context.Context, client *githubAPI.Client, repo *githubAPI.Repository) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	hooks, _, err := client.Repositories.ListHooks(ctx, g.GetArgs()["owner"].(string), repo.GetName(), nil)
-	if err != nil {
-		log.Println(err)
-	}
-	for _, hook := range hooks {
+	opt := &githubAPI.ListOptions{PerPage: 100}
+	for hook, err := range client.Repositories.ListHooksIter(ctx, g.GetArgs()["owner"].(string), repo.GetName(), opt) {
+		if err != nil {
+			log.Println(err)
+			break
+		}
 		resources = append(resources, terraformutils.NewResource(
 			strconv.FormatInt(hook.GetID(), 10),
 			repo.GetName()+"_"+strconv.FormatInt(hook.GetID(), 10),
@@ -89,11 +82,12 @@ func (g *RepositoriesGenerator) createRepositoryWebhookResources(ctx context.Con
 
 func (g *RepositoriesGenerator) createRepositoryBranchProtectionResources(ctx context.Context, client *githubAPI.Client, repo *githubAPI.Repository) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	branches, _, err := client.Repositories.ListBranches(ctx, g.GetArgs()["owner"].(string), repo.GetName(), nil)
-	if err != nil {
-		log.Println(err)
-	}
-	for _, branch := range branches {
+	opt := &githubAPI.BranchListOptions{ListOptions: githubAPI.ListOptions{PerPage: 100}}
+	for branch, err := range client.Repositories.ListBranchesIter(ctx, g.GetArgs()["owner"].(string), repo.GetName(), opt) {
+		if err != nil {
+			log.Println(err)
+			break
+		}
 		if branch.GetProtected() {
 			resources = append(resources, terraformutils.NewSimpleResource(
 				repo.GetName()+":"+branch.GetName(),
@@ -107,11 +101,12 @@ func (g *RepositoriesGenerator) createRepositoryBranchProtectionResources(ctx co
 
 func (g *RepositoriesGenerator) createRepositoryCollaboratorResources(ctx context.Context, client *githubAPI.Client, repo *githubAPI.Repository) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	collaborators, _, err := client.Repositories.ListCollaborators(ctx, g.GetArgs()["owner"].(string), repo.GetName(), nil)
-	if err != nil {
-		log.Println(err)
-	}
-	for _, collaborator := range collaborators {
+	opt := &githubAPI.ListCollaboratorsOptions{ListOptions: githubAPI.ListOptions{PerPage: 100}}
+	for collaborator, err := range client.Repositories.ListCollaboratorsIter(ctx, g.GetArgs()["owner"].(string), repo.GetName(), opt) {
+		if err != nil {
+			log.Println(err)
+			break
+		}
 		resources = append(resources, terraformutils.NewSimpleResource(
 			repo.GetName()+":"+collaborator.GetLogin(),
 			repo.GetName()+":"+collaborator.GetLogin(),
@@ -123,11 +118,12 @@ func (g *RepositoriesGenerator) createRepositoryCollaboratorResources(ctx contex
 
 func (g *RepositoriesGenerator) createRepositoryDeployKeyResources(ctx context.Context, client *githubAPI.Client, repo *githubAPI.Repository) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	deployKeys, _, err := client.Repositories.ListKeys(ctx, g.GetArgs()["owner"].(string), repo.GetName(), nil)
-	if err != nil {
-		log.Println(err)
-	}
-	for _, key := range deployKeys {
+	opt := &githubAPI.ListOptions{PerPage: 100}
+	for key, err := range client.Repositories.ListKeysIter(ctx, g.GetArgs()["owner"].(string), repo.GetName(), opt) {
+		if err != nil {
+			log.Println(err)
+			break
+		}
 		resources = append(resources, terraformutils.NewSimpleResource(
 			repo.GetName()+":"+strconv.FormatInt(key.GetID(), 10),
 			repo.GetName()+":"+key.GetTitle(),

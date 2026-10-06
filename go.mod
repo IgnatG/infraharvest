@@ -135,7 +135,7 @@ require (
 	github.com/digitalocean/godo v1.83.0
 	github.com/fastly/go-fastly/v7 v7.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/google/go-github/v35 v35.1.0
+	github.com/google/go-github/v92 v92.0.0
 	github.com/gophercloud/gophercloud v1.0.0
 	github.com/grafana/grafana-api-golang-client v0.0.0-20210218192924-9ccd2365d2a6
 	github.com/hashicorp/go-cleanhttp v0.5.2
@@ -295,7 +295,7 @@ require (
 	cloud.google.com/go/monitoring v1.24.3
 	github.com/DataDog/datadog-api-client-go/v2 v2.11.0
 	github.com/Myra-Security-GmbH/myrasec-go/v2 v2.28.0
-	github.com/bradleyfalzon/ghinstallation/v2 v2.1.0
+	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
 	github.com/manicminer/hamilton v0.44.0
 	github.com/opalsecurity/opal-go v1.0.19
 	gopkg.in/ns1/ns1-go.v2 v2.6.5
@@ -361,7 +361,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
-	github.com/google/go-github/v45 v45.2.0 // indirect
+	github.com/google/go-github/v88 v88.0.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect

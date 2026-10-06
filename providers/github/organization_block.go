@@ -1,4 +1,4 @@
-// Copyright 2020 The Terraformer Authors.
+// Copyright 2018 The Terraformer Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 
-	githubAPI "github.com/google/go-github/v35/github"
+	githubAPI "github.com/google/go-github/v92/github"
 )
 
 type OrganizationBlockGenerator struct {
@@ -47,27 +47,16 @@ func createOrganizationBlocksResources(ctx context.Context, client *githubAPI.Cl
 	opt := &githubAPI.ListOptions{PerPage: 100}
 
 	// List all organization blocks for the authenticated user
-	for {
-		blocks, resp, err := client.Organizations.ListBlockedUsers(ctx, owner, opt)
+	for block, err := range client.Organizations.ListBlockedUsersIter(ctx, owner, opt) {
 		if err != nil {
 			log.Println(err)
 			return nil
 		}
-
-		for _, block := range blocks {
-			resource := terraformutils.NewSimpleResource(
-				block.GetLogin(),
-				block.GetLogin(),
-				"github_organization_block",
-				"github")
-
-			resources = append(resources, resource)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+		resources = append(resources, terraformutils.NewSimpleResource(
+			block.GetLogin(),
+			block.GetLogin(),
+			"github_organization_block",
+			"github"))
 	}
 	return resources
 }
