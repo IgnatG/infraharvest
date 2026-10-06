@@ -35,7 +35,7 @@ func newCmdCommercetoolsImporter(options ImportOptions) *cobra.Command {
 		Use:   "commercetools",
 		Short: "Import current state to Terraform configuration from Commercetools",
 		Long:  "Import current state to Terraform configuration from Commercetools",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			clientID := os.Getenv("CTP_CLIENT_ID")
 			if len(clientID) == 0 {
 				return errors.New("API client ID for commercetools must be set through `CTP_CLIENT_ID` env var")

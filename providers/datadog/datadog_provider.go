@@ -40,19 +40,20 @@ type DatadogProvider struct { //nolint
 // Init check env params and initialize API Client
 func (p *DatadogProvider) Init(args []string) error {
 
-	if args[3] != "" {
+	switch {
+	case args[3] != "":
 		validate, validateErr := strconv.ParseBool(args[3])
 		if validateErr != nil {
 			return fmt.Errorf(`invalid validate arg : %v`, validateErr)
 		}
 		p.validate = validate
-	} else if os.Getenv("DATADOG_VALIDATE") != "" {
+	case os.Getenv("DATADOG_VALIDATE") != "":
 		validate, validateErr := strconv.ParseBool(os.Getenv("DATADOG_VALIDATE"))
 		if validateErr != nil {
 			return fmt.Errorf(`invalid DATADOG_VALIDATE env var : %v`, validateErr)
 		}
 		p.validate = validate
-	} else {
+	default:
 		p.validate = true
 	}
 
@@ -182,7 +183,7 @@ func (p *DatadogProvider) GetSupportedService() map[string]terraformutils.Servic
 }
 
 // GetProviderData return map of provider data for Datadog
-func (p DatadogProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p DatadogProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

@@ -64,7 +64,7 @@ func (p *NewRelicProvider) GetName() string {
 	return "newrelic"
 }
 
-func (p *NewRelicProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *NewRelicProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

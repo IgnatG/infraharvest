@@ -29,7 +29,7 @@ type CommercetoolsProvider struct { //nolint
 	tokenURL     string
 }
 
-func (p CommercetoolsProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p CommercetoolsProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
