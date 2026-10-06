@@ -291,7 +291,7 @@ require github.com/PuerkitoBio/rehttp v1.0.0 // indirect
 require (
 	cloud.google.com/go/cloudbuild v1.25.0
 	cloud.google.com/go/cloudtasks v1.13.7
-	cloud.google.com/go/iam v1.5.3
+	cloud.google.com/go/iam v1.5.3 // indirect
 	cloud.google.com/go/monitoring v1.24.3
 	github.com/DataDog/datadog-api-client-go/v2 v2.11.0
 	github.com/Myra-Security-GmbH/myrasec-go/v2 v2.28.0
