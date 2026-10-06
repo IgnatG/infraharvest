@@ -2,7 +2,7 @@
 
 The listers record the resource types of Cloudflare provider 5, with the IDs Terraform imports them with (`<zone_id>/<record_id>` for a DNS record, for example).
 
-`CLOUDFLARE_ACCOUNT_ID` is required for `account_member`. With it, `firewall` also imports the account's IP access rules.
+`CLOUDFLARE_ACCOUNT_ID` is required for `account_member`. With it, `access` also imports the account's Access applications and `firewall` the account's IP access rules, next to each zone's. The Cloudflare provider can't import user-level IP access rules, so `firewall` leaves them out and logs how many it skipped per zone.
 
 Cloudflare has retired the Firewall Rules, Filters and previous Rate Limiting APIs; they answer `410 Gone`. When they do, `firewall` logs that it skipped them and imports the zone's other resources.
 
@@ -28,7 +28,7 @@ infraharvest import cloudflare --all --resources=firewall,dns
 List of supported Cloudflare services:
 
 * `access`
-  * `cloudflare_zero_trust_access_application` (zone-level applications)
+  * `cloudflare_zero_trust_access_application`
 * `account_member`
   * `cloudflare_account_member`
 * `dns`

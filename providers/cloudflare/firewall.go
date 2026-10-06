@@ -17,6 +17,7 @@ package cloudflare
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/cloudflare/cloudflare-go/v7"
@@ -66,11 +67,19 @@ func accountAccessRuleResources(accountID string, rules []firewall.AccessRuleLis
 // zoneAccessRuleResources records a zone's IP access rules as
 // cloudflare_access_rule, imported as zones/<zone_id>/<rule_id>. A zone's
 // list includes its account's rules (scope organization), which
-// accountAccessRuleResources records, so they are left out here.
+// accountAccessRuleResources records, so they are left out here. It also
+// includes the rules of the user who owns the zone (scope user), which the
+// provider can only import by account or zone, so they are left out too,
+// and logged.
 func zoneAccessRuleResources(zoneID, zoneName string, rules []firewall.AccessRuleListResponse) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
+	userRules := 0
 	for _, rule := range rules {
-		if rule.Scope.Type == firewall.AccessRuleListResponseScopeTypeOrganization {
+		switch rule.Scope.Type {
+		case firewall.AccessRuleListResponseScopeTypeOrganization:
+			continue
+		case firewall.AccessRuleListResponseScopeTypeUser:
+			userRules++
 			continue
 		}
 		resources = append(resources, terraformutils.NewResource(
@@ -81,6 +90,9 @@ func zoneAccessRuleResources(zoneID, zoneName string, rules []firewall.AccessRul
 			map[string]string{
 				"zone_id": zoneID,
 			}))
+	}
+	if userRules > 0 {
+		log.Printf("cloudflare: zone %s: skipping %d user-level IP access rules: the Cloudflare provider imports access rules by account or zone only", zoneName, userRules)
 	}
 	return resources
 }

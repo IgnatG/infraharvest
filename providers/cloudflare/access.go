@@ -27,27 +27,33 @@ type AccessGenerator struct {
 	CloudflareService
 }
 
-// accessApplicationResources records a zone's Access applications as
-// cloudflare_zero_trust_access_application (cloudflare_access_application
-// before provider 5), imported as zones/<zone_id>/<app_id>.
-func accessApplicationResources(zoneID string, apps []zero_trust.AccessApplicationListResponse) []terraformutils.Resource {
+// accessApplicationResources records an account's or a zone's Access
+// applications as cloudflare_zero_trust_access_application
+// (cloudflare_access_application before provider 5), imported as
+// accounts/<account_id>/<app_id> or zones/<zone_id>/<app_id>. scope is
+// accounts or zones, and ownerID the account's or zone's ID.
+func accessApplicationResources(scope, ownerID string, apps []zero_trust.AccessApplicationListResponse) []terraformutils.Resource {
+	ownerAttribute := "zone_id"
+	if scope == "accounts" {
+		ownerAttribute = "account_id"
+	}
 	resources := []terraformutils.Resource{}
 	for _, app := range apps {
 		resources = append(resources, terraformutils.NewResource(
-			"zones/"+zoneID+"/"+app.ID,
+			scope+"/"+ownerID+"/"+app.ID,
 			fmt.Sprintf("%s_%s", app.Name, app.ID),
 			"cloudflare_zero_trust_access_application",
 			"cloudflare",
 			map[string]string{
-				"zone_id": zoneID,
-				"name":    app.Name,
+				ownerAttribute: ownerID,
+				"name":         app.Name,
 			}))
 	}
 	return resources
 }
 
-func listAccessApplications(ctx context.Context, client *cloudflare.Client, zoneID string) ([]zero_trust.AccessApplicationListResponse, error) {
-	return collect(client.ZeroTrust.Access.Applications.ListAutoPaging(ctx, zero_trust.AccessApplicationListParams{ZoneID: cloudflare.F(zoneID)}))
+func listAccessApplications(ctx context.Context, client *cloudflare.Client, params zero_trust.AccessApplicationListParams) ([]zero_trust.AccessApplicationListResponse, error) {
+	return collect(client.ZeroTrust.Access.Applications.ListAutoPaging(ctx, params))
 }
 
 func (g *AccessGenerator) InitResources() error {
@@ -57,17 +63,25 @@ func (g *AccessGenerator) InitResources() error {
 		return err
 	}
 
+	if accountID := g.accountID(); accountID != "" {
+		apps, err := listAccessApplications(ctx, client, zero_trust.AccessApplicationListParams{AccountID: cloudflare.F(accountID)})
+		if err != nil {
+			return err
+		}
+		g.Resources = append(g.Resources, accessApplicationResources("accounts", accountID, apps)...)
+	}
+
 	zoneList, err := listZones(ctx, client)
 	if err != nil {
 		return err
 	}
 
 	for _, zone := range zoneList {
-		apps, err := listAccessApplications(ctx, client, zone.ID)
+		apps, err := listAccessApplications(ctx, client, zero_trust.AccessApplicationListParams{ZoneID: cloudflare.F(zone.ID)})
 		if err != nil {
 			return err
 		}
-		g.Resources = append(g.Resources, accessApplicationResources(zone.ID, apps)...)
+		g.Resources = append(g.Resources, accessApplicationResources("zones", zone.ID, apps)...)
 	}
 
 	return nil

@@ -155,17 +155,41 @@ func TestDNSInitResources(t *testing.T) {
 
 func TestAccessInitResources(t *testing.T) {
 	serve(t, &fakeCloudflare{lists: map[string][]interface{}{
-		"/zones":                twoZones,
-		"/zones/z1/access/apps": items(`{"id":"app1","name":"Wiki","type":"self_hosted"}`, `{"id":"app2","name":"Mail","type":"self_hosted"}`),
-		"/zones/z2/access/apps": items(),
+		"/accounts/acc1/access/apps": items(`{"id":"app0","name":"Portal","type":"self_hosted"}`, `{"id":"app9","name":"Launcher","type":"saas"}`),
+		"/zones":                     twoZones,
+		"/zones/z1/access/apps":      items(`{"id":"app1","name":"Wiki","type":"self_hosted"}`, `{"id":"app2","name":"Mail","type":"self_hosted"}`),
+		"/zones/z2/access/apps":      items(),
 	}})
 	g := &AccessGenerator{}
 	if err := g.InitResources(); err != nil {
 		t.Fatal(err)
 	}
 	want := []listed{
+		{"accounts/acc1/app0", "Portal_app0", "cloudflare_zero_trust_access_application", map[string]string{"account_id": "acc1", "name": "Portal"}},
+		{"accounts/acc1/app9", "Launcher_app9", "cloudflare_zero_trust_access_application", map[string]string{"account_id": "acc1", "name": "Launcher"}},
 		{"zones/z1/app1", "Wiki_app1", "cloudflare_zero_trust_access_application", map[string]string{"zone_id": "z1", "name": "Wiki"}},
 		{"zones/z1/app2", "Mail_app2", "cloudflare_zero_trust_access_application", map[string]string{"zone_id": "z1", "name": "Mail"}},
+	}
+	if got := summarize(g.Resources); !reflect.DeepEqual(got, want) {
+		t.Errorf("resources:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// TestAccessWithoutAccountID checks that without CLOUDFLARE_ACCOUNT_ID only
+// the zones' applications are listed: the fake fails any account request.
+func TestAccessWithoutAccountID(t *testing.T) {
+	serve(t, &fakeCloudflare{lists: map[string][]interface{}{
+		"/zones":                twoZones,
+		"/zones/z1/access/apps": items(`{"id":"app1","name":"Wiki","type":"self_hosted"}`),
+		"/zones/z2/access/apps": items(),
+	}})
+	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "")
+	g := &AccessGenerator{}
+	if err := g.InitResources(); err != nil {
+		t.Fatal(err)
+	}
+	want := []listed{
+		{"zones/z1/app1", "Wiki_app1", "cloudflare_zero_trust_access_application", map[string]string{"zone_id": "z1", "name": "Wiki"}},
 	}
 	if got := summarize(g.Resources); !reflect.DeepEqual(got, want) {
 		t.Errorf("resources:\n got %+v\nwant %+v", got, want)
@@ -229,7 +253,8 @@ func TestFirewallInitResources(t *testing.T) {
 			"/zones/z1/filters":                          items(`{"id":"f1","expression":"ip.src eq 192.0.2.1"}`),
 			"/zones/z1/firewall/access_rules/rules": items(
 				`{"id":"ar1","mode":"block","scope":{"type":"organization"}}`,
-				`{"id":"zr1","mode":"challenge","scope":{"type":"zone"}}`),
+				`{"id":"zr1","mode":"challenge","scope":{"type":"zone"}}`,
+				`{"id":"ur1","mode":"whitelist","scope":{"type":"user"}}`),
 			"/zones/z1/firewall/lockdowns": items(`{"id":"l1","urls":["example.com/admin"]}`, `{"id":"l2","urls":["example.com/login"]}`),
 			"/zones/z1/rate_limits":        items(`{"id":"rl1"}`, `{"id":"rl2"}`),
 		},
