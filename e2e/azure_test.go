@@ -107,21 +107,25 @@ func TestAzureRoundTrip(t *testing.T) {
 }
 
 // isolateAzureConfig points the listers and the azurerm provider at the
-// emulator through its metadata host (ARM_ENVIRONMENT=stack), with a
-// placeholder service principal: the emulator accepts any, and the test
-// never uses a real subscription.
+// emulator through its metadata host (ARM_ENVIRONMENT=stack), signed in
+// through the emulator's managed identity endpoint: the test never uses a
+// real subscription. Not with a service principal: floci-az advertises an
+// http issuer over https (floci-io/floci-az#255), which azidentity rejects.
 func isolateAzureConfig(t *testing.T, host string) {
 	t.Helper()
 	for k, v := range map[string]string{
-		"ARM_ENVIRONMENT":                     "stack",
-		"ARM_METADATA_HOSTNAME":               host,
-		"ARM_SUBSCRIPTION_ID":                 "00000000-0000-0000-0000-000000000001",
-		"ARM_TENANT_ID":                       "00000000-0000-0000-0000-000000000002",
-		"ARM_CLIENT_ID":                       "00000000-0000-0000-0000-000000000003",
-		"ARM_CLIENT_SECRET":                   "e2e-placeholder",
+		"ARM_ENVIRONMENT":       "stack",
+		"ARM_METADATA_HOSTNAME": host,
+		"ARM_SUBSCRIPTION_ID":   "00000000-0000-0000-0000-000000000001",
+		"ARM_TENANT_ID":         "00000000-0000-0000-0000-000000000002",
+		"ARM_USE_MSI":           "true",
+		"ARM_MSI_ENDPOINT":      "https://" + host + "/metadata/identity/oauth2/token",
+		// The system-assigned identity: a client ID would ask for a
+		// user-assigned one.
+		"ARM_CLIENT_ID":                       "",
+		"ARM_CLIENT_SECRET":                   "",
 		"ARM_CLIENT_CERTIFICATE_PATH":         "",
 		"ARM_USE_OIDC":                        "",
-		"ARM_USE_MSI":                         "",
 		"ARM_USE_CLI":                         "false",
 		"ARM_AUXILIARY_TENANT_IDS":            "",
 		"ARM_RESOURCE_PROVIDER_REGISTRATIONS": "none",
