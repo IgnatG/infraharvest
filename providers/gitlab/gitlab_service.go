@@ -15,8 +15,10 @@
 package gitlab
 
 import (
+	"context"
+
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 const gitLabDefaultURL = "https://gitlab.com/api/v4/"
@@ -25,17 +27,24 @@ type GitLabService struct { //nolint
 	terraformutils.Service
 }
 
+// createClient returns a client for the configured GitLab instance. The client
+// appends api/v4/ to a base URL that does not already end with it, so both
+// https://gitlab.example.com and https://gitlab.example.com/api/v4 work.
 func (g *GitLabService) createClient() (*gitlab.Client, error) {
-	if g.GetArgs()["base_url"].(string) == gitLabDefaultURL {
-		return g.createRegularClient()
+	return newClient(g.GetArgs()["token"].(string), g.GetArgs()["base_url"].(string))
+}
+
+func newClient(token, baseURL string) (*gitlab.Client, error) {
+	if baseURL == "" {
+		baseURL = gitLabDefaultURL
 	}
-	return g.createEnterpriseClient()
+	return gitlab.NewClient(token, gitlab.WithBaseURL(baseURL))
 }
 
-func (g *GitLabService) createRegularClient() (*gitlab.Client, error) {
-	return gitlab.NewClient(g.Args["token"].(string))
-}
-
-func (g *GitLabService) createEnterpriseClient() (*gitlab.Client, error) {
-	return gitlab.NewClient(g.Args["token"].(string), gitlab.WithBaseURL(g.GetArgs()["base_url"].(string)))
+// listAll pages through a GitLab list call and returns every item. It follows
+// whichever pagination the response offers (offset or keyset).
+func listAll[T any](ctx context.Context, list func(options ...gitlab.RequestOptionFunc) ([]T, *gitlab.Response, error)) ([]T, error) {
+	return gitlab.ScanAndCollect(func(page gitlab.PaginationOptionFunc) ([]T, *gitlab.Response, error) {
+		return list(gitlab.WithContext(ctx), page)
+	})
 }
