@@ -18,6 +18,18 @@ import (
 	"github.com/iancoleman/strcase"
 )
 
-func extractTfResourceName(kind string) string {
-	return "kubernetes_" + strcase.ToSnake(kind)
+// terraformType returns the Terraform resource type of a Kubernetes kind:
+// "kubernetes_" plus the kind in snake case (Deployment is
+// kubernetes_deployment). When the provider has no such type but has its
+// "_v1" version, that is the type (DaemonSet is kubernetes_daemon_set_v1).
+// It reports false when the provider has neither.
+func terraformType(kind string) (string, bool) {
+	tfType := "kubernetes_" + strcase.ToSnake(kind)
+	if _, ok := supportedResourceTypes[tfType]; ok {
+		return tfType, true
+	}
+	if _, ok := supportedResourceTypes[tfType+"_v1"]; ok {
+		return tfType + "_v1", true
+	}
+	return "", false
 }

@@ -57,6 +57,7 @@ func TestListResources(t *testing.T) {
 		object("v1", "Namespace", "", "team-a", false),
 		object("v1", "Namespace", "", "owned-ns", true),
 		object("v1", "Pod", "default", "web-123", true),
+		object("apps/v1", "DaemonSet", "kube-system", "kube-proxy", false),
 	)
 
 	tests := []struct {
@@ -78,6 +79,13 @@ func TestListResources(t *testing.T) {
 			want: [][3]string{
 				{"default", "default", "kubernetes_namespace"},
 				{"team-a", "team-a", "kubernetes_namespace"},
+			},
+		},
+		{
+			name: "versioned type",
+			kind: Kind{Name: "DaemonSet", Resource: "daemonsets", Group: "apps", Version: "v1", Namespaced: true},
+			want: [][3]string{
+				{"kube-system/kube-proxy", "kube-system/kube-proxy", "kubernetes_daemon_set_v1"},
 			},
 		},
 		{
@@ -187,5 +195,13 @@ func TestListResourcesError(t *testing.T) {
 	k := Kind{Name: "Secret", Resource: "secrets", Version: "v1", Namespaced: true}
 	if err := k.listResources(context.Background(), client); err == nil {
 		t.Error("want the error of the second page")
+	}
+}
+
+func TestListResourcesNoType(t *testing.T) {
+	client := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	k := Kind{Name: "Event", Resource: "events", Version: "v1", Namespaced: true}
+	if err := k.listResources(context.Background(), client); err == nil {
+		t.Error("want an error for a kind without a Terraform type")
 	}
 }

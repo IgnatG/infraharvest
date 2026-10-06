@@ -13,7 +13,7 @@ infraharvest connects with your kubeconfig, as kubectl does. Credential plugins 
 
 #### Supported resources
 
-infraharvest asks the cluster which API resources it serves (discovery, using the version the cluster prefers for each group) and imports every one that supports `list` and has a resource type in the Terraform kubernetes provider v3. The type is `kubernetes_` plus the kind in snake case: a `Deployment` becomes `kubernetes_deployment`, an `APIService` `kubernetes_api_service`. Kinds without a provider type, such as events and custom resources, are left out.
+infraharvest asks the cluster which API resources it serves (discovery, using the version the cluster prefers for each group) and imports every one that supports `list` and has a resource type in the Terraform kubernetes provider v3. The type is `kubernetes_` plus the kind in snake case: a `Deployment` becomes `kubernetes_deployment`, an `APIService` `kubernetes_api_service`, and where the provider only has a `_v1` type, that one: a `DaemonSet` becomes `kubernetes_daemon_set_v1`. Kinds without a provider type, such as events and custom resources, are left out. If some API groups fail discovery (an aggregated API whose service is down, for example), infraharvest logs them and lists the rest.
 
 Each resource is a service named by its plural resource name, as `kubectl api-resources` shows it: `deployments`, `services`, `configmaps`, `clusterrolebindings`, and so on. `infraharvest import kubernetes list` prints the services your cluster offers, and `infraharvest discover kubernetes` lists the objects themselves into a selection file.
 

@@ -18,8 +18,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	restclient "k8s.io/client-go/rest"
@@ -76,11 +78,33 @@ func (p *KubernetesProvider) GetSupportedService() map[string]terraformutils.Ser
 	}
 
 	lists, err := dc.ServerPreferredResources()
-	if err != nil {
-		log.Println(err)
-		return map[string]terraformutils.ServiceGenerator{}
+	return supportedKinds(discoveredLists(lists, err))
+}
+
+// discoveredLists returns the resource lists discovery found. When some API
+// groups fail (an aggregated API whose service is down, for example),
+// discovery returns the other groups' lists with an ErrGroupDiscoveryFailed:
+// those lists are used and the failed groups logged. It returns nil only when
+// no lists came back.
+func discoveredLists(lists []*metav1.APIResourceList, err error) []*metav1.APIResourceList {
+	if err == nil {
+		return lists
 	}
-	return supportedKinds(lists)
+	if len(lists) == 0 {
+		log.Println(err)
+		return nil
+	}
+	failed, ok := discovery.GroupDiscoveryFailedErrorGroups(err)
+	if !ok {
+		log.Printf("kubernetes: discovery is incomplete, listing what it found: %v", err)
+		return lists
+	}
+	gvs := slices.Collect(maps.Keys(failed))
+	slices.SortFunc(gvs, func(a, b schema.GroupVersion) int { return strings.Compare(a.String(), b.String()) })
+	for _, gv := range gvs {
+		log.Printf("kubernetes: skipping API group %s, discovery failed: %v", gv, failed[gv])
+	}
+	return lists
 }
 
 // supportedKinds keeps, from the resources discovery returns, those that
@@ -109,7 +133,7 @@ func supportedKinds(lists []*metav1.APIResourceList) map[string]terraformutils.S
 			}
 
 			// filter to resource that are supported by terraform kubernetes provider
-			if _, ok := supportedResourceTypes[extractTfResourceName(resource.Kind)]; !ok {
+			if _, ok := terraformType(resource.Kind); !ok {
 				continue
 			}
 
