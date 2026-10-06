@@ -17,6 +17,8 @@ import (
 // someone edited, a checkpoint a resumed import reads, a root's
 // configuration.
 func WriteFile(path string, data []byte, perm fs.FileMode) (err error) {
+	// CreateTemp makes the file private (0600): perm can only widen it,
+	// once the data is complete.
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
