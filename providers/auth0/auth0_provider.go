@@ -28,7 +28,7 @@ type Auth0Provider struct { //nolint
 	clientSecret string
 }
 
-func (p *Auth0Provider) Init(args []string) error {
+func (p *Auth0Provider) Init(_ []string) error {
 	orgName := os.Getenv("AUTH0_DOMAIN")
 	if orgName == "" {
 		return errors.New("set AUTH0_DOMAIN env var")
@@ -96,6 +96,6 @@ func (p *Auth0Provider) GetSupportedService() map[string]terraformutils.ServiceG
 	}
 }
 
-func (p Auth0Provider) GetProviderData(arg ...string) map[string]interface{} {
+func (p Auth0Provider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }

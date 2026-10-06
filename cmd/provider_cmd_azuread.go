@@ -28,7 +28,7 @@ func newCmdAzureADImporter(options ImportOptions) *cobra.Command {
 		Use:   "azuread",
 		Short: "Import current state to Terraform configuration from Azure Active Directory",
 		Long:  "Import current state to Terraform configuration from Azure Active Directory",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			provider := newAzureADProvider()
 			err := Import(provider, options, []string{options.ResourceGroup})
 			if err != nil {

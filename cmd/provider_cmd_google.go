@@ -32,7 +32,7 @@ func newCmdGoogleImporter(options ImportOptions) *cobra.Command {
 		Use:   "google",
 		Short: "Import current state to Terraform configuration from Google Cloud",
 		Long:  "Import current state to Terraform configuration from Google Cloud",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			originalPathPattern := options.PathPattern
 			// Each project gets roots of its own: without {account}, they
 			// would write over each other's.

@@ -40,11 +40,11 @@ type KubernetesProvider struct { //nolint
 	terraformutils.Provider
 }
 
-func (p KubernetesProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p KubernetesProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (p *KubernetesProvider) Init(args []string) error {
+func (p *KubernetesProvider) Init(_ []string) error {
 	return nil
 }
 

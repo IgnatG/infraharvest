@@ -12,7 +12,7 @@ type MyrasecProvider struct {
 }
 
 // Init
-func (p *MyrasecProvider) Init(args []string) error {
+func (p *MyrasecProvider) Init(_ []string) error {
 	return nil
 }
 
@@ -22,7 +22,7 @@ func (p *MyrasecProvider) GetName() string {
 }
 
 // GetProviderData
-func (p *MyrasecProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *MyrasecProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

@@ -40,7 +40,7 @@ func (p *PagerDutyProvider) GetName() string {
 	return "pagerduty"
 }
 
-func (p *PagerDutyProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *PagerDutyProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			"pagerduty": map[string]interface{}{

@@ -73,7 +73,7 @@ func (p *GmailfilterProvider) GetSupportedService() map[string]terraformutils.Se
 	return services
 }
 
-func (p *GmailfilterProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *GmailfilterProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

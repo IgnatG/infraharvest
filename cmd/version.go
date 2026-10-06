@@ -33,7 +33,7 @@ func buildVersion(set, recorded string) string {
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version number of infraharvest",
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, args []string) {
 		fmt.Println("infraharvest " + version)
 	},
 }

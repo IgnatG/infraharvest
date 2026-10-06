@@ -42,7 +42,7 @@ func (p *OpsgenieProvider) InitService(serviceName string, verbose bool) error {
 	return nil
 }
 
-func (p *OpsgenieProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *OpsgenieProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

@@ -198,7 +198,7 @@ func (g *RealmGenerator) InitResources() error {
 		g.Resources = append(g.Resources, g.createUserResources(realmUsers)...)
 
 		// Get realm open id client scopes resources
-		realmScopes, err := kck.ListOpenidClientScopesWithFilter(ctx, realm.Realm, func(scope *keycloak.OpenidClientScope) bool { return true })
+		realmScopes, err := kck.ListOpenidClientScopesWithFilter(ctx, realm.Realm, func(_ *keycloak.OpenidClientScope) bool { return true })
 		if err != nil {
 			return errors.New("keycloak: could not get realm scopes of realm " + realm.Realm + " in Keycloak")
 		}

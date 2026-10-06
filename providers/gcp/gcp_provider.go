@@ -121,7 +121,7 @@ func (p *GCPProvider) GetSupportedService() map[string]terraformutils.ServiceGen
 // found, and no attribution label. The provider adds
 // goog-terraform-provisioned to the labels of every resource it manages,
 // so an imported resource would plan an update of its labels.
-func (p GCPProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p GCPProvider) GetProviderData(_ ...string) map[string]interface{} {
 	config := map[string]interface{}{
 		"project":                         p.projectName,
 		"add_terraform_attribution_label": false,
