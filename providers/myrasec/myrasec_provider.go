@@ -6,28 +6,28 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
-// MyrasecProvider
-type MyrasecProvider struct {
+// Provider
+type Provider struct {
 	terraformutils.Provider
 }
 
 // Init
-func (p *MyrasecProvider) Init(_ []string) error {
+func (p *Provider) Init(_ []string) error {
 	return nil
 }
 
 // GetName
-func (p *MyrasecProvider) GetName() string {
+func (p *Provider) GetName() string {
 	return "myrasec"
 }
 
 // GetProviderData
-func (p *MyrasecProvider) GetProviderData(_ ...string) map[string]interface{} {
+func (p *Provider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
 // GetSupportedService
-func (p *MyrasecProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
+func (p *Provider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
 	return map[string]terraformutils.ServiceGenerator{
 		"domain":        &DomainGenerator{},
 		"dns_record":    &DNSGenerator{},
@@ -43,7 +43,7 @@ func (p *MyrasecProvider) GetSupportedService() map[string]terraformutils.Servic
 }
 
 // InitService
-func (p *MyrasecProvider) InitService(serviceName string, verbose bool) error {
+func (p *Provider) InitService(serviceName string, verbose bool) error {
 	var isSupported bool
 	if _, isSupported = p.GetSupportedService()[serviceName]; !isSupported {
 		return errors.New("myrasec: " + serviceName + " not supported service")
@@ -57,6 +57,6 @@ func (p *MyrasecProvider) InitService(serviceName string, verbose bool) error {
 }
 
 // GetSource is the provider's registry source, for required_providers.
-func (p *MyrasecProvider) GetSource() string {
+func (p *Provider) GetSource() string {
 	return "Myra-Security-GmbH/myrasec"
 }

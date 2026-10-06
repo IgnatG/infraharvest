@@ -11,11 +11,11 @@ import (
 
 // RateLimitGenerator
 type RatelimitGenerator struct {
-	MyrasecService
+	Service
 }
 
 // createRatelimitResources
-func (g *RatelimitGenerator) createRatelimitResources(api *mgo.API, domainId int, vhost mgo.VHost, wg *sync.WaitGroup) error {
+func (g *RatelimitGenerator) createRatelimitResources(api *mgo.API, domainID int, vhost mgo.VHost, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
 	page := 1
@@ -28,7 +28,7 @@ func (g *RatelimitGenerator) createRatelimitResources(api *mgo.API, domainId int
 	for {
 		params["page"] = strconv.Itoa(page)
 
-		ratelimits, err := api.ListRateLimits(domainId, vhost.Label, params)
+		ratelimits, err := api.ListRateLimits(domainID, vhost.Label, params)
 		if err != nil {
 			return err
 		}

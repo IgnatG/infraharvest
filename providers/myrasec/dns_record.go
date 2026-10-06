@@ -11,11 +11,11 @@ import (
 
 // DNSGenerator
 type DNSGenerator struct {
-	MyrasecService
+	Service
 }
 
-// createDnsResources
-func (g *DNSGenerator) createDnsResources(api *mgo.API, domain mgo.Domain, wg *sync.WaitGroup) error {
+// createDNSResources
+func (g *DNSGenerator) createDNSResources(api *mgo.API, domain mgo.Domain, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
 	page := 1
@@ -64,7 +64,7 @@ func (g *DNSGenerator) InitResources() error {
 	}
 
 	funcs := []func(*mgo.API, mgo.Domain, *sync.WaitGroup) error{
-		g.createDnsResources,
+		g.createDNSResources,
 	}
 
 	err = createResourcesPerDomain(api, funcs, &wg)

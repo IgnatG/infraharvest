@@ -31,7 +31,7 @@ func newCmdMyrasecImporter(options ImportOptions) *cobra.Command {
 
 // newMyrasecProvider
 func newMyrasecProvider() terraformutils.ProviderGenerator {
-	return &myrasec_terraforming.MyrasecProvider{}
+	return &myrasec_terraforming.Provider{}
 }
 
 func init() {
