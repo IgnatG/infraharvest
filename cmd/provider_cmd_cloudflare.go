@@ -39,7 +39,7 @@ func newCmdCloudflareImporter(options ImportOptions) *cobra.Command {
 	}
 
 	cmd.AddCommand(listCmd(newCloudflareProvider()))
-	baseProviderFlags(cmd.PersistentFlags(), &options, "zone", "access_application=id1:id2:id4")
+	baseProviderFlags(cmd.PersistentFlags(), &options, "zone", "dns_record=zone_id/record_id1:zone_id/record_id2")
 	return cmd
 }
 

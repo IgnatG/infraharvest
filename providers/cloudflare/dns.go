@@ -15,89 +15,76 @@
 package cloudflare
 
 import (
+	"context"
 	"fmt"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	cf "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v7"
+	"github.com/cloudflare/cloudflare-go/v7/dns"
+	"github.com/cloudflare/cloudflare-go/v7/zones"
 )
 
 type DNSGenerator struct {
 	CloudflareService
 }
 
-func (*DNSGenerator) createZonesResource(api *cf.API, zoneID string) ([]terraformutils.Resource, error) {
-	zoneDetails, err := api.ZoneDetails(zoneID)
-	if err != nil {
-		log.Println(err)
-		return []terraformutils.Resource{}, err
-	}
-
-	resource := terraformutils.NewResource(
-		zoneDetails.ID,
-		zoneDetails.Name,
+func zoneResource(zone zones.Zone) terraformutils.Resource {
+	return terraformutils.NewResource(
+		zone.ID,
+		zone.Name,
 		"cloudflare_zone",
 		"cloudflare",
 		map[string]string{
-			"id": zoneDetails.ID,
+			"id": zone.ID,
 		})
-
-	return []terraformutils.Resource{resource}, nil
 }
 
-func (*DNSGenerator) createRecordsResources(api *cf.API, zoneID string) ([]terraformutils.Resource, error) {
+// recordResources records a zone's DNS records as cloudflare_dns_record
+// (cloudflare_record before provider 5), imported as <zone_id>/<record_id>.
+func recordResources(zoneID, zoneName string, records []dns.RecordResponse) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	records, err := api.DNSRecords(zoneID, cf.DNSRecord{})
-	if err != nil {
-		log.Println(err)
-		return resources, err
-	}
-
 	for _, record := range records {
-		r := terraformutils.NewResource(
-			record.ID,
-			fmt.Sprintf("%s_%s_%s", record.Type, record.ZoneName, record.ID),
-			"cloudflare_record",
+		resources = append(resources, terraformutils.NewResource(
+			zoneID+"/"+record.ID,
+			fmt.Sprintf("%s_%s_%s", record.Type, zoneName, record.ID),
+			"cloudflare_dns_record",
 			"cloudflare",
 			map[string]string{
 				"zone_id": zoneID,
-				"domain":  record.ZoneName,
+				"domain":  zoneName,
 				"name":    record.Name,
-			})
-
-		resources = append(resources, r)
+			}))
 	}
+	return resources
+}
 
-	return resources, nil
+func listRecords(ctx context.Context, client *cloudflare.Client, zoneID string) ([]dns.RecordResponse, error) {
+	return collect(client.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{ZoneID: cloudflare.F(zoneID)}))
 }
 
 func (g *DNSGenerator) InitResources() error {
-	api, err := g.initializeAPI()
+	ctx := g.Context()
+	client, err := g.initializeAPI()
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 
-	zones, err := api.ListZones()
+	zoneList, err := listZones(ctx, client)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 
-	funcs := []func(*cf.API, string) ([]terraformutils.Resource, error){
-		g.createZonesResource,
-		g.createRecordsResources,
-	}
-
-	for _, zone := range zones {
-		for _, f := range funcs {
-			tmpRes, err := f(api, zone.ID)
-			if err != nil {
-				log.Println(err)
-				return err
-			}
-			g.Resources = append(g.Resources, tmpRes...)
+	for _, zone := range zoneList {
+		g.Resources = append(g.Resources, zoneResource(zone))
+		records, err := listRecords(ctx, client, zone.ID)
+		if err != nil {
+			log.Println(err)
+			return err
 		}
+		g.Resources = append(g.Resources, recordResources(zone.ID, zone.Name, records)...)
 	}
 	return nil
 }

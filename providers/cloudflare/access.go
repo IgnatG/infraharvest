@@ -15,56 +15,59 @@
 package cloudflare
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
-	cf "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v7"
+	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
 )
 
 type AccessGenerator struct {
 	CloudflareService
 }
 
-func (g *AccessGenerator) createAccessApplications(api *cf.API, zoneID string) ([]terraformutils.Resource, error) {
+// accessApplicationResources records a zone's Access applications as
+// cloudflare_zero_trust_access_application (cloudflare_access_application
+// before provider 5), imported as zones/<zone_id>/<app_id>.
+func accessApplicationResources(zoneID string, apps []zero_trust.AccessApplicationListResponse) []terraformutils.Resource {
 	resources := []terraformutils.Resource{}
-	accessApplications, _, err := api.AccessApplications(zoneID, cf.PaginationOptions{})
-	if err != nil {
-		return []terraformutils.Resource{}, err
-	}
-
-	for _, app := range accessApplications {
+	for _, app := range apps {
 		resources = append(resources, terraformutils.NewResource(
-			app.ID,
+			"zones/"+zoneID+"/"+app.ID,
 			fmt.Sprintf("%s_%s", app.Name, app.ID),
-			"cloudflare_access_application",
+			"cloudflare_zero_trust_access_application",
 			"cloudflare",
 			map[string]string{
 				"zone_id": zoneID,
 				"name":    app.Name,
 			}))
 	}
+	return resources
+}
 
-	return resources, nil
+func listAccessApplications(ctx context.Context, client *cloudflare.Client, zoneID string) ([]zero_trust.AccessApplicationListResponse, error) {
+	return collect(client.ZeroTrust.Access.Applications.ListAutoPaging(ctx, zero_trust.AccessApplicationListParams{ZoneID: cloudflare.F(zoneID)}))
 }
 
 func (g *AccessGenerator) InitResources() error {
-	api, err := g.initializeAPI()
+	ctx := g.Context()
+	client, err := g.initializeAPI()
 	if err != nil {
 		return err
 	}
 
-	zones, err := api.ListZones()
+	zoneList, err := listZones(ctx, client)
 	if err != nil {
 		return err
 	}
 
-	for _, zone := range zones {
-		tmpRes, err := g.createAccessApplications(api, zone.ID)
+	for _, zone := range zoneList {
+		apps, err := listAccessApplications(ctx, client, zone.ID)
 		if err != nil {
 			return err
 		}
-
-		g.Resources = append(g.Resources, tmpRes...)
+		g.Resources = append(g.Resources, accessApplicationResources(zone.ID, apps)...)
 	}
 
 	return nil

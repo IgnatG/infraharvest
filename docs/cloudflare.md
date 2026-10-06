@@ -1,6 +1,10 @@
 ### Use with Cloudflare
 
-The Cloudflare listers were written for Cloudflare provider 3.x and record its resource types. infraharvest generates configuration with the newest provider release, and later major releases renamed or removed some of these types (provider 5 replaces `cloudflare_record` with `cloudflare_dns_record`, for example). Terraform rejects resources of those types, and the report lists them.
+The listers record the resource types of Cloudflare provider 5, with the IDs Terraform imports them with (`<zone_id>/<record_id>` for a DNS record, for example).
+
+`CLOUDFLARE_ACCOUNT_ID` is required for `account_member`. With it, `firewall` also imports the account's IP access rules.
+
+Cloudflare has retired the Firewall Rules, Filters and previous Rate Limiting APIs; they answer `410 Gone`. When they do, `firewall` logs that it skipped them and imports the zone's other resources.
 
 Example using a Cloudflare API Key and corresponding email:
 
@@ -24,11 +28,11 @@ infraharvest import cloudflare --all --resources=firewall,dns
 List of supported Cloudflare services:
 
 * `access`
-  * `cloudflare_access_application`
+  * `cloudflare_zero_trust_access_application` (zone-level applications)
 * `account_member`
   * `cloudflare_account_member`
 * `dns`
-  * `cloudflare_record`
+  * `cloudflare_dns_record`
   * `cloudflare_zone`
 * `firewall`
   * `cloudflare_access_rule`

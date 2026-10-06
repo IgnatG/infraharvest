@@ -16,23 +16,21 @@ package cloudflare
 
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
-	cf "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v7"
+	"github.com/cloudflare/cloudflare-go/v7/page_rules"
 )
 
 type PageRulesGenerator struct {
 	CloudflareService
 }
 
-func (g *PageRulesGenerator) createPageRules(api *cf.API, zoneID string) ([]terraformutils.Resource, error) {
+// pageRuleResources records a zone's page rules as cloudflare_page_rule,
+// imported as <zone_id>/<page_rule_id>.
+func pageRuleResources(zoneID string, pageRules []page_rules.PageRule) []terraformutils.Resource {
 	var resources []terraformutils.Resource
-	pageRules, err := api.ListPageRules(zoneID)
-	if err != nil {
-		return resources, err
-	}
-
 	for _, pageRule := range pageRules {
 		resources = append(resources, terraformutils.NewResource(
-			pageRule.ID,
+			zoneID+"/"+pageRule.ID,
 			pageRule.ID,
 			"cloudflare_page_rule",
 			"cloudflare",
@@ -40,27 +38,30 @@ func (g *PageRulesGenerator) createPageRules(api *cf.API, zoneID string) ([]terr
 				"zone_id": zoneID,
 			}))
 	}
-
-	return resources, nil
+	return resources
 }
 
 func (g *PageRulesGenerator) InitResources() error {
-	api, err := g.initializeAPI()
+	ctx := g.Context()
+	client, err := g.initializeAPI()
 	if err != nil {
 		return err
 	}
 
-	zones, err := api.ListZones()
+	zoneList, err := listZones(ctx, client)
 	if err != nil {
 		return err
 	}
 
-	for _, zone := range zones {
-		resources, err := g.createPageRules(api, zone.ID)
+	for _, zone := range zoneList {
+		// The page rules API isn't paginated: it returns a zone's rules at once.
+		pageRules, err := client.PageRules.List(ctx, page_rules.PageRuleListParams{ZoneID: cloudflare.F(zone.ID)})
 		if err != nil {
 			return err
 		}
-		g.Resources = append(g.Resources, resources...)
+		if pageRules != nil {
+			g.Resources = append(g.Resources, pageRuleResources(zone.ID, *pageRules)...)
+		}
 	}
 
 	return nil
