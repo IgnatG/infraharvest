@@ -15,31 +15,39 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"os"
-	"strings"
+	"regexp"
 
 	"github.com/IgnatG/infraharvest/cmd"
 )
 
-// TerraformerWriter writes log messages to stderr, so stdout carries only
+// logWriter writes log messages to w (stderr), so stdout carries only
 // results (--output json), and hides trace and debug messages that client
 // libraries log through the standard logger, some of them whole HTTP
-// requests at [DEBUG].
-type TerraformerWriter struct {
-	io.Writer
+// requests at [DEBUG]. A message is hidden only when it starts with the
+// level, so messages that mention one, such as a resource named
+// "[DEBUG] logs", are kept.
+type logWriter struct {
+	w io.Writer
 }
 
-func (t TerraformerWriter) Write(p []byte) (n int, err error) {
-	if !strings.Contains(string(p), "[TRACE]") && !strings.Contains(string(p), "[DEBUG]") {
-		return os.Stderr.Write(p)
+// logPrefix matches the date and time the standard logger writes before each
+// message (log.LstdFlags, with or without microseconds).
+var logPrefix = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(\.\d+)? `)
+
+func (l logWriter) Write(p []byte) (n int, err error) {
+	message := p[len(logPrefix.Find(p)):]
+	if bytes.HasPrefix(message, []byte("[TRACE]")) || bytes.HasPrefix(message, []byte("[DEBUG]")) {
+		return len(p), nil
 	}
-	return len(p), nil
+	return l.w.Write(p)
 }
 
 func main() {
-	log.SetOutput(TerraformerWriter{})
+	log.SetOutput(logWriter{w: os.Stderr})
 	if err := cmd.Execute(); err != nil {
 		log.Println(err)
 		os.Exit(cmd.ExitCode(err))
