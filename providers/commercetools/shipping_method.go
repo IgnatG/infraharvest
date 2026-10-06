@@ -17,9 +17,8 @@ package commercetools
 import (
 	"context"
 
-	"github.com/IgnatG/infraharvest/providers/commercetools/connectivity"
 	"github.com/IgnatG/infraharvest/terraformutils"
-	"github.com/labd/commercetools-go-sdk/commercetools"
+	"github.com/labd/commercetools-go-sdk/platform"
 )
 
 type ShippingMethodGenerator struct {
@@ -28,27 +27,35 @@ type ShippingMethodGenerator struct {
 
 // InitResources generates Terraform Resources from Commercetools API
 func (g *ShippingMethodGenerator) InitResources() error {
-	cfg := connectivity.Config{
-		ClientID:     g.GetArgs()["client_id"].(string),
-		ClientSecret: g.GetArgs()["client_secret"].(string),
-		ClientScope:  g.GetArgs()["client_scope"].(string),
-		TokenURL:     g.GetArgs()["token_url"].(string) + "/oauth/token",
-		BaseURL:      g.GetArgs()["base_url"].(string),
-	}
-
-	client := cfg.NewClient()
-
-	zones, err := client.ShippingMethodQuery(context.Background(), &commercetools.QueryInput{})
+	client, err := g.client()
 	if err != nil {
 		return err
 	}
-	for _, zone := range zones.Results {
-		g.Resources = append(g.Resources, terraformutils.NewResource(
-			zone.ID,
-			zone.Key,
+	ctx := context.Background()
+	items, err := listAll(func(where []string) ([]platform.ShippingMethod, error) {
+		page, err := client.ShippingMethods().Get().Sort(sortByID).Limit(pageSize).WithTotal(false).Where(where).Execute(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return page.Results, nil
+	}, func(item platform.ShippingMethod) string { return item.ID })
+	if err != nil {
+		return err
+	}
+	g.Resources = shippingMethodResources(items)
+	return nil
+}
+
+func shippingMethodResources(items []platform.ShippingMethod) []terraformutils.Resource {
+	var resources []terraformutils.Resource
+	for _, item := range items {
+		name := deref(item.Key)
+		resources = append(resources, terraformutils.NewResource(
+			item.ID,
+			name,
 			"commercetools_shipping_method",
 			"commercetools",
 			map[string]string{}))
 	}
-	return nil
+	return resources
 }

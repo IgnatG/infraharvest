@@ -150,8 +150,8 @@ require (
 	github.com/ionos-cloud/sdk-go/v6 v6.1.3
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jonboydell/logzio_client v1.2.0
-	github.com/labd/commercetools-go-sdk v0.3.1
 	github.com/linode/linodego v1.69.1
+	github.com/labd/commercetools-go-sdk v1.10.0
 	github.com/microsoft/azure-devops-go-api/azuredevops v1.0.0-b5
 	github.com/mrparkers/terraform-provider-keycloak v0.0.0-20221013232944-56f37a07590d
 	github.com/nicksnyder/go-i18n v1.10.1 // indirect
@@ -194,7 +194,6 @@ require (
 	github.com/BurntSushi/toml v1.1.0 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v13 v13.0.0 // indirect
-	github.com/appscode/go-querystring v0.0.0-20170504095604-0126cfb3f1dc // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.20 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
