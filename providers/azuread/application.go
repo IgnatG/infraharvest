@@ -29,9 +29,7 @@ func (az *ApplicationServiceGenerator) listResources() ([]msgraph.Application, e
 		return nil, err
 	}
 
-	for _, application := range *applications {
-		resources = append(resources, application)
-	}
+	resources = append(resources, *applications...)
 
 	return resources, nil
 }

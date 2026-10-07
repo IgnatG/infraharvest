@@ -29,9 +29,7 @@ func (az *ServicePrincipalServiceGenerator) listResources() ([]msgraph.ServicePr
 		return nil, err
 	}
 
-	for _, sp := range *servicePrincipal {
-		resources = append(resources, sp)
-	}
+	resources = append(resources, *servicePrincipal...)
 
 	return resources, nil
 }

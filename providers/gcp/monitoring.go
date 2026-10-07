@@ -22,8 +22,8 @@ import (
 
 	"google.golang.org/api/iterator"
 
-	monitoring "cloud.google.com/go/monitoring/apiv3" // nolint
-	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
+	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
+	monitoringpb "cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 )
 
 type MonitoringGenerator struct {

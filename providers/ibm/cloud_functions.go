@@ -92,8 +92,8 @@ func setupOpenWhiskClientConfigIAM(response ns.NamespaceResponse, c *bluemix.Con
 		additionalHeaders.Add("Authorization", c.IAMAccessToken)
 		additionalHeaders.Add("X-Namespace-Id", response.GetID())
 
-		wskClient.Config.Namespace = response.GetID()
-		wskClient.Config.AdditionalHeaders = additionalHeaders
+		wskClient.Namespace = response.GetID()
+		wskClient.AdditionalHeaders = additionalHeaders
 		return wskClient, nil
 	}
 

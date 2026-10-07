@@ -239,17 +239,17 @@ func applyGlobalOptionsToConfig(config *restclient.Config) error {
 	// tls config
 	caFile := os.Getenv("KUBECTL_PLUGINS_GLOBAL_FLAG_CERTIFICATE_AUTHORITY")
 	if len(caFile) > 0 {
-		config.TLSClientConfig.CAFile = caFile
+		config.CAFile = caFile
 	}
 
 	clientCertFile := os.Getenv("KUBECTL_PLUGINS_GLOBAL_FLAG_CLIENT_CERTIFICATE")
 	if len(clientCertFile) > 0 {
-		config.TLSClientConfig.CertFile = clientCertFile
+		config.CertFile = clientCertFile
 	}
 
 	clientKey := os.Getenv("KUBECTL_PLUGINS_GLOBAL_FLAG_CLIENT_KEY")
 	if len(clientKey) > 0 {
-		config.TLSClientConfig.KeyFile = clientKey
+		config.KeyFile = clientKey
 	}
 
 	// user / misc request config

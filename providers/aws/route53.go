@@ -137,10 +137,7 @@ func (g *Route53Generator) InitResources() error {
 }
 
 func wildcardUnescape(s string) string {
-	if strings.Contains(s, "\\052") {
-		s = strings.Replace(s, "\\052", "*", 1)
-	}
-	return s
+	return strings.Replace(s, "\\052", "*", 1)
 }
 
 // cleanZoneID is used to remove the leading /hostedzone/

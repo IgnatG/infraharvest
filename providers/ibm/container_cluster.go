@@ -21,7 +21,6 @@ import (
 
 	bluemix "github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
-	v1 "github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -163,7 +162,7 @@ func (g *ContainerClusterGenerator) InitResources() error {
 	return nil
 }
 
-func workerPoolContains(workerPools []v1.WorkerPoolResponse, pool string) bool {
+func workerPoolContains(workerPools []containerv1.WorkerPoolResponse, pool string) bool {
 	for _, workerPool := range workerPools {
 		if workerPool.Name == pool {
 			return true

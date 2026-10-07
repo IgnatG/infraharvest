@@ -36,13 +36,14 @@ func (g *ServiceV1Generator) loadServices(client *fastly.Client) ([]*fastly.Serv
 		return nil, err
 	}
 	for _, service := range services {
-		if service.Type == ServiceTypeVCL {
+		switch service.Type {
+		case ServiceTypeVCL:
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				service.ID,
 				service.ID,
 				"fastly_service_v1",
 				"fastly"))
-		} else if service.Type == ServiceTypeWasm {
+		case ServiceTypeWasm:
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
 				service.ID,
 				service.ID,

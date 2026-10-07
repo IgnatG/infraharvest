@@ -1,8 +1,9 @@
 package gcp
 
 import (
-	cloudbuild "cloud.google.com/go/cloudbuild/apiv1"
-	pb "google.golang.org/genproto/googleapis/devtools/cloudbuild/v1"
+	cloudbuild "cloud.google.com/go/cloudbuild/apiv1/v2"
+	pb "cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
+	"google.golang.org/api/iterator"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -22,29 +23,20 @@ func (g *CloudBuildGenerator) InitResources() error {
 		return err
 	}
 
-	var (
-		triggers      []*pb.BuildTrigger
-		nextPageToken string
-	)
-
+	var triggers []*pb.BuildTrigger
+	it := c.ListBuildTriggers(ctx, &pb.ListBuildTriggersRequest{
+		ProjectId: g.GetArgs()["project"].(string),
+		PageSize:  cbMaxPageSize,
+	})
 	for {
-		req := &pb.ListBuildTriggersRequest{
-			ProjectId: g.GetArgs()["project"].(string),
-			PageToken: nextPageToken,
-			PageSize:  cbMaxPageSize,
+		trigger, err := it.Next()
+		if err == iterator.Done {
+			break
 		}
-
-		res, err := c.ListBuildTriggers(ctx, req)
 		if err != nil {
 			return err
 		}
-
-		triggers = append(triggers, res.Triggers...)
-		nextPageToken = res.NextPageToken
-
-		if nextPageToken == "" {
-			break
-		}
+		triggers = append(triggers, trigger)
 	}
 
 	g.Resources = g.createBuildTriggers(triggers)

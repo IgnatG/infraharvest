@@ -172,7 +172,7 @@ require (
 	golang.org/x/text v0.42.0
 	gonum.org/v1/gonum v0.17.0
 	google.golang.org/api v0.271.0
-	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409
+	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
 )
