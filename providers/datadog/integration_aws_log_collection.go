@@ -55,7 +55,7 @@ func (g *IntegrationAWSLogCollectionGenerator) InitResources() error {
 	auth := g.Args["auth"].(context.Context)
 	api := datadogV1.NewAWSLogsIntegrationApi(datadogClient)
 
-	logCollections, _, err := api.ListAWSLogsIntegrations(auth)
+	logCollections, _, err := api.ListAWSLogsIntegrations(auth) //nolint:staticcheck // the Terraform resource is built on this v1 API; there is no v2 replacement
 	if err != nil {
 		return err
 	}

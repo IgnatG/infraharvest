@@ -56,7 +56,7 @@ func (g *IntegrationAWSGenerator) InitResources() error {
 	auth := g.Args["auth"].(context.Context)
 	api := datadogV1.NewAWSIntegrationApi(datadogClient)
 
-	integrations, _, err := api.ListAWSAccounts(auth)
+	integrations, _, err := api.ListAWSAccounts(auth) //nolint:staticcheck // datadog_integration_aws imports by account_id:role_name from v1; v2 lists datadog_integration_aws_account UUIDs
 	if err != nil {
 		return err
 	}

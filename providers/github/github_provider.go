@@ -33,7 +33,7 @@ type GithubProvider struct { //nolint
 	pem            string
 }
 
-func (p GithubProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p GithubProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			"github": map[string]interface{}{
@@ -60,7 +60,7 @@ func (p *GithubProvider) Init(args []string) error {
 		p.installationID = installationID
 	}
 	if pem, ok := os.LookupEnv("GITHUB_APP_PEM_FILE"); ok {
-		p.pem = strings.Replace(pem, `\n`, "\n", -1)
+		p.pem = strings.ReplaceAll(pem, `\n`, "\n")
 	}
 
 	p.owner = args[0]

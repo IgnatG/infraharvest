@@ -56,7 +56,7 @@ func (g *IntegrationGCPGenerator) InitResources() error {
 	auth := g.Args["auth"].(context.Context)
 	api := datadogV1.NewGCPIntegrationApi(datadogClient)
 
-	integrations, _, err := api.ListGCPIntegration(auth)
+	integrations, _, err := api.ListGCPIntegration(auth) //nolint:staticcheck // datadog_integration_gcp imports by the v1 project_id; v2 lists datadog_integration_gcp_sts IDs
 	if err != nil {
 		return err
 	}
