@@ -25,7 +25,7 @@ CI on each pull request:
 - Tests of OS-sensitive packages on Windows.
 - `govulncheck` in binary mode.
 - An end-to-end AWS import against the Floci emulator ([e2e/README.md](e2e/README.md)).
-- golangci-lint on changed lines.
+- golangci-lint on the whole repository; any finding fails the check.
 
 The module is large (44 providers), so building or testing all of it needs several GB of RAM. To check selected packages on GitHub instead of locally:
 

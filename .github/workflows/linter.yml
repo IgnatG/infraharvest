@@ -1,8 +1,8 @@
 name: linter
 
-# Lint only lines changed by a pull request. The inherited Terraformer code
-# has ~400 findings from current linters; fix them as code is touched,
-# and keep new code clean.
+# Lint the whole repository on every pull request. Any golangci-lint finding
+# fails the check, wherever it is; reviewdog posts findings on lines the pull
+# request changes as review comments and the rest as check annotations.
 on:
   pull_request:
     branches: [main]
@@ -37,5 +37,7 @@ jobs:
         tool_name: golangci-lint
         golangci_lint_version: v2.14.0
         reporter: github-pr-review
-        filter_mode: added
+        # nofilter: report and fail on every finding, not only those on added
+        # lines.
+        filter_mode: nofilter
         fail_level: error
