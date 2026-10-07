@@ -74,7 +74,7 @@ func (g *IpsecGenerator) InitResources() error {
 		}
 		policies, response, err := vpcclient.ListIpsecPolicies(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching IPSEC Policies %s\n%s", err, response)
+			return fmt.Errorf("error fetching IPSEC Policies %s\n%s", err, response)
 		}
 		start = GetNext(policies.Next)
 		allrecs = append(allrecs, policies.IpsecPolicies...)

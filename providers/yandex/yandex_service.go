@@ -37,7 +37,7 @@ func (y *YandexService) InitSDK() (*ycsdk.SDK, error) {
 	if saKeyOrContent := y.Args[KeySaKeyFileOrContent].(string); saKeyOrContent != "" {
 		contents, _, err := pathOrContents(saKeyOrContent)
 		if err != nil {
-			return nil, fmt.Errorf("Error loading credentials: %s", err)
+			return nil, fmt.Errorf("error loading credentials: %s", err)
 		}
 
 		key, err := iamKeyFromJSONContent(contents)

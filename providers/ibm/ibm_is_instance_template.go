@@ -62,7 +62,7 @@ func (g *InstanceTemplateGenerator) InitResources() error {
 	options := &vpcv1.ListInstanceTemplatesOptions{}
 	templates, response, err := vpcclient.ListInstanceTemplates(options)
 	if err != nil {
-		return fmt.Errorf("Error Fetching Instance Templates %s\n%s", err, response)
+		return fmt.Errorf("error fetching Instance Templates %s\n%s", err, response)
 	}
 
 	for _, template := range templates.Templates {

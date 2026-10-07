@@ -122,7 +122,7 @@ func (g *SatelliteControlPlaneGenerator) InitResources() error {
 			}
 			hosts, resp, err := satelliteClient.GetSatelliteHosts(getSatHostOpts)
 			if err != nil {
-				return fmt.Errorf("Error getting satellite control plane hosts %s\n%s", err, resp)
+				return fmt.Errorf("error getting satellite control plane hosts %s\n%s", err, resp)
 			}
 
 			for _, host := range hosts {
@@ -135,7 +135,7 @@ func (g *SatelliteControlPlaneGenerator) InitResources() error {
 			getSatClusterOptions := &kubernetesserviceapiv1.GetSatelliteClustersOptions{}
 			clusterFields, _, err := satelliteClient.GetSatelliteClusters(getSatClusterOptions)
 			if err != nil {
-				return fmt.Errorf("Error getting satellite cluster %s", err)
+				return fmt.Errorf("error getting satellite cluster %s", err)
 			}
 
 			for _, cluster := range clusterFields {

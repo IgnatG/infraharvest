@@ -69,7 +69,7 @@ func (g *VolumeGenerator) InitResources() error {
 		}
 		volumes, response, err := vpcclient.ListVolumes(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching Volumes %s\n%s", err, response)
+			return fmt.Errorf("error fetching Volumes %s\n%s", err, response)
 		}
 		start = GetNext(volumes.Next)
 		allrecs = append(allrecs, volumes.Volumes...)

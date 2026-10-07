@@ -37,11 +37,11 @@ func newCmdOktaImporter(options ImportOptions) *cobra.Command {
 			}
 			baseURL := os.Getenv("OKTA_BASE_URL")
 			if len(baseURL) == 0 {
-				return errors.New("Base URL for Okta must be set through `OKTA_BASE_URL` env var")
+				return errors.New("base URL for Okta must be set through `OKTA_BASE_URL` env var")
 			}
 			orgName := os.Getenv("OKTA_ORG_NAME")
 			if len(orgName) == 0 {
-				return errors.New("Org Name for Okta must be set through `OKTA_ORG_NAME` env var")
+				return errors.New("org name for Okta must be set through `OKTA_ORG_NAME` env var")
 			}
 
 			provider := newOktaProvider()

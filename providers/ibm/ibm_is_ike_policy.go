@@ -69,7 +69,7 @@ func (g *IkeGenerator) InitResources() error {
 		}
 		policies, response, err := vpcclient.ListIkePolicies(options)
 		if err != nil {
-			return fmt.Errorf("Error Fetching IKE Policies %s\n%s", err, response)
+			return fmt.Errorf("error fetching IKE Policies %s\n%s", err, response)
 		}
 		start = GetNext(policies.Next)
 		allrecs = append(allrecs, policies.IkePolicies...)

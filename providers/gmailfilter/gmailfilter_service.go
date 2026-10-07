@@ -78,7 +78,7 @@ func (s *GmailfilterService) getTokenSource(creds string, impersonatedEmailAddr 
 		}
 		contents, err := readPathOrContents(creds)
 		if err != nil {
-			return nil, fmt.Errorf("Error loading credentials: %s", err)
+			return nil, fmt.Errorf("error loading credentials: %s", err)
 		}
 
 		var serviceAccount serviceAccountFile

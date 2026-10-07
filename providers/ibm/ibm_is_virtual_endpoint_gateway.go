@@ -54,7 +54,7 @@ func (g *VPEGenerator) InitResources() error {
 	region := g.Args["region"].(string)
 	apiKey := os.Getenv("IC_API_KEY")
 	if apiKey == "" {
-		return fmt.Errorf("No API key set")
+		return fmt.Errorf("no API key set")
 	}
 
 	isURL := GetVPCEndPoint(region)
@@ -81,13 +81,13 @@ func (g *VPEGenerator) InitResources() error {
 		if rg := g.Args["resource_group"].(string); rg != "" {
 			rg, err = GetResourceGroupID(apiKey, rg, region)
 			if err != nil {
-				return fmt.Errorf("Error Fetching Resource Group Id %s", err)
+				return fmt.Errorf("error fetching Resource Group Id %s", err)
 			}
 			listEndpointGatewaysOptions.ResourceGroupID = &rg
 		}
 		gateways, response, err := vpcclient.ListEndpointGateways(listEndpointGatewaysOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching endpoint gateways %s\n%s", err, response)
+			return fmt.Errorf("error fetching endpoint gateways %s\n%s", err, response)
 		}
 		start = GetNext(gateways.Next)
 		allrecs = append(allrecs, gateways.EndpointGateways...)
@@ -108,7 +108,7 @@ func (g *VPEGenerator) InitResources() error {
 		}
 		ips, response, err := vpcclient.ListEndpointGatewayIps(listEndpointGatewayIpsOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching endpoint gateway ips %s\n%s", err, response)
+			return fmt.Errorf("error fetching endpoint gateway ips %s\n%s", err, response)
 		}
 		start = GetNext(ips.Next)
 		allrecs = append(allrecs, ips.Ips...)

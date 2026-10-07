@@ -97,7 +97,7 @@ func setupOpenWhiskClientConfigIAM(response ns.NamespaceResponse, c *bluemix.Con
 		return wskClient, nil
 	}
 
-	return nil, fmt.Errorf("Failed to create whisk config object for IAM based namespace '%v'", response.GetName())
+	return nil, fmt.Errorf("failed to create whisk config object for IAM based namespace '%v'", response.GetName())
 }
 
 // InitResources ..
@@ -154,7 +154,7 @@ func (g *CloudFunctionGenerator) InitResources() error {
 		}
 		pkgs, _, err := packageService.List(pkgOptions)
 		if err != nil {
-			return fmt.Errorf("Error retrieving IBM Cloud Function package: %s", err)
+			return fmt.Errorf("error retrieving IBM Cloud Function package: %s", err)
 		}
 
 		for _, p := range pkgs {
@@ -169,7 +169,7 @@ func (g *CloudFunctionGenerator) InitResources() error {
 		}
 		actions, _, err := actionService.List("", actionOptions)
 		if err != nil {
-			return fmt.Errorf("Error retrieving IBM Cloud Function action: %s", err)
+			return fmt.Errorf("error retrieving IBM Cloud Function action: %s", err)
 		}
 
 		for _, a := range actions {
@@ -201,7 +201,7 @@ func (g *CloudFunctionGenerator) InitResources() error {
 		}
 		rules, _, err := ruleService.List(ruleOptions)
 		if err != nil {
-			return fmt.Errorf("Error retrieving IBM Cloud Function rule: %s", err)
+			return fmt.Errorf("error retrieving IBM Cloud Function rule: %s", err)
 		}
 
 		for _, r := range rules {
@@ -216,7 +216,7 @@ func (g *CloudFunctionGenerator) InitResources() error {
 		}
 		triggers, _, err := triggerService.List(triggerOptions)
 		if err != nil {
-			return fmt.Errorf("Error retrieving IBM Cloud Function trigger: %s", err)
+			return fmt.Errorf("error retrieving IBM Cloud Function trigger: %s", err)
 		}
 
 		for _, t := range triggers {

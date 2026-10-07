@@ -146,7 +146,7 @@ func vpcClient(region string, sess *session.Session) (*vpcv1.VpcV1, error) {
 	}
 	vpcclient, err := vpcv1.NewVpcV1(vpcoptions)
 	if err != nil {
-		return nil, fmt.Errorf("Error occured while configuring vpc service: %v ", err)
+		return nil, fmt.Errorf("error occurred while configuring vpc service: %v", err)
 	}
 
 	return vpcclient, nil
@@ -189,7 +189,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 		}
 		vpcs, response, err := vpcObj.ListVpcs(listVpcsOptions)
 		if err != nil {
-			return fmt.Errorf("Error Fetching vpcs %s\n%s", err, response)
+			return fmt.Errorf("error fetching vpcs %s\n%s", err, response)
 		}
 
 		start = GetNext(vpcs.Next)
@@ -215,7 +215,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 
 				instances, response, err := vpcObj.ListInstances(options)
 				if err != nil {
-					return fmt.Errorf("Error Fetching Instances %s\n%s", err, response)
+					return fmt.Errorf("error fetching Instances %s\n%s", err, response)
 				}
 				start = GetNext(instances.Next)
 				allrecs = append(allrecs, instances.Instances...)
@@ -234,7 +234,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 				}
 				floatingIPs, response, err := vpcObj.ListFloatingIps(floatingIPOptions)
 				if err != nil {
-					return fmt.Errorf("Error Fetching floating IPs %s\n%s", err, response)
+					return fmt.Errorf("error fetching floating IPs %s\n%s", err, response)
 				}
 				start = GetNext(floatingIPs.Next)
 				allFloatingIPs = append(allFloatingIPs, floatingIPs.FloatingIps...)
@@ -267,7 +267,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 
 				sgs, response, err := vpcObj.ListSecurityGroups(options)
 				if err != nil {
-					return fmt.Errorf("Error Fetching security Groups %s\n%s", err, response)
+					return fmt.Errorf("error fetching security Groups %s\n%s", err, response)
 				}
 				start = GetNext(sgs.Next)
 				allSgRecs = append(allSgRecs, sgs.SecurityGroups...)
@@ -283,7 +283,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 				}
 				rules, response, err := vpcObj.ListSecurityGroupRules(listSecurityGroupRulesOptions)
 				if err != nil {
-					return fmt.Errorf("Error Fetching security group rules %s\n%s", err, response)
+					return fmt.Errorf("error fetching security group rules %s\n%s", err, response)
 				}
 				for _, sgrule := range rules.Rules {
 					switch reflect.TypeOf(sgrule).String() {
@@ -319,7 +319,7 @@ func (g *SatelliteDataPlaneGenerator) InitResources() error {
 
 				subnets, response, err := vpcObj.ListSubnets(options)
 				if err != nil {
-					return fmt.Errorf("Error Fetching subnets %s\n%s", err, response)
+					return fmt.Errorf("error fetching subnets %s\n%s", err, response)
 				}
 				start = GetNext(subnets.Next)
 				allSubNetRecs = append(allSubNetRecs, subnets.Subnets...)

@@ -63,7 +63,7 @@ func (g *SSHKeyGenerator) InitResources() error {
 	options := &vpcv1.ListKeysOptions{}
 	keys, response, err := vpcclient.ListKeys(options)
 	if err != nil {
-		return fmt.Errorf("Error Fetching SSH Keys %s\n%s", err, response)
+		return fmt.Errorf("error fetching SSH Keys %s\n%s", err, response)
 	}
 
 	for _, key := range keys.Keys {

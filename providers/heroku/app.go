@@ -56,7 +56,7 @@ func (g *AppGenerator) InitResources() error {
 				for _, appID := range filter.AcceptableValues {
 					app, err := svc.AppInfo(ctx, appID)
 					if err != nil {
-						return fmt.Errorf("Error filtering apps by app '%s': %w", appID, err)
+						return fmt.Errorf("error filtering apps by app '%s': %w", appID, err)
 					}
 					output = append(output, *app)
 				}
@@ -68,7 +68,7 @@ func (g *AppGenerator) InitResources() error {
 		hasRequiredFilter = true
 		teamApps, err := svc.TeamAppListByTeam(ctx, team, &heroku.ListRange{Field: "id", Max: 1000})
 		if err != nil {
-			return fmt.Errorf("Error querying apps by team '%s': %w", team, err)
+			return fmt.Errorf("error querying apps by team '%s': %w", team, err)
 		}
 		for _, app := range teamApps {
 			output = append(output, heroku.App{ID: app.ID, Name: app.Name})
@@ -76,7 +76,7 @@ func (g *AppGenerator) InitResources() error {
 	}
 
 	if !hasRequiredFilter {
-		return fmt.Errorf("Heroku Apps must be scoped by team or filtered by app: --team=<name> or --filter=app=<ID>")
+		return fmt.Errorf("heroku Apps must be scoped by team or filtered by app: --team=<name> or --filter=app=<ID>")
 	}
 
 	g.Resources = g.createResources(output)
@@ -84,37 +84,37 @@ func (g *AppGenerator) InitResources() error {
 	for _, app := range output {
 		appFeatures, err := g.createAppFeatureResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating app feature resources: %w", err)
+			return fmt.Errorf("error creating app feature resources: %w", err)
 		}
 		g.Resources = append(g.Resources, appFeatures...)
 
 		addons, err := g.createAddonResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating app addon resources: %w", err)
+			return fmt.Errorf("error creating app addon resources: %w", err)
 		}
 		g.Resources = append(g.Resources, addons...)
 
 		addonAttachments, err := g.createAddonAttachmentResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating app addon attachment resources: %w", err)
+			return fmt.Errorf("error creating app addon attachment resources: %w", err)
 		}
 		g.Resources = append(g.Resources, addonAttachments...)
 
 		appWebooks, err := g.createAppWebhookResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating app webhook resources: %w", err)
+			return fmt.Errorf("error creating app webhook resources: %w", err)
 		}
 		g.Resources = append(g.Resources, appWebooks...)
 
 		ssls, err := g.createSslResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating SSL resources: %w", err)
+			return fmt.Errorf("error creating SSL resources: %w", err)
 		}
 		g.Resources = append(g.Resources, ssls...)
 
 		domains, err := g.createDomainResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating domain resources: %w", err)
+			return fmt.Errorf("error creating domain resources: %w", err)
 		}
 		g.Resources = append(g.Resources, domains...)
 
@@ -123,7 +123,7 @@ func (g *AppGenerator) InitResources() error {
 
 		formations, err := g.createFormationResources(ctx, svc, app)
 		if err != nil {
-			return fmt.Errorf("Error creating formation resources: %w", err)
+			return fmt.Errorf("error creating formation resources: %w", err)
 		}
 		g.Resources = append(g.Resources, formations...)
 	}
@@ -136,7 +136,7 @@ func (g AppGenerator) createAppFeatureResources(ctx context.Context, svc *heroku
 
 	appFeatures, err := svc.AppFeatureList(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing for features for app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing for features for app '%s': %w", app.ID, err)
 	}
 	for _, appFeature := range appFeatures {
 		if appFeature.Enabled {
@@ -160,7 +160,7 @@ func (g AppGenerator) createAddonResources(ctx context.Context, svc *heroku.Serv
 
 	appAddons, err := svc.AddOnListByApp(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing addons by app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing addons by app '%s': %w", app.ID, err)
 	}
 	for _, addOn := range appAddons {
 		list = append(list, addOn)
@@ -182,12 +182,12 @@ func (g AppGenerator) createAddonAttachmentResources(ctx context.Context, svc *h
 
 	appAddons, err := svc.AddOnListByApp(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing addons by app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing addons by app '%s': %w", app.ID, err)
 	}
 	for _, addOn := range appAddons {
 		addonAttachments, err := svc.AddOnAttachmentListByAddOn(ctx, addOn.ID, &heroku.ListRange{Field: "id", Max: 1000})
 		if err != nil {
-			return []terraformutils.Resource{}, fmt.Errorf("Error listing addon attachments by addon '%s': %w", addOn.Name, err)
+			return []terraformutils.Resource{}, fmt.Errorf("error listing addon attachments by addon '%s': %w", addOn.Name, err)
 		}
 		for _, attachment := range addonAttachments {
 			list = append(list, attachment)
@@ -212,7 +212,7 @@ func (g AppGenerator) createAppWebhookResources(ctx context.Context, svc *heroku
 
 	appWebhooks, err := svc.AppWebhookList(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing webhooks for app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing webhooks for app '%s': %w", app.ID, err)
 	}
 	var resources []terraformutils.Resource
 	for _, appWebhook := range appWebhooks {
@@ -233,7 +233,7 @@ func (g AppGenerator) createSslResources(ctx context.Context, svc *heroku.Servic
 	}
 	sniEnpoints, err := svc.SniEndpointList(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing SNI endpoints (SSL) for app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing SNI endpoints (SSL) for app '%s': %w", app.ID, err)
 	}
 	var resources []terraformutils.Resource
 	for _, sniEndpoint := range sniEnpoints {
@@ -254,7 +254,7 @@ func (g AppGenerator) createSslResources(ctx context.Context, svc *heroku.Servic
 func (g AppGenerator) createDomainResources(ctx context.Context, svc *heroku.Service, app heroku.App) ([]terraformutils.Resource, error) {
 	domains, err := svc.DomainList(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing domains for app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing domains for app '%s': %w", app.ID, err)
 	}
 	var resources []terraformutils.Resource
 	for _, domain := range domains {
@@ -292,7 +292,7 @@ func (g AppGenerator) createDrainResources(ctx context.Context, svc *heroku.Serv
 func (g AppGenerator) createFormationResources(ctx context.Context, svc *heroku.Service, app heroku.App) ([]terraformutils.Resource, error) {
 	formations, err := svc.FormationList(ctx, app.ID, &heroku.ListRange{Field: "id", Max: 1000})
 	if err != nil {
-		return []terraformutils.Resource{}, fmt.Errorf("Error listing formations for app '%s': %w", app.ID, err)
+		return []terraformutils.Resource{}, fmt.Errorf("error listing formations for app '%s': %w", app.ID, err)
 	}
 	var resources []terraformutils.Resource
 	for _, formation := range formations {

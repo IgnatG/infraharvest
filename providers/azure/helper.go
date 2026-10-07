@@ -40,7 +40,7 @@ type ResourceID struct {
 func ParseAzureResourceID(id string) (*ResourceID, error) {
 	idURL, err := url.ParseRequestURI(id)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot parse Azure ID: %s", err)
+		return nil, fmt.Errorf("cannot parse Azure ID: %s", err)
 	}
 
 	path := idURL.Path
@@ -52,7 +52,7 @@ func ParseAzureResourceID(id string) (*ResourceID, error) {
 
 	// We should have an even number of key-value pairs.
 	if len(components)%2 != 0 {
-		return nil, fmt.Errorf("The number of path segments is not divisible by 2 in %q", path)
+		return nil, fmt.Errorf("the number of path segments is not divisible by 2 in %q", path)
 	}
 
 	var subscriptionID string
@@ -84,7 +84,7 @@ func ParseAzureResourceID(id string) (*ResourceID, error) {
 	if subscriptionID != "" {
 		idObj.SubscriptionID = subscriptionID
 	} else {
-		return nil, fmt.Errorf("No subscription ID found in: %q", path)
+		return nil, fmt.Errorf("no subscription ID found in: %q", path)
 	}
 
 	if resourceGroup, ok := componentMap["resourceGroups"]; ok {

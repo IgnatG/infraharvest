@@ -78,7 +78,7 @@ func (c *Config) validateRegion() error {
 		}
 	}
 
-	return fmt.Errorf("Invalid Alibaba Cloud region: %s", c.RegionID)
+	return fmt.Errorf("invalid Alibaba Cloud region: %s", c.RegionID)
 }
 
 func (c *Config) getAuthCredential() auth.Credential {
