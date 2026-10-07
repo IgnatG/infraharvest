@@ -32,7 +32,7 @@ var (
 	disallowedChars = regexp.MustCompile(`[^A-Za-z0-9-]`)
 )
 
-func (p LogzioProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p LogzioProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

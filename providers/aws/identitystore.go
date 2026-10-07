@@ -27,7 +27,7 @@ type IdentityStoreGenerator struct {
 	AWSService
 }
 
-func (g *IdentityStoreGenerator) GetIdentityStoreId() (*string, error) {
+func (g *IdentityStoreGenerator) GetIdentityStoreID() (*string, error) {
 	config, e := g.generateConfig()
 	if e != nil {
 		return nil, e
@@ -40,19 +40,19 @@ func (g *IdentityStoreGenerator) GetIdentityStoreId() (*string, error) {
 	if len(instances.Instances) == 0 {
 		return nil, nil
 	}
-	identityStoreId := StringValue(instances.Instances[0].IdentityStoreId)
-	return &identityStoreId, nil
+	identityStoreID := StringValue(instances.Instances[0].IdentityStoreId)
+	return &identityStoreID, nil
 
 }
 
-func (g *IdentityStoreGenerator) InitGroupResources(identityStoreId string) error {
+func (g *IdentityStoreGenerator) InitGroupResources(identityStoreID string) error {
 	config, e := g.generateConfig()
 	if e != nil {
 		return e
 	}
 	svc := identitystore.NewFromConfig(config)
 	p := identitystore.NewListGroupsPaginator(svc, &identitystore.ListGroupsInput{
-		IdentityStoreId: aws.String(identityStoreId),
+		IdentityStoreId: aws.String(identityStoreID),
 	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -60,18 +60,18 @@ func (g *IdentityStoreGenerator) InitGroupResources(identityStoreId string) erro
 			return err
 		}
 		for _, group := range page.Groups {
-			groupId := StringValue(group.GroupId)
+			groupID := StringValue(group.GroupId)
 			displayName := StringValue(group.DisplayName)
 			g.Resources = append(g.Resources, terraformutils.NewResource(
-				identityStoreId+"/"+groupId,
+				identityStoreID+"/"+groupID,
 				displayName,
 				"aws_identitystore_group",
 				"aws",
 				map[string]string{
-					"identity_store_id": identityStoreId,
+					"identity_store_id": identityStoreID,
 					"description":       StringValue(group.Description),
 				}))
-			err = g.InitGroupMembershipResources(identityStoreId, groupId)
+			err = g.InitGroupMembershipResources(identityStoreID, groupID)
 			if err != nil {
 				return err
 			}
@@ -80,15 +80,15 @@ func (g *IdentityStoreGenerator) InitGroupResources(identityStoreId string) erro
 	return nil
 }
 
-func (g *IdentityStoreGenerator) InitGroupMembershipResources(identityStoreId string, groupId string) error {
+func (g *IdentityStoreGenerator) InitGroupMembershipResources(identityStoreID string, groupID string) error {
 	config, e := g.generateConfig()
 	if e != nil {
 		return e
 	}
 	svc := identitystore.NewFromConfig(config)
 	p := identitystore.NewListGroupMembershipsPaginator(svc, &identitystore.ListGroupMembershipsInput{
-		GroupId:         aws.String(groupId),
-		IdentityStoreId: aws.String(identityStoreId),
+		GroupId:         aws.String(groupID),
+		IdentityStoreId: aws.String(identityStoreID),
 	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -96,39 +96,39 @@ func (g *IdentityStoreGenerator) InitGroupMembershipResources(identityStoreId st
 			return err
 		}
 		for _, user := range page.GroupMemberships {
-			var memberId string
+			var memberID string
 			switch v := user.MemberId.(type) {
 			case *types.MemberIdMemberUserId:
-				memberId = v.Value // Value is string
+				memberID = v.Value // Value is string
 			case *types.UnknownUnionMember:
-				memberId = v.Tag
+				memberID = v.Tag
 			default:
-				memberId = ""
+				memberID = ""
 			}
-			membershipId := StringValue(user.MembershipId)
+			membershipID := StringValue(user.MembershipId)
 			g.Resources = append(g.Resources, terraformutils.NewResource(
-				identityStoreId+"/"+membershipId,
-				"m-"+groupId+"-"+memberId,
+				identityStoreID+"/"+membershipID,
+				"m-"+groupID+"-"+memberID,
 				"aws_identitystore_group_membership",
 				"aws",
 				map[string]string{
-					"identity_store_id": identityStoreId,
-					"group_id":          groupId,
-					"member_id":         memberId,
+					"identity_store_id": identityStoreID,
+					"group_id":          groupID,
+					"member_id":         memberID,
 				}))
 		}
 	}
 	return nil
 }
 
-func (g *IdentityStoreGenerator) InitUserResources(identityStoreId string) error {
+func (g *IdentityStoreGenerator) InitUserResources(identityStoreID string) error {
 	config, e := g.generateConfig()
 	if e != nil {
 		return e
 	}
 	svc := identitystore.NewFromConfig(config)
 	p := identitystore.NewListUsersPaginator(svc, &identitystore.ListUsersInput{
-		IdentityStoreId: aws.String(identityStoreId),
+		IdentityStoreId: aws.String(identityStoreID),
 	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -136,17 +136,17 @@ func (g *IdentityStoreGenerator) InitUserResources(identityStoreId string) error
 			return err
 		}
 		for _, user := range page.Users {
-			userId := StringValue(user.UserId)
+			userID := StringValue(user.UserId)
 			displayName := StringValue(user.DisplayName)
 			//			name := StringValue(user.Name)
 			userName := StringValue(user.UserName)
 			g.Resources = append(g.Resources, terraformutils.NewResource(
-				identityStoreId+"/"+userId,
+				identityStoreID+"/"+userID,
 				userName,
 				"aws_identitystore_user",
 				"aws",
 				map[string]string{
-					"identity_store_id": identityStoreId,
+					"identity_store_id": identityStoreID,
 					"display_name":      displayName,
 					"use_name":          userName,
 				}))
@@ -156,20 +156,20 @@ func (g *IdentityStoreGenerator) InitUserResources(identityStoreId string) error
 }
 
 func (g *IdentityStoreGenerator) InitResources() error {
-	identityStoreId, e := g.GetIdentityStoreId()
+	identityStoreID, e := g.GetIdentityStoreID()
 	if e != nil {
 		return e
 	}
-	if identityStoreId == nil {
+	if identityStoreID == nil {
 		return nil
 	}
 
-	e = g.InitUserResources(*identityStoreId)
+	e = g.InitUserResources(*identityStoreID)
 	if e != nil {
 		return e
 	}
 
-	e = g.InitGroupResources(*identityStoreId)
+	e = g.InitGroupResources(*identityStoreID)
 	if e != nil {
 		return e
 	}

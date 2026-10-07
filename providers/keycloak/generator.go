@@ -198,7 +198,7 @@ func (g *RealmGenerator) InitResources() error {
 		g.Resources = append(g.Resources, g.createUserResources(realmUsers)...)
 
 		// Get realm open id client scopes resources
-		realmScopes, err := kck.ListOpenidClientScopesWithFilter(ctx, realm.Realm, func(scope *keycloak.OpenidClientScope) bool { return true })
+		realmScopes, err := kck.ListOpenidClientScopesWithFilter(ctx, realm.Realm, func(_ *keycloak.OpenidClientScope) bool { return true })
 		if err != nil {
 			return errors.New("keycloak: could not get realm scopes of realm " + realm.Realm + " in Keycloak")
 		}
@@ -212,7 +212,7 @@ func (g *RealmGenerator) InitResources() error {
 		g.Resources = append(g.Resources, g.createOpenIDClientResources(realmClients)...)
 
 		// For each open id client, get resources
-		mapServiceAccountIds := map[string]map[string]string{}
+		mapServiceAccountIDs := map[string]map[string]string{}
 		mapContainerIDs := map[string]string{}
 		mapClientIDs := map[string]string{}
 		for _, client := range realmClients {
@@ -252,9 +252,9 @@ func (g *RealmGenerator) InitResources() error {
 			if err != nil {
 				return errors.New("keycloak: could not get service account user associated to open id client " + client.ClientId + " of realm " + realm.Realm + " in Keycloak")
 			}
-			mapServiceAccountIds[serviceAccountUser.Id] = map[string]string{}
-			mapServiceAccountIds[serviceAccountUser.Id]["Id"] = client.Id
-			mapServiceAccountIds[serviceAccountUser.Id]["ClientId"] = client.ClientId
+			mapServiceAccountIDs[serviceAccountUser.Id] = map[string]string{}
+			mapServiceAccountIDs[serviceAccountUser.Id]["Id"] = client.Id
+			mapServiceAccountIDs[serviceAccountUser.Id]["ClientId"] = client.ClientId
 		}
 
 		// Get open id client roles
@@ -283,7 +283,7 @@ func (g *RealmGenerator) InitResources() error {
 		if err != nil {
 			return errors.New("keycloak: could not get users roles of realm " + realm.Realm + " in Keycloak")
 		}
-		g.Resources = append(g.Resources, g.createServiceAccountClientRolesResources(realm.Realm, clientRoles, *usersInRole, mapServiceAccountIds, mapClientIDs)...)
+		g.Resources = append(g.Resources, g.createServiceAccountClientRolesResources(realm.Realm, clientRoles, *usersInRole, mapServiceAccountIDs, mapClientIDs)...)
 	}
 
 	// Parse the groups trees, and get all the groups

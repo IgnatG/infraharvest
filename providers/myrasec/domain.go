@@ -13,7 +13,7 @@ import (
 
 // DomainGenerator
 type DomainGenerator struct {
-	MyrasecService
+	Service
 }
 
 // createDomainResource

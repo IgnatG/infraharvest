@@ -49,7 +49,7 @@ var SupportedEastOnlyResources = []string{
 	"wafv2_cloudfront",
 }
 
-func (p AWSProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p AWSProvider) GetProviderData(_ ...string) map[string]interface{} {
 	awsConfig := map[string]interface{}{}
 
 	if p.region == GlobalRegion {

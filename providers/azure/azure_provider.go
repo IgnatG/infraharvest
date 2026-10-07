@@ -72,7 +72,7 @@ func (p *AzureProvider) GetName() string {
 
 // GetProviderData returns the azurerm provider block. The engine pins the
 // provider version in versions.tf; azurerm requires an (empty) features block.
-func (p *AzureProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *AzureProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			"azurerm": map[string]interface{}{

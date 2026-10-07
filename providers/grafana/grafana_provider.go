@@ -33,7 +33,7 @@ type GrafanaProvider struct { //nolint
 	insecureSkipVerify bool
 }
 
-func (p GrafanaProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p GrafanaProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			"grafana": map[string]interface{}{
@@ -49,7 +49,7 @@ func (p GrafanaProvider) GetProviderData(arg ...string) map[string]interface{} {
 	}
 }
 
-func (p *GrafanaProvider) Init(args []string) error {
+func (p *GrafanaProvider) Init(_ []string) error {
 	p.auth = os.Getenv("GRAFANA_AUTH")
 	if p.auth == "" {
 		return errors.New("Grafana API authentication must be set through `GRAFANA_AUTH` env var, either as an API token or as username:password for HTTP basic auth")

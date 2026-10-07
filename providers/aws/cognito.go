@@ -41,7 +41,7 @@ func (g *CognitoGenerator) loadUserPools(svc *cognitoidentityprovider.Client) ([
 		MaxResults: aws.Int32(CognitoMaxResults),
 	}, stopOnDuplicateToken)
 
-	var userPoolIds []string
+	var userPoolIDs []string
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
@@ -56,14 +56,14 @@ func (g *CognitoGenerator) loadUserPools(svc *cognitoidentityprovider.Client) ([
 				"aws_cognito_user_pool",
 				"aws"))
 
-			userPoolIds = append(userPoolIds, *pool.Id)
+			userPoolIDs = append(userPoolIDs, *pool.Id)
 		}
 	}
-	return userPoolIds, nil
+	return userPoolIDs, nil
 }
 
-func (g *CognitoGenerator) loadUserPoolClients(svc *cognitoidentityprovider.Client, userPoolIds []string) error {
-	for _, userPoolID := range userPoolIds {
+func (g *CognitoGenerator) loadUserPoolClients(svc *cognitoidentityprovider.Client, userPoolIDs []string) error {
+	for _, userPoolID := range userPoolIDs {
 		p := cognitoidentityprovider.NewListUserPoolClientsPaginator(svc, &cognitoidentityprovider.ListUserPoolClientsInput{
 			UserPoolId: aws.String(userPoolID),
 			MaxResults: aws.Int32(CognitoMaxResults),
@@ -103,11 +103,11 @@ func (g *CognitoGenerator) InitResources() error {
 	}
 	svcCognitoIdentityProvider := cognitoidentityprovider.NewFromConfig(config)
 
-	userPoolIds, err := g.loadUserPools(svcCognitoIdentityProvider)
+	userPoolIDs, err := g.loadUserPools(svcCognitoIdentityProvider)
 	if err != nil {
 		return err
 	}
-	if err = g.loadUserPoolClients(svcCognitoIdentityProvider, userPoolIds); err != nil {
+	if err = g.loadUserPoolClients(svcCognitoIdentityProvider, userPoolIDs); err != nil {
 		return err
 	}
 

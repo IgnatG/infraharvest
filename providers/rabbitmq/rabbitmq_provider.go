@@ -38,7 +38,7 @@ func (p *RBTProvider) GetName() string {
 	return "rabbitmq"
 }
 
-func (p *RBTProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p *RBTProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 

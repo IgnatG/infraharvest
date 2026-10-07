@@ -40,11 +40,11 @@ type KubernetesProvider struct { //nolint
 	terraformutils.Provider
 }
 
-func (p KubernetesProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p KubernetesProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (p *KubernetesProvider) Init(args []string) error {
+func (p *KubernetesProvider) Init(_ []string) error {
 	return nil
 }
 
@@ -229,7 +229,7 @@ func applyGlobalOptionsToConfig(config *restclient.Config) error {
 		impersonateGroupJSON := []string{}
 		err := json.Unmarshal([]byte(impersonateGroup), &impersonateGroupJSON)
 		if err != nil {
-			return errors.New(fmt.Sprintf("error parsing global option %q: %v", "--as-group", err))
+			return fmt.Errorf("error parsing global option %q: %v", "--as-group", err)
 		}
 		if len(impersonateGroupJSON) > 0 {
 			config.Impersonate.Groups = impersonateGroupJSON
@@ -257,7 +257,7 @@ func applyGlobalOptionsToConfig(config *restclient.Config) error {
 	if len(requestTimeout) > 0 {
 		t, err := time.ParseDuration(requestTimeout)
 		if err != nil {
-			return errors.New(fmt.Sprintf("%v", err))
+			return fmt.Errorf("%v", err)
 		}
 		config.Timeout = t
 	}

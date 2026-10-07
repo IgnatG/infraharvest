@@ -87,7 +87,7 @@ func initZones(client *connectivity.AliyunClient) ([]pvtz.Zone, error) {
 
 func initZoneRecords(client *connectivity.AliyunClient, allZones []pvtz.Zone) ([]pvtz.Record, []string, error) {
 	allZoneRecords := make([]pvtz.Record, 0)
-	zoneIds := make([]string, 0)
+	zoneIDs := make([]string, 0)
 
 	for _, zone := range allZones {
 		remaining := 1
@@ -112,13 +112,13 @@ func initZoneRecords(client *connectivity.AliyunClient, allZones []pvtz.Zone) ([
 			response := raw.(*pvtz.DescribeZoneRecordsResponse)
 			for _, zoneRecord := range response.Records.Record {
 				allZoneRecords = append(allZoneRecords, zoneRecord)
-				zoneIds = append(zoneIds, zone.ZoneId)
+				zoneIDs = append(zoneIDs, zone.ZoneId)
 			}
 			remaining = response.TotalItems - pageNumber*pageSize
 			pageNumber++
 		}
 	}
-	return allZoneRecords, zoneIds, nil
+	return allZoneRecords, zoneIDs, nil
 }
 
 // InitResources Gets the list of all pvtz Zone ids and generates resources
@@ -133,7 +133,7 @@ func (g *PvtzGenerator) InitResources() error {
 		return err
 	}
 
-	allRecords, zoneIds, err := initZoneRecords(client, allZones)
+	allRecords, zoneIDs, err := initZoneRecords(client, allZones)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (g *PvtzGenerator) InitResources() error {
 	}
 
 	for i, record := range allRecords {
-		resource := resourceFromZoneRecordResponse(record, zoneIds[i])
+		resource := resourceFromZoneRecordResponse(record, zoneIDs[i])
 		g.Resources = append(g.Resources, resource)
 	}
 

@@ -34,7 +34,7 @@ func (g RealmGenerator) createOpenIDClientResources(openIDClients []*keycloak.Op
 	return resources
 }
 
-func (g RealmGenerator) createServiceAccountClientRolesResources(realmID string, clientRoles []*keycloak.Role, usersInRole []keycloak.UsersInRole, mapServiceAccountIds map[string]map[string]string, mapClientIDs map[string]string) []terraformutils.Resource {
+func (g RealmGenerator) createServiceAccountClientRolesResources(realmID string, clientRoles []*keycloak.Role, usersInRole []keycloak.UsersInRole, mapServiceAccountIDs map[string]map[string]string, mapClientIDs map[string]string) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, role := range clientRoles {
 		for _, users := range usersInRole {
@@ -43,12 +43,12 @@ func (g RealmGenerator) createServiceAccountClientRolesResources(realmID string,
 			}
 			for _, user := range *users.Users {
 				// Test if role is mapped to a User, and not a ServiceAccountUser
-				if mapServiceAccountIds[user.Id] == nil {
+				if mapServiceAccountIDs[user.Id] == nil {
 					continue
 				}
 				resources = append(resources, terraformutils.NewResource(
 					realmID+"/"+user.Id+"/"+role.ClientId+"/"+role.Name,
-					"openid_client_service_account_role_"+normalizeResourceName(realmID)+"_"+normalizeResourceName(mapServiceAccountIds[user.Id]["ClientId"])+"_"+normalizeResourceName(mapClientIDs[role.ClientId])+"_"+normalizeResourceName(role.Name),
+					"openid_client_service_account_role_"+normalizeResourceName(realmID)+"_"+normalizeResourceName(mapServiceAccountIDs[user.Id]["ClientId"])+"_"+normalizeResourceName(mapClientIDs[role.ClientId])+"_"+normalizeResourceName(role.Name),
 					"keycloak_openid_client_service_account_role",
 					"keycloak",
 					map[string]string{

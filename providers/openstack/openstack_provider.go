@@ -26,7 +26,7 @@ type OpenStackProvider struct { //nolint
 	region string
 }
 
-func (p OpenStackProvider) GetProviderData(arg ...string) map[string]interface{} {
+func (p OpenStackProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			"openstack": map[string]interface{}{
