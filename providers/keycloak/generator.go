@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/mrparkers/terraform-provider-keycloak/keycloak"
@@ -271,7 +272,7 @@ func (g *RealmGenerator) InitResources() error {
 		// Set ContainerId of the roles, for realm = "", for open id clients = "_" + client.ClientId
 		// and get roles resources
 		mapContainerIDs[realm.Realm] = ""
-		roles := append(clientRoles, realmRoles...)
+		roles := slices.Concat(clientRoles, realmRoles)
 		for _, role := range roles {
 			role.ContainerId = mapContainerIDs[role.ContainerId]
 		}

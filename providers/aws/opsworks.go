@@ -15,9 +15,10 @@
 package aws
 
 import (
+	"log"
+
 	"github.com/aws/aws-sdk-go-v2/service/opsworks"
 	"github.com/aws/aws-sdk-go-v2/service/opsworks/types"
-	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
 )

@@ -15,11 +15,12 @@
 package ns1
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/IgnatG/infraharvest/terraformutils"
 	ns1 "gopkg.in/ns1/ns1-go.v2/rest"
 	"gopkg.in/ns1/ns1-go.v2/rest/model/dns"
-	"net/http"
-	"time"
 )
 
 type ZoneGenerator struct {
@@ -80,7 +81,9 @@ func (g *ZoneGenerator) createZoneResources(client *ns1.Client, includeZones []s
 			"ns1",
 			map[string]string{"zone": zone.Zone}))
 
-		g.createZoneRecordResources(client, zone.Zone)
+		if err := g.createZoneRecordResources(client, zone.Zone); err != nil {
+			return err
+		}
 	}
 
 	return nil
