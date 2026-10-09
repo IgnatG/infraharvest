@@ -17,12 +17,39 @@ package newrelic
 import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 	newrelic "github.com/newrelic/newrelic-client-go/v2/newrelic"
+	"github.com/newrelic/newrelic-client-go/v2/pkg/region"
 )
 
 type NewRelicService struct { //nolint
 	terraformutils.Service
 }
 
+// Client is a client for the account's region.
 func (s *NewRelicService) Client() (*newrelic.NewRelic, error) {
-	return newrelic.New(newrelic.ConfigPersonalAPIKey(s.GetArgs()["apiKey"].(string)))
+	return newrelic.New(
+		newrelic.ConfigPersonalAPIKey(s.GetArgs()["apiKey"].(string)),
+		newrelic.ConfigRegion(s.regionName()),
+	)
+}
+
+// Region is the account's region, whose endpoints the listers call.
+func (s *NewRelicService) Region() (*region.Region, error) {
+	name, err := region.Parse(s.regionName())
+	if err != nil {
+		return nil, err
+	}
+	return region.Get(name)
+}
+
+func (s *NewRelicService) regionName() string {
+	if r, _ := s.GetArgs()["region"].(string); r != "" {
+		return r
+	}
+	return string(region.Default)
+}
+
+// accountID is the account the listers list, 0 if not given.
+func (s *NewRelicService) accountID() int {
+	id, _ := s.GetArgs()["accountID"].(int)
+	return id
 }

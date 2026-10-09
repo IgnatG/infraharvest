@@ -16,10 +16,13 @@ package newrelic
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
+	"github.com/newrelic/newrelic-client-go/v2/pkg/region"
 )
 
 type NewRelicProvider struct { //nolint
@@ -29,33 +32,30 @@ type NewRelicProvider struct { //nolint
 	Region    string
 }
 
+// Init takes the API key, account ID and region from args, each falling
+// back to its NEW_RELIC_* environment variable when empty: the flags are
+// empty unless set.
 func (p *NewRelicProvider) Init(args []string) error {
-	if apiKey := os.Getenv("NEW_RELIC_API_KEY"); apiKey != "" {
-		p.APIKey = os.Getenv("NEW_RELIC_API_KEY")
-	}
-	if accountIDs := os.Getenv("NEW_RELIC_ACCOUNT_ID"); accountIDs != "" {
-		accountID, err := strconv.Atoi(accountIDs)
-		if err != nil {
-			return err
-
+	arg := func(i int, env string) string {
+		if len(args) > i && args[i] != "" {
+			return args[i]
 		}
-		p.accountID = accountID
+		return os.Getenv(env)
 	}
-	if len(args) > 0 {
-		p.APIKey = args[0]
-	}
-	if len(args) > 1 {
-		accountID, err := strconv.Atoi(args[1])
+	p.APIKey = arg(0, "NEW_RELIC_API_KEY")
+	if accountID := arg(1, "NEW_RELIC_ACCOUNT_ID"); accountID != "" {
+		id, err := strconv.Atoi(accountID)
 		if err != nil {
-			return err
+			return fmt.Errorf("newrelic: account ID %q: %w", accountID, err)
 		}
-		p.accountID = accountID
+		p.accountID = id
 	}
-	if len(args) > 1 {
-		p.Region = args[2]
-	}
+	p.Region = strings.ToUpper(arg(2, "NEW_RELIC_REGION"))
 	if p.Region == "" {
 		p.Region = "US"
+	}
+	if _, err := region.Parse(p.Region); err != nil {
+		return fmt.Errorf("newrelic: %w", err)
 	}
 	return nil
 }
@@ -64,8 +64,14 @@ func (p *NewRelicProvider) GetName() string {
 	return "newrelic"
 }
 
+// GetProviderData configures the provider block of the generated roots with
+// the account and region listed; the API key stays in NEW_RELIC_API_KEY.
 func (p *NewRelicProvider) GetProviderData(_ ...string) map[string]interface{} {
-	return map[string]interface{}{}
+	config := map[string]interface{}{"region": p.Region}
+	if p.accountID != 0 {
+		config["account_id"] = p.accountID
+	}
+	return map[string]interface{}{"provider": map[string]interface{}{p.GetName(): config}}
 }
 
 func (p *NewRelicProvider) GetSupportedService() map[string]terraformutils.ServiceGenerator {
@@ -88,7 +94,11 @@ func (p *NewRelicProvider) InitService(serviceName string, verbose bool) error {
 	p.Service = p.GetSupportedService()[serviceName]
 	p.Service.SetName(serviceName)
 	p.Service.SetVerbose(verbose)
-	p.Service.SetArgs(map[string]interface{}{"apiKey": p.APIKey})
+	p.Service.SetArgs(map[string]interface{}{
+		"apiKey":    p.APIKey,
+		"accountID": p.accountID,
+		"region":    p.Region,
+	})
 	p.Service.SetProviderName(p.GetName())
 
 	return nil

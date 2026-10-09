@@ -44,7 +44,7 @@ func newCmdNewRelicImporter(options ImportOptions) *cobra.Command {
 	cmd.AddCommand(listCmd(newNewRelicProvider()))
 	cmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "Your Personal API Key")
 	cmd.PersistentFlags().StringVar(&accountID, "account-id", "", "Your Account ID")
-	cmd.PersistentFlags().StringVar(&region, "region", "US", "")
+	cmd.PersistentFlags().StringVar(&region, "region", "", "Your account's region: US, EU or JP (default NEW_RELIC_REGION, else US)")
 	baseProviderFlags(cmd.PersistentFlags(), &options, "alert", "dashboard=id1:id2:id4")
 	return cmd
 }
