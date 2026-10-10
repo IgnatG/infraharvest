@@ -219,3 +219,59 @@ func TestScopeCounts(t *testing.T) {
 		}
 	}
 }
+
+func TestCountsByTag(t *testing.T) {
+	scope := "aws/1/eu-west-2"
+	r := &Report{
+		TagKeys: []string{"team"},
+		Coverage: Coverage{
+			Directories: []Directory{{Path: "aws/1/eu-west-2", Scope: scope,
+				Imported: []Resource{{Address: "aws_sqs_queue.jobs", ID: "jobs"}},
+				LeftOut:  []LeftOut{{Address: "aws_lb.web", ID: "arn:lb"}},
+			}},
+			Excluded: []Excluded{
+				{Type: "aws_s3_bucket", ID: "state", Reason: managed.Reason + " (s3://state)", Scope: scope},
+				{Type: "aws_s3_bucket", ID: "stack", Reason: OtherToolPrefix + "CloudFormation stack app", Scope: scope},
+				{Type: "aws_vpc", ID: "vpc-1", Reason: "excluded in the selection file", Scope: scope},
+			},
+		},
+	}
+	other := &Report{TagKeys: []string{"team"}}
+	for _, l := range []Listed{
+		{Scope: scope, Type: "aws_sqs_queue", ID: "jobs", Tags: map[string]string{"team": "data"}},
+		{Scope: scope, Type: "aws_lb", ID: "arn:lb", Tags: map[string]string{"team": "web"}},
+		{Scope: scope, Type: "aws_s3_bucket", ID: "state", Tags: map[string]string{"team": "data"}},
+		{Scope: scope, Type: "aws_s3_bucket", ID: "stack"},
+	} {
+		r.AddListed(l)
+	}
+	// Listed in another account of the same import.
+	other.AddListed(Listed{Scope: scope, Type: "aws_vpc", ID: "vpc-1", Tags: map[string]string{"team": "web", "env": "dev"}})
+	merged := &Report{}
+	merged.Merge(r)
+	merged.Merge(other)
+	merged.Finish(nil, nil, false)
+
+	want := []TagCount{
+		{Key: "team", Value: "", CoverageTotal: CoverageTotal{Discovered: 1, Excluded: 1, OtherTool: 1}},
+		{Key: "team", Value: "data", CoverageTotal: CoverageTotal{Discovered: 2, Imported: 1, Excluded: 1, Managed: 1}},
+		{Key: "team", Value: "web", CoverageTotal: CoverageTotal{Discovered: 2, LeftOut: 1, Excluded: 1}},
+	}
+	if !reflect.DeepEqual(merged.Tags, want) {
+		t.Errorf("got %+v\nwant %+v", merged.Tags, want)
+	}
+	md := merged.Markdown()
+	for _, line := range []string{"## By tag", "| `team` | Discovered |", "| (not tagged) | 1 | 0 | 0 | 1 | 0 |", "| `data` | 2 | 1 | 1 | 0 | 1 |"} {
+		if !strings.Contains(md, line) {
+			t.Errorf("report.md lacks %q:\n%s", line, md)
+		}
+	}
+
+	// Without --report-tags, nothing is counted by tag.
+	none := &Report{}
+	none.Merge(&Report{listed: r.listed})
+	none.Finish(nil, nil, false)
+	if none.Tags != nil || strings.Contains(none.Markdown(), "By tag") {
+		t.Errorf("counted by tag without keys: %+v", none.Tags)
+	}
+}

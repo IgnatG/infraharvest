@@ -162,6 +162,7 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 
 	run.used = true
 	run.options = options
+	run.report.TagKeys = options.ReportTags
 	run.report.Manifest = report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version},
 		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
