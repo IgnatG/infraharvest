@@ -343,7 +343,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/recoveryservices/armrecoveryservicesbackup/v4 v4.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/recoveryservices/armrecoveryservicessiterecovery/v2 v2.4.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redisenterprise/armredisenterprise v1.2.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcegraph/armresourcegraph v0.9.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armdeploymentscripts/v2 v2.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v2 v2.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/securityinsights/armsecurityinsights/v2 v2.0.0-beta.4 // indirect
@@ -474,6 +473,7 @@ require (
 require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcegraph/armresourcegraph v0.9.0
 	github.com/IBM/continuous-delivery-go-sdk/v2 v2.0.2
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.1
 	github.com/aws/aws-sdk-go-v2/service/directconnect v1.30.1
