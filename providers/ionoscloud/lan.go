@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -15,12 +14,12 @@ type LanGenerator struct {
 func (g *LanGenerator) InitResources() error {
 	client := g.generateClient()
 	cloudAPIClient := client.CloudAPIClient
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		lans, _, err := cloudAPIClient.LANsApi.DatacentersLansGet(context.TODO(), *datacenter.Id).Depth(1).Execute()
+		lans, _, err := cloudAPIClient.LANsApi.DatacentersLansGet(g.Context(), *datacenter.Id).Depth(1).Execute()
 		if err != nil {
 			return err
 		}

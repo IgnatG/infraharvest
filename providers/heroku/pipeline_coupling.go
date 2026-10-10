@@ -15,8 +15,6 @@
 package heroku
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	heroku "github.com/heroku/heroku-go/v5"
 )
@@ -39,7 +37,7 @@ func (g PipelineCouplingGenerator) createResources(pipelineCouplingList []heroku
 
 func (g *PipelineCouplingGenerator) InitResources() error {
 	svc := g.generateService()
-	output, err := svc.PipelineCouplingList(context.TODO(), &heroku.ListRange{Field: "id"})
+	output, err := svc.PipelineCouplingList(g.Context(), &heroku.ListRange{Field: "id"})
 	if err != nil {
 		return err
 	}

@@ -69,7 +69,7 @@ func (g VolumeGenerator) createResources(volumeList []godo.Volume) []terraformut
 
 func (g *VolumeGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := g.listVolumes(context.TODO(), client)
+	output, err := g.listVolumes(g.Context(), client)
 	if err != nil {
 		return err
 	}

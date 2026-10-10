@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -38,7 +37,7 @@ func (g DBaaSPgSQLClusterGenerator) createResources(
 func (g *DBaaSPgSQLClusterGenerator) InitResources() error {
 	client := g.generateClient()
 	dbaasAPIClient := client.DBaaSPgSQLApiClient
-	output, _, err := dbaasAPIClient.ClustersApi.ClustersGet(context.TODO()).Execute()
+	output, _, err := dbaasAPIClient.ClustersApi.ClustersGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}

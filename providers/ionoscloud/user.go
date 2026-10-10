@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *UserGenerator) InitResources() error {
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_user"
 
-	usersResponse, _, err := cloudAPIClient.UserManagementApi.UmUsersGet(context.TODO()).Execute()
+	usersResponse, _, err := cloudAPIClient.UserManagementApi.UmUsersGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}

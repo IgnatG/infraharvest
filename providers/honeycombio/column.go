@@ -1,7 +1,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -21,7 +20,7 @@ func (g *ColumnGenerator) InitResources() error {
 		if dataset.Slug == environmentWideDatasetSlug {
 			continue
 		}
-		columns, err := client.Columns.List(context.TODO(), dataset.Slug)
+		columns, err := client.Columns.List(g.Context(), dataset.Slug)
 		if err != nil {
 			return fmt.Errorf("unable to list Honeycomb columns for dataset %s: %v", dataset.Slug, err)
 		}

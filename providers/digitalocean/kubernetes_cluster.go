@@ -89,7 +89,7 @@ func (g *KubernetesClusterGenerator) loadKubernetesNodePools(cluster *godo.Kuber
 
 func (g *KubernetesClusterGenerator) InitResources() error {
 	client := g.generateClient()
-	clusters, err := g.loadKubernetesClusters(context.TODO(), client)
+	clusters, err := g.loadKubernetesClusters(g.Context(), client)
 	if err != nil {
 		return err
 	}

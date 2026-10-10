@@ -69,7 +69,7 @@ func (g TagGenerator) createResources(tagList []godo.Tag) []terraformutils.Resou
 
 func (g *TagGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := g.listTags(context.TODO(), client)
+	output, err := g.listTags(g.Context(), client)
 	if err != nil {
 		return err
 	}

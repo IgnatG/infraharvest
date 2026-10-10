@@ -15,7 +15,6 @@
 package heroku
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -29,12 +28,12 @@ type TeamCollaboratorGenerator struct {
 func (g TeamCollaboratorGenerator) createResources(svc *heroku.Service, teamList []heroku.Team) []terraformutils.Resource {
 	var resources []terraformutils.Resource
 	for _, team := range teamList {
-		apps, err := svc.TeamAppListByTeam(context.TODO(), team.ID, &heroku.ListRange{Field: "id"})
+		apps, err := svc.TeamAppListByTeam(g.Context(), team.ID, &heroku.ListRange{Field: "id"})
 		if err != nil {
 			log.Println(err)
 		}
 		for _, app := range apps {
-			collaborators, err := svc.TeamAppCollaboratorList(context.TODO(), app.ID, &heroku.ListRange{Field: "id"})
+			collaborators, err := svc.TeamAppCollaboratorList(g.Context(), app.ID, &heroku.ListRange{Field: "id"})
 			if err != nil {
 				log.Println(err)
 			}
@@ -53,7 +52,7 @@ func (g TeamCollaboratorGenerator) createResources(svc *heroku.Service, teamList
 
 func (g *TeamCollaboratorGenerator) InitResources() error {
 	svc := g.generateService()
-	output, err := svc.TeamList(context.TODO(), &heroku.ListRange{Field: "id"})
+	output, err := svc.TeamList(g.Context(), &heroku.ListRange{Field: "id"})
 	if err != nil {
 		return err
 	}

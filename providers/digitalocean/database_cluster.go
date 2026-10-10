@@ -219,24 +219,24 @@ func (g *DatabaseClusterGenerator) loadDatabaseUsers(ctx context.Context, client
 
 func (g *DatabaseClusterGenerator) InitResources() error {
 	client := g.generateClient()
-	clusters, err := g.loadDatabaseClusters(context.TODO(), client)
+	clusters, err := g.loadDatabaseClusters(g.Context(), client)
 	if err != nil {
 		return err
 	}
 	for _, cluster := range clusters {
-		err := g.loadDatabaseConnectionPools(context.TODO(), client, cluster.ID)
+		err := g.loadDatabaseConnectionPools(g.Context(), client, cluster.ID)
 		if err != nil {
 			return err
 		}
-		err = g.loadDatabaseDBs(context.TODO(), client, cluster.ID)
+		err = g.loadDatabaseDBs(g.Context(), client, cluster.ID)
 		if err != nil {
 			return err
 		}
-		err = g.loadDatabaseReplicas(context.TODO(), client, cluster.ID)
+		err = g.loadDatabaseReplicas(g.Context(), client, cluster.ID)
 		if err != nil {
 			return err
 		}
-		err = g.loadDatabaseUsers(context.TODO(), client, cluster.ID)
+		err = g.loadDatabaseUsers(g.Context(), client, cluster.ID)
 		if err != nil {
 			return err
 		}

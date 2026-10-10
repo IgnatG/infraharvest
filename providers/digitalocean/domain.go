@@ -100,12 +100,12 @@ func (g *DomainGenerator) loadRecords(ctx context.Context, client *godo.Client, 
 
 func (g *DomainGenerator) InitResources() error {
 	client := g.generateClient()
-	domains, err := g.loadDomains(context.TODO(), client)
+	domains, err := g.loadDomains(g.Context(), client)
 	if err != nil {
 		return err
 	}
 	for _, domain := range domains {
-		err := g.loadRecords(context.TODO(), client, domain.Name)
+		err := g.loadRecords(g.Context(), client, domain.Name)
 		if err != nil {
 			return err
 		}

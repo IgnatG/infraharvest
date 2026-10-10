@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *LoggingPipelineGenerator) InitResources() error {
 	loggingAPIClient := client.LoggingAPIClient
 	resourceType := "ionoscloud_logging_pipeline"
 
-	response, _, err := loggingAPIClient.PipelinesApi.PipelinesGet(context.TODO()).Execute()
+	response, _, err := loggingAPIClient.PipelinesApi.PipelinesGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}

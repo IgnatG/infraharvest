@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,12 +16,12 @@ func (g *LoadBalancerGenerator) InitResources() error {
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_loadbalancer"
 
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		loadBalancerResponse, _, err := cloudAPIClient.LoadBalancersApi.DatacentersLoadbalancersGet(context.TODO(), *datacenter.Id).Depth(1).Execute()
+		loadBalancerResponse, _, err := cloudAPIClient.LoadBalancersApi.DatacentersLoadbalancersGet(g.Context(), *datacenter.Id).Depth(1).Execute()
 		if err != nil {
 			return err
 		}
