@@ -17,8 +17,11 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	gcp_terraforming "github.com/IgnatG/infraharvest/providers/gcp"
@@ -28,11 +31,35 @@ import (
 
 func newCmdGoogleImporter(options ImportOptions) *cobra.Command {
 	providerType := ""
+	organization := ""
+	var folders []string
 	cmd := &cobra.Command{
 		Use:   "google",
 		Short: "Import current state to Terraform configuration from Google Cloud",
 		Long:  "Import current state to Terraform configuration from Google Cloud",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(c *cobra.Command, _ []string) error {
+			if organization != "" || len(folders) > 0 {
+				ctx := context.Background()
+				if c != nil && c.Context() != nil {
+					ctx = c.Context()
+				}
+				projects, err := gcp_terraforming.Projects(ctx, organization, folders)
+				if err != nil {
+					return err
+				}
+				if len(projects) == 0 {
+					return errors.New("no active projects under --organization or --folders")
+				}
+				log.Printf("google: %d active projects under --organization and --folders", len(projects))
+				for _, p := range projects {
+					if !slices.Contains(options.Projects, p) {
+						options.Projects = append(options.Projects, p)
+					}
+				}
+			}
+			if len(options.Projects) == 0 {
+				return errors.New("say which projects to import: --projects, --organization or --folders")
+			}
 			originalPathPattern := options.PathPattern
 			// Each project gets roots of its own: without {account}, they
 			// would write over each other's.
@@ -53,13 +80,14 @@ func newCmdGoogleImporter(options ImportOptions) *cobra.Command {
 			})
 		},
 	}
-	parallelFlag(cmd, &options, "projects of --projects")
+	parallelFlag(cmd, &options, "projects of --projects, --organization or --folders")
 	cmd.AddCommand(listCmd(newGoogleProvider()))
 	baseProviderFlags(cmd.PersistentFlags(), &options, "firewalls,networks", "compute_firewall=id1:id2:id4")
 	cmd.PersistentFlags().StringSliceVarP(&options.Regions, "regions", "z", []string{"global"}, "europe-west1,")
-	cmd.PersistentFlags().StringSliceVarP(&options.Projects, "projects", "", []string{}, "")
+	cmd.PersistentFlags().StringSliceVarP(&options.Projects, "projects", "", []string{}, "projects to import")
+	cmd.PersistentFlags().StringVar(&organization, "organization", "", "import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants)")
+	cmd.PersistentFlags().StringSliceVar(&folders, "folders", nil, "import every active project of these folder IDs, in their subfolders too")
 	cmd.PersistentFlags().StringVarP(&providerType, "provider-type", "", "", "beta")
-	_ = cmd.MarkPersistentFlagRequired("projects")
 	return cmd
 }
 

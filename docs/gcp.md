@@ -19,6 +19,12 @@ infraharvest import google --all --resources=gcs,forwardingRules,httpHealthCheck
 
 `--all` imports everything the default selection includes. To review what will be imported first, run `infraharvest discover google` with the same flags, then import with `--selection=selection.yaml` instead of `--all` (see [Choosing what to import](../README.md#choosing-what-to-import)).
 
+Instead of naming projects, `--organization=<organization ID>` imports every active project of the organization, and `--folders=<folder ID>,...` every active project of those folders, in their subfolders too; projects in `--projects` are added to them. Listing them needs `resourcemanager.projects.list` and `resourcemanager.folders.list` there, which `roles/browser` and `roles/viewer` grant:
+
+```
+infraharvest discover google --resources=gcs,networks --folders=123456789012 --parallel=4
+```
+
 Each project gets its own roots (`{output}/google/{project}/{region}/`). Projects are imported one after another unless `--parallel` says how many to import at once; a project that can't be imported is reported and the others go on. Each runs its own Terraform and provider, so memory use grows with `--parallel`.
 
 List of supported GCP services:
