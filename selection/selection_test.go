@@ -6,6 +6,7 @@ package selection
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -149,7 +150,7 @@ func TestMerge(t *testing.T) {
 		t.Fatalf("resources: %+v", f.Resources)
 	}
 	for _, r := range f.Resources {
-		if r != want[r.Type+" "+r.ID] {
+		if !reflect.DeepEqual(r, want[r.Type+" "+r.ID]) {
 			t.Errorf("%s %s: got %+v, want %+v", r.Type, r.ID, r, want[r.Type+" "+r.ID])
 		}
 	}
@@ -244,7 +245,7 @@ func TestMergeExcludesManaged(t *testing.T) {
 		"old":    {Type: "aws_s3_bucket", ID: "old", Include: false, Reason: "excluded in the selection file"},
 	}
 	for _, r := range f.Resources {
-		if r != want[r.ID] {
+		if !reflect.DeepEqual(r, want[r.ID]) {
 			t.Errorf("%s: got %+v, want %+v", r.ID, r, want[r.ID])
 		}
 	}
