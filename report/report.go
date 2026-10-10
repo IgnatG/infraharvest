@@ -51,6 +51,11 @@ type Report struct {
 	Manifest
 	Coverage
 	ExitCode int `json:"exit_code"`
+	// TagKeys are the tag keys Finish counts by (see Coverage.Tags).
+	TagKeys []string `json:"-"`
+	// listed are the resources the listers found, with their tags, for
+	// the counts by tag (see AddListed).
+	listed []Listed
 }
 
 // Manifest records the versions an import used.
@@ -100,6 +105,23 @@ type Coverage struct {
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
+	// Tags count by the value of each of the tag keys asked for (see
+	// Report.TagKeys), "" for resources without the tag.
+	Tags []TagCount `json:"tags,omitempty"`
+}
+
+// TagCount counts the resources with one value of a tag key.
+type TagCount struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	CoverageTotal
+}
+
+// Listed is a resource the listers found that Terraform can import: where,
+// its type and import ID, and its tags.
+type Listed struct {
+	Scope, Type, ID string
+	Tags            map[string]string
 }
 
 // ScopeCount counts the resources of one scope.
@@ -222,6 +244,12 @@ func (r *Report) AddDiscovered(scope string, n int) {
 	r.Scopes = append(r.Scopes, ScopeCount{Scope: scope, CoverageTotal: CoverageTotal{Discovered: n}})
 }
 
+// AddListed records a resource the listers found, for the counts by tag:
+// Finish counts what became of it from the directories and exclusions.
+func (r *Report) AddListed(l Listed) {
+	r.listed = append(r.listed, l)
+}
+
 // Merge adds what other, the report of another part of the same import
 // (such as one account of several), recorded before Finish: its
 // directories, exclusions, failures and discovered counts by scope, and its
@@ -235,6 +263,10 @@ func (r *Report) Merge(other *Report) {
 	r.Directories = append(r.Directories, other.Directories...)
 	r.Excluded = append(r.Excluded, other.Excluded...)
 	r.Failures = append(r.Failures, other.Failures...)
+	r.listed = append(r.listed, other.listed...)
+	if len(r.TagKeys) == 0 {
+		r.TagKeys = other.TagKeys
+	}
 	for _, s := range other.Scopes {
 		r.AddDiscovered(s.Scope, s.Discovered)
 	}
@@ -335,6 +367,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		r.Scopes[i].CoverageTotal = *byScope[r.Scopes[i].Scope]
 	}
 	sort.Slice(r.Scopes, func(i, j int) bool { return r.Scopes[i].Scope < r.Scopes[j].Scope })
+	r.Tags = r.countByTag()
 
 	switch {
 	case !r.Incomplete():
@@ -344,6 +377,69 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	default:
 		r.ExitCode = ExitIncomplete
 	}
+}
+
+// countByTag counts the listed resources by the value of each of TagKeys:
+// imported or left out, as the directories say; excluded, and why, as the
+// exclusions say; failed otherwise, as in a directory that failed.
+func (r *Report) countByTag() []TagCount {
+	if len(r.TagKeys) == 0 {
+		return nil
+	}
+	key := func(scope, typ, id string) string { return scope + "\n" + typ + " " + id }
+	imported, leftOut := map[string]bool{}, map[string]bool{}
+	for _, d := range r.Directories {
+		for _, res := range d.Imported {
+			imported[key(d.Scope, resourceType(res.Address), res.ID)] = true
+		}
+		for _, res := range d.LeftOut {
+			leftOut[key(d.Scope, resourceType(res.Address), res.ID)] = true
+		}
+	}
+	excluded := map[string]string{}
+	for _, e := range r.Excluded {
+		excluded[key(e.Scope, e.Type, e.ID)] = e.Reason
+	}
+	var counts []TagCount
+	for _, tagKey := range r.TagKeys {
+		byValue := map[string]*CoverageTotal{}
+		for _, l := range r.listed {
+			value := l.Tags[tagKey]
+			c := byValue[value]
+			if c == nil {
+				c = &CoverageTotal{}
+				byValue[value] = c
+			}
+			c.Discovered++
+			k := key(l.Scope, l.Type, l.ID)
+			reason, isExcluded := excluded[k]
+			switch {
+			case imported[k]:
+				c.Imported++
+			case leftOut[k]:
+				c.LeftOut++
+			case isExcluded:
+				c.Excluded++
+				switch {
+				case strings.HasPrefix(reason, managed.Reason):
+					c.Managed++
+				case strings.HasPrefix(reason, OtherToolPrefix):
+					c.OtherTool++
+				}
+			default:
+				c.Failed++
+			}
+		}
+		values := make([]string, 0, len(byValue))
+		for v := range byValue {
+			values = append(values, v)
+		}
+		sort.Strings(values)
+		for _, v := range values {
+			counts = append(counts, TagCount{Key: tagKey, Value: v, CoverageTotal: *byValue[v]})
+		}
+	}
+	return counts
 }
 
 // Incomplete reports whether something listed wasn't imported, other than
@@ -460,6 +556,21 @@ func (r *Report) Markdown() string {
 		b.WriteString("| Type | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
 		for _, c := range r.Types {
 			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Discovered-c.Managed-c.OtherTool)
+		}
+	}
+	if len(r.Tags) > 0 {
+		b.WriteString("\n## By tag\n\nWhat was discovered by the value of each tag asked for with --report-tags, and how much of it is under infrastructure as code.\n")
+		key := ""
+		for _, c := range r.Tags {
+			if c.Key != key {
+				key = c.Key
+				fmt.Fprintf(&b, "\n| `%s` | Discovered | Imported | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|---|\n", key)
+			}
+			value := "(not tagged)"
+			if c.Value != "" {
+				value = "`" + c.Value + "`"
+			}
+			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Discovered-c.Managed-c.OtherTool)
 		}
 	}
 

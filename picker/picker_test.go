@@ -172,3 +172,35 @@ func TestScroll(t *testing.T) {
 		t.Errorf("home: cursor %d, offset %d", m.cursor, m.offset)
 	}
 }
+
+func TestTagFilter(t *testing.T) {
+	f := testFile()
+	f.Resources[0].Tags = map[string]string{"Team": "Data", "env": "prod"}
+	f.Resources[1].Tags = map[string]string{"team": "web"}
+	m := New("selection.yaml", f)
+	for search, want := range map[string][]string{
+		"team=data":          {"logs"},
+		"team=":              {"vpc-default", "ci"},
+		"team=w":             {"assets"},
+		"env=prod team=data": {"logs"},
+		"env=prod team=web":  nil,
+		"bucket team=web":    {"assets"},
+		"env=":               {"assets", "vpc-default", "ci"},
+		"team=data ":         {"logs"},
+	} {
+		m.search = search
+		var got []string
+		for _, r := range f.Resources {
+			if m.shown(r) {
+				got = append(got, r.ID)
+			}
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%q: got %v, want %v", search, got, want)
+		}
+	}
+	m.search = "prod"
+	if !m.shown(f.Resources[0]) || m.shown(f.Resources[1]) {
+		t.Error("a search without = doesn't match tag values")
+	}
+}

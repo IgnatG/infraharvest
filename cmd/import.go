@@ -74,6 +74,9 @@ type ImportOptions struct {
 	// ReuseInventory imports from the resources discover listed, if it
 	// listed the same services (see listResources).
 	ReuseInventory bool
+	// ReportTags are the tag keys the report counts by (see
+	// report.Coverage.Tags).
+	ReportTags []string
 	// Accounts, Organization and AssumeRole import several AWS accounts,
 	// each through a role (see awsAccounts); RoleARN is the role of the
 	// account being imported.
@@ -317,6 +320,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.BoolVar(&options.Resume, "resume", false, "skip the roots a previous run generated from the same resources and options, such as after a run that failed part way")
 	flag.BoolVar(&options.Incremental, "incremental", false, "add what is new to the roots earlier imports generated in --path-output, in a file of its own, without changing what they have")
 	flag.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "import from the resources infraharvest discover listed into the same --path-output, instead of listing them again")
+	flag.StringSliceVar(&options.ReportTags, "report-tags", nil, "tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key")
 	flag.BoolVar(&options.All, "all", false, "import everything the default selection includes, without a selection file")
 	flag.StringVar(&options.Modules, "modules", modulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	flag.StringVar(&options.Engine, "engine", engineTerraform, "terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks")

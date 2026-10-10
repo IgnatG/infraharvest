@@ -153,6 +153,7 @@ Flags of import and discover:
       --resume                    keep the roots a previous run generated from the same resources and options
       --incremental               add what is new to the roots earlier imports generated
       --reuse-inventory           import from the resources discover listed, instead of listing them again
+      --report-tags strings       tag keys, such as owner,team, to count the report by
       --modules string            registry, latest-untested, local or none (default "registry")
       --allow-partial             leave out what fails to import, and exit 3 instead of 1
       --list-timeout duration     longest time to list one service in one region; a service that takes
@@ -175,7 +176,7 @@ infraharvest import aws --resources=vpc,subnet,sg,s3 --regions=eu-west-2 --selec
 
 `discover` lists every resource it finds into the selection file, each marked included or not. By default it leaves out resources AWS creates and manages itself, with the reason: the default VPC with its subnets, route tables and internet gateway, default security groups and network ACLs, service-linked roles, and the log groups Lambda creates. It also leaves out what CloudFormation stacks manage, including CDK apps, with the stack named as the reason: importing those would give them two owners. Global services such as IAM are checked against the stacks of every enabled region. You can include any of them by setting `include: true`. Rules in the file (`exclude: { type: aws_cloudwatch_log_group, id: "/aws/lambda/*" }`) decide resources it doesn't list, such as ones created since. Each entry records the resource's tags (labels on Google Cloud) where discover can read them, and rules can match tags too: `exclude: { tags: { env: dev } }` leaves out what is tagged `env=dev`, and `{ owner: "" }` matches resources without an `owner` tag. A bucket's configuration resources (versioning, encryption, ...) follow the bucket.
 
-In a terminal, `discover` then opens the picker on the file (`--pick=false` skips it); `infraharvest pick --selection selection.yaml` opens it again later. The picker shows the resources as a tree, by account and region, then type. You can include or exclude one resource, or a whole type or account at once, and search by type, ID, name, note or reason. You can also show only what is new since the last `discover`. A summary keeps count of what is selected, how many roots it makes, and how many resources may become calls of curated modules. `s` saves the file and `q` leaves it as it was. Deciding on a resource marked `new` removes the mark. `discover` records each resource's account and region in the file (`scope: aws/123456789012/eu-west-2`).
+In a terminal, `discover` then opens the picker on the file (`--pick=false` skips it); `infraharvest pick --selection selection.yaml` opens it again later. The picker shows the resources as a tree, by account and region, then type. You can include or exclude one resource, or a whole type or account at once, and search by type, ID, name, note, reason or tag. `team=web` in the search shows only resources tagged `team` with a value containing `web`, and `team=` those without a `team` tag; several terms must all match. You can also show only what is new since the last `discover`. A summary keeps count of what is selected, how many roots it makes, and how many resources may become calls of curated modules. `s` saves the file and `q` leaves it as it was. Deciding on a resource marked `new` removes the mark. `discover` records each resource's account and region in the file (`scope: aws/123456789012/eu-west-2`).
 
 `--all` imports everything the default selection includes, without a file. The report lists what was excluded and why.
 
@@ -290,7 +291,7 @@ The `report/` directory of the output records the import:
 | `manifest.json` | The versions used: infraharvest, Terraform or OpenTofu, and the provider (constraint and locked version) |
 | `report.md` | The same, for people |
 
-Reports hold no timestamps or absolute paths, so importing an unchanged estate produces the same files. With `--output json`, the whole report is also printed to stdout as one JSON document (`schema_version` 1); logs always go to stderr.
+With `--report-tags owner,team`, the report also counts what was discovered, imported and managed by the value of each tag key, including resources without the tag, so you can see which owners still have resources outside infrastructure as code. It counts the resources whose tags discover could read (see Choosing what to import). Reports hold no timestamps or absolute paths, so importing an unchanged estate produces the same files. With `--output json`, the whole report is also printed to stdout as one JSON document (`schema_version` 1); logs always go to stderr.
 
 After generating a directory, infraharvest runs its verification gate on it and records the results in the directory's README and in `coverage.json`:
 
