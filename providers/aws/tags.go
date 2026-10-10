@@ -6,6 +6,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 
@@ -221,5 +222,6 @@ func (p *AWSProvider) Tags(ctx context.Context, resources []terraformutils.Resou
 			found[r.InstanceInfo.Type+" "+r.InstanceState.ID] = tags
 		}
 	}
+	log.Printf("aws: tags in %s: the Tagging API lists %d tagged resources, %d of the %d listed matched", config.Region, len(index.byARN), len(found), len(resources))
 	return found, nil
 }
