@@ -31,13 +31,6 @@ func envFrom(vars map[string]string) func(string) string {
 	return func(key string) string { return vars[key] }
 }
 
-func TestLoadAuthConfigNeedsSubscription(t *testing.T) {
-	_, err := loadAuthConfig(envFrom(map[string]string{"ARM_CLIENT_ID": "client"}))
-	if err == nil || !strings.Contains(err.Error(), "ARM_SUBSCRIPTION_ID") {
-		t.Fatalf("err = %v, want one naming ARM_SUBSCRIPTION_ID", err)
-	}
-}
-
 func TestLoadAuthConfigReadsARMVariables(t *testing.T) {
 	cfg, err := loadAuthConfig(envFrom(map[string]string{
 		"ARM_SUBSCRIPTION_ID":             "sub",

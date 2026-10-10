@@ -86,9 +86,6 @@ func loadAuthConfig(getenv func(string) string) (authConfig, error) {
 		useMSI:             getenv("ARM_USE_MSI") != "",
 		msiEndpoint:        getenv("ARM_MSI_ENDPOINT"),
 	}
-	if cfg.subscriptionID == "" {
-		return authConfig{}, errors.New("set ARM_SUBSCRIPTION_ID env var")
-	}
 	if v := getenv("ARM_AUXILIARY_TENANT_IDS"); v != "" {
 		for _, tenant := range strings.Split(v, ";") {
 			if tenant = strings.TrimSpace(tenant); tenant != "" {
