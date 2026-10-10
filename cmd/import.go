@@ -311,7 +311,7 @@ func baseProviderFlags(flag *pflag.FlagSet, options *ImportOptions, sampleRes, s
 	flag.BoolVar(&options.Incremental, "incremental", false, "add what is new to the roots earlier imports generated in --path-output, in a file of its own, without changing what they have")
 	flag.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "import from the resources infraharvest discover listed into the same --path-output, instead of listing them again")
 	flag.BoolVar(&options.All, "all", false, "import everything the default selection includes, without a selection file")
-	flag.StringVar(&options.Modules, "modules", modulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules) where the plan stays the same, else into generated local modules; local uses generated local modules only; none keeps every resource in the root")
+	flag.StringVar(&options.Modules, "modules", modulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	flag.StringVar(&options.Engine, "engine", engineTerraform, "terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks")
 	flag.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
 }
