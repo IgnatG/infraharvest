@@ -464,3 +464,25 @@ resource "aws_cloudformation_stack" "app" {
     }
   })
 }
+
+# W2 compute: a launch template and an Auto Scaling group that runs no
+# instances (the emulator would start containers for them).
+resource "aws_launch_template" "web" {
+  name          = "${local.name}-web"
+  image_id      = "ami-0123456789abcdef0"
+  instance_type = "t3.micro"
+  tags          = local.tags
+}
+
+resource "aws_autoscaling_group" "web" {
+  name                = "${local.name}-web"
+  min_size            = 0
+  max_size            = 1
+  desired_capacity    = 0
+  vpc_zone_identifier = [aws_subnet.a.id]
+
+  launch_template {
+    id      = aws_launch_template.web.id
+    version = "$Latest"
+  }
+}
