@@ -36,47 +36,69 @@ type AzureProvider struct { //nolint
 	resourceGroup  string
 }
 
+// errNoSubscription says which subscription to import is missing.
+var errNoSubscription = errors.New("set ARM_SUBSCRIPTION_ID env var, or use --subscriptions or --management-group")
+
+// Init signs in and takes the resource group (args[0], "" for all) and the
+// subscription (args[1], else ARM_SUBSCRIPTION_ID) to import.
 func (p *AzureProvider) Init(args []string) error {
 	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
 		return err
 	}
-	if cfg.metadataHost != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		if cfg.cloud, err = cloudFromMetadata(ctx, http.DefaultClient, cfg.metadataHost); err != nil {
-			return err
-		}
+	if len(args) > 1 && args[1] != "" {
+		cfg.subscriptionID = args[1]
 	}
-	credential, err := newCredential(cfg)
+	if cfg.subscriptionID == "" {
+		return errNoSubscription
+	}
+	cfg, credential, options, err := signIn(cfg)
 	if err != nil {
 		return err
 	}
 	p.subscriptionID = cfg.subscriptionID
 	p.credential = credential
-	p.clientOptions = &arm.ClientOptions{
+	p.clientOptions = options
+	p.resourceGroup = args[0]
+	return nil
+}
+
+// signIn signs in with cfg, reading a custom cloud's endpoints first.
+func signIn(cfg authConfig) (authConfig, azcore.TokenCredential, *arm.ClientOptions, error) {
+	var err error
+	if cfg.metadataHost != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if cfg.cloud, err = cloudFromMetadata(ctx, http.DefaultClient, cfg.metadataHost); err != nil {
+			return authConfig{}, nil, nil, err
+		}
+	}
+	credential, err := newCredential(cfg)
+	if err != nil {
+		return authConfig{}, nil, nil, err
+	}
+	return cfg, credential, &arm.ClientOptions{
 		ClientOptions: policy.ClientOptions{
 			Cloud:     cfg.cloud,
 			Telemetry: policy.TelemetryOptions{ApplicationID: "infraharvest"},
 		},
 		AuxiliaryTenants: cfg.auxiliaryTenants,
-	}
-	p.resourceGroup = args[0]
-
-	return nil
+	}, nil
 }
 
 func (p *AzureProvider) GetName() string {
 	return "azurerm"
 }
 
-// GetProviderData returns the azurerm provider block. The engine pins the
-// provider version in versions.tf; azurerm requires an (empty) features block.
+// GetProviderData returns the azurerm provider block, for the subscription
+// imported. The engine pins the provider version in versions.tf; azurerm
+// requires an (empty) features block.
 func (p *AzureProvider) GetProviderData(_ ...string) map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			"azurerm": map[string]interface{}{
-				"features": map[string]interface{}{},
+				"features":        map[string]interface{}{},
+				"subscription_id": p.subscriptionID,
 			},
 		},
 	}
