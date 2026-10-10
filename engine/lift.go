@@ -35,6 +35,10 @@ type DefaultTags struct {
 	// Block is the provider block that applies tags to every resource,
 	// e.g. default_tags, with the tags in its Attribute.
 	Block string
+	// Argument says Block is an argument of the provider block that holds
+	// the tags, as the Google provider's default_labels, rather than a
+	// block holding them in Attribute, as the AWS provider's default_tags.
+	Argument bool `json:",omitempty"`
 	// ReservedPrefix starts the keys of tags the cloud sets itself, which
 	// can't be applied through the provider, e.g. aws:.
 	ReservedPrefix string
@@ -118,9 +122,12 @@ func loadProvider(dir, name string) (*hclFile, *hclwrite.Body, error) {
 // setDefaultTags makes provider, in providers, apply tags through local.tags
 // (dt.Attribute) and dt.Block.
 func setDefaultTags(dir string, providers *hclFile, provider *hclwrite.Body, dt DefaultTags, tags map[string]string) error {
-	provider.AppendNewBlock(dt.Block, nil).Body().SetAttributeTraversal(dt.Attribute, hcl.Traversal{
-		hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: dt.Attribute},
-	})
+	local := hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: dt.Attribute}}
+	if dt.Argument {
+		provider.SetAttributeTraversal(dt.Block, local)
+	} else {
+		provider.AppendNewBlock(dt.Block, nil).Body().SetAttributeTraversal(dt.Attribute, local)
+	}
 	if err := providers.save(); err != nil {
 		return err
 	}
