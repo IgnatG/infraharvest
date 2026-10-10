@@ -32,3 +32,28 @@ resource "aws_sqs_queue" "second" {
   provider = aws.second
   name     = "infraharvest-e2e-second-account"
 }
+
+# The role the test imports each account through. Floci checks that its
+# trust policy lets the caller, the account 000000000000, assume it.
+locals {
+  trust_caller = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::000000000000:root" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role" "first" {
+  provider           = aws.first
+  name               = "infraharvest-readonly"
+  assume_role_policy = local.trust_caller
+}
+
+resource "aws_iam_role" "second" {
+  provider           = aws.second
+  name               = "infraharvest-readonly"
+  assume_role_policy = local.trust_caller
+}

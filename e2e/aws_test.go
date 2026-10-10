@@ -752,6 +752,11 @@ func generatedTimes(t *testing.T, out string) map[string]int64 {
 // the role's credentials.
 func checkAssumeRole(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
 	t.Helper()
+	withRole(ctx, t, "infraharvest-readonly", func() { listThroughRole(ctx, t, created) })
+}
+
+func listThroughRole(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	root := cmd.NewCmdRoot()
 	root.SetArgs([]string{"discover", "aws", "--regions=us-east-1", "--resources=sqs", "--selection=" + path, "--assume-role=arn:aws:iam::000000000000:role/infraharvest-readonly"})
