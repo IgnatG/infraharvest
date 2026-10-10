@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -38,7 +36,7 @@ func (g ScaleSetGenerator) createResources(scaleSets []*armcompute.VirtualMachin
 }
 
 func (g *ScaleSetGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	scaleSetClient, err := armcompute.NewVirtualMachineScaleSetsClient(subscriptionID, credential, options)
 	if err != nil {

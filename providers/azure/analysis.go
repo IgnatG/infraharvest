@@ -15,7 +15,6 @@
 package azure
 
 import (
-	"context"
 	"log"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/analysisservices/armanalysisservices"
@@ -29,7 +28,7 @@ type AnalysisGenerator struct {
 func (g *AnalysisGenerator) listServiceServers() ([]terraformutils.Resource, error) {
 	log.Println("\tImporting Service Servers")
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	client, err := armanalysisservices.NewServersClient(subscriptionID, credential, options)
 	if err != nil {

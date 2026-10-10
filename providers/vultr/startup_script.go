@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g StartupScriptGenerator) createResources(scriptList []govultr.StartupScri
 
 func (g *StartupScriptGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.StartupScript.List(context.Background())
+	output, err := client.StartupScript.List(g.Context())
 	if err != nil {
 		return err
 	}

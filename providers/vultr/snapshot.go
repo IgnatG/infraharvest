@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g SnapshotGenerator) createResources(snapshotList []govultr.Snapshot) []te
 
 func (g *SnapshotGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.Snapshot.List(context.Background())
+	output, err := client.Snapshot.List(g.Context())
 	if err != nil {
 		return err
 	}

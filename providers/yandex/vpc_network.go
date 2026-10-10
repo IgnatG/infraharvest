@@ -15,8 +15,6 @@
 package yandex
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/yandex-cloud/go-genproto/yandex/cloud/vpc/v1"
 	ycsdk "github.com/yandex-cloud/go-sdk"
@@ -30,7 +28,7 @@ func (g *NetworkGenerator) loadNetworks(sdk *ycsdk.SDK, folderID string) ([]*vpc
 	networks := []*vpc.Network{}
 	pageToken := ""
 	for {
-		resp, err := sdk.VPC().Network().List(context.Background(), &vpc.ListNetworksRequest{
+		resp, err := sdk.VPC().Network().List(g.Context(), &vpc.ListNetworksRequest{
 			FolderId:  folderID,
 			PageSize:  defaultPageSize,
 			PageToken: pageToken,
@@ -52,7 +50,7 @@ func (g *NetworkGenerator) loadNetworks(sdk *ycsdk.SDK, folderID string) ([]*vpc
 }
 
 func (g *NetworkGenerator) InitResources() error {
-	sdk, err := ycsdk.Build(context.Background(), ycsdk.Config{
+	sdk, err := ycsdk.Build(g.Context(), ycsdk.Config{
 		Credentials: ycsdk.OAuthToken(g.Args["token"].(string)),
 	})
 	if err != nil {

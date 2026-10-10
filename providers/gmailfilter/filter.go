@@ -15,8 +15,6 @@
 package gmailfilter
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"google.golang.org/api/gmail/v1"
 )
@@ -39,7 +37,7 @@ func (g FilterGenerator) createResources(filters []*gmail.Filter) []terraformuti
 }
 
 func (g *FilterGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	gmailService, err := g.gmailService(ctx)
 	if err != nil {
 		return err

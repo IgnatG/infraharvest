@@ -15,7 +15,6 @@
 package linode
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -27,7 +26,7 @@ type NodeBalancerGenerator struct {
 }
 
 func (g *NodeBalancerGenerator) loadNodeBalancers(client linodego.Client) ([]linodego.NodeBalancer, error) {
-	nodeBalancerList, err := client.ListNodeBalancers(context.Background(), nil)
+	nodeBalancerList, err := client.ListNodeBalancers(g.Context(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func (g *NodeBalancerGenerator) loadNodeBalancers(client linodego.Client) ([]lin
 }
 
 func (g *NodeBalancerGenerator) loadNodeBalancerConfigs(client linodego.Client, nodebalancerID int) ([]linodego.NodeBalancerConfig, error) {
-	nodeBalancerConfigList, err := client.ListNodeBalancerConfigs(context.Background(), nodebalancerID, nil)
+	nodeBalancerConfigList, err := client.ListNodeBalancerConfigs(g.Context(), nodebalancerID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +57,7 @@ func (g *NodeBalancerGenerator) loadNodeBalancerConfigs(client linodego.Client, 
 }
 
 func (g *NodeBalancerGenerator) loadNodeBalancerNodes(client linodego.Client, nodebalancerID int, nodebalancerConfigID int) error {
-	nodeBalancerNodeList, err := client.ListNodeBalancerNodes(context.Background(), nodebalancerID, nodebalancerConfigID, nil)
+	nodeBalancerNodeList, err := client.ListNodeBalancerNodes(g.Context(), nodebalancerID, nodebalancerConfigID, nil)
 	if err != nil {
 		return err
 	}

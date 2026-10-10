@@ -15,8 +15,6 @@
 package yandex
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/yandex-cloud/go-genproto/yandex/cloud/compute/v1"
 	ycsdk "github.com/yandex-cloud/go-sdk"
@@ -30,7 +28,7 @@ func (g *InstanceGenerator) loadInstances(sdk *ycsdk.SDK, folderID string) ([]*c
 	instances := []*compute.Instance{}
 	pageToken := ""
 	for {
-		resp, err := sdk.Compute().Instance().List(context.Background(), &compute.ListInstancesRequest{
+		resp, err := sdk.Compute().Instance().List(g.Context(), &compute.ListInstancesRequest{
 			FolderId:  folderID,
 			PageSize:  defaultPageSize,
 			PageToken: pageToken,

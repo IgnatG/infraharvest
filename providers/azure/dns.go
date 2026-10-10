@@ -15,7 +15,6 @@
 package azure
 
 import (
-	"context"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -51,7 +50,7 @@ type DNSGenerator struct {
 
 func (g *DNSGenerator) listRecordSets(resourceGroupName string, zoneName string, top *int32) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	recordSetsClient, err := armdns.NewRecordSetsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -75,7 +74,7 @@ func (g *DNSGenerator) listRecordSets(resourceGroupName string, zoneName string,
 
 func (g *DNSGenerator) listAndAddForDNSZone() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	dnsZonesClient, err := armdns.NewZonesClient(subscriptionID, credential, options)
 	if err != nil {

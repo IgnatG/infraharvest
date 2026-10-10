@@ -1,8 +1,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/security/armsecurity"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -13,7 +11,7 @@ type SecurityCenterSubscriptionPricingGenerator struct {
 
 func (g SecurityCenterSubscriptionPricingGenerator) listSubscriptionPricing() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 
 	// Pricings are set per subscription, not per resource group.

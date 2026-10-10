@@ -15,7 +15,6 @@
 package tencentcloud
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -44,7 +43,7 @@ func (g *CosGenerator) InitResources() error {
 		},
 	})
 
-	result, _, err := client.Service.Get(context.Background())
+	result, _, err := client.Service.Get(g.Context())
 	if err != nil {
 		return err
 	}

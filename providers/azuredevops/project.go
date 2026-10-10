@@ -1,8 +1,6 @@
 package azuredevops
 
 import (
-	"context"
-
 	"github.com/microsoft/azure-devops-go-api/azuredevops/core"
 )
 
@@ -15,7 +13,7 @@ func (az *ProjectGenerator) listResources() ([]core.TeamProjectReference, error)
 	if fail != nil {
 		return nil, fail
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []core.TeamProjectReference
 	pageArgs := core.GetProjectsArgs{}
 	pages, err := client.GetProjects(ctx, pageArgs)

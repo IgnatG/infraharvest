@@ -94,7 +94,7 @@ func containerResource(container blobContainer) terraformutils.Resource {
 
 func (g StorageContainerGenerator) ListBlobContainers() ([]terraformutils.Resource, error) {
 	var containerResources []terraformutils.Resource
-	containers, err := g.listBlobContainers(context.Background())
+	containers, err := g.listBlobContainers(g.Context())
 	for _, container := range containers {
 		containerResources = append(containerResources, containerResource(container))
 	}

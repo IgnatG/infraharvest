@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armlocks"
 )
 
@@ -30,7 +28,7 @@ func (az *ManagementLockGenerator) listResources() ([]*armlocks.ManagementLockOb
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListAtResourceGroupLevelPager(resourceGroup, nil),
 			func(p armlocks.ManagementLocksClientListAtResourceGroupLevelResponse) []*armlocks.ManagementLockObject {

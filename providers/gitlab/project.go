@@ -31,7 +31,7 @@ type ProjectGenerator struct {
 
 // Generate TerraformResources from gitlab API,
 func (g *ProjectGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	client, err := g.createClient()
 	if err != nil {
 		return err

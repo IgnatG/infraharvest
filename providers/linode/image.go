@@ -15,8 +15,6 @@
 package linode
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/linode/linodego"
 )
@@ -39,7 +37,7 @@ func (g ImageGenerator) createResources(imageList []linodego.Image) []terraformu
 
 func (g *ImageGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ListImages(context.Background(), nil)
+	output, err := client.ListImages(g.Context(), nil)
 	if err != nil {
 		return err
 	}

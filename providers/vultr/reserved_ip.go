@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g ReservedIPGenerator) createResources(ipList []govultr.ReservedIP) []terr
 
 func (g *ReservedIPGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ReservedIP.List(context.Background())
+	output, err := client.ReservedIP.List(g.Context())
 	if err != nil {
 		return err
 	}

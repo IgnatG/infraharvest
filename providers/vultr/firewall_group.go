@@ -15,7 +15,6 @@
 package vultr
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -27,7 +26,7 @@ type FirewallGroupGenerator struct {
 }
 
 func (g *FirewallGroupGenerator) loadFirewallGroups(client *govultr.Client) ([]govultr.FirewallGroup, error) {
-	firewallGroups, err := client.FirewallGroup.List(context.Background())
+	firewallGroups, err := client.FirewallGroup.List(g.Context())
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func (g *FirewallGroupGenerator) loadFirewallGroups(client *govultr.Client) ([]g
 }
 
 func (g *FirewallGroupGenerator) loadFirewallRulesByIPType(client *govultr.Client, firewallGroupID string, ipType string) error {
-	firewallRules, err := client.FirewallRule.ListByIPType(context.Background(), firewallGroupID, ipType)
+	firewallRules, err := client.FirewallRule.ListByIPType(g.Context(), firewallGroupID, ipType)
 	if err != nil {
 		return err
 	}

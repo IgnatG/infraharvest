@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -38,7 +36,7 @@ func (g NetworkInterfaceGenerator) createResources(interfaces []*armnetwork.Inte
 }
 
 func (g *NetworkInterfaceGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	interfacesClient, err := armnetwork.NewInterfacesClient(subscriptionID, credential, options)
 	if err != nil {

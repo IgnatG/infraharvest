@@ -1,8 +1,6 @@
 package azuredevops
 
 import (
-	"context"
-
 	"github.com/microsoft/azure-devops-go-api/azuredevops/graph"
 )
 
@@ -16,7 +14,7 @@ func (az *GroupGenerator) listResources() ([]graph.GraphGroup, error) {
 	if fail != nil {
 		return nil, fail
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []graph.GraphGroup
 	pageArgs := graph.ListGroupsArgs{}
 	pages, err := client.ListGroups(ctx, pageArgs)

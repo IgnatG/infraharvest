@@ -52,7 +52,7 @@ func (g *InfraGenerator) createAlertInfraConditionResources(client *newrelic.New
 	apiKey := g.GetArgs()["apiKey"].(string)
 
 	for _, alertPolicy := range alertPolicies {
-		alertInfraConditions, err := listInfraConditions(context.Background(), httpClient, conditionsURL, apiKey, alertPolicy.ID)
+		alertInfraConditions, err := listInfraConditions(g.Context(), httpClient, conditionsURL, apiKey, alertPolicy.ID)
 		if err != nil {
 			return err
 		}

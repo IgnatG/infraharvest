@@ -15,8 +15,6 @@
 package linode
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/linode/linodego"
 )
@@ -39,7 +37,7 @@ func (g RDNSGenerator) createResources(instanceIPList []linodego.InstanceIP) []t
 
 func (g *RDNSGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ListIPAddresses(context.Background(), nil)
+	output, err := client.ListIPAddresses(g.Context(), nil)
 	if err != nil {
 		return err
 	}

@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
@@ -30,7 +28,7 @@ func (az *NetworkWatcherGenerator) listResources() ([]*armnetwork.Watcher, error
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListPager(resourceGroup, nil),
 			func(p armnetwork.WatchersClientListResponse) []*armnetwork.Watcher { return p.Value })
@@ -49,7 +47,7 @@ func (az *NetworkWatcherGenerator) appendFlowLogs(parent *armnetwork.Watcher, re
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	flowLogs, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
 		func(p armnetwork.FlowLogsClientListResponse) []*armnetwork.FlowLog { return p.Value })
 	for _, item := range flowLogs {
@@ -64,7 +62,7 @@ func (az *NetworkWatcherGenerator) appendPacketCaptures(parent *armnetwork.Watch
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	captures, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
 		func(p armnetwork.PacketCapturesClientListResponse) []*armnetwork.PacketCaptureResult { return p.Value })
 	if err != nil {

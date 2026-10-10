@@ -48,24 +48,24 @@ func (y *YandexService) InitSDK() (*ycsdk.SDK, error) {
 		if err != nil {
 			return nil, err
 		}
-		return ycsdk.Build(context.Background(), ycsdk.Config{
+		return ycsdk.Build(y.Context(), ycsdk.Config{
 			Credentials: serviceAccountKey},
 		)
 	}
 
 	if cToken := y.Args[KeyToken].(string); cToken != "" {
 		if strings.HasPrefix(cToken, "t1.") && strings.Count(cToken, ".") == 2 {
-			return ycsdk.Build(context.Background(), ycsdk.Config{
+			return ycsdk.Build(y.Context(), ycsdk.Config{
 				Credentials: ycsdk.NewIAMTokenCredentials(cToken)},
 			)
 		}
-		return ycsdk.Build(context.Background(), ycsdk.Config{
+		return ycsdk.Build(y.Context(), ycsdk.Config{
 			Credentials: ycsdk.OAuthToken(cToken),
 		})
 	}
 
-	if sa := ycsdk.InstanceServiceAccount(); checkServiceAccountAvailable(context.Background(), sa) {
-		return ycsdk.Build(context.Background(), ycsdk.Config{
+	if sa := ycsdk.InstanceServiceAccount(); checkServiceAccountAvailable(y.Context(), sa) {
+		return ycsdk.Build(y.Context(), ycsdk.Config{
 			Credentials: sa,
 		})
 	}

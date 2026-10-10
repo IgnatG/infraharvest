@@ -54,7 +54,7 @@ func (g KeyVaultGenerator) createResourcesByResourceGroup(ctx context.Context, r
 }
 
 func (g *KeyVaultGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	vaultsClient, err := armkeyvault.NewVaultsClient(subscriptionID, credential, options)
 	if err != nil {

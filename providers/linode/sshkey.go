@@ -15,7 +15,6 @@
 package linode
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -40,7 +39,7 @@ func (g SSHKeyGenerator) createResources(keyList []linodego.SSHKey) []terraformu
 
 func (g *SSHKeyGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ListSSHKeys(context.Background(), nil)
+	output, err := client.ListSSHKeys(g.Context(), nil)
 	if err != nil {
 		return err
 	}

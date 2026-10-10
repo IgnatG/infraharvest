@@ -15,8 +15,6 @@
 package heroku
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	heroku "github.com/heroku/heroku-go/v5"
 )
@@ -40,7 +38,7 @@ func (g AccountFeatureGenerator) createResources(accountFeatureList []heroku.Acc
 
 func (g *AccountFeatureGenerator) InitResources() error {
 	svc := g.generateService()
-	ctx := context.Background()
+	ctx := g.Context()
 	list := []heroku.AccountFeature{}
 
 	accountFeatures, err := svc.AccountFeatureList(ctx, &heroku.ListRange{Field: "id"})

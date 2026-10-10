@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g UserGenerator) createResources(userList []govultr.User) []terraformutils
 
 func (g *UserGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.User.List(context.Background())
+	output, err := client.User.List(g.Context())
 	if err != nil {
 		return err
 	}

@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g BareMetalServerGenerator) createResources(serverList []govultr.BareMetal
 
 func (g *BareMetalServerGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.BareMetalServer.List(context.Background())
+	output, err := client.BareMetalServer.List(g.Context())
 	if err != nil {
 		return err
 	}

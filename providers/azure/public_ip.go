@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -27,7 +25,7 @@ type PublicIPGenerator struct {
 
 func (g *PublicIPGenerator) listAndAddForPublicIPAddress() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	publicIPAddressesClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -57,7 +55,7 @@ func (g *PublicIPGenerator) listAndAddForPublicIPAddress() ([]terraformutils.Res
 
 func (g *PublicIPGenerator) listAndAddForPublicIPPrefix() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	publicIPPrefixesClient, err := armnetwork.NewPublicIPPrefixesClient(subscriptionID, credential, options)
 	if err != nil {

@@ -15,7 +15,6 @@
 package gmailfilter
 
 import (
-	"context"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -43,7 +42,7 @@ func (g LabelGenerator) createResources(labels []*gmail.Label) []terraformutils.
 }
 
 func (g *LabelGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	gmailService, err := g.gmailService(ctx)
 	if err != nil {
 		return err

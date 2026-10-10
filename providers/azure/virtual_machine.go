@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -62,7 +60,7 @@ func (g VirtualMachineGenerator) createResources(virtualMachines []*armcompute.V
 }
 
 func (g *VirtualMachineGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, credential, options)
 	if err != nil {

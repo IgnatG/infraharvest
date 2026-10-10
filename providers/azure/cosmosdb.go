@@ -15,7 +15,6 @@
 package azure
 
 import (
-	"context"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/cosmos/armcosmos/v4"
@@ -41,7 +40,7 @@ func cosmosDBSQLIDInOldFormat(id string) string {
 func (g *CosmosDBGenerator) listSQLDatabasesAndContainersBehind(resourceGroupName string, accountName string) ([]terraformutils.Resource, []terraformutils.Resource, error) {
 	var resourcesDatabase []terraformutils.Resource
 	var resourcesContainer []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	sqlResourcesClient, err := armcosmos.NewSQLResourcesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -84,7 +83,7 @@ func (g *CosmosDBGenerator) listSQLDatabasesAndContainersBehind(resourceGroupNam
 
 func (g *CosmosDBGenerator) listTables(resourceGroupName string, accountName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	tableResourcesClient, err := armcosmos.NewTableResourcesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -109,7 +108,7 @@ func (g *CosmosDBGenerator) listTables(resourceGroupName string, accountName str
 
 func (g *CosmosDBGenerator) listAndAddForDatabaseAccounts() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	databaseAccountsClient, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, credential, options)
 	if err != nil {

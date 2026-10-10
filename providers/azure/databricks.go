@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/databricks/armdatabricks/v2"
 )
 
@@ -30,7 +28,7 @@ func (az *DatabricksGenerator) listWorkspaces() ([]*armdatabricks.Workspace, err
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armdatabricks.WorkspacesClientListByResourceGroupResponse) []*armdatabricks.Workspace {

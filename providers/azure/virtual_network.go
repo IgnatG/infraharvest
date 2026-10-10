@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -46,7 +44,7 @@ func (g VirtualNetworkGenerator) createResources(virtualNetworks []*armnetwork.V
 }
 
 func (g *VirtualNetworkGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	virtualNetworkClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, credential, options)
 	if err != nil {
