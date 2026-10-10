@@ -41,7 +41,7 @@ import (
 // awsServices are the infraharvest services that import what
 // testdata/aws creates.
 var awsServices = []string{
-	"alb", "cloudwatch", "dynamodb", "ebs", "ecr", "ecs", "eip", "iam", "igw",
+	"alb", "auto_scaling", "cloudwatch", "dynamodb", "ebs", "ecr", "ecs", "eip", "iam", "igw",
 	"kinesis", "kms", "logs", "nacl", "nat", "route53", "route_table", "s3",
 	"secretsmanager", "sfn", "sg", "sns", "sqs", "ssm", "subnet", "vpc",
 	"vpc_endpoint",
