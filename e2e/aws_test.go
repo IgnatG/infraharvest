@@ -625,6 +625,21 @@ func discoverAWS(ctx context.Context, t *testing.T, created []*tfjson.StateResou
 	if !cfnBucket {
 		t.Error("discover didn't list the bucket of the CloudFormation stack")
 	}
+	// Tags come from the Resource Groups Tagging API, for rules by tag: a
+	// queue's ID is its URL, which names the queue its ARN does. Floci's
+	// Tagging API lists the services its Resource Explorer indexes, which
+	// EC2 isn't one of.
+	for _, r := range created {
+		if r.Type != "aws_sqs_queue" {
+			continue
+		}
+		id, _ := r.AttributeValues["id"].(string)
+		for _, listed := range f.Resources {
+			if listed.Type == "aws_sqs_queue" && listed.ID == id && listed.Tags["Project"] != "infraharvest-e2e" {
+				t.Errorf("discover recorded the tags of queue %s as %v, want Project=infraharvest-e2e", id, listed.Tags)
+			}
+		}
+	}
 	if excluded == 0 {
 		t.Error("discover excluded nothing, though the emulator's default VPC exists")
 	}
