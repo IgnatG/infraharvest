@@ -61,6 +61,17 @@ infraharvest import azure --all --resources=resource_group --filter=resource_gro
 
 The roots are laid out by subscription and resource group: `{output}/azurerm/{subscription}/{resource group}/` with `--resource-group`, and `{output}/azurerm/{subscription}/all/` for the whole subscription.
 
+## Every resource, through Resource Graph
+
+`--resources=resource_graph` lists every resource of the subscription (or of `--resource-group`) that [Azure Resource Graph](https://learn.microsoft.com/azure/governance/resource-graph/overview) knows, the resource groups they are in, and the child resources Resource Graph doesn't index, such as subnets and blob containers, which it reads from Resource Manager. [aztft](https://github.com/magodo/aztft), which aztfexport also uses, maps each one to its `azurerm` type and import ID, asking Resource Manager when the ID alone can't say (a function app or a web app). That covers every type aztft knows, far more than the services below. Resources another resource manages, such as an AKS cluster's node resource group, are left out, and resources with no `azurerm` type, or several it can't choose between, are logged and left out. Their tags go into the selection file, for rules.
+
+```sh
+infraharvest discover azure --resources=resource_graph
+infraharvest import azure --resources=resource_graph --resource-group=my_resource_group --selection=selection.yaml
+```
+
+It lists what the services below list too, so use it on its own: `--resources=*` leaves it out. It needs the Reader role, which includes Resource Graph.
+
 ## List of supported Azure resources
 
 *   `analysis`

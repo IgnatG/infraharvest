@@ -428,6 +428,8 @@ require (
 	github.com/IBM/continuous-delivery-go-sdk/v2 v2.0.2
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.1
 	github.com/aws/aws-sdk-go-v2/service/directconnect v1.30.1
+	github.com/magodo/azlist v0.0.0-20250827005956-f76aa26d5fe5
+	github.com/magodo/aztft v0.3.1-0.20261003023401-cf187e4aed82
 	github.com/gofrs/uuid/v3 v3.1.2
 	github.com/hashicorp/hc-install v0.10.0
 	github.com/hashicorp/terraform-exec v0.25.3

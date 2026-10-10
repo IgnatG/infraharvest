@@ -70,6 +70,13 @@ type ProviderWithSelectionDefaults interface {
 	ExcludedByDefault(ctx context.Context, resources []Resource) (map[string]string, error)
 }
 
+// ProviderWithOptInServices names services --resources=* leaves out,
+// because they list what other services do, another way: they are listed
+// only when named.
+type ProviderWithOptInServices interface {
+	OptInServices() []string
+}
+
 // ProviderWithScope names the account (or subscription or project) and the
 // region an import covers, for the output layout
 // ({output}/{provider}/{account}/{region}/): one root per state
