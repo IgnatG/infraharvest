@@ -107,6 +107,7 @@ func (p *AzureProvider) GetSupportedService() map[string]terraformutils.ServiceG
 		"purview":                              &PurviewGenerator{},
 		"redis":                                &RedisGenerator{},
 		"resource_group":                       &ResourceGroupGenerator{},
+		"resource_graph":                       &ResourceGraphGenerator{},
 		"route_table":                          &RouteTableGenerator{},
 		"scaleset":                             &ScaleSetGenerator{},
 		"security_center_contact":              &SecurityCenterContactGenerator{},

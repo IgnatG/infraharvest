@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -287,9 +288,15 @@ func listCmd(provider terraformutils.ProviderGenerator) *cobra.Command {
 }
 
 func providerServices(provider terraformutils.ProviderGenerator) []string {
+	var optIn []string
+	if p, ok := provider.(terraformutils.ProviderWithOptInServices); ok {
+		optIn = p.OptInServices()
+	}
 	var services []string
 	for k := range provider.GetSupportedService() {
-		services = append(services, k)
+		if !slices.Contains(optIn, k) {
+			services = append(services, k)
+		}
 	}
 	sort.Strings(services)
 	return services
