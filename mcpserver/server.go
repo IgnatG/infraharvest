@@ -172,7 +172,7 @@ func summarize(path string) (*SelectionSummary, error) {
 			c = &TypeCount{Type: r.Type}
 			byType[r.Type] = c
 		}
-		d := f.DecideIn(r.Scope, r.Type, r.ID, r.Name)
+		d := f.DecideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
 		if d.Include {
 			c.Included++
 			summary.Included++

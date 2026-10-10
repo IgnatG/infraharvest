@@ -58,13 +58,15 @@ type Rule struct {
 	Exclude *Match `yaml:"exclude,omitempty"`
 }
 
-// Match selects resources by type, ID and name, each a list of patterns in
-// which * matches any text. A resource matches if every field given has a
-// pattern it matches.
+// Match selects resources by type, ID, name and tags, each a list of
+// patterns in which * matches any text. A resource matches if every field
+// given has a pattern it matches. Tags match by key: a resource without
+// the tag has the value "", so { owner: "" } matches untagged resources.
 type Match struct {
-	Type Patterns `yaml:"type,omitempty"`
-	ID   Patterns `yaml:"id,omitempty"`
-	Name Patterns `yaml:"name,omitempty"`
+	Type Patterns            `yaml:"type,omitempty"`
+	ID   Patterns            `yaml:"id,omitempty"`
+	Name Patterns            `yaml:"name,omitempty"`
+	Tags map[string]Patterns `yaml:"tags,omitempty"`
 }
 
 // Patterns are glob patterns, written as one string or a list.
@@ -91,8 +93,11 @@ type Resource struct {
 	Name string `yaml:"name,omitempty"`
 	// Scope is where discover listed it: provider, account and region, as
 	// the root it is imported into is laid out (aws/123456789012/eu-west-2).
-	Scope   string `yaml:"scope,omitempty"`
-	Include bool   `yaml:"include"`
+	Scope string `yaml:"scope,omitempty"`
+	// Tags are the resource's tags (labels on Google Cloud) when discover
+	// could read them, for rules and the picker.
+	Tags    map[string]string `yaml:"tags,omitempty"`
+	Include bool              `yaml:"include"`
 	// Reason says why the default rules exclude the resource.
 	Reason string `yaml:"reason,omitempty"`
 	// Note is for people; infraharvest keeps it.
@@ -108,16 +113,16 @@ type Decision struct {
 	Reason  string
 }
 
-// Decide returns the decision for the resource of resourceType with id and
-// name, whatever scope it is listed in (see DecideIn).
+// Decide returns the decision for the untagged resource of resourceType
+// with id and name, whatever scope it is listed in (see DecideIn).
 func (f *File) Decide(resourceType, id, name string) Decision {
-	return f.DecideIn("", resourceType, id, name)
+	return f.DecideIn("", resourceType, id, name, nil)
 }
 
-// DecideIn returns the decision for the resource of resourceType with id
-// and name in scope: its entry in Resources if it has one (see HasIn), else
-// the last rule that matches it, else Defaults.
-func (f *File) DecideIn(scope, resourceType, id, name string) Decision {
+// DecideIn returns the decision for the resource of resourceType with id,
+// name and tags in scope: its entry in Resources if it has one (see
+// HasIn), else the last rule that matches it, else Defaults.
+func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]string) Decision {
 	if r, ok := f.lookup(scope, resourceType, id); ok {
 		if r.Include {
 			return Decision{Include: true}
@@ -128,7 +133,7 @@ func (f *File) DecideIn(scope, resourceType, id, name string) Decision {
 		}
 		return Decision{Reason: reason}
 	}
-	if d, ok := f.ByRule(resourceType, id, name); ok {
+	if d, ok := f.ByRule(resourceType, id, name, tags); ok {
 		return d
 	}
 	if f.Defaults.Include {
@@ -138,23 +143,31 @@ func (f *File) DecideIn(scope, resourceType, id, name string) Decision {
 }
 
 // ByRule returns the decision of the last rule that matches the resource
-// of resourceType with id and name, and whether one does.
-func (f *File) ByRule(resourceType, id, name string) (Decision, bool) {
+// of resourceType with id, name and tags, and whether one does.
+func (f *File) ByRule(resourceType, id, name string, tags map[string]string) (Decision, bool) {
 	var decision Decision
 	matched := false
 	for _, rule := range f.Rules {
-		if rule.Include != nil && rule.Include.matches(resourceType, id, name) {
+		if rule.Include != nil && rule.Include.matches(resourceType, id, name, tags) {
 			decision, matched = Decision{Include: true}, true
 		}
-		if rule.Exclude != nil && rule.Exclude.matches(resourceType, id, name) {
+		if rule.Exclude != nil && rule.Exclude.matches(resourceType, id, name, tags) {
 			decision, matched = Decision{Reason: "excluded by a rule in the selection file"}, true
 		}
 	}
 	return decision, matched
 }
 
-func (m *Match) matches(resourceType, id, name string) bool {
-	return m.Type.match(resourceType) && m.ID.match(id) && m.Name.match(name)
+func (m *Match) matches(resourceType, id, name string, tags map[string]string) bool {
+	if !m.Type.match(resourceType) || !m.ID.match(id) || !m.Name.match(name) {
+		return false
+	}
+	for key, patterns := range m.Tags {
+		if !patterns.match(tags[key]) {
+			return false
+		}
+	}
+	return true
 }
 
 // match reports whether value matches a pattern; no patterns match all.
@@ -211,11 +224,12 @@ const header = `# infraharvest selection file: which listed resources to import.
 #   infraharvest import <provider> --selection <this file> ...
 #
 # Resources without an entry, such as new ones, follow the rules (the last
-# matching one decides) and then the defaults. Rules match type, id and name
-# with * as a wildcard, for example:
+# matching one decides) and then the defaults. Rules match type, id, name
+# and tags with * as a wildcard, for example:
 #
 #   rules:
 #     - exclude: { type: aws_cloudwatch_log_group, id: "/aws/lambda/*" }
+#     - exclude: { tags: { env: dev } }
 #
 # Running discover again updates this file: entries keep their decisions and
 # notes, resources no longer found are dropped, and new ones are added with
@@ -328,18 +342,18 @@ func (f *File) Merge(listed []Resource) (added, dropped int) {
 		if r, ok := f.lookup(l.Scope, l.Type, l.ID); ok {
 			kept[key(r.Scope, r.Type, r.ID)] = true
 			m := *r
-			// Where it is listed is discover's to say.
-			m.Scope = l.Scope
+			// Where it is listed, and its tags, are discover's to say.
+			m.Scope, m.Tags = l.Scope, l.Tags
 			if m.Include && m.Note == "" && isManaged(l.Reason) {
 				m.Include, m.Reason, m.New = false, l.Reason, true
 			}
 			merged = append(merged, m)
 			continue
 		}
-		if d, ok := f.ByRule(l.Type, l.ID, l.Name); ok {
+		if d, ok := f.ByRule(l.Type, l.ID, l.Name, l.Tags); ok {
 			l.Include, l.Reason = d.Include, d.Reason
 		} else if l.Include {
-			d := f.DecideIn(l.Scope, l.Type, l.ID, l.Name)
+			d := f.DecideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags)
 			l.Include, l.Reason = d.Include, d.Reason
 		}
 		l.New = true

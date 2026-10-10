@@ -95,19 +95,19 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 		return err
 	}
 	options = resolveServices(provider, options)
-	listed, failures, err := listResources(ctx, provider, options, args)
+	scope := discoveryScope(ctx, provider)
+	run.scope = scope
+	listed, failures, err := listResources(ctx, provider, options, args, scope)
 	if err != nil {
 		return err
 	}
-	defaults, err := excludedByDefault(ctx, provider, listed)
+	defaults, err := excludedByDefault(ctx, provider, listed.resources)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
 	}
-	if defaults, err = excludeManaged(ctx, run, options, listed, defaults, importIDFunc(provider)); err != nil {
+	if defaults, err = excludeManaged(ctx, run, options, listed.resources, defaults, importIDFunc(provider)); err != nil {
 		return err
 	}
-	scope := discoveryScope(ctx, provider)
-	run.scope = scope
 	if options.Discover {
 		run.used = true
 		run.options = options

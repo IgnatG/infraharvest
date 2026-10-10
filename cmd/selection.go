@@ -77,10 +77,10 @@ func (r *engineRun) selectionFile(path string) (*selection.File, error) {
 // rules, then the provider's defaults, then the file's defaults. With no
 // file (--all), the provider's defaults decide. It also returns the
 // resources it leaves out.
-func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource, defaults map[string]string, f *selection.File, scope string, importID func(terraformutils.Resource) (string, bool)) (map[string][]terraformutils.Resource, []engine.External) {
-	selected := make(map[string][]terraformutils.Resource, len(listed))
+func (r *engineRun) selectResources(listed listing, defaults map[string]string, f *selection.File, scope string, importID func(terraformutils.Resource) (string, bool)) (map[string][]terraformutils.Resource, []engine.External) {
+	selected := make(map[string][]terraformutils.Resource, len(listed.resources))
 	var leftOut []engine.External
-	for service, resources := range listed {
+	for service, resources := range listed.resources {
 		for _, res := range resources {
 			id, importable := importID(res)
 			if !importable {
@@ -89,20 +89,21 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 				continue
 			}
 			typ := res.InstanceInfo.Type
+			tags := listed.tagsOf(res)
 			reason, excluded := defaults[typ+" "+res.InstanceState.ID]
 			var d selection.Decision
 			switch {
 			case f != nil && f.HasIn(scope, typ, id):
-				d = f.DecideIn(scope, typ, id, res.RawName)
+				d = f.DecideIn(scope, typ, id, res.RawName, tags)
 			case f != nil:
-				ruled, ok := f.ByRule(typ, id, res.RawName)
+				ruled, ok := f.ByRule(typ, id, res.RawName, tags)
 				switch {
 				case ok:
 					d = ruled
 				case excluded:
 					d = selection.Decision{Reason: reason}
 				default:
-					d = f.DecideIn(scope, typ, id, res.RawName)
+					d = f.DecideIn(scope, typ, id, res.RawName, tags)
 				}
 			case excluded:
 				d = selection.Decision{Reason: reason}
@@ -131,8 +132,8 @@ func (r *engineRun) selectResources(listed map[string][]terraformutils.Resource,
 // addDiscovered adds the listed resources Terraform can import to the
 // selection file discover writes, in scope (see discoveryScope), included
 // unless the provider's defaults exclude them.
-func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, defaults map[string]string, scope string, importID func(terraformutils.Resource) (string, bool)) {
-	for _, resources := range listed {
+func (r *engineRun) addDiscovered(listed listing, defaults map[string]string, scope string, importID func(terraformutils.Resource) (string, bool)) {
+	for _, resources := range listed.resources {
 		for _, res := range resources {
 			id, importable := importID(res)
 			if !importable {
@@ -144,6 +145,7 @@ func (r *engineRun) addDiscovered(listed map[string][]terraformutils.Resource, d
 				ID:      id,
 				Name:    res.RawName,
 				Scope:   scope,
+				Tags:    listed.tagsOf(res),
 				Include: reason == "",
 				Reason:  reason,
 			})

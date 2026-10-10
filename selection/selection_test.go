@@ -173,10 +173,10 @@ func TestScopes(t *testing.T) {
 	if f.HasIn("aws/777788889999/global", "aws_iam_role", "admin") {
 		t.Error("an entry of another scope must not count")
 	}
-	if d := f.DecideIn(a, "aws_iam_role", "admin", ""); !d.Include {
+	if d := f.DecideIn(a, "aws_iam_role", "admin", "", nil); !d.Include {
 		t.Errorf("scope %s: %+v", a, d)
 	}
-	if d := f.DecideIn(b, "aws_iam_role", "admin", ""); d.Include || d.Reason != "excluded in the selection file" {
+	if d := f.DecideIn(b, "aws_iam_role", "admin", "", nil); d.Include || d.Reason != "excluded in the selection file" {
 		t.Errorf("scope %s: %+v", b, d)
 	}
 
@@ -188,7 +188,7 @@ func TestScopes(t *testing.T) {
 	if added != 0 || dropped != 0 || len(f.Resources) != 2 {
 		t.Errorf("merge: added %d, dropped %d, resources %+v", added, dropped, f.Resources)
 	}
-	if d := f.DecideIn(b, "aws_iam_role", "admin", ""); d.Include {
+	if d := f.DecideIn(b, "aws_iam_role", "admin", "", nil); d.Include {
 		t.Errorf("the decision for scope %s was lost: %+v", b, d)
 	}
 
@@ -201,7 +201,7 @@ func TestScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Resources) != 2 || loaded.DecideIn(b, "aws_iam_role", "admin", "").Include {
+	if len(loaded.Resources) != 2 || loaded.DecideIn(b, "aws_iam_role", "admin", "", nil).Include {
 		t.Errorf("round trip: %+v", loaded.Resources)
 	}
 }
@@ -213,7 +213,7 @@ func TestScopelessEntryApplies(t *testing.T) {
 	}}
 	const scope = "aws/111122223333/eu-west-2"
 
-	if !f.HasIn(scope, "aws_vpc", "vpc-1") || f.DecideIn(scope, "aws_vpc", "vpc-1", "").Include {
+	if !f.HasIn(scope, "aws_vpc", "vpc-1") || f.DecideIn(scope, "aws_vpc", "vpc-1", "", nil).Include {
 		t.Error("the scope-less entry must decide")
 	}
 	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: scope, Include: true}})
@@ -263,7 +263,82 @@ func TestMergeRulesBeforeDefaults(t *testing.T) {
 	if r := f.Resources[0]; !r.Include || r.Reason != "" || !r.New {
 		t.Errorf("got %+v, want included by the rule", r)
 	}
-	if d, ok := f.ByRule("aws_subnet", "subnet-1", ""); ok || d.Include {
+	if d, ok := f.ByRule("aws_subnet", "subnet-1", "", nil); ok || d.Include {
 		t.Errorf("no rule matches a subnet: %+v, %v", d, ok)
+	}
+}
+
+const byTag = `version: 1
+defaults:
+  include: true
+rules:
+  - exclude: { tags: { env: dev } }
+  - exclude: { type: aws_s3_bucket, tags: { owner: "" } }
+  - include: { tags: { env: dev, keep: ["yes", "true"] } }
+resources: []
+`
+
+func TestRulesMatchTags(t *testing.T) {
+	f, err := Load(write(t, byTag))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		resourceType string
+		tags         map[string]string
+		include      bool
+	}{
+		{"aws_vpc", map[string]string{"env": "dev"}, false},
+		{"aws_vpc", map[string]string{"env": "prod"}, true},
+		{"aws_vpc", nil, true},
+		// An empty pattern matches a resource without the tag.
+		{"aws_s3_bucket", map[string]string{"env": "prod"}, false},
+		{"aws_s3_bucket", map[string]string{"env": "prod", "owner": "data"}, true},
+		// Every tag a match names must match.
+		{"aws_vpc", map[string]string{"env": "dev", "keep": "yes"}, true},
+		{"aws_vpc", map[string]string{"env": "dev", "keep": "no"}, false},
+	} {
+		if got := f.DecideIn("", tc.resourceType, "id", "", tc.tags); got.Include != tc.include {
+			t.Errorf("%s %v: got %+v, want include %v", tc.resourceType, tc.tags, got, tc.include)
+		}
+	}
+}
+
+// Running discover again updates the tags of the entries it keeps, and a
+// rule by tag decides the new ones.
+func TestMergeUpdatesTags(t *testing.T) {
+	f, err := Load(write(t, byTag))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Include: true, Tags: map[string]string{"env": "prod"}}})
+	f.Resources[0].Note = "reviewed"
+	f.Merge([]Resource{
+		{Type: "aws_vpc", ID: "vpc-1", Include: true, Tags: map[string]string{"env": "prod", "team": "net"}},
+		{Type: "aws_vpc", ID: "vpc-2", Include: true, Tags: map[string]string{"env": "dev"}},
+	})
+	for _, r := range f.Resources {
+		switch r.ID {
+		case "vpc-1":
+			if r.Tags["team"] != "net" || r.Note != "reviewed" || !r.Include {
+				t.Errorf("kept entry: %+v", r)
+			}
+		case "vpc-2":
+			if r.Include || !r.New {
+				t.Errorf("new dev entry: %+v, want excluded by the rule", r)
+			}
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.HasIn("", "aws_vpc", "vpc-1") || saved.Resources[0].Tags["env"] != "prod" {
+		t.Errorf("saved tags: %+v", saved.Resources)
 	}
 }

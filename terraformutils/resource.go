@@ -124,3 +124,45 @@ func TfSanitize(name string) string {
 	name = "tfer--" + name
 	return name
 }
+
+// AttributeTags returns the tags a lister recorded in attributes, as
+// Terraform flattens them: tags.<key>, or labels.<key> on Google Cloud.
+// Nil if it recorded none.
+func AttributeTags(attributes map[string]string) map[string]string {
+	var tags map[string]string
+	for k, v := range attributes {
+		var key string
+		switch {
+		case strings.HasPrefix(k, "tags."):
+			key = strings.TrimPrefix(k, "tags.")
+		case strings.HasPrefix(k, "labels."):
+			key = strings.TrimPrefix(k, "labels.")
+		default:
+			continue
+		}
+		// tags.% counts them; tags.# and tags.0.key are a list of blocks,
+		// such as an Auto Scaling group's, not a map.
+		if key == "%" || key == "#" || isListIndex(key) {
+			continue
+		}
+		if tags == nil {
+			tags = map[string]string{}
+		}
+		tags[key] = v
+	}
+	return tags
+}
+
+// isListIndex reports whether key starts with a list index: 0.key.
+func isListIndex(key string) bool {
+	index, _, found := strings.Cut(key, ".")
+	if !found || index == "" {
+		return false
+	}
+	for _, c := range index {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}

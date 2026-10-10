@@ -77,6 +77,14 @@ type ProviderWithOptInServices interface {
 	OptInServices() []string
 }
 
+// ProviderWithTags reads the tags of listed resources whose listers don't
+// record them (see AttributeTags), for selection rules, the picker and the
+// report. It returns them by "type id", the lister's ID, and leaves out
+// resources it has no tags for.
+type ProviderWithTags interface {
+	Tags(ctx context.Context, resources []Resource) (map[string]map[string]string, error)
+}
+
 // ProviderWithScope names the account (or subscription or project) and the
 // region an import covers, for the output layout
 // ({output}/{provider}/{account}/{region}/): one root per state

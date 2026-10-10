@@ -67,7 +67,7 @@ func selectedIDs(selected map[string][]terraformutils.Resource) []string {
 func TestSelectResourcesWithAll(t *testing.T) {
 	run := newEngineRun()
 
-	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, nil, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, defaultsForSelection, nil, "", importIDForSelection)
 
 	// Unimportable resources go on, for importsByDir to count.
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -89,7 +89,7 @@ func TestSelectResourcesWithFile(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "old-archive", Include: false, Note: "to be deleted"},
 	}}
 
-	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, f, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, defaultsForSelection, f, "", importIDForSelection)
 
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
@@ -112,13 +112,13 @@ func TestSelectResourcesByScope(t *testing.T) {
 	}}
 
 	run := newEngineRun()
-	selected, _ := run.selectResources(listed, nil, f, a, importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listed}, nil, f, a, importIDForSelection)
 	if !reflect.DeepEqual(selectedIDs(selected), []string{"admin"}) {
 		t.Errorf("account %s: selected %v, want the role", a, selectedIDs(selected))
 	}
 
 	run = newEngineRun()
-	selected, leftOut := run.selectResources(listed, nil, f, b, importIDForSelection)
+	selected, leftOut := run.selectResources(listing{resources: listed}, nil, f, b, importIDForSelection)
 	if len(selectedIDs(selected)) != 0 || len(leftOut) != 1 {
 		t.Errorf("account %s: selected %v, left out %v; want the role excluded", b, selectedIDs(selected), leftOut)
 	}
@@ -137,7 +137,7 @@ func TestSelectResourcesRulesBeforeDefaults(t *testing.T) {
 		},
 	}
 
-	selected, _ := run.selectResources(listedForSelection, defaultsForSelection, f, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, defaultsForSelection, f, "", importIDForSelection)
 
 	// The default VPC is included by the rule; the bucket excluded by one.
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -154,8 +154,8 @@ func TestDiscoverWritesEachResourceOnce(t *testing.T) {
 	run := newEngineRun()
 	run.options = ImportOptions{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
-	run.addDiscovered(listedForSelection, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
-	run.addDiscovered(listedForSelection, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
 	if err := run.writeSelection(); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestDiscoverWritesSelection(t *testing.T) {
 	run := newEngineRun()
 	run.options = ImportOptions{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
-	run.addDiscovered(listedForSelection, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
 	if err := run.writeSelection(); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	first := newEngineRun()
 	first.options = ImportOptions{Discover: true, Selection: path}
-	first.addDiscovered(listedForSelection, defaultsForSelection, "", importIDForSelection)
+	first.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "", importIDForSelection)
 	if err := first.writeSelection(); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 			terraformutils.NewSimpleResource("new-logs", "new-logs", "aws_s3_bucket", "aws"),
 		},
 	}
-	again.addDiscovered(listed, defaultsForSelection, "", importIDForSelection)
+	again.addDiscovered(listing{resources: listed}, defaultsForSelection, "", importIDForSelection)
 	if err := again.writeSelection(); err != nil {
 		t.Fatal(err)
 	}
