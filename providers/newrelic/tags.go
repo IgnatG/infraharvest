@@ -15,6 +15,8 @@
 package newrelic
 
 import (
+	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -26,96 +28,99 @@ type TagsGenerator struct {
 	NewRelicService
 }
 
-func (g *TagsGenerator) createSyntheticsMonitorTagResources(client *newrelic.NewRelic) error {
+// entityGUID is the GUID of the entity with id in domain and of
+// entityType, which newrelic_entity_tags imports by: unpadded base64 of
+// account|domain|type|id.
+func entityGUID(accountID int, domain, entityType, id string) common.EntityGUID {
+	return common.EntityGUID(base64.RawStdEncoding.EncodeToString(
+		fmt.Appendf(nil, "%d|%s|%s|%s", accountID, domain, entityType, id)))
+}
+
+// addEntityTags adds the newrelic_entity_tags of the entity with guid if it
+// has tags that can be changed, once however often it is listed.
+func (g *TagsGenerator) addEntityTags(client *newrelic.NewRelic, seen map[common.EntityGUID]bool, guid common.EntityGUID, name string) error {
+	if seen[guid] {
+		return nil
+	}
+	seen[guid] = true
+	tags, err := client.Entities.GetTagsForEntityWithContextMutable(g.Context(), guid)
+	if err != nil {
+		return fmt.Errorf("tags of %s: %w", name, err)
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+		string(guid),
+		normalizeResourceName(name),
+		"newrelic_entity_tags",
+		g.ProviderName))
+	return nil
+}
+
+func (g *TagsGenerator) createSyntheticsMonitorTagResources(client *newrelic.NewRelic, seen map[common.EntityGUID]bool) error {
 	allMonitors, err := client.Synthetics.ListMonitors()
 	if err != nil {
 		return err
 	}
-
 	for _, monitor := range allMonitors {
-		allTags, err := client.Entities.GetTagsForEntityMutable(common.EntityGUID(monitor.ID))
-		if err != nil {
+		guid := entityGUID(g.accountID(), "SYNTH", "MONITOR", monitor.ID)
+		if err := g.addEntityTags(client, seen, guid, fmt.Sprintf("%s-%s", monitor.Name, monitor.ID)); err != nil {
 			return err
 		}
-
-		for range allTags {
-			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-				fmt.Sprint(monitor.ID),
-				fmt.Sprintf("%s-%s", normalizeResourceName(monitor.Name), monitor.ID),
-				"newrelic_entity_tags",
-				g.ProviderName))
-		}
 	}
-
 	return nil
 }
 
-func (g *TagsGenerator) createAlertConditionTagResources(client *newrelic.NewRelic) error {
+func (g *TagsGenerator) createAlertConditionTagResources(client *newrelic.NewRelic, seen map[common.EntityGUID]bool) error {
 	alertPolicies, err := client.Alerts.ListPolicies(nil)
 	if err != nil {
 		return err
 	}
-
 	for _, alertPolicy := range alertPolicies {
 		alertConditions, err := client.Alerts.ListConditions(alertPolicy.ID)
 		if err != nil {
 			return err
 		}
-
+		for _, c := range alertConditions {
+			guid := entityGUID(g.accountID(), "AIOPS", "CONDITION", fmt.Sprint(c.ID))
+			if err := g.addEntityTags(client, seen, guid, fmt.Sprintf("%s-%d", c.Name, c.ID)); err != nil {
+				return err
+			}
+		}
 		nrqlConditions, err := client.Alerts.ListNrqlConditions(alertPolicy.ID)
 		if err != nil {
 			return err
 		}
-
-		for _, alertCondition := range alertConditions {
-			allAlertConditionTags, err := client.Entities.GetTagsForEntityMutable(common.EntityGUID(fmt.Sprint(alertCondition.ID)))
-			if err != nil {
+		for _, c := range nrqlConditions {
+			guid := entityGUID(g.accountID(), "AIOPS", "CONDITION", fmt.Sprint(c.ID))
+			if err := g.addEntityTags(client, seen, guid, fmt.Sprintf("%s-%d", c.Name, c.ID)); err != nil {
 				return err
-			}
-			for range allAlertConditionTags {
-				g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-					fmt.Sprintf("%d:%d", alertPolicy.ID, alertCondition.ID),
-					fmt.Sprintf("%s-%d", normalizeResourceName(alertCondition.Name), alertCondition.ID),
-					"newrelic_entity_tags",
-					g.ProviderName))
-			}
-		}
-
-		for _, nrqlCondition := range nrqlConditions {
-			allNRQLConditionTags, err := client.Entities.GetTagsForEntityMutable(common.EntityGUID(fmt.Sprint(nrqlCondition.ID)))
-			if err != nil {
-				return err
-			}
-			for range allNRQLConditionTags {
-				g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-					fmt.Sprintf("%d:%d", alertPolicy.ID, nrqlCondition.ID),
-					fmt.Sprintf("%s-%d", normalizeResourceName(nrqlCondition.Name), nrqlCondition.ID),
-					"newrelic_entity_tags",
-					g.ProviderName))
 			}
 		}
 	}
-
 	return nil
 }
 
+// InitResources lists one newrelic_entity_tags per synthetic monitor and
+// alert condition with tags, imported by the entity's GUID, which needs
+// the account ID.
 func (g *TagsGenerator) InitResources() error {
+	if g.accountID() == 0 {
+		return errors.New("newrelic: tags need the account ID (--account-id or NEW_RELIC_ACCOUNT_ID)")
+	}
 	client, err := g.Client()
 	if err != nil {
 		return err
 	}
-
-	funcs := []func(*newrelic.NewRelic) error{
+	seen := map[common.EntityGUID]bool{}
+	for _, f := range []func(*newrelic.NewRelic, map[common.EntityGUID]bool) error{
 		g.createSyntheticsMonitorTagResources,
 		g.createAlertConditionTagResources,
-	}
-
-	for _, f := range funcs {
-		err := f(client)
-		if err != nil {
+	} {
+		if err := f(client, seen); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }

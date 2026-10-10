@@ -28,7 +28,6 @@ import (
 	"github.com/IgnatG/infraharvest/terraformutils"
 	newrelic "github.com/newrelic/newrelic-client-go/v2/newrelic"
 	"github.com/newrelic/newrelic-client-go/v2/pkg/alerts"
-	"github.com/newrelic/newrelic-client-go/v2/pkg/region"
 )
 
 // infraConditionsPageSize is the Infrastructure API's default page size.
@@ -44,7 +43,7 @@ func (g *InfraGenerator) createAlertInfraConditionResources(client *newrelic.New
 		return err
 	}
 
-	reg, err := region.Get(region.Default)
+	reg, err := g.Region()
 	if err != nil {
 		return err
 	}
