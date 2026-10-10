@@ -420,6 +420,9 @@ var stateOnlyArguments = aws.AWSProvider{}.StateOnlyArguments()
 // AWS returns them, so the plan sets the provider's default. Each one is a
 // difference from AWS, not from infraharvest's output.
 var emulatorGaps = map[string][]string{
+	// DescribeAutoScalingGroups has no AvailabilityZoneDistribution or
+	// CapacityReservationSpecification.
+	"aws_autoscaling_group": {"availability_zone_distribution", "capacity_reservation_specification"},
 	// DescribeServices has no deploymentConfiguration.
 	"aws_ecs_service": {"deployment_maximum_percent", "deployment_minimum_healthy_percent"},
 	// DescribeTargetGroupAttributes has no target_group_health.* keys.

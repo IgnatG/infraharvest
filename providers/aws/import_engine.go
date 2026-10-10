@@ -69,6 +69,7 @@ func (AWSProvider) DefaultTags() (attribute, block, reservedPrefix string) {
 // provider's own import tests ignore them too.
 func (AWSProvider) StateOnlyArguments() map[string][]string {
 	return map[string][]string{
+		"aws_autoscaling_group":     {"force_delete", "force_delete_warm_pool", "ignore_failed_scaling_activities", "wait_for_capacity_timeout"},
 		"aws_ecs_service":           {"wait_for_steady_state"},
 		"aws_iam_role":              {"force_detach_policies"},
 		"aws_lb_target_group":       {"lambda_multi_value_headers_enabled", "proxy_protocol_v2"},
