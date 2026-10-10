@@ -15,6 +15,9 @@
 package cmd
 
 import (
+	"log"
+	"os"
+
 	"github.com/spf13/cobra"
 )
 
@@ -37,9 +40,21 @@ func NewCmdRoot() *cobra.Command {
 	return cmd
 }
 
+// Execute runs the command line, profiled if INFRAHARVEST_CPU_PROFILE or
+// INFRAHARVEST_MEM_PROFILE name a file to write the profile to.
 func Execute() error {
-	cmd := NewCmdRoot()
-	return cmd.Execute()
+	stop, err := startProfiles(os.Getenv)
+	if err != nil {
+		return err
+	}
+	err = NewCmdRoot().Execute()
+	if stopErr := stop(); stopErr != nil {
+		if err == nil {
+			return stopErr
+		}
+		log.Print(stopErr)
+	}
+	return err
 }
 
 func providerImporterSubcommands() []func(options ImportOptions) *cobra.Command {
