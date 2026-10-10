@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *DNSRecordGenerator) InitResources() error {
 	dnsAPIClient := client.DNSAPIClient
 	resourceType := "ionoscloud_dns_record"
 
-	zonesResponse, _, err := dnsAPIClient.ZonesApi.ZonesGet(context.TODO()).Execute()
+	zonesResponse, _, err := dnsAPIClient.ZonesApi.ZonesGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}
@@ -27,7 +26,7 @@ func (g *DNSRecordGenerator) InitResources() error {
 	}
 	zones := *zonesResponse.Items
 	for _, zone := range zones {
-		recordsResponse, _, err := dnsAPIClient.RecordsApi.ZonesRecordsGet(context.TODO(), *zone.Id).Execute()
+		recordsResponse, _, err := dnsAPIClient.RecordsApi.ZonesRecordsGet(g.Context(), *zone.Id).Execute()
 		if err != nil {
 			return err
 		}

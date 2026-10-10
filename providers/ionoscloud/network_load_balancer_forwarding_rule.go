@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,12 +16,12 @@ func (g *NetworkLoadBalancerForwardingRuleGenerator) InitResources() error {
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_networkloadbalancer_forwardingrule"
 
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		networkLoadBalancerResponse, _, err := cloudAPIClient.NetworkLoadBalancersApi.DatacentersNetworkloadbalancersGet(context.TODO(), *datacenter.Id).Execute()
+		networkLoadBalancerResponse, _, err := cloudAPIClient.NetworkLoadBalancersApi.DatacentersNetworkloadbalancersGet(g.Context(), *datacenter.Id).Execute()
 		if err != nil {
 			return err
 		}
@@ -34,7 +33,7 @@ func (g *NetworkLoadBalancerForwardingRuleGenerator) InitResources() error {
 		}
 		networkLoadBalancers := *networkLoadBalancerResponse.Items
 		for _, nlb := range networkLoadBalancers {
-			forwardingRulesResponse, _, err := cloudAPIClient.NetworkLoadBalancersApi.DatacentersNetworkloadbalancersForwardingrulesGet(context.TODO(), *datacenter.Id, *nlb.Id).Depth(1).Execute()
+			forwardingRulesResponse, _, err := cloudAPIClient.NetworkLoadBalancersApi.DatacentersNetworkloadbalancersForwardingrulesGet(g.Context(), *datacenter.Id, *nlb.Id).Depth(1).Execute()
 			if err != nil {
 				return err
 			}

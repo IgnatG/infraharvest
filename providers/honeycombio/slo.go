@@ -1,7 +1,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -17,7 +16,7 @@ func (g *SLOGenerator) InitResources() error {
 		return fmt.Errorf("unable to initialize Honeycomb client: %v", err)
 	}
 
-	ctx := context.TODO()
+	ctx := g.Context()
 
 	for _, dataset := range g.datasets {
 		if dataset.Slug == environmentWideDatasetSlug {

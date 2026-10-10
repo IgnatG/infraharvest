@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *DBaaSPgSQLUserGenerator) InitResources() error {
 	dbaasPgSQLClient := client.DBaaSPgSQLApiClient
 	resourceType := "ionoscloud_pg_user"
 
-	response, _, err := dbaasPgSQLClient.ClustersApi.ClustersGet(context.TODO()).Execute()
+	response, _, err := dbaasPgSQLClient.ClustersApi.ClustersGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}
@@ -26,7 +25,7 @@ func (g *DBaaSPgSQLUserGenerator) InitResources() error {
 	}
 	clusters := *response.Items
 	for _, cluster := range clusters {
-		usersResponse, _, err := dbaasPgSQLClient.UsersApi.UsersList(context.TODO(), *cluster.Id).Execute()
+		usersResponse, _, err := dbaasPgSQLClient.UsersApi.UsersList(g.Context(), *cluster.Id).Execute()
 		if err != nil {
 			return err
 		}

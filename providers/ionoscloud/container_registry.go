@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *ContainerRegistryGenerator) InitResources() error {
 	containerRegistryAPIClient := client.ContainerRegistryAPIClient
 	resourceType := "ionoscloud_container_registry"
 
-	response, _, err := containerRegistryAPIClient.RegistriesApi.RegistriesGet(context.TODO()).Execute()
+	response, _, err := containerRegistryAPIClient.RegistriesApi.RegistriesGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}

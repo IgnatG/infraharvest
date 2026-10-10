@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -16,12 +15,12 @@ func (g *NATGatewayGenerator) InitResources() error {
 	client := g.generateClient()
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_natgateway"
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		natGatewayResponse, _, err := cloudAPIClient.NATGatewaysApi.DatacentersNatgatewaysGet(context.TODO(), *datacenter.Id).Depth(1).Execute()
+		natGatewayResponse, _, err := cloudAPIClient.NATGatewaysApi.DatacentersNatgatewaysGet(g.Context(), *datacenter.Id).Depth(1).Execute()
 		if err != nil {
 			return err
 		}

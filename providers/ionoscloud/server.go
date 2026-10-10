@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -16,13 +15,13 @@ type ServerGenerator struct {
 func (g *ServerGenerator) InitResources() error {
 	client := g.generateClient()
 	cloudAPIClient := client.CloudAPIClient
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 
 	for _, datacenter := range datacenters {
-		servers, _, err := cloudAPIClient.ServersApi.DatacentersServersGet(context.TODO(), *datacenter.Id).Depth(4).Execute()
+		servers, _, err := cloudAPIClient.ServersApi.DatacentersServersGet(g.Context(), *datacenter.Id).Depth(4).Execute()
 		if err != nil {
 			return err
 		}
@@ -37,7 +36,7 @@ func (g *ServerGenerator) InitResources() error {
 			if !isServerValid(server, *datacenter.Id) {
 				continue
 			}
-			_, apiResponse, err := cloudAPIClient.LabelsApi.DatacentersServersLabelsFindByKey(context.TODO(), *datacenter.Id, *server.Id, "managedexternally").Execute()
+			_, apiResponse, err := cloudAPIClient.LabelsApi.DatacentersServersLabelsFindByKey(g.Context(), *datacenter.Id, *server.Id, "managedexternally").Execute()
 			if err != nil {
 				if !apiResponse.HttpNotFound() {
 					return err

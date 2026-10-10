@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *ShareGenerator) InitResources() error {
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_share"
 
-	groups, _, err := cloudAPIClient.UserManagementApi.UmGroupsGet(context.TODO()).Depth(1).Execute()
+	groups, _, err := cloudAPIClient.UserManagementApi.UmGroupsGet(g.Context()).Depth(1).Execute()
 	if err != nil {
 		return err
 	}
@@ -26,7 +25,7 @@ func (g *ShareGenerator) InitResources() error {
 		return nil
 	}
 	for _, group := range *groups.Items {
-		shares, _, err := cloudAPIClient.UserManagementApi.UmGroupsSharesGet(context.TODO(), *group.Id).Execute()
+		shares, _, err := cloudAPIClient.UserManagementApi.UmGroupsSharesGet(g.Context(), *group.Id).Execute()
 		if err != nil {
 			return err
 		}

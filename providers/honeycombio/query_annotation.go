@@ -1,7 +1,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -17,7 +16,7 @@ func (g *QueryAnnotationGenerator) InitResources() error {
 		return fmt.Errorf("unable to initialize Honeycomb client: %v", err)
 	}
 
-	boards, err := client.Boards.List(context.TODO())
+	boards, err := client.Boards.List(g.Context())
 	if err != nil {
 		return err
 	}

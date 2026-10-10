@@ -15,7 +15,6 @@
 package keycloak
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -31,7 +30,7 @@ type RealmGenerator struct {
 func (g *RealmGenerator) InitResources() error {
 	var realms []*keycloak.Realm
 	var realmsGroups []*keycloak.Group
-	ctx := context.TODO()
+	ctx := g.Context()
 
 	// Connect to keycloak instance
 	userAgent := "infraharvest (+https://github.com/IgnatG/infraharvest) Terraform Plugin SDK/2.10.1"

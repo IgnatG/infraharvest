@@ -70,7 +70,7 @@ func (g SSHKeyGenerator) createResources(keyList []godo.Key) []terraformutils.Re
 
 func (g *SSHKeyGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := g.listKeys(context.TODO(), client)
+	output, err := g.listKeys(g.Context(), client)
 	if err != nil {
 		return err
 	}

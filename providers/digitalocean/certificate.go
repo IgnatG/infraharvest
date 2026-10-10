@@ -69,7 +69,7 @@ func (g CertificateGenerator) createResources(certificateList []godo.Certificate
 
 func (g *CertificateGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := g.listCertificates(context.TODO(), client)
+	output, err := g.listCertificates(g.Context(), client)
 	if err != nil {
 		return err
 	}

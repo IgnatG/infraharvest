@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *DBaaSMongoClusterGenerator) InitResources() error {
 	dbaasMongoClient := client.DBaaSMongoAPIClient
 	resourceType := "ionoscloud_mongo_cluster"
 
-	response, _, err := dbaasMongoClient.ClustersApi.ClustersGet(context.TODO()).Execute()
+	response, _, err := dbaasMongoClient.ClustersApi.ClustersGet(g.Context()).Execute()
 	if err != nil {
 		return err
 	}

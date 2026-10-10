@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,12 +16,12 @@ func (g *FirewallGenerator) InitResources() error {
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_firewall"
 
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		servers, _, err := cloudAPIClient.ServersApi.DatacentersServersGet(context.TODO(), *datacenter.Id).Execute()
+		servers, _, err := cloudAPIClient.ServersApi.DatacentersServersGet(g.Context(), *datacenter.Id).Execute()
 		if err != nil {
 			return err
 		}
@@ -33,7 +32,7 @@ func (g *FirewallGenerator) InitResources() error {
 			continue
 		}
 		for _, server := range *servers.Items {
-			nics, _, err := cloudAPIClient.NetworkInterfacesApi.DatacentersServersNicsGet(context.TODO(), *datacenter.Id, *server.Id).Execute()
+			nics, _, err := cloudAPIClient.NetworkInterfacesApi.DatacentersServersNicsGet(g.Context(), *datacenter.Id, *server.Id).Execute()
 			if err != nil {
 				return err
 			}
@@ -46,7 +45,7 @@ func (g *FirewallGenerator) InitResources() error {
 			}
 			lastNicIdx := len(*nics.Items) - 1
 			for nicIdx, nic := range *nics.Items {
-				firewalls, _, err := cloudAPIClient.FirewallRulesApi.DatacentersServersNicsFirewallrulesGet(context.TODO(), *datacenter.Id, *server.Id, *nic.Id).Depth(1).Execute()
+				firewalls, _, err := cloudAPIClient.FirewallRulesApi.DatacentersServersNicsFirewallrulesGet(g.Context(), *datacenter.Id, *server.Id, *nic.Id).Depth(1).Execute()
 				if err != nil {
 					return err
 				}

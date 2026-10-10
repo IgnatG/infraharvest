@@ -1,7 +1,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -18,7 +17,7 @@ func (g *DerivedColumnGenerator) InitResources() error {
 	}
 
 	for _, dataset := range g.datasets {
-		columns, err := client.DerivedColumns.List(context.TODO(), dataset.Slug)
+		columns, err := client.DerivedColumns.List(g.Context(), dataset.Slug)
 		if err != nil {
 			return fmt.Errorf("unable to list Honeycomb derived columns for dataset %q: %v", dataset.Slug, err)
 		}

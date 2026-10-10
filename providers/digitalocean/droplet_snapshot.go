@@ -69,7 +69,7 @@ func (g DropletSnapshotGenerator) createResources(snapshotList []godo.Snapshot) 
 
 func (g *DropletSnapshotGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := g.listDropletSnapshots(context.TODO(), client)
+	output, err := g.listDropletSnapshots(g.Context(), client)
 	if err != nil {
 		return err
 	}

@@ -32,7 +32,7 @@ func (g DatacenterGenerator) createResources(datacentersList []ionoscloud.Datace
 func (g *DatacenterGenerator) InitResources() error {
 	client := g.generateClient()
 	cloudAPIClient := client.CloudAPIClient
-	output, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	output, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}

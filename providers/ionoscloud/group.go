@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -17,7 +16,7 @@ func (g *GroupGenerator) InitResources() error {
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_group"
 
-	groupResponse, _, err := cloudAPIClient.UserManagementApi.UmGroupsGet(context.TODO()).Depth(1).Execute()
+	groupResponse, _, err := cloudAPIClient.UserManagementApi.UmGroupsGet(g.Context()).Depth(1).Execute()
 	if err != nil {
 		return err
 	}

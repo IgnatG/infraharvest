@@ -1,7 +1,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -22,7 +21,7 @@ func (g *QueryGenerator) InitResources() error {
 			// environment-wide Triggers are not supported
 			continue
 		}
-		triggers, err := client.Triggers.List(context.TODO(), dataset.Slug)
+		triggers, err := client.Triggers.List(g.Context(), dataset.Slug)
 		if err != nil {
 			return fmt.Errorf("unable to list Honeycomb triggers for dataset %s: %v", dataset.Slug, err)
 		}
@@ -39,7 +38,7 @@ func (g *QueryGenerator) InitResources() error {
 		}
 	}
 
-	boards, err := client.Boards.List(context.TODO())
+	boards, err := client.Boards.List(g.Context())
 	if err != nil {
 		return fmt.Errorf("unable to list Honeycomb boards: %v", err)
 	}

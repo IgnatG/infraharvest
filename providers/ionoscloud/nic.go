@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -15,12 +14,12 @@ type NicGenerator struct {
 func (g *NicGenerator) InitResources() error {
 	client := g.generateClient()
 	cloudAPIClient := client.CloudAPIClient
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		servers, _, err := cloudAPIClient.ServersApi.DatacentersServersGet(context.TODO(), *datacenter.Id).Execute()
+		servers, _, err := cloudAPIClient.ServersApi.DatacentersServersGet(g.Context(), *datacenter.Id).Execute()
 		if err != nil {
 			return err
 		}
@@ -31,7 +30,7 @@ func (g *NicGenerator) InitResources() error {
 			continue
 		}
 		for _, server := range *servers.Items {
-			nics, _, err := cloudAPIClient.NetworkInterfacesApi.DatacentersServersNicsGet(context.TODO(), *datacenter.Id, *server.Id).Depth(1).Execute()
+			nics, _, err := cloudAPIClient.NetworkInterfacesApi.DatacentersServersNicsGet(g.Context(), *datacenter.Id, *server.Id).Depth(1).Execute()
 			if err != nil {
 				return err
 			}

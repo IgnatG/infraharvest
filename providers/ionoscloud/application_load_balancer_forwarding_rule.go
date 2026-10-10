@@ -1,7 +1,6 @@
 package ionoscloud
 
 import (
-	"context"
 	"log"
 
 	"github.com/IgnatG/infraharvest/providers/ionoscloud/helpers"
@@ -16,12 +15,12 @@ func (g *ALBForwardingRuleGenerator) InitResources() error {
 	client := g.generateClient()
 	cloudAPIClient := client.CloudAPIClient
 	resourceType := "ionoscloud_application_loadbalancer_forwardingrule"
-	datacenters, err := helpers.GetAllDatacenters(*cloudAPIClient)
+	datacenters, err := helpers.GetAllDatacenters(g.Context(), *cloudAPIClient)
 	if err != nil {
 		return err
 	}
 	for _, datacenter := range datacenters {
-		applicationLoadBalancerResponse, _, err := cloudAPIClient.ApplicationLoadBalancersApi.DatacentersApplicationloadbalancersGet(context.TODO(), *datacenter.Id).Depth(1).Execute()
+		applicationLoadBalancerResponse, _, err := cloudAPIClient.ApplicationLoadBalancersApi.DatacentersApplicationloadbalancersGet(g.Context(), *datacenter.Id).Depth(1).Execute()
 		if err != nil {
 			return err
 		}
@@ -41,7 +40,7 @@ func (g *ALBForwardingRuleGenerator) InitResources() error {
 				)
 				continue
 			}
-			albForwardingRulesResponse, _, err := cloudAPIClient.ApplicationLoadBalancersApi.DatacentersApplicationloadbalancersForwardingrulesGet(context.TODO(), *datacenter.Id, *applicationLoadBalancer.Id).Depth(1).Execute()
+			albForwardingRulesResponse, _, err := cloudAPIClient.ApplicationLoadBalancersApi.DatacentersApplicationloadbalancersForwardingrulesGet(g.Context(), *datacenter.Id, *applicationLoadBalancer.Id).Depth(1).Execute()
 			if err != nil {
 				return err
 			}

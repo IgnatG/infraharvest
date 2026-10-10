@@ -1,7 +1,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -22,13 +21,13 @@ func (g *BurnAlertGenerator) InitResources() error {
 			// environment-wide Burn Alerts are not supported
 			continue
 		}
-		slos, err := client.SLOs.List(context.TODO(), dataset.Slug)
+		slos, err := client.SLOs.List(g.Context(), dataset.Slug)
 		if err != nil {
 			return fmt.Errorf("unable to list Honeycomb SLOs for dataset %q: %v", dataset.Slug, err)
 		}
 
 		for _, slo := range slos {
-			bas, _ := client.BurnAlerts.ListForSLO(context.TODO(), dataset.Slug, slo.ID)
+			bas, _ := client.BurnAlerts.ListForSLO(g.Context(), dataset.Slug, slo.ID)
 			for _, ba := range bas {
 				g.Resources = append(g.Resources, terraformutils.NewResource(
 					ba.ID,

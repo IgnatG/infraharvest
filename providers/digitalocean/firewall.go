@@ -69,7 +69,7 @@ func (g FirewallGenerator) createResources(firewallList []godo.Firewall) []terra
 
 func (g *FirewallGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := g.listFirewalls(context.TODO(), client)
+	output, err := g.listFirewalls(g.Context(), client)
 	if err != nil {
 		return err
 	}

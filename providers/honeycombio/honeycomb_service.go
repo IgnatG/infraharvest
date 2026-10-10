@@ -15,7 +15,6 @@
 package honeycombio
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -42,7 +41,7 @@ func (s *HoneycombService) newClient() (*hnyclient.Client, error) {
 		return client, fmt.Errorf("unable to initialize Honeycomb client: %v", err)
 	}
 
-	ctx := context.TODO()
+	ctx := s.Context()
 	ds := s.GetArgs()["datasets"].([]string)
 	s.datasets = make(map[string]hnyclient.Dataset)
 	if len(ds) == 0 {
