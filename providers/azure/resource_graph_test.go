@@ -5,11 +5,16 @@ package azure
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/magodo/armid"
-	"github.com/magodo/aztft/aztft"
 	"github.com/magodo/azlist/azlist"
+	"github.com/magodo/aztft/aztft"
+
+	"github.com/IgnatG/infraharvest/terraformutils"
 )
 
 func TestGraphPredicate(t *testing.T) {
@@ -100,5 +105,39 @@ func TestResourceGraphIsOptIn(t *testing.T) {
 	}
 	if got := p.OptInServices(); len(got) != 1 || got[0] != resourceGraphService {
 		t.Errorf("opt-in services: %v", got)
+	}
+}
+
+func TestTagsFromResourceGraph(t *testing.T) {
+	const sub = "00000000-0000-0000-0000-000000000001"
+	transport := &fakeTransport{body: `{"totalRecords":2,"count":2,"resultTruncated":"false","data":[
+		{"id":"/subscriptions/` + sub + `/resourceGroups/RG1/providers/Microsoft.Network/virtualNetworks/net1","tags":{"team":"net","n":1}},
+		{"id":"/subscriptions/` + sub + `/resourceGroups/rg1","tags":{"env":"prod"}},
+		{"id":"/subscriptions/` + sub + `/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/sa","tags":{}}
+	]}`}
+	p := &AzureProvider{
+		subscriptionID: sub,
+		resourceGroup:  "rg1",
+		credential:     fakeCredential{},
+		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+	}
+	vnet := terraformutils.NewSimpleResource("/subscriptions/"+sub+"/resourceGroups/rg1/providers/Microsoft.Network/virtualNetworks/net1", "net1", "azurerm_virtual_network", "azurerm")
+	rg := terraformutils.NewSimpleResource("/subscriptions/"+sub+"/resourceGroups/rg1", "rg1", "azurerm_resource_group", "azurerm")
+	sa := terraformutils.NewSimpleResource("/subscriptions/"+sub+"/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/sa", "sa", "azurerm_storage_account", "azurerm")
+	tags, err := p.Tags(t.Context(), []terraformutils.Resource{vnet, rg, sa})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tags["azurerm_virtual_network "+vnet.InstanceState.ID]; len(got) != 1 || got["team"] != "net" {
+		t.Errorf("network tags, matched whatever the case: %v", got)
+	}
+	if got := tags["azurerm_resource_group "+rg.InstanceState.ID]; got["env"] != "prod" {
+		t.Errorf("resource group tags: %v", got)
+	}
+	if _, ok := tags["azurerm_storage_account "+sa.InstanceState.ID]; ok {
+		t.Error("an untagged account has tags")
+	}
+	if len(transport.paths) != 1 || !strings.HasSuffix(transport.paths[0], "/providers/Microsoft.ResourceGraph/resources") {
+		t.Errorf("requests: %v", transport.paths)
 	}
 }

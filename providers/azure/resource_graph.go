@@ -132,14 +132,8 @@ func graphResources(listed []azlist.AzureResource, query queryType) []terraformu
 // tags.<key>, for selection rules and reports.
 func tagAttributes(tags interface{}) map[string]string {
 	attributes := map[string]string{}
-	m, ok := tags.(map[string]interface{})
-	if !ok {
-		return attributes
-	}
-	for k, value := range m {
-		if v, ok := value.(string); ok {
-			attributes["tags."+k] = v
-		}
+	for k, v := range tagMap(tags) {
+		attributes["tags."+k] = v
 	}
 	return attributes
 }
