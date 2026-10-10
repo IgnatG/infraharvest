@@ -15,8 +15,6 @@
 package digitalocean
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/digitalocean/godo"
 	"golang.org/x/oauth2"
@@ -30,7 +28,7 @@ func (s *DigitalOceanService) generateClient() *godo.Client {
 	tokenSource := &TokenSource{
 		AccessToken: s.Args["token"].(string),
 	}
-	oauthClient := oauth2.NewClient(context.Background(), tokenSource)
+	oauthClient := oauth2.NewClient(s.Context(), tokenSource)
 	client := godo.NewClient(oauthClient)
 	return client
 }

@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g BlockStorageGenerator) createResources(blockStorageList []govultr.BlockS
 
 func (g *BlockStorageGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.BlockStorage.List(context.Background())
+	output, err := client.BlockStorage.List(g.Context())
 	if err != nil {
 		return err
 	}

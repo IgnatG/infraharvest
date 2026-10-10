@@ -15,7 +15,6 @@
 package github
 
 import (
-	"context"
 	"log"
 	"strconv"
 
@@ -30,7 +29,7 @@ type OrganizationWebhooksGenerator struct {
 
 // Generate TerraformResources from Github API,
 func (g *OrganizationWebhooksGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	client, err := g.createClient()
 	if err != nil {
 		return err

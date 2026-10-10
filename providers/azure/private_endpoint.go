@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
@@ -30,7 +28,7 @@ func (az *PrivateEndpointGenerator) listServices() ([]*armnetwork.PrivateLinkSer
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListPager(resourceGroup, nil),
 			func(p armnetwork.PrivateLinkServicesClientListResponse) []*armnetwork.PrivateLinkService {
@@ -53,7 +51,7 @@ func (az *PrivateEndpointGenerator) listEndpoints() ([]*armnetwork.PrivateEndpoi
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListPager(resourceGroup, nil),
 			func(p armnetwork.PrivateEndpointsClientListResponse) []*armnetwork.PrivateEndpoint { return p.Value })

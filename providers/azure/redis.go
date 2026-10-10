@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v4"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -27,7 +25,7 @@ type RedisGenerator struct {
 
 func (g *RedisGenerator) listRedisServers() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	redisClient, err := armredis.NewClient(subscriptionID, credential, options)
 	if err != nil {

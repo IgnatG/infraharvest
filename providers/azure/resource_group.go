@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v4"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -38,7 +36,7 @@ func (g ResourceGroupGenerator) createResources(groups []*armresources.ResourceG
 }
 
 func (g *ResourceGroupGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	groupsClient, err := armresources.NewResourceGroupsClient(subscriptionID, credential, options)
 	if err != nil {

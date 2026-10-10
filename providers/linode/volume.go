@@ -15,7 +15,6 @@
 package linode
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -40,7 +39,7 @@ func (g VolumeGenerator) createResources(volumeList []linodego.Volume) []terrafo
 
 func (g *VolumeGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ListVolumes(context.Background(), nil)
+	output, err := client.ListVolumes(g.Context(), nil)
 	if err != nil {
 		return err
 	}

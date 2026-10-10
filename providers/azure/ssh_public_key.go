@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
 )
 
@@ -30,7 +28,7 @@ func (az *SSHPublicKeyGenerator) listResources() ([]*armcompute.SSHPublicKeyReso
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armcompute.SSHPublicKeysClientListByResourceGroupResponse) []*armcompute.SSHPublicKeyResource {

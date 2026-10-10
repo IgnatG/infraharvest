@@ -15,7 +15,6 @@
 package vultr
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -27,7 +26,7 @@ type DNSDomainGenerator struct {
 }
 
 func (g *DNSDomainGenerator) loadDNSDomains(client *govultr.Client) ([]govultr.DNSDomain, error) {
-	domainList, err := client.DNSDomain.List(context.Background())
+	domainList, err := client.DNSDomain.List(g.Context())
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func (g *DNSDomainGenerator) loadDNSDomains(client *govultr.Client) ([]govultr.D
 }
 
 func (g *DNSDomainGenerator) loadDNSRecords(client *govultr.Client, domain string) error {
-	recordList, err := client.DNSRecord.List(context.Background(), domain)
+	recordList, err := client.DNSRecord.List(g.Context(), domain)
 	if err != nil {
 		return err
 	}

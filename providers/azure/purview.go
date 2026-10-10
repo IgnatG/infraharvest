@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/purview/armpurview"
 )
 
@@ -30,7 +28,7 @@ func (az *PurviewGenerator) listAccounts() ([]*armpurview.Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armpurview.AccountsClientListByResourceGroupResponse) []*armpurview.Account { return p.Value })

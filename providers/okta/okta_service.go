@@ -44,7 +44,7 @@ func (s *OktaService) Client() (context.Context, *okta.APIClient, error) {
 	}
 	client := okta.NewAPIClient(config)
 
-	return context.Background(), client, nil
+	return s.Context(), client, nil
 }
 
 // allPages returns items plus the items of every page after resp, so a

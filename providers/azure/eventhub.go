@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 )
 
@@ -30,7 +28,7 @@ func (az *EventHubGenerator) listNamespaces() ([]*armeventhub.EHNamespace, error
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armeventhub.NamespacesClientListByResourceGroupResponse) []*armeventhub.EHNamespace {
@@ -51,7 +49,7 @@ func (az *EventHubGenerator) appendEventHubs(namespace *armeventhub.EHNamespace,
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	eventHubs, listErr := listAll(ctx, client.NewListByNamespacePager(namespaceRg.ResourceGroup, *namespace.Name, nil),
 		func(p armeventhub.EventHubsClientListByNamespaceResponse) []*armeventhub.Eventhub { return p.Value })
 	for _, item := range eventHubs {
@@ -70,7 +68,7 @@ func (az *EventHubGenerator) appendConsumerGroups(namespace *armeventhub.EHNames
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	consumerGroups, err := listAll(ctx,
 		client.NewListByEventHubPager(namespaceRg.ResourceGroup, *namespace.Name, eventHubName, nil),
 		func(p armeventhub.ConsumerGroupsClientListByEventHubResponse) []*armeventhub.ConsumerGroup {
@@ -88,7 +86,7 @@ func (az *EventHubGenerator) appendAuthorizationRules(namespace *armeventhub.EHN
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	rules, err := listAll(ctx, client.NewListAuthorizationRulesPager(namespaceRg.ResourceGroup, *namespace.Name, nil),
 		func(p armeventhub.NamespacesClientListAuthorizationRulesResponse) []*armeventhub.AuthorizationRule {
 			return p.Value

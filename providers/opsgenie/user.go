@@ -27,7 +27,7 @@ func (g *UserGenerator) InitResources() error {
 
 	for {
 		result, err := func(limit, offset int) (*user.ListResult, error) {
-			ctx, cancelFunc := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancelFunc := context.WithTimeout(g.Context(), 2*time.Second)
 			defer cancelFunc()
 
 			return client.List(ctx, &user.ListRequest{Limit: limit, Offset: offset})

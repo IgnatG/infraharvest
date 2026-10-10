@@ -15,7 +15,6 @@
 package ibm
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -135,7 +134,7 @@ func (g *KPGenerator) InitResources() error {
 		g.Resources = append(g.Resources, fnObjt(kpInstance.ID, kpInstance.Name))
 		client.Config.InstanceID = kpInstance.Guid
 
-		output, err := client.GetKeys(context.Background(), 100, 0)
+		output, err := client.GetKeys(g.Context(), 100, 0)
 		if err != nil {
 			return err
 		}
@@ -149,7 +148,7 @@ func (g *KPGenerator) InitResources() error {
 				g.Resources = append(g.Resources, fnObjt(key.CRN, alias))
 			}
 
-			policies, _ := client.GetPolicies(context.Background(), key.ID)
+			policies, _ := client.GetPolicies(g.Context(), key.ID)
 			funObjt := g.loadKpKeyPolicies()
 			for range policies {
 				g.Resources = append(g.Resources, funObjt(key.CRN))

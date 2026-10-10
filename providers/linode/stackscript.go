@@ -15,7 +15,6 @@
 package linode
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -43,7 +42,7 @@ func (g StackScriptGenerator) createResources(stackscriptList []linodego.Stacksc
 
 func (g *StackScriptGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ListStackscripts(context.Background(), nil)
+	output, err := client.ListStackscripts(g.Context(), nil)
 	if err != nil {
 		return err
 	}

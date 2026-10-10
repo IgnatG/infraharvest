@@ -15,7 +15,6 @@
 package azuread
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -31,7 +30,7 @@ type AzureADService struct { //nolint
 
 func (az *AzureADService) getAuthorizer() (auth.Authorizer, error) {
 	environment := environments.Global
-	ctx := context.Background()
+	ctx := az.Context()
 	tenantID := az.Args["tenant_id"].(string)
 	clientID := az.Args["client_id"].(string)
 	clientSecret := az.Args["client_secret"].(string)

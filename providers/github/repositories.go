@@ -29,7 +29,7 @@ type RepositoriesGenerator struct {
 
 // Generate TerraformResources from github API,
 func (g *RepositoriesGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	client, err := g.createClient()
 	if err != nil {
 		return err

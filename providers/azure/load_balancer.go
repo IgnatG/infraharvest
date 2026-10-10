@@ -15,7 +15,6 @@
 package azure
 
 import (
-	"context"
 	"regexp"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
@@ -57,7 +56,7 @@ func (g *LoadBalancerGenerator) newLoadBalancerChild(id, name *string, resourceT
 
 func (g *LoadBalancerGenerator) listLoadBalancerProbes(resourceGroupName string, loadBalancerName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	loadBalancerProbesClient, err := armnetwork.NewLoadBalancerProbesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -77,7 +76,7 @@ func (g *LoadBalancerGenerator) listLoadBalancerProbes(resourceGroupName string,
 
 func (g *LoadBalancerGenerator) listInboundNatRules(resourceGroupName string, loadBalancerName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	inboundNatRulesClient, err := armnetwork.NewInboundNatRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -97,7 +96,7 @@ func (g *LoadBalancerGenerator) listInboundNatRules(resourceGroupName string, lo
 
 func (g *LoadBalancerGenerator) listLoadBalancerBackendAddressPools(resourceGroupName string, loadBalancerName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	backendAddressPoolsClient, err := armnetwork.NewLoadBalancerBackendAddressPoolsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -119,7 +118,7 @@ func (g *LoadBalancerGenerator) listLoadBalancerBackendAddressPools(resourceGrou
 
 func (g *LoadBalancerGenerator) listAndAddForLoadBalancers() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	loadBalancersClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, credential, options)
 	if err != nil {

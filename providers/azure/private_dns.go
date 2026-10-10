@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/privatedns/armprivatedns/v2"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -41,7 +39,7 @@ type PrivateDNSGenerator struct {
 
 func (g *PrivateDNSGenerator) listRecordSets(resourceGroupName string, privateZoneName string, top *int32) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	recordSetsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -68,7 +66,7 @@ func (g *PrivateDNSGenerator) listRecordSets(resourceGroupName string, privateZo
 
 func (g *PrivateDNSGenerator) listVirtualNetworkLinks(resourceGroupName string, privateZoneName string, pageSize *int32) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	virtualNetworkLinksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, credential, options)
 	if err != nil {
@@ -96,7 +94,7 @@ func (g *PrivateDNSGenerator) listVirtualNetworkLinks(resourceGroupName string, 
 
 func (g *PrivateDNSGenerator) listAndAddForPrivateDNSZone() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	privateDNSZonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, credential, options)
 	if err != nil {

@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g SSHKeyGenerator) createResources(keyList []govultr.SSHKey) []terraformut
 
 func (g *SSHKeyGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.SSHKey.List(context.Background())
+	output, err := client.SSHKey.List(g.Context())
 	if err != nil {
 		return err
 	}

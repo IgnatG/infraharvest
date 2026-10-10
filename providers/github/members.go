@@ -30,7 +30,7 @@ type MembersGenerator struct {
 
 // InitResources generates TerraformResources from Github API,
 func (g *MembersGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	client, err := g.createClient()
 	if err != nil {
 		return err

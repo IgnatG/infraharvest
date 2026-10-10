@@ -61,7 +61,7 @@ func (g StorageBlobGenerator) newBlobClient(ctx context.Context, accountsClient 
 
 func (g StorageBlobGenerator) listStorageBlobs() ([]terraformutils.Resource, error) {
 	var storageBlobsResources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	blobContainerGenerator := NewStorageContainerGenerator(subscriptionID, credential, options, resourceGroup)

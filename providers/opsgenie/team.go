@@ -19,7 +19,7 @@ func (g *TeamGenerator) InitResources() error {
 		return err
 	}
 
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancelFunc := context.WithTimeout(g.Context(), 2*time.Second)
 	defer cancelFunc()
 
 	result, err := client.List(ctx, &team.ListTeamRequest{})

@@ -42,7 +42,7 @@ func (az *SynapseGenerator) listWorkspaces() ([]*armsynapse.Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armsynapse.WorkspacesClientListByResourceGroupResponse) []*armsynapse.Workspace { return p.Value })
@@ -61,7 +61,7 @@ func (az *SynapseGenerator) appendSQLPools(workspace *armsynapse.Workspace, work
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	pools, err := listAll(ctx, client.NewListByWorkspacePager(workspaceRg.ResourceGroup, *workspace.Name, nil),
 		func(p armsynapse.SQLPoolsClientListByWorkspaceResponse) []*armsynapse.SQLPool { return p.Value })
 	for _, item := range pools {
@@ -76,7 +76,7 @@ func (az *SynapseGenerator) appendSparkPools(workspace *armsynapse.Workspace, wo
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	pools, err := listAll(ctx, client.NewListByWorkspacePager(workspaceRg.ResourceGroup, *workspace.Name, nil),
 		func(p armsynapse.BigDataPoolsClientListByWorkspaceResponse) []*armsynapse.BigDataPoolResourceInfo {
 			return p.Value
@@ -93,7 +93,7 @@ func (az *SynapseGenerator) appendFirewallRule(workspace *armsynapse.Workspace, 
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	rules, err := listAll(ctx, client.NewListByWorkspacePager(workspaceRg.ResourceGroup, *workspace.Name, nil),
 		func(p armsynapse.IPFirewallRulesClientListByWorkspaceResponse) []*armsynapse.IPFirewallRuleInfo {
 			return p.Value
@@ -198,7 +198,7 @@ func (az *SynapseGenerator) appendManagedPrivateEndpoint(workspace *armsynapse.W
 		return fmt.Errorf("synapse workspace %s has no development endpoint", *workspace.Name)
 	}
 	_, _, credential, options := az.getClientArgs()
-	endpoints, err := listSynapseManagedPrivateEndpoints(context.Background(), credential, options, devEndpoint, virtualNetworkName)
+	endpoints, err := listSynapseManagedPrivateEndpoints(az.Context(), credential, options, devEndpoint, virtualNetworkName)
 	for _, item := range endpoints {
 		az.AppendSimpleResource(*item.ID, *item.Name, "azurerm_synapse_managed_private_endpoint")
 	}
@@ -211,7 +211,7 @@ func (az *SynapseGenerator) listPrivateLinkHubs() ([]*armsynapse.PrivateLinkHub,
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armsynapse.PrivateLinkHubsClientListByResourceGroupResponse) []*armsynapse.PrivateLinkHub {

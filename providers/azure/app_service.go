@@ -1,8 +1,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v6"
 	"github.com/IgnatG/infraharvest/terraformutils"
 )
@@ -13,7 +11,7 @@ type AppServiceGenerator struct {
 
 func (g AppServiceGenerator) listApps() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	appServiceClient, err := armappservice.NewWebAppsClient(subscriptionID, credential, options)
 	if err != nil {

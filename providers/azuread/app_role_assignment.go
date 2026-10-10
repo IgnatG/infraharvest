@@ -2,7 +2,6 @@
 package azuread
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -27,7 +26,7 @@ func (az *AppRoleAssignmentServiceGenerator) listResources() ([]msgraph.AppRoleA
 	if fail != nil {
 		return nil, fail
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 
 	servicePrincipals, _, spErr := servicePrincipalsClient.List(ctx, odata.Query{})
 	if spErr != nil {

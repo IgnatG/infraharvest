@@ -15,7 +15,6 @@
 package azuredevops
 
 import (
-	"context"
 	"log"
 
 	"github.com/microsoft/azure-devops-go-api/azuredevops"
@@ -38,7 +37,7 @@ func (az *AzureDevOpsService) getConnection() *azuredevops.Connection {
 }
 
 func (az *AzureDevOpsService) getCoreClient() (core.Client, error) {
-	ctx := context.Background()
+	ctx := az.Context()
 	client, err := core.NewClient(ctx, az.getConnection())
 	if err != nil {
 		log.Println(err)
@@ -48,7 +47,7 @@ func (az *AzureDevOpsService) getCoreClient() (core.Client, error) {
 }
 
 func (az *AzureDevOpsService) getGraphClient() (graph.Client, error) {
-	ctx := context.Background()
+	ctx := az.Context()
 	client, err := graph.NewClient(ctx, az.getConnection())
 	if err != nil {
 		log.Println(err)
@@ -58,7 +57,7 @@ func (az *AzureDevOpsService) getGraphClient() (graph.Client, error) {
 }
 
 func (az *AzureDevOpsService) getGitClient() (git.Client, error) {
-	ctx := context.Background()
+	ctx := az.Context()
 	client, err := git.NewClient(ctx, az.getConnection())
 	if err != nil {
 		log.Println(err)

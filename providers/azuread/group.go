@@ -2,7 +2,6 @@
 package azuread
 
 import (
-	"context"
 	"log"
 
 	"github.com/manicminer/hamilton/msgraph"
@@ -22,7 +21,7 @@ func (az *GroupServiceGenerator) listResources() ([]msgraph.Group, error) {
 	if fail != nil {
 		return nil, fail
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 
 	groups, _, err := client.List(ctx, odata.Query{})
 	if err != nil {

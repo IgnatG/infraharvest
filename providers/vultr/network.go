@@ -15,8 +15,6 @@
 package vultr
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/vultr/govultr"
 )
@@ -39,7 +37,7 @@ func (g NetworkGenerator) createResources(networkList []govultr.Network) []terra
 
 func (g *NetworkGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.Network.List(context.Background())
+	output, err := client.Network.List(g.Context())
 	if err != nil {
 		return err
 	}

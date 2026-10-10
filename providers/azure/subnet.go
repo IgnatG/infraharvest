@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
@@ -34,7 +32,7 @@ func (az *SubnetGenerator) lisSubnets() ([]*armnetwork.Subnet, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var vnets []*armnetwork.VirtualNetwork
 	if resourceGroup != "" {
 		vnets, err = listAll(ctx, vnetClient.NewListPager(resourceGroup, nil),
@@ -114,7 +112,7 @@ func (az *SubnetGenerator) appendServiceEndpointPolicies() error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var policies []*armnetwork.ServiceEndpointPolicy
 	if resourceGroup != "" {
 		policies, err = listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),

@@ -1,8 +1,6 @@
 package azuredevops
 
 import (
-	"context"
-
 	"github.com/microsoft/azure-devops-go-api/azuredevops/git"
 )
 
@@ -16,7 +14,7 @@ func (az *GitRepositoryGenerator) listResources() ([]git.GitRepository, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	resources, err := client.GetRepositories(ctx, git.GetRepositoriesArgs{})
 	if err != nil {
 		return nil, err

@@ -65,7 +65,7 @@ func (s *GmailfilterService) validateCredentials(creds string) error {
 	if _, err := os.Stat(creds); err == nil {
 		return nil
 	}
-	if _, err := googleoauth.CredentialsFromJSONWithType(context.Background(), []byte(creds), googleoauth.ServiceAccount); err != nil {
+	if _, err := googleoauth.CredentialsFromJSONWithType(s.Context(), []byte(creds), googleoauth.ServiceAccount); err != nil {
 		return fmt.Errorf("JSON credentials in %q are not valid: %s", creds, err)
 	}
 	return nil
@@ -93,10 +93,10 @@ func (s *GmailfilterService) getTokenSource(creds string, impersonatedEmailAddr 
 			TokenURL:   "https://oauth2.googleapis.com/token",
 		}
 		conf.Subject = impersonatedEmailAddr
-		return conf.TokenSource(context.Background()), nil
+		return conf.TokenSource(s.Context()), nil
 	}
 
-	return googleoauth.DefaultTokenSource(context.Background(), gmailAPIScopes...)
+	return googleoauth.DefaultTokenSource(s.Context(), gmailAPIScopes...)
 }
 
 type serviceAccountFile struct {

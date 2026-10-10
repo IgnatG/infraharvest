@@ -14,9 +14,7 @@
 
 package github
 
-import (
-	"context"
-)
+import ()
 
 type OrganizationGenerator struct {
 	GithubService
@@ -24,7 +22,7 @@ type OrganizationGenerator struct {
 
 // Generate TerraformResources from Github API
 func (g *OrganizationGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	client, err := g.createClient()
 	if err != nil {
 		return err

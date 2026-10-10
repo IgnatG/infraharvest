@@ -49,7 +49,7 @@ func listStorageAccounts(ctx context.Context, client *armstorage.AccountsClient,
 }
 
 func (g *StorageAccountGenerator) InitResources() error {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, credential, options)
 	if err != nil {

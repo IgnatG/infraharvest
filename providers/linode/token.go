@@ -15,7 +15,6 @@
 package linode
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -40,7 +39,7 @@ func (g TokenGenerator) createResources(tokenList []linodego.Token) []terraformu
 
 func (g *TokenGenerator) InitResources() error {
 	client := g.generateClient()
-	output, err := client.ListTokens(context.Background(), nil)
+	output, err := client.ListTokens(g.Context(), nil)
 	if err != nil {
 		return err
 	}

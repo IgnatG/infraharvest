@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/mariadb/armmariadb"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/mysql/armmysql"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresql"
@@ -38,7 +36,7 @@ func serverResourceGroup(serverID *string) (string, error) {
 }
 
 func (g *DatabasesGenerator) getMariaDBServers() ([]*armmariadb.Server, error) {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	client, err := armmariadb.NewServersClient(subscriptionID, credential, options)
 	if err != nil {
@@ -69,7 +67,7 @@ func (g *DatabasesGenerator) createMariaDBServerResources(servers []*armmariadb.
 
 func (g *DatabasesGenerator) createMariaDBConfigurationResources(servers []*armmariadb.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmariadb.NewConfigurationsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -103,7 +101,7 @@ func (g *DatabasesGenerator) createMariaDBConfigurationResources(servers []*armm
 
 func (g *DatabasesGenerator) createMariaDBDatabaseResources(servers []*armmariadb.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmariadb.NewDatabasesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -135,7 +133,7 @@ func (g *DatabasesGenerator) createMariaDBDatabaseResources(servers []*armmariad
 
 func (g *DatabasesGenerator) createMariaDBFirewallRuleResources(servers []*armmariadb.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmariadb.NewFirewallRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -166,7 +164,7 @@ func (g *DatabasesGenerator) createMariaDBFirewallRuleResources(servers []*armma
 
 func (g *DatabasesGenerator) createMariaDBVirtualNetworkRuleResources(servers []*armmariadb.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmariadb.NewVirtualNetworkRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -197,7 +195,7 @@ func (g *DatabasesGenerator) createMariaDBVirtualNetworkRuleResources(servers []
 }
 
 func (g *DatabasesGenerator) getMySQLServers() ([]*armmysql.Server, error) {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	client, err := armmysql.NewServersClient(subscriptionID, credential, options)
 	if err != nil {
@@ -228,7 +226,7 @@ func (g *DatabasesGenerator) createMySQLServerResources(servers []*armmysql.Serv
 
 func (g *DatabasesGenerator) createMySQLConfigurationResources(servers []*armmysql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmysql.NewConfigurationsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -260,7 +258,7 @@ func (g *DatabasesGenerator) createMySQLConfigurationResources(servers []*armmys
 
 func (g *DatabasesGenerator) createMySQLDatabaseResources(servers []*armmysql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmysql.NewDatabasesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -291,7 +289,7 @@ func (g *DatabasesGenerator) createMySQLDatabaseResources(servers []*armmysql.Se
 
 func (g *DatabasesGenerator) createMySQLFirewallRuleResources(servers []*armmysql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmysql.NewFirewallRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -323,7 +321,7 @@ func (g *DatabasesGenerator) createMySQLFirewallRuleResources(servers []*armmysq
 
 func (g *DatabasesGenerator) createMySQLVirtualNetworkRuleResources(servers []*armmysql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armmysql.NewVirtualNetworkRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -357,7 +355,7 @@ func (g *DatabasesGenerator) createMySQLVirtualNetworkRuleResources(servers []*a
 }
 
 func (g *DatabasesGenerator) getPostgreSQLServers() ([]*armpostgresql.Server, error) {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	client, err := armpostgresql.NewServersClient(subscriptionID, credential, options)
 	if err != nil {
@@ -388,7 +386,7 @@ func (g *DatabasesGenerator) createPostgreSQLServerResources(servers []*armpostg
 
 func (g *DatabasesGenerator) createPostgreSQLDatabaseResources(servers []*armpostgresql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armpostgresql.NewDatabasesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -419,7 +417,7 @@ func (g *DatabasesGenerator) createPostgreSQLDatabaseResources(servers []*armpos
 
 func (g *DatabasesGenerator) createPostgreSQLConfigurationResources(servers []*armpostgresql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armpostgresql.NewConfigurationsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -452,7 +450,7 @@ func (g *DatabasesGenerator) createPostgreSQLConfigurationResources(servers []*a
 
 func (g *DatabasesGenerator) createPostgreSQLFirewallRuleResources(servers []*armpostgresql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armpostgresql.NewFirewallRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -485,7 +483,7 @@ func (g *DatabasesGenerator) createPostgreSQLFirewallRuleResources(servers []*ar
 
 func (g *DatabasesGenerator) createPostgreSQLVirtualNetworkRuleResources(servers []*armpostgresql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armpostgresql.NewVirtualNetworkRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -517,7 +515,7 @@ func (g *DatabasesGenerator) createPostgreSQLVirtualNetworkRuleResources(servers
 }
 
 func (g *DatabasesGenerator) getSQLServers() ([]*armsql.Server, error) {
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	client, err := armsql.NewServersClient(subscriptionID, credential, options)
 	if err != nil {
@@ -548,7 +546,7 @@ func (g *DatabasesGenerator) createSQLServerResources(servers []*armsql.Server) 
 
 func (g *DatabasesGenerator) createSQLDatabaseResources(servers []*armsql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armsql.NewDatabasesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -579,7 +577,7 @@ func (g *DatabasesGenerator) createSQLDatabaseResources(servers []*armsql.Server
 
 func (g *DatabasesGenerator) createSQLFirewallRuleResources(servers []*armsql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armsql.NewFirewallRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -610,7 +608,7 @@ func (g *DatabasesGenerator) createSQLFirewallRuleResources(servers []*armsql.Se
 
 func (g *DatabasesGenerator) createSQLVirtualNetworkRuleResources(servers []*armsql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armsql.NewVirtualNetworkRulesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -643,7 +641,7 @@ func (g *DatabasesGenerator) createSQLVirtualNetworkRuleResources(servers []*arm
 
 func (g *DatabasesGenerator) createSQLElasticPoolResources(servers []*armsql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armsql.NewElasticPoolsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -674,7 +672,7 @@ func (g *DatabasesGenerator) createSQLElasticPoolResources(servers []*armsql.Ser
 
 func (g *DatabasesGenerator) createSQLFailoverResources(servers []*armsql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armsql.NewFailoverGroupsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -706,7 +704,7 @@ func (g *DatabasesGenerator) createSQLFailoverResources(servers []*armsql.Server
 
 func (g *DatabasesGenerator) createSQLADAdministratorResources(servers []*armsql.Server) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	client, err := armsql.NewServerAzureADAdministratorsClient(subscriptionID, credential, options)
 	if err != nil {

@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry/v3"
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -28,7 +26,7 @@ type ContainerGenerator struct {
 
 func (g *ContainerGenerator) listAndAddForContainerGroup() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	containerGroupsClient, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -60,7 +58,7 @@ func (g *ContainerGenerator) listAndAddForContainerGroup() ([]terraformutils.Res
 
 func (g *ContainerGenerator) listRegistryWebhooks(resourceGroupName string, registryName string) ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, _, credential, options := g.getClientArgs()
 	webhooksClient, err := armcontainerregistry.NewWebhooksClient(subscriptionID, credential, options)
 	if err != nil {
@@ -86,7 +84,7 @@ func (g *ContainerGenerator) listRegistryWebhooks(resourceGroupName string, regi
 
 func (g *ContainerGenerator) listAndAddForContainerRegistry() ([]terraformutils.Resource, error) {
 	var resources []terraformutils.Resource
-	ctx := context.Background()
+	ctx := g.Context()
 	subscriptionID, resourceGroup, credential, options := g.getClientArgs()
 	containerRegistriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, credential, options)
 	if err != nil {

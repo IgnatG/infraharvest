@@ -43,7 +43,7 @@ func (g AppGenerator) createResources(appList []heroku.App) []terraformutils.Res
 
 func (g *AppGenerator) InitResources() error {
 	svc := g.generateService()
-	ctx := context.Background()
+	ctx := g.Context()
 	team := g.GetArgs()["team"].(string)
 
 	var output []heroku.App

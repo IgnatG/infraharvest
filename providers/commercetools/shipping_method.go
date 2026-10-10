@@ -15,8 +15,6 @@
 package commercetools
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/labd/commercetools-go-sdk/platform"
 )
@@ -31,7 +29,7 @@ func (g *ShippingMethodGenerator) InitResources() error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := g.Context()
 	items, err := listAll(func(where []string) ([]platform.ShippingMethod, error) {
 		page, err := client.ShippingMethods().Get().Sort(sortByID).Limit(pageSize).WithTotal(false).Where(where).Execute(ctx)
 		if err != nil {

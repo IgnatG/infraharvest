@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
@@ -30,7 +28,7 @@ func (az *NetworkSecurityGroupGenerator) listResources() ([]*armnetwork.Security
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListPager(resourceGroup, nil),
 			func(p armnetwork.SecurityGroupsClientListResponse) []*armnetwork.SecurityGroup { return p.Value })
@@ -49,7 +47,7 @@ func (az *NetworkSecurityGroupGenerator) appendRules(parent *armnetwork.Security
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	rules, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
 		func(p armnetwork.SecurityRulesClientListResponse) []*armnetwork.SecurityRule { return p.Value })
 	for _, item := range rules {

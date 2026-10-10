@@ -15,7 +15,6 @@
 package linode
 
 import (
-	"context"
 	"strconv"
 
 	"github.com/IgnatG/infraharvest/terraformutils"
@@ -27,7 +26,7 @@ type DomainGenerator struct {
 }
 
 func (g *DomainGenerator) loadDomains(client linodego.Client) ([]linodego.Domain, error) {
-	domainList, err := client.ListDomains(context.Background(), nil)
+	domainList, err := client.ListDomains(g.Context(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func (g *DomainGenerator) loadDomains(client linodego.Client) ([]linodego.Domain
 }
 
 func (g *DomainGenerator) loadDomainRecords(client linodego.Client, domainID int) error {
-	domainRecordList, err := client.ListDomainRecords(context.Background(), domainID, nil)
+	domainRecordList, err := client.ListDomainRecords(g.Context(), domainID, nil)
 	if err != nil {
 		return err
 	}

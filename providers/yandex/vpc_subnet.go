@@ -15,8 +15,6 @@
 package yandex
 
 import (
-	"context"
-
 	"github.com/IgnatG/infraharvest/terraformutils"
 	"github.com/yandex-cloud/go-genproto/yandex/cloud/vpc/v1"
 	ycsdk "github.com/yandex-cloud/go-sdk"
@@ -30,7 +28,7 @@ func (g *SubnetGenerator) loadSubnets(sdk *ycsdk.SDK, folderID string) ([]*vpc.S
 	subnets := []*vpc.Subnet{}
 	pageToken := ""
 	for {
-		resp, err := sdk.VPC().Subnet().List(context.Background(), &vpc.ListSubnetsRequest{
+		resp, err := sdk.VPC().Subnet().List(g.Context(), &vpc.ListSubnetsRequest{
 			FolderId:  folderID,
 			PageSize:  defaultPageSize,
 			PageToken: pageToken,
@@ -52,7 +50,7 @@ func (g *SubnetGenerator) loadSubnets(sdk *ycsdk.SDK, folderID string) ([]*vpc.S
 }
 
 func (g *SubnetGenerator) InitResources() error {
-	sdk, err := ycsdk.Build(context.Background(), ycsdk.Config{
+	sdk, err := ycsdk.Build(g.Context(), ycsdk.Config{
 		Credentials: ycsdk.OAuthToken(g.Args["token"].(string)),
 	})
 	if err != nil {

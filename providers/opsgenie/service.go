@@ -27,7 +27,7 @@ func (g *ServiceGenerator) InitResources() error {
 
 	for {
 		result, err := func(limit, offset int) (*service.ListResult, error) {
-			ctx, cancelFunc := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancelFunc := context.WithTimeout(g.Context(), 2*time.Second)
 			defer cancelFunc()
 
 			return client.List(ctx, &service.ListRequest{Limit: limit, Offset: offset})

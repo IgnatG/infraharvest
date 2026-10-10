@@ -15,8 +15,6 @@
 package azure
 
 import (
-	"context"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 )
 
@@ -30,7 +28,7 @@ func (az *RouteTableGenerator) listResources() ([]*armnetwork.RouteTable, error)
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListPager(resourceGroup, nil),
 			func(p armnetwork.RouteTablesClientListResponse) []*armnetwork.RouteTable { return p.Value })
@@ -49,7 +47,7 @@ func (az *RouteTableGenerator) appendRoutes(parent *armnetwork.RouteTable, resou
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	routes, err := listAll(ctx, client.NewListPager(resourceGroupID.ResourceGroup, *parent.Name, nil),
 		func(p armnetwork.RoutesClientListResponse) []*armnetwork.Route { return p.Value })
 	for _, item := range routes {
@@ -64,7 +62,7 @@ func (az *RouteTableGenerator) listRouteFilters() ([]*armnetwork.RouteFilter, er
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armnetwork.RouteFiltersClientListByResourceGroupResponse) []*armnetwork.RouteFilter {

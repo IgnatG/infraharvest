@@ -15,7 +15,6 @@
 package azure
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -146,7 +145,7 @@ func (az *DataFactoryGenerator) listFactories() ([]*armdatafactory.Factory, erro
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	if resourceGroup != "" {
 		return listAll(ctx, client.NewListByResourceGroupPager(resourceGroup, nil),
 			func(p armdatafactory.FactoriesClientListByResourceGroupResponse) []*armdatafactory.Factory {
@@ -197,7 +196,7 @@ func (az *DataFactoryGenerator) createIntegrationRuntimesResources(dataFactories
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []terraformutils.Resource
 	for _, factory := range dataFactories {
 		resourceGroup, err := factoryResourceGroup(factory)
@@ -225,7 +224,7 @@ func (az *DataFactoryGenerator) createLinkedServiceResources(dataFactories []*ar
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []terraformutils.Resource
 	for _, factory := range dataFactories {
 		resourceGroup, err := factoryResourceGroup(factory)
@@ -252,7 +251,7 @@ func (az *DataFactoryGenerator) createPipelineResources(dataFactories []*armdata
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []terraformutils.Resource
 	for _, factory := range dataFactories {
 		resourceGroup, err := factoryResourceGroup(factory)
@@ -279,7 +278,7 @@ func (az *DataFactoryGenerator) createPipelineTriggerScheduleResources(dataFacto
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []terraformutils.Resource
 	for _, factory := range dataFactories {
 		resourceGroup, err := factoryResourceGroup(factory)
@@ -306,7 +305,7 @@ func (az *DataFactoryGenerator) createDataFlowResources(dataFactories []*armdata
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []terraformutils.Resource
 	for _, factory := range dataFactories {
 		resourceGroup, err := factoryResourceGroup(factory)
@@ -333,7 +332,7 @@ func (az *DataFactoryGenerator) createPipelineDatasetResources(dataFactories []*
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx := az.Context()
 	var resources []terraformutils.Resource
 	for _, factory := range dataFactories {
 		resourceGroup, err := factoryResourceGroup(factory)
