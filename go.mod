@@ -2,7 +2,7 @@ module github.com/IgnatG/infraharvest
 
 go 1.26.0
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -264,7 +264,7 @@ require (
 	go.mongodb.org/mongo-driver v1.17.7 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0
