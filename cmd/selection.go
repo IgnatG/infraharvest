@@ -90,6 +90,7 @@ func (r *engineRun) selectResources(listed listing, defaults map[string]string, 
 			}
 			typ := res.InstanceInfo.Type
 			tags := listed.tagsOf(res)
+			r.report.AddListed(report.Listed{Scope: scope, Type: typ, ID: id, Tags: tags})
 			reason, excluded := defaults[typ+" "+res.InstanceState.ID]
 			var d selection.Decision
 			switch {

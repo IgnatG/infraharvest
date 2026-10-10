@@ -111,13 +111,51 @@ func (m *Model) shown(r selection.Resource) bool {
 	if m.search == "" {
 		return true
 	}
-	needle := strings.ToLower(m.search)
+	if !strings.Contains(m.search, "=") {
+		return matchesText(r, strings.ToLower(m.search))
+	}
+	// key=value terms filter by tag, all of them; other terms search.
+	for _, term := range strings.Fields(strings.ToLower(m.search)) {
+		key, value, isTag := strings.Cut(term, "=")
+		if !isTag || key == "" {
+			if !matchesText(r, term) {
+				return false
+			}
+			continue
+		}
+		if !matchesTag(r.Tags, key, value) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesText reports whether needle, in lower case, is part of the
+// resource's type, ID, name, note, reason or tags.
+func matchesText(r selection.Resource, needle string) bool {
 	for _, s := range []string{r.Type, r.ID, r.Name, r.Note, r.Reason} {
 		if strings.Contains(strings.ToLower(s), needle) {
 			return true
 		}
 	}
+	for k, v := range r.Tags {
+		if strings.Contains(strings.ToLower(k+"="+v), needle) {
+			return true
+		}
+	}
 	return false
+}
+
+// matchesTag reports whether tags has key with a value that value, in lower
+// case, is part of; with value "", whether tags lacks key. Keys match
+// whatever their case.
+func matchesTag(tags map[string]string, key, value string) bool {
+	for k, v := range tags {
+		if strings.ToLower(k) == key {
+			return value != "" && strings.Contains(strings.ToLower(v), value)
+		}
+	}
+	return value == ""
 }
 
 // rows lays out the tree: scopes, if there is more than one, then types,
@@ -415,7 +453,7 @@ func (m *Model) render() string {
 	case m.confirmQuit:
 		b.WriteString(newStyle.Render("Unsaved changes: s saves them, q again discards them.") + "\n")
 	case m.searching:
-		b.WriteString(faintStyle.Render("type to search · enter done · esc clear") + "\n")
+		b.WriteString(faintStyle.Render("type to search, key=value for a tag (key= for untagged) · enter done · esc clear") + "\n")
 	default:
 		b.WriteString(faintStyle.Render("↑↓ move · → ← open, close · space include/exclude · a/n all/none shown · / search · u new only · s save · q quit") + "\n")
 	}
