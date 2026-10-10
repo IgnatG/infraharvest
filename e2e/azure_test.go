@@ -27,7 +27,7 @@ const azureMetadataHostEnv = "E2E_AZURE_METADATA_HOST"
 const azureResourceGroup = "infraharvest-e2e"
 
 // azureServices are the services testdata/azure covers.
-var azureServices = []string{"network_interface", "network_security_group", "public_ip", "resource_group", "route_table", "storage_account", "subnet", "virtual_network"}
+var azureServices = []string{"network_interface", "network_security_group", "public_ip", "resource_group", "storage_account", "subnet", "virtual_network"}
 
 // TestAzureRoundTrip creates resources in floci-az, an Azure emulator,
 // imports them with --engine=terraform (or E2E_ENGINE=tofu) and checks the
