@@ -81,8 +81,6 @@ resource "azurerm_network_interface" "app" {
   }
 }
 
-data "azurerm_client_config" "current" {}
-
 resource "azurerm_route_table" "app" {
   name                = "${local.name}-app"
   location            = local.location
@@ -103,12 +101,4 @@ resource "azurerm_storage_account" "app" {
   resource_group_name      = azurerm_resource_group.main.name
   account_tier             = "Standard"
   account_replication_type = "LRS"
-}
-
-resource "azurerm_key_vault" "app" {
-  name                = "${local.name}-kv"
-  location            = local.location
-  resource_group_name = azurerm_resource_group.main.name
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-  sku_name            = "standard"
 }
