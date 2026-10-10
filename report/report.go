@@ -58,6 +58,17 @@ type Manifest struct {
 	Tool     Component `json:"tool"`
 	Engine   Component `json:"engine"`
 	Provider Provider  `json:"provider"`
+	// Modules are the curated modules with a newer release than the one
+	// their calls use: the one their adapters are tested with.
+	Modules []ModuleVersion `json:"modules,omitempty"`
+}
+
+// ModuleVersion is a module the import calls at Version while the registry
+// has Latest.
+type ModuleVersion struct {
+	Source  string `json:"source"`
+	Version string `json:"version"`
+	Latest  string `json:"latest"`
 }
 
 // Component is a program and its version.
@@ -73,6 +84,9 @@ type Provider struct {
 	// Version is the version the lock file records, if any directory got
 	// as far as terraform init.
 	Version string `json:"version,omitempty"`
+	// HeldBack says which module versions keep the constraint below the
+	// provider's newest release, if any do.
+	HeldBack string `json:"held_back,omitempty"`
 }
 
 // Coverage records what an import found and what became of it.
@@ -417,6 +431,12 @@ func (r *Report) Markdown() string {
 		fmt.Fprintf(&b, " (%s)", r.Provider.Version)
 	}
 	b.WriteString(".\n\n")
+	if r.Provider.HeldBack != "" {
+		fmt.Fprintf(&b, "The provider is held back: %s.\n\n", r.Provider.HeldBack)
+	}
+	for _, m := range r.Modules {
+		fmt.Fprintf(&b, "`%s` %s is available; the module calls use %s, the release its adapter is tested with (`--modules latest-untested` calls the newest).\n\n", m.Source, m.Latest, m.Version)
+	}
 
 	t := r.Totals
 	b.WriteString("| Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|\n")

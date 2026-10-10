@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	goversion "github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/adapters"
@@ -41,6 +42,9 @@ const (
 	// modulesRegistry tries curated public modules, then generated local
 	// modules.
 	modulesRegistry = "registry"
+	// modulesLatestUntested is modulesRegistry with each module's newest
+	// release, rather than the one its adapter is tested with.
+	modulesLatestUntested = "latest-untested"
 	// modulesLocal uses generated local modules only, such as where the
 	// registry can't be reached.
 	modulesLocal = "local"
@@ -128,7 +132,13 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	if err != nil {
 		return err
 	}
-	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider))
+	var moduleAdapters []adapters.Adapter
+	var newerModules []report.ModuleVersion
+	var constraints []moduleConstraint
+	if options.Modules == "" || options.Modules == modulesRegistry || options.Modules == modulesLatestUntested {
+		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", adapters.For(provider.GetName()), engineProvider(provider).Source, options.Modules == modulesLatestUntested)
+	}
+	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider), constraints)
 	if err != nil {
 		return err
 	}
@@ -142,8 +152,8 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	opts := engineOptions(provider, root)
 	opts.External = leftOut
 	switch options.Modules {
-	case "", modulesRegistry:
-		opts.Adapters = adapters.For(provider.GetName())
+	case "", modulesRegistry, modulesLatestUntested:
+		opts.Adapters = moduleAdapters
 		opts.ModulesDir = filepath.Join(options.PathOutput, engine.ModulesDirName)
 	case modulesLocal:
 		opts.ModulesDir = filepath.Join(options.PathOutput, engine.ModulesDirName)
@@ -155,7 +165,8 @@ func importInto(run *engineRun, provider terraformutils.ProviderGenerator, optio
 	run.report.Manifest = report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version},
 		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
-		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version},
+		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version, HeldBack: root.heldBack},
+		Modules:  newerModules,
 	}
 	for _, f := range failures {
 		run.report.Failures = append(run.report.Failures, f.Error())
@@ -390,14 +401,18 @@ type rootFiles struct {
 	files         map[string][]byte // versions.tf and providers.tf
 	engineVersion string
 	provider      engine.Provider // Version is the constraint
+	// heldBack says which modules keep the provider below its newest
+	// release, if any do.
+	heldBack string
 }
 
 // rootConfig renders versions.tf and providers.tf for every output
 // directory: required_version within the major release of the Terraform or
 // OpenTofu at execPath, and the provider pinned to its newest minor release
 // line in registry (the engine's default registry), unless its source names
-// another. A registryURL replaces the registry, for tests.
-func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider) (*rootFiles, error) {
+// another: the newest release the module versions the import may call
+// accept (constraints). A registryURL replaces the registry, for tests.
+func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
 	engineVersion, err := engine.BinaryVersion(ctx, execPath)
 	if err != nil {
 		return nil, err
@@ -406,7 +421,23 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	if err != nil {
 		return nil, err
 	}
-	p.Version = engine.ProviderConstraint(latest)
+	chosen, held := latest, ""
+	if len(constraints) > 0 {
+		all := make([]goversion.Constraints, len(constraints))
+		for i, c := range constraints {
+			all[i] = c.constraint
+		}
+		v, err := engine.ProviderVersion(ctx, client, registryURL, qualifiedSource(registry, p.Source), all)
+		switch {
+		case err != nil:
+			// The modules' calls then fail their plans and are declined.
+			log.Printf("%s: %v; pinning the newest release, %s", p.Source, err, latest)
+		case v.LessThan(latest):
+			chosen, held = v, heldBack(latest, constraints)
+			log.Printf("%s: pinning %s: %s", p.Source, v, held)
+		}
+	}
+	p.Version = engine.ProviderConstraint(chosen)
 	providers, err := engine.ProvidersFile(p)
 	if err != nil {
 		return nil, err
@@ -418,6 +449,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		},
 		engineVersion: engineVersion.String(),
 		provider:      p,
+		heldBack:      held,
 	}, nil
 }
 
@@ -442,9 +474,9 @@ func checkImportOptions(options ImportOptions) error {
 		return fmt.Errorf("--output must be %s or %s, not %q", outputHCL, outputJSON, options.Output)
 	}
 	switch options.Modules {
-	case "", modulesRegistry, modulesLocal, modulesNone:
+	case "", modulesRegistry, modulesLatestUntested, modulesLocal, modulesNone:
 	default:
-		return fmt.Errorf("--modules must be %s, %s or %s, not %q", modulesRegistry, modulesLocal, modulesNone, options.Modules)
+		return fmt.Errorf("--modules must be %s, %s, %s or %s, not %q", modulesRegistry, modulesLatestUntested, modulesLocal, modulesNone, options.Modules)
 	}
 	return checkFilters(options.Filter)
 }

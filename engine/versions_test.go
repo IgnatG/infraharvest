@@ -131,3 +131,72 @@ func TestLatestProviderVersionRetries(t *testing.T) {
 		t.Errorf("503: %v after %d calls, want %d", err, calls.Load()-10, registryAttempts)
 	}
 }
+
+const moduleVersions = `{"modules":[{"source":"acme/thing/aws","versions":[
+	{"version":"1.0.0","root":{"providers":[{"name":"aws","source":"","version":">= 5.0"}]},"submodules":[]},
+	{"version":"2.0.0","root":{"providers":[{"name":"aws","source":"hashicorp/aws","version":">= 6.0, < 6.50"}]},"submodules":[{"path":"modules/role","providers":[{"name":"aws","source":"hashicorp/aws","version":">= 6.10"}]}]},
+	{"version":"2.1.0-beta1","root":{"providers":[]},"submodules":[]},
+	{"version":"1.5.0","root":{"providers":[{"name":"aws","source":"hashicorp/aws","version":""}]},"submodules":[]}
+]}]}`
+
+func TestModuleReleases(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/modules/acme/thing/aws/versions" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(moduleVersions))
+	}))
+	defer registry.Close()
+
+	releases, err := ModuleReleases(context.Background(), registry.Client(), registry.URL, "acme/thing/aws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range releases {
+		got = append(got, r.Version.String())
+	}
+	if strings.Join(got, " ") != "2.0.0 1.5.0 1.0.0" {
+		t.Errorf("releases, newest first and no prereleases: %v", got)
+	}
+	if c := releases[0].Providers["hashicorp/aws"]; c == nil || c.Check(version.Must(version.NewVersion("6.50.0"))) {
+		t.Errorf("2.0.0 accepts %v of aws", c)
+	}
+	if _, ok := releases[1].Providers["hashicorp/aws"]; ok {
+		t.Error("1.5.0 has no constraint")
+	}
+	// A source without a namespace is hashicorp's.
+	if c := releases[2].Providers["hashicorp/aws"]; c == nil || c.String() != ">= 5.0" {
+		t.Errorf("1.0.0 accepts %v of aws", c)
+	}
+
+	// A submodule's constraints are its own.
+	sub, err := ModuleReleases(context.Background(), registry.Client(), registry.URL, "acme/thing/aws//modules/role")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := sub[0].Providers["hashicorp/aws"]; c == nil || c.String() != ">= 6.10" {
+		t.Errorf("submodule accepts %v of aws", c)
+	}
+	if _, err := ModuleReleases(context.Background(), registry.Client(), registry.URL, "acme/thing"); err == nil {
+		t.Error("a source without a system: no error")
+	}
+}
+
+func TestProviderVersionWithinConstraints(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"versions":[{"version":"6.40.0"},{"version":"6.49.3"},{"version":"6.52.0"},{"version":"7.0.0-beta1"}]}`))
+	}))
+	defer registry.Close()
+	below := version.MustConstraints(version.NewConstraint("< 6.50"))
+	above := version.MustConstraints(version.NewConstraint(">= 6.41"))
+	got, err := ProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/held", []version.Constraints{below, above})
+	if err != nil || got.String() != "6.49.3" {
+		t.Errorf("got %v, %v; want 6.49.3", got, err)
+	}
+	none := version.MustConstraints(version.NewConstraint("< 6.0"))
+	if _, err := ProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/held", []version.Constraints{none}); err == nil || !strings.Contains(err.Error(), "no release meets") {
+		t.Errorf("no release meets < 6.0: %v", err)
+	}
+}

@@ -153,7 +153,7 @@ Flags of import and discover:
       --resume                    keep the roots a previous run generated from the same resources and options
       --incremental               add what is new to the roots earlier imports generated
       --reuse-inventory           import from the resources discover listed, instead of listing them again
-      --modules string            registry, local or none (default "registry")
+      --modules string            registry, latest-untested, local or none (default "registry")
       --allow-partial             leave out what fails to import, and exit 3 instead of 1
       --list-timeout duration     longest time to list one service in one region; a service that takes
                                   longer is reported as failed, 0 for no limit (default 30m0s)
@@ -274,7 +274,7 @@ Clusters of resources that a curated public module can manage move into a call o
 
 A module may set arguments the provider keeps only in state, such as the iam-role module's `force_detach_policies`. Import can't set those. The plan then updates them in state alone, and the verification gate lists those updates.
 
-Each adapter pins an exact module version and is checked against that version's variables and outputs. A nightly job opens an issue when a newer release comes out, saying whether the adapter fits it; `go run ./adapters/cmd/adaptercheck -write` refreshes the interfaces after a bump.
+Each adapter pins an exact module version and is checked against that version's variables and outputs. At import, the registry says whether a module has a newer release: the report names it, and `--modules latest-untested` calls the newest release instead of the tested one (the plan check still decides whether each call is kept). The provider is pinned to its newest release that the module versions called accept; when one of them holds it back, the report says which. A nightly job opens an issue when a newer release comes out, saying whether the adapter fits it; `go run ./adapters/cmd/adaptercheck -write` refreshes the interfaces after a bump.
 
 `--modules=local` uses generated local modules only, for example where the module registry can't be reached; `--modules=none` keeps every resource in the root.
 
