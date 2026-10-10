@@ -80,3 +80,35 @@ resource "azurerm_network_interface" "app" {
     public_ip_address_id          = azurerm_public_ip.app.id
   }
 }
+
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_route_table" "app" {
+  name                = "${local.name}-app"
+  location            = local.location
+  resource_group_name = azurerm_resource_group.main.name
+}
+
+resource "azurerm_route" "internet" {
+  name                = "internet"
+  resource_group_name = azurerm_resource_group.main.name
+  route_table_name    = azurerm_route_table.app.name
+  address_prefix      = "0.0.0.0/0"
+  next_hop_type       = "Internet"
+}
+
+resource "azurerm_storage_account" "app" {
+  name                     = "infraharveste2eapp"
+  location                 = local.location
+  resource_group_name      = azurerm_resource_group.main.name
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+resource "azurerm_key_vault" "app" {
+  name                = "${local.name}-kv"
+  location            = local.location
+  resource_group_name = azurerm_resource_group.main.name
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  sku_name            = "standard"
+}
