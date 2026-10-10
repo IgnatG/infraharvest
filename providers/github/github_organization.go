@@ -14,8 +14,6 @@
 
 package github
 
-import ()
-
 type OrganizationGenerator struct {
 	GithubService
 }
