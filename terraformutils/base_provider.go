@@ -102,6 +102,13 @@ type ProviderWithDefaultTags interface {
 	DefaultTags() (attribute, block, reservedPrefix string)
 }
 
+// ProviderWithDefaultTagsArgument says whether the block DefaultTags names
+// is an argument of the provider block that holds the tags, as the Google
+// provider's default_labels, rather than a block holding them.
+type ProviderWithDefaultTagsArgument interface {
+	DefaultTagsArgument() bool
+}
+
 // ProviderWithTerraformEnv gives Terraform the environment it needs to
 // import the provider's resources, such as the credentials the provider
 // lists with, which Terraform may not resolve on its own (an SSO session,

@@ -260,7 +260,7 @@ A resource the import listed but the selection left out, such as a default VPC o
 
 Repeated values move into `locals.tf`:
 
-- **Shared tags:** tags every resource in a directory shares become `local.tags`. On AWS they are applied through the provider's `default_tags`, and each resource keeps only its other tags. Because AWS records every tag in `tags_all`, the move is kept only if a new plan shows no extra changes.
+- **Shared tags:** tags every resource in a directory shares become `local.tags`. On AWS they are applied through the provider's `default_tags`, and each resource keeps only its other tags. Because AWS records every tag in `tags_all`, the move is kept only if a new plan shows no extra changes. On Google Cloud, labels every resource shares become `local.labels`, applied through the provider's `default_labels`; `goog-` labels stay on the resources.
 - **Repeated identifiers:** IDs and ARNs used three or more times (`vpc_id = "vpc-0abc1234"`) become locals named after the argument that uses them (`local.vpc_id`).
 
 AWS resources don't repeat `region` (the provider's) or the computed `tags_all`.

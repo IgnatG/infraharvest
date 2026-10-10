@@ -215,3 +215,58 @@ func TestOmitArgumentsForEveryType(t *testing.T) {
 		t.Errorf("not left out:\n%s", got)
 	}
 }
+
+// The Google provider applies labels through its default_labels argument.
+func TestLiftLabelsIntoAnArgument(t *testing.T) {
+	dir := t.TempDir()
+	generated := `resource "google_storage_bucket" "a" {
+  labels = {
+    env  = "prod"
+    team = "data"
+  }
+  location = "EU"
+  name     = "a"
+}
+
+resource "google_storage_bucket" "b" {
+  labels = {
+    env                  = "prod"
+    goog-managed-by      = "x"
+  }
+  location = "EU"
+  name     = "b"
+}
+`
+	for name, content := range map[string]string{GeneratedFileName: generated, ProvidersFileName: "provider \"google\" {\n  project = \"p\"\n}\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dt := DefaultTags{Provider: "google", Attribute: "labels", Block: "default_labels", ReservedPrefix: "goog-", Argument: true}
+	changed, err := applyTagLift(dir, dt)
+	if err != nil || !changed {
+		t.Fatalf("changed %v, %v", changed, err)
+	}
+	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, "default_labels = local.labels") || strings.Contains(got, "default_labels {") {
+		t.Errorf("providers.tf:\n%s", got)
+	}
+	if got := readFile(t, dir, LocalsFileName); !strings.Contains(got, `env = "prod"`) {
+		t.Errorf("locals.tf:\n%s", got)
+	}
+	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, `env`) || !strings.Contains(got, `team`) || !strings.Contains(got, "goog-managed-by") {
+		t.Errorf("generated.tf:\n%s", got)
+	}
+
+	// An incremental import reads them back.
+	files := []*hclFile{}
+	for _, name := range []string{ProvidersFileName, LocalsFileName} {
+		f, err := loadHCL(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	if tags, ok := appliedTags(files, dt); !ok || tags["env"] != "prod" || len(tags) != 1 {
+		t.Errorf("applied labels: %v, %v", tags, ok)
+	}
+}

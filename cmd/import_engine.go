@@ -283,6 +283,9 @@ func engineOptions(provider terraformutils.ProviderGenerator, root *rootFiles) e
 	if withDefaultTags, ok := provider.(terraformutils.ProviderWithDefaultTags); ok {
 		attribute, block, reserved := withDefaultTags.DefaultTags()
 		opts.DefaultTags = &engine.DefaultTags{Provider: provider.GetName(), Attribute: attribute, Block: block, ReservedPrefix: reserved}
+		if a, ok := provider.(terraformutils.ProviderWithDefaultTagsArgument); ok {
+			opts.DefaultTags.Argument = a.DefaultTagsArgument()
+		}
 	}
 	return opts
 }

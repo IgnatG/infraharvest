@@ -154,3 +154,16 @@ func (p *GCPProvider) Scope(context.Context) (account, region string, err error)
 	}
 	return p.projectName, region, nil
 }
+
+// DefaultTags describes the provider's default_labels: labels it applies
+// to every resource that has labels. Keys starting with goog- are Google's
+// own.
+func (GCPProvider) DefaultTags() (attribute, block, reservedPrefix string) {
+	return "labels", "default_labels", "goog-"
+}
+
+// DefaultTagsArgument says default_labels is an argument of the provider
+// block, not a block.
+func (GCPProvider) DefaultTagsArgument() bool {
+	return true
+}

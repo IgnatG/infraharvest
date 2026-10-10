@@ -131,14 +131,17 @@ func Existing(dir string, previous *Result) (map[External]string, error) {
 }
 
 // appliedTags returns the tags the root's provider applies to every
-// resource through dt.Block, if they are literal, directly or through a
-// local.
+// resource through dt.Block (an argument with dt.Argument), if they are
+// literal, directly or through a local.
 func appliedTags(files []*hclFile, dt DefaultTags) (map[string]string, bool) {
 	var expr hclsyntax.Expression
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
 			if b.Type != "provider" || len(b.Labels) != 1 || b.Labels[0] != dt.Provider {
 				continue
+			}
+			if attr, ok := b.Body.Attributes[dt.Block]; ok && dt.Argument {
+				expr = attr.Expr
 			}
 			for _, inner := range b.Body.Blocks {
 				if attr, ok := inner.Body.Attributes[dt.Attribute]; ok && inner.Type == dt.Block {
