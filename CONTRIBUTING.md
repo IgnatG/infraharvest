@@ -34,6 +34,18 @@ gh workflow run check --ref <branch> -f packages="./terraformutils/... ./provide
 gh run watch
 ```
 
+## Profiling
+
+To see where a run spends time or memory, name files for the profiles:
+
+```sh
+INFRAHARVEST_CPU_PROFILE=cpu.pprof INFRAHARVEST_MEM_PROFILE=mem.pprof infraharvest import aws ...
+go tool pprof -top cpu.pprof
+go tool pprof -sample_index=inuse_space -top mem.pprof
+```
+
+The CPU profile covers the whole run; the heap profile is taken at its end. Terraform and the providers run as their own processes, so they aren't in it.
+
 ## Dependencies
 
 - Pin GitHub Actions to a full commit SHA, with the version in a trailing comment.
