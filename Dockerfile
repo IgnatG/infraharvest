@@ -18,6 +18,7 @@ SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN mkdir /out /work
 
 FROM fetch AS terraform
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 ARG TARGETARCH
 ARG TERRAFORM_VERSION
 # SHA-256 of the release archives, from the release's SHA256SUMS file.
@@ -33,6 +34,7 @@ RUN case "$TARGETARCH" in \
     unzip -q /tmp/terraform.zip terraform -d /out
 
 FROM fetch AS tofu
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 ARG TARGETARCH
 ARG TOFU_VERSION
 ARG TOFU_SHA256_amd64=378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69
