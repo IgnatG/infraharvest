@@ -149,7 +149,7 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 		t.Errorf("result: %s", text)
 	}
 	// The user sees what the import reads before confirming.
-	for _, want := range []string{"Import the 2 resources", "never applies", "profile prod", "eu-west-2", "vpc"} {
+	for _, want := range []string{"Import the 2 resources", "never applies", "with profile prod", "eu-west-2", "vpc"} {
 		if !strings.Contains(asked, want) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
@@ -221,14 +221,162 @@ func TestImportNeedsTheUser(t *testing.T) {
 }
 
 func TestScopeArgsKeepValuesOutOfFlags(t *testing.T) {
-	for _, provider := range []string{"--help", "aws --all", "", "AWS"} {
+	for _, provider := range []string{"--help", "aws --all", "", "AWS", "gcp"} {
 		if _, err := scopeArgs("import", Scope{Provider: provider, Services: []string{"vpc"}}); err == nil {
 			t.Errorf("provider %q accepted", provider)
 		}
 	}
-	args, err := scopeArgs("import", Scope{Provider: "aws", Services: []string{"--all"}, Profile: "x --y"})
-	if err != nil || !slices.Equal(args, []string{"import", "aws", "--services=--all", "--profile=x --y"}) {
-		t.Errorf("args: %v, %v", args, err)
+	for _, tc := range []struct {
+		scope Scope
+		want  []string
+	}{
+		{Scope{Provider: "aws", Services: []string{"--all"}, Profile: "x --y"}, []string{"import", "aws", "--services=--all", "--profile=x --y"}},
+		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "--folders=1"}, []string{"import", "google", "--services=iam", "--organization=--folders=1"}},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}, ResourceGroup: "-g x"}, []string{"import", "azure", "--services=resource_graph", "--resource-group=-g x"}},
+	} {
+		args, err := scopeArgs("import", tc.scope)
+		if err != nil || !slices.Equal(args, tc.want) {
+			t.Errorf("scopeArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
+		}
+	}
+}
+
+// Each provider's scope fields become the flags its command has.
+func TestScopeArgsByProvider(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scope Scope
+		want  []string
+	}{
+		"aws": {
+			Scope{Provider: "aws", Services: []string{"vpc", "s3"}, Regions: []string{"eu-west-1", "us-east-1"}, Profile: "prod", Accounts: []string{"111111111111", "222222222222"}},
+			[]string{"discover", "aws", "--services=vpc,s3", "--regions=eu-west-1,us-east-1", "--profile=prod", "--accounts=111111111111,222222222222"},
+		},
+		"google projects": {
+			Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one", "two"}, Regions: []string{"global", "europe-west1"}},
+			[]string{"discover", "google", "--services=iam", "--regions=global,europe-west1", "--projects=one,two"},
+		},
+		"google organization and folders": {
+			Scope{Provider: "google", Services: []string{"iam"}, Organization: "123", Folders: []string{"456", "789"}},
+			[]string{"discover", "google", "--services=iam", "--organization=123", "--folders=456,789"},
+		},
+		"azure from the environment": {
+			Scope{Provider: "azure", Services: []string{"resource_graph"}},
+			[]string{"discover", "azure", "--services=resource_graph"},
+		},
+		"azure": {
+			Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1", "sub-2"}, ManagementGroup: "mg", ResourceGroup: "rg"},
+			[]string{"discover", "azure", "--services=resource_graph", "--subscriptions=sub-1,sub-2", "--management-group=mg", "--resource-group=rg"},
+		},
+	} {
+		args, err := scopeArgs("discover", tc.scope)
+		if err != nil || !slices.Equal(args, tc.want) {
+			t.Errorf("%s: scopeArgs: got %v, %v, want %v", name, args, err, tc.want)
+		}
+	}
+}
+
+// A field the provider's command has no flag for is rejected with a
+// message naming it. Before the fix, Azure scopes passed --regions and
+// --profile, which the azure command fails on as unknown flags, and Google
+// scopes had no way to name a project, so the google command always
+// failed.
+func TestScopeArgsRejectsWhatTheProviderDoesNotTake(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scope Scope
+		want  []string
+	}{
+		"azure regions and profile": {
+			Scope{Provider: "azure", Services: []string{"resource_graph"}, Regions: []string{"westeurope"}, Profile: "prod"},
+			[]string{"azure doesn't take regions", "azure doesn't take profile"},
+		},
+		"aws projects and resource group": {
+			Scope{Provider: "aws", Services: []string{"vpc"}, Projects: []string{"one"}, ResourceGroup: "rg"},
+			[]string{"aws doesn't take projects", "aws doesn't take resource_group"},
+		},
+		"google subscriptions": {
+			Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one"}, Subscriptions: []string{"sub-1"}},
+			[]string{"google doesn't take subscriptions, which is for azure only"},
+		},
+		"google profile and accounts": {
+			Scope{Provider: "google", Services: []string{"iam"}, Folders: []string{"456"}, Profile: "prod", Accounts: []string{"111111111111"}},
+			[]string{"google doesn't take profile", "google doesn't take accounts"},
+		},
+		"google without projects": {
+			Scope{Provider: "google", Services: []string{"iam"}, Regions: []string{"global"}},
+			[]string{"google needs projects, organization or folders"},
+		},
+		"no services": {
+			Scope{Provider: "google", Projects: []string{"one"}},
+			[]string{"services is required"},
+		},
+	} {
+		args, err := scopeArgs("discover", tc.scope)
+		if err == nil {
+			t.Errorf("%s: scopeArgs accepted it: %v", name, args)
+			continue
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: error %q misses %q", name, err, want)
+			}
+		}
+	}
+}
+
+// The user confirms an import knowing what it reads, in the provider's
+// own terms.
+func TestScopeText(t *testing.T) {
+	for _, tc := range []struct {
+		scope Scope
+		want  string
+	}{
+		{Scope{Provider: "aws", Services: []string{"vpc"}}, "the aws account (vpc)"},
+		{Scope{Provider: "aws", Services: []string{"vpc", "s3"}, Profile: "prod", Regions: []string{"eu-west-2"}}, "the aws account with profile prod in eu-west-2 (vpc, s3)"},
+		{Scope{Provider: "aws", Services: []string{"vpc"}, Accounts: []string{"111", "222"}}, "the aws accounts 111, 222 (vpc)"},
+		{Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one", "two"}}, "the google projects one, two in global (iam)"},
+		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "123", Folders: []string{"456"}, Regions: []string{"europe-west1"}}, "every active google project of organization 123 and of folders 456 in europe-west1 (iam)"},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}}, "the azure subscription of ARM_SUBSCRIPTION_ID (resource_graph)"},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
+	} {
+		if got := scopeText(tc.scope); got != tc.want {
+			t.Errorf("scopeText(%+v): got %q, want %q", tc.scope, got, tc.want)
+		}
+	}
+}
+
+// Through the tools: a Google scope reaches the google command with its
+// projects, and a rejected scope runs nothing.
+func TestDiscoverScopes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "selection.yaml")
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+
+	runner := &fakeRunner{}
+	session := connect(t, runner, dir, nil)
+	res, text := call(t, session, "discover", map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"my-project"}, "selection": path})
+	if res.IsError {
+		t.Errorf("result: %s", text)
+	}
+	want := []string{"discover", "google", "--services=iam", "--projects=my-project", "--pick=false", "--selection=" + path}
+	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
+		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+
+	runner = &fakeRunner{}
+	tools := &tools{run: runner.run, root: dir}
+	for name, scope := range map[string]Scope{
+		"azure regions":           {Provider: "azure", Services: []string{"resource_graph"}, Regions: []string{"westeurope"}},
+		"google without projects": {Provider: "google", Services: []string{"iam"}},
+	} {
+		if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: path}); err == nil {
+			t.Errorf("discover %s: accepted", name)
+		}
+		if _, _, err := tools.importSelection(t.Context(), req, ImportInput{Scope: scope, Selection: path, Out: filepath.Join(dir, "generated")}); err == nil {
+			t.Errorf("import %s: accepted", name)
+		}
+	}
+	if len(runner.runs) != 0 {
+		t.Errorf("ran a rejected scope: %v", runner.runs)
 	}
 }
 

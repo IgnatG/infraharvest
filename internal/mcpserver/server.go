@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -51,13 +51,13 @@ func New(version, root string, run Runner) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "discover",
 		Title:       "List resources into a selection file",
-		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file.",
+		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + scopeHelp,
 		Annotations: readOnly,
 	}, t.discover)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
-		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code.",
+		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + scopeHelp,
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false), IdempotentHint: true},
 	}, t.importSelection)
 	mcp.AddTool(server, &mcp.Tool{
@@ -95,12 +95,26 @@ func (t *tools) within(what, path string) error {
 	return nil
 }
 
-// Scope is what to list: a provider command and its services and regions.
+// Scope is what to list: a provider command, its services, and where to
+// list them, in the provider's own terms. Each field sets the flag of the
+// same name, and only the providers whose command has that flag take it.
 type Scope struct {
-	Provider string   `json:"provider" jsonschema:"the provider command, such as aws"`
+	Provider string   `json:"provider" jsonschema:"the provider command: aws, azure or google"`
 	Services []string `json:"services" jsonschema:"services to list, such as vpc, s3 and iam"`
-	Regions  []string `json:"regions,omitempty" jsonschema:"regions to list, such as eu-west-2"`
-	Profile  string   `json:"profile,omitempty" jsonschema:"the provider profile to use, such as an AWS profile"`
+	// Regions is for aws and google.
+	Regions []string `json:"regions,omitempty" jsonschema:"aws and google only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
+	// Profile and Accounts are for aws.
+	Profile  string   `json:"profile,omitempty" jsonschema:"aws only: the AWS profile whose credentials to use"`
+	Accounts []string `json:"accounts,omitempty" jsonschema:"aws only: accounts to list, each through the role infraharvest-readonly in it"`
+	// Projects, Organization and Folders are for google, which needs at
+	// least one of them.
+	Projects     []string `json:"projects,omitempty" jsonschema:"google only: projects to list; google needs projects, organization or folders"`
+	Organization string   `json:"organization,omitempty" jsonschema:"google only: an organization ID, to list every active project of it, in its folders too"`
+	Folders      []string `json:"folders,omitempty" jsonschema:"google only: folder IDs, to list every active project of them, in their subfolders too"`
+	// Subscriptions, ManagementGroup and ResourceGroup are for azure.
+	Subscriptions   []string `json:"subscriptions,omitempty" jsonschema:"azure only: subscription IDs to list (default: ARM_SUBSCRIPTION_ID's)"`
+	ManagementGroup string   `json:"management_group,omitempty" jsonschema:"azure only: a management group ID, to list every enabled subscription under it, in its child groups too"`
+	ResourceGroup   string   `json:"resource_group,omitempty" jsonschema:"azure only: the resource group to list (default: the whole subscription)"`
 }
 
 // DiscoverInput is the discover tool's input.
@@ -326,37 +340,132 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 	return textResult(string(content)), nil, nil
 }
 
-// providerName is what a provider command name looks like.
-var providerName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+// providers are the provider commands the tools run.
+var providers = []string{"aws", "azure", "google"}
+
+// scopeField is one of Scope's fields that say where to list: the name an
+// agent sends it by, the flag it sets, the providers whose command has
+// that flag, and its values (none when it isn't set).
+type scopeField struct {
+	name      string
+	flag      string
+	providers []string
+	values    func(Scope) []string
+}
+
+// scopeFields are Scope's fields that say where to list, in the order
+// their flags are passed.
+var scopeFields = []scopeField{
+	{"regions", "regions", []string{"aws", "google"}, func(s Scope) []string { return s.Regions }},
+	{"profile", "profile", []string{"aws"}, func(s Scope) []string { return nonEmpty(s.Profile) }},
+	{"accounts", "accounts", []string{"aws"}, func(s Scope) []string { return s.Accounts }},
+	{"projects", "projects", []string{"google"}, func(s Scope) []string { return s.Projects }},
+	{"organization", "organization", []string{"google"}, func(s Scope) []string { return nonEmpty(s.Organization) }},
+	{"folders", "folders", []string{"google"}, func(s Scope) []string { return s.Folders }},
+	{"subscriptions", "subscriptions", []string{"azure"}, func(s Scope) []string { return s.Subscriptions }},
+	{"management_group", "management-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ManagementGroup) }},
+	{"resource_group", "resource-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ResourceGroup) }},
+}
+
+// nonEmpty returns value as the only value of a field, or none if it is
+// empty.
+func nonEmpty(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return []string{value}
+}
+
+// scopeHelp says which provider takes which of Scope's fields, for the
+// tools' descriptions.
+const scopeHelp = "Where to list depends on the provider: aws takes regions, profile and accounts; azure takes subscriptions, management_group and resource_group; google takes regions and needs projects, organization or folders."
 
 // scopeArgs returns the arguments for command on scope. Every value is
 // part of a --flag=value argument, so none can become a flag of its own.
+// A field the provider's command has no flag for is rejected rather than
+// left for the command to fail on, and so is a Google scope without a
+// project, organization or folder.
 func scopeArgs(command string, s Scope) ([]string, error) {
-	if !providerName.MatchString(s.Provider) {
-		return nil, fmt.Errorf("unknown provider %q", s.Provider)
+	if !slices.Contains(providers, s.Provider) {
+		return nil, fmt.Errorf("unknown provider %q: use %s", s.Provider, strings.Join(providers, ", "))
 	}
 	if len(s.Services) == 0 {
 		return nil, errors.New("services is required")
 	}
 	args := []string{command, s.Provider, "--services=" + strings.Join(s.Services, ",")}
-	if len(s.Regions) > 0 {
-		args = append(args, "--regions="+strings.Join(s.Regions, ","))
+	var errs []error
+	for _, f := range scopeFields {
+		values := f.values(s)
+		if len(values) == 0 {
+			continue
+		}
+		if !slices.Contains(f.providers, s.Provider) {
+			errs = append(errs, fmt.Errorf("%s doesn't take %s, which is for %s only", s.Provider, f.name, strings.Join(f.providers, " and ")))
+			continue
+		}
+		args = append(args, "--"+f.flag+"="+strings.Join(values, ","))
 	}
-	if s.Profile != "" {
-		args = append(args, "--profile="+s.Profile)
+	if s.Provider == "google" && len(s.Projects) == 0 && s.Organization == "" && len(s.Folders) == 0 {
+		errs = append(errs, errors.New("google needs projects, organization or folders to say which projects to list"))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
 	}
 	return args, nil
 }
 
 // scopeText says what an import reads, for the user to confirm: the
-// provider's account (its profile), regions and services.
+// provider's accounts, subscriptions or projects, where in them, and the
+// services. scope has passed scopeArgs.
 func scopeText(s Scope) string {
-	text := "the " + s.Provider + " account"
-	if s.Profile != "" {
-		text += " of profile " + s.Profile
-	}
-	if len(s.Regions) > 0 {
-		text += " in " + strings.Join(s.Regions, ", ")
+	var text string
+	switch s.Provider {
+	case "azure":
+		var parts []string
+		if len(s.Subscriptions) > 0 {
+			parts = append(parts, "subscriptions "+strings.Join(s.Subscriptions, ", "))
+		}
+		if s.ManagementGroup != "" {
+			parts = append(parts, "every enabled subscription under management group "+s.ManagementGroup)
+		}
+		if len(parts) == 0 {
+			parts = append(parts, "subscription of ARM_SUBSCRIPTION_ID")
+		}
+		text = "the azure " + strings.Join(parts, " and ")
+		if s.ResourceGroup != "" {
+			text = "resource group " + s.ResourceGroup + " of " + text
+		}
+	case "google":
+		var parts, owners []string
+		if len(s.Projects) > 0 {
+			parts = append(parts, "the google projects "+strings.Join(s.Projects, ", "))
+		}
+		if s.Organization != "" {
+			owners = append(owners, "organization "+s.Organization)
+		}
+		if len(s.Folders) > 0 {
+			owners = append(owners, "folders "+strings.Join(s.Folders, ", "))
+		}
+		if len(owners) > 0 {
+			parts = append(parts, "every active google project of "+strings.Join(owners, " and of "))
+		}
+		regions := s.Regions
+		if len(regions) == 0 {
+			// The google command's default.
+			regions = []string{"global"}
+		}
+		text = strings.Join(parts, " and ") + " in " + strings.Join(regions, ", ")
+	default:
+		text = "the aws account"
+		if len(s.Accounts) > 0 {
+			text = "the aws accounts " + strings.Join(s.Accounts, ", ")
+		}
+		if s.Profile != "" {
+			text += " with profile " + s.Profile
+		}
+		if len(s.Regions) > 0 {
+			text += " in " + strings.Join(s.Regions, ", ")
+		}
 	}
 	return text + " (" + strings.Join(s.Services, ", ") + ")"
 }
