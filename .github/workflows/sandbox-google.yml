@@ -1,0 +1,231 @@
+# Imports a small estate from the Google Cloud sandbox project and checks
+# it plans with no changes. Runs only when started by hand, and only after
+# a reviewer of the sandbox environment approves it. The estate is created
+# as the fixture service account, imported as the read-only one, which has
+# what permissions/google grants, and destroyed at the end, whatever
+# happened. The service accounts, the workload identity provider they
+# trust and the project's APIs come from a one-time bootstrap
+# (e2e/testdata/sandbox/google-bootstrap); see e2e/README.md.
+name: sandbox-google
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: Engine to import with
+        type: choice
+        options: [terraform, tofu]
+        default: terraform
+
+permissions:
+  contents: read
+  id-token: write # OpenID Connect, for the service accounts
+
+# One run at a time: each imports the whole project, so another run's
+# estate would show up in its import.
+concurrency:
+  group: sandbox-google
+  cancel-in-progress: false
+
+jobs:
+  round-trip:
+    name: round-trip (${{ inputs.engine }})
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 80
+    env:
+      E2E_ENGINE: ${{ inputs.engine }}
+      SANDBOX_GOOGLE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
+      SANDBOX_GOOGLE_REGION: ${{ vars.GOOGLE_REGION || 'europe-west2' }}
+      SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}
+    steps:
+    - name: Directories
+      run: |
+        {
+          echo "SANDBOX_FIXTURE_DIR=$RUNNER_TEMP/fixture-google"
+          echo "SANDBOX_PLUGIN_CACHE=$RUNNER_TEMP/plugins"
+          echo "SANDBOX_OUTPUT_DIR=$RUNNER_TEMP/out"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/plugins"
+        } >> "$GITHUB_ENV"
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: inputs.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: inputs.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    # The gate runs the scanners it finds (G5), as in the e2e jobs.
+    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      with:
+        tflint_version: v0.64.0
+    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+      with:
+        version: v0.75.0
+    # A credentials file for each service account: a workload identity
+    # federation configuration that trades the job's GitHub ID token, which
+    # it fetches again when it needs to, for the account's tokens. No key,
+    # and nothing exported: each step names the file it signs in with. The
+    # files are in the workspace, which isn't uploaded, and are deleted
+    # when the job ends.
+    - name: Credentials of the fixture service account
+      id: fixture
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_FIXTURE_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    - name: Credentials of the read-only service account
+      id: readonly
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    # What an earlier run may have left: the project holds nothing named
+    # after the sandbox between runs. One search, as the read-only account,
+    # with the gcloud CLI of the runner image; it may still list what an
+    # earlier run deleted minutes ago.
+    - name: Leftovers
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
+      run: |
+        types=compute.googleapis.com/Network,compute.googleapis.com/Subnetwork,compute.googleapis.com/Firewall
+        types+=,compute.googleapis.com/Router,storage.googleapis.com/Bucket,pubsub.googleapis.com/Topic
+        types+=,pubsub.googleapis.com/Subscription,dns.googleapis.com/ManagedZone,iam.googleapis.com/ServiceAccount
+        left=$(gcloud asset search-all-resources --scope "projects/$SANDBOX_GOOGLE_PROJECT" --asset-types "$types" \
+          --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
+        if [ -n "$left" ]; then
+          echo "::warning::Sandbox resources in $SANDBOX_GOOGLE_PROJECT before the run: $left"
+        fi
+    - name: Round trip
+      env:
+        SANDBOX_GOOGLE_FIXTURE_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
+        SANDBOX_GOOGLE_READONLY_CREDENTIALS: ${{ steps.readonly.outputs.credentials_file_path }}
+      run: go test -tags e2e,sandbox,minimal,google -run '^TestSandboxGoogle$' -timeout 60m -v ./e2e/
+    - name: Destroy the estate
+      if: always()
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
+      run: |
+        if [ ! -f "$SANDBOX_FIXTURE_DIR/terraform.tfstate" ]; then
+          echo "No estate state: nothing was created."
+          exit 0
+        fi
+        cd "$SANDBOX_FIXTURE_DIR"
+        vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
+        "$E2E_ENGINE" init -input=false
+        "$E2E_ENGINE" destroy -auto-approve -input=false "${vars[@]}"
+        left=$("$E2E_ENGINE" state list)
+        if [ -n "$left" ]; then
+          echo "::error::Left in the estate: $left"
+          exit 1
+        fi
+    # When the run failed, deletes what Terraform's state doesn't hold,
+    # such as a resource whose creation failed half-way: every resource of
+    # the run's engine, as the fixture service account. Networks,
+    # subnetworks, firewall rules, routers and service accounts take no
+    # labels, so the sweep finds everything by name, ih-sbx-<engine>-,
+    # which the estate gives every resource, and deletes what uses others
+    # first: the zones' record sets, the zones, the subscriptions and
+    # topics, the buckets, then the network's firewall rules, routers and
+    # subnetworks, the network, and the service account.
+    - name: Sweep the project
+      if: failure()
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
+        CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
+      run: |
+        prefix="ih-sbx-$E2E_ENGINE-"
+        named="name ~ '^$prefix'"
+        q=(--quiet)
+        zones=$(gcloud dns managed-zones list --filter "$named" --format 'value(name)')
+        while IFS= read -r zone; do
+          if [ -z "$zone" ]; then
+            continue
+          fi
+          sets=$(gcloud dns record-sets list --zone "$zone" --filter 'type != SOA AND type != NS' --format 'csv[no-heading](name,type)')
+          while IFS=, read -r name type; do
+            if [ -n "$name" ]; then
+              gcloud dns record-sets delete "$name" --type "$type" --zone "$zone" "${q[@]}" || true
+            fi
+          done <<< "$sets"
+          gcloud dns managed-zones delete "$zone" "${q[@]}" || true
+        done <<< "$zones"
+        for kind in subscriptions topics; do
+          names=$(gcloud pubsub "$kind" list --filter "name ~ '/$prefix'" --format 'value(name.basename())')
+          while IFS= read -r name; do
+            if [ -n "$name" ]; then
+              gcloud pubsub "$kind" delete "$name" "${q[@]}" || true
+            fi
+          done <<< "$names"
+        done
+        buckets=$(gcloud storage buckets list --filter "$named" --format 'value(name)')
+        while IFS= read -r bucket; do
+          if [ -n "$bucket" ]; then
+            gcloud storage rm --recursive "gs://$bucket" "${q[@]}" || true
+          fi
+        done <<< "$buckets"
+        rules=$(gcloud compute firewall-rules list --filter "$named" --format 'value(name)')
+        while IFS= read -r rule; do
+          if [ -n "$rule" ]; then
+            gcloud compute firewall-rules delete "$rule" "${q[@]}" || true
+          fi
+        done <<< "$rules"
+        for kind in routers "networks subnets"; do
+          read -r -a group <<< "$kind"
+          found=$(gcloud compute "${group[@]}" list --filter "$named" --format 'value(name,region.basename())')
+          while read -r name region; do
+            if [ -n "$name" ]; then
+              gcloud compute "${group[@]}" delete "$name" --region "$region" "${q[@]}" || true
+            fi
+          done <<< "$found"
+        done
+        networks=$(gcloud compute networks list --filter "$named" --format 'value(name)')
+        while IFS= read -r network; do
+          if [ -n "$network" ]; then
+            gcloud compute networks delete "$network" "${q[@]}" || true
+          fi
+        done <<< "$networks"
+        accounts=$(gcloud iam service-accounts list --filter "email ~ '^$prefix'" --format 'value(email)')
+        while IFS= read -r account; do
+          if [ -n "$account" ]; then
+            gcloud iam service-accounts delete "$account" "${q[@]}" || true
+          fi
+        done <<< "$accounts"
+        left=$(
+          gcloud dns managed-zones list --filter "$named" --format 'value(name)'
+          gcloud pubsub topics list --filter "name ~ '/$prefix'" --format 'value(name)'
+          gcloud pubsub subscriptions list --filter "name ~ '/$prefix'" --format 'value(name)'
+          gcloud storage buckets list --filter "$named" --format 'value(name)'
+          gcloud compute firewall-rules list --filter "$named" --format 'value(name)'
+          gcloud compute routers list --filter "$named" --format 'value(name)'
+          gcloud compute networks subnets list --filter "$named" --format 'value(name)'
+          gcloud compute networks list --filter "$named" --format 'value(name)'
+          gcloud iam service-accounts list --filter "email ~ '^$prefix'" --format 'value(email)'
+        )
+        if [ -n "$left" ]; then
+          echo "::error::Left in $SANDBOX_GOOGLE_PROJECT: $left"
+          exit 1
+        fi
+    - name: Upload the import
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: sandbox-google-${{ inputs.engine }}
+        path: |
+          ${{ env.SANDBOX_OUTPUT_DIR }}
+          !${{ env.SANDBOX_OUTPUT_DIR }}/**/.terraform
+        if-no-files-found: ignore
+        include-hidden-files: true
+        retention-days: 7
