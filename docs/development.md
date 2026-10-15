@@ -132,7 +132,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
 
 - Provider code that the command tree compiles in carries `//go:build !minimal || <provider>`, and registers itself from `init()` (`internal/cli/providers/provider_cmd_aws.go`). Its tests carry the same constraint (`aws_accounts_test.go`).
 - `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
-- Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, run only by hand).
+- Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account or Azure subscription, run only by hand).
 
 ## Tests
 
@@ -178,7 +178,7 @@ A new page goes into `mkdocs.yml`'s navigation; the `docs` workflow builds stric
 - Name branches after the change's type: `feat/`, `fix/`, `refactor/`, `test/`, `ci/`, `docs/`, `build/`, `chore/`. Branches named `golden/<anything>` and `tidy/<anything>` start those tasks of the `remote` workflow when pushed.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, lower case, with no trailing full stop. The scope is the provider or package (`aws`, `cli`, `harvest`, `engine`, `catalogue`, `sandbox`). A breaking change takes `!` and a `BREAKING CHANGE:` footer. The `commit-msg` hook checks the first line.
 - Pull requests are squash-merged, so the title becomes the commit on `main`: write it as a Conventional Commit too. One logical change per pull request.
-- The description says what changes and why, how it was tested, and ends with whether the AWS sandbox ran and why: it is run by hand (`sandbox-aws` workflow), only for changes to the AWS listers, the catalogue, the engine, the adapters or the sandbox itself.
+- The description says what changes and why, how it was tested, and ends with whether a sandbox ran and why: they run by hand (`sandbox-aws`, `sandbox-azure`), only for changes to that cloud's listers or permissions template, the catalogue, the engine, the adapters or the sandbox itself.
 - A pull request merges once every check is green.
 
 ## Releases

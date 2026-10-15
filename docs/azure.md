@@ -24,7 +24,7 @@ infraharvest reads the `ARM_*` environment variables the azurerm provider docume
 
 `ARM_AUXILIARY_TENANT_IDS` names up to three more tenants the credential may get tokens for, separated by `;`. `ARM_ENVIRONMENT` picks the cloud: `public` (the default), `usgovernment` or `china`, or `stack` for a cloud such as Azure Stack Hub whose endpoints `ARM_METADATA_HOSTNAME` serves.
 
-Terraform's azurerm provider reads the same variables, so the generated roots plan with the same sign-in. Their provider block sets `subscription_id`.
+Terraform's azurerm provider reads the same variables, so the generated roots plan with the same sign-in. Their provider block sets `subscription_id`, and `resource_provider_registrations = "none"`, so the generated configuration doesn't register resource providers on the subscription, which the Reader role can't: register them yourself if a later apply needs one. Its features block sets `storage { data_plane_available = false }`, so azurerm 4 reads storage accounts without their keys, which Reader can't list, as azurerm 5 does: a storage account's queue and static website settings belong in the separate `azurerm_storage_account_*` resources (see [Permissions](permissions.md#azure)).
 
 ## Permissions
 
@@ -47,13 +47,15 @@ infraharvest import azure --management-group platform --services=resource_graph 
 
 ## Resource Graph
 
-The `resource_graph` service lists everything [Azure Resource Graph](https://learn.microsoft.com/azure/governance/resource-graph/overview) knows in the subscription, or in `--resource-group`, in one query, with the resource groups themselves, empty ones too. It reads from Resource Manager the child resources Resource Graph doesn't index, such as subnets and blob containers. Each resource gets its azurerm type from the catalogue's `inventory` entries, or else from [aztft](https://github.com/magodo/aztft), which asks Resource Manager when the resource ID alone can't tell, as between a function app and a web app. A resource azurerm has no type for, or that could be several, is logged and left out.
+The `resource_graph` service lists everything [Azure Resource Graph](https://learn.microsoft.com/azure/governance/resource-graph/overview) knows in the subscription, or in `--resource-group`, in one query, with the resource groups themselves, empty ones too. It reads from Resource Manager the child resources Resource Graph doesn't index, such as subnets and blob containers, and the data sources of Log Analytics workspaces, which Resource Manager lists only by kind: one list per workspace for each kind azurerm has a type for, Windows events and Windows performance counters. Each resource gets its azurerm type from the catalogue's `inventory` entries, or else from [aztft](https://github.com/magodo/aztft), which asks Resource Manager when the resource ID alone can't tell, as between a function app and a web app. A resource azurerm has no type for, or that could be several, is logged and left out.
 
 It is what `--services='*'` lists, together with `management_lock`, `security_center_contact` and `security_center_subscription_pricing`, which list what Resource Graph doesn't index: management locks are extension resources, set on a subscription, a resource group or a resource, and Microsoft Defender for Cloud's security contacts and plans belong to the subscription. With `--resource-group`, `management_lock` lists the locks on the group and its resources, and the two Defender services list nothing. Resource Graph needs the Reader role.
 
-Some resources are left out by the default selection, with the reason: those another resource manages (`managedBy`), such as what is in an AKS cluster's `MC_*` node resource group, and what Azure creates itself, such as `NetworkWatcherRG`, the `DefaultResourceGroup-<region>` groups, Cloud Shell's storage groups, and the alert rules and action groups Application Insights adds.
+Some resources are left out by the default selection, with the reason: those another resource manages (`managedBy`), such as what is in an AKS cluster's `MC_*` node resource group, and what Azure creates itself, such as `NetworkWatcherRG`, the `DefaultResourceGroup-<region>` groups, Cloud Shell's storage groups, the alert rules and action groups Application Insights adds, and the hundreds of tables and saved searches built into every Log Analytics workspace: a built-in table is imported only once its plan or retention differs from the default, and a saved search only if a solution (such as LogManagement) didn't add it.
 
 The types are those the current `azurerm` provider has, such as `azurerm_linux_virtual_machine` and `azurerm_windows_virtual_machine` rather than `azurerm_virtual_machine`, and `azurerm_mssql_*` rather than `azurerm_sql_*`. Storage blobs and Synapse managed private endpoints, which only their data-plane APIs list, aren't imported.
+
+Routes, subnets and network security rules are imported as resources of their own (`azurerm_route`, `azurerm_subnet`, `azurerm_network_security_rule`), as azurerm recommends, so route tables, virtual networks and network security groups are generated without their inline `route`, `subnet` and `security_rule`: inline, both would manage the same settings and undo each other on every apply.
 
 ## Services to name
 

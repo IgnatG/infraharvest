@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationalInsights/workspaces/logs/savedSearches/LogManagement(logs)_General|StaleComputers", "name": "logmanagement_logs_general_stalecomputers", "attributes": {"name": "LogManagement(logs)_General|StaleComputers", "resource_group_name": "rg-logs", "solution": "LogManagement", "from_solution": "true"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationalInsights/workspaces/logs/savedSearches/failed-sign-ins", "name": "failed_sign_ins", "attributes": {"name": "failed-sign-ins", "resource_group_name": "rg-logs"}}
+]}

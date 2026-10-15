@@ -119,7 +119,7 @@ terraform apply -var "subscription_id=$(az account show --query id -o tsv)"
 terraform output -raw gh_commands
 ```
 
-`-var location=<region>` places the groups elsewhere than `westeurope`. The identities trust tokens whose subject is `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...` sets another. Keep the state, which Cloud Shell keeps in your home directory, to change or destroy it later.
+`-var location=<region>` places the groups elsewhere than `uksouth` (some regions, such as `westeurope`, refuse new subscriptions). The identities trust tokens whose subject is `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...` sets another. Keep the state, which Cloud Shell keeps in your home directory, to change or destroy it later.
 
 The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
 

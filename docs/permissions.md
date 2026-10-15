@@ -38,7 +38,7 @@ terraform apply -var subscription_id=<subscription-guid> -var principal_id=<obje
 #   -var scope=/providers/Microsoft.Management/managementGroups/<name>
 ```
 
-Known gap: some storage account settings are read through the data plane, which Reader can't access. Those attributes may be missing until this is validated.
+Storage accounts' queue and table service settings (logging, metrics, CORS) are read through the storage data plane, with the account's keys or a data role, which Reader doesn't grant. So the default selection leaves out `azurerm_storage_account_queue_properties` and `azurerm_storage_account_table_properties`, and the generated provider block sets `features { storage { data_plane_available = false } }`, so azurerm 4 doesn't read them as part of `azurerm_storage_account` either. To import them, select them and run with access to the account's keys (such as Storage Account Contributor) or a storage data role.
 
 ## Google Cloud
 

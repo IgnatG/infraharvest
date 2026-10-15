@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/stdata/blobServices/default/containers/data", "name": "data", "attributes": {"name": "data", "resource_group_name": "rg-data"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/stdata/blobServices/default/containers/audit", "name": "audit", "attributes": {"name": "audit", "resource_group_name": "rg-data"}}
+]}

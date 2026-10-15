@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-network/providers/Microsoft.Network/routeTables/rt-app", "name": "rt_app", "attributes": {"name": "rt-app", "resource_group_name": "rg-network"}}
+]}

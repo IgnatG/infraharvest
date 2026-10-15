@@ -57,7 +57,8 @@ type Entry struct {
 	// NotImportable says why Terraform can't import the type: the import
 	// reports its resources as not importable instead of trying.
 	NotImportable string `yaml:"not_importable,omitempty"`
-	// Omit names arguments to leave out of generated configuration:
+	// Omit names arguments to leave out of generated configuration, or,
+	// as name=value, attributes to leave out where they are set to value:
 	// deprecated ones whose settings separate resources carry, and ones
 	// the provider computes.
 	Omit []string `yaml:"omit,omitempty"`

@@ -11,7 +11,7 @@ variable "subscription_id" {
 variable "location" {
   description = "Where the resource groups and the identities are; the estate is created in its resource group's location."
   type        = string
-  default     = "westeurope"
+  default     = "uksouth"
 }
 
 variable "github_repository" {

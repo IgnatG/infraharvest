@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-network/providers/Microsoft.Network/virtualNetworks/vnet-hub", "name": "vnet_hub", "attributes": {"name": "vnet-hub", "resource_group_name": "rg-network"}}
+]}
