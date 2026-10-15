@@ -124,6 +124,9 @@ func (g *ResourceGraphLister) List() error {
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
 	g.Resources = graphResources(found, g.catalogue(), knownTypes(sourceTypes, query))
+	if err := g.Context().Err(); err != nil {
+		return err
+	}
 	if g.Verbose() {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}

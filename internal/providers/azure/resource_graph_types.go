@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -55,10 +56,15 @@ func (m mapping) records(id string, attributes map[string]string) []harvest.Reso
 	return resources
 }
 
-// fromQuery maps id through query, which aztft answers.
+// fromQuery maps id through query, which aztft answers. Once the import
+// is interrupted, query fails with the context's error, and id maps to
+// nothing, without a line for each resource: the lister returns the
+// error.
 func fromQuery(id string, query queryType) mapping {
 	types, ids, exact, err := query(id)
 	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return mapping{}
 	case err != nil:
 		return mapping{leftOut: ": " + err.Error()}
 	case len(types) == 0:
@@ -134,8 +140,10 @@ func fromListing(res azlist.AzureResource, attributes map[string]string) (mappin
 // Resource Manager itself. Requests for anything else, such as a storage
 // queue's import ID, go to Resource Manager.
 //
-// Every request fails once ctx is done: aztft sends its own without a
-// context, so an interrupt would otherwise not stop them.
+// Once ctx is done, the queryType fails with its error, and so does every
+// request of a lookup under way, without the Azure SDK retrying it: aztft
+// sends its requests without a context, so an interrupt would otherwise
+// not stop them.
 func newLookup(ctx context.Context, credential azcore.TokenCredential, options arm.ClientOptions, listed []azlist.AzureResource) (queryType, *atomic.Int64) {
 	next := options.Transport
 	if next == nil {
@@ -155,6 +163,9 @@ func newLookup(ctx context.Context, credential azcore.TokenCredential, options a
 		return &aztft.APIOption{Cred: credential, ClientOption: clientOptions}, transport
 	}
 	return func(id string) ([]aztft.Type, []string, bool, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, false, err
+		}
 		fromListed, transport := apiOption(bodies)
 		types, ids, exact, err := aztft.QueryTypeAndId(id, fromListed)
 		if err == nil || transport.answered.Load() == 0 {
@@ -183,7 +194,7 @@ type listingTransport struct {
 
 func (t *listingTransport) Do(r *http.Request) (*http.Response, error) {
 	if err := t.ctx.Err(); err != nil {
-		return nil, err
+		return nil, interruptedError{err}
 	}
 	if body, ok := t.listedBody(r); ok {
 		t.answered.Add(1)
@@ -235,3 +246,15 @@ func inParallel(items []int, do func(int)) {
 	}
 	wg.Wait()
 }
+
+// interruptedError is the error a lookup's requests fail with once the
+// import is interrupted: the context's error.
+type interruptedError struct{ err error }
+
+func (e interruptedError) Error() string { return e.err.Error() }
+
+func (e interruptedError) Unwrap() error { return e.err }
+
+// NonRetriable stops the Azure SDK's retry policy retrying the request,
+// as it otherwise retries a failed one several times, seconds apart.
+func (interruptedError) NonRetriable() {}

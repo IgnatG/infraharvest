@@ -5,7 +5,9 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -188,7 +190,8 @@ func TestLookupReadsTheListing(t *testing.T) {
 }
 
 // Once the import is interrupted, no lookup reaches Resource Manager:
-// aztft sends its requests without a context.
+// aztft sends its requests without a context. A request of a lookup under
+// way fails with an error the Azure SDK doesn't retry, seconds apart.
 func TestLookupStopsWhenInterrupted(t *testing.T) {
 	const site = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.Web/sites/app"
 	ctx, cancel := context.WithCancel(t.Context())
@@ -201,6 +204,19 @@ func TestLookupStopsWhenInterrupted(t *testing.T) {
 	}
 	if len(transport.paths) != 0 || sent.Load() != 0 {
 		t.Errorf("sent %d requests after the interrupt: %v", sent.Load(), transport.paths)
+	}
+
+	underWay := &listingTransport{ctx: ctx, next: transport, sent: sent}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://management.azure.com"+site+"?api-version=2024-04-01", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nonRetriable interface{ NonRetriable() }
+	if _, err := underWay.Do(req); !errors.Is(err, context.Canceled) || !errors.As(err, &nonRetriable) {
+		t.Errorf("a request after the interrupt: %v, want a non-retriable context.Canceled", err)
+	}
+	if len(transport.paths) != 0 {
+		t.Errorf("sent %v after the interrupt", transport.paths)
 	}
 }
 
