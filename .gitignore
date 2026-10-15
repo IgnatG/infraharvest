@@ -1,8 +1,10 @@
 .idea
-# The binary, and the default output directory of an import
+# The binary, including builds with a tag set such as infraharvest-aws
 /infraharvest
 /infraharvest-*
 /infraharvest.exe
+# The default output directory of an import
+/infraharvest-out/
 .DS_Store
 .terraform
 .vscode

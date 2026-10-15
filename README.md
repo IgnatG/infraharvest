@@ -43,7 +43,7 @@ infraharvest needs Terraform 1.5 or later, which it downloads if there is none o
 ```sh
 infraharvest discover aws --services=vpc,subnet,sg,s3 --regions=eu-west-2    # writes selection.yaml to review
 infraharvest import aws --services=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
-cd infraharvest/aws/<account>/eu-west-2 && terraform init && terraform plan       # imports, changes nothing
+cd infraharvest-out/aws/<account>/eu-west-2 && terraform init && terraform plan   # imports, changes nothing
 ```
 
 See the [Quickstart](docs/quickstart.md) for Azure and Google Cloud.

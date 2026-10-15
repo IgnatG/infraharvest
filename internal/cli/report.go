@@ -13,10 +13,10 @@ func newReportCmd() *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "report [output-directory]",
-		Short: "Print the report of an import (default directory: infraharvest)",
+		Short: "Print the report of an import (default directory: " + importer.DefaultOut + ")",
 		Long: "Print the report an import wrote into its output directory (default:\n" +
-			"infraharvest): what was imported, left out and excluded, with the checks.\n" +
-			"--format json prints it as JSON, as import --format json does.",
+			importer.DefaultOut + "): what was imported, left out and excluded, with the\n" +
+			"checks. --format json prints it as JSON, as import --format json does.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

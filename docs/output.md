@@ -2,7 +2,7 @@
 
 ## Layout
 
-By default each root is one state boundary: `<out>/<provider>/<account>/<region>/`, with `global` for global services such as IAM. Azure uses the subscription and the resource group instead (`all` for the whole subscription), and Google Cloud the project and the region (`global` for what belongs to no region); see each cloud's page. `--layout` can change that, with `{account}` and `{region}` as well as `{out}`, `{provider}` and `{service}`.
+Roots go under the `--out` directory, `<out>` below, which is `infraharvest-out` unless set. By default each root is one state boundary: `<out>/<provider>/<account>/<region>/`, with `global` for global services such as IAM. Azure uses the subscription and the resource group instead (`all` for the whole subscription), and Google Cloud the project and the region (`global` for what belongs to no region); see each cloud's page. `--layout` can change that, with `{account}` and `{region}` as well as `{out}`, `{provider}` and `{service}`.
 
 With `--env-tags=Environment` (any tag or label keys, first match wins), each environment gets roots of its own, with their own state: `<out>/envs/<env>/<provider>/<account>/<region>/`, or wherever `{env}` is in `--layout`. A resource without the tag, such as a bucket's versioning or a subnet's route table association, goes with the tagged resource whose ID its import ID contains, a child import with its parent, and anything else to `shared`. References to what another root manages read it through a data source, where its type has one. Identical shapes in different environments share one generated local module, called from each root. Environments are opt-in: an earlier import's roots keep their paths, so `--incremental` never generates a resource twice.
 

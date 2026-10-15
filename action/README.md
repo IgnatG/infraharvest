@@ -53,7 +53,7 @@ Run again on a schedule, the action adds what is new to the roots the repository
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
 | `engine` | `terraform` | `terraform` or `tofu` |
-| `out` | `infraharvest` | Directory for the configuration and the report |
+| `out` | `infraharvest-out` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
 | `incremental` | `true` | Add what is new to the roots `out` already has, in files of their own (`--incremental`), instead of failing on them |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
