@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: cloudtrail
+types:
+  # The lister records a trail by its ARN, which Terraform imports it by.
+  aws_cloudtrail: {}

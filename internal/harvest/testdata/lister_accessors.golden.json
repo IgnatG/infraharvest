@@ -1,0 +1,115 @@
+[
+  {
+    "check": "zero: Name",
+    "value": ""
+  },
+  {
+    "check": "zero: Provider",
+    "value": ""
+  },
+  {
+    "check": "zero: Settings is nil",
+    "value": true
+  },
+  {
+    "check": "zero: Listed is nil",
+    "value": true
+  },
+  {
+    "check": "zero: Filters is nil",
+    "value": true
+  },
+  {
+    "check": "zero: Verbose",
+    "value": false
+  },
+  {
+    "check": "zero: Context is Background",
+    "value": true
+  },
+  {
+    "check": "zero: Context has no Done channel",
+    "value": true
+  },
+  {
+    "check": "zero: Prune panics",
+    "value": false
+  },
+  {
+    "check": "zero: after Prune, Resources is nil",
+    "value": true
+  },
+  {
+    "check": "set: Name",
+    "value": "ec2"
+  },
+  {
+    "check": "set: Provider",
+    "value": "aws"
+  },
+  {
+    "check": "set: Verbose",
+    "value": true
+  },
+  {
+    "check": "set: Settings",
+    "value": {
+      "added": "later",
+      "region": "eu-west-1"
+    }
+  },
+  {
+    "check": "set: Settings shares the map",
+    "value": "later"
+  },
+  {
+    "check": "set: Listed",
+    "value": [
+      {
+        "type": "aws_vpc",
+        "address": "aws_vpc.r--vpc-1",
+        "stateId": "vpc-1"
+      }
+    ]
+  },
+  {
+    "check": "set: Listed shares the slice",
+    "value": true
+  },
+  {
+    "check": "set: SetListed(nil) gives nil",
+    "value": true
+  },
+  {
+    "check": "set: Configure with nothing clears the name",
+    "value": ""
+  },
+  {
+    "check": "set: Configure with nothing clears Verbose",
+    "value": false
+  },
+  {
+    "check": "set: Configure with nothing gives nil Settings",
+    "value": true
+  },
+  {
+    "check": "context: value of the set context",
+    "value": "set"
+  },
+  {
+    "check": "context: is the set context",
+    "value": true
+  },
+  {
+    "check": "context: unset again is Background",
+    "value": true
+  },
+  {
+    "check": "provider: zero Selected is nil",
+    "value": true
+  },
+  {
+    "check": "provider: Selected is the Current field",
+    "value": true
+  }
+]

@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: docdb
+types:
+  aws_docdb_cluster:
+    arn: { service: rds, resource_type: "cluster" }

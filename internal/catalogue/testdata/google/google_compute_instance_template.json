@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/instanceTemplates/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/instanceTemplates/gke-prod-default-pool-1a2b3c4d", "name": "gke_prod_default_pool_1a2b3c4d", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d", "asset.location": "global"}}
+]}

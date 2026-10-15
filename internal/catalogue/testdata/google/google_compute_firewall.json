@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/firewalls/allow-https", "name": "allow_https", "attributes": {"asset.project": "acme-prod", "asset.name": "allow-https", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/firewalls/default-allow-ssh", "name": "default_allow_ssh", "attributes": {"asset.project": "acme-prod", "asset.name": "default-allow-ssh", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/firewalls/gke-prod-1a2b3c4d-all", "name": "gke_prod_1a2b3c4d_all", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-1a2b3c4d-all", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/firewalls/k8s-fw-a0b1c2d3e4f5", "name": "k8s_fw_a0b1c2d3e4f5", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s-fw-a0b1c2d3e4f5", "asset.location": "global"}}
+]}

@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: eni
+types:
+  aws_network_interface:
+    arn: { service: ec2, resource_type: "network-interface" }
+    cloud_control: { type: "AWS::EC2::NetworkInterface", identifier: Id }

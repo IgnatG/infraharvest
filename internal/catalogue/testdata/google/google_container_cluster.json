@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/us-central1/clusters/prod", "name": "prod", "attributes": {"asset.project": "acme-prod", "asset.name": "prod", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/clusters/dev", "name": "dev", "attributes": {"asset.project": "acme-prod", "asset.name": "dev", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke", "name": "pipelines", "attributes": {"asset.project": "acme-prod", "asset.name": "us-central1-pipelines-1a2b3c4d-gke", "asset.location": "us-central1", "labels.goog-composer-environment": "pipelines", "labels.goog-composer-location": "us-central1", "labels.goog-composer-version": "composer-2-9-7-airflow-2-9-3"}},
+  {"id": "legacy", "name": "legacy", "attributes": {"name": "legacy", "location": "europe-west1"}}
+]}

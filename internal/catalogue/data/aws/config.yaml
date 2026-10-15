@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: config
+types:
+  aws_config_config_rule:
+    cloud_control: { type: "AWS::Config::ConfigRule", identifier: ConfigRuleName }
+  aws_config_configuration_recorder:
+    cloud_control: { type: "AWS::Config::ConfigurationRecorder", identifier: Name }
+    skip:
+      - reason: a service-linked configuration recorder, which an AWS service creates and manages
+        id_prefixes: [AWSConfigurationRecorderFor]
+  aws_config_delivery_channel:
+    cloud_control: { type: "AWS::Config::DeliveryChannel", identifier: Name }

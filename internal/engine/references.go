@@ -1,0 +1,416 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package engine
+
+import (
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
+)
+
+// referenceTarget is a resource attribute a literal can refer to instead.
+type referenceTarget struct {
+	address   string
+	attribute string
+	// data is set for a data source (see addDataSources).
+	data bool
+}
+
+func (t referenceTarget) traversal() hcl.Traversal {
+	typ, name, _ := strings.Cut(t.address, ".")
+	steps := hcl.Traversal{hcl.TraverseAttr{Name: typ}, hcl.TraverseAttr{Name: name}, hcl.TraverseAttr{Name: t.attribute}}
+	if t.data {
+		return append(hcl.Traversal{hcl.TraverseRoot{Name: "data"}}, steps...)
+	}
+	return append(hcl.Traversal{hcl.TraverseRoot{Name: typ}}, steps[1:]...)
+}
+
+// node is the target's name in the dependency graph.
+func (t referenceTarget) node() string {
+	if t.data {
+		return "data." + t.address
+	}
+	return t.address
+}
+
+// addReferences replaces literals in generated.tf that are another
+// resource's id, ARN or self link, by its imported values, with a
+// reference to that attribute: vpc_id = aws_vpc.main.id. A value counts
+// if it identifies a resource on its own (see referenceable), or if the
+// argument is named after the resource's type, like an S3 bucket name in
+// bucket = "...". An argument that names a parent resource refers to it
+// too (see parentNames): resource_group_name =
+// azurerm_resource_group.main.name.
+// It doesn't make a resource refer to itself or two resources refer to
+// each other, directly or not. It reports whether it changed anything.
+func addReferences(dir string, values map[string]map[string]any) (bool, error) {
+	index := referenceIndex(values)
+	parents := parentIndex(values)
+	if len(index) == 0 && len(parents.byName) == 0 {
+		return false, nil
+	}
+	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	if err != nil {
+		return false, err
+	}
+	g := dependencies{}
+	changed := false
+	for _, r := range generated.resources() {
+		if referenceAttributes(r.address, r.syntax.Body, r.write.Body(), index, parents, g, generated.src) {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	return true, generated.save()
+}
+
+// referenceIndex maps each id, ARN, self link, email and IAM member value,
+// such as a service account's serviceAccount:<email>, to the attributes
+// to refer to instead, one per resource that has the value, by address.
+// Which of them a literal refers to, if any, depends on where it is (see
+// uniqueTarget).
+func referenceIndex(values map[string]map[string]any) map[string][]referenceTarget {
+	index := map[string][]referenceTarget{}
+	for address, attrs := range values {
+		for _, key := range []string{"id", "arn", "self_link", "email", "member"} {
+			v, ok := attrs[key].(string)
+			if !ok || v == "" || slices.ContainsFunc(index[v], func(t referenceTarget) bool { return t.address == address }) {
+				continue
+			}
+			// Only an identity, which has an email, is the member it names; an
+			// IAM grant names its member too.
+			if email, _ := attrs["email"].(string); key == "member" && email == "" {
+				continue
+			}
+			attribute := "id"
+			switch {
+			case attrs["arn"] == v:
+				attribute = "arn"
+			case attrs["self_link"] == v:
+				attribute = "self_link"
+			case attrs["name"] == v:
+				attribute = "name"
+			case attrs["bucket"] == v:
+				attribute = "bucket"
+			case attrs["email"] == v:
+				attribute = "email"
+			case attrs["member"] == v:
+				attribute = "member"
+			}
+			index[v] = append(index[v], referenceTarget{address: address, attribute: attribute})
+		}
+	}
+	for _, targets := range index {
+		sort.Slice(targets, func(i, j int) bool { return targets[i].address < targets[j].address })
+	}
+	return index
+}
+
+// uniqueTarget picks, of the resources that have value, the one the
+// argument refers to: the one resource, or the others' parent (an S3
+// bucket, whose versioning and policy resources have the bucket's name as
+// their id too), if the value identifies a resource on its own (see
+// referenceable) or the argument is named after the parent's type; else
+// the one resource whose type the argument is named after (role = "ci"
+// names aws_iam_role.ci, not aws_iam_instance_profile.ci). It reports
+// false when there is none.
+func uniqueTarget(argument, value string, targets []referenceTarget) (referenceTarget, bool) {
+	addresses := make([]string, 0, len(targets))
+	for _, t := range targets {
+		addresses = append(addresses, t.address)
+	}
+	if parent := parentOf(addresses); parent != "" && (referenceable(value) || namedAfter(argument, parent)) {
+		for _, t := range targets {
+			if t.address == parent {
+				return t, true
+			}
+		}
+	}
+	if referenceable(value) {
+		return referenceTarget{}, false
+	}
+	var named []referenceTarget
+	for _, t := range targets {
+		if namedAfter(argument, t.address) {
+			named = append(named, t)
+		}
+	}
+	if len(named) != 1 {
+		return referenceTarget{}, false
+	}
+	return named[0], true
+}
+
+// parentOf returns the one address, or the address whose type starts every
+// other address's type; "" if there is none.
+func parentOf(addresses []string) string {
+	if len(addresses) == 1 {
+		return addresses[0]
+	}
+	sort.Strings(addresses)
+	for _, candidate := range addresses {
+		parentType := resourceTypeOf(candidate)
+		isParent := true
+		for _, other := range addresses {
+			if other != candidate && !strings.HasPrefix(resourceTypeOf(other), parentType+"_") {
+				isParent = false
+				break
+			}
+		}
+		if isParent {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func resourceTypeOf(address string) string {
+	typ, _, _ := strings.Cut(address, ".")
+	return typ
+}
+
+// referenceable reports whether a value identifies a resource on its own:
+// an ARN, a URL (an SQS queue's id), a cloud ID such as vpc-0abc1234 or a
+// Google service account's email, not a name another resource could share
+// by chance.
+func referenceable(value string) bool {
+	return liftable.MatchString(value) || strings.HasPrefix(value, "https://") || strings.HasSuffix(value, ".gserviceaccount.com")
+}
+
+// namedAfter reports whether argument is named after the last word of the
+// referenced resource's type: bucket for aws_s3_bucket, role for
+// aws_iam_role, rule for aws_cloudwatch_event_rule.
+func namedAfter(argument, address string) bool {
+	typ := resourceTypeOf(address)
+	return argument == typ[strings.LastIndex(typ, "_")+1:]
+}
+
+// referenceAttributes replaces the literals in body, of the resource at
+// address, and in its nested blocks, with references to the resources of
+// index and parents. It records the references it adds in g and skips
+// those that would close a cycle.
+func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, index map[string][]referenceTarget, parents parentNames, g dependencies, src []byte) bool {
+	changed := false
+	names := make([]string, 0, len(syntax.Attributes))
+	for name := range syntax.Attributes {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		return syntax.Attributes[names[i]].SrcRange.Start.Byte < syntax.Attributes[names[j]].SrcRange.Start.Byte
+	})
+	target := func(argument, value string) (referenceTarget, bool) {
+		t, ok := uniqueTarget(argument, value, index[value])
+		if !ok {
+			t, ok = parents.parent(address, argument, value)
+		}
+		if !ok || t.address == address {
+			return referenceTarget{}, false
+		}
+		return t, g.add(address, t.node())
+	}
+	for _, name := range names {
+		switch expr := syntax.Attributes[name].Expr.(type) {
+		case *hclsyntax.TemplateExpr:
+			if v, ok := literalString(expr); ok {
+				if t, ok := target(name, v); ok {
+					body.SetAttributeTraversal(name, t.traversal())
+					changed = true
+				}
+			}
+		case *hclsyntax.TupleConsExpr:
+			if tokens, ok := referenceTuple(name, expr, target, src); ok {
+				body.SetAttributeRaw(name, tokens)
+				changed = true
+			}
+		}
+	}
+	blocks := body.Blocks()
+	for i, b := range syntax.Blocks {
+		if i < len(blocks) && referenceAttributes(address, b.Body, blocks[i].Body(), index, parents, g, src) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// referenceTuple rewrites a list with the string literals that are
+// references replaced, if any are, and those of its objects' attributes,
+// such as a route table's routes. Other elements stay as written in src.
+func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(argument, value string) (referenceTarget, bool), src []byte) (hclwrite.Tokens, bool) {
+	elems := make([]hclwrite.Tokens, 0, len(expr.Exprs))
+	replaced := false
+	for _, e := range expr.Exprs {
+		if object, ok := e.(*hclsyntax.ObjectConsExpr); ok {
+			if tokens, ok := referenceObject(object, target, src); ok {
+				elems = append(elems, tokens)
+				replaced = true
+				continue
+			}
+		}
+		if tmpl, ok := e.(*hclsyntax.TemplateExpr); ok {
+			if v, ok := literalString(tmpl); ok {
+				if t, ok := target(argument, v); ok {
+					elems = append(elems, hclwrite.TokensForTraversal(t.traversal()))
+					replaced = true
+				} else {
+					elems = append(elems, hclwrite.TokensForValue(cty.StringVal(v)))
+				}
+				continue
+			}
+		}
+		rng := e.Range()
+		if rng.End.Byte > len(src) || rng.Start.Byte > rng.End.Byte {
+			return nil, false
+		}
+		elems = append(elems, hclwrite.Tokens{{Type: hclsyntax.TokenIdent, Bytes: rng.SliceBytes(src)}})
+	}
+	if !replaced {
+		return nil, false
+	}
+	return hclwrite.TokensForTuple(elems), true
+}
+
+// referenceObject rewrites an object with the string literals of its
+// attributes that are references replaced, if any are, each as the
+// argument its key names. Other attributes stay as written in src.
+func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value string) (referenceTarget, bool), src []byte) (hclwrite.Tokens, bool) {
+	attrs := make([]hclwrite.ObjectAttrTokens, 0, len(expr.Items))
+	replaced := false
+	asWritten := func(e hclsyntax.Expression) (hclwrite.Tokens, bool) {
+		rng := e.Range()
+		if rng.End.Byte > len(src) || rng.Start.Byte > rng.End.Byte {
+			return nil, false
+		}
+		return hclwrite.Tokens{{Type: hclsyntax.TokenIdent, Bytes: rng.SliceBytes(src)}}, true
+	}
+	for _, item := range expr.Items {
+		key, ok := asWritten(item.KeyExpr)
+		if !ok {
+			return nil, false
+		}
+		if tmpl, ok := item.ValueExpr.(*hclsyntax.TemplateExpr); ok {
+			if v, ok := literalString(tmpl); ok {
+				if t, ok := target(hcl.ExprAsKeyword(item.KeyExpr), v); ok {
+					attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: hclwrite.TokensForTraversal(t.traversal())})
+					replaced = true
+					continue
+				}
+			}
+		}
+		value, ok := asWritten(item.ValueExpr)
+		if !ok {
+			return nil, false
+		}
+		attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: value})
+	}
+	if !replaced {
+		return nil, false
+	}
+	return hclwrite.TokensForObject(attrs), true
+}
+
+func literalString(expr *hclsyntax.TemplateExpr) (string, bool) {
+	if !expr.IsStringLiteral() {
+		return "", false
+	}
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.Type().Equals(cty.String) {
+		return "", false
+	}
+	return v.AsString(), true
+}
+
+// dependencies are the references between resources, from referrer to
+// referenced.
+type dependencies map[string]map[string]bool
+
+// add records that from refers to to, unless to already depends on from,
+// directly or not, which would make a cycle. It reports whether it added
+// the reference.
+func (g dependencies) add(from, to string) bool {
+	if g.reaches(to, from, map[string]bool{}) {
+		return false
+	}
+	if g[from] == nil {
+		g[from] = map[string]bool{}
+	}
+	g[from][to] = true
+	return true
+}
+
+func (g dependencies) reaches(from, to string, seen map[string]bool) bool {
+	if from == to {
+		return true
+	}
+	if seen[from] {
+		return false
+	}
+	seen[from] = true
+	for next := range g[from] {
+		if g.reaches(next, to, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+// parentNames finds the parent a resource names, such as the resource
+// group of resource_group_name, by the name and the IDs: Azure's IDs are
+// paths, and a child's starts with its parent's, so that a name another
+// resource group shares by chance doesn't count.
+type parentNames struct {
+	// byName has the resources with a path for an ID, by name.
+	byName map[string][]namedResource
+	// ids has every resource's ID, by address.
+	ids map[string]string
+}
+
+type namedResource struct {
+	address, id string
+}
+
+// parentIndex indexes the resources of values whose IDs are paths.
+func parentIndex(values map[string]map[string]any) parentNames {
+	p := parentNames{byName: map[string][]namedResource{}, ids: map[string]string{}}
+	for address, attrs := range values {
+		id, _ := attrs["id"].(string)
+		if !strings.HasPrefix(id, "/") {
+			continue
+		}
+		p.ids[address] = id
+		if name, _ := attrs["name"].(string); name != "" {
+			p.byName[name] = append(p.byName[name], namedResource{address: address, id: id})
+		}
+	}
+	return p
+}
+
+// parent returns the resource an argument <type>_name of the resource at
+// address names: the one resource of a type ending in <type> with that
+// name whose ID the resource's ID starts with, whatever the case.
+func (p parentNames) parent(address, argument, value string) (referenceTarget, bool) {
+	kind, ok := strings.CutSuffix(argument, "_name")
+	own := strings.ToLower(p.ids[address])
+	if !ok || kind == "" || own == "" {
+		return referenceTarget{}, false
+	}
+	var found []namedResource
+	for _, r := range p.byName[value] {
+		if r.address != address && strings.HasSuffix(resourceTypeOf(r.address), "_"+kind) && strings.HasPrefix(own, strings.ToLower(r.id)+"/") {
+			found = append(found, r)
+		}
+	}
+	if len(found) != 1 {
+		return referenceTarget{}, false
+	}
+	return referenceTarget{address: found[0].address, attribute: "name"}, true
+}

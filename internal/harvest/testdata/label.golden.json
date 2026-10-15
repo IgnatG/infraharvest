@@ -1,0 +1,142 @@
+[
+  {
+    "name": "\"\"",
+    "label": "r--"
+  },
+  {
+    "name": "\"simple\"",
+    "label": "r--simple"
+  },
+  {
+    "name": "\"UPPER_lower-123\"",
+    "label": "r--UPPER_lower-123"
+  },
+  {
+    "name": "\"-_-\"",
+    "label": "r---_-"
+  },
+  {
+    "name": "\"r--already\"",
+    "label": "r--r--already"
+  },
+  {
+    "name": "\"with space\"",
+    "label": "r--with-0020-space"
+  },
+  {
+    "name": "\"  two  spaces \"",
+    "label": "r---0020--0020-two-0020--0020-spaces-0020-"
+  },
+  {
+    "name": "\"dots.and/slashes\"",
+    "label": "r--dots-002E-and-002F-slashes"
+  },
+  {
+    "name": "\"a:b\"",
+    "label": "r--a-003A-b"
+  },
+  {
+    "name": "\"a=b\"",
+    "label": "r--a-003D-b"
+  },
+  {
+    "name": "\"a+b\"",
+    "label": "r--a-002B-b"
+  },
+  {
+    "name": "\"100%\"",
+    "label": "r--100-0025-"
+  },
+  {
+    "name": "\"@#$&*()[]{}<>\"",
+    "label": "r---0040--0023--0024--0026--002A--0028--0029--005B--005D--007B--007D--003C--003E-"
+  },
+  {
+    "name": "\"quote'\\\"`\"",
+    "label": "r--quote-0027--0022--0060-"
+  },
+  {
+    "name": "\"back\\\\slash\"",
+    "label": "r--back-005C-slash"
+  },
+  {
+    "name": "\"tab\\tnew\\nline\"",
+    "label": "r--tab-0009-new-000A-line"
+  },
+  {
+    "name": "\"\\x00\"",
+    "label": "r---0000-"
+  },
+  {
+    "name": "\"\\x01\"",
+    "label": "r---0001-"
+  },
+  {
+    "name": "\"\\x1f\"",
+    "label": "r---001F-"
+  },
+  {
+    "name": "\"\\x7f\"",
+    "label": "r---007F-"
+  },
+  {
+    "name": "\"\\u00e9\"",
+    "label": "r---C3A9-"
+  },
+  {
+    "name": "\"na\\u00efve caf\\u00e9\"",
+    "label": "r--na-C3AF-ve-0020-caf-C3A9-"
+  },
+  {
+    "name": "\"\\u65e5\\u672c\"",
+    "label": "r---E697A5--E69CAC-"
+  },
+  {
+    "name": "\"\\U0001f600\"",
+    "label": "r---F09F9880-"
+  },
+  {
+    "name": "\"\\u00a0\"",
+    "label": "r---C2A0-"
+  },
+  {
+    "name": "\"\\u2028\"",
+    "label": "r---E280A8-"
+  },
+  {
+    "name": "\"\\u03a9\"",
+    "label": "r---CEA9-"
+  },
+  {
+    "name": "\"\\xff\"",
+    "label": "r---00FF-"
+  },
+  {
+    "name": "\"a\\xffb\"",
+    "label": "r--a-00FF-b"
+  },
+  {
+    "name": "\"\\xc3\"",
+    "label": "r---00C3-"
+  },
+  {
+    "name": "\"\\xe2\\x82\"",
+    "label": "r---00E2--0082-"
+  },
+  {
+    "name": "\"arn:aws:iam::123456789012:role/admin\"",
+    "label": "r--arn-003A-aws-003A-iam-003A--003A-123456789012-003A-role-002F-admin"
+  },
+  {
+    "name": "\"projects/p/zones/europe-west1-b/instances/vm-1\"",
+    "label": "r--projects-002F-p-002F-zones-002F-europe-west1-b-002F-instances-002F-vm-1"
+  },
+  {
+    "name": "\"/subscriptions/0000/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet\"",
+    "label": "r---002F-subscriptions-002F-0000-002F-resourceGroups-002F-rg-002F-providers-002F-Microsoft-002E-Network-002F-virtualNetworks-002F-vnet"
+  },
+  {
+    "name": "\"https://sqs/1/my queue\"",
+    "label": "r--https-003A--002F--002F-sqs-002F-1-002F-my-0020-queue"
+  }
+]

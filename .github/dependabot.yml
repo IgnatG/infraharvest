@@ -1,0 +1,51 @@
+version: 2
+updates:
+  # One grouped PR per week: every PR runs the full (heavy) CI.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      go-modules:
+        patterns: ["*"]
+    cooldown:
+      default-days: 1
+
+  # The Floci emulator image the end-to-end tests run against.
+  - package-ecosystem: docker-compose
+    directory: /e2e
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
+
+  # The workflows and the actions action/action.yml pins.
+  - package-ecosystem: github-actions
+    directories: ["/", "/action"]
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    cooldown:
+      default-days: 1
+
+  # The base image digests pinned in the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
+
+  # The documentation site's build (docs/requirements.txt).
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: weekly
+    groups:
+      docs:
+        patterns: ["*"]
+    cooldown:
+      default-days: 7

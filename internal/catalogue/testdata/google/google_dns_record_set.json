@@ -1,0 +1,7 @@
+{"resources": [
+  {"id": "projects/acme-prod/managedZones/example-com/rrsets/www.example.com./A", "name": "example-com_www_example_com-A", "attributes": {"project": "acme-prod", "managed_zone": "example-com", "name": "www.example.com.", "type": "A", "dns_name": "example.com.", "apex": "false"}},
+  {"id": "projects/acme-prod/managedZones/example-com/rrsets/example.com./MX", "name": "example-com_example_com-MX", "attributes": {"project": "acme-prod", "managed_zone": "example-com", "name": "example.com.", "type": "MX", "dns_name": "example.com.", "apex": "true"}},
+  {"id": "projects/acme-prod/managedZones/example-com/rrsets/dev.example.com./NS", "name": "example-com_dev_example_com-NS", "attributes": {"project": "acme-prod", "managed_zone": "example-com", "name": "dev.example.com.", "type": "NS", "dns_name": "example.com.", "apex": "false"}},
+  {"id": "projects/acme-prod/managedZones/example-com/rrsets/example.com./NS", "name": "example-com_example_com-NS", "attributes": {"project": "acme-prod", "managed_zone": "example-com", "name": "example.com.", "type": "NS", "dns_name": "example.com.", "apex": "true"}},
+  {"id": "projects/acme-prod/managedZones/example-com/rrsets/example.com./SOA", "name": "example-com_example_com-SOA", "attributes": {"project": "acme-prod", "managed_zone": "example-com", "name": "example.com.", "type": "SOA", "dns_name": "example.com.", "apex": "true"}}
+]}

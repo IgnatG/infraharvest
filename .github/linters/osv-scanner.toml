@@ -1,0 +1,15 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# osv-scanner configuration, for MegaLinter (.mega-linter.yml). Each ignored
+# vulnerability says why, and expires so that it's looked at again.
+
+# golang.org/x/crypto/openpgp is unmaintained (no fixed version). Nothing
+# in infraharvest or its dependencies' code that the binary includes
+# imports it: the tests workflow's govulncheck job, which checks the
+# binary, finds nothing. hc-install verifies downloads with
+# github.com/ProtonMail/go-crypto instead.
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-01-15
+reason = "golang.org/x/crypto/openpgp is not imported by anything the binary includes (govulncheck finds nothing)"

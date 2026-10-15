@@ -1,0 +1,316 @@
+name: tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # macOS runs in macos.yml, after merges: its build takes about 40 minutes.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    # Ubuntu runners have ~14 GB free, too little for this module's dependencies.
+    - name: Free disk space
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Check go.mod and go.sum are tidy
+      run: go mod tidy -diff
+    # Build only the shipped binary; `go test ./...` compiles every package
+    # anyway.
+    - name: Build
+      run: go build -o infraharvest .
+    - name: Test
+      run: go test ./...
+    # Accounts and projects import in parallel (--parallel): the run state
+    # they share, under the race detector. Two providers keep the build
+    # small.
+    - name: Race
+      run: go test -race -tags minimal,aws,google ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
+
+  # Windows runners are slow to compile all providers, so test the packages
+  # with OS-specific behaviour (file modes, paths, home directory lookup).
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Test
+      run: go test ./internal/engine/... ./internal/harvest/... ./internal/fsutil/... ./internal/managed/... ./internal/providers/aws/... ./internal/providers/azure/...
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+    # Ubuntu runners have ~14 GB free, too little for this module's dependencies.
+    - name: Free disk space
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Build
+      run: go build -o infraharvest .
+    # Binary mode checks the symbols compiled into the binary; source mode
+    # needs more memory than a standard runner has for this module. Fails
+    # unless .github/govulncheck-allowlist.txt covers every finding.
+    - name: govulncheck
+      run: .github/scripts/govulncheck-gate.sh ./infraharvest
+
+  # Runs the Terraform engine end to end against real Terraform and the
+  # random provider (no cloud credentials needed).
+  engine-integration:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Test
+      run: go test -tags integration ./internal/engine/...
+
+  # Imports resources from Floci, a local AWS emulator, with the Terraform
+  # engine and checks the generated configuration plans with no changes.
+  # No AWS account or credentials are involved.
+  # The same round trip with each engine: the output must work on both.
+  e2e-aws:
+    name: e2e-aws (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [terraform, tofu]
+    steps:
+    # The AWS provider is ~700 MB unpacked and is installed twice.
+    - name: Free disk space
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: matrix.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: matrix.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    # The gate runs the scanners it finds (G5): tflint must find nothing in
+    # the generated configuration; trivy only reports.
+    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      with:
+        tflint_version: v0.64.0
+    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+      with:
+        version: v0.75.0
+    - name: Format
+      env:
+        ENGINE: ${{ matrix.engine }}
+      run: $ENGINE fmt -check -recursive -diff e2e
+    - name: Start Floci
+      run: docker compose -f e2e/compose.yaml up -d --wait
+    - name: Test
+      env:
+        AWS_ENDPOINT_URL: http://localhost:4566
+        E2E_ENGINE: ${{ matrix.engine }}
+      run: go test -tags e2e,minimal,aws -timeout 25m -v ./e2e/
+    - name: Floci logs
+      if: failure()
+      run: docker compose -f e2e/compose.yaml logs
+    # The sandbox test runs only by hand (sandbox-aws), so check here that
+    # it builds.
+    - name: Vet the sandbox test
+      if: matrix.engine == 'terraform'
+      run: go vet -tags e2e,sandbox,minimal,aws ./e2e/
+
+  e2e-google:
+    name: e2e-google (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [terraform, tofu]
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: matrix.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: matrix.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    - name: Start floci-gcp
+      run: |
+        docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
+        for _ in $(seq 60); do curl -s -o /dev/null http://localhost:4588/ && exit 0; sleep 2; done
+        echo "floci-gcp didn't start"; exit 1
+    - name: Test
+      env:
+        INFRAHARVEST_GCP_ENDPOINT: http://localhost:4588
+        E2E_ENGINE: ${{ matrix.engine }}
+      run: go test -tags e2e,minimal,google -timeout 20m -v -run TestGoogle ./e2e/
+    - name: floci-gcp logs
+      if: failure()
+      run: docker compose -f e2e/compose.yaml --profile google logs floci-gcp
+
+  e2e-azure:
+    name: e2e-azure (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [terraform, tofu]
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: matrix.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: matrix.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    # The azurerm provider and the listers reach floci-az over HTTPS: trust
+    # the CA it generates at startup.
+    - name: Start floci-az
+      run: |
+        docker compose -f e2e/compose.yaml --profile azure up -d floci-az
+        for _ in $(seq 60); do
+          if curl -sf http://localhost:4577/_floci/tls-cert -o floci-az.crt && grep -q "BEGIN CERTIFICATE" floci-az.crt; then
+            sudo cp floci-az.crt /usr/local/share/ca-certificates/floci-az.crt
+            sudo update-ca-certificates
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "floci-az didn't start"; exit 1
+    - name: Test
+      env:
+        E2E_AZURE_METADATA_HOST: localhost:4577
+        E2E_ENGINE: ${{ matrix.engine }}
+      run: go test -tags e2e,minimal,azure -timeout 20m -v -run TestAzure ./e2e/
+    - name: floci-az logs
+      if: failure()
+      run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
+
+  # The read-only permission templates must stay formatted and valid.
+  permissions:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      with:
+        terraform_wrapper: false
+    - name: Format
+      run: terraform fmt -check -recursive -diff permissions
+    - name: Validate
+      run: |
+        for dir in permissions/*/; do
+          terraform -chdir="$dir" init -backend=false -input=false
+          terraform -chdir="$dir" validate
+        done
+    - name: Policy JSON
+      run: jq empty permissions/aws/deny-data-reads.json
+
+  # `-tags minimal,<provider>` builds only the named providers; check the
+  # registry works with none and with one.
+  build-tags:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: No providers
+      run: |
+        go vet -tags minimal ./internal/cli/...
+        go build -tags minimal -o infraharvest-none .
+        ./infraharvest-none import --help
+    - name: AWS only
+      run: |
+        go build -tags minimal,aws -o infraharvest-aws .
+        ./infraharvest-aws import aws --help > /dev/null
+        # import's help lists its provider subcommands, one per line.
+        if ! ./infraharvest-aws import --help | grep -Eq '^ +aws +'; then
+          echo "::error::aws should be listed under import in a minimal,aws build"; exit 1
+        fi
+        if ./infraharvest-aws import --help | grep -Eq '^ +google +'; then
+          echo "::error::google should not be compiled into a minimal,aws build"; exit 1
+        fi
+
+  # Every Go file carries the AGPL-3.0-only licence line, no tracked file
+  # uses the names in scripts/check-names.sh, and every file has a copyright
+  # and a licence, from its own header or from REUSE.toml, with every licence
+  # in LICENSES/. The pre-commit hook runs the same scripts
+  # (scripts/fast-checks.sh); the linters run in the megalinter workflow.
+  repository:
+    name: licences and names
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Licence headers
+      run: scripts/check-headers.sh
+    - name: Names
+      if: ${{ !cancelled() }}
+      run: scripts/check-names.sh
+    - name: reuse lint
+      if: ${{ !cancelled() }}
+      uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0

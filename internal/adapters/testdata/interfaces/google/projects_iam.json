@@ -1,0 +1,23 @@
+{
+  "source": "terraform-google-modules/iam/google//modules/projects_iam",
+  "version": "8.3.0",
+  "variables": {
+    "bindings": {
+      "required": false
+    },
+    "conditional_bindings": {
+      "required": false
+    },
+    "mode": {
+      "required": false
+    },
+    "projects": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "members",
+    "projects",
+    "roles"
+  ]
+}

@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: codebuild
+types:
+  aws_codebuild_project:
+    arn: { service: codebuild, resource_type: "project" }

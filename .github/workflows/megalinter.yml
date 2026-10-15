@@ -1,0 +1,59 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: megalinter
+
+# Every linter CI runs, in one place: MegaLinter (https://megalinter.io),
+# Go flavour, over the whole repository on every pull request.
+# .mega-linter.yml lists the linters, with their configuration, and says why
+# the others are off. MegaLinter reports in one comment on the pull request,
+# which it updates on each run, and in the run's summary; the report folder
+# is uploaded as an artifact.
+#
+# Run it on a branch before opening a pull request, so a laptop never has
+# to compile the module (make ci-lint does the same):
+#   gh workflow run megalinter --ref <branch>
+# or locally, with Docker: npx mega-linter-runner --flavor go
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  megalinter:
+    name: MegaLinter
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write # MegaLinter's comment on the pull request
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: MegaLinter
+        uses: oxsecurity/megalinter/flavors/go@9949bad031045f366be2467e00e8371a7328a2e2 # v10.1.0
+        env:
+          # For the pull request comment only; MegaLinter hides it from the
+          # linters.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The image's Go is older than go.mod asks for; let it switch to
+          # the toolchain go.mod names, as setup-go would install, for
+          # golangci-lint and osv-scanner's govulncheck.
+          GOTOOLCHAIN: auto
+      - name: Upload the MegaLinter report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: megalinter-reports
+          path: |
+            megalinter-reports
+            mega-linter.log
+          include-hidden-files: true
+          if-no-files-found: warn

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: es
+types:
+  aws_elasticsearch_domain:
+    arn: { service: es, resource_type: "domain" }
+  aws_opensearch_domain:
+    arn: { service: es, resource_type: "domain" }

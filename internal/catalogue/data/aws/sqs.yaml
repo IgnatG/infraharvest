@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: sqs
+types:
+  aws_sqs_queue:
+    arn: { service: sqs, resource_type: "" }

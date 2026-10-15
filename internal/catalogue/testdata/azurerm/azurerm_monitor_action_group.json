@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/microsoft.insights/actionGroups/Application Insights Smart Detection", "name": "smart_detection", "attributes": {"name": "Application Insights Smart Detection", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Insights/actionGroups/oncall", "name": "oncall", "attributes": {"name": "oncall", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/NetworkWatcherRG/providers/Microsoft.Insights/actionGroups/watchers", "name": "watchers", "attributes": {"name": "watchers", "resource_group_name": "networkwatcherrg"}}
+]}

@@ -1,0 +1,1 @@
+{"resources": [{"id": "Default", "name": "Default"}, {"id": "aws/efs/automatic-backup-vault", "name": "efs_automatic"}, {"id": "app-backups", "name": "app_backups"}]}

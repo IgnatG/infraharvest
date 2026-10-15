@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: s3
+types:
+  aws_s3_bucket:
+    arn: { service: s3, resource_type: "" }
+    data_source: { type: aws_s3_bucket, argument: bucket }
+    # Deprecated in favour of the separate resources in children, which
+    # carry these settings: they are optional and computed, so configuration
+    # without them plans no change.
+    omit: [acceleration_status, acl, cors_rule, grant, lifecycle_rule, logging, object_lock_configuration, policy, replication_configuration, request_payer, server_side_encryption_configuration, versioning, website]
+    # In the order the lister asks S3 for them.
+    children:
+      - aws_s3_bucket_versioning
+      - aws_s3_bucket_server_side_encryption_configuration
+      - aws_s3_bucket_lifecycle_configuration
+      - aws_s3_bucket_cors_configuration
+      - aws_s3_bucket_website_configuration
+      - aws_s3_bucket_logging
+      - aws_s3_bucket_public_access_block
+      - aws_s3_bucket_ownership_controls
+      - aws_s3_bucket_accelerate_configuration
+      - aws_s3_bucket_request_payment_configuration
+      - aws_s3_bucket_object_lock_configuration
+      - aws_s3_bucket_replication_configuration
+  aws_s3_bucket_accelerate_configuration: {}
+  aws_s3_bucket_cors_configuration: {}
+  aws_s3_bucket_lifecycle_configuration: {}
+  aws_s3_bucket_logging: {}
+  aws_s3_bucket_object_lock_configuration: {}
+  aws_s3_bucket_ownership_controls: {}
+  aws_s3_bucket_public_access_block: {}
+  aws_s3_bucket_replication_configuration: {}
+  aws_s3_bucket_request_payment_configuration: {}
+  aws_s3_bucket_server_side_encryption_configuration: {}
+  aws_s3_bucket_versioning: {}
+  aws_s3_bucket_website_configuration: {}

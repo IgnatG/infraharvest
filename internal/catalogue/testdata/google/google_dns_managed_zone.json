@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/managedZones/4527063881923471234", "name": "internal", "attributes": {"asset.project": "acme-prod", "asset.name": "4527063881923471234", "asset.display_name": "internal", "asset.dns_name": "internal.example.com."}},
+  {"id": "public", "name": "public", "attributes": {"name": "public", "project": "acme-prod"}}
+]}

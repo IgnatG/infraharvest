@@ -1,0 +1,82 @@
+{
+  "source": "terraform-google-modules/cloud-storage/google//modules/simple_bucket",
+  "version": "12.4.1",
+  "variables": {
+    "autoclass": {
+      "required": false
+    },
+    "bucket_policy_only": {
+      "required": false
+    },
+    "cors": {
+      "required": false
+    },
+    "custom_placement_config": {
+      "required": false
+    },
+    "encryption": {
+      "required": false
+    },
+    "force_destroy": {
+      "required": false
+    },
+    "hierarchical_namespace": {
+      "required": false
+    },
+    "iam_members": {
+      "required": false
+    },
+    "internal_encryption_config": {
+      "required": false
+    },
+    "ip_filter": {
+      "required": false
+    },
+    "labels": {
+      "required": false
+    },
+    "lifecycle_rules": {
+      "required": false
+    },
+    "location": {
+      "required": true
+    },
+    "log_bucket": {
+      "required": false
+    },
+    "log_object_prefix": {
+      "required": false
+    },
+    "name": {
+      "required": true
+    },
+    "project_id": {
+      "required": true
+    },
+    "public_access_prevention": {
+      "required": false
+    },
+    "retention_policy": {
+      "required": false
+    },
+    "soft_delete_policy": {
+      "required": false
+    },
+    "storage_class": {
+      "required": false
+    },
+    "versioning": {
+      "required": false
+    },
+    "website": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "apphub_service_uri",
+    "bucket",
+    "internal_kms_configuration",
+    "name",
+    "url"
+  ]
+}

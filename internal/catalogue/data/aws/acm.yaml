@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: acm
+types:
+  aws_acm_certificate:
+    arn: { service: acm, resource_type: "certificate" }

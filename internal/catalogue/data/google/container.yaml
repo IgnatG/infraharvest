@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../schema.json
+# GKE, as Cloud Asset Inventory lists it. A cluster's name has
+# locations/<location> or, for some zonal clusters, zones/<zone>; the
+# import IDs take the location the search returns either way. Resources
+# the cloud_asset service didn't list import with their lister's ID.
+# Cloud Composer labels the clusters it creates with goog-composer-*
+# labels, which the search returns as the cluster's labels.
+provider: google
+service: cloud_asset
+types:
+  google_container_cluster:
+    inventory: { type: container.googleapis.com/Cluster }
+    import_id:
+      - "projects/{asset.project}/locations/{asset.location}/clusters/{asset.name}"
+      - "{id}"
+    skip:
+      # The version label's value is always composer-<version>-airflow-<version>;
+      # a rule can't test whether a label is there whatever its value.
+      - reason: Cloud Composer creates it for an environment and deletes it with the environment; select it to import it
+        attribute_prefixes: { labels.goog-composer-version: [composer-] }
+  google_container_node_pool:
+    inventory: { type: container.googleapis.com/NodePool }
+    import_id:
+      - "{asset.project}/{asset.location}/{asset.parent|after_last:/}/{asset.name}"
+      - "{id}"

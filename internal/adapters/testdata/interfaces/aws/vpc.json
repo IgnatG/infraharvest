@@ -1,0 +1,835 @@
+{
+  "source": "terraform-aws-modules/vpc/aws",
+  "version": "6.7.3",
+  "variables": {
+    "amazon_side_asn": {
+      "required": false
+    },
+    "azs": {
+      "required": false
+    },
+    "cidr": {
+      "required": false
+    },
+    "create_database_internet_gateway_route": {
+      "required": false
+    },
+    "create_database_nat_gateway_route": {
+      "required": false
+    },
+    "create_database_subnet_group": {
+      "required": false
+    },
+    "create_database_subnet_route_table": {
+      "required": false
+    },
+    "create_egress_only_igw": {
+      "required": false
+    },
+    "create_elasticache_subnet_group": {
+      "required": false
+    },
+    "create_elasticache_subnet_route_table": {
+      "required": false
+    },
+    "create_flow_log_cloudwatch_iam_role": {
+      "required": false
+    },
+    "create_flow_log_cloudwatch_log_group": {
+      "required": false
+    },
+    "create_igw": {
+      "required": false
+    },
+    "create_multiple_intra_route_tables": {
+      "required": false
+    },
+    "create_multiple_public_route_tables": {
+      "required": false
+    },
+    "create_private_nat_gateway_route": {
+      "required": false
+    },
+    "create_redshift_subnet_group": {
+      "required": false
+    },
+    "create_redshift_subnet_route_table": {
+      "required": false
+    },
+    "create_vpc": {
+      "required": false
+    },
+    "customer_gateway_tags": {
+      "required": false
+    },
+    "customer_gateways": {
+      "required": false
+    },
+    "customer_owned_ipv4_pool": {
+      "required": false
+    },
+    "database_acl_tags": {
+      "required": false
+    },
+    "database_dedicated_network_acl": {
+      "required": false
+    },
+    "database_inbound_acl_rules": {
+      "required": false
+    },
+    "database_outbound_acl_rules": {
+      "required": false
+    },
+    "database_route_table_tags": {
+      "required": false
+    },
+    "database_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "database_subnet_enable_dns64": {
+      "required": false
+    },
+    "database_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "database_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "database_subnet_group_name": {
+      "required": false
+    },
+    "database_subnet_group_tags": {
+      "required": false
+    },
+    "database_subnet_ipv6_native": {
+      "required": false
+    },
+    "database_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "database_subnet_names": {
+      "required": false
+    },
+    "database_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "database_subnet_suffix": {
+      "required": false
+    },
+    "database_subnet_tags": {
+      "required": false
+    },
+    "database_subnets": {
+      "required": false
+    },
+    "default_network_acl_egress": {
+      "required": false
+    },
+    "default_network_acl_ingress": {
+      "required": false
+    },
+    "default_network_acl_name": {
+      "required": false
+    },
+    "default_network_acl_tags": {
+      "required": false
+    },
+    "default_route_table_name": {
+      "required": false
+    },
+    "default_route_table_propagating_vgws": {
+      "required": false
+    },
+    "default_route_table_routes": {
+      "required": false
+    },
+    "default_route_table_tags": {
+      "required": false
+    },
+    "default_security_group_egress": {
+      "required": false
+    },
+    "default_security_group_ingress": {
+      "required": false
+    },
+    "default_security_group_name": {
+      "required": false
+    },
+    "default_security_group_tags": {
+      "required": false
+    },
+    "default_vpc_enable_dns_hostnames": {
+      "required": false
+    },
+    "default_vpc_enable_dns_support": {
+      "required": false
+    },
+    "default_vpc_name": {
+      "required": false
+    },
+    "default_vpc_tags": {
+      "required": false
+    },
+    "dhcp_options_domain_name": {
+      "required": false
+    },
+    "dhcp_options_domain_name_servers": {
+      "required": false
+    },
+    "dhcp_options_ipv6_address_preferred_lease_time": {
+      "required": false
+    },
+    "dhcp_options_netbios_name_servers": {
+      "required": false
+    },
+    "dhcp_options_netbios_node_type": {
+      "required": false
+    },
+    "dhcp_options_ntp_servers": {
+      "required": false
+    },
+    "dhcp_options_tags": {
+      "required": false
+    },
+    "elasticache_acl_tags": {
+      "required": false
+    },
+    "elasticache_dedicated_network_acl": {
+      "required": false
+    },
+    "elasticache_inbound_acl_rules": {
+      "required": false
+    },
+    "elasticache_outbound_acl_rules": {
+      "required": false
+    },
+    "elasticache_route_table_tags": {
+      "required": false
+    },
+    "elasticache_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "elasticache_subnet_enable_dns64": {
+      "required": false
+    },
+    "elasticache_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "elasticache_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "elasticache_subnet_group_name": {
+      "required": false
+    },
+    "elasticache_subnet_group_tags": {
+      "required": false
+    },
+    "elasticache_subnet_ipv6_native": {
+      "required": false
+    },
+    "elasticache_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "elasticache_subnet_names": {
+      "required": false
+    },
+    "elasticache_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "elasticache_subnet_suffix": {
+      "required": false
+    },
+    "elasticache_subnet_tags": {
+      "required": false
+    },
+    "elasticache_subnets": {
+      "required": false
+    },
+    "enable_dhcp_options": {
+      "required": false
+    },
+    "enable_dns_hostnames": {
+      "required": false
+    },
+    "enable_dns_support": {
+      "required": false
+    },
+    "enable_flow_log": {
+      "required": false
+    },
+    "enable_ipv6": {
+      "required": false
+    },
+    "enable_nat_gateway": {
+      "required": false
+    },
+    "enable_network_address_usage_metrics": {
+      "required": false
+    },
+    "enable_public_redshift": {
+      "required": false
+    },
+    "enable_vpn_gateway": {
+      "required": false
+    },
+    "external_nat_ip_ids": {
+      "required": false
+    },
+    "external_nat_ips": {
+      "required": false
+    },
+    "flow_log_cloudwatch_iam_role_arn": {
+      "required": false
+    },
+    "flow_log_cloudwatch_iam_role_conditions": {
+      "required": false
+    },
+    "flow_log_cloudwatch_log_group_class": {
+      "required": false
+    },
+    "flow_log_cloudwatch_log_group_kms_key_id": {
+      "required": false
+    },
+    "flow_log_cloudwatch_log_group_name_prefix": {
+      "required": false
+    },
+    "flow_log_cloudwatch_log_group_name_suffix": {
+      "required": false
+    },
+    "flow_log_cloudwatch_log_group_retention_in_days": {
+      "required": false
+    },
+    "flow_log_cloudwatch_log_group_skip_destroy": {
+      "required": false
+    },
+    "flow_log_deliver_cross_account_role": {
+      "required": false
+    },
+    "flow_log_destination_arn": {
+      "required": false
+    },
+    "flow_log_destination_type": {
+      "required": false
+    },
+    "flow_log_file_format": {
+      "required": false
+    },
+    "flow_log_hive_compatible_partitions": {
+      "required": false
+    },
+    "flow_log_log_format": {
+      "required": false
+    },
+    "flow_log_max_aggregation_interval": {
+      "required": false
+    },
+    "flow_log_per_hour_partition": {
+      "required": false
+    },
+    "flow_log_traffic_type": {
+      "required": false
+    },
+    "igw_tags": {
+      "required": false
+    },
+    "instance_tenancy": {
+      "required": false
+    },
+    "intra_acl_tags": {
+      "required": false
+    },
+    "intra_dedicated_network_acl": {
+      "required": false
+    },
+    "intra_inbound_acl_rules": {
+      "required": false
+    },
+    "intra_outbound_acl_rules": {
+      "required": false
+    },
+    "intra_route_table_tags": {
+      "required": false
+    },
+    "intra_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "intra_subnet_enable_dns64": {
+      "required": false
+    },
+    "intra_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "intra_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "intra_subnet_ipv6_native": {
+      "required": false
+    },
+    "intra_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "intra_subnet_names": {
+      "required": false
+    },
+    "intra_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "intra_subnet_suffix": {
+      "required": false
+    },
+    "intra_subnet_tags": {
+      "required": false
+    },
+    "intra_subnets": {
+      "required": false
+    },
+    "ipv4_ipam_pool_id": {
+      "required": false
+    },
+    "ipv4_netmask_length": {
+      "required": false
+    },
+    "ipv6_cidr": {
+      "required": false
+    },
+    "ipv6_cidr_block_network_border_group": {
+      "required": false
+    },
+    "ipv6_ipam_pool_id": {
+      "required": false
+    },
+    "ipv6_netmask_length": {
+      "required": false
+    },
+    "manage_default_network_acl": {
+      "required": false
+    },
+    "manage_default_route_table": {
+      "required": false
+    },
+    "manage_default_security_group": {
+      "required": false
+    },
+    "manage_default_vpc": {
+      "required": false
+    },
+    "map_customer_owned_ip_on_launch": {
+      "required": false
+    },
+    "map_public_ip_on_launch": {
+      "required": false
+    },
+    "name": {
+      "required": false
+    },
+    "nat_eip_tags": {
+      "required": false
+    },
+    "nat_gateway_destination_cidr_block": {
+      "required": false
+    },
+    "nat_gateway_tags": {
+      "required": false
+    },
+    "one_nat_gateway_per_az": {
+      "required": false
+    },
+    "outpost_acl_tags": {
+      "required": false
+    },
+    "outpost_arn": {
+      "required": false
+    },
+    "outpost_az": {
+      "required": false
+    },
+    "outpost_dedicated_network_acl": {
+      "required": false
+    },
+    "outpost_inbound_acl_rules": {
+      "required": false
+    },
+    "outpost_outbound_acl_rules": {
+      "required": false
+    },
+    "outpost_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "outpost_subnet_enable_dns64": {
+      "required": false
+    },
+    "outpost_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "outpost_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "outpost_subnet_ipv6_native": {
+      "required": false
+    },
+    "outpost_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "outpost_subnet_names": {
+      "required": false
+    },
+    "outpost_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "outpost_subnet_suffix": {
+      "required": false
+    },
+    "outpost_subnet_tags": {
+      "required": false
+    },
+    "outpost_subnets": {
+      "required": false
+    },
+    "private_acl_tags": {
+      "required": false
+    },
+    "private_dedicated_network_acl": {
+      "required": false
+    },
+    "private_inbound_acl_rules": {
+      "required": false
+    },
+    "private_outbound_acl_rules": {
+      "required": false
+    },
+    "private_route_table_tags": {
+      "required": false
+    },
+    "private_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "private_subnet_enable_dns64": {
+      "required": false
+    },
+    "private_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "private_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "private_subnet_ipv6_native": {
+      "required": false
+    },
+    "private_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "private_subnet_names": {
+      "required": false
+    },
+    "private_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "private_subnet_suffix": {
+      "required": false
+    },
+    "private_subnet_tags": {
+      "required": false
+    },
+    "private_subnet_tags_per_az": {
+      "required": false
+    },
+    "private_subnets": {
+      "required": false
+    },
+    "propagate_intra_route_tables_vgw": {
+      "required": false
+    },
+    "propagate_private_route_tables_vgw": {
+      "required": false
+    },
+    "propagate_public_route_tables_vgw": {
+      "required": false
+    },
+    "public_acl_tags": {
+      "required": false
+    },
+    "public_dedicated_network_acl": {
+      "required": false
+    },
+    "public_inbound_acl_rules": {
+      "required": false
+    },
+    "public_outbound_acl_rules": {
+      "required": false
+    },
+    "public_route_table_tags": {
+      "required": false
+    },
+    "public_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "public_subnet_enable_dns64": {
+      "required": false
+    },
+    "public_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "public_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "public_subnet_ipv6_native": {
+      "required": false
+    },
+    "public_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "public_subnet_names": {
+      "required": false
+    },
+    "public_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "public_subnet_suffix": {
+      "required": false
+    },
+    "public_subnet_tags": {
+      "required": false
+    },
+    "public_subnet_tags_per_az": {
+      "required": false
+    },
+    "public_subnets": {
+      "required": false
+    },
+    "putin_khuylo": {
+      "required": false
+    },
+    "redshift_acl_tags": {
+      "required": false
+    },
+    "redshift_dedicated_network_acl": {
+      "required": false
+    },
+    "redshift_inbound_acl_rules": {
+      "required": false
+    },
+    "redshift_outbound_acl_rules": {
+      "required": false
+    },
+    "redshift_route_table_tags": {
+      "required": false
+    },
+    "redshift_subnet_assign_ipv6_address_on_creation": {
+      "required": false
+    },
+    "redshift_subnet_enable_dns64": {
+      "required": false
+    },
+    "redshift_subnet_enable_resource_name_dns_a_record_on_launch": {
+      "required": false
+    },
+    "redshift_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
+      "required": false
+    },
+    "redshift_subnet_group_name": {
+      "required": false
+    },
+    "redshift_subnet_group_tags": {
+      "required": false
+    },
+    "redshift_subnet_ipv6_native": {
+      "required": false
+    },
+    "redshift_subnet_ipv6_prefixes": {
+      "required": false
+    },
+    "redshift_subnet_names": {
+      "required": false
+    },
+    "redshift_subnet_private_dns_hostname_type_on_launch": {
+      "required": false
+    },
+    "redshift_subnet_suffix": {
+      "required": false
+    },
+    "redshift_subnet_tags": {
+      "required": false
+    },
+    "redshift_subnets": {
+      "required": false
+    },
+    "region": {
+      "required": false
+    },
+    "reuse_nat_ips": {
+      "required": false
+    },
+    "secondary_cidr_blocks": {
+      "required": false
+    },
+    "single_nat_gateway": {
+      "required": false
+    },
+    "tags": {
+      "required": false
+    },
+    "use_ipam_pool": {
+      "required": false
+    },
+    "vpc_block_public_access_exclusions": {
+      "required": false
+    },
+    "vpc_block_public_access_options": {
+      "required": false
+    },
+    "vpc_flow_log_iam_policy_name": {
+      "required": false
+    },
+    "vpc_flow_log_iam_policy_use_name_prefix": {
+      "required": false
+    },
+    "vpc_flow_log_iam_role_name": {
+      "required": false
+    },
+    "vpc_flow_log_iam_role_path": {
+      "required": false
+    },
+    "vpc_flow_log_iam_role_use_name_prefix": {
+      "required": false
+    },
+    "vpc_flow_log_permissions_boundary": {
+      "required": false
+    },
+    "vpc_flow_log_tags": {
+      "required": false
+    },
+    "vpc_tags": {
+      "required": false
+    },
+    "vpn_gateway_az": {
+      "required": false
+    },
+    "vpn_gateway_id": {
+      "required": false
+    },
+    "vpn_gateway_tags": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "azs",
+    "cgw_arns",
+    "cgw_ids",
+    "database_internet_gateway_route_id",
+    "database_ipv6_egress_route_id",
+    "database_nat_gateway_route_ids",
+    "database_network_acl_arn",
+    "database_network_acl_id",
+    "database_route_table_association_ids",
+    "database_route_table_ids",
+    "database_subnet_arns",
+    "database_subnet_group",
+    "database_subnet_group_name",
+    "database_subnet_objects",
+    "database_subnets",
+    "database_subnets_cidr_blocks",
+    "database_subnets_ipv6_cidr_blocks",
+    "default_network_acl_id",
+    "default_route_table_id",
+    "default_security_group_id",
+    "default_vpc_arn",
+    "default_vpc_cidr_block",
+    "default_vpc_default_network_acl_id",
+    "default_vpc_default_route_table_id",
+    "default_vpc_default_security_group_id",
+    "default_vpc_enable_dns_hostnames",
+    "default_vpc_enable_dns_support",
+    "default_vpc_id",
+    "default_vpc_instance_tenancy",
+    "default_vpc_main_route_table_id",
+    "dhcp_options_id",
+    "egress_only_internet_gateway_id",
+    "elasticache_network_acl_arn",
+    "elasticache_network_acl_id",
+    "elasticache_route_table_association_ids",
+    "elasticache_route_table_ids",
+    "elasticache_subnet_arns",
+    "elasticache_subnet_group",
+    "elasticache_subnet_group_name",
+    "elasticache_subnet_objects",
+    "elasticache_subnets",
+    "elasticache_subnets_cidr_blocks",
+    "elasticache_subnets_ipv6_cidr_blocks",
+    "igw_arn",
+    "igw_id",
+    "intra_network_acl_arn",
+    "intra_network_acl_id",
+    "intra_route_table_association_ids",
+    "intra_route_table_ids",
+    "intra_subnet_arns",
+    "intra_subnet_objects",
+    "intra_subnets",
+    "intra_subnets_cidr_blocks",
+    "intra_subnets_ipv6_cidr_blocks",
+    "name",
+    "nat_ids",
+    "nat_public_ips",
+    "natgw_ids",
+    "natgw_interface_ids",
+    "outpost_network_acl_arn",
+    "outpost_network_acl_id",
+    "outpost_subnet_arns",
+    "outpost_subnet_objects",
+    "outpost_subnets",
+    "outpost_subnets_cidr_blocks",
+    "outpost_subnets_ipv6_cidr_blocks",
+    "private_ipv6_egress_route_ids",
+    "private_nat_gateway_route_ids",
+    "private_network_acl_arn",
+    "private_network_acl_id",
+    "private_route_table_association_ids",
+    "private_route_table_ids",
+    "private_subnet_arns",
+    "private_subnet_objects",
+    "private_subnets",
+    "private_subnets_cidr_blocks",
+    "private_subnets_ipv6_cidr_blocks",
+    "public_internet_gateway_ipv6_route_id",
+    "public_internet_gateway_route_id",
+    "public_network_acl_arn",
+    "public_network_acl_id",
+    "public_route_table_association_ids",
+    "public_route_table_ids",
+    "public_subnet_arns",
+    "public_subnet_objects",
+    "public_subnets",
+    "public_subnets_cidr_blocks",
+    "public_subnets_ipv6_cidr_blocks",
+    "redshift_network_acl_arn",
+    "redshift_network_acl_id",
+    "redshift_public_route_table_association_ids",
+    "redshift_route_table_association_ids",
+    "redshift_route_table_ids",
+    "redshift_subnet_arns",
+    "redshift_subnet_group",
+    "redshift_subnet_objects",
+    "redshift_subnets",
+    "redshift_subnets_cidr_blocks",
+    "redshift_subnets_ipv6_cidr_blocks",
+    "this_customer_gateway",
+    "vgw_arn",
+    "vgw_id",
+    "vpc_arn",
+    "vpc_block_public_access_exclusions",
+    "vpc_cidr_block",
+    "vpc_enable_dns_hostnames",
+    "vpc_enable_dns_support",
+    "vpc_flow_log_cloudwatch_iam_role_arn",
+    "vpc_flow_log_deliver_cross_account_role",
+    "vpc_flow_log_destination_arn",
+    "vpc_flow_log_destination_type",
+    "vpc_flow_log_id",
+    "vpc_id",
+    "vpc_instance_tenancy",
+    "vpc_ipv6_association_id",
+    "vpc_ipv6_cidr_block",
+    "vpc_main_route_table_id",
+    "vpc_owner_id",
+    "vpc_secondary_cidr_blocks"
+  ]
+}

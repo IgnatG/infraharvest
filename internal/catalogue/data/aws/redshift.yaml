@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: redshift
+types:
+  aws_redshift_cluster:
+    arn: { service: redshift, resource_type: "cluster" }

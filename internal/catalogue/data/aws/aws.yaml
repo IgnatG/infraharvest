@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+types:
+  "*":
+    # region defaults to the provider's, the region the resources were
+    # listed in; the provider computes tags_all from tags and default_tags.
+    omit: [region, tags_all]

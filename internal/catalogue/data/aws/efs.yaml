@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: efs
+types:
+  aws_efs_file_system:
+    arn: { service: elasticfilesystem, resource_type: "file-system" }

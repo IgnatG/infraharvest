@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/clusters/etl", "name": "etl", "attributes": {"asset.project": "acme-prod", "asset.name": "etl", "asset.location": "us-central1", "labels.goog-dataproc-cluster-name": "etl"}}
+]}

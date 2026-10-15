@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/microsoft.alertsManagement/smartDetectorAlertRules/Failure Anomalies - app-insights", "name": "failure_anomalies", "attributes": {"name": "Failure Anomalies - app-insights", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.AlertsManagement/smartDetectorAlertRules/slow-requests", "name": "slow_requests", "attributes": {"name": "slow-requests", "resource_group_name": "rg-app"}}
+]}

@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: codedeploy
+types:
+  aws_codedeploy_app:
+    arn: { service: codedeploy, resource_type: "application" }
+    cloud_control: { type: "AWS::CodeDeploy::Application", identifier: ApplicationName }

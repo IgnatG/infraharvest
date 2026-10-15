@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: iot
+types:
+  aws_iot_role_alias:
+    arn: { service: iot, resource_type: "rolealias" }
+    cloud_control: { type: "AWS::IoT::RoleAlias", identifier: RoleAlias }
+  aws_iot_thing:
+    cloud_control: { type: "AWS::IoT::Thing", identifier: ThingName }
+  aws_iot_thing_type:
+    arn: { service: iot, resource_type: "thingtype" }
+    cloud_control: { type: "AWS::IoT::ThingType", identifier: ThingTypeName }
+  aws_iot_topic_rule:
+    arn: { service: iot, resource_type: "rule" }
+    cloud_control: { type: "AWS::IoT::TopicRule", identifier: RuleName }

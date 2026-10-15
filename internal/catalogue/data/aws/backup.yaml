@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: backup
+types:
+  aws_backup_plan:
+    cloud_control: { type: "AWS::Backup::BackupPlan", identifier: BackupPlanId }
+  aws_backup_vault:
+    arn: { service: backup, resource_type: "backup-vault" }
+    cloud_control: { type: "AWS::Backup::BackupVault", identifier: BackupVaultName }
+    skip:
+      - reason: a backup vault AWS creates for the account
+        ids: [Default, aws/efs/automatic-backup-vault]

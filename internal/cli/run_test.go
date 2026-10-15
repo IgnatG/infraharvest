@@ -1,0 +1,95 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package cli
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/spf13/cobra"
+
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/importer"
+)
+
+func fakeProviderCommand(run func(importer.Options) error) *cobra.Command {
+	options := importer.Options{}
+	cmd := &cobra.Command{Use: "fake", SilenceUsage: true, SilenceErrors: true}
+	cmd.RunE = withEngineRun(func(*cobra.Command, []string) error { return run(options) })
+	cmd.Flags().String("config", "", "")
+	providers.BaseFlags(cmd.PersistentFlags(), &options, "", "")
+	return cmd
+}
+
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestServicesFromConfig(t *testing.T) {
+	config := writeConfig(t, "version: 1\nproviders:\n  fake:\n    services: [vpc, s3]\n")
+	var got importer.Options
+	cmd := fakeProviderCommand(func(o importer.Options) error { got = o; return nil })
+	cmd.SetArgs([]string{"--config", config})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"vpc", "s3"}; !slices.Equal(got.Services, want) {
+		t.Errorf("services %v, want %v", got.Services, want)
+	}
+
+	ran := false
+	cmd = fakeProviderCommand(func(importer.Options) error { ran = true; return nil })
+	cmd.SetArgs([]string{"--engine", "terraform"})
+	if err := cmd.Execute(); !errors.Is(err, errNoServices) {
+		t.Errorf("got %v, want %v", err, errNoServices)
+	}
+	if ran {
+		t.Error("the import ran without services")
+	}
+}
+
+func TestLayout(t *testing.T) {
+	byService := "{out}/{provider}/{service}/"
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"default":      {[]string{"--services", "vpc"}, importer.DefaultLayout},
+		"tofu":         {[]string{"--services", "vpc", "--engine", "tofu"}, importer.DefaultLayout},
+		"by service":   {[]string{"--services", "vpc", "--layout", byService}, byService},
+		"other layout": {[]string{"--services", "vpc", "--engine", "terraform", "--layout", "{out}/{service}/"}, "{out}/{service}/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got importer.Options
+			cmd := fakeProviderCommand(func(o importer.Options) error { got = o; return nil })
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got.Layout != tc.want {
+				t.Errorf("layout %q, want %q", got.Layout, tc.want)
+			}
+		})
+	}
+
+	config := writeConfig(t, "version: 1\nsettings:\n  layout: \""+byService+"\"\nproviders:\n  fake:\n    services: [vpc]\n")
+	var got importer.Options
+	cmd := fakeProviderCommand(func(o importer.Options) error { got = o; return nil })
+	cmd.SetArgs([]string{"--config", config})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got.Layout != byService {
+		t.Errorf("layout from the configuration file: %q, want %q", got.Layout, byService)
+	}
+}

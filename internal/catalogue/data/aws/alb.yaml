@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: alb
+types:
+  aws_lb_target_group:
+    state_only: [lambda_multi_value_headers_enabled, proxy_protocol_v2]

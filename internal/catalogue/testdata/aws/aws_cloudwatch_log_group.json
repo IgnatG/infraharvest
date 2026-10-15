@@ -1,0 +1,1 @@
+{"resources": [{"id": "/aws/lambda/orders", "name": "lambda_orders"}, {"id": "/app/web", "name": "app_web"}]}

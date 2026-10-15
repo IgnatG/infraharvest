@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Checks that the commit message's first line is a Conventional Commit, as
+# CONTRIBUTING.md describes: type(scope)!: summary, with the scope and the
+# ! optional. Merge, revert, fixup! and squash! messages pass as they are.
+set -euo pipefail
+
+subject=$(sed -n '/^#/d;/./{p;q;}' "$1")
+types='feat|fix|refactor|perf|test|docs|style|ci|build|chore|revert'
+
+case $subject in
+  "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
+esac
+
+if [[ $subject =~ ^($types)(\([a-z0-9][a-z0-9/_.-]*\))?!?:\ [^[:space:]] ]]; then
+  exit 0
+fi
+
+cat >&2 <<MSG
+The commit message's first line isn't a Conventional Commit:
+
+  $subject
+
+Write it as <type>(<scope>): <summary>, such as
+  fix(aws): paginate ListQueues
+with a type of ${types//|/, }, an optional scope and ! for a breaking change.
+See CONTRIBUTING.md.
+MSG
+exit 1

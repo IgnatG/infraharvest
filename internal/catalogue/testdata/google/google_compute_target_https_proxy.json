@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/targetHttpsProxies/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/targetHttpsProxies/k8s2-ts-1a2b3c4d-default-web", "name": "k8s2_ts_1a2b3c4d_default_web", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-ts-1a2b3c4d-default-web", "asset.location": "global"}}
+]}

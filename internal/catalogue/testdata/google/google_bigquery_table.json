@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/datasets/analytics/tables/daily_sessions", "name": "daily_sessions", "attributes": {"asset.project": "acme-prod", "asset.name": "daily_sessions", "asset.location": "US", "asset.parent": "projects/acme-prod/datasets/analytics"}},
+  {"id": "projects/acme-prod/datasets/raw_events/tables/clicks", "name": "clicks", "attributes": {"asset.project": "acme-prod", "asset.name": "clicks", "asset.location": "europe-west1", "asset.parent": "projects/acme-prod/datasets/raw_events"}}
+]}

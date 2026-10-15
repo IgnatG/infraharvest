@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: ec2_instance
+types:
+  aws_instance:
+    arn: { service: ec2, resource_type: "instance" }
+    # The network interface the instance was launched with, which AWS
+    # reports and the provider computes; set, it conflicts with subnet_id,
+    # private_ip and the security groups the generated configuration has.
+    omit: [primary_network_interface]

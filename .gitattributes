@@ -1,0 +1,4 @@
+# Check text files out with LF on every OS. gofmt and `go mod tidy -diff`
+# compare byte for byte, so CRLF checkouts (Windows, core.autocrlf=true)
+# would fail CI on Windows.
+* text=auto eol=lf

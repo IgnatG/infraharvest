@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: mq
+types:
+  aws_mq_broker:
+    arn: { service: mq, resource_type: "broker" }
+    cloud_control: { type: "AWS::AmazonMQ::Broker", identifier: Id }

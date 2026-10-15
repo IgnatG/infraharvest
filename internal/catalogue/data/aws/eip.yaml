@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: eip
+types:
+  aws_eip:
+    arn: { service: ec2, resource_type: "elastic-ip" }

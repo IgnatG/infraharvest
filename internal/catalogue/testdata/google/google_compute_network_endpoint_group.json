@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/zones/us-central1-a/networkEndpointGroups/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/networkEndpointGroups/k8s1-0a1b2c3d-default-web-80-4f5e6a7b", "name": "k8s1_0a1b2c3d_default_web_80_4f5e6a7b", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s1-0a1b2c3d-default-web-80-4f5e6a7b", "asset.location": "us-central1-a"}}
+]}

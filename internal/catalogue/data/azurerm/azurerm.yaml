@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../schema.json
+# What Azure creates itself, which the default selection leaves out. The
+# resource_graph service records each resource's name, its resource group
+# (resource_group_name; a resource group's own name) and what manages the
+# group (resource_group_managed_by) or the resource (managed_by). Azure
+# names ignore case, so the rules do too.
+provider: azurerm
+service: resource_graph
+types:
+  "*":
+    skip:
+      - reason: in a resource group another resource manages, such as an AKS cluster's node resource group (MC_*); that resource creates and deletes what is in it
+        ignore_case: true
+        attribute_prefixes: { resource_group_managed_by: [/subscriptions/] }
+      - reason: another resource manages it, such as the node resource group (MC_*) an AKS cluster creates and deletes
+        ignore_case: true
+        attribute_prefixes: { managed_by: [/subscriptions/] }
+      - reason: in NetworkWatcherRG, which Azure creates with a network watcher per region when a virtual network is created
+        ignore_case: true
+        attributes: { resource_group_name: NetworkWatcherRG }
+      - reason: in a DefaultResourceGroup-<region>, which Azure creates for default Log Analytics workspaces (Container insights, Defender for Cloud)
+        ignore_case: true
+        attribute_prefixes: { resource_group_name: [DefaultResourceGroup-] }
+      - reason: in a cloud-shell-storage-<region> resource group, which Cloud Shell creates for its file share
+        ignore_case: true
+        attribute_prefixes: { resource_group_name: [cloud-shell-storage-] }
+  azurerm_monitor_smart_detector_alert_rule:
+    skip:
+      - reason: the Failure Anomalies rule Azure creates with each Application Insights resource
+        ignore_case: true
+        attribute_prefixes: { name: ["Failure Anomalies - "] }
+  azurerm_monitor_action_group:
+    skip:
+      - reason: the action group Azure creates for Application Insights smart detection
+        ignore_case: true
+        attributes: { name: Application Insights Smart Detection }

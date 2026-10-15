@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: vpn_gateway
+types:
+  aws_vpn_gateway:
+    arn: { service: ec2, resource_type: "vpn-gateway" }
+    cloud_control: { type: "AWS::EC2::VPNGateway", identifier: VPNGatewayId }

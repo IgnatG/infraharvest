@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/subnetworks/app", "name": "app", "attributes": {"asset.project": "acme-prod", "asset.name": "app", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/subnetworks/default", "name": "default", "attributes": {"asset.project": "acme-prod", "asset.name": "default", "asset.location": "us-central1"}}
+]}

@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# CodeRabbit's review settings (https://docs.coderabbit.ai/reference/configuration).
+# It reviews every pull request, whatever its base branch, drafts included,
+# with the default profile (chill).
+reviews:
+  auto_review:
+    enabled: true
+    drafts: true
+    # Branches other than the default one; '.*' matches them all.
+    base_branches: [".*"]

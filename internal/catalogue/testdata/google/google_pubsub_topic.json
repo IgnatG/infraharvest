@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "projects/acme-prod/topics/orders", "name": "orders", "attributes": {"asset.project": "acme-prod", "asset.name": "orders", "asset.location": "global", "labels.team": "shop"}}
+]}

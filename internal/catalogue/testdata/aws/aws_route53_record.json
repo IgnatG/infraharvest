@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "Z0123456789ABCDEFGHIJ_www.example.internal._A_", "name": "www_A", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "www.example.internal", "type": "A", "set_identifier": ""}},
+  {"id": "Z0123456789ABCDEFGHIJ_api.example.internal._CNAME_eu", "name": "api_CNAME_eu", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "api.example.internal", "type": "CNAME", "set_identifier": "eu"}}
+]}

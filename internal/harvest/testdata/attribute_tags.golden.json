@@ -1,0 +1,99 @@
+[
+  {
+    "case": "nil",
+    "tags": null
+  },
+  {
+    "case": "empty",
+    "tags": null
+  },
+  {
+    "case": "no tags",
+    "tags": null
+  },
+  {
+    "case": "mixed",
+    "tags": {
+      "Name": "main",
+      "aws:cloudformation:stack-id": "arn:stack",
+      "team": "core"
+    }
+  },
+  {
+    "case": "count only",
+    "tags": null
+  },
+  {
+    "case": "labels count",
+    "tags": {
+      "env": "prod"
+    }
+  },
+  {
+    "case": "empty key",
+    "tags": {
+      "": "v"
+    }
+  },
+  {
+    "case": "empty value",
+    "tags": {
+      "Name": ""
+    }
+  },
+  {
+    "case": "bare index",
+    "tags": {
+      "0": "v"
+    }
+  },
+  {
+    "case": "list of blocks",
+    "tags": null
+  },
+  {
+    "case": "dotted key",
+    "tags": {
+      "a.b": "v"
+    }
+  },
+  {
+    "case": "index-like key",
+    "tags": {
+      "-1.x": "z",
+      ".x": "w",
+      "1a.b": "v"
+    }
+  },
+  {
+    "case": "non-ascii digit",
+    "tags": {
+      "٣.x": "v"
+    }
+  },
+  {
+    "case": "percent and hash in key",
+    "tags": {
+      "#x": "w",
+      "%x": "v",
+      "x%": "y"
+    }
+  },
+  {
+    "case": "nested prefixes",
+    "tags": {
+      "labels.x": "v",
+      "tags.y": "w"
+    }
+  },
+  {
+    "case": "near misses",
+    "tags": null
+  },
+  {
+    "case": "unicode",
+    "tags": {
+      "名前": "値"
+    }
+  }
+]

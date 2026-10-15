@@ -1,0 +1,186 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/spf13/pflag"
+)
+
+func write(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+const sample = `version: 1
+settings:
+  engine: terraform
+  all: true
+providers:
+  aws:
+    profile: prod
+    regions: [eu-west-2, us-east-1]
+backend:
+  s3:
+    bucket: acme-terraform-state
+    region: eu-west-2
+    key_prefix: imported
+`
+
+func flags() (*pflag.FlagSet, *string, *bool, *string, *[]string) {
+	fs := pflag.NewFlagSet("aws", pflag.ContinueOnError)
+	engine := fs.String("engine", "tofu", "")
+	all := fs.Bool("all", false, "")
+	profile := fs.String("profile", "default", "")
+	regions := fs.StringSlice("regions", nil, "")
+	return fs, engine, all, profile, regions
+}
+
+func TestApply(t *testing.T) {
+	f, err := Load(write(t, sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, engine, all, profile, regions := flags()
+	// The command line wins.
+	if err := fs.Parse([]string{"--profile=staging"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.Apply(fs, "aws"); err != nil {
+		t.Fatal(err)
+	}
+
+	if *engine != "terraform" || !*all || *profile != "staging" || strings.Join(*regions, ",") != "eu-west-2,us-east-1" {
+		t.Errorf("got engine=%s all=%v profile=%s regions=%v", *engine, *all, *profile, *regions)
+	}
+}
+
+func TestApplyRejectsUnknownSettings(t *testing.T) {
+	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    region: eu-west-2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, _, _, _, _ := flags()
+	if err := f.Apply(fs, "aws"); err == nil || !strings.Contains(err.Error(), `"region"`) {
+		t.Errorf("want an error naming the setting, got %v", err)
+	}
+}
+
+// A flag given once per value, such as --id, takes each item of a list as
+// one value, commas and all.
+func TestApplyRepeatedFlags(t *testing.T) {
+	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    id: [\"vpc=vpc-1,vpc-2\", subnet=subnet-1]\n    tag: env=prod\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := pflag.NewFlagSet("aws", pflag.ContinueOnError)
+	ids := fs.StringArray("id", nil, "")
+	tags := fs.StringArray("tag", nil, "")
+	if err := f.Apply(fs, "aws"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*ids) != 2 || (*ids)[0] != "vpc=vpc-1,vpc-2" || (*ids)[1] != "subnet=subnet-1" {
+		t.Errorf("id: got %q", *ids)
+	}
+	if len(*tags) != 1 || (*tags)[0] != "env=prod" {
+		t.Errorf("tag: got %q", *tags)
+	}
+}
+
+func TestLoadRejectsMistakes(t *testing.T) {
+	for name, content := range map[string]string{
+		"other version":    "version: 2\n",
+		"unknown key":      "version: 1\nengine: terraform\n",
+		"two backends":     "version: 1\nbackend:\n  s3: { bucket: a, region: b }\n  gcs: { bucket: c }\n",
+		"no backend kind":  "version: 1\nbackend: {}\n",
+		"missing settings": "version: 1\nbackend:\n  s3: { bucket: a }\n",
+	} {
+		if _, err := Load(write(t, content)); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+func TestBackendFile(t *testing.T) {
+	for name, tc := range map[string]struct {
+		backend Backend
+		want    string
+	}{
+		"s3": {Backend{S3: &S3{Bucket: "state", Region: "eu-west-2", KeyPrefix: "imported"}}, `terraform {
+  backend "s3" {
+    bucket       = "state"
+    key          = "imported/aws/111122223333/eu-west-2/terraform.tfstate"
+    region       = "eu-west-2"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
+`},
+		"azurerm": {Backend{AzureRM: &AzureRM{ResourceGroupName: "rg", StorageAccountName: "sa", ContainerName: "tfstate"}}, `terraform {
+  backend "azurerm" {
+    resource_group_name  = "rg"
+    storage_account_name = "sa"
+    container_name       = "tfstate"
+    key                  = "aws/111122223333/eu-west-2/terraform.tfstate"
+  }
+}
+`},
+		"gcs": {Backend{GCS: &GCS{Bucket: "state", Prefix: "imported"}}, `terraform {
+  backend "gcs" {
+    bucket = "state"
+    prefix = "imported/aws/111122223333/eu-west-2"
+  }
+}
+`},
+	} {
+		if got := string(tc.backend.File("aws/111122223333/eu-west-2")); got != tc.want {
+			t.Errorf("%s: got:\n%s\nwant:\n%s", name, got, tc.want)
+		}
+	}
+}
+
+func TestLoadModules(t *testing.T) {
+	path := write(t, `version: 1
+modules:
+  - source: git::https://github.com/acme/terraform-modules.git//bucket?ref=v1.4.0
+  - source: app.terraform.io/acme/queue/aws
+    version: 2.1.0
+  - source: ./modules/role
+`)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Modules) != 3 || f.Modules[1].Version != "2.1.0" {
+		t.Fatalf("modules: %+v", f.Modules)
+	}
+	if want := filepath.Join(filepath.Dir(path), "modules", "role"); f.Modules[2].Source != want {
+		t.Errorf("a directory is relative to the file: got %s, want %s", f.Modules[2].Source, want)
+	}
+}
+
+func TestLoadRejectsUnpinnedModules(t *testing.T) {
+	for name, tc := range map[string]struct{ module, want string }{
+		"git without a ref":           {"source: git::https://github.com/acme/modules.git//bucket", "pin a tag or commit"},
+		"a registry module unversion": {"source: app.terraform.io/acme/queue/aws", "needs an exact version"},
+		"a version range":             {"source: app.terraform.io/acme/queue/aws\n    version: \"~> 2.1\"", "needs an exact version"},
+		"a versioned directory":       {"source: ./modules/role\n    version: 1.0.0", "a directory has no version"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, "version: 1\nmodules:\n  - "+tc.module+"\n"))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+}

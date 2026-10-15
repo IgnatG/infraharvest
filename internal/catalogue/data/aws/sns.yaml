@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: sns
+types:
+  aws_sns_topic_subscription:
+    # Terraform's own settings for waiting on confirmation, which AWS
+    # doesn't record.
+    state_only: [confirmation_timeout_in_minutes, endpoint_auto_confirms]

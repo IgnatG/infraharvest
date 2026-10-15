@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/networks/main", "name": "main", "attributes": {"asset.project": "acme-prod", "asset.name": "main", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/networks/default", "name": "default", "attributes": {"asset.project": "acme-prod", "asset.name": "default", "asset.location": "global"}}
+]}

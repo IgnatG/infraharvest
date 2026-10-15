@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/targetHttpProxies/internal", "name": "internal", "attributes": {"asset.project": "acme-prod", "asset.name": "internal", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/targetHttpProxies/k8s2-tp-2b3c4d5e-default-api", "name": "k8s2_tp_2b3c4d5e_default_api", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-tp-2b3c4d5e-default-api", "asset.location": "us-central1"}}
+]}

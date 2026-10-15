@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/networkEndpointGroups/run", "name": "run", "attributes": {"asset.project": "acme-prod", "asset.name": "run", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/networkEndpointGroups/k8s2-default-api", "name": "k8s2_default_api", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-default-api", "asset.location": "us-central1"}}
+]}

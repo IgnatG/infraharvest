@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: msk
+types:
+  aws_msk_cluster:
+    cloud_control: { type: "AWS::MSK::Cluster", identifier: Arn }

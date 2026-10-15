@@ -1,0 +1,1414 @@
+[
+  {
+    "path": "infraharvest",
+    "use": "infraharvest",
+    "run_e": false,
+    "run": false,
+    "args": "unset",
+    "silence_usage": true,
+    "silence_errors": true,
+    "version_flag": true
+  },
+  {
+    "path": "infraharvest bootstrap",
+    "use": "bootstrap",
+    "run_e": true,
+    "run": false,
+    "args": "0",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": false,
+        "required": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": false
+      }
+    ]
+  },
+  {
+    "path": "infraharvest discover",
+    "use": "discover",
+    "run_e": false,
+    "run": false,
+    "args": "unset",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "pick",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest discover aws",
+    "use": "aws",
+    "run_e": true,
+    "run": false,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "accounts",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "all",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "assume-role",
+        "type": "string",
+        "default": "arn:aws:iam::{account}:role/infraharvest-readonly",
+        "persistent": true
+      },
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": true
+      },
+      {
+        "name": "env-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": true
+      },
+      {
+        "name": "id",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "incremental",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "layout",
+        "type": "string",
+        "default": "{out}/{provider}/{account}/{region}/",
+        "persistent": true
+      },
+      {
+        "name": "list-parallel",
+        "type": "int",
+        "default": "4",
+        "persistent": true
+      },
+      {
+        "name": "list-timeout",
+        "type": "duration",
+        "default": "30m0s",
+        "persistent": true
+      },
+      {
+        "name": "managed-state",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "modules",
+        "type": "string",
+        "default": "registry",
+        "persistent": true
+      },
+      {
+        "name": "organization",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": true
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "profile",
+        "type": "string",
+        "default": "default",
+        "persistent": true
+      },
+      {
+        "name": "rate-limit",
+        "type": "float64",
+        "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regions",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "report-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "resource-explorer",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "resume",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "reuse-inventory",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "services",
+        "shorthand": "s",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "skip",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "tag",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "verbose",
+        "shorthand": "v",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "where",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest discover azure",
+    "use": "azure",
+    "run_e": true,
+    "run": false,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "all",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": true
+      },
+      {
+        "name": "env-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": true
+      },
+      {
+        "name": "id",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "incremental",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "layout",
+        "type": "string",
+        "default": "{out}/{provider}/{account}/{region}/",
+        "persistent": true
+      },
+      {
+        "name": "list-parallel",
+        "type": "int",
+        "default": "4",
+        "persistent": true
+      },
+      {
+        "name": "list-timeout",
+        "type": "duration",
+        "default": "30m0s",
+        "persistent": true
+      },
+      {
+        "name": "managed-state",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "management-group",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "modules",
+        "type": "string",
+        "default": "registry",
+        "persistent": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": true
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "rate-limit",
+        "type": "float64",
+        "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "report-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "resource-group",
+        "shorthand": "g",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "resume",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "reuse-inventory",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "services",
+        "shorthand": "s",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "skip",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "subscriptions",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "tag",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "verbose",
+        "shorthand": "v",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "where",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest discover google",
+    "use": "google",
+    "run_e": true,
+    "run": false,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "all",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "beta",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": true
+      },
+      {
+        "name": "env-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "folders",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": true
+      },
+      {
+        "name": "id",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "incremental",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "layout",
+        "type": "string",
+        "default": "{out}/{provider}/{account}/{region}/",
+        "persistent": true
+      },
+      {
+        "name": "list-parallel",
+        "type": "int",
+        "default": "4",
+        "persistent": true
+      },
+      {
+        "name": "list-timeout",
+        "type": "duration",
+        "default": "30m0s",
+        "persistent": true
+      },
+      {
+        "name": "managed-state",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "modules",
+        "type": "string",
+        "default": "registry",
+        "persistent": true
+      },
+      {
+        "name": "organization",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": true
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "projects",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "rate-limit",
+        "type": "float64",
+        "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regions",
+        "type": "stringSlice",
+        "default": "[global]",
+        "persistent": true
+      },
+      {
+        "name": "report-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "resume",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "reuse-inventory",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "services",
+        "shorthand": "s",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "skip",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "tag",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "verbose",
+        "shorthand": "v",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "where",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest import",
+    "use": "import",
+    "run_e": false,
+    "run": false,
+    "args": "unset",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest import aws",
+    "use": "aws",
+    "run_e": true,
+    "run": false,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "accounts",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "all",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "assume-role",
+        "type": "string",
+        "default": "arn:aws:iam::{account}:role/infraharvest-readonly",
+        "persistent": true
+      },
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": true
+      },
+      {
+        "name": "env-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": true
+      },
+      {
+        "name": "id",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "incremental",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "layout",
+        "type": "string",
+        "default": "{out}/{provider}/{account}/{region}/",
+        "persistent": true
+      },
+      {
+        "name": "list-parallel",
+        "type": "int",
+        "default": "4",
+        "persistent": true
+      },
+      {
+        "name": "list-timeout",
+        "type": "duration",
+        "default": "30m0s",
+        "persistent": true
+      },
+      {
+        "name": "managed-state",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "modules",
+        "type": "string",
+        "default": "registry",
+        "persistent": true
+      },
+      {
+        "name": "organization",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": true
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "profile",
+        "type": "string",
+        "default": "default",
+        "persistent": true
+      },
+      {
+        "name": "rate-limit",
+        "type": "float64",
+        "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regions",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "report-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "resource-explorer",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "resume",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "reuse-inventory",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "services",
+        "shorthand": "s",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "skip",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "tag",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "verbose",
+        "shorthand": "v",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "where",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest import azure",
+    "use": "azure",
+    "run_e": true,
+    "run": false,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "all",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": true
+      },
+      {
+        "name": "env-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": true
+      },
+      {
+        "name": "id",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "incremental",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "layout",
+        "type": "string",
+        "default": "{out}/{provider}/{account}/{region}/",
+        "persistent": true
+      },
+      {
+        "name": "list-parallel",
+        "type": "int",
+        "default": "4",
+        "persistent": true
+      },
+      {
+        "name": "list-timeout",
+        "type": "duration",
+        "default": "30m0s",
+        "persistent": true
+      },
+      {
+        "name": "managed-state",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "management-group",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "modules",
+        "type": "string",
+        "default": "registry",
+        "persistent": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": true
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "rate-limit",
+        "type": "float64",
+        "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "report-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "resource-group",
+        "shorthand": "g",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "resume",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "reuse-inventory",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "services",
+        "shorthand": "s",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "skip",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "subscriptions",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "tag",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "verbose",
+        "shorthand": "v",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "where",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest import google",
+    "use": "google",
+    "run_e": true,
+    "run": false,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "all",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "beta",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": true
+      },
+      {
+        "name": "env-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "folders",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": true
+      },
+      {
+        "name": "id",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "incremental",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "layout",
+        "type": "string",
+        "default": "{out}/{provider}/{account}/{region}/",
+        "persistent": true
+      },
+      {
+        "name": "list-parallel",
+        "type": "int",
+        "default": "4",
+        "persistent": true
+      },
+      {
+        "name": "list-timeout",
+        "type": "duration",
+        "default": "30m0s",
+        "persistent": true
+      },
+      {
+        "name": "managed-state",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "modules",
+        "type": "string",
+        "default": "registry",
+        "persistent": true
+      },
+      {
+        "name": "organization",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infraharvest",
+        "persistent": true
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "projects",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "rate-limit",
+        "type": "float64",
+        "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regions",
+        "type": "stringSlice",
+        "default": "[global]",
+        "persistent": true
+      },
+      {
+        "name": "report-tags",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "resume",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "reuse-inventory",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "services",
+        "shorthand": "s",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "skip",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "tag",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "verbose",
+        "shorthand": "v",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "where",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      }
+    ]
+  },
+  {
+    "path": "infraharvest mcp",
+    "use": "mcp",
+    "run_e": true,
+    "run": false,
+    "args": "0",
+    "silence_usage": false,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "root",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      }
+    ]
+  },
+  {
+    "path": "infraharvest pick",
+    "use": "pick",
+    "run_e": true,
+    "run": false,
+    "args": "0",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "selection",
+        "type": "string",
+        "default": "selection.yaml",
+        "persistent": false
+      }
+    ]
+  },
+  {
+    "path": "infraharvest report",
+    "use": "report [output-directory]",
+    "run_e": true,
+    "run": false,
+    "args": "0,1",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": false
+      }
+    ]
+  },
+  {
+    "path": "infraharvest services",
+    "use": "services <provider>",
+    "run_e": true,
+    "run": false,
+    "args": "1",
+    "silence_usage": true,
+    "silence_errors": false
+  },
+  {
+    "path": "infraharvest verify",
+    "use": "verify [output-directory]",
+    "run_e": true,
+    "run": false,
+    "args": "0,1",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": false
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      }
+    ]
+  },
+  {
+    "path": "infraharvest version",
+    "use": "version",
+    "run_e": false,
+    "run": true,
+    "args": "unset",
+    "silence_usage": false,
+    "silence_errors": false
+  }
+]

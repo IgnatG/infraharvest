@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: nacl
+types:
+  aws_default_network_acl:
+    skip:
+      - reason: default network ACL, which AWS creates with every VPC
+        all: true
+  aws_network_acl:
+    arn: { service: ec2, resource_type: "network-acl" }

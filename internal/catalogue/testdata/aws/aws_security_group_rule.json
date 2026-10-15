@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "sg-0a1_ingress_tcp_443_443_10.0.0.0/16", "name": "web_https", "attributes": {"security_group_id": "sg-0a1", "type": "ingress"}},
+  {"id": "sg-0a1_egress_all_0_65536_0.0.0.0/0", "name": "web_egress", "attributes": {"security_group_id": "sg-0a1", "type": "egress"}}
+]}

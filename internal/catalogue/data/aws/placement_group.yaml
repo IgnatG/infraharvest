@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: placement_group
+types:
+  aws_placement_group:
+    arn: { service: ec2, resource_type: "placement-group" }
+    cloud_control: { type: "AWS::EC2::PlacementGroup", identifier: GroupName }

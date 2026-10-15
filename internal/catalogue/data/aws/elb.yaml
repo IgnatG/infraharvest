@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: elb
+types:
+  aws_elb:
+    arn: { service: elasticloadbalancing, resource_type: "loadbalancer" }
+    cloud_control: { type: "AWS::ElasticLoadBalancing::LoadBalancer", identifier: LoadBalancerName }

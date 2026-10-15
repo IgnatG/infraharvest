@@ -1,0 +1,16 @@
+{"resources": [
+  {"id": "projects/acme-prod/instances/orders/databases/app", "name": "orders_app", "attributes": {"project": "acme-prod", "instance": "orders", "name": "app", "database_version": "MYSQL_8_0"}},
+  {"id": "projects/acme-prod/instances/orders/databases/mysql", "name": "orders_mysql", "attributes": {"project": "acme-prod", "instance": "orders", "name": "mysql", "database_version": "MYSQL_8_0"}},
+  {"id": "projects/acme-prod/instances/orders/databases/information_schema", "name": "orders_information_schema", "attributes": {"project": "acme-prod", "instance": "orders", "name": "information_schema", "database_version": "MYSQL_8_0"}},
+  {"id": "projects/acme-prod/instances/orders/databases/performance_schema", "name": "orders_performance_schema", "attributes": {"project": "acme-prod", "instance": "orders", "name": "performance_schema", "database_version": "MYSQL_8_0"}},
+  {"id": "projects/acme-prod/instances/orders/databases/sys", "name": "orders_sys", "attributes": {"project": "acme-prod", "instance": "orders", "name": "sys", "database_version": "MYSQL_8_0"}},
+  {"id": "projects/acme-prod/instances/billing/databases/ledger", "name": "billing_ledger", "attributes": {"project": "acme-prod", "instance": "billing", "name": "ledger", "database_version": "POSTGRES_16"}},
+  {"id": "projects/acme-prod/instances/billing/databases/sys", "name": "billing_sys", "attributes": {"project": "acme-prod", "instance": "billing", "name": "sys", "database_version": "POSTGRES_16"}},
+  {"id": "projects/acme-prod/instances/billing/databases/postgres", "name": "billing_postgres", "attributes": {"project": "acme-prod", "instance": "billing", "name": "postgres", "database_version": "POSTGRES_16"}},
+  {"id": "projects/acme-prod/instances/billing/databases/cloudsqladmin", "name": "billing_cloudsqladmin", "attributes": {"project": "acme-prod", "instance": "billing", "name": "cloudsqladmin", "database_version": "POSTGRES_16"}},
+  {"id": "projects/acme-prod/instances/crm/databases/crm", "name": "crm_crm", "attributes": {"project": "acme-prod", "instance": "crm", "name": "crm", "database_version": "SQLSERVER_2022_STANDARD"}},
+  {"id": "projects/acme-prod/instances/crm/databases/master", "name": "crm_master", "attributes": {"project": "acme-prod", "instance": "crm", "name": "master", "database_version": "SQLSERVER_2022_STANDARD"}},
+  {"id": "projects/acme-prod/instances/crm/databases/model", "name": "crm_model", "attributes": {"project": "acme-prod", "instance": "crm", "name": "model", "database_version": "SQLSERVER_2022_STANDARD"}},
+  {"id": "projects/acme-prod/instances/crm/databases/msdb", "name": "crm_msdb", "attributes": {"project": "acme-prod", "instance": "crm", "name": "msdb", "database_version": "SQLSERVER_2022_STANDARD"}},
+  {"id": "projects/acme-prod/instances/crm/databases/tempdb", "name": "crm_tempdb", "attributes": {"project": "acme-prod", "instance": "crm", "name": "tempdb", "database_version": "SQLSERVER_2022_STANDARD"}}
+]}

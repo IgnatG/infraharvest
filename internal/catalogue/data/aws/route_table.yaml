@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: route_table
+types:
+  aws_main_route_table_association:
+    not_importable: Terraform can't import it; the VPC's main_route_table_id records the main route table.
+  aws_route_table:
+    arn: { service: ec2, resource_type: "route-table" }
+    data_source: { type: aws_route_table, argument: route_table_id }
+  aws_route_table_association:
+    # A subnet's association, or a gateway's (an edge association).
+    import_id:
+      - "{subnet_id}/{route_table_id}"
+      - "{gateway_id}/{route_table_id}"

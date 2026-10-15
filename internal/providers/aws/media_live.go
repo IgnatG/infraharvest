@@ -1,0 +1,95 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package aws
+
+import (
+	"context"
+	"log"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/medialive"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
+
+// MediaLiveLister lists the region's MediaLive channels, inputs and
+// input security groups.
+type MediaLiveLister struct {
+	Service
+}
+
+// List lists the channels, the inputs and the input security
+// groups, all by ID. A list that fails is logged and ends there, and the
+// lister goes on with the next: the service itself never fails once its
+// client is built.
+func (g *MediaLiveLister) List() error {
+	config, err := g.sdkConfig()
+	if err != nil {
+		return err
+	}
+	client := medialive.NewFromConfig(config)
+	lists := []struct {
+		what string
+		list func(context.Context, *medialive.Client) error
+	}{
+		{"channels", g.listChannels},
+		{"inputs", g.listInputs},
+		{"input security groups", g.listInputSecurityGroups},
+	}
+	for _, l := range lists {
+		if err := l.list(g.Context(), client); err != nil {
+			log.Printf("aws: medialive: listing %s: %v", l.what, err)
+		}
+	}
+	return nil
+}
+
+// listChannels adds each channel as an aws_medialive_channel.
+func (g *MediaLiveLister) listChannels(ctx context.Context, client *medialive.Client) error {
+	p := medialive.NewListChannelsPaginator(client, &medialive.ListChannelsInput{}, stopOnDuplicateToken)
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, channel := range page.Channels {
+			id := aws.ToString(channel.Id)
+			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_medialive_channel", "aws"))
+		}
+	}
+	return nil
+}
+
+// listInputs adds each input as an aws_medialive_input.
+func (g *MediaLiveLister) listInputs(ctx context.Context, client *medialive.Client) error {
+	p := medialive.NewListInputsPaginator(client, &medialive.ListInputsInput{}, stopOnDuplicateToken)
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, input := range page.Inputs {
+			id := aws.ToString(input.Id)
+			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_medialive_input", "aws"))
+		}
+	}
+	return nil
+}
+
+// listInputSecurityGroups adds each input security group as an
+// aws_medialive_input_security_group.
+func (g *MediaLiveLister) listInputSecurityGroups(ctx context.Context, client *medialive.Client) error {
+	p := medialive.NewListInputSecurityGroupsPaginator(client, &medialive.ListInputSecurityGroupsInput{}, stopOnDuplicateToken)
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, group := range page.InputSecurityGroups {
+			id := aws.ToString(group.Id)
+			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_medialive_input_security_group", "aws"))
+		}
+	}
+	return nil
+}

@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: nat
+types:
+  aws_nat_gateway:
+    arn: { service: ec2, resource_type: "natgateway" }
+    data_source: { type: aws_nat_gateway, argument: id }

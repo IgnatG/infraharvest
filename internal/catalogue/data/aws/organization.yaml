@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: organization
+types:
+  aws_organizations_policy:
+    skip:
+      - reason: an AWS managed policy, such as FullAWSAccess, which every organization has and AWS maintains
+        attributes: { aws_managed: "true" }
+  aws_organizations_policy_attachment:
+    skip:
+      - reason: the attachment of an AWS managed policy, such as FullAWSAccess, which AWS makes to every root, organizational unit and account
+        attributes: { policy_aws_managed: "true" }

@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/httpHealthChecks/legacy", "name": "legacy", "attributes": {"asset.project": "acme-prod", "asset.name": "legacy", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/httpHealthChecks/k8s-be-30080--0a1b2c3d", "name": "k8s_be_30080__0a1b2c3d", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s-be-30080--0a1b2c3d", "asset.location": "global"}}
+]}

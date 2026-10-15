@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: transit_gateway
+types:
+  aws_ec2_transit_gateway:
+    arn: { service: ec2, resource_type: "transit-gateway" }
+  aws_ec2_transit_gateway_vpc_attachment:
+    arn: { service: ec2, resource_type: "transit-gateway-attachment" }

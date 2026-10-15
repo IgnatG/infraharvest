@@ -1,0 +1,88 @@
+# AWS
+
+`infraharvest import aws` and `infraharvest discover aws` list the resources of one or more AWS accounts, region by region, and generate configuration for the `hashicorp/aws` provider. The [services reference](reference/services.md#aws) lists the services `--services` takes and the Terraform types each one lists.
+
+```sh
+infraharvest discover aws --profile prod --services=vpc,subnet,sg,s3 --regions=eu-west-2,eu-west-1
+```
+
+## Credentials
+
+infraharvest signs in the way the AWS CLI and SDKs do. `--profile` names a profile of the shared configuration and credentials files (`~/.aws/config`, `~/.aws/credentials`), with whatever it uses: keys, an IAM Identity Center (SSO) session, a role to assume, or a `credential_process`. Left at `default`, the SDK's default chain decides, so `AWS_PROFILE`, the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` variables, web identity (OIDC in CI) and the instance or container role all work, without a configuration file.
+
+When a profile assumes a role that needs an MFA code, infraharvest asks for it on the terminal. Terraform gets the credentials infraharvest resolved, through `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, fresh for each root, so it never has to resolve an SSO session or ask for a code itself. Run `terraform plan` on the generated roots later with credentials of your own.
+
+The account is the one `sts:GetCallerIdentity` returns. Throttled calls back off and retry, up to 10 attempts in the SDK's adaptive retry mode; `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override that. `--rate-limit` caps the requests a second to each API and account. `--verbose` logs the headers of each request and response, never the bodies.
+
+## Permissions
+
+Read-only access is enough: the AWS-managed `ReadOnlyAccess` policy, with an explicit deny on reading data. The [`permissions/aws`](https://github.com/IgnatG/infraharvest/tree/main/permissions/aws) configuration creates a role with both; see [Permissions](permissions.md#aws).
+
+## Regions
+
+Without `--regions`, the import covers the region the profile or the environment sets (`AWS_REGION`, the profile's `region`). With it, each region is imported in turn into roots of its own: `<out>/aws/<account>/<region>/`.
+
+Global services are imported once, not per region, into `<out>/aws/<account>/global/`, with the provider's region set to `us-east-1`: `budgets`, `cloudfront`, `ecrpublic`, `iam`, `organization`, `route53` and `waf`. `wafv2_cloudfront`, the web ACLs that CloudFront uses, exists only in `us-east-1` and is imported there. A service AWS doesn't offer in a region is skipped there, with a log message.
+
+## Several accounts
+
+`--accounts` imports the accounts it names, and `--organization` every active account of the organization the credentials belong to. Listing the organization's accounts needs `organizations:ListAccounts`, which the management account and a delegated administrator have. In each account, infraharvest assumes the role `--assume-role` names, where `{account}` stands for the account ID. It defaults to `arn:aws:iam::{account}:role/infraharvest-readonly`, the role the permissions configuration creates:
+
+```sh
+infraharvest import aws --organization --services=vpc,subnet,sg --regions=eu-west-2 --all \
+  --assume-role 'arn:aws:iam::{account}:role/infraharvest-readonly' --parallel 4
+```
+
+Each account goes into roots of its own, so a custom `--layout` must contain `{account}`. `--parallel` imports that many accounts at once, each with its own Terraform. An account that fails, for example because the role can't be assumed, is reported, and the run goes on to the next. The generated provider block assumes the same role, from the credentials of whoever plans.
+
+Without `--accounts` or `--organization`, an `--assume-role` ARN without `{account}` is assumed as it is, for the one account it names.
+
+## Resource Explorer
+
+Listing every service in every region makes many calls, most of them for services a region doesn't use. `--resource-explorer` asks [AWS Resource Explorer](https://docs.aws.amazon.com/resource-explorer/latest/userguide/welcome.html) first, and skips a service in a region when the index has none of the service's resource types there. It is off by default, because the index can take hours to find new resources, and one it hasn't found yet would be left out.
+
+infraharvest only relies on the index when:
+
+- the region has an active index, at least a day old;
+- the region has a default view, or its index replicates to an aggregator index whose region has one;
+- that view has no filter, and covers its own account only.
+
+Otherwise it logs why and lists every service. Global services are always listed. So are services the index can't speak for: those with a type it doesn't support, such as launch configurations, those whose listers also find what other accounts share, such as subnets, VPCs and security groups, and those that list what AWS creates for the account. Types that can't exist without a parent, such as a load balancer's listeners, are looked up by their parent's type. When a region has more than 1,000 resources, infraharvest searches for each service's types on their own.
+
+It needs `resource-explorer-2:GetIndex`, `GetDefaultView`, `GetView`, `ListSupportedResourceTypes` and `Search`, which `ReadOnlyAccess` grants. Turning Resource Explorer on in an account, with an aggregator index and a default view, is done once, in its console.
+
+## What the default selection leaves out
+
+`discover` leaves out what AWS creates and manages itself: default VPCs with their subnets, route tables and internet gateways, default security groups and network ACLs, the security groups EKS creates, service-linked roles, the log groups Lambda creates, the default parameter, option and subnet groups of RDS and ElastiCache, and the AWS managed FullAWSAccess service control policy with its attachments. It also leaves out every resource a CloudFormation stack manages, nested stacks and CDK apps included, naming the stack: global resources are checked against the stacks of every enabled region. Each is in the selection file with the reason, and `include: true` takes it in. See [Choosing what to import](usage.md#choosing-what-to-import).
+
+## Services at end of life
+
+Cloud9 (`cloud9`) and Data Pipeline (`datapipeline`) are closed to new customers; MediaStore (`media_store`) and WAF Classic (`waf`, `waf_regional`) have reached end of support. What still exists in them can be imported. `cloud9` lists only EC2 environments, as `aws_cloud9_environment_ec2`: an SSH environment has no Terraform type, so it is skipped with a log message. `media_store` leaves out containers being deleted; the provider has deprecated `aws_media_store_container` and will remove it in a future version. `waf_regional` also lists which load balancers and API Gateway stages each web ACL protects, as `aws_wafregional_web_acl_association`.
+
+## Tags
+
+Tags come from the Resource Groups Tagging API of each region listed, and of `us-east-1` for the global services, for the selection file's rules, the picker and the report. That API lists tags by ARN, so resources whose ID isn't an ARN are matched through the ARN of their type where the catalogue knows it; IAM roles and users have no tags there. In the generated configuration, the tags all resources of a root share move to the provider's `default_tags`; `aws:` tags stay on the resources.
+
+## Filtering
+
+`--id` applies to every service, by the type without `aws_`:
+
+```sh
+infraharvest import aws --services=vpc,subnet --regions=eu-west-2 --all --id=vpc=vpc-0a1b2c3d
+infraharvest import aws --services=s3 --regions=eu-west-2 --all --id=s3_bucket=my-logs,my-assets
+```
+
+`--tag` works for three services: EC2 instances (`ec2_instance`), EBS volumes (`ebs`) and API Gateway REST APIs (`api_gateway`). The first two pass it to the EC2 API; the third checks each REST API's tags. It applies to all three:
+
+```sh
+infraharvest import aws --services=ec2_instance,ebs --regions=eu-west-2 --all \
+  --tag Environment=prod
+```
+
+See [Filtering](usage.md#filtering) for the syntax.
+
+`SQS_PREFIX`, when set, makes the `sqs` service list only the queues whose names start with it.
+
+## Services listed through Cloud Control
+
+Some services have no lister of their own: they list their types through the [Cloud Control API](https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/what-is-cloudcontrolapi.html), which lists the resources of any CloudFormation type. They are the catalogue's types with a `cloud_control` entry, grouped by service, such as `eventbridge`, `backup` and `guardduty` (see [Catalogue](catalogue.md)). Adding a type that way takes a catalogue entry, not code.

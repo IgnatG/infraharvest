@@ -1,0 +1,329 @@
+# yaml-language-server: $schema=../../schema.json
+# Compute Engine, as Cloud Asset Inventory lists it (the cloud_asset
+# service). The cloud_asset service records each resource's name as
+# asset.name. Search returns global, regional and zonal resources of some
+# types under one asset type (Address, BackendService, Disk,
+# ForwardingRule, ...): the name patterns tell them apart. Self-managed
+# and Google-managed SSL certificates share one asset type and name
+# pattern, so they aren't mapped.
+provider: google
+types:
+  google_compute_address:
+    inventory:
+      type: compute.googleapis.com/Address
+      name: //compute.googleapis.com/projects/*/regions/*/addresses/*
+  google_compute_global_address:
+    inventory:
+      type: compute.googleapis.com/Address
+      name: //compute.googleapis.com/projects/*/global/addresses/*
+  google_compute_autoscaler:
+    inventory:
+      type: compute.googleapis.com/Autoscaler
+      name: //compute.googleapis.com/projects/*/zones/*/autoscalers/*
+  google_compute_region_autoscaler:
+    inventory:
+      type: compute.googleapis.com/Autoscaler
+      name: //compute.googleapis.com/projects/*/regions/*/autoscalers/*
+  google_compute_backend_bucket:
+    inventory:
+      type: compute.googleapis.com/BackendBucket
+      name: //compute.googleapis.com/projects/*/global/backendBuckets/*
+  google_compute_backend_service:
+    inventory:
+      type: compute.googleapis.com/BackendService
+      name: //compute.googleapis.com/projects/*/global/backendServices/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_region_backend_service:
+    inventory:
+      type: compute.googleapis.com/BackendService
+      name: //compute.googleapis.com/projects/*/regions/*/backendServices/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_disk:
+    inventory:
+      type: compute.googleapis.com/Disk
+      name: //compute.googleapis.com/projects/*/zones/*/disks/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+      - reason: GKE creates it for a persistent volume claim and deletes it with the claim
+        attribute_prefixes: { asset.name: [pvc-] }
+  google_compute_region_disk:
+    inventory:
+      type: compute.googleapis.com/Disk
+      name: //compute.googleapis.com/projects/*/regions/*/disks/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+      - reason: GKE creates it for a persistent volume claim and deletes it with the claim
+        attribute_prefixes: { asset.name: [pvc-] }
+  google_compute_external_vpn_gateway:
+    inventory:
+      type: compute.googleapis.com/ExternalVpnGateway
+      name: //compute.googleapis.com/projects/*/global/externalVpnGateways/*
+  google_compute_firewall:
+    inventory:
+      type: compute.googleapis.com/Firewall
+      name: //compute.googleapis.com/projects/*/global/firewalls/*
+    skip:
+      - reason: a rule of the default network, which GCP creates with it; select it to import it
+        attribute_prefixes: { asset.name: [default-allow-] }
+      - reason: GKE creates it for a cluster and deletes it with the cluster
+        attribute_prefixes: { asset.name: [gke-, k8s-, k8s1-, k8s2-] }
+  google_compute_forwarding_rule:
+    inventory:
+      type: compute.googleapis.com/ForwardingRule
+      name: //compute.googleapis.com/projects/*/regions/*/forwardingRules/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_global_forwarding_rule:
+    inventory:
+      type: compute.googleapis.com/ForwardingRule
+      name: //compute.googleapis.com/projects/*/global/forwardingRules/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_health_check:
+    inventory:
+      type: compute.googleapis.com/HealthCheck
+      name: //compute.googleapis.com/projects/*/global/healthChecks/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_region_health_check:
+    inventory:
+      type: compute.googleapis.com/HealthCheck
+      name: //compute.googleapis.com/projects/*/regions/*/healthChecks/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_http_health_check:
+    inventory:
+      type: compute.googleapis.com/HttpHealthCheck
+      name: //compute.googleapis.com/projects/*/global/httpHealthChecks/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_https_health_check:
+    inventory:
+      type: compute.googleapis.com/HttpsHealthCheck
+      name: //compute.googleapis.com/projects/*/global/httpsHealthChecks/*
+  google_compute_image:
+    inventory:
+      type: compute.googleapis.com/Image
+      name: //compute.googleapis.com/projects/*/global/images/*
+  google_compute_instance:
+    inventory:
+      type: compute.googleapis.com/Instance
+      name: //compute.googleapis.com/projects/*/zones/*/instances/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_instance_group:
+    inventory:
+      type: compute.googleapis.com/InstanceGroup
+      name: //compute.googleapis.com/projects/*/zones/*/instanceGroups/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_instance_group_manager:
+    inventory:
+      type: compute.googleapis.com/InstanceGroupManager
+      name: //compute.googleapis.com/projects/*/zones/*/instanceGroupManagers/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_region_instance_group_manager:
+    inventory:
+      type: compute.googleapis.com/InstanceGroupManager
+      name: //compute.googleapis.com/projects/*/regions/*/instanceGroupManagers/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_instance_template:
+    inventory:
+      type: compute.googleapis.com/InstanceTemplate
+      name: //compute.googleapis.com/projects/*/global/instanceTemplates/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_region_instance_template:
+    inventory:
+      type: compute.googleapis.com/InstanceTemplate
+      name: //compute.googleapis.com/projects/*/regions/*/instanceTemplates/*
+    skip:
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_interconnect_attachment:
+    inventory:
+      type: compute.googleapis.com/InterconnectAttachment
+      name: //compute.googleapis.com/projects/*/regions/*/interconnectAttachments/*
+  google_compute_network:
+    inventory:
+      type: compute.googleapis.com/Network
+      name: //compute.googleapis.com/projects/*/global/networks/*
+    skip:
+      - reason: the default network GCP creates in each project; select it to import it
+        attributes: { asset.name: default }
+    # google-beta, through which the network module creates networks,
+    # keeps it in state only: an import leaves it unset.
+    state_only: [delete_bgp_always_compare_med]
+  google_compute_network_endpoint_group:
+    inventory:
+      type: compute.googleapis.com/NetworkEndpointGroup
+      name: //compute.googleapis.com/projects/*/zones/*/networkEndpointGroups/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_region_network_endpoint_group:
+    inventory:
+      type: compute.googleapis.com/NetworkEndpointGroup
+      name: //compute.googleapis.com/projects/*/regions/*/networkEndpointGroups/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_global_network_endpoint_group:
+    inventory:
+      type: compute.googleapis.com/NetworkEndpointGroup
+      name: //compute.googleapis.com/projects/*/global/networkEndpointGroups/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_node_group:
+    inventory:
+      type: compute.googleapis.com/NodeGroup
+      name: //compute.googleapis.com/projects/*/zones/*/nodeGroups/*
+  google_compute_node_template:
+    inventory:
+      type: compute.googleapis.com/NodeTemplate
+      name: //compute.googleapis.com/projects/*/regions/*/nodeTemplates/*
+  google_compute_packet_mirroring:
+    inventory:
+      type: compute.googleapis.com/PacketMirroring
+      name: //compute.googleapis.com/projects/*/regions/*/packetMirrorings/*
+  google_compute_reservation:
+    inventory:
+      type: compute.googleapis.com/Reservation
+      name: //compute.googleapis.com/projects/*/zones/*/reservations/*
+  google_compute_resource_policy:
+    inventory:
+      type: compute.googleapis.com/ResourcePolicy
+      name: //compute.googleapis.com/projects/*/regions/*/resourcePolicies/*
+  google_compute_route:
+    inventory:
+      type: compute.googleapis.com/Route
+      name: //compute.googleapis.com/projects/*/global/routes/*
+    skip:
+      - reason: GCP creates it with a network (to the internet) or a subnetwork range, and deletes it with them
+        attribute_prefixes: { asset.name: [default-route-] }
+      - reason: GKE creates it for a cluster's nodes and deletes it with them
+        attribute_prefixes: { asset.name: [gke-] }
+  google_compute_router:
+    inventory:
+      type: compute.googleapis.com/Router
+      name: //compute.googleapis.com/projects/*/regions/*/routers/*
+  google_compute_security_policy:
+    inventory:
+      type: compute.googleapis.com/SecurityPolicy
+      name: //compute.googleapis.com/projects/*/global/securityPolicies/*
+  google_compute_region_security_policy:
+    inventory:
+      type: compute.googleapis.com/SecurityPolicy
+      name: //compute.googleapis.com/projects/*/regions/*/securityPolicies/*
+  google_compute_snapshot:
+    inventory:
+      type: compute.googleapis.com/Snapshot
+      name: //compute.googleapis.com/projects/*/global/snapshots/*
+  google_compute_ssl_policy:
+    inventory:
+      type: compute.googleapis.com/SslPolicy
+      name: //compute.googleapis.com/projects/*/global/sslPolicies/*
+  google_compute_region_ssl_policy:
+    inventory:
+      type: compute.googleapis.com/SslPolicy
+      name: //compute.googleapis.com/projects/*/regions/*/sslPolicies/*
+  google_compute_subnetwork:
+    inventory:
+      type: compute.googleapis.com/Subnetwork
+      name: //compute.googleapis.com/projects/*/regions/*/subnetworks/*
+    skip:
+      - reason: a subnetwork of the default network, which GCP creates in each region; select it to import it
+        attributes: { asset.name: default }
+  google_compute_target_http_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetHttpProxy
+      name: //compute.googleapis.com/projects/*/global/targetHttpProxies/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_region_target_http_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetHttpProxy
+      name: //compute.googleapis.com/projects/*/regions/*/targetHttpProxies/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_target_https_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetHttpsProxy
+      name: //compute.googleapis.com/projects/*/global/targetHttpsProxies/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_region_target_https_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetHttpsProxy
+      name: //compute.googleapis.com/projects/*/regions/*/targetHttpsProxies/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_target_instance:
+    inventory:
+      type: compute.googleapis.com/TargetInstance
+      name: //compute.googleapis.com/projects/*/zones/*/targetInstances/*
+  google_compute_target_pool:
+    inventory:
+      type: compute.googleapis.com/TargetPool
+      name: //compute.googleapis.com/projects/*/regions/*/targetPools/*
+  google_compute_target_ssl_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetSslProxy
+      name: //compute.googleapis.com/projects/*/global/targetSslProxies/*
+  google_compute_target_tcp_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetTcpProxy
+      name: //compute.googleapis.com/projects/*/global/targetTcpProxies/*
+  google_compute_region_target_tcp_proxy:
+    inventory:
+      type: compute.googleapis.com/TargetTcpProxy
+      name: //compute.googleapis.com/projects/*/regions/*/targetTcpProxies/*
+  google_compute_url_map:
+    inventory:
+      type: compute.googleapis.com/UrlMap
+      name: //compute.googleapis.com/projects/*/global/urlMaps/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_region_url_map:
+    inventory:
+      type: compute.googleapis.com/UrlMap
+      name: //compute.googleapis.com/projects/*/regions/*/urlMaps/*
+    skip:
+      - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+        attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+  google_compute_vpn_gateway:
+    inventory:
+      type: compute.googleapis.com/TargetVpnGateway
+      name: //compute.googleapis.com/projects/*/regions/*/targetVpnGateways/*
+  google_compute_ha_vpn_gateway:
+    inventory:
+      type: compute.googleapis.com/VpnGateway
+      name: //compute.googleapis.com/projects/*/regions/*/vpnGateways/*
+  google_compute_vpn_tunnel:
+    inventory:
+      type: compute.googleapis.com/VpnTunnel
+      name: //compute.googleapis.com/projects/*/regions/*/vpnTunnels/*

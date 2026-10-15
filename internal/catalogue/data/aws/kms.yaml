@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: kms
+types:
+  aws_kms_alias: {}
+  aws_kms_key:
+    arn: { service: kms, resource_type: "key" }
+    data_source: { type: aws_kms_key, argument: key_id }

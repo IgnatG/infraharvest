@@ -1,0 +1,28 @@
+{
+  "source": "terraform-google-modules/service-accounts/google//modules/simple-sa",
+  "version": "5.1.0",
+  "variables": {
+    "description": {
+      "required": false
+    },
+    "display_name": {
+      "required": false
+    },
+    "name": {
+      "required": true
+    },
+    "project_id": {
+      "required": true
+    },
+    "project_roles": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "account_details",
+    "email",
+    "env_vars",
+    "iam_email",
+    "id"
+  ]
+}

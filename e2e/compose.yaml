@@ -1,0 +1,37 @@
+# The Floci emulators of AWS (floci), Google Cloud (floci-gcp) and Azure
+# (floci-az), for the end-to-end tests. See README.md.
+services:
+  floci:
+    image: floci/floci:2.2.0@sha256:e97cd0c1dc2aa14e7697fb5ef5018404c4d6345169dbd276315f0bed2c7b0520
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      # SQS queue URLs embed this. The AWS provider only imports queues by URLs
+      # shaped like AWS's (https://sqs.<region>.<host>/<account>/<name>);
+      # requests still go to AWS_ENDPOINT_URL. .invalid never resolves.
+      FLOCI_BASE_URL: https://sqs.us-east-1.floci.invalid
+    # The image has bash but no curl: ready once the API port accepts connections.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/4566"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  # floci-gcp, the GCP emulator, for TestGoogleRoundTrip: docker compose
+  # --profile google up -d floci-gcp. Control planes only, without Docker.
+  # 0.10.0 is the first release with Compute Engine.
+  floci-gcp:
+    image: floci/floci-gcp:0.10.0@sha256:405c128b685afbc461276820f2286defcc3a6fa478755067d3e3f740c5503c07
+    profiles: [google]
+    ports:
+      - "127.0.0.1:4588:4588"
+  # floci-az, the Azure emulator, for TestAzureRoundTrip: docker compose
+  # --profile azure up -d floci-az. The azurerm provider reads the cloud's
+  # endpoints over HTTPS only: TLS on, with a CA served at /_floci/tls-cert
+  # for the host to trust.
+  floci-az:
+    image: floci/floci-az:0.14.0@sha256:a35e74dfca9a5e811090d8ae98876044fc8990a8874ee525231f524ca56679db
+    profiles: [azure]
+    ports:
+      - "127.0.0.1:4577:4577"
+    environment:
+      FLOCI_AZ_TLS_ENABLED: "true"

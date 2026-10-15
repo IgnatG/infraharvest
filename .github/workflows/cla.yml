@@ -1,0 +1,80 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: cla
+
+# Enforces the Contributor License Agreement (CLA.md). On every pull request
+# it posts a status check; a contributor signs once by commenting the exact
+# phrase below, and the signature is recorded in signatures/version1/cla.json
+# on the cla-signatures branch, so the check stays green on their later pull
+# requests. Comment `recreate-cla` to re-run a stuck check.
+#
+# One-time setup: the cla-signatures branch must exist (the action writes to
+# it but doesn't create it) and must not be protected. Create it empty, and
+# never commit the signatures file by hand:
+#
+#   tree=$(git hash-object -t tree /dev/null)
+#   commit=$(git commit-tree "$tree" -m "chore(cla): start the signature store")
+#   git push infraharvest "$commit":refs/heads/cla-signatures
+#
+# pull_request_target runs with the base repository's token, which writing
+# the signature store and the status check on fork pull requests needs. It
+# never checks out the pull request's code, so that code never runs with the
+# token. The action is archived upstream: it is pinned to its last release
+# and holds nothing beyond the scoped token; moving to a maintained CLA check
+# is a standing TODO (see .github/linters/zizmor.yml).
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize, closed]
+
+# What the action needs: write the signature store, comment on and label the
+# pull request, set the status check, and re-run its failed run after a
+# signature (it calls the Actions API on every run, so actions: write is not
+# optional).
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Bots can't sign. The allowlist below exempts them too, but the action
+      # consults it only after reading the signature store, so a bot pull
+      # request could still fail first; skipping the step is deterministic.
+      # The author is checked as well as the actor, because on `closed` the
+      # actor is whoever merged.
+      - name: CLA Assistant
+        if: >-
+          github.actor != 'github-actions[bot]' &&
+          github.actor != 'dependabot[bot]' &&
+          github.actor != 'coderabbitai[bot]' &&
+          github.event.pull_request.user.login != 'github-actions[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'coderabbitai[bot]' &&
+          ((github.event.comment.body == 'recreate-cla' ||
+            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
+           github.event_name == 'pull_request_target')
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: signatures/version1/cla.json
+          path-to-document: https://github.com/IgnatG/infraharvest/blob/main/CLA.md
+          branch: cla-signatures
+          # Exact bot names, not a *[bot] wildcard, which would exempt any
+          # GitHub App that opens a pull request.
+          allowlist: dependabot[bot],github-actions[bot],coderabbitai[bot]
+          # Keep merged pull requests' conversations open for follow-ups.
+          lock-pullrequest-aftermerge: false
+          custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
+          custom-notsigned-prcomment: >-
+            Thanks for your contribution! Before it can be merged, please read the
+            [Contributor License Agreement](https://github.com/IgnatG/infraharvest/blob/main/CLA.md)
+            and sign it by posting the comment below on this pull request.

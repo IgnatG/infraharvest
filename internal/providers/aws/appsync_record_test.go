@@ -1,0 +1,40 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package aws
+
+import "testing"
+
+// The lister lists GraphQL APIs by ID, named after their names, across
+// pages.
+func TestRecordAppSyncListsGraphqlApis(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Path != "/v1/apis" {
+			return recordUnexpected(t, call)
+		}
+		if recordSecondPage(call) {
+			return `{"graphqlApis":[{"apiId":"api2","name":"inventory","authenticationType":"AWS_IAM"}]}`
+		}
+		return `{"graphqlApis":[{"apiId":"api1","name":"orders","authenticationType":"API_KEY",
+			"arn":"arn:aws:appsync:us-east-1:123456789012:apis/api1"}],"nextToken":"` + nextPageToken + `"}`
+	})
+	g := &AppSyncLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_appsync_graphql_api", "api1", "orders", nil},
+		recordedResource{"aws_appsync_graphql_api", "api2", "inventory", nil},
+	)
+}
+
+func TestRecordAppSyncReturnsErrors(t *testing.T) {
+	useFakeAPI(t, func(apiCall) string {
+		return recordJSONError("UnauthorizedException")
+	})
+	g := &AppSyncLister{}
+
+	assertRecordedError(t, g.List(), "UnauthorizedException")
+}

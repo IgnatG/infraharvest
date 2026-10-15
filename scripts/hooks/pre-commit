@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Runs the fast checks on what this commit stages (see scripts/fast-checks.sh).
+# Enable the hooks with `make hooks`, or
+#   git config core.hooksPath scripts/hooks
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/fast-checks.sh" --staged

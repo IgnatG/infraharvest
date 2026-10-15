@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: ecs
+types:
+  aws_ecs_cluster:
+    arn: { service: ecs, resource_type: "cluster" }
+    # The lister records the ARN; Terraform imports by name.
+    import_id: "{id|after_last:/}"
+  aws_ecs_service:
+    import_id: "{cluster}/{name}"
+    state_only: [wait_for_steady_state]

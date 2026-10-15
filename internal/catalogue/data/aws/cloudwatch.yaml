@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: cloudwatch
+types:
+  aws_cloudwatch_event_rule:
+    arn: { service: events, resource_type: "rule" }
+  aws_cloudwatch_metric_alarm:
+    arn: { service: cloudwatch, resource_type: "alarm" }

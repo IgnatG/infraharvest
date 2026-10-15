@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: vpc_endpoint
+types:
+  aws_vpc_endpoint:
+    arn: { service: ec2, resource_type: "vpc-endpoint" }
+    data_source: { type: aws_vpc_endpoint, argument: id }

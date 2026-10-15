@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: emr
+types:
+  aws_emr_cluster:
+    arn: { service: elasticmapreduce, resource_type: "cluster" }

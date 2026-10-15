@@ -1,0 +1,231 @@
+{
+  "appliesTo": [
+    {
+      "service": "",
+      "name": "vpc",
+      "applicable": true
+    },
+    {
+      "service": "",
+      "name": "",
+      "applicable": true
+    },
+    {
+      "service": "vpc",
+      "name": "vpc",
+      "applicable": true
+    },
+    {
+      "service": "vpc",
+      "name": "subnet",
+      "applicable": false
+    },
+    {
+      "service": "vpc",
+      "name": "",
+      "applicable": false
+    },
+    {
+      "service": "VPC",
+      "name": "vpc",
+      "applicable": false
+    },
+    {
+      "service": "aws_vpc",
+      "name": "vpc",
+      "applicable": false
+    },
+    {
+      "service": "vpc",
+      "name": "aws_vpc",
+      "applicable": false
+    }
+  ],
+  "keeps": [
+    {
+      "case": "id match",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "id mismatch",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "id one of several",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "id, nil values",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "id, empty values",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "id is the state ID, not the address",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "id is not the name",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "id is case-sensitive",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "service without provider prefix applies",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "service with provider prefix does not apply",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "other service does not apply",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "service name is case-sensitive",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "no provider, match",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "no provider, mismatch",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "no provider, leading underscore",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "no underscore after provider",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "google service",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute present",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "attribute absent",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute, nil attributes",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute present, empty value",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "attribute value match",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "attribute value mismatch",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute value one of several",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "attribute empty value match",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "attribute, empty values",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute missing with values",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute id key is not the id filter",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "attribute prefix only",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "empty field path",
+      "passes": false,
+      "panicked": false
+    },
+    {
+      "case": "labels",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "attribute filter on another service",
+      "passes": true,
+      "panicked": false
+    },
+    {
+      "case": "nil Address",
+      "passes": false,
+      "panicked": true
+    },
+    {
+      "case": "nil Address, not applicable",
+      "passes": false,
+      "panicked": true
+    },
+    {
+      "case": "nil Observed, applicable id filter",
+      "passes": false,
+      "panicked": true
+    },
+    {
+      "case": "nil Observed, applicable attribute filter",
+      "passes": false,
+      "panicked": true
+    },
+    {
+      "case": "nil Observed, not applicable",
+      "passes": true,
+      "panicked": false
+    }
+  ]
+}

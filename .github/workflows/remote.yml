@@ -1,0 +1,128 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: remote
+
+# Runs the checks that need a Go toolchain on GitHub, so a change doesn't
+# need one on a laptop (the Makefile's ci-* targets dispatch it). The task
+# input picks what it does:
+#
+#   check   go vet and go test of the packages, on the runner os names:
+#             gh workflow run remote --ref <branch> -f task=check -f packages="./pkg/..." -f os=ubuntu-latest
+#   golden  rewrites the golden files of the packages' tests that take
+#           -update: ./internal/catalogue (the default), ./internal/cli (the
+#           command-line contract and the generated references,
+#           docs/reference/cli.md and docs/reference/services.md) and
+#           ./internal/harvest. No other package takes -update, so go test
+#           fails on it. It uploads them as the artifact golden; pushing a
+#           branch named golden/<anything> does the same:
+#             gh workflow run remote --ref <branch> -f task=golden -f packages=./internal/catalogue
+#   tidy    runs go mod tidy and uploads go.mod and go.sum as the artifact
+#           go-mod; pushing a branch named tidy/<anything> does the same:
+#             gh workflow run remote --ref <branch> -f task=tidy
+#
+# Download an artifact from the repository's root, then review and commit
+# it:
+#   gh run download <run-id> -n golden    # or -n go-mod
+on:
+  push:
+    branches: ['golden/**', 'tidy/**']
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to run
+        type: choice
+        options: [check, golden, tidy]
+        default: check
+      packages:
+        description: Space-separated Go package patterns (default ./... for check, ./internal/catalogue for golden; tidy takes none)
+        type: string
+        required: false
+        default: ""
+      os:
+        description: Runner, for check (golden and tidy run on ubuntu-latest)
+        type: choice
+        options: [ubuntu-latest, windows-latest, macos-latest]
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.task || (startsWith(github.ref, 'refs/heads/golden/') && 'golden' || 'tidy') }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'check' && inputs.os || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Plan
+        # Sets TASK and PACKAGES for the steps below. Each package pattern is
+        # checked on its own, so that none can start with '-' and be read by
+        # go vet or go test as a flag.
+        env:
+          TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || (startsWith(github.ref, 'refs/heads/golden/') && 'golden' || 'tidy') }}
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          case $TASK in
+            check) PACKAGES=${PACKAGES:-./...} ;;
+            golden) PACKAGES=${PACKAGES:-./internal/catalogue} ;;
+            tidy) PACKAGES= ;;
+            *) echo "::error::unknown task '$TASK': use check, golden or tidy"; exit 1 ;;
+          esac
+          for package in $PACKAGES; do
+            if ! [[ "$package" =~ ^[A-Za-z0-9_.][A-Za-z0-9_./-]*$ ]]; then
+              echo "::error::package pattern '$package' may contain only letters, digits, '_', '.', '/' and '-', and may not start with '-'"
+              exit 1
+            fi
+          done
+          echo "$TASK: ${PACKAGES:-the module}"
+          {
+            echo "TASK=$TASK"
+            echo "PACKAGES=$PACKAGES"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # go mod tidy may change go.sum, which keys the cache.
+          cache: ${{ env.TASK != 'tidy' }}
+
+      - name: Vet
+        if: env.TASK == 'check'
+        run: go vet $PACKAGES
+      - name: Test
+        if: env.TASK == 'check'
+        run: go test $PACKAGES
+
+      - name: Update golden files
+        if: env.TASK == 'golden'
+        run: go test $PACKAGES -run Golden -update
+      - name: Collect changed files
+        if: env.TASK == 'golden'
+        run: |
+          git ls-files --modified --others --exclude-standard -- '*/testdata/*' 'docs/reference/*' > changed.txt
+          cat changed.txt
+          test -s changed.txt || echo "::notice::no golden file changed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.TASK == 'golden'
+        with:
+          name: golden
+          path: |
+            **/testdata/**/*.golden.*
+            docs/reference/*.md
+          retention-days: 1
+
+      - name: go mod tidy
+        if: env.TASK == 'tidy'
+        run: go mod tidy
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.TASK == 'tidy'
+        with:
+          name: go-mod
+          path: |
+            go.mod
+            go.sum
+          retention-days: 1

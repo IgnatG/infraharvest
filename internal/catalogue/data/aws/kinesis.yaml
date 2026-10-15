@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: kinesis
+types:
+  aws_kinesis_stream:
+    arn: { service: kinesis, resource_type: "stream" }

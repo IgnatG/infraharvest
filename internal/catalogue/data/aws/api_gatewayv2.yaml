@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: api_gatewayv2
+types:
+  aws_apigatewayv2_api:
+    arn: { service: apigateway, resource_type: "apis" }

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: glue
+types:
+  aws_glue_crawler:
+    arn: { service: glue, resource_type: "crawler" }
+  aws_glue_job:
+    arn: { service: glue, resource_type: "job" }

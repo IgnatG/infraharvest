@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: vpc_peering
+types:
+  aws_vpc_peering_connection:
+    arn: { service: ec2, resource_type: "vpc-peering-connection" }
+    cloud_control: { type: "AWS::EC2::VPCPeeringConnection", identifier: Id }

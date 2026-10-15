@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: google
+service: cloud_asset
+types:
+  google_kms_key_ring:
+    inventory: { type: cloudkms.googleapis.com/KeyRing }
+  google_kms_crypto_key:
+    inventory: { type: cloudkms.googleapis.com/CryptoKey }

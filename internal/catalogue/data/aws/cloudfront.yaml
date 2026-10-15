@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: cloudfront
+types:
+  aws_cloudfront_distribution:
+    arn: { service: cloudfront, resource_type: "distribution" }

@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: ecr
+types:
+  aws_ecr_repository:
+    arn: { service: ecr, resource_type: "repository" }

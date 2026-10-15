@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: guardduty
+types:
+  aws_guardduty_detector:
+    cloud_control: { type: "AWS::GuardDuty::Detector", identifier: Id }

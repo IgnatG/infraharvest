@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/disks/shared", "name": "shared", "attributes": {"asset.project": "acme-prod", "asset.name": "shared", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/disks/pvc-1a2b3c4d-4e5f-6a7b-8c9d-0e1f2a3b4c5d", "name": "pvc_1a2b3c4d_4e5f_6a7b_8c9d_0e1f2a3b4c5d", "attributes": {"asset.project": "acme-prod", "asset.name": "pvc-1a2b3c4d-4e5f-6a7b-8c9d-0e1f2a3b4c5d", "asset.location": "us-central1"}}
+]}

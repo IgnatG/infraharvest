@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: eventbridge
+types:
+  aws_cloudwatch_event_api_destination:
+    cloud_control: { type: "AWS::Events::ApiDestination", identifier: Name }
+  aws_cloudwatch_event_archive:
+    cloud_control: { type: "AWS::Events::Archive", identifier: ArchiveName }
+  aws_cloudwatch_event_bus:
+    arn: { service: events, resource_type: "event-bus" }
+    cloud_control: { type: "AWS::Events::EventBus", identifier: Name }
+    skip:
+      - reason: the default event bus, which AWS creates for the account
+        ids: [default]
+  aws_cloudwatch_event_connection:
+    cloud_control: { type: "AWS::Events::Connection", identifier: Name }

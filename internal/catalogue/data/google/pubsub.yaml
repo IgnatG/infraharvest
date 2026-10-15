@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: google
+service: pubsub
+types:
+  google_pubsub_topic:
+    inventory: { type: pubsub.googleapis.com/Topic }
+  google_pubsub_subscription:
+    inventory: { type: pubsub.googleapis.com/Subscription }

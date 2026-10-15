@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/IgnatG/infraharvest/catalogue/schema.json",
+  "title": "infraharvest catalogue file",
+  "description": "What infraharvest knows about some of a Terraform provider's resource types. See docs/catalogue.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provider", "types"],
+  "properties": {
+    "provider": {
+      "description": "The Terraform provider's local name, such as aws or google.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "service": {
+      "description": "The infraharvest service that lists the file's types, unless an entry names another.",
+      "$ref": "#/$defs/name"
+    },
+    "types": {
+      "description": "Entries by Terraform resource type; \"*\" holds the omit and state_only of every type.",
+      "type": "object",
+      "propertyNames": { "pattern": "^([a-z][a-z0-9_]*|\\*)$" },
+      "additionalProperties": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "names": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/name" },
+      "uniqueItems": true
+    },
+    "template": {
+      "description": "An import ID template: text and fields in braces, {id} for the lister's ID or {<attribute>}, with filters such as {id|after_last:/}.",
+      "type": "string",
+      "pattern": "\\{[^{}]+\\}"
+    },
+    "entry": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "description": "The infraharvest service that lists the type.",
+          "$ref": "#/$defs/name"
+        },
+        "import_id": {
+          "description": "Builds the import ID: the first template whose fields all have values.",
+          "oneOf": [
+            { "$ref": "#/$defs/template" },
+            { "type": "array", "items": { "$ref": "#/$defs/template" } }
+          ]
+        },
+        "not_importable": {
+          "description": "Why Terraform can't import the type.",
+          "type": "string",
+          "minLength": 1
+        },
+        "omit": {
+          "description": "Arguments to leave out of generated configuration.",
+          "$ref": "#/$defs/names"
+        },
+        "state_only": {
+          "description": "Arguments the provider keeps only in state, which an import leaves unset.",
+          "$ref": "#/$defs/names"
+        },
+        "skip": {
+          "description": "Resources the default selection leaves out: all the conditions a rule sets must hold.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason"],
+            "properties": {
+              "reason": { "type": "string", "minLength": 1 },
+              "all": { "type": "boolean" },
+              "ignore_case": { "type": "boolean" },
+              "ids": { "type": "array", "items": { "type": "string" } },
+              "id_prefixes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "attributes": { "type": "object", "additionalProperties": { "type": "string" } },
+              "attribute_prefixes": {
+                "type": "object",
+                "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+              }
+            }
+          }
+        },
+        "children": {
+          "description": "Types of the separate resources that hold parts of a resource's configuration.",
+          "$ref": "#/$defs/names"
+        },
+        "placeholder": {
+          "description": "Placeholders for arguments Terraform can't read back, such as where a function's code comes from, set when the generated configuration has none of one_of, and ignored.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["one_of", "set", "ignore", "reason"],
+          "properties": {
+            "one_of": { "$ref": "#/$defs/names" },
+            "set": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
+            "ignore": { "$ref": "#/$defs/names" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        "data_source": {
+          "description": "The data source that reads one resource by its import ID.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "argument"],
+          "properties": {
+            "type": { "$ref": "#/$defs/name" },
+            "argument": { "$ref": "#/$defs/name" }
+          }
+        },
+        "arn": {
+          "description": "An AWS ARN's service and the resource type its resource part starts with.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["service", "resource_type"],
+          "properties": {
+            "service": { "type": "string", "minLength": 1 },
+            "resource_type": { "type": "string" }
+          }
+        },
+        "cloud_control": {
+          "description": "The CloudFormation type Cloud Control lists the type as, and its identifier's property.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "identifier"],
+          "properties": {
+            "type": { "type": "string", "pattern": "^[A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+$" },
+            "identifier": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" }
+          }
+        },
+        "inventory": {
+          "description": "The cloud's inventory API's type for resources of this type (Cloud Asset Inventory, Resource Graph), and the pattern of their names when that type covers several: * is one segment between slashes.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string", "pattern": "^[A-Za-z0-9.-]+(/[A-Za-z0-9]+)+$" },
+            "name": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

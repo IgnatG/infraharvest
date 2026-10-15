@@ -1,0 +1,39 @@
+{
+  "version": "2",
+  "run": {
+    "concurrency": 8,
+    "issues-exit-code": 1,
+    "modules-download-mode": "readonly"
+  },
+  "formatters": {
+    "enable": [
+      "gofmt",
+      "goimports"
+    ],
+    "exclusions": {
+      "generated": "lax"
+    }
+  },
+  "linters": {
+    "default": "standard",
+    "enable": [
+      "gocritic",
+      "revive",
+      "unconvert",
+      "unparam"
+    ],
+    "exclusions": {
+      "generated": "lax",
+      "presets": [
+        "comments",
+        "common-false-positives",
+        "legacy",
+        "std-error-handling"
+      ]
+    }
+  },
+  "issues": {
+    "max-issues-per-linter": 0,
+    "max-same-issues": 0
+  }
+}

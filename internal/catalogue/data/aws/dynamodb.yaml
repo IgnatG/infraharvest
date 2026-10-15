@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: dynamodb
+types:
+  aws_dynamodb_table:
+    arn: { service: dynamodb, resource_type: "table" }

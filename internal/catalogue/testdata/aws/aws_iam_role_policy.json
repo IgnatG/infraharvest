@@ -1,0 +1,1 @@
+{"resources": [{"id": "app:read-queue", "name": "app_read_queue"}, {"id": "AWSServiceRoleForECS:ECSServiceRolePolicy", "name": "ecs_service_linked"}]}

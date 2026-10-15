@@ -1,0 +1,18 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# actionlint configuration
+# (https://github.com/rhysd/actionlint/blob/main/docs/config.md). The
+# pre-commit hook (scripts/fast-checks.sh) and MegaLinter (.mega-linter.yml)
+# read it.
+paths:
+  # $PACKAGES is split into words on purpose: each pattern is validated on
+  # its own first.
+  .github/workflows/remote.yml:
+    ignore:
+      - 'shellcheck reported issue in this script: SC2086:.+'
+  # Not fixed yet: quote $added in the step "Check the new queue was added",
+  # then remove this entry.
+  .github/workflows/action-test.yml:
+    ignore:
+      - 'shellcheck reported issue in this script: SC2086:.+'

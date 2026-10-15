@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: eks
+types:
+  aws_eks_cluster:
+    arn: { service: eks, resource_type: "cluster" }

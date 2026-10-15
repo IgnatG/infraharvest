@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: ebs
+types:
+  aws_ebs_volume:
+    arn: { service: ec2, resource_type: "volume" }
+  aws_volume_attachment:
+    import_id: "{device_name}:{volume_id}:{instance_id}"

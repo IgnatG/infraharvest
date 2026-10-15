@@ -1,0 +1,165 @@
+# Imports a small estate from the AWS sandbox account and checks it plans
+# with no changes. Runs only when started by hand, and only after a
+# reviewer of the sandbox environment approves it. The estate is created as
+# the fixture role, imported as the read-only role, and destroyed at the
+# end, whatever happened. The main estate (TestSandboxAWS) is the usual
+# one; clusters (TestSandboxAWSClusters) holds an RDS database, an
+# ElastiCache replication group and an EKS cluster, which take longer and
+# cost more, so it runs only when asked for.
+name: sandbox-aws
+
+on:
+  workflow_dispatch:
+    inputs:
+      estate:
+        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; slower and dearer)
+        type: choice
+        options: [main, clusters]
+        default: main
+      engine:
+        description: Engine to import with
+        type: choice
+        options: [terraform, tofu]
+        default: terraform
+
+permissions:
+  contents: read
+  id-token: write # OpenID Connect, for the roles
+
+# One run at a time: each imports the whole of its regions, so another
+# run's estate would show up in its import, and change between its runs.
+concurrency:
+  group: sandbox-aws
+  cancel-in-progress: false
+
+jobs:
+  round-trip:
+    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
+    runs-on: ubuntu-latest
+    environment: sandbox
+    # The clusters estate's test may take two hours, and destroying what it
+    # left half an hour more.
+    timeout-minutes: ${{ inputs.estate == 'clusters' && 160 || 110 }}
+    env:
+      SANDBOX_ESTATE: ${{ inputs.estate }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      # The estate's second region, which the import keeps apart.
+      SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
+      E2E_ENGINE: ${{ inputs.engine }}
+      SANDBOX_AWS_FIXTURE_PROFILE: fixture
+      SANDBOX_AWS_READONLY_PROFILE: readonly
+    steps:
+    - name: Directories
+      run: |
+        {
+          echo "SANDBOX_FIXTURE_DIR=$RUNNER_TEMP/fixture-$SANDBOX_ESTATE"
+          echo "SANDBOX_PLUGIN_CACHE=$RUNNER_TEMP/plugins"
+          echo "SANDBOX_OUTPUT_DIR=$RUNNER_TEMP/out"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/plugins"
+        } >> "$GITHUB_ENV"
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: inputs.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: inputs.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    # The gate runs the scanners it finds (G5), as in the e2e jobs.
+    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      with:
+        tflint_version: v0.64.0
+    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+      with:
+        version: v0.75.0
+    - name: Credentials to create the estate
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
+        role-session-name: infraharvest-fixture-${{ github.run_id }}
+        role-duration-seconds: 7200
+        aws-region: ${{ vars.AWS_REGION }}
+        aws-profile: fixture
+    - name: Credentials to import it
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.AWS_READONLY_ROLE_ARN }}
+        role-session-name: infraharvest-readonly-${{ github.run_id }}
+        role-duration-seconds: 7200
+        aws-region: ${{ vars.AWS_REGION }}
+        aws-profile: readonly
+    # What an earlier run may have left, in both regions and in us-east-1,
+    # where the Tagging API lists CloudFront. Only a warning: AWS lists
+    # deleted resources, such as terminated instances, for a while.
+    - name: Leftovers
+      run: |
+        for region in $(printf '%s\n' "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1 | sort -u); do
+          left=$(aws resourcegroupstaggingapi get-resources --profile fixture --region "$region" \
+            --tag-filters "Key=infraharvest-sandbox,Values=$E2E_ENGINE" \
+            --query 'ResourceTagMappingList[].ResourceARN' --output text)
+          if [ -n "$left" ]; then
+            echo "::warning::Resources tagged infraharvest-sandbox=$E2E_ENGINE in $region: $left"
+          fi
+        done
+    # One test, by its whole name: -run takes a pattern, and TestSandboxAWS
+    # alone would match the clusters test too.
+    - name: Round trip
+      run: |
+        case "$SANDBOX_ESTATE" in
+          main) test=TestSandboxAWS timeout=90m ;;
+          clusters) test=TestSandboxAWSClusters timeout=120m ;;
+          *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
+        esac
+        go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/
+    # The first session may have run out by now, after a long test.
+    - name: Credentials to destroy the estate
+      if: always()
+      continue-on-error: true
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
+        role-session-name: infraharvest-fixture-${{ github.run_id }}
+        role-duration-seconds: 3600
+        aws-region: ${{ vars.AWS_REGION }}
+        aws-profile: fixture
+        overwrite-aws-profile: true
+    - name: Destroy the estate
+      if: always()
+      env:
+        AWS_PROFILE: fixture
+      run: |
+        if [ ! -f "$SANDBOX_FIXTURE_DIR/terraform.tfstate" ]; then
+          echo "No estate state: nothing was created."
+          exit 0
+        fi
+        cd "$SANDBOX_FIXTURE_DIR"
+        vars=(-var "suffix=$E2E_ENGINE")
+        if [ "$SANDBOX_ESTATE" = main ]; then
+          vars+=(-var "second_region=$SANDBOX_AWS_SECOND_REGION")
+        fi
+        "$E2E_ENGINE" init -input=false
+        "$E2E_ENGINE" destroy -auto-approve -input=false "${vars[@]}"
+        left=$("$E2E_ENGINE" state list)
+        if [ -n "$left" ]; then
+          echo "::error::Left in the estate: $left"
+          exit 1
+        fi
+    - name: Upload the import
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: sandbox-aws-${{ inputs.estate }}-${{ inputs.engine }}
+        path: |
+          ${{ env.SANDBOX_OUTPUT_DIR }}
+          !${{ env.SANDBOX_OUTPUT_DIR }}/**/.terraform
+        if-no-files-found: ignore
+        include-hidden-files: true
+        retention-days: 7

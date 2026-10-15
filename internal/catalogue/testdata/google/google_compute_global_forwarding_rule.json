@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/forwardingRules/web-https", "name": "web_https", "attributes": {"asset.project": "acme-prod", "asset.name": "web-https", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/forwardingRules/k8s2-fs-1a2b3c4d-default-web", "name": "k8s2_fs_1a2b3c4d_default_web", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-fs-1a2b3c4d-default-web", "asset.location": "global"}}
+]}

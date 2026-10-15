@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/zones/us-central1-a/instanceGroupManagers/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/instanceGroupManagers/gke-prod-default-pool-1a2b3c4d-grp", "name": "gke_prod_default_pool_1a2b3c4d_grp", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d-grp", "asset.location": "us-central1-a"}}
+]}

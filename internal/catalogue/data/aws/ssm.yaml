@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: ssm
+types:
+  aws_ssm_parameter:
+    arn: { service: ssm, resource_type: "parameter" }

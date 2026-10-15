@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/routes/to-onprem", "name": "to_onprem", "attributes": {"asset.project": "acme-prod", "asset.name": "to-onprem", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/routes/default-route-0a1b2c3d4e5f6a7b", "name": "default_route_0a1b2c3d4e5f6a7b", "attributes": {"asset.project": "acme-prod", "asset.name": "default-route-0a1b2c3d4e5f6a7b", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/routes/gke-prod-1a2b3c4d-0e1f2a3b", "name": "gke_prod_1a2b3c4d_0e1f2a3b", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-1a2b3c4d-0e1f2a3b", "asset.location": "global"}}
+]}

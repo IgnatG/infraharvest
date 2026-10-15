@@ -1,0 +1,20 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# zizmor configuration, read by MegaLinter's zizmor (the only place it runs). Each
+# suppression is deliberate, scoped to one file and justified; anything not
+# listed is a real finding to fix in the workflow.
+rules:
+  # cla.yml needs pull_request_target to write the signature store and set
+  # the status check on fork pull requests. It has no checkout step, so the
+  # pull request's code never runs with the elevated token, and its only
+  # action is pinned by SHA.
+  dangerous-triggers:
+    ignore:
+      - cla.yml
+  # contributor-assistant/github-action is archived upstream. Accepted for
+  # now: pinned at v2.6.1 with only the scoped token. A standing TODO to move
+  # to a maintained CLA check, not a verdict that the finding is wrong.
+  archived-uses:
+    ignore:
+      - cla.yml

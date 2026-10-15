@@ -1,0 +1,26 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# markdownlint rules: the rules the Markdown in this repository follows
+# (docs/development.md#markdown). MegaLinter's markdownlint-cli reads it
+# (.mega-linter.yml), and so does markdownlint-cli2 in the pre-commit hook
+# (scripts/fast-checks.sh), beside .markdownlint-cli2.yaml, which lists the
+# files to leave out.
+default: true
+# A paragraph or a list item is one line; editors wrap it.
+MD013: false
+# Bullets are "-".
+MD004:
+  style: dash
+# Python-Markdown, which builds the site, nests lists by four spaces.
+MD007:
+  indent: 4
+# "1. item" and "1.  item" (aligned to four columns) both occur, and render
+# the same.
+MD030: false
+# MkDocs content tabs (=== "AWS") indent the fenced blocks in them, which
+# reads as indented code. MD040 still wants every fence to name its
+# language.
+MD046: false
+# Tables are written compactly (|---|), not padded into columns.
+MD060: false

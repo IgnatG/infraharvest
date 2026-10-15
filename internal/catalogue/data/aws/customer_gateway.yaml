@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: customer_gateway
+types:
+  aws_customer_gateway:
+    arn: { service: ec2, resource_type: "customer-gateway" }
+    cloud_control: { type: "AWS::EC2::CustomerGateway", identifier: CustomerGatewayId }

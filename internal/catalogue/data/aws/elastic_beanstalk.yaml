@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: elastic_beanstalk
+types:
+  aws_elastic_beanstalk_application:
+    arn: { service: elasticbeanstalk, resource_type: "application" }

@@ -1,0 +1,38 @@
+# Editor settings for this repository (https://editorconfig.org). Line
+# endings are LF everywhere, as .gitattributes checks files out.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# gofmt indents with tabs.
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Recipes must start with a tab.
+[Makefile]
+indent_style = tab
+indent_size = 4
+
+[*.md]
+indent_size = 4
+
+[*.{sh,bash}]
+indent_size = 2
+
+[scripts/hooks/*]
+indent_size = 2
+
+# Golden files and the generated reference pages (docs/reference/) hold output
+# byte for byte; leave them as the tests write them.
+[{**/testdata/**,docs/reference/*.md}]
+indent_style = unset
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

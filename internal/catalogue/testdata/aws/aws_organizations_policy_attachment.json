@@ -1,0 +1,1 @@
+{"resources": [{"id": "r-1:p-FullAWSAccess", "name": "pa-r-1_FullAWSAccess", "attributes": {"policy_id": "p-FullAWSAccess", "target_id": "r-1", "policy_aws_managed": "true"}}, {"id": "ou-1:p-deny", "name": "pa-ou-1_deny-root", "attributes": {"policy_id": "p-deny", "target_id": "ou-1", "policy_aws_managed": "false"}}]}

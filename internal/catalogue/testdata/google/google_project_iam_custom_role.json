@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "projects/acme-prod/roles/bucketReader", "name": "bucket_reader", "attributes": {"asset.project": "acme-prod", "asset.name": "bucketReader"}}
+]}

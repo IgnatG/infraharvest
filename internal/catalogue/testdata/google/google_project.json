@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/123456789012", "name": "acme_prod", "attributes": {"asset.project": "acme-prod", "asset.name": "123456789012", "asset.location": "global", "asset.display_name": "Acme Prod", "asset.parent": "organizations/987654321098", "labels.env": "prod"}},
+  {"id": "acme-legacy", "name": "acme_legacy", "attributes": {"auto_create_network": "true"}}
+]}

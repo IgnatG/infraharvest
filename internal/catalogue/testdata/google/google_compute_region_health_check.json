@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/healthChecks/internal", "name": "internal", "attributes": {"asset.project": "acme-prod", "asset.name": "internal", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/healthChecks/k8s2-default-api", "name": "k8s2_default_api", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-default-api", "asset.location": "us-central1"}}
+]}

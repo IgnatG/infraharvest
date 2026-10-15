@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../schema.json
+# The project, as Cloud Asset Inventory lists it. Its asset name has the
+# project's number (//cloudresourcemanager.googleapis.com/projects/<number>),
+# which the cloud_asset service doesn't swap for the project's ID, as it
+# does in the names of other resources. Terraform imports a project by its
+# ID, which the service records as asset.project.
+provider: google
+service: cloud_asset
+types:
+  google_project:
+    inventory: { type: cloudresourcemanager.googleapis.com/Project }
+    import_id:
+      - "{asset.project}"
+      - "{id}"

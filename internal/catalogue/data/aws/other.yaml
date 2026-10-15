@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+# Types no infraharvest service lists yet, whose ARNs the tag lookup
+# knows for resources other sources find.
+types:
+  aws_ebs_snapshot:
+    arn: { service: ec2, resource_type: "snapshot" }
+  aws_flow_log:
+    arn: { service: ec2, resource_type: "vpc-flow-log" }
+  aws_neptune_cluster:
+    arn: { service: rds, resource_type: "cluster" }
+  aws_rds_cluster_parameter_group:
+    arn: { service: rds, resource_type: "cluster-pg" }

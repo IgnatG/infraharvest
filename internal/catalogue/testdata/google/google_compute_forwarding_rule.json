@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/forwardingRules/internal-lb", "name": "internal_lb", "attributes": {"asset.project": "acme-prod", "asset.name": "internal-lb", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/forwardingRules/k8s2-fr-1a2b3c4d-default-api", "name": "k8s2_fr_1a2b3c4d_default_api", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-fr-1a2b3c4d-default-api", "asset.location": "us-central1"}}
+]}

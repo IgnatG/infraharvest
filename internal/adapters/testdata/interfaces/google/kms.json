@@ -1,0 +1,73 @@
+{
+  "source": "terraform-google-modules/kms/google",
+  "version": "4.2.1",
+  "variables": {
+    "crypto_key_backend": {
+      "required": false
+    },
+    "decrypters": {
+      "required": false
+    },
+    "encrypters": {
+      "required": false
+    },
+    "import_only": {
+      "required": false
+    },
+    "key_algorithm": {
+      "required": false
+    },
+    "key_destroy_scheduled_duration": {
+      "required": false
+    },
+    "key_protection_level": {
+      "required": false
+    },
+    "key_rotation_period": {
+      "required": false
+    },
+    "keyring": {
+      "required": true
+    },
+    "keys": {
+      "required": false
+    },
+    "labels": {
+      "required": false
+    },
+    "location": {
+      "required": true
+    },
+    "owners": {
+      "required": false
+    },
+    "prevent_destroy": {
+      "required": false
+    },
+    "project_id": {
+      "required": true
+    },
+    "purpose": {
+      "required": false
+    },
+    "set_decrypters_for": {
+      "required": false
+    },
+    "set_encrypters_for": {
+      "required": false
+    },
+    "set_owners_for": {
+      "required": false
+    },
+    "skip_initial_version_creation": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "key_id_list",
+    "keyring",
+    "keyring_name",
+    "keyring_resource",
+    "keys"
+  ]
+}

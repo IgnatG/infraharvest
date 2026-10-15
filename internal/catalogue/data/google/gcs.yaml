@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../schema.json
+# Cloud Storage, as Cloud Asset Inventory lists it. A bucket's asset name
+# is //storage.googleapis.com/<bucket>, so its ID is the bucket's name,
+# which Terraform imports it by. Buckets go in gcs.tf.
+provider: google
+service: gcs
+types:
+  google_storage_bucket:
+    inventory: { type: storage.googleapis.com/Bucket }
+    skip:
+      - reason: Cloud Functions, Cloud Run or Dataproc creates it for its own use
+        attribute_prefixes: { asset.name: [gcf-sources-, gcf-v2-sources-, gcf-v2-uploads-, run-sources-, dataproc-staging-, dataproc-temp-] }

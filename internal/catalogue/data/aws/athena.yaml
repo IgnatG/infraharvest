@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: athena
+types:
+  aws_athena_workgroup:
+    arn: { service: athena, resource_type: "workgroup" }
+    cloud_control: { type: "AWS::Athena::WorkGroup", identifier: Name }
+    skip:
+      - reason: the primary workgroup, which AWS creates for the account
+        ids: [primary]

@@ -1,0 +1,1 @@
+{"resources": [{"id": "app", "name": "app"}, {"id": "AWSServiceRoleForECS", "name": "ecs_service_linked"}]}

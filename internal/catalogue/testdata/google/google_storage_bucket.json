@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "acme-prod-assets", "name": "acme_prod_assets", "attributes": {"asset.project": "acme-prod", "asset.name": "acme-prod-assets", "asset.location": "us", "labels.team": "web"}},
+  {"id": "gcf-sources-123456789012-us-central1", "name": "gcf_sources", "attributes": {"asset.project": "acme-prod", "asset.name": "gcf-sources-123456789012-us-central1", "asset.location": "us-central1"}},
+  {"id": "dataproc-staging-us-central1-123456789012-abcd1234", "name": "dataproc_staging", "attributes": {"asset.project": "acme-prod", "asset.name": "dataproc-staging-us-central1-123456789012-abcd1234", "asset.location": "us-central1"}},
+  {"id": "legacy-bucket", "name": "legacy_bucket", "attributes": {"name": "legacy-bucket"}}
+]}

@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/global/triggers/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", "name": "deploy_web", "attributes": {"asset.project": "acme-prod", "asset.name": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", "asset.location": "global", "asset.display_name": "deploy-web"}},
+  {"id": "projects/acme-prod/triggers/9a8b7c6d-5e4f-3a2b-1c0d-e9f8a7b6c5d4", "name": "nightly", "attributes": {"asset.project": "acme-prod", "asset.name": "9a8b7c6d-5e4f-3a2b-1c0d-e9f8a7b6c5d4", "asset.location": "global", "asset.display_name": "nightly"}},
+  {"id": "projects/acme-prod/triggers/11223344-5566-7788-99aa-bbccddeeff00", "name": "release", "attributes": {"asset.project": "acme-prod", "asset.name": "11223344-5566-7788-99aa-bbccddeeff00"}},
+  {"id": "a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6", "name": "legacy", "attributes": {"project": "acme-prod"}}
+]}

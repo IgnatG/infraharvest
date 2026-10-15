@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: subnet
+types:
+  aws_subnet:
+    arn: { service: ec2, resource_type: "subnet" }
+    data_source: { type: aws_subnet, argument: id }

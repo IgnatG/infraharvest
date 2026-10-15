@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../schema.json
+# IAM, as Cloud Asset Inventory lists it. A service account's asset name
+# may end with its unique ID; Terraform imports it by its email, a
+# searchable attribute.
+provider: google
+service: cloud_asset
+types:
+  google_service_account:
+    inventory: { type: iam.googleapis.com/ServiceAccount }
+    import_id:
+      - "projects/{asset.project}/serviceAccounts/{asset.email}"
+      - "{id}"
+    skip:
+      - reason: the Compute Engine default service account, which GCP creates when the Compute Engine API is enabled; select it to import it
+        attributes: { asset.display_name: Compute Engine default service account }
+      - reason: the App Engine default service account, which GCP creates with an App Engine app; select it to import it
+        attributes: { asset.display_name: App Engine default service account }
+  google_project_iam_custom_role:
+    inventory:
+      type: iam.googleapis.com/Role
+      name: //iam.googleapis.com/projects/*/roles/*

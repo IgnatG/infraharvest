@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: iam
+types:
+  aws_iam_instance_profile: {}
+  aws_iam_policy:
+    data_source: { type: aws_iam_policy, argument: arn }
+  aws_iam_role:
+    arn: { service: iam, resource_type: "role" }
+    data_source: { type: aws_iam_role, argument: name }
+    # Deprecated in favour of aws_iam_role_policy and
+    # aws_iam_role_policy_attachment, which the lister imports with each role.
+    omit: [inline_policy, managed_policy_arns]
+    state_only: [force_detach_policies]
+    skip:
+      - reason: service-linked role, which AWS manages for a service
+        id_prefixes: [AWSServiceRoleFor]
+  aws_iam_role_policy:
+    skip:
+      - reason: service-linked role, which AWS manages for a service
+        id_prefixes: [AWSServiceRoleFor]
+  aws_iam_role_policy_attachment:
+    skip:
+      - reason: service-linked role, which AWS manages for a service
+        id_prefixes: [AWSServiceRoleFor]
+  aws_iam_access_key:
+    skip:
+      - reason: a long-lived credential, which the import can't read the secret of and which is better replaced than codified; select it to import it
+        all: true
+  aws_iam_user:
+    arn: { service: iam, resource_type: "user" }

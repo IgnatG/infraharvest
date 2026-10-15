@@ -1,0 +1,808 @@
+[
+  {
+    "case": "nil data, empty path",
+    "path": "",
+    "data": null,
+    "values": [],
+    "valueTypes": null,
+    "found": true
+  },
+  {
+    "case": "nil data, path",
+    "path": "a",
+    "data": null,
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "string, empty path",
+    "path": "",
+    "data": "v",
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "string, path",
+    "path": "a",
+    "data": "v",
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "empty string, empty path",
+    "path": "",
+    "data": "",
+    "values": [
+      ""
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "named string type, empty path",
+    "path": "",
+    "data": "v",
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "harvest.goldenString"
+    ],
+    "found": true
+  },
+  {
+    "case": "int, empty path",
+    "path": "",
+    "data": 5,
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "bool, empty path",
+    "path": "",
+    "data": true,
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "float leaf",
+    "path": "a",
+    "data": {
+      "a": 1.5
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "int leaf",
+    "path": "a",
+    "data": {
+      "a": 1
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "empty map",
+    "path": "a",
+    "data": {},
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "empty nested typed map",
+    "path": "a.b",
+    "data": {},
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "nil typed map",
+    "path": "a",
+    "data": null,
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "top-level key",
+    "path": "a",
+    "data": {
+      "a": "v",
+      "b": "w"
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "string map",
+    "path": "b",
+    "data": {
+      "a": "v",
+      "b": "w"
+    },
+    "values": [
+      "w"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "missing key",
+    "path": "c",
+    "data": {
+      "a": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "key is case-sensitive",
+    "path": "A",
+    "data": {
+      "a": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "nested",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "b": "v",
+        "c": "w"
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "nested typed",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "b": "v"
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "nested string map",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "b": "v"
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "three levels",
+    "path": "a.b.c",
+    "data": {
+      "a": {
+        "b": {
+          "c": "v"
+        }
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "path ends on a map",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "b": {
+          "c": "v"
+        }
+      }
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "path ends on a map at the top",
+    "path": "a",
+    "data": {
+      "a": {
+        "c": "v"
+      }
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "path past a leaf",
+    "path": "a.b",
+    "data": {
+      "a": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "nested missing",
+    "path": "a.c",
+    "data": {
+      "a": {
+        "b": "v"
+      }
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "dotted key at the top",
+    "path": "a.b",
+    "data": {
+      "a.b": "v"
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "dotted key nested",
+    "path": "a.b.c",
+    "data": {
+      "a": {
+        "b.c": "v"
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "dotted key with three parts",
+    "path": "a.b.c",
+    "data": {
+      "a.b.c": "v"
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "flattened attributes",
+    "path": "tags.Name",
+    "data": {
+      "id": "i-1",
+      "tags.%": "1",
+      "tags.Name": "web"
+    },
+    "values": [
+      "web"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "prefix of a dotted key",
+    "path": "tags",
+    "data": {
+      "tags.Name": "web"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "repeated segment",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "a": {
+          "b": "v"
+        }
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "repeated segment, three deep",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "a": {
+          "a": {
+            "b": "v"
+          }
+        }
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "skipped level does not match",
+    "path": "a.b",
+    "data": {
+      "a": {
+        "z": {
+          "b": "v"
+        }
+      }
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "empty key under the path",
+    "path": "a",
+    "data": {
+      "a": {
+        "": "v"
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "empty key, empty path",
+    "path": "",
+    "data": {
+      "": "v"
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "map, empty path",
+    "path": "",
+    "data": {
+      "x": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "trailing dot",
+    "path": "a.",
+    "data": {
+      "a": "v"
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "leading dot",
+    "path": ".a",
+    "data": {
+      "a": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "double dot",
+    "path": "a..b",
+    "data": {
+      "a": {
+        "": {
+          "b": "v"
+        }
+      }
+    },
+    "values": [
+      "v"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of strings",
+    "path": "a",
+    "data": {
+      "a": [
+        "x",
+        "y"
+      ]
+    },
+    "values": [
+      "x",
+      "y"
+    ],
+    "valueTypes": [
+      "string",
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of strings, path past them",
+    "path": "a.b",
+    "data": {
+      "a": [
+        "x",
+        "y"
+      ]
+    },
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "empty array",
+    "path": "a",
+    "data": {
+      "a": []
+    },
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "typed string slice",
+    "path": "a",
+    "data": {
+      "a": [
+        "x"
+      ]
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "typed map of arrays",
+    "path": "a",
+    "data": {
+      "a": [
+        "x"
+      ]
+    },
+    "values": [
+      "x"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of maps",
+    "path": "a.b",
+    "data": {
+      "a": [
+        {
+          "b": "1"
+        },
+        {
+          "b": "2"
+        },
+        {
+          "c": "3"
+        }
+      ]
+    },
+    "values": [
+      "1",
+      "2"
+    ],
+    "valueTypes": [
+      "string",
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of maps, none match",
+    "path": "a.b",
+    "data": {
+      "a": [
+        {
+          "c": "3"
+        }
+      ]
+    },
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "array of maps holding arrays",
+    "path": "a.b",
+    "data": {
+      "a": [
+        {
+          "b": [
+            "1",
+            "2"
+          ]
+        },
+        "s",
+        {
+          "b": "3"
+        }
+      ]
+    },
+    "values": [
+      "1",
+      "2",
+      "3"
+    ],
+    "valueTypes": [
+      "string",
+      "string",
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of typed maps",
+    "path": "a.b",
+    "data": {
+      "a": [
+        {
+          "b": "1"
+        },
+        {
+          "b": "2"
+        }
+      ]
+    },
+    "values": [
+      "1",
+      "2"
+    ],
+    "valueTypes": [
+      "string",
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "top-level array, empty path",
+    "path": "",
+    "data": [
+      "x",
+      {
+        "a": "y"
+      },
+      7
+    ],
+    "values": [
+      "x"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "top-level array, path",
+    "path": "a",
+    "data": [
+      "x",
+      {
+        "a": "y"
+      },
+      {
+        "a": "z"
+      }
+    ],
+    "values": [
+      "y",
+      "z"
+    ],
+    "valueTypes": [
+      "string",
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of nil",
+    "path": "",
+    "data": [
+      null
+    ],
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "array of nil and a string",
+    "path": "",
+    "data": [
+      null,
+      "x"
+    ],
+    "values": [
+      "x"
+    ],
+    "valueTypes": [
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "array of nil, path",
+    "path": "a",
+    "data": [
+      null
+    ],
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "nested arrays",
+    "path": "",
+    "data": [
+      [
+        "x",
+        [
+          "y"
+        ]
+      ],
+      "z"
+    ],
+    "values": [
+      "x",
+      "y",
+      "z"
+    ],
+    "valueTypes": [
+      "string",
+      "string",
+      "string"
+    ],
+    "found": true
+  },
+  {
+    "case": "nil array",
+    "path": "",
+    "data": null,
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "empty top-level array",
+    "path": "a",
+    "data": [],
+    "values": null,
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "nil under the key",
+    "path": "a",
+    "data": {
+      "a": null
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": true
+  },
+  {
+    "case": "nil under the key, more path",
+    "path": "a.b",
+    "data": {
+      "a": null
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "pointer to a map",
+    "path": "a",
+    "data": {
+      "a": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  },
+  {
+    "case": "struct",
+    "path": "A",
+    "data": {
+      "A": "v"
+    },
+    "values": [],
+    "valueTypes": null,
+    "found": false
+  }
+]

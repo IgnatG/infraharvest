@@ -1,0 +1,16 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Copyright and licence of the files that carry no header of their own
+# (https://reuse.software/spec-3.3/): YAML, JSON and Terraform test data,
+# golden files, the catalogue, documentation, configuration files and
+# anything else that can't or doesn't take a comment. A file with its own
+# header, as every Go file has, keeps it ("closest"). The tests workflow
+# runs `reuse lint`.
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "Copyright 2026 Gabriel Ignat"
+SPDX-License-Identifier = "AGPL-3.0-only"

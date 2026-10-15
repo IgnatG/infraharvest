@@ -1,0 +1,18 @@
+.idea
+# The binary, and the default output directory of an import
+/infraharvest
+/infraharvest-*
+/infraharvest.exe
+.DS_Store
+.terraform
+.vscode
+terraform.tfstate
+terraform.tfstate.backup
+vendor/
+*.pprof
+# GoReleaser output
+dist/
+# mkdocs build output
+/site/
+.claude/
+.mcp.json

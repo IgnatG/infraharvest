@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: codecommit
+types:
+  aws_codecommit_repository:
+    arn: { service: codecommit, resource_type: "" }

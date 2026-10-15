@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: logs
+types:
+  aws_cloudwatch_log_group:
+    arn: { service: logs, resource_type: "log-group" }
+    skip:
+      - reason: log group Lambda creates for a function
+        id_prefixes: [/aws/lambda/]

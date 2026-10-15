@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../schema.json
+# Functions, Cloud Run, Cloud Tasks, Secret Manager and Artifact Registry,
+# as Cloud Asset Inventory lists them. Search returns a 1st gen function
+# as both a CloudFunction and a Function.
+provider: google
+service: cloud_asset
+types:
+  google_cloudfunctions_function:
+    inventory: { type: cloudfunctions.googleapis.com/CloudFunction }
+    import_id:
+      - "{asset.project}/{asset.location}/{asset.name}"
+      - "{id}"
+  google_cloudfunctions2_function:
+    inventory: { type: cloudfunctions.googleapis.com/Function }
+    skip:
+      - reason: a 1st gen function, which google_cloudfunctions_function imports
+        attributes: { asset.environment: GEN_1 }
+  google_cloud_run_v2_service:
+    inventory: { type: run.googleapis.com/Service }
+  google_cloud_tasks_queue:
+    inventory: { type: cloudtasks.googleapis.com/Queue }
+  google_secret_manager_secret:
+    inventory:
+      type: secretmanager.googleapis.com/Secret
+      name: //secretmanager.googleapis.com/projects/*/secrets/*
+  google_secret_manager_regional_secret:
+    inventory:
+      type: secretmanager.googleapis.com/Secret
+      name: //secretmanager.googleapis.com/projects/*/locations/*/secrets/*
+  google_artifact_registry_repository:
+    inventory: { type: artifactregistry.googleapis.com/Repository }
+    skip:
+      - reason: Cloud Functions creates it for the functions' images
+        attributes: { asset.name: gcf-artifacts }
+      - reason: gcloud creates it to deploy Cloud Run services and functions from source
+        attributes: { asset.name: cloud-run-source-deploy }

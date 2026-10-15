@@ -1,0 +1,167 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# MegaLinter configuration (https://megalinter.io/latest/config-file/): every
+# linter CI runs. The megalinter workflow (.github/workflows/megalinter.yml)
+# runs the Go flavour with it on every pull request. Configuration files
+# other tools read too are at the root (.golangci.json, .markdownlint.yaml,
+# .editorconfig) and in .github/ (actionlint.yaml); those only MegaLinter
+# reads are in .github/linters/.
+
+# The repository is small enough to lint whole on every run.
+VALIDATE_ALL_CODEBASE: true
+# Report only; never rewrite files.
+APPLY_FIXES: none
+
+# Exactly these linters run; the flavour's others are off (see below).
+ENABLE_LINTERS:
+  # Go: golangci-lint with .golangci.json (gocritic, revive, unconvert,
+  # unparam, the standard linters, and the gofmt and goimports formatters).
+  - GO_GOLANGCI_LINT
+  # Workflows: actionlint (with shellcheck on each run: script) and zizmor,
+  # which audits them for security.
+  - ACTION_ACTIONLINT
+  - ACTION_ZIZMOR
+  # Shell scripts and git hooks: shellcheck, and bash-exec, which checks
+  # they are executable.
+  - BASH_SHELLCHECK
+  - BASH_EXEC
+  # Markdown, with .markdownlint.yaml.
+  - MARKDOWN_MARKDOWNLINT
+  # Links in the documentation.
+  - SPELL_LYCHEE
+  # The release image's Dockerfile.
+  - DOCKERFILE_HADOLINT
+  # Line endings, final newlines, trailing whitespace and tabs against
+  # spaces, as .editorconfig sets them.
+  - EDITORCONFIG_EDITORCONFIG_CHECKER
+  # YAML and JSON syntax, style (yamllint) and schemas (v8r: workflows,
+  # Dependabot, GoReleaser and the like).
+  - YAML_YAMLLINT
+  - YAML_V8R
+  - JSON_JSONLINT
+  - JSON_V8R
+  # Misconfigured Terraform (permissions/), Dockerfile and workflows.
+  - REPOSITORY_CHECKOV
+  # Known vulnerabilities in go.mod and docs/requirements.txt.
+  - REPOSITORY_OSV_SCANNER
+  # Committed secrets.
+  - REPOSITORY_BETTERLEAKS
+  - REPOSITORY_TRUFFLEHOG
+
+# Left out:
+# - GO_REVIVE: golangci-lint runs revive; standalone, it reports a missing
+#   package comment on every file of a package.
+# - MARKDOWN_RUMDL: a second Markdown linter with rules of its own.
+# - MARKDOWN_MARKDOWN_TABLE_FORMATTER, BASH_SHFMT, YAML_PRETTIER,
+#   JSON_PRETTIER: formatters whose style the repository doesn't follow
+#   (padded tables, which MD060 is off for; shfmt's case and redirect
+#   layout; Prettier's YAML and JSON layout).
+# - SPELL_CSPELL: thousands of Go identifiers, provider and SDK names that
+#   aren't words.
+# - COPYPASTE_JSCPD: flags table tests and the parallel per-SDK listers (WAF
+#   classic and regional, for one), which differ only in their types.
+# - REPOSITORY_GRYPE, REPOSITORY_TRIVY: osv-scanner covers the same
+#   dependencies, and the tests workflow's govulncheck job checks what the
+#   binary reaches; grype takes four minutes, and trivy's findings were all
+#   in test data, which checkov covers for Terraform.
+# - REPOSITORY_SYFT, REPOSITORY_TRIVY_SBOM: SBOMs belong to the release, not
+#   to every pull request.
+# - REPOSITORY_SECRETLINT: a third secret scanner beside betterleaks and
+#   trufflehog.
+
+# Generated files, golden files and test data, which hold output byte for
+# byte; the licence texts; go.sum; and local agent settings. golangci-lint
+# lints the whole module, test data aside, whatever this says.
+FILTER_REGEX_EXCLUDE: '(^|/)(\.claude|testdata|LICENSES|site)/|^docs/reference/.*\.md$|(^|/)go\.sum$|^LICENSE$|\.golden$'
+
+# One report: a comment on the pull request, updated on each run, and the
+# run's summary. No commit statuses (the workflow's check says it all), no
+# rewritten sources, no file uploads.
+GITHUB_COMMENT_REPORTER: true
+GITHUB_STATUS_REPORTER: false
+UPDATED_SOURCES_REPORTER: false
+FILEIO_REPORTER: false
+EMAIL_REPORTER: false
+FLAVOR_SUGGESTIONS: false
+PRINT_ALPACA: false
+SHOW_ELAPSED_TIME: true
+
+# The image's golangci-lint (2.13) is built with Go 1.26, which can't lint a
+# module that needs Go 1.27; install the release the Makefile's lint target
+# reads, built with Go 1.27, over it. The workflow sets GOTOOLCHAIN=auto so
+# that the image's go switches to the toolchain go.mod names.
+PRE_COMMANDS:
+  - command: |
+      set -eu
+      golangci_lint_version=2.14.0
+      golangci_lint_sha256=ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+      archive=/tmp/golangci-lint.tar.gz
+      wget -q -O "$archive" "https://github.com/golangci/golangci-lint/releases/download/v${golangci_lint_version}/golangci-lint-${golangci_lint_version}-linux-amd64.tar.gz"
+      echo "$golangci_lint_sha256  $archive" | sha256sum -c -
+      tar -xzf "$archive" -C /tmp "golangci-lint-${golangci_lint_version}-linux-amd64/golangci-lint"
+      install -m 0755 "/tmp/golangci-lint-${golangci_lint_version}-linux-amd64/golangci-lint" "$(command -v golangci-lint)"
+      golangci-lint version
+      go version
+    cwd: workspace
+    continue_if_failed: false
+
+GO_GOLANGCI_LINT_CONFIG_FILE: .golangci.json
+# A cold run compiles the whole module: several minutes, past MegaLinter's
+# five-minute default.
+GO_GOLANGCI_LINT_TIMEOUT_SECONDS: 1200
+ACTION_ACTIONLINT_CONFIG_FILE: .github/actionlint.yaml
+MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .markdownlint.yaml
+# The Contributor Covenant, as published (.markdownlint-cli2.yaml leaves the
+# same files out).
+MARKDOWN_MARKDOWNLINT_FILTER_REGEX_EXCLUDE: '^CODE_OF_CONDUCT\.md$'
+
+# The git hooks have no extension.
+BASH_SHELLCHECK_FILE_NAMES_REGEX:
+  - '^(pre-commit|commit-msg)$'
+BASH_EXEC_FILE_NAMES_REGEX:
+  - '^(pre-commit|commit-msg)$'
+
+# gofmt is authoritative for Go, whose raw-string fixtures hold YAML and
+# HCL indented with spaces. Makefile continuation lines align with spaces
+# after the recipe tab, which make allows. Code blocks in Markdown keep
+# their own language's indent, so the indent size isn't checked; tabs
+# against spaces, line endings, final newlines and trailing whitespace are.
+EDITORCONFIG_EDITORCONFIG_CHECKER_FILTER_REGEX_EXCLUDE: '(\.go$|^Makefile$)'
+EDITORCONFIG_EDITORCONFIG_CHECKER_ARGUMENTS:
+  - -disable-indent-size
+
+# zizmor's suppressions, each with its reason, are in
+# .github/linters/zizmor.yml (found there by default; named here so that
+# it's plain where they live). zizmor runs nowhere else.
+ACTION_ZIZMOR_CONFIG_FILE: zizmor.yml
+# zizmor's online audits (impostor commits, known-vulnerable actions, ref
+# confusion) look the pinned actions up with the job's token.
+ACTION_ZIZMOR_UNSECURED_ENV_VARIABLES:
+  - GITHUB_TOKEN
+
+# osv-scanner's call analysis runs a govulncheck built with Go 1.26, which
+# can't load this module; the tests workflow's govulncheck job checks what
+# the binary reaches.
+REPOSITORY_OSV_SCANNER_ARGUMENTS:
+  - --no-call-analysis=go
+
+# Test data is deliberately minimal resources to import, not
+# infrastructure to harden.
+REPOSITORY_CHECKOV_ARGUMENTS:
+  - --skip-path
+  - testdata
+
+# Links in the documentation. Workflows and the action name local
+# emulators, release download URLs built from variables and the OIDC
+# issuer, none of which resolve from here.
+SPELL_LYCHEE_FILTER_REGEX_INCLUDE: '\.md$'
+SPELL_LYCHEE_ARGUMENTS:
+  - --exclude-loopback
+  - --exclude
+  - '(\$\{|\$%7B|\{\{)'
+
+# The catalogue (internal/catalogue/data/) has its own schema, which the
+# catalogue's tests check; v8r matches its files to unrelated schemas by
+# name (cloudbuild.yaml to Cloud Build).
+YAML_V8R_FILTER_REGEX_EXCLUDE: '^internal/catalogue/data/'

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: codeartifact
+types:
+  aws_codeartifact_domain:
+    cloud_control: { type: "AWS::CodeArtifact::Domain", identifier: Arn }
+  aws_codeartifact_repository:
+    cloud_control: { type: "AWS::CodeArtifact::Repository", identifier: Arn }

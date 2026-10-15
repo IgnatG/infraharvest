@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../schema.json
+# Cloud DNS. Cloud Asset Inventory lists the managed zones: a zone's asset
+# name ends with its numeric ID; Terraform imports it by its name, the
+# asset's display name. The dns service lists the record sets of each
+# zone, which the catalogue maps no asset type to, by the provider's full
+# import ID. It records whether a set is at the zone's apex (apex), where
+# Cloud DNS creates the zone's SOA and NS sets with the zone.
+provider: google
+service: cloud_asset
+types:
+  google_dns_managed_zone:
+    inventory: { type: dns.googleapis.com/ManagedZone }
+    import_id:
+      - "projects/{asset.project}/managedZones/{asset.display_name}"
+      - "{id}"
+  google_dns_record_set:
+    service: dns
+    skip:
+      - reason: the zone's SOA record, which Cloud DNS creates and deletes with the zone; select it to import it
+        attributes: { type: SOA }
+      - reason: the zone's own name servers, which Cloud DNS creates and deletes with the zone; select it to import it
+        attributes: { type: NS, apex: "true" }

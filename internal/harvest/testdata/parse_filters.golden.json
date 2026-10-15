@@ -1,0 +1,328 @@
+[
+  {
+    "flag": "id",
+    "input": "aws_vpc=myid",
+    "filter": {
+      "service": "aws_vpc",
+      "path": "id",
+      "values": [
+        "myid"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "vpc=a,b",
+    "filter": {
+      "service": "vpc",
+      "path": "id",
+      "values": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "vpc=,a",
+    "filter": {
+      "service": "vpc",
+      "path": "id",
+      "values": [
+        "a"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "vpc=a,,b,",
+    "filter": {
+      "service": "vpc",
+      "path": "id",
+      "values": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "resource=id1,project:dataset_id",
+    "filter": {
+      "service": "resource",
+      "path": "id",
+      "values": [
+        "id1",
+        "project:dataset_id"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "vpc=",
+    "error": "--id \"vpc=\" names no ID"
+  },
+  {
+    "flag": "id",
+    "input": "vpc=,",
+    "error": "--id \"vpc=,\" names no ID"
+  },
+  {
+    "flag": "id",
+    "input": "=myid",
+    "error": "--id \"=myid\": use <type>=<id>[,<id>...], such as vpc=vpc-1"
+  },
+  {
+    "flag": "id",
+    "input": "=",
+    "error": "--id \"=\": use <type>=<id>[,<id>...], such as vpc=vpc-1"
+  },
+  {
+    "flag": "id",
+    "input": "vpc",
+    "error": "--id \"vpc\": use <type>=<id>[,<id>...], such as vpc=vpc-1"
+  },
+  {
+    "flag": "id",
+    "input": "",
+    "error": "--id \"\": use <type>=<id>[,<id>...], such as vpc=vpc-1"
+  },
+  {
+    "flag": "id",
+    "input": "a=b=c",
+    "filter": {
+      "service": "a",
+      "path": "id",
+      "values": [
+        "b=c"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "a b=c d",
+    "filter": {
+      "service": "a b",
+      "path": "id",
+      "values": [
+        "c d"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "vpc='a'",
+    "filter": {
+      "service": "vpc",
+      "path": "id",
+      "values": [
+        "'a'"
+      ]
+    }
+  },
+  {
+    "flag": "id",
+    "input": "vpc=a:b",
+    "filter": {
+      "service": "vpc",
+      "path": "id",
+      "values": [
+        "a:b"
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "env=prod",
+    "filter": {
+      "service": "",
+      "path": "tags.env",
+      "values": [
+        "prod"
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "env=prod,dev",
+    "filter": {
+      "service": "",
+      "path": "tags.env",
+      "values": [
+        "prod",
+        "dev"
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "env=",
+    "filter": {
+      "service": "",
+      "path": "tags.env",
+      "values": [
+        ""
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "env=,",
+    "filter": {
+      "service": "",
+      "path": "tags.env",
+      "values": [
+        "",
+        ""
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "env",
+    "filter": {
+      "service": "",
+      "path": "tags.env",
+      "values": null
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "Name=a=b",
+    "filter": {
+      "service": "",
+      "path": "tags.Name",
+      "values": [
+        "a=b"
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "=prod",
+    "error": "--tag \"=prod\": no key; use <key>[=<value>[,<value>...]], such as env=prod"
+  },
+  {
+    "flag": "tag",
+    "input": "=",
+    "error": "--tag \"=\": no key; use <key>[=<value>[,<value>...]], such as env=prod"
+  },
+  {
+    "flag": "tag",
+    "input": "",
+    "error": "--tag \"\": no key; use <key>[=<value>[,<value>...]], such as env=prod"
+  },
+  {
+    "flag": "tag",
+    "input": "team=web data",
+    "filter": {
+      "service": "",
+      "path": "tags.team",
+      "values": [
+        "web data"
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "k.v=x",
+    "filter": {
+      "service": "",
+      "path": "tags.k.v",
+      "values": [
+        "x"
+      ]
+    }
+  },
+  {
+    "flag": "tag",
+    "input": "名前=値",
+    "filter": {
+      "service": "",
+      "path": "tags.名前",
+      "values": [
+        "値"
+      ]
+    }
+  },
+  {
+    "flag": "where",
+    "input": "cidr_block=10.0.0.0/16",
+    "filter": {
+      "service": "",
+      "path": "cidr_block",
+      "values": [
+        "10.0.0.0/16"
+      ]
+    }
+  },
+  {
+    "flag": "where",
+    "input": "tags.env=prod",
+    "filter": {
+      "service": "",
+      "path": "tags.env",
+      "values": [
+        "prod"
+      ]
+    }
+  },
+  {
+    "flag": "where",
+    "input": "labels.env",
+    "filter": {
+      "service": "",
+      "path": "labels.env",
+      "values": null
+    }
+  },
+  {
+    "flag": "where",
+    "input": "id=vpc-1",
+    "error": "--where \"id=vpc-1\": filter on IDs with --id <type>=<id>[,<id>...]"
+  },
+  {
+    "flag": "where",
+    "input": "a.b.c=x,y",
+    "filter": {
+      "service": "",
+      "path": "a.b.c",
+      "values": [
+        "x",
+        "y"
+      ]
+    }
+  },
+  {
+    "flag": "where",
+    "input": "=x",
+    "error": "--where \"=x\": no path; use <path>[=<value>[,<value>...]], such as tags.env=prod"
+  },
+  {
+    "flag": "where",
+    "input": "",
+    "error": "--where \"\": no path; use <path>[=<value>[,<value>...]], such as tags.env=prod"
+  },
+  {
+    "flag": "where",
+    "input": "x=",
+    "filter": {
+      "service": "",
+      "path": "x",
+      "values": [
+        ""
+      ]
+    }
+  },
+  {
+    "flag": "where",
+    "input": "x=a=b",
+    "filter": {
+      "service": "",
+      "path": "x",
+      "values": [
+        "a=b"
+      ]
+    }
+  }
+]

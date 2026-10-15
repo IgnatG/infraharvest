@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "projects/acme-prod/metrics/errors", "name": "errors", "attributes": {"asset.project": "acme-prod", "asset.name": "errors"}},
+  {"id": "projects/acme-prod/metrics/app/latency", "name": "app_latency", "attributes": {"asset.project": "acme-prod", "asset.name": "latency"}},
+  {"id": "legacy", "name": "legacy", "attributes": {"name": "legacy"}}
+]}

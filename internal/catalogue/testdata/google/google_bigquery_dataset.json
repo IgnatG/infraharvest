@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/datasets/analytics", "name": "analytics", "attributes": {"asset.project": "acme-prod", "asset.name": "analytics", "asset.location": "US", "labels.team": "data"}},
+  {"id": "projects/acme-prod/datasets/raw_events", "name": "raw_events", "attributes": {"asset.project": "acme-prod", "asset.name": "raw_events", "asset.location": "europe-west1"}}
+]}

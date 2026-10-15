@@ -1,0 +1,94 @@
+{
+  "source": "terraform-google-modules/network/google",
+  "version": "18.3.1",
+  "variables": {
+    "auto_create_subnetworks": {
+      "required": false
+    },
+    "bgp_always_compare_med": {
+      "required": false
+    },
+    "bgp_best_path_selection_mode": {
+      "required": false
+    },
+    "bgp_inter_region_cost": {
+      "required": false
+    },
+    "delete_default_internet_gateway_routes": {
+      "required": false
+    },
+    "description": {
+      "required": false
+    },
+    "egress_rules": {
+      "required": false
+    },
+    "enable_ipv6_ula": {
+      "required": false
+    },
+    "firewall_rules": {
+      "required": false
+    },
+    "ingress_rules": {
+      "required": false
+    },
+    "internal_ipv6_range": {
+      "required": false
+    },
+    "mtu": {
+      "required": false
+    },
+    "network_firewall_policy_enforcement_order": {
+      "required": false
+    },
+    "network_name": {
+      "required": true
+    },
+    "network_profile": {
+      "required": false
+    },
+    "private_service_access_config": {
+      "required": false
+    },
+    "project_id": {
+      "required": true
+    },
+    "routes": {
+      "required": false
+    },
+    "routing_mode": {
+      "required": false
+    },
+    "secondary_ranges": {
+      "required": false
+    },
+    "shared_vpc_host": {
+      "required": false
+    },
+    "subnets": {
+      "required": true
+    },
+    "subnets_region": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "network",
+    "network_id",
+    "network_name",
+    "network_self_link",
+    "project_id",
+    "route_names",
+    "subnets",
+    "subnets_by_region_purpose",
+    "subnets_flow_logs",
+    "subnets_ids",
+    "subnets_ips",
+    "subnets_names",
+    "subnets_overview",
+    "subnets_private_access",
+    "subnets_regions",
+    "subnets_secondary_ranges",
+    "subnets_self_links"
+  ]
+}

@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../schema.json
+# Cloud Build, as Cloud Asset Inventory lists it. Terraform imports a
+# trigger as projects/<project>/locations/<location>/triggers/<trigger ID>,
+# which the template builds from the location the search returns, whatever
+# the shape of the asset name. Without a location, the trigger imports with
+# its asset name.
+provider: google
+service: cloud_asset
+types:
+  google_cloudbuild_trigger:
+    inventory: { type: cloudbuild.googleapis.com/BuildTrigger }
+    import_id:
+      - "projects/{asset.project}/locations/{asset.location}/triggers/{asset.name}"
+      - "{id}"

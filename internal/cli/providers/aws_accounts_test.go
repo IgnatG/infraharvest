@@ -1,0 +1,190 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+//go:build !minimal || aws
+
+package providers
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
+)
+
+func TestAWSAccounts(t *testing.T) {
+	ctx := context.Background()
+	accounts, err := awsAccounts(ctx, importer.Options{Accounts: []string{"111122223333", "444455556666"}, AssumeRole: DefaultAssumeRole})
+	if err != nil || !reflect.DeepEqual(accounts, []string{"111122223333", "444455556666"}) {
+		t.Errorf("accounts: %v, %v", accounts, err)
+	}
+	if accounts, err := awsAccounts(ctx, importer.Options{AssumeRole: DefaultAssumeRole}); err != nil || accounts != nil {
+		t.Errorf("one account: %v, %v", accounts, err)
+	}
+	if _, err := awsAccounts(ctx, importer.Options{Accounts: []string{"111122223333"}, Organization: true, AssumeRole: DefaultAssumeRole}); err == nil {
+		t.Error("both: want an error")
+	}
+	for name, options := range map[string]importer.Options{
+		"a role for one account":                     {Accounts: []string{"111122223333"}, AssumeRole: "arn:aws:iam::111122223333:role/x"},
+		"a role for one account of the organization": {Organization: true, AssumeRole: "arn:aws:iam::111122223333:role/x"},
+	} {
+		if _, err := awsAccounts(ctx, options); err == nil || !strings.Contains(err.Error(), "{account}") {
+			t.Errorf("%s: want an error about {account}, got %v", name, err)
+		}
+	}
+}
+
+// An account that can't be imported is reported, and the run goes on to
+// the next; an interrupt stops it.
+func TestImportAWSAccountsGoesOn(t *testing.T) {
+	ctx := context.Background()
+	options := importer.Options{AssumeRole: DefaultAssumeRole, Out: t.TempDir()}
+	var roles []string
+	importAccount := func(_ context.Context, o importer.Options) error {
+		roles = append(roles, o.RoleARN)
+		if strings.Contains(o.RoleARN, "111122223333") {
+			return errors.New("AccessDenied: can't assume the role")
+		}
+		return nil
+	}
+
+	err := importer.NewRun().Do(func() error {
+		return importAWSAccounts(ctx, options, []string{"111122223333", "444455556666"}, importAccount)
+	})
+
+	want := []string{"arn:aws:iam::111122223333:role/infraharvest-readonly", "arn:aws:iam::444455556666:role/infraharvest-readonly"}
+	if !reflect.DeepEqual(roles, want) {
+		t.Errorf("roles %v, want %v: the run must go on", roles, want)
+	}
+	if code := importer.ExitCode(err); code != report.ExitIncomplete {
+		t.Errorf("exit code %d, want %d (%v)", code, report.ExitIncomplete, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "account 111122223333: AccessDenied") {
+		t.Errorf("failure not reported: %v", err)
+	}
+
+	roles = nil
+	err = importer.NewRun().Do(func() error {
+		return importAWSAccounts(ctx, options, []string{"111122223333", "444455556666"}, func(context.Context, importer.Options) error { return context.Canceled })
+	})
+	if !errors.Is(err, context.Canceled) || len(roles) != 0 {
+		t.Errorf("interrupted: %v", err)
+	}
+}
+
+func TestGroupAWSResources(t *testing.T) {
+	global, eastOnly, regional := groupAWSServices(importer.Options{Services: []string{"*"}, Skip: []string{"iam"}})
+
+	all := slices.Concat(global, eastOnly, regional)
+	if slices.Contains(all, "*") {
+		t.Errorf("* not expanded: %v", regional)
+	}
+	if !slices.Contains(global, "route53") || !slices.Contains(global, "cloudfront") || slices.Contains(regional, "route53") {
+		t.Errorf("global services: %v", global)
+	}
+	if !slices.Contains(eastOnly, "wafv2_cloudfront") || !slices.Contains(regional, "vpc") {
+		t.Errorf("east-only %v, regional %v", eastOnly, regional)
+	}
+	if slices.Contains(all, "iam") {
+		t.Error("iam not excluded")
+	}
+	if want := len(importer.Services(newAWSProvider())) - 1; len(all) != want {
+		t.Errorf("%d services, want %d", len(all), want)
+	}
+
+	global, _, regional = groupAWSServices(importer.Options{Services: []string{"vpc", "iam"}})
+	if !slices.Equal(global, []string{"iam"}) || !slices.Equal(regional, []string{"vpc"}) {
+		t.Errorf("global %v, regional %v", global, regional)
+	}
+}
+
+// importAWSAccounts imports accounts as the aws command plans them, with
+// importAccount in place of importer.Import.
+func importAWSAccounts(ctx context.Context, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
+	options.Accounts = accounts
+	p, err := planAWS(ctx, options)
+	if err != nil {
+		return err
+	}
+	return p.run(ctx, options, newAWSProvider, func(ctx context.Context, _ harvest.Provider, o importer.Options, _ []string) error {
+		return importAccount(ctx, o)
+	})
+}
+
+// Each account, region and group of services is one Import call, whose
+// arguments are the region, the profile and the role.
+func TestAWSCalls(t *testing.T) {
+	type want struct {
+		args      []string
+		resources []string
+		regions   []string
+		layout    string
+	}
+	check := func(name string, calls []call, wants []want) {
+		t.Helper()
+		if len(calls) != len(wants) {
+			t.Fatalf("%s: %d calls, want %d: %+v", name, len(calls), len(wants), calls)
+		}
+		for i, w := range wants {
+			c := calls[i]
+			if !slices.Equal(c.args, w.args) || !slices.Equal(c.options.Services, w.resources) || !slices.Equal(c.options.Regions, w.regions) || c.options.Layout != w.layout {
+				t.Errorf("%s: call %d: args %q, resources %v, regions %v, layout %q; want %+v", name, i, c.args, c.options.Services, c.options.Regions, c.options.Layout, w)
+			}
+		}
+	}
+
+	byAccount := "{out}/{provider}/{account}/"
+	options := importer.Options{Profile: "prod", RoleARN: "arn:aws:iam::111122223333:role/x", Layout: byAccount, Services: []string{"vpc", "iam", "wafv2_cloudfront"}}
+	check("no regions", awsCalls(options), []want{
+		{[]string{"", "prod", options.RoleARN}, options.Services, nil, byAccount},
+	})
+
+	options.Regions = []string{"eu-west-1", "eu-west-2"}
+	check("regions", awsCalls(options), []want{
+		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount},
+		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount},
+		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
+		{[]string{"eu-west-2", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-2/"},
+	})
+
+	options.Regions = []string{"eu-west-1"}
+	options.Services = []string{"vpc"}
+	check("one region, no global services", awsCalls(options), []want{
+		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount},
+	})
+
+	options.Services = []string{"vpc", "iam"}
+	options.Layout = importer.DefaultLayout
+	check("a pattern with {region}", awsCalls(options), []want{
+		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, importer.DefaultLayout},
+		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, importer.DefaultLayout},
+	})
+}
+
+// Without --accounts or --organization, a role ARN without {account} is
+// assumed as it is, and the default role isn't assumed at all.
+func TestAWSSingleAccountRole(t *testing.T) {
+	ctx := context.Background()
+	for role, want := range map[string]string{
+		DefaultAssumeRole:                  "",
+		"arn:aws:iam::111122223333:role/x": "arn:aws:iam::111122223333:role/x",
+	} {
+		p, err := planAWS(ctx, importer.Options{AssumeRole: role})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.scopes != nil {
+			t.Errorf("%s: scopes %v, want none", role, p.scopes)
+		}
+		calls := p.calls(importer.Options{AssumeRole: role}, "")
+		if len(calls) != 1 || calls[0].options.RoleARN != want || calls[0].args[2] != want {
+			t.Errorf("%s: calls %+v, want one with role %q", role, calls, want)
+		}
+	}
+}

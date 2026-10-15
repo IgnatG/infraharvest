@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/global/urlMaps/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "global"}},
+  {"id": "projects/acme-prod/global/urlMaps/k8s2-um-1a2b3c4d-default-web", "name": "k8s2_um_1a2b3c4d_default_web", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-um-1a2b3c4d-default-web", "asset.location": "global"}}
+]}

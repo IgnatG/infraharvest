@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: synthetics
+types:
+  aws_synthetics_canary:
+    cloud_control: { type: "AWS::Synthetics::Canary", identifier: Name }

@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: servicecatalog
+types:
+  aws_servicecatalog_portfolio:
+    arn: { service: catalog, resource_type: "portfolio" }
+    cloud_control: { type: "AWS::ServiceCatalog::Portfolio", identifier: Id }

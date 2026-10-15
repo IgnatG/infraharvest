@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: vpc
+types:
+  aws_vpc:
+    arn: { service: ec2, resource_type: "vpc" }
+    data_source: { type: aws_vpc, argument: id }

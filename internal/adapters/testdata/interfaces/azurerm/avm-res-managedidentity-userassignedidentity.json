@@ -1,0 +1,41 @@
+{
+  "source": "Azure/avm-res-managedidentity-userassignedidentity/azurerm",
+  "version": "0.5.3",
+  "variables": {
+    "enable_telemetry": {
+      "required": false
+    },
+    "federated_identity_credentials": {
+      "required": false
+    },
+    "isolation_scope": {
+      "required": false
+    },
+    "location": {
+      "required": true
+    },
+    "lock": {
+      "required": false
+    },
+    "name": {
+      "required": true
+    },
+    "resource_group_name": {
+      "required": true
+    },
+    "role_assignments": {
+      "required": false
+    },
+    "tags": {
+      "required": false
+    }
+  },
+  "outputs": [
+    "client_id",
+    "principal_id",
+    "resource",
+    "resource_id",
+    "resource_name",
+    "tenant_id"
+  ]
+}

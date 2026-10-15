@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: api_gateway
+types:
+  aws_api_gateway_model:
+    skip:
+      - reason: a model AWS creates with every REST API
+        attributes: { name: Empty }
+      - reason: a model AWS creates with every REST API
+        attributes: { name: Error }
+  aws_api_gateway_rest_api:
+    arn: { service: apigateway, resource_type: "restapis" }

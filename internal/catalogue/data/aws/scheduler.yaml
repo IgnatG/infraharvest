@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: scheduler
+types:
+  aws_scheduler_schedule_group:
+    cloud_control: { type: "AWS::Scheduler::ScheduleGroup", identifier: Name }
+    skip:
+      - reason: the default schedule group, which AWS creates for the account
+        ids: [default]

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: sg
+types:
+  aws_security_group:
+    arn: { service: ec2, resource_type: "security-group" }
+    data_source: { type: aws_security_group, argument: id }
+    # The lister imports each rule as a resource of its own, which the
+    # provider recommends: inline, the group would manage them too.
+    omit: [ingress, egress]
+  aws_security_group_rule: {}
+  aws_vpc_security_group_ingress_rule:
+    arn: { service: ec2, resource_type: "security-group-rule" }
+  aws_vpc_security_group_egress_rule:
+    arn: { service: ec2, resource_type: "security-group-rule" }

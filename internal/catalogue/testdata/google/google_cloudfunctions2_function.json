@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/us-central1/functions/thumbnail", "name": "thumbnail", "attributes": {"asset.project": "acme-prod", "asset.name": "thumbnail", "asset.location": "us-central1", "asset.environment": "GEN_2"}},
+  {"id": "projects/acme-prod/locations/us-central1/functions/resize", "name": "resize", "attributes": {"asset.project": "acme-prod", "asset.name": "resize", "asset.location": "us-central1", "asset.environment": "GEN_1"}}
+]}

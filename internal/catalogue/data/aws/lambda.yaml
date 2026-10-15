@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: lambda
+types:
+  aws_lambda_function:
+    arn: { service: lambda, resource_type: "function" }
+    # Imported by ARN, the generated configuration names the function by
+    # its ARN, and the provider plans to replace it.
+    import_id: "{function_name}"
+    # AWS doesn't say where a zip package came from, and Terraform can't
+    # read it back.
+    placeholder:
+      one_of: [filename, image_uri, s3_bucket]
+      set: { filename: "lambda/{function_name}.zip" }
+      ignore: [filename, source_code_hash]
+      reason: "the function's code is deployed outside Terraform; filename is a placeholder. To deploy it with Terraform, put the package there, set source_code_hash and remove this"
+  aws_lambda_permission:
+    import_id: "{function_name}/{statement_id}"

@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: elasticache
+types:
+  aws_elasticache_cluster:
+    arn: { service: elasticache, resource_type: "cluster" }
+  aws_elasticache_parameter_group:
+    arn: { service: elasticache, resource_type: "parametergroup" }
+    skip:
+      - reason: a default parameter group, which ElastiCache provides for a family and which can't be changed
+        id_prefixes: [default.]
+  aws_elasticache_replication_group:
+    arn: { service: elasticache, resource_type: "replicationgroup" }
+    # AWS never returns the AUTH token, so an import leaves it unset and a
+    # plan without it changes nothing; as a variable, the plan would set it.
+    omit: [auth_token]
+  aws_elasticache_subnet_group:
+    arn: { service: elasticache, resource_type: "subnetgroup" }
+    skip:
+      - reason: the default cache subnet group, which ElastiCache creates for the default VPC
+        ids: [default]

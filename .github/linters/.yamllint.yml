@@ -1,0 +1,25 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# yamllint configuration, for MegaLinter (.mega-linter.yml): MegaLinter's
+# defaults, with the YAML style the repository uses.
+extends: default
+rules:
+  braces:
+    max-spaces-inside: 1
+  new-lines:
+    type: unix
+  line-length:
+    max: 500
+  # "uses: owner/action@<sha> # v1.2.3", as every workflow pins actions.
+  comments:
+    min-spaces-from-content: 1
+  # No "---": every file is a single document.
+  document-start: disable
+  # A workflow's "on:" is a key, not a boolean.
+  truthy:
+    check-keys: false
+  # Some files indent a list under its key, some don't; each file sticks to
+  # one.
+  indentation:
+    indent-sequences: consistent

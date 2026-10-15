@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/backendServices/internal", "name": "internal", "attributes": {"asset.project": "acme-prod", "asset.name": "internal", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/backendServices/k8s2-default-api-5f6a7b8c", "name": "k8s2_default_api_5f6a7b8c", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s2-default-api-5f6a7b8c", "asset.location": "us-central1"}}
+]}

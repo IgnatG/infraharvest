@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: codepipeline
+types:
+  aws_codepipeline:
+    arn: { service: codepipeline, resource_type: "" }

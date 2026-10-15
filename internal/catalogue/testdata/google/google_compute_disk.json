@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "projects/acme-prod/zones/us-central1-a/disks/data", "name": "data", "attributes": {"asset.project": "acme-prod", "asset.name": "data", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/disks/gke-prod-default-pool-1a2b3c4d-x9z8", "name": "gke_prod_default_pool_1a2b3c4d_x9z8", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d-x9z8", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/disks/pvc-0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d", "name": "pvc_0a1b2c3d_4e5f_6a7b_8c9d_0e1f2a3b4c5d", "attributes": {"asset.project": "acme-prod", "asset.name": "pvc-0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d", "asset.location": "us-central1-a"}}
+]}

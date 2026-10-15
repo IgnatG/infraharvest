@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "a1b2c3d4e5/Empty", "name": "orders_Empty", "attributes": {"name": "Empty", "content_type": "application/json", "rest_api_id": "a1b2c3d4e5"}},
+  {"id": "a1b2c3d4e5/Error", "name": "orders_Error", "attributes": {"name": "Error", "content_type": "application/json", "rest_api_id": "a1b2c3d4e5"}},
+  {"id": "a1b2c3d4e5/Order", "name": "orders_Order", "attributes": {"name": "Order", "content_type": "application/json", "rest_api_id": "a1b2c3d4e5"}}
+]}

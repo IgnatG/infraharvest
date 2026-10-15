@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: route53resolver
+types:
+  aws_route53_resolver_endpoint:
+    cloud_control: { type: "AWS::Route53Resolver::ResolverEndpoint", identifier: ResolverEndpointId }
+  aws_route53_resolver_rule:
+    cloud_control: { type: "AWS::Route53Resolver::ResolverRule", identifier: ResolverRuleId }
+    skip:
+      - reason: a rule AWS defines for the account, such as the Internet Resolver rule
+        id_prefixes: [rslvr-autodefined-]

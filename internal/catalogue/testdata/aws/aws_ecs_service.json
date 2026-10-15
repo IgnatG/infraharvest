@@ -1,0 +1,1 @@
+{"resources": [{"id": "arn:aws:ecs:us-east-1:123456789012:service/apps/web", "name": "apps_web", "attributes": {"cluster": "apps", "name": "web"}}]}

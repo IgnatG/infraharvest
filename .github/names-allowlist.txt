@@ -1,0 +1,3 @@
+# Files scripts/check-names.sh leaves out: one git pathspec per line (a
+# path or a glob), with a comment saying why the file needs the name.
+# Keep it empty unless there is no other way.

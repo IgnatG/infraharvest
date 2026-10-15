@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/us-central1/repositories/images", "name": "images", "attributes": {"asset.project": "acme-prod", "asset.name": "images", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/locations/us-central1/repositories/gcf-artifacts", "name": "gcf_artifacts", "attributes": {"asset.project": "acme-prod", "asset.name": "gcf-artifacts", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/locations/us-central1/repositories/cloud-run-source-deploy", "name": "cloud_run_source_deploy", "attributes": {"asset.project": "acme-prod", "asset.name": "cloud-run-source-deploy", "asset.location": "us-central1"}}
+]}

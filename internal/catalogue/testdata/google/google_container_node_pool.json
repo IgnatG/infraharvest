@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/us-central1/clusters/prod/nodePools/default-pool", "name": "prod_default_pool", "attributes": {"asset.project": "acme-prod", "asset.name": "default-pool", "asset.location": "us-central1", "asset.parent": "projects/acme-prod/locations/us-central1/clusters/prod"}},
+  {"id": "acme-prod/europe-west1/legacy/pool", "name": "legacy_pool", "attributes": {"name": "pool", "cluster": "legacy"}}
+]}

@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "projects/acme-prod/subscriptions/orders-billing", "name": "orders_billing", "attributes": {"asset.project": "acme-prod", "asset.name": "orders-billing", "asset.location": "global"}}
+]}

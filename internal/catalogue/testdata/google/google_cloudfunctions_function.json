@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/us-central1/functions/resize", "name": "resize", "attributes": {"asset.project": "acme-prod", "asset.name": "resize", "asset.location": "us-central1"}},
+  {"id": "acme-prod/europe-west1/legacy", "name": "legacy", "attributes": {"name": "legacy", "region": "europe-west1"}}
+]}

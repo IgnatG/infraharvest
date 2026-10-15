@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=../../schema.json
+# The databases in Cloud SQL instances, which the cloudsql service lists
+# instance by instance: Cloud Asset Inventory has no asset type for them.
+# Each database engine keeps databases of its own in every instance, which
+# the default selection leaves out; the lister records the instance's
+# database_version, such as MYSQL_8_0, to tell the engines apart.
+provider: google
+service: cloudsql
+types:
+  google_sql_database:
+    skip:
+      - reason: a system database of MySQL, in every MySQL instance
+        attributes: { name: mysql }
+        attribute_prefixes: { database_version: [MYSQL_] }
+      - reason: a system database of MySQL, in every MySQL instance
+        attributes: { name: information_schema }
+        attribute_prefixes: { database_version: [MYSQL_] }
+      - reason: a system database of MySQL, in every MySQL instance
+        attributes: { name: performance_schema }
+        attribute_prefixes: { database_version: [MYSQL_] }
+      - reason: a system database of MySQL, in every MySQL instance
+        attributes: { name: sys }
+        attribute_prefixes: { database_version: [MYSQL_] }
+      - reason: the default database Cloud SQL creates in every PostgreSQL instance; select it to import it
+        attributes: { name: postgres }
+        attribute_prefixes: { database_version: [POSTGRES_] }
+      - reason: Cloud SQL's own database for managing a PostgreSQL instance
+        attributes: { name: cloudsqladmin }
+        attribute_prefixes: { database_version: [POSTGRES_] }
+      - reason: a system database of SQL Server, in every SQL Server instance
+        attributes: { name: master }
+        attribute_prefixes: { database_version: [SQLSERVER_] }
+      - reason: a system database of SQL Server, in every SQL Server instance
+        attributes: { name: model }
+        attribute_prefixes: { database_version: [SQLSERVER_] }
+      - reason: a system database of SQL Server, in every SQL Server instance
+        attributes: { name: msdb }
+        attribute_prefixes: { database_version: [SQLSERVER_] }
+      - reason: a system database of SQL Server, in every SQL Server instance
+        attributes: { name: tempdb }
+        attribute_prefixes: { database_version: [SQLSERVER_] }

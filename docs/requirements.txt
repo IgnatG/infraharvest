@@ -1,0 +1,6 @@
+# The documentation site's build (see mkdocs.yml); Dependabot keeps it current.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+# Not used directly: requests, which mkdocs-material needs, pulls it in.
+# Pinned past PYSEC-2026-215, fixed in 3.15.
+idna==3.20

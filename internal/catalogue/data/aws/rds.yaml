@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: rds
+types:
+  aws_db_instance:
+    arn: { service: rds, resource_type: "db" }
+    # AWS never returns the master password, so an import leaves it unset
+    # and a plan without it changes nothing. As a variable, any value would
+    # make the plan set it, and turn off a password RDS manages.
+    omit: [password]
+    state_only: [apply_immediately]
+  aws_db_option_group:
+    arn: { service: rds, resource_type: "og" }
+    skip:
+      - reason: a default option group, which RDS creates for an engine version and Terraform can't manage
+        id_prefixes: ["default:"]
+  aws_db_parameter_group:
+    arn: { service: rds, resource_type: "pg" }
+    skip:
+      - reason: a default parameter group, which RDS provides for a family and which can't be changed
+        id_prefixes: [default.]
+  aws_db_subnet_group:
+    arn: { service: rds, resource_type: "subgrp" }
+    skip:
+      - reason: the default DB subnet group, which RDS creates for the default VPC and Terraform can't manage
+        ids: [default]
+  aws_rds_cluster:
+    arn: { service: rds, resource_type: "cluster" }
+    # As an instance's: AWS never returns the master password.
+    omit: [master_password]
+    state_only: [enable_global_write_forwarding, enable_local_write_forwarding]
+  aws_rds_cluster_instance:
+    arn: { service: rds, resource_type: "db" }
+    state_only: [force_destroy]

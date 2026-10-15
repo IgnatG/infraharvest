@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../schema.json
+# Data services, as Cloud Asset Inventory lists them. A Cloud SQL
+# instance's asset name is on cloudsql.googleapis.com, its asset type on
+# sqladmin.googleapis.com. Dataproc clusters are listed so that they are
+# reported: Terraform can't import them.
+provider: google
+service: cloud_asset
+types:
+  google_sql_database_instance:
+    inventory: { type: sqladmin.googleapis.com/Instance }
+  google_redis_instance:
+    inventory: { type: redis.googleapis.com/Instance }
+  google_bigquery_dataset:
+    inventory: { type: bigquery.googleapis.com/Dataset }
+  google_bigquery_table:
+    inventory: { type: bigquery.googleapis.com/Table }
+  google_dataproc_cluster:
+    inventory: { type: dataproc.googleapis.com/Cluster }
+    not_importable: the Google provider can't import Dataproc clusters

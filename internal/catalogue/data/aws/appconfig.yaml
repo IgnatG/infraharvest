@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: appconfig
+types:
+  aws_appconfig_application:
+    cloud_control: { type: "AWS::AppConfig::Application", identifier: ApplicationId }

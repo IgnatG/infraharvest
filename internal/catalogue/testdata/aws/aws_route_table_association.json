@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "rtbassoc-01", "name": "private_a", "attributes": {"subnet_id": "subnet-0a1", "route_table_id": "rtb-0a1"}},
+  {"id": "rtbassoc-02", "name": "edge", "attributes": {"gateway_id": "igw-0a1", "route_table_id": "rtb-0b2"}},
+  {"id": "rtbassoc-03", "name": "incomplete", "attributes": {"route_table_id": "rtb-0b2"}}
+]}

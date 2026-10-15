@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../schema.json
+# Logging and Monitoring, as Cloud Asset Inventory lists them, by the
+# project's number, which the cloud_asset service swaps for its ID. A
+# log-based metric imports as "<project> <metric>"; the metric's name may
+# have slashes.
+provider: google
+service: cloud_asset
+types:
+  google_logging_metric:
+    inventory: { type: logging.googleapis.com/LogMetric }
+    import_id:
+      - "{asset.project} {id|after_last:/metrics/}"
+      - "{id}"
+  google_monitoring_alert_policy:
+    inventory: { type: monitoring.googleapis.com/AlertPolicy }
+  google_monitoring_notification_channel:
+    inventory: { type: monitoring.googleapis.com/NotificationChannel }
+  google_monitoring_uptime_check_config:
+    inventory: { type: monitoring.googleapis.com/UptimeCheckConfig }
