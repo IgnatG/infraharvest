@@ -53,6 +53,8 @@ It is what `--services='*'` lists, together with `management_lock`, `security_ce
 
 Some resources are left out by the default selection, with the reason: those another resource manages (`managedBy`), such as what is in an AKS cluster's `MC_*` node resource group, and what Azure creates itself, such as `NetworkWatcherRG`, the `DefaultResourceGroup-<region>` groups, Cloud Shell's storage groups, and the alert rules and action groups Application Insights adds.
 
+The types are those the current `azurerm` provider has, such as `azurerm_linux_virtual_machine` and `azurerm_windows_virtual_machine` rather than `azurerm_virtual_machine`, and `azurerm_mssql_*` rather than `azurerm_sql_*`. Storage blobs and Synapse managed private endpoints, which only their data-plane APIs list, aren't imported.
+
 ## Services to name
 
 `resource_group`, `virtual_network`, `subnet`, `network_security_group`, `public_ip`, `network_interface` and `managed_identity` list one kind of resource at a time through Resource Manager, without Resource Graph. What they list, `resource_graph` lists too, so `--services='*'` leaves them out, and naming them together with `resource_graph` would import the same resources twice. Use them where Resource Graph isn't available, such as Azure Stack Hub (`ARM_ENVIRONMENT=stack`) or an emulator, or to list only those kinds of resource:
@@ -60,10 +62,6 @@ Some resources are left out by the default selection, with the reason: those ano
 ```sh
 infraharvest discover azure --services=resource_group,virtual_network,subnet,network_security_group
 ```
-
-## Services that were removed
-
-Earlier releases had a service for each kind of resource, such as `virtual_machine`, `keyvault`, `storage_account`, `cosmosdb` or `data_factory`. `resource_graph` lists all of those resources, with the types the current `azurerm` provider has: `azurerm_linux_virtual_machine` and `azurerm_windows_virtual_machine` rather than `azurerm_virtual_machine`, for example, and `azurerm_mssql_*` rather than `azurerm_sql_*`. A `--services` that names one of the old services fails with `unknown service`, and a selection file that names one needs `infraharvest discover azure` again. Storage blobs and Synapse managed private endpoints, which only their data-plane APIs list, are no longer imported.
 
 ## Tags
 
