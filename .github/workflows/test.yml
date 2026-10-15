@@ -305,9 +305,28 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        # The whole history for the root commit check, without the contents
+        # of past commits: only the checked-out commit's files are fetched.
+        fetch-depth: 0
+        filter: blob:none
         persist-credentials: false
     - name: Licence headers
       run: scripts/check-headers.sh
+    # The repository's history grows from one root commit. A branch with an
+    # unrelated history (another repository's, or one started again from
+    # scratch) brings more roots, and merging it would graft that history
+    # onto main: stop it here.
+    - name: Root commit
+      if: ${{ !cancelled() }}
+      env:
+        ROOT: 6aa52900d5c930fa2cd34091e24995b3b00f4771
+      run: |
+        roots=$(git rev-list --max-parents=0 HEAD)
+        if [ "$roots" != "$ROOT" ]; then
+          echo "::error::the history must grow from the single root commit $ROOT, but its roots are:"
+          echo "$roots"
+          exit 1
+        fi
     - name: Names
       if: ${{ !cancelled() }}
       run: scripts/check-names.sh

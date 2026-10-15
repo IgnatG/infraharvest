@@ -194,7 +194,7 @@ The `release` workflow publishes a release from `main`: it runs the tests, tags 
 | Check | Before committing | On GitHub |
 |---|---|---|
 | `gofmt -s`, import grouping | pre-commit hook, `make fast` | `megalinter` (golangci-lint's formatters) |
-| Licence headers, names, `reuse lint` | pre-commit hook, `make fast` (not `reuse lint`) | `tests` (`repository`) |
+| Licence headers, names, `reuse lint`, a single root commit | pre-commit hook, `make fast` (not `reuse lint` or the root commit) | `tests` (`repository`) |
 | Shell scripts, workflows | pre-commit hook (shellcheck, actionlint) | `megalinter` (shellcheck, actionlint, zizmor) |
 | Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee), `docs` (strict MkDocs build) |
 | YAML, JSON, Dockerfile, Terraform, secrets, vulnerable dependencies | none | `megalinter` |
