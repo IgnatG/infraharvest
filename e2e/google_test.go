@@ -33,13 +33,13 @@ import (
 // googleProject is the project testdata/google creates its resources in.
 const googleProject = "infraharvest-e2e"
 
-// TestGoogleRoundTrip creates resources in floci-gcp, a GCP emulator, imports
+// TestGoogleRoundTrip creates resources in floci-gcp, a Google Cloud emulator, imports
 // them with --engine=terraform (or E2E_ENGINE=tofu) and checks the engine
 // plans every one as an import with no changes.
 //
 // floci-gcp doesn't serve Cloud Asset Inventory, which cloud_asset lists
 // through, or Cloud DNS: a stand-in answers the searches from what the
-// test created, and from what GCP would create itself, which the default
+// test created, and from what Google Cloud would create itself, which the default
 // selection leaves out, and finds no DNS zones. floci-gcp serves the rest:
 // the project's IAM policy, the Cloud SQL and Cloud Scheduler lists, and
 // what Terraform plans with.
@@ -167,7 +167,7 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 // gets every other request. The search finds the resources state lists,
 // named as Cloud Asset Inventory names them, with the project's number as
 // their project, and the default network and one of its firewall rules,
-// which GCP creates in a project. It finds only the asset types asked for,
+// which Google Cloud creates in a project. It finds only the asset types asked for,
 // two at a time. The project has no DNS zones.
 func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *httptest.Server {
 	t.Helper()

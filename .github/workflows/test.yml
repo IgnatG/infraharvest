@@ -188,7 +188,7 @@ jobs:
         echo "floci-gcp didn't start"; exit 1
     - name: Test
       env:
-        INFRAHARVEST_GCP_ENDPOINT: http://localhost:4588
+        INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4588
         E2E_ENGINE: ${{ matrix.engine }}
       run: go test -tags e2e,minimal,google -timeout 20m -v -run TestGoogle ./e2e/
     - name: floci-gcp logs

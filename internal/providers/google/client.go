@@ -18,11 +18,11 @@ import (
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
-// EndpointEnv names the base URL of a GCP emulator, such as
+// EndpointEnv names the base URL of a Google Cloud emulator, such as
 // http://localhost:4588 for floci-gcp. When it is set, every Google API
 // call the listers make goes there, without credentials. The end-to-end
 // tests use it; the Terraform provider takes its own custom endpoints.
-const EndpointEnv = "INFRAHARVEST_GCP_ENDPOINT"
+const EndpointEnv = "INFRAHARVEST_GOOGLE_ENDPOINT"
 
 // clientOptions are the options of every Google REST API client: a client
 // whose requests to each API go through ratelimit.Default (see
