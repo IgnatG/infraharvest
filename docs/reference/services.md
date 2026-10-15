@@ -119,7 +119,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | Service | Terraform types |
 |---|---|
 | `management_lock` | `azurerm_management_lock` |
-| `resource_graph` | `azurerm_log_analytics_saved_search`, `azurerm_log_analytics_workspace_table_microsoft`, `azurerm_monitor_action_group`, `azurerm_monitor_smart_detector_alert_rule`, `azurerm_storage_account_queue_properties`, `azurerm_storage_account_table_properties` |
+| `resource_graph` | `azurerm_log_analytics_datasource_windows_event`, `azurerm_log_analytics_datasource_windows_performance_counter`, `azurerm_log_analytics_saved_search`, `azurerm_log_analytics_workspace_table_microsoft`, `azurerm_monitor_action_group`, `azurerm_monitor_smart_detector_alert_rule`, `azurerm_network_security_group`, `azurerm_route_table`, `azurerm_storage_account_queue_properties`, `azurerm_storage_account_table_properties`, `azurerm_storage_container`, `azurerm_virtual_network` |
 | `security_center_contact` | `azurerm_security_center_contact` |
 | `security_center_subscription_pricing` | `azurerm_security_center_subscription_pricing` |
 | `managed_identity` (opt-in) | `azurerm_federated_identity_credential`, `azurerm_user_assigned_identity` |
