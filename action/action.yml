@@ -12,7 +12,7 @@ branding:
 # applies anything.
 inputs:
   version:
-    description: The infraharvest release to install, such as v0.2.0.
+    description: The infraharvest release to install, such as v0.1.0.
     required: false
   binary:
     description: An infraharvest binary to run instead of installing a release.
@@ -78,7 +78,7 @@ runs:
         BINARY: ${{ inputs.binary }}
       run: |
         if [[ -z "$VERSION" && -z "$BINARY" ]]; then
-          echo "::error::set version (a release such as v0.2.0) or binary"
+          echo "::error::set version (a release such as v0.1.0) or binary"
           exit 1
         fi
         if [[ -n "$VERSION" && ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then

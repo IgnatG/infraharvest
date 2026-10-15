@@ -7,7 +7,7 @@ infraharvest needs Terraform or OpenTofu to generate configuration. With the def
 Each [release](https://github.com/IgnatG/infraharvest/releases) has archives for Linux, macOS and Windows on amd64 and arm64. It also has a checksum file, signed with [cosign](https://github.com/sigstore/cosign) from the release workflow (keyless, no long-lived key), SBOMs and build provenance. To verify a download, check the checksum file's signature, then the archive's checksum:
 
 ```sh
-VERSION=0.2.0
+VERSION=0.1.0
 cosign verify-blob \
   --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \

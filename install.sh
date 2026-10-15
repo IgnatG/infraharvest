@@ -8,7 +8,7 @@
 # cosign (https://docs.sigstore.dev/cosign/system_config/installation/)
 # unless told to skip the signature. Settings, from the environment:
 #
-#   INFRAHARVEST_VERSION      release to install, such as v0.2.0 (default: latest)
+#   INFRAHARVEST_VERSION      release to install, such as v0.1.0 (default: latest)
 #   INFRAHARVEST_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   INFRAHARVEST_SKIP_SIGNATURE=1  don't verify the signature: check only the
 #                             checksum, which comes from the same place as the
