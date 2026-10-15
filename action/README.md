@@ -29,7 +29,7 @@ jobs:
           aws-region: eu-west-2
       - uses: IgnatG/infraharvest/action@<sha>
         with:
-          version: v0.2.0
+          version: v0.1.0
           provider: aws
           services: vpc,subnet,sg,s3,iam
           regions: eu-west-2
@@ -45,7 +45,7 @@ Run again on a schedule, the action adds what is new to the roots the repository
 
 | Input | Default | Description |
 |---|---|---|
-| `version` | | The release to install, such as `v0.2.0`. Either `version` or `binary` is required |
+| `version` | | The release to install, such as `v0.1.0`. Either `version` or `binary` is required |
 | `binary` | | An infraharvest binary to run instead of installing a release |
 | `token` | `github.token` | Token to download the release with |
 | `provider` | | The provider command, such as `aws` (required) |

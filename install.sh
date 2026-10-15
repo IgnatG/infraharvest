@@ -8,7 +8,7 @@
 # cosign (https://docs.sigstore.dev/cosign/system_config/installation/)
 # unless told to skip the signature. Settings, from the environment:
 #
-#   INFRAHARVEST_VERSION      release to install, such as v0.2.0 (default: latest)
+#   INFRAHARVEST_VERSION      release to install, such as v0.1.0 (default: latest)
 #   INFRAHARVEST_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   INFRAHARVEST_SKIP_SIGNATURE=1  don't verify the signature: check only the
 #                             checksum, which comes from the same place as the
@@ -62,9 +62,13 @@ trap 'rm -rf "$tmp"' EXIT
 
 version="${INFRAHARVEST_VERSION:-}"
 if [ -z "$version" ]; then
-  fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json"
+  # GitHub's latest release is the newest that isn't a prerelease: a
+  # repository with only prereleases, or none yet, has no latest release
+  # and the API answers 404, which fetch reports as a failure.
+  no_latest="no release found: GitHub's latest release leaves out prereleases, and there may be none yet (or the API refused the request: see any error above, and set GITHUB_TOKEN if it is a rate limit). Set INFRAHARVEST_VERSION=vX.Y.Z to install a given release, prereleases included"
+  fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json" || fail "$no_latest"
   version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
-  [ -n "$version" ] || fail "couldn't find the latest release"
+  [ -n "$version" ] || fail "$no_latest"
 fi
 case "$version" in
   v*) ;;

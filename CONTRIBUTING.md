@@ -71,7 +71,7 @@ To run the same checks on every file: `make fast`, or one of them, such as `make
 
 ## Checking a change
 
-CI runs everything on each pull request: `go mod tidy -diff`, a build and `go test ./...` on Linux, the OS-sensitive packages on Windows, the race detector, `govulncheck`, end-to-end imports against the AWS, Azure and Google Cloud emulators ([e2e/README.md](e2e/README.md)), the licence headers, names and `reuse lint`, and [MegaLinter](https://megalinter.io) (`.mega-linter.yml`), which runs every linter: golangci-lint on the whole module (any finding fails), workflows, scripts, Markdown, YAML, JSON, the Dockerfile, Terraform, secrets and vulnerable dependencies. MegaLinter reports in one comment on the pull request. macOS runs after merges to `main`, weekly and by hand (`gh workflow run macos`), as its build takes about 40 minutes.
+CI runs everything on each pull request: `go mod tidy -diff`, a build and `go test ./...` on Linux, the OS-sensitive packages on Windows, the race detector, `govulncheck`, end-to-end imports against the AWS, Azure and Google Cloud emulators ([e2e/README.md](e2e/README.md)), the licence headers, names, `reuse lint` and the single root commit of the history, and [MegaLinter](https://megalinter.io) (`.mega-linter.yml`), which runs every linter: golangci-lint on the whole module (any finding fails), workflows, scripts, Markdown, YAML, JSON, the Dockerfile, Terraform, secrets and vulnerable dependencies. MegaLinter reports in one comment on the pull request. macOS runs after merges to `main`, weekly and by hand (`gh workflow run macos`), as its build takes about 40 minutes.
 
 To check a branch before opening a pull request, push it, then run the checks on GitHub:
 
@@ -144,7 +144,7 @@ The CPU profile covers the whole run; the heap profile is taken at its end, and 
 
 ## Licence
 
-By contributing, you agree that your contributions are licensed under the repository's licence (see [LICENSE](LICENSE)).
+By contributing, you agree that your contributions are licensed under the repository's licence (see [LICENSE](LICENSE)). The [CLA](CLA.md) you sign also grants the project owner the right to relicense them, under another open-source or a commercial licence (its section 3): the two go together, as [Contributor License Agreement](#contributor-license-agreement) explains.
 
 Every Go file starts with a two-line licence header, which the pre-commit hook and CI check (`scripts/check-headers.sh`):
 

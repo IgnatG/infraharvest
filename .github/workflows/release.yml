@@ -1,12 +1,12 @@
 name: release
 
 # Publishes a release from main with GoReleaser (see .goreleaser.yaml):
-#   gh workflow run release --ref main -f version=v0.2.0
+#   gh workflow run release --ref main -f version=v0.1.0
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release tag (e.g. v0.2.0 or v0.2.0-rc.1)
+        description: Release tag (e.g. v0.1.0 or v0.1.0-rc.1)
         type: string
         required: true
 
@@ -45,7 +45,10 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # GoReleaser builds the changelog from history
+          # GoReleaser finds the previous release's tag in the history; GitHub
+          # then writes the notes from the pull requests merged since that tag
+          # (changelog: use: github-native in .goreleaser.yaml).
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

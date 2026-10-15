@@ -1,0 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Reviewers GitHub requests on every pull request
+# (https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
+* @IgnatG

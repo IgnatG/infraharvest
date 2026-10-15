@@ -1,0 +1,33 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Feature request
+description: A new capability or a change to how infraharvest works.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        For a resource type infraharvest doesn't import yet, use the
+        "Missing resource type or permission" form instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: >-
+        What infraharvest could do about it: a command, a flag, a setting in
+        the configuration file, or a change to the generated configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways around it you have tried or considered.
