@@ -31,7 +31,11 @@ types:
     not_importable: Terraform can't import it; the VPC's main_route_table_id records the main route table.
 ```
 
-The comment on the first line lets editors with the YAML language server check files against [`internal/catalogue/schema.json`](https://github.com/IgnatG/infraharvest/blob/main/internal/catalogue/schema.json) as you type.
+The comment on the first line lets editors with the YAML language server check files against [`internal/catalogue/schema.json`](https://github.com/IgnatG/infraharvest/blob/main/internal/catalogue/schema.json) as you type. The relative path works for the built-in files only; in a directory of your own for `--catalogue` (see [Overriding entries](#overriding-entries)), name the schema by its address instead:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json
+```
 
 | Field | Meaning |
 |---|---|
