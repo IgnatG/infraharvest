@@ -63,10 +63,9 @@ docker_signs:
 
 release:
   prerelease: auto
-  # Below the notes: how to install and verify this release. The notes
-  # themselves are the version's section of CHANGELOG.md, which the release
-  # workflow passes with --release-notes; without one, GitHub writes them
-  # from the merged pull requests (changelog below).
+  # Below the notes, which GitHub writes from the pull requests merged
+  # since the previous release (changelog below): how to install and verify
+  # this release.
   footer: |
     ## Install
 
@@ -93,8 +92,6 @@ release:
       --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
-
-    Every release is described in [CHANGELOG.md](https://github.com/IgnatG/infraharvest/blob/{{ .Tag }}/CHANGELOG.md).
 
 changelog:
   use: github-native

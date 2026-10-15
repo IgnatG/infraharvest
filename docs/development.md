@@ -183,11 +183,10 @@ A new page goes into `mkdocs.yml`'s navigation; the `docs` workflow builds stric
 
 ## Releases
 
-The `release` workflow publishes a release from `main`: it runs the tests, tags the commit, and has GoReleaser (`.goreleaser.yaml`) build the archives, the signed checksum file, the SBOMs, the provenance and the signed container image.
+The `release` workflow publishes a release from `main`: it runs the tests, tags the commit, and has GoReleaser (`.goreleaser.yaml`) build the archives, the signed checksum file, the SBOMs, the provenance and the signed container image. The release notes are generated: GitHub lists the pull requests merged since the previous release, so their titles (the squashed Conventional Commits) are the changelog, and GoReleaser adds how to install and verify the release below them.
 
-1. In a pull request, date the version's section of `CHANGELOG.md` (`## [0.2.0] - 2026-11-02`) and point its link at the release's tag (`[0.2.0]: https://github.com/IgnatG/infraharvest/releases/tag/v0.2.0`). The workflow publishes that section as the release notes, followed by how to install and verify the release. A version without a section, such as a release candidate, gets the notes GitHub writes from the merged pull requests.
-2. Once it is merged, run `gh workflow run release --ref main -f version=v0.2.0`. A version with a suffix, such as `v0.2.0-rc.1`, is published as a prerelease, which GitHub never counts as the latest: the install script and the image's `latest` tag skip it.
-3. After the release, open a pull request that sets `devVersion` in `internal/version/version.go` to the next version with `-dev` (`v0.3.0-dev`), so builds from `main` don't report the version just released or one before it, and starts a new section in CHANGELOG.md for the changes that follow.
+1. Run `gh workflow run release --ref main -f version=v0.2.0`. A version with a suffix, such as `v0.2.0-rc.1`, is published as a prerelease, which GitHub never counts as the latest: the install script and the image's `latest` tag skip it.
+2. After the release, open a pull request that sets `devVersion` in `internal/version/version.go` to the next version with `-dev` (`v0.3.0-dev`), so builds from `main` don't report the version just released or one before it.
 
 ## Checks
 
