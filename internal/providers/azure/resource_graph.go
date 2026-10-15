@@ -46,12 +46,14 @@ var resourceManagerServices = []string{
 // of that scope, empty ones too, and the child resources Resource Graph
 // doesn't index (such as subnets and blob containers), read from Resource
 // Manager, with Log Analytics workspaces' data sources of the kinds azurerm
-// has types for (see workspaceDataSources). The catalogue's inventory entries map a resource to its azurerm
-// type, else aztft does, with its import ID, asking Resource Manager when
-// the ID alone can't say, as for a function app and a web app. Resources
-// another resource manages (managedBy), such as an AKS cluster's nodes,
-// are left out; the catalogue's skip rules leave out what Azure creates
-// itself, such as NetworkWatcherRG.
+// has types for (see workspaceDataSources). The catalogue's inventory
+// entries map a resource to its azurerm type, else aztft does, with its
+// import ID, reading what the ID alone can't say, as between a function
+// app and a web app, from what the listing returned, and asking Resource
+// Manager only for what it didn't (see graphResources and newLookup).
+// Resources another resource manages (managedBy), such as an AKS
+// cluster's nodes, are left out; the catalogue's skip rules leave out
+// what Azure creates itself, such as NetworkWatcherRG.
 type ResourceGraphLister struct {
 	Service
 }
@@ -89,12 +91,13 @@ func (g *ResourceGraphLister) List() error {
 	if options != nil {
 		clientOptions = *options
 	}
+	// The resource groups come from graphResourceGroups, in one query:
+	// azlist would GET each group that holds a resource.
 	lister, err := azlist.NewLister(azlist.Option{
-		SubscriptionId:       subscriptionID,
-		Cred:                 credential,
-		ClientOpt:            clientOptions,
-		Recursive:            true,
-		IncludeResourceGroup: true,
+		SubscriptionId: subscriptionID,
+		Cred:           credential,
+		ClientOpt:      clientOptions,
+		Recursive:      true,
 	})
 	if err != nil {
 		return err
@@ -109,7 +112,6 @@ func (g *ResourceGraphLister) List() error {
 		// can't read: the rest are listed.
 		log.Printf("azurerm: resource_graph: %v", e)
 	}
-	// azlist adds only the groups that hold a resource it listed.
 	groups, err := graphResourceGroups(g.Context(), credential, &clientOptions, subscriptionID, predicate)
 	if err != nil {
 		return err
@@ -120,10 +122,14 @@ func (g *ResourceGraphLister) List() error {
 		return err
 	}
 	found = append(found, sources...)
-	apiOption := &aztft.APIOption{Cred: credential, ClientOption: clientOptions}
-	g.Resources = graphResources(found, g.catalogue(), knownTypes(sourceTypes, func(id string) ([]aztft.Type, []string, bool, error) {
-		return aztft.QueryTypeAndId(id, apiOption)
-	}))
+	query, sent := newLookup(g.Context(), credential, clientOptions, found)
+	g.Resources = graphResources(found, g.catalogue(), knownTypes(sourceTypes, query))
+	if err := g.Context().Err(); err != nil {
+		return err
+	}
+	if g.Verbose() {
+		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
+	}
 	return nil
 }
 
@@ -199,45 +205,47 @@ func withResourceGroups(listed, groups []azlist.AzureResource) []azlist.AzureRes
 type queryType func(id string) (types []aztft.Type, ids []string, exact bool, err error)
 
 // graphResources turns what Resource Graph and Resource Manager listed
-// into azurerm resources: through the catalogue's inventory entries, which
-// override aztft, else through query, one per azurerm type a resource maps
-// to, such as a storage account and its queue properties. Resources
-// azurerm has no type for, or several it can't choose between, are logged
-// and left out.
+// into azurerm resources, in the order listed: through the catalogue's
+// inventory entries, which override aztft; else from what the listing
+// returned with the resource, where that decides its type (see
+// fromListing), so a Log Analytics workspace's hundreds of tables cost no
+// request; else through query, up to lookupParallel resources at once,
+// one per azurerm type a resource maps to, such as a storage account and
+// its queue properties. The attributes the catalogue's skip rules read
+// are recorded first, from the listing, so a resource they leave out,
+// such as a built-in table, is still recorded, with its type, for the
+// report. Resources azurerm has no type for, or several it can't choose
+// between, are logged and left out.
 func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, query queryType) []harvest.Resource {
 	managedGroups := managedResourceGroups(listed)
-	var resources []harvest.Resource
-	for _, res := range listed {
+	attributes := make([]map[string]string, len(listed))
+	mapped := make([][]harvest.Resource, len(listed))
+	var lookups []int
+	for i, res := range listed {
 		id := res.Id.String()
-		attributes := graphAttributes(res, managedGroups)
+		attributes[i] = graphAttributes(res, managedGroups)
 		switch types := cat.FromInventory(res.Id.TypeString(), id); len(types) {
 		case 0:
 		case 1:
-			resources = append(resources, harvest.Record(id, lastSegment(id), types[0], "azurerm", attributes))
+			mapped[i] = []harvest.Resource{harvest.Record(id, lastSegment(id), types[0], "azurerm", attributes[i])}
 			continue
 		default:
 			log.Printf("azurerm: resource_graph: %s could be %s, says the catalogue; left out", id, strings.Join(types, " or "))
 			continue
 		}
-		types, ids, exact, err := query(id)
-		switch {
-		case err != nil:
-			log.Printf("azurerm: resource_graph: %s: %v", id, err)
-			continue
-		case len(types) == 0:
-			log.Printf("azurerm: resource_graph: %s: no azurerm resource type; left out", id)
-			continue
-		case !exact:
-			names := make([]string, len(types))
-			for i, t := range types {
-				names[i] = t.TFType
-			}
-			log.Printf("azurerm: resource_graph: %s could be %s; left out", id, strings.Join(names, " or "))
+		if m, ok := fromListing(res, attributes[i]); ok {
+			mapped[i] = m.records(id, attributes[i])
 			continue
 		}
-		for i, t := range types {
-			resources = append(resources, harvest.Record(ids[i], lastSegment(t.AzureId.String()), t.TFType, "azurerm", attributes))
-		}
+		lookups = append(lookups, i)
+	}
+	inParallel(lookups, func(i int) {
+		id := listed[i].Id.String()
+		mapped[i] = fromQuery(id, query).records(id, attributes[i])
+	})
+	var resources []harvest.Resource
+	for _, records := range mapped {
+		resources = append(resources, records...)
 	}
 	return resources
 }

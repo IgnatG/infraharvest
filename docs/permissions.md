@@ -2,7 +2,7 @@
 
 infraharvest only reads: it lists resources and lets Terraform import their configuration. It never creates, changes or deletes anything. The Terraform configurations in [`permissions/`](https://github.com/IgnatG/infraharvest/tree/main/permissions) grant the minimum access for that. Apply the one for your cloud once, with an identity that can manage IAM, then run infraharvest as the principal they grant.
 
-> These templates are being validated against real accounts. If an import fails with an access-denied error, please open an issue with the resource type.
+> The AWS and Azure templates are tested against a real account and subscription (the `sandbox-aws` and `sandbox-azure` workflows); the Google Cloud template isn't yet. If an import fails with an access-denied error, please open an issue with the resource type.
 
 ## AWS
 

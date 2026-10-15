@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -23,14 +24,17 @@ func (fakeCredential) GetToken(context.Context, policy.TokenRequestOptions) (azc
 }
 
 // fakeTransport answers every request with body, and records the path and
-// the body of each request in order.
+// the body of each request in order. Requests may come at once.
 type fakeTransport struct {
+	mu    sync.Mutex
 	body  string
 	paths []string
 	sent  []string
 }
 
 func (f *fakeTransport) Do(r *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.paths = append(f.paths, r.URL.Path)
 	var sent []byte
 	if r.Body != nil {
