@@ -62,3 +62,9 @@ types:
     # default (true) needs a scope set, so it goes too: left out, it is
     # true anyway.
     omit: ["default_encryption_scope=$account-encryption-key", "encryption_scope_override_enabled=true"]
+  azurerm_route_table:
+    # Each route is imported as an azurerm_route of its own: inline, the
+    # table would manage the routes too, and the two fight, as azurerm
+    # warns. route is optional and computed, so left out, the table keeps
+    # its routes; route = [] would delete them.
+    omit: [route]
