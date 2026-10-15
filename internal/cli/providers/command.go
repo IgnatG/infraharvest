@@ -18,6 +18,11 @@ import (
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
+// DocsURL is the address of the documentation site, which flag help points
+// to: a page's address is DocsURL followed by its name and a slash, such as
+// DocsURL + "usage/#filtering".
+const DocsURL = "https://ignatg.github.io/infraharvest/"
+
 // A provider command is described by a definition, which command turns
 // into the cobra command import and discover add. When the command runs,
 // the definition's planner reads the flags into a plan: the scopes to
@@ -142,12 +147,12 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	// What to list.
 	flags.StringSliceVarP(&options.Services, "services", "s", nil, "services to import, such as "+sampleRes+`, or "*" for all (infraharvest services <provider> lists them)`)
 	flags.StringSliceVar(&options.Skip, "skip", nil, "services to leave out of --services, such as "+sampleRes)
-	flags.StringArrayVar(&options.IDFilters, "id", nil, "keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as "+sampleIDs+"; repeat for other types (see docs/usage.md#filtering)")
-	flags.StringArrayVar(&options.TagFilters, "tag", nil, "keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see docs/usage.md#filtering)")
-	flags.StringArrayVar(&options.WhereFilters, "where", nil, "keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see docs/usage.md#filtering)")
-	flags.BoolVarP(&options.Verbose, "verbose", "v", false, "log more, such as the requests to AWS's APIs")
-	flags.DurationVar(&options.ListTimeout, "list-timeout", importer.DefaultListTimeout, "longest time to list one service in one region; a service that takes longer is reported as failed (0: no limit)")
-	flags.IntVar(&options.ListParallel, "list-parallel", importer.DefaultListParallel, "how many services of an account and region, a subscription or a project to list at once (AWS, Azure, Google; others list one at a time)")
+	flags.StringArrayVar(&options.IDFilters, "id", nil, "keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as "+sampleIDs+"; repeat for other types (see "+DocsURL+"usage/#filtering)")
+	flags.StringArrayVar(&options.TagFilters, "tag", nil, "keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
+	flags.StringArrayVar(&options.WhereFilters, "where", nil, "keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
+	flags.BoolVarP(&options.Verbose, "verbose", "v", false, "log more, such as the requests to the cloud's APIs")
+	flags.DurationVar(&options.ListTimeout, "list-timeout", importer.DefaultListTimeout, "longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit)")
+	flags.IntVar(&options.ListParallel, "list-parallel", importer.DefaultListParallel, "how many services of an account and region, a subscription or a project to list at once")
 	flags.Float64Var(&options.RateLimit, "rate-limit", ratelimit.DefaultRate, "most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit)")
 
 	// Where the output goes, and how it is generated.
@@ -156,8 +161,8 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringVar(&options.Format, "format", importer.FormatText, "text, or json to also print the import report as JSON on stdout")
 	flags.StringSliceVar(&options.EnvTags, "env-tags", nil, "tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env)")
 	flags.StringSliceVar(&options.ReportTags, "report-tags", nil, "tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key")
-	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
-	flags.StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see docs/catalogue.md)")
+	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
+	flags.StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see "+DocsURL+"catalogue/)")
 	flags.StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks")
 	flags.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
 
