@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,4 +113,45 @@ func envOr(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// checkNoAuthorizationErrors checks that neither the import's log nor its
+// report says a call was denied: that none of their lines holds one of
+// denials, what the cloud says when the caller's role doesn't allow a
+// call.
+func checkNoAuthorizationErrors(t *testing.T, logged string, coverage report.Report, denials []string) {
+	t.Helper()
+	reported, err := json.Marshal(coverage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []struct{ where, content string }{{"the import's log", logged}, {"coverage.json", string(reported)}} {
+		for _, line := range strings.Split(text.content, "\n") {
+			for _, denied := range denials {
+				if strings.Contains(line, denied) {
+					t.Errorf("%s: a call was denied (%s): %s", text.where, denied, line)
+					break
+				}
+			}
+		}
+	}
+}
+
+// syncBuffer is a log writer that keeps what is written, for the listers'
+// goroutines to write to at once.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (w *syncBuffer) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func (w *syncBuffer) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.String()
 }

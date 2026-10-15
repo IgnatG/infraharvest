@@ -1,6 +1,6 @@
 # End-to-end tests
 
-These tests run infraharvest against local cloud emulators, so they need no cloud account and cost nothing. CI runs them on every pull request, except the sandbox tests, which run against a real AWS account or Azure subscription, and only by hand (see [AWS sandbox](#aws-sandbox-a-real-account) and [Azure sandbox](#azure-sandbox-a-real-subscription)).
+These tests run infraharvest against local cloud emulators, so they need no cloud account and cost nothing. CI runs them on every pull request, except the sandbox tests, which run against a real AWS account, Azure subscription or Google Cloud project, and only by hand (see [AWS sandbox](#aws-sandbox-a-real-account), [Azure sandbox](#azure-sandbox-a-real-subscription) and [Google Cloud sandbox](#google-cloud-sandbox-a-real-project)).
 
 ## AWS (Floci)
 
@@ -49,7 +49,7 @@ docker compose -f e2e/compose.yaml --profile google down
 
 `INFRAHARVEST_GOOGLE_ENDPOINT` sends the listers' Google API calls to the emulator, without credentials. The test points the Terraform provider there through its `GOOGLE_*_CUSTOM_ENDPOINT` variables, with a placeholder access token. It refuses any endpoint other than localhost.
 
-floci-gcp doesn't serve Cloud Asset Inventory or Cloud DNS. A stand-in in front of it answers `cloud_asset`'s searches from what step 1 created, as Cloud Asset Inventory names it, with the default network and one of its firewall rules, which the default selection must leave out, and finds no DNS zones; floci-gcp serves the rest, such as the IAM policy, the Cloud SQL and Cloud Scheduler lists, and what Terraform plans with. Not covered yet: DNS record sets, Cloud SQL databases and Cloud Scheduler jobs, which only unit tests cover, and the shapes of real Cloud Asset Inventory results, which the stand-in only imitates.
+floci-gcp doesn't serve Cloud Asset Inventory or Cloud DNS. A stand-in in front of it answers `cloud_asset`'s searches from what step 1 created, as Cloud Asset Inventory names it, with the default network and one of its firewall rules, which the default selection must leave out, and finds no DNS zones; floci-gcp serves the rest, such as the IAM policy, the Cloud SQL and Cloud Scheduler lists, and what Terraform plans with. Not covered yet: DNS record sets, Cloud SQL databases and Cloud Scheduler jobs, which only unit tests cover, and the shapes of real Cloud Asset Inventory results, which the stand-in only imitates. The [Google Cloud sandbox](#google-cloud-sandbox-a-real-project) covers DNS record sets and real Cloud Asset Inventory results.
 
 ## Azure (floci-az)
 
@@ -125,4 +125,41 @@ The last command prints the `gh variable set` commands that set the environment'
 
 ```sh
 gh workflow run sandbox-azure -R IgnatG/infraharvest -f engine=terraform
+```
+
+## Google Cloud sandbox (a real project)
+
+[`TestSandboxGoogle`](sandbox_google_test.go) runs against a real Google Cloud project, for what floci-gcp can't show: real Cloud Asset Inventory searches, which `cloud_asset` lists through, Cloud DNS zones and record sets, Cloud Routers, the project's own IAM policy, and whether the [read-only template](../docs/permissions.md#google-cloud) grants enough. The `sandbox-google` workflow runs it, started by hand (`gh workflow run sandbox-google -f engine=terraform`), and only after a reviewer of the `sandbox` environment approves the run:
+
+1. It signs in as two service accounts through workload identity federation, which trades the job's GitHub OpenID Connect token for theirs, with no keys: `GOOGLE_FIXTURE_SERVICE_ACCOUNT` creates and destroys the estate, and `GOOGLE_READONLY_SERVICE_ACCOUNT`, which has what [`permissions/google`](../permissions/google) grants (Viewer, Security Reviewer and Cloud Asset Viewer on the project), imports it, as a user would. `google-github-actions/auth` writes a credentials file for each, and each step names the one it signs in with in `GOOGLE_APPLICATION_CREDENTIALS`. Both are variables of the environment, with `GOOGLE_PROJECT_ID`, `GOOGLE_REGION` (by default `europe-west2`) and `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`. A one-time bootstrap creates them (see [Setting up the Google Cloud sandbox](#setting-up-the-google-cloud-sandbox)).
+2. Terraform creates [`testdata/sandbox/google`](testdata/sandbox/google/main.tf) as the fixture account: a custom-mode VPC network with two subnetworks in the region, a firewall rule, a Cloud Router without NAT, a Cloud Storage bucket in the region, a Pub/Sub topic with a subscription, a private Cloud DNS zone with an `A` record set, and a service account. Every name starts `ih-sbx-<engine>-` and ends in a random suffix, and every resource that takes labels is labelled `infraharvest-sandbox=<engine>`.
+3. Cloud Asset Inventory's search lags behind changes by a few minutes, so the test searches the project once a minute, as the read-only account and for the estate's asset types alone, until it finds every resource of the estate it lists and no longer finds those an earlier run deleted, for up to ten minutes.
+4. `infraharvest import google --services='*' --projects=<project> --regions=global,<region> --all` imports the project as the read-only account. Nothing may be denied: the test looks for permission errors in the import's log and its report. Nothing may fail or be left out, every check of the verification gate must pass, and the two roots, global's and the region's, must plan as imports with no changes. Each google type the estate created must be imported at least as many times as it was created; every resource of the estate must be imported by its ID, as must the project and the read-only account's three grants in the project's IAM policy; and the labels of each labelled resource must be in the configuration of its root.
+5. The estate is destroyed, by the test and again by the workflow, whatever happened; the workflow fails if anything is left in its state. When the run failed, the workflow also deletes, as the fixture account, what is left named after the run's engine: networks, subnetworks, firewall rules, routers and service accounts take no labels, so the sweep goes by name. The import is uploaded as an artifact (`sandbox-google-<engine>`), without `.terraform`.
+
+The fixture account has the predefined roles that manage the estate's kinds of resources: Compute Network Admin and Compute Security Admin (networks, subnetworks, routers and firewall rules), DNS Administrator, Pub/Sub Editor, Storage Admin, and Service Account Creator, Deleter and Viewer rather than Service Account Admin, so that it can neither create keys nor change who may use a service account. It can't change the project's IAM policy. Google Cloud can't limit a role to names under a prefix, so these hold for the whole project: the fixture could change or delete other networks, buckets, topics, zones and service accounts in it, the bootstrap's own service accounts too. The import covers the whole project as well, and anything else in it is imported and checked. So the sandbox needs a project of its own, which holds nothing else, and only one run, of either engine, runs at a time.
+
+Nothing in the estate bills by the hour: the network, the subnetworks, the firewall rule and the router (with no NAT) are free, and so are an empty bucket, a topic and a subscription with no messages, and the searches; the private zone costs $0.20 a month, prorated over the minutes it exists, and answers no queries. A run costs well under $0.01. It should take under half an hour; the job allows 80 minutes.
+
+### Setting up the Google Cloud sandbox
+
+[`testdata/sandbox/google-bootstrap`](testdata/sandbox/google-bootstrap/main.tf) creates what the workflow needs, once: it enables the APIs the estate, the import and the sign-in use (left enabled if the bootstrap is destroyed), creates a workload identity pool (`infraharvest-github`) with a provider that accepts only the GitHub tokens of this repository's `sandbox` environment, by the repository's and its owner's immutable IDs, the two service accounts, `infraharvest-ci-fixture` and `infraharvest-ci-readonly`, which the environment's jobs may impersonate, the fixture's roles, and the read-only account's roles, through `permissions/google` itself. It creates no service account key.
+
+It needs a project of its own with billing enabled (Compute Engine and Cloud DNS need it), the Service Usage API enabled, as it is in new projects, and you an Owner of the project. Organization policies can get in the way: `iam.workloadIdentityPoolProviders` must allow the issuer `https://token.actions.githubusercontent.com`, domain restricted sharing (`iam.allowedPolicyMemberDomains`) can refuse the grants to the pool's `principal://` identity, and `gcp.resourceLocations` must allow the region. A policy against service account keys doesn't matter. In [Google Cloud Shell](https://cloud.google.com/shell/docs), where Terraform and the gcloud CLI are installed and signed in:
+
+```sh
+git clone https://github.com/IgnatG/infraharvest.git
+cd infraharvest/e2e/testdata/sandbox/google-bootstrap
+gcloud config set project <project-id>
+terraform init
+terraform apply -var "project_id=$(gcloud config get-value project)"
+terraform output -raw gh_commands
+```
+
+`-var region=<region>` creates the estate elsewhere than `europe-west2` (London). The service accounts trust tokens whose subject is `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...`, `-var github_repository_id=...` and `-var github_repository_owner_id=...` set others. A deleted pool keeps its ID for 30 days, so to create it again sooner, `-var pool_id=...` names another. Keep the state, which Cloud Shell keeps in your home directory (5 GB that persist between sessions), to change or destroy it later; Cloud Shell deletes a home directory that goes unused for 120 days.
+
+The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
+
+```sh
+gh workflow run sandbox-google -R IgnatG/infraharvest -f engine=terraform
 ```

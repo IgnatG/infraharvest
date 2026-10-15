@@ -7,13 +7,11 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -38,10 +36,10 @@ var sandboxAzureFound = []string{
 	"azurerm_storage_account", "azurerm_storage_container",
 }
 
-// authorizationErrors are what Azure, the SDK and the azurerm provider say
-// when the caller's role doesn't allow a call: the read-only template
-// grants too little.
-var authorizationErrors = []string{
+// azureAuthorizationErrors are what Azure, the SDK and the azurerm
+// provider say when the caller's role doesn't allow a call: the read-only
+// template grants too little.
+var azureAuthorizationErrors = []string{
 	"AuthorizationFailed", "AuthorizationPermissionMismatch", "LinkedAuthorizationFailed",
 	"does not have authorization", "RESPONSE 403", "403 Forbidden", "status 403",
 }
@@ -69,7 +67,7 @@ func TestSandboxAzure(t *testing.T) {
 
 	logged := s.importAzure(ctx, t)
 	coverage := readCoverage(t, s.out)
-	checkNoAuthorizationErrors(t, logged, coverage)
+	checkNoAuthorizationErrors(t, logged, coverage, azureAuthorizationErrors)
 	root, imported := s.checkAzureImport(ctx, t, coverage, created)
 	checkAzureFound(t, coverage, created, group)
 	checkGroupTags(t, root, group)
@@ -152,26 +150,6 @@ func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T) string {
 		t.Fatalf("infraharvest import azure: %v", err)
 	}
 	return logged.String()
-}
-
-// checkNoAuthorizationErrors checks that neither the import's log nor its
-// report says a call was denied.
-func checkNoAuthorizationErrors(t *testing.T, logged string, coverage report.Report) {
-	t.Helper()
-	reported, err := json.Marshal(coverage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, text := range []struct{ where, content string }{{"the import's log", logged}, {"coverage.json", string(reported)}} {
-		for _, line := range strings.Split(text.content, "\n") {
-			for _, denied := range authorizationErrors {
-				if strings.Contains(line, denied) {
-					t.Errorf("%s: a call was denied (%s): %s", text.where, denied, line)
-					break
-				}
-			}
-		}
-	}
 }
 
 // checkAzureImport checks the import in the output directory: nothing
@@ -286,23 +264,4 @@ func checkGroupTags(t *testing.T, root string, group *tfjson.StateResource) {
 			t.Errorf("the configuration doesn't have the resource group's tag %s = %q", key, v)
 		}
 	}
-}
-
-// syncBuffer is a log writer that keeps what is written, for the listers'
-// goroutines to write to at once.
-type syncBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (w *syncBuffer) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.b.Write(p)
-}
-
-func (w *syncBuffer) String() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.b.String()
 }
