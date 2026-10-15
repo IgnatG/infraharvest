@@ -132,7 +132,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 
 ## Google Cloud
 
-`infraharvest import google` has 5 services, and 61 opt-in.
+`infraharvest import google` has 5 services.
 
 | Service | Terraform types |
 |---|---|
@@ -141,64 +141,3 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `dns` | `google_dns_record_set` |
 | `iam` | `google_project_iam_member` |
 | `schedulerJobs` | `google_cloud_scheduler_job` |
-| `addresses` (opt-in) | `google_compute_address` |
-| `autoscalers` (opt-in) | `google_compute_autoscaler` |
-| `backendBuckets` (opt-in) | `google_compute_backend_bucket` |
-| `backendServices` (opt-in) | `google_compute_backend_service` |
-| `bigQuery` (opt-in) | `google_bigquery_dataset`, `google_bigquery_table` |
-| `cloudFunctions` (opt-in) | `google_cloudfunctions2_function`, `google_cloudfunctions_function` |
-| `cloudbuild` (opt-in) | `google_cloudbuild_trigger` |
-| `cloudtasks` (opt-in) | `google_cloud_tasks_queue` |
-| `dataProc` (opt-in) | `google_dataproc_cluster` |
-| `disks` (opt-in) | `google_compute_disk` |
-| `externalVpnGateways` (opt-in) | `google_compute_external_vpn_gateway` |
-| `firewall` (opt-in) | `google_compute_firewall` |
-| `forwardingRules` (opt-in) | `google_compute_forwarding_rule` |
-| `gcs` (opt-in) | `google_storage_bucket` |
-| `gke` (opt-in) | `google_container_cluster`, `google_container_node_pool` |
-| `globalAddresses` (opt-in) | `google_compute_global_address` |
-| `globalForwardingRules` (opt-in) | `google_compute_global_forwarding_rule` |
-| `healthChecks` (opt-in) | `google_compute_health_check` |
-| `httpHealthChecks` (opt-in) | `google_compute_http_health_check` |
-| `httpsHealthChecks` (opt-in) | `google_compute_https_health_check` |
-| `images` (opt-in) | `google_compute_image` |
-| `instanceGroupManagers` (opt-in) | `google_compute_instance_group_manager` |
-| `instanceGroups` (opt-in) | `google_compute_instance_group` |
-| `instanceTemplates` (opt-in) | `google_compute_instance_template` |
-| `instances` (opt-in) | `google_compute_instance` |
-| `interconnectAttachments` (opt-in) | `google_compute_interconnect_attachment` |
-| `kms` (opt-in) | `google_kms_crypto_key`, `google_kms_key_ring` |
-| `logging` (opt-in) | `google_logging_metric` |
-| `memoryStore` (opt-in) | `google_redis_instance` |
-| `monitoring` (opt-in) | `google_monitoring_alert_policy`, `google_monitoring_notification_channel`, `google_monitoring_uptime_check_config` |
-| `networkEndpointGroups` (opt-in) | `google_compute_network_endpoint_group` |
-| `networks` (opt-in) | `google_compute_network` |
-| `nodeGroups` (opt-in) | `google_compute_node_group` |
-| `nodeTemplates` (opt-in) | `google_compute_node_template` |
-| `packetMirrorings` (opt-in) | `google_compute_packet_mirroring` |
-| `project` (opt-in) | `google_project` |
-| `pubsub` (opt-in) | `google_pubsub_subscription`, `google_pubsub_topic` |
-| `regionAutoscalers` (opt-in) | `google_compute_region_autoscaler` |
-| `regionBackendServices` (opt-in) | `google_compute_region_backend_service` |
-| `regionDisks` (opt-in) | `google_compute_region_disk` |
-| `regionHealthChecks` (opt-in) | `google_compute_region_health_check` |
-| `regionInstanceGroupManagers` (opt-in) | `google_compute_region_instance_group_manager` |
-| `regionTargetHttpProxies` (opt-in) | `google_compute_region_target_http_proxy` |
-| `regionTargetHttpsProxies` (opt-in) | `google_compute_region_target_https_proxy` |
-| `regionUrlMaps` (opt-in) | `google_compute_region_url_map` |
-| `reservations` (opt-in) | `google_compute_reservation` |
-| `resourcePolicies` (opt-in) | `google_compute_resource_policy` |
-| `routers` (opt-in) | `google_compute_router` |
-| `routes` (opt-in) | `google_compute_route` |
-| `securityPolicies` (opt-in) | `google_compute_security_policy` |
-| `sslPolicies` (opt-in) | `google_compute_ssl_policy` |
-| `subnetworks` (opt-in) | `google_compute_subnetwork` |
-| `targetHttpProxies` (opt-in) | `google_compute_target_http_proxy` |
-| `targetHttpsProxies` (opt-in) | `google_compute_target_https_proxy` |
-| `targetInstances` (opt-in) | `google_compute_target_instance` |
-| `targetPools` (opt-in) | `google_compute_target_pool` |
-| `targetSslProxies` (opt-in) | `google_compute_target_ssl_proxy` |
-| `targetTcpProxies` (opt-in) | `google_compute_target_tcp_proxy` |
-| `targetVpnGateways` (opt-in) | `google_compute_vpn_gateway` |
-| `urlMaps` (opt-in) | `google_compute_url_map` |
-| `vpnTunnels` (opt-in) | `google_compute_vpn_tunnel` |
