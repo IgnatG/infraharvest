@@ -51,7 +51,7 @@ package providers
 
 Contributors put their own name and the year the file was created. `scripts/check-headers.sh` fails when a tracked Go file lacks the `SPDX-License-Identifier` line: the `repository` job of the `tests` workflow runs it on every pull request, and the pre-commit hook on the staged files, where it also checks that a new file starts with both lines. `make fast-headers` runs it on every file.
 
-New shell scripts, workflows, YAML files and Makefiles carry the same two lines as comments, after the `#!` line in a script (`scripts/fast-checks.sh`, `Makefile`). Older ones have none yet; add it when you next change one. A file without a header is covered by `REUSE.toml`, which gives it the same copyright and licence, and the `repo-lint` workflow runs [`reuse lint`](https://reuse.software/) on every pull request. Text that quotes a licence line without being one, such as the header examples on this page, goes between `REUSE-IgnoreStart` and `REUSE-IgnoreEnd` comments.
+New shell scripts, workflows, YAML files and Makefiles carry the same two lines as comments, after the `#!` line in a script (`scripts/fast-checks.sh`, `Makefile`). Some existing ones have none, such as most workflows, `install.sh`, `.goreleaser.yaml` and the `Dockerfile`; add it when you next change one. Markdown, JSON and data files carry none. A file without a header is covered by `REUSE.toml`, which gives it the same copyright and licence, and the `repository` job of the `tests` workflow (`.github/workflows/test.yml`) runs [`reuse lint`](https://reuse.software/) on every pull request. Text that quotes a licence line without being one, such as the header examples on this page, goes between `REUSE-IgnoreStart` and `REUSE-IgnoreEnd` comments.
 
 ## Names
 
@@ -111,7 +111,7 @@ A provider is a `harvest.Provider` whose `Services` maps each service name, as u
 
 Every list call pages until the API says it is done, and a page that doesn't advance stops the listing instead of looping:
 
-- With an AWS SDK paginator, pass `stopOnDuplicateToken` as its option, and page with the service's context (`internal/providers/aws/sfn.go`):
+- With an AWS SDK paginator, pass `stopOnDuplicateToken` as its option, and page with the service's context (`internal/providers/aws/stepfunctions.go`):
 
     ```go
     p := sfn.NewListStateMachinesPaginator(svc, &sfn.ListStateMachinesInput{}, stopOnDuplicateToken)
@@ -124,7 +124,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
     }
     ```
 
-- An AWS API with a `NextToken` or `NextMarker` but no SDK paginator goes through `paginateByMarker`, which fails if a marker comes back twice (`internal/providers/aws/appsync.go`, `waf.go`).
+- An AWS API with a `NextToken` or `NextMarker` but no SDK paginator goes through `paginateByMarker`, which fails if a marker comes back twice (`internal/providers/aws/apigatewayv2.go`, `waf_classic.go`).
 - Azure and Google listers use their SDK's pager or iterator with the service's context.
 - Don't write a pagination loop by hand. Both helpers live in `internal/providers/aws/pagination.go` and are tested in `pagination_test.go`.
 
@@ -140,7 +140,7 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 
 - **Table-driven**, with the inputs and expectations side by side and a failure message that names the call: `t.Errorf("Label(%q): got %q, want %q", name, got, want)` (`internal/engine/names_test.go`).
 - **Fakes, not mocks.** Depend on the small interface you use and fake it: `engine.Terraform` is the part of `tfexec` the engine calls, faked by `fakeTerraform` (`internal/engine/engine_test.go`); `mcpserver.Runner` by `fakeRunner`.
-- **AWS listers run against a fake API**: `useFakeAPI(t, handler)` (`internal/providers/aws/fakeapi_test.go`) sends the SDK's requests to a function that switches on the operation and returns the response body, including error bodies shaped like AWS's. Test the error paths, not only the happy one (`TestWafv2ReportsOtherAssociationErrors`). Azure and Google listers fake the transport or the pager the same way (`internal/providers/azure/redis_synapse_test.go`, `internal/providers/google/cloud_asset_test.go`).
+- **AWS listers run against a fake API**: `useFakeAPI(t, handler)` (`internal/providers/aws/fakeapi_test.go`) sends the SDK's requests to a function that switches on the operation and returns the response body, including error bodies shaped like AWS's. Test the error paths, not only the happy one (`TestWafv2ReportsOtherAssociationErrors`). Azure and Google listers fake the transport or the pager the same way (`internal/providers/azure/network_listers_test.go`, `internal/providers/google/cloud_asset_test.go`).
 - Helpers call `t.Helper()`; tests restore what they change with `t.Cleanup`, and write files under `t.TempDir()`.
 - **Golden files** (`testdata/*.golden.*`) record output that is long or easier to review as a file: the catalogue's import blocks, the harvest core's behaviour, the command-line contract, and the generated references (`docs/reference/cli.md`, `docs/reference/services.md`). Tests take `-update` to rewrite them. Don't edit a golden file by hand: run the `golden` task of the `remote` workflow (`make ci-golden PKG=<package>`), download what it rewrote (`make ci-download RUN=<id>`), and review the diff before committing it.
 - **Characterization before a rewrite**: record what the code does today, in its own pull request, before changing how it does it (see [Rewriting code](#rewriting-code)).
