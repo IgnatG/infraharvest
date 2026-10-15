@@ -2,9 +2,14 @@
 
 infraharvest generates Terraform configuration for infrastructure that already exists. It lists your resources, writes an `import` block for each, and has Terraform (or OpenTofu) generate the configuration with `plan -generate-config-out`. It then tidies that configuration and checks that it plans with no changes.
 
-> **Work in progress.** infraharvest is under active development, and its commands and output may still change before the first release.
+- **Clean code, not a dump:** references between resources instead of IDs, shared tags as locals, secrets as variables, and clusters of resources as calls of curated modules.
+- **Checked, not hoped:** a change to the generated code is kept only if the plan still shows no changes, every root goes through a verification gate (format, validate, a plan with no changes, scanners, secrets, determinism), and the report says what was imported, what was left out and why.
+- **Read-only:** it never applies anything and writes no state; least-privilege [permission templates](docs/permissions.md) for each cloud.
+- **AWS, Azure and Google Cloud**, with Terraform or OpenTofu, from the command line, a [GitHub Action](action/README.md) or an [AI agent over MCP](docs/mcp.md).
 
-Licensed under [AGPL-3.0-only](LICENSE).
+> **Before the first release.** v0.1.0 is in preparation, and commands and output may still change until then. Until it is out, install with `go install` (below).
+
+Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at [ignatg.github.io/infraharvest](https://ignatg.github.io/infraharvest/).
 
 ## Documentation
 
@@ -15,6 +20,7 @@ Licensed under [AGPL-3.0-only](LICENSE).
 - [Output](docs/output.md): what each root holds, how the configuration is tidied, the report and the verification gate.
 - [Modules](docs/modules.md): the curated modules clusters of resources move into, your own modules, and generated local modules.
 - [Permissions](docs/permissions.md): read-only access for AWS, Azure and Google Cloud.
+- [GitHub Action](action/README.md): scheduled imports that open a pull request.
 - [AI agents (MCP)](docs/mcp.md) · [Catalogue](docs/catalogue.md) · [Command-line reference](docs/reference/cli.md)
 
 ## How it works
@@ -29,11 +35,16 @@ infraharvest reads the cloud and writes files; it never applies anything, and wr
 
 ## Installation
 
-From a [release](https://github.com/IgnatG/infraharvest/releases) (signed with cosign), the container image `ghcr.io/ignatg/infraharvest`, the install script for Linux, macOS and cloud shells, or Go:
+With Go 1.27 or later, which works before the first release too:
+
+```sh
+go install github.com/IgnatG/infraharvest@latest
+```
+
+Once v0.1.0 is out: a [release](https://github.com/IgnatG/infraharvest/releases) archive (signed with cosign), the container image `ghcr.io/ignatg/infraharvest` (with Terraform and OpenTofu included), or the install script for Linux, macOS and cloud shells:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
-go install github.com/IgnatG/infraharvest@latest
 ```
 
 The install script verifies the release's signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), which AWS CloudShell, Azure Cloud Shell and Google Cloud Shell don't include: [Install](docs/install.md#in-a-cloud-shell) shows how to add it there.
@@ -56,7 +67,7 @@ See the [Quickstart](docs/quickstart.md) for Azure and Google Cloud.
 - [Azure](docs/azure.md)
 - [Google Cloud](docs/google.md)
 
-Each is covered in depth: inventory APIs, the catalogue, curated modules and end-to-end tests on an emulator. A new provider is added by following the steps below.
+Each is covered in depth: inventory APIs, the catalogue, curated modules, and end-to-end tests on an emulator on every pull request. AWS and Azure are also tested against a real account and subscription with the read-only permission templates; Google Cloud is next. A new provider is added by following the steps below.
 
 ## Adding a provider
 
