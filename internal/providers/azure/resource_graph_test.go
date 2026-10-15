@@ -326,3 +326,104 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 		}
 	}
 }
+
+// The tables and saved searches every Log Analytics workspace has built
+// in are recorded with what tells them apart, and the built-in skip rules
+// leave them out; a table whose plan or retention was changed, a custom
+// table and a user's saved search are kept. Before the fix, one
+// workspace in the Azure sandbox imported 697 built-in tables and 39
+// LogManagement saved searches.
+func TestGraphResourcesSkipsBuiltInWorkspaceTablesAndSearches(t *testing.T) {
+	const workspace = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationalInsights/workspaces/Logs"
+	table := func(tableType, plan string, retentionAsDefault, totalAsDefault bool) map[string]interface{} {
+		return map[string]interface{}{"properties": map[string]interface{}{
+			"plan":                          plan,
+			"retentionInDaysAsDefault":      retentionAsDefault,
+			"totalRetentionInDaysAsDefault": totalAsDefault,
+			"schema":                        map[string]interface{}{"tableType": tableType},
+		}}
+	}
+	search := map[string]interface{}{"properties": map[string]interface{}{"category": "General Exploration"}}
+	builtIn := map[string]bool{
+		workspace + "/tables/AACAudit":                                          true,
+		workspace + "/savedSearches/LogManagement(logs)_General|StaleComputers": true,
+		workspace + "/tables/AppTraces":                                         false,
+		workspace + "/tables/ContainerLogV2":                                    false,
+		workspace + "/tables/Heartbeat":                                         false,
+		workspace + "/tables/Orders_CL":                                         false,
+		workspace + "/savedSearches/failed-sign-ins":                            false,
+		workspace + "/savedSearches/Ops(other)_General|Errors":                  false,
+	}
+	listedResources := []azlist.AzureResource{
+		listed(t, workspace+"/tables/AACAudit", table("Microsoft", "Analytics", true, true)),
+		listed(t, workspace+"/tables/AppTraces", table("Microsoft", "Analytics", false, true)),
+		listed(t, workspace+"/tables/ContainerLogV2", table("Microsoft", "Basic", true, true)),
+		// Without the properties, the table can't be told apart: kept.
+		listed(t, workspace+"/tables/Heartbeat", nil),
+		listed(t, workspace+"/tables/Orders_CL", table("CustomLog", "Analytics", true, true)),
+		listed(t, workspace+"/savedSearches/LogManagement(logs)_General|StaleComputers", search),
+		listed(t, workspace+"/savedSearches/failed-sign-ins", search),
+		// Another workspace's name: not this workspace's solution.
+		listed(t, workspace+"/savedSearches/Ops(other)_General|Errors", search),
+	}
+	cat := catalogue.MustBuiltin("azurerm")
+	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
+		rid, _ := armid.ParseResourceId(id)
+		typ := "azurerm_log_analytics_saved_search"
+		switch {
+		case strings.HasSuffix(id, "_CL"):
+			typ = "azurerm_log_analytics_workspace_table_custom_log"
+		case strings.Contains(id, "/tables/"):
+			typ = "azurerm_log_analytics_workspace_table_microsoft"
+		}
+		return []aztft.Type{{AzureId: rid, TFType: typ}}, []string{id}, true, nil
+	})
+	if len(resources) != len(listedResources) {
+		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(listedResources), resources)
+	}
+	for _, r := range resources {
+		want, ok := builtIn[r.Observed.ID]
+		if !ok {
+			t.Errorf("unexpected %s %s", r.Address.Type, r.Observed.ID)
+			continue
+		}
+		if reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); want != (reason != "") {
+			t.Errorf("%s %s (%v): skipped %q, want skipped %v", r.Address.Type, r.Observed.ID, r.Observed.Attributes, reason, want)
+		}
+	}
+	for _, r := range resources {
+		a := r.Observed.Attributes
+		switch r.Observed.ID {
+		case workspace + "/tables/AppTraces":
+			if a["table_type"] != "Microsoft" || a["plan"] != "Analytics" || a["retention_in_days_as_default"] != "false" || a["total_retention_in_days_as_default"] != "true" {
+				t.Errorf("table: %v", a)
+			}
+		case workspace + "/savedSearches/LogManagement(logs)_General|StaleComputers":
+			if a["solution"] != "LogManagement" || a["from_solution"] != "true" {
+				t.Errorf("solution's saved search: %v", a)
+			}
+		case workspace + "/savedSearches/failed-sign-ins":
+			if _, ok := a["solution"]; ok {
+				t.Errorf("user's saved search: %v", a)
+			}
+		}
+	}
+}
+
+func TestSavedSearchSolution(t *testing.T) {
+	for _, tc := range []struct{ workspace, name, want string }{
+		{"logs", "LogManagement(logs)_General|StaleComputers", "LogManagement"},
+		{"Logs", "LogManagement(logs)_LogManagement|AllEvents", "LogManagement"},
+		{"ih-sbx-terraform-lzoug5", "Security(ih-sbx-terraform-lzoug5)_SecurityAlert|Alerts", "Security"},
+		{"logs", "failed-sign-ins", ""},
+		{"logs", "LogManagement(other)_General|StaleComputers", ""},
+		{"logs", "LogManagement(logs)_", ""},
+		{"logs", "LogManagement(logs)", ""},
+		{"logs", "(logs)_General|StaleComputers", ""},
+		{"logs", "my search(logs)_x", ""},
+	} {
+		if got := savedSearchSolution(tc.workspace, tc.name); got != tc.want {
+			t.Errorf("savedSearchSolution(%q, %q): got %q, want %q", tc.workspace, tc.name, got, tc.want)
+		}
+	}
+}

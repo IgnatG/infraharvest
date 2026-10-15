@@ -9,7 +9,9 @@ import (
 	"log"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -266,7 +268,82 @@ func graphAttributes(res azlist.AzureResource, managedGroups map[string]string) 
 	if by, _ := res.Properties["managedBy"].(string); by != "" {
 		attributes["managed_by"] = by
 	}
+	builtInAttributes(res, attributes)
 	return attributes
+}
+
+// The Resource Manager types of a Log Analytics workspace's tables and
+// saved searches: every workspace has hundreds of each built in (see
+// builtInAttributes).
+const (
+	workspaceTableType       = "Microsoft.OperationalInsights/workspaces/tables"
+	workspaceSavedSearchType = "Microsoft.OperationalInsights/workspaces/savedSearches"
+)
+
+// builtInAttributes records in attributes what the catalogue's skip rules
+// need to tell what every Log Analytics workspace has built in from what
+// its owner made or changed, from the properties Resource Manager listed
+// the resource with:
+//
+//   - of a table: its type (table_type: Microsoft for a built-in table,
+//     CustomLog for a custom one), its plan, and whether its retention
+//     and total retention are the workspace's defaults
+//     (retention_in_days_as_default, total_retention_in_days_as_default).
+//     A built-in table on the Analytics plan, with both by default, is as
+//     Azure made it.
+//   - of a saved search a solution added, as its name is
+//     <solution>(<workspace>)_..., such as the LogManagement searches
+//     every workspace has: the solution, and from_solution "true".
+//
+// Other resources get nothing.
+func builtInAttributes(res azlist.AzureResource, attributes map[string]string) {
+	properties, _ := res.Properties["properties"].(map[string]interface{})
+	switch typ := res.Id.TypeString(); {
+	case strings.EqualFold(typ, workspaceTableType):
+		if schema, ok := properties["schema"].(map[string]interface{}); ok {
+			if tableType, ok := schema["tableType"].(string); ok {
+				attributes["table_type"] = tableType
+			}
+		}
+		if plan, ok := properties["plan"].(string); ok {
+			attributes["plan"] = plan
+		}
+		for property, attribute := range map[string]string{
+			"retentionInDaysAsDefault":      "retention_in_days_as_default",
+			"totalRetentionInDaysAsDefault": "total_retention_in_days_as_default",
+		} {
+			if asDefault, ok := properties[property].(bool); ok {
+				attributes[attribute] = strconv.FormatBool(asDefault)
+			}
+		}
+	case strings.EqualFold(typ, workspaceSavedSearchType):
+		if names := res.Id.Names(); len(names) == 2 {
+			if solution := savedSearchSolution(names[0], names[1]); solution != "" {
+				attributes["solution"] = solution
+				attributes["from_solution"] = "true"
+			}
+		}
+	}
+}
+
+// savedSearchSolution returns the solution that added the saved search
+// name to workspace, which names its searches
+// <solution>(<workspace>)_<category>|<search>, or "" for a search named
+// otherwise, such as one a user saved. The workspace's name must match,
+// whatever its case, so a user's search that only looks like that isn't
+// taken for a solution's.
+func savedSearchSolution(workspace, name string) string {
+	solution, rest, ok := strings.Cut(name, "(")
+	if !ok || solution == "" || strings.ContainsFunc(solution, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		return ""
+	}
+	prefix := workspace + ")_"
+	if len(rest) <= len(prefix) || !strings.EqualFold(rest[:len(prefix)], prefix) {
+		return ""
+	}
+	return solution
 }
 
 // catalogue is the catalogue of the import (see SetCatalogue), or the

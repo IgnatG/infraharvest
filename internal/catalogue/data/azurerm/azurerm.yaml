@@ -2,8 +2,11 @@
 # What Azure creates itself, which the default selection leaves out. The
 # resource_graph service records each resource's name, its resource group
 # (resource_group_name; a resource group's own name) and what manages the
-# group (resource_group_managed_by) or the resource (managed_by). Azure
-# names ignore case, so the rules do too.
+# group (resource_group_managed_by) or the resource (managed_by), and of
+# a Log Analytics workspace's tables and saved searches what tells the
+# built-in ones apart (see builtInAttributes in
+# internal/providers/azure/resource_graph.go). Azure names ignore case, so
+# the rules do too.
 provider: azurerm
 service: resource_graph
 types:
@@ -34,3 +37,13 @@ types:
       - reason: the action group Azure creates for Application Insights smart detection
         ignore_case: true
         attributes: { name: Application Insights Smart Detection }
+  azurerm_log_analytics_workspace_table_microsoft:
+    skip:
+      - reason: a table Azure builds into every Log Analytics workspace, with its default plan and retention; select it to import it
+        ignore_case: true
+        attributes: { table_type: Microsoft, plan: Analytics, retention_in_days_as_default: "true", total_retention_in_days_as_default: "true" }
+  azurerm_log_analytics_saved_search:
+    skip:
+      - reason: a saved search a solution adds to the Log Analytics workspace, such as the LogManagement searches every workspace has; select it to import it
+        ignore_case: true
+        attributes: { from_solution: "true" }
