@@ -108,7 +108,7 @@ Only one run, of either engine, runs at a time. Nothing in the estate bills by t
 
 ### Setting up the Azure sandbox
 
-[`testdata/sandbox/azure-bootstrap`](testdata/sandbox/azure-bootstrap/main.tf) creates what the workflow needs, once: the identities' resource group (`infraharvest-ci`) and the estate's (`infraharvest-sandbox`), the two identities with federated credentials that trust the `sandbox` environment's GitHub tokens, the fixture's roles on the estate's group, and the read-only identity's Reader role, through `permissions/azure` itself. It makes no app registration, so it needs no Entra ID role: an Owner of the subscription can apply it. In [Azure Cloud Shell](https://shell.azure.com) (Bash), where Terraform and the Azure CLI are installed and signed in:
+[`testdata/sandbox/azure-bootstrap`](testdata/sandbox/azure-bootstrap/main.tf) creates what the workflow needs, once: the identities' resource group (`infraharvest-ci`) and the estate's (`infraharvest-sandbox`), the two identities with federated credentials that trust the `sandbox` environment's GitHub tokens, the fixture's roles on the estate's group, and the read-only identity's Reader role, through `permissions/azure` itself. It makes no app registration, so it needs no Entra ID role: an Owner of the subscription can apply it. In [Azure Cloud Shell](https://learn.microsoft.com/azure/cloud-shell/overview) (Bash), where Terraform and the Azure CLI are installed and signed in:
 
 ```sh
 git clone https://github.com/IgnatG/infraharvest.git
