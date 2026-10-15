@@ -75,3 +75,9 @@ types:
     # set. subnet is optional and computed, so left out, the network keeps
     # its subnets; subnet = [] would delete them.
     omit: [subnet]
+  azurerm_network_security_group:
+    # Each rule is imported as an azurerm_network_security_rule of its own:
+    # inline, the group would manage the rules too, and the two fight, as
+    # azurerm warns. security_rule is optional and computed, so left out,
+    # the group keeps its rules; security_rule = [] would delete them.
+    omit: [security_rule]
