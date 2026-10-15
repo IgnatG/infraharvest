@@ -60,7 +60,7 @@ A provider lists its resources service by service, and `--services` (`-s`) says 
 infraharvest discover aws --services='*' --skip=iam,organization --regions=eu-west-2
 ```
 
-`infraharvest services <provider>` prints a provider's services, and the [services reference](reference/services.md) gives the Terraform types each one lists. A service name the provider doesn't have fails like a service that can't be listed. The opt-in services list what other services list already, so they are listed only when `--services` names them: on Azure the services that list one kind of resource through Resource Manager, such as `virtual_network`, which `resource_graph` lists too (see [Azure](azure.md)), and on Google Cloud the old service names, such as `networks` and `gcs`, which list their types through Cloud Asset Inventory as `cloud_asset` does (see [Google Cloud](google.md#the-old-service-names)).
+`infraharvest services <provider>` prints a provider's services, and the [services reference](reference/services.md) gives the Terraform types each one lists. A service name the provider doesn't have fails like a service that can't be listed. Azure's opt-in services list what `resource_graph` lists already, so they are listed only when `--services` names them: each lists one kind of resource through Resource Manager, such as `virtual_network` (see [Azure](azure.md)).
 
 Services are listed several at a time (`--list-parallel`, 4 by default). One that fails, or takes longer than `--list-timeout` (30 minutes by default), is left out of the output and reported, and the run exits with 1, or with 3 under `--allow-partial` (see [Exit codes](output.md#exit-codes)).
 
@@ -72,7 +72,7 @@ Services are listed several at a time (`--list-parallel`, 4 by default). One tha
 
 ```sh
 infraharvest import aws --services=vpc,subnet --regions=eu-west-2 --all --id=vpc=vpc-0a1b2c3d,vpc-4e5f6a7b
-infraharvest import google --services=gcs --projects=my-project --all --id=storage_bucket=my-logs
+infraharvest import google --services=cloud_asset --projects=my-project --all --id=storage_bucket=my-logs
 infraharvest import azure --services=virtual_network --all \
   --id=virtual_network=/subscriptions/<subscription>/resourceGroups/web/providers/Microsoft.Network/virtualNetworks/web
 ```

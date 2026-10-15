@@ -11,9 +11,9 @@ types:
       - "projects/{asset.project}/serviceAccounts/{asset.email}"
       - "{id}"
     skip:
-      - reason: the Compute Engine default service account, which GCP creates when the Compute Engine API is enabled; select it to import it
+      - reason: the Compute Engine default service account, which Google Cloud creates when the Compute Engine API is enabled; select it to import it
         attributes: { asset.display_name: Compute Engine default service account }
-      - reason: the App Engine default service account, which GCP creates with an App Engine app; select it to import it
+      - reason: the App Engine default service account, which Google Cloud creates with an App Engine app; select it to import it
         attributes: { asset.display_name: App Engine default service account }
   google_project_iam_custom_role:
     inventory:

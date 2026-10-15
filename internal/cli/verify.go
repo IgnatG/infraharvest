@@ -19,10 +19,11 @@ func newVerifyCmd() *cobra.Command {
 		Use:   "verify [output-directory]",
 		Short: "Check generated roots again: format, validate, plan, standards, scanners, secrets, determinism",
 		Long: "Run the verification gate again on every root an import generated (default\n" +
-			"directory: infraharvest), for example after editing them. Roots are initialised\n" +
-			"without their backend, so no access to the state is needed; the plan reads the\n" +
-			"cloud. Set secret variables first, with TF_VAR_ environment variables or a\n" +
-			".auto.tfvars file. Exit code 0 means every check passed, 1 that one failed.",
+			"directory: " + importer.DefaultOut + "), for example after editing them. Roots are\n" +
+			"initialised without their backend, so no access to the state is needed; the\n" +
+			"plan reads the cloud. Set secret variables first, with TF_VAR_ environment\n" +
+			"variables or a .auto.tfvars file. Exit code 0 means every check passed, 1 that\n" +
+			"one failed.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -38,6 +39,6 @@ func newVerifyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
 	cmd.Flags().StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH, else installed as for import)")
 	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a summary; json prints each root's checks as JSON")
-	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue (see docs/catalogue.md)")
+	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue (see "+providers.DocsURL+"catalogue/)")
 	return cmd
 }

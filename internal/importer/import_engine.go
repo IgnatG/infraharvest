@@ -189,7 +189,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	fileOf := func(service string, r harvest.Resource) string {
 		return configFile(provider.Name(), service, r.Address.Type, cat)
 	}
-	byDir, skipped := importsByDir(provider.Name(), options, resourcesByService, importID, envOf, nameOf, fileOf)
+	byDir, skipped := importsByDir(providerDir(provider), provider.Name(), options, resourcesByService, importID, envOf, nameOf, fileOf)
 
 	run.used = true
 	run.options = options
@@ -544,15 +544,16 @@ func checkFilters(options Options) error {
 }
 
 // importsByDir groups resources into import blocks per output directory,
-// following --layout, each named by nameOf and in the file fileOf
-// names. It leaves out, logs and counts by type resources Terraform can't
-// import.
-func importsByDir(providerName string, options Options, resourcesByService map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool), envOf, nameOf func(harvest.Resource) string, fileOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
+// following --layout with dirName for {provider}, each named by nameOf and
+// in the file fileOf names. providerName is the Terraform provider the
+// roots declare. It leaves out, logs and counts by type resources Terraform
+// can't import.
+func importsByDir(dirName, providerName string, options Options, resourcesByService map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool), envOf, nameOf func(harvest.Resource) string, fileOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
 	byDir := map[string][]engine.Import{}
 	skipped := map[string]int{}
 	for service, resources := range resourcesByService {
 		for _, r := range resources {
-			dir := rootDir(options.Layout, rootValues{out: options.Out, provider: providerName, service: service, env: envOf(r)})
+			dir := rootDir(options.Layout, rootValues{out: options.Out, provider: dirName, service: service, env: envOf(r)})
 			id, ok := importID(r)
 			if !ok {
 				skipped[r.Address.Type]++
@@ -612,6 +613,16 @@ func importProvider(providerName, resourceType string) string {
 		return ""
 	}
 	return providerName
+}
+
+// providerDir returns the directory provider's roots go into, the
+// {provider} of --layout: the name of its command (see
+// harvest.ProviderWithDirectory), else its Terraform provider's name.
+func providerDir(provider harvest.Provider) string {
+	if withDir, ok := provider.(harvest.ProviderWithDirectory); ok {
+		return withDir.Directory()
+	}
+	return provider.Name()
 }
 
 // engineProvider describes the provider for the generated configuration.

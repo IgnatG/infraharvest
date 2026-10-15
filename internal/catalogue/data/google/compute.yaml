@@ -69,7 +69,7 @@ types:
       type: compute.googleapis.com/Firewall
       name: //compute.googleapis.com/projects/*/global/firewalls/*
     skip:
-      - reason: a rule of the default network, which GCP creates with it; select it to import it
+      - reason: a rule of the default network, which Google Cloud creates with it; select it to import it
         attribute_prefixes: { asset.name: [default-allow-] }
       - reason: GKE creates it for a cluster and deletes it with the cluster
         attribute_prefixes: { asset.name: [gke-, k8s-, k8s1-, k8s2-] }
@@ -167,7 +167,7 @@ types:
       type: compute.googleapis.com/Network
       name: //compute.googleapis.com/projects/*/global/networks/*
     skip:
-      - reason: the default network GCP creates in each project; select it to import it
+      - reason: the default network Google Cloud creates in each project; select it to import it
         attributes: { asset.name: default }
     # google-beta, through which the network module creates networks,
     # keeps it in state only: an import leaves it unset.
@@ -218,7 +218,7 @@ types:
       type: compute.googleapis.com/Route
       name: //compute.googleapis.com/projects/*/global/routes/*
     skip:
-      - reason: GCP creates it with a network (to the internet) or a subnetwork range, and deletes it with them
+      - reason: Google Cloud creates it with a network (to the internet) or a subnetwork range, and deletes it with them
         attribute_prefixes: { asset.name: [default-route-] }
       - reason: GKE creates it for a cluster's nodes and deletes it with them
         attribute_prefixes: { asset.name: [gke-] }
@@ -251,7 +251,7 @@ types:
       type: compute.googleapis.com/Subnetwork
       name: //compute.googleapis.com/projects/*/regions/*/subnetworks/*
     skip:
-      - reason: a subnetwork of the default network, which GCP creates in each region; select it to import it
+      - reason: a subnetwork of the default network, which Google Cloud creates in each region; select it to import it
         attributes: { asset.name: default }
   google_compute_target_http_proxy:
     inventory:

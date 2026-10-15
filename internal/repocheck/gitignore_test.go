@@ -21,7 +21,7 @@ func TestGitignoreChangedRules(t *testing.T) {
 		path    string
 		ignored bool
 	}{
-		{"infraharvest/aws/main.tf", true},
+		{"infraharvest-out/aws/main.tf", true},
 		{"internal/infraharvest/fixture.go", false},
 		{"infraharvest.go", false},
 		{"site/index.html", true},

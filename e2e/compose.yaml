@@ -16,7 +16,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
-  # floci-gcp, the GCP emulator, for TestGoogleRoundTrip: docker compose
+  # floci-gcp, the Google Cloud emulator, for TestGoogleRoundTrip: docker compose
   # --profile google up -d floci-gcp. Control planes only, without Docker.
   # 0.10.0 is the first release with Compute Engine.
   floci-gcp:

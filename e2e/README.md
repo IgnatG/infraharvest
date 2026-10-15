@@ -35,19 +35,19 @@ An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so
 
 ## Google Cloud (floci-gcp)
 
-[`TestGoogleRoundTrip`](google_test.go) uses [floci-gcp](https://github.com/floci-io/floci-gcp), the GCP member of the same emulator family:
+[`TestGoogleRoundTrip`](google_test.go) uses [floci-gcp](https://github.com/floci-io/floci-gcp), the Google Cloud member of the same emulator family:
 
 1. Terraform creates the resources in [`testdata/google`](testdata/google/main.tf) in floci-gcp: a VPC network with a subnetwork and a firewall rule, a Cloud Storage bucket, a Pub/Sub topic with a subscription, a service account, grants in the project's IAM policy, and a KMS key ring with keys.
-2. `infraharvest import google --all` imports them: with `--services='*'`, with `--env-tags`, and with the old service names, the aliases of `cloud_asset`.
+2. `infraharvest import google --all` imports them: with `--services='*'`, and again with `--env-tags`.
 3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
 
 ```sh
 docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
-INFRAHARVEST_GCP_ENDPOINT=http://localhost:4588 go test -tags e2e,minimal,google -run TestGoogle -v ./e2e/
+INFRAHARVEST_GOOGLE_ENDPOINT=http://localhost:4588 go test -tags e2e,minimal,google -run TestGoogle -v ./e2e/
 docker compose -f e2e/compose.yaml --profile google down
 ```
 
-`INFRAHARVEST_GCP_ENDPOINT` sends the listers' Google API calls to the emulator, without credentials. The test points the Terraform provider there through its `GOOGLE_*_CUSTOM_ENDPOINT` variables, with a placeholder access token. It refuses any endpoint other than localhost.
+`INFRAHARVEST_GOOGLE_ENDPOINT` sends the listers' Google API calls to the emulator, without credentials. The test points the Terraform provider there through its `GOOGLE_*_CUSTOM_ENDPOINT` variables, with a placeholder access token. It refuses any endpoint other than localhost.
 
 floci-gcp doesn't serve Cloud Asset Inventory or Cloud DNS. A stand-in in front of it answers `cloud_asset`'s searches from what step 1 created, as Cloud Asset Inventory names it, with the default network and one of its firewall rules, which the default selection must leave out, and finds no DNS zones; floci-gcp serves the rest, such as the IAM policy, the Cloud SQL and Cloud Scheduler lists, and what Terraform plans with. Not covered yet: DNS record sets, Cloud SQL databases and Cloud Scheduler jobs, which only unit tests cover, and the shapes of real Cloud Asset Inventory results, which the stand-in only imitates.
 

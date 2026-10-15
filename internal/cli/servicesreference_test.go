@@ -135,7 +135,7 @@ func writeProviderServices(b *strings.Builder, name string) error {
 }
 
 // typedService is a lister that says which of the catalogue's
-// types it lists, as Google's cloud_asset and its aliases do.
+// types it lists, as Google's cloud_asset does.
 type typedService interface {
 	Types(cat *catalogue.Catalogue) []string
 }

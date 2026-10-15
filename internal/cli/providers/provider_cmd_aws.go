@@ -55,7 +55,7 @@ func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 	flags.StringSliceVar(&options.Accounts, "accounts", nil, "accounts to import, each through the role --assume-role names")
 	flags.BoolVar(&options.Organization, "organization", false, "import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names")
 	flags.StringVar(&options.AssumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
-	flags.BoolVar(&options.ResourceExplorer, "resource-explorer", false, "don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see docs/aws.md#resource-explorer)")
+	flags.BoolVar(&options.ResourceExplorer, "resource-explorer", false, "don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see "+DocsURL+"aws/#resource-explorer)")
 	return planAWS
 }
 

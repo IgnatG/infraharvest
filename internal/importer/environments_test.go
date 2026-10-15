@@ -102,7 +102,7 @@ func TestImportsByDirPerEnvironment(t *testing.T) {
 		}
 		return "prod"
 	}
-	got, _ := importsByDir("aws", options, map[string][]harvest.Resource{"s3": {prod}, "vpc": {shared}}, listerID, envOf, rawName, noFile)
+	got, _ := importsByDir("aws", "aws", options, map[string][]harvest.Resource{"s3": {prod}, "vpc": {shared}}, listerID, envOf, rawName, noFile)
 	if len(got["out/envs/prod/aws"]) != 1 || len(got["out/envs/shared/aws"]) != 1 {
 		t.Errorf("roots: %v", got)
 	}

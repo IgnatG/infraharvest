@@ -280,8 +280,8 @@ func withProfile(source, profile string) string {
 }
 
 // discoveryScope names where provider lists, as the roots are laid out:
-// provider, account and region (aws/123456789012/eu-west-2), or "" if the
-// provider can't say.
+// the provider's directory (see providerDir), account and region
+// (aws/123456789012/eu-west-2), or "" if the provider can't say.
 func discoveryScope(ctx context.Context, provider harvest.Provider) string {
 	withScope, ok := provider.(harvest.ProviderWithScope)
 	if !ok {
@@ -292,5 +292,5 @@ func discoveryScope(ctx context.Context, provider harvest.Provider) string {
 		log.Printf("%s: the selection file won't say which account and region the resources are in: %v", provider.Name(), err)
 		return ""
 	}
-	return provider.Name() + "/" + account + "/" + region
+	return providerDir(provider) + "/" + account + "/" + region
 }

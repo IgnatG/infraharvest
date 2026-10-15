@@ -37,7 +37,7 @@ inputs:
     default: terraform
   out:
     description: Directory to write the configuration and the report to.
-    default: infraharvest
+    default: infraharvest-out
   config:
     description: infraharvest configuration file (--config), for example with the state backend.
     required: false

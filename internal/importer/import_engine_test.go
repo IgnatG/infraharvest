@@ -26,7 +26,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory per service", func(t *testing.T) {
 		options := Options{Layout: "{out}/{provider}/{service}/", Out: "out"}
 
-		got, _ := importsByDir("aws", options, resources, listerID, noEnv, rawName, noFile)
+		got, _ := importsByDir("aws", "aws", options, resources, listerID, noEnv, rawName, noFile)
 
 		want := map[string][]engine.Import{
 			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/1/orders"}},
@@ -40,7 +40,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory for a pattern without {service}", func(t *testing.T) {
 		options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-		got, _ := importsByDir("aws", options, resources, listerID, noEnv, rawName, noFile)
+		got, _ := importsByDir("aws", "aws", options, resources, listerID, noEnv, rawName, noFile)
 
 		if len(got) != 1 || len(got[filepath.Join("out", "aws")]) != 2 {
 			t.Errorf("want both resources in out/aws, got %v", got)
@@ -64,17 +64,57 @@ func TestRootDir(t *testing.T) {
 // (--beta) for google_* resources.
 func TestImportsByDirNamesOtherProviders(t *testing.T) {
 	resources := map[string][]harvest.Resource{
-		"networks": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")},
+		"cloud_asset": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")},
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	beta, _ := importsByDir("google-beta", options, resources, listerID, noEnv, rawName, noFile)
-	if imports := beta[filepath.Join("out", "google-beta")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
-		t.Errorf("google-beta: got %+v, want provider google-beta", imports)
+	beta, _ := importsByDir("google", "google-beta", options, resources, listerID, noEnv, rawName, noFile)
+	if imports := beta[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
+		t.Errorf("google-beta: got %+v, want provider google-beta in out/google", beta)
 	}
-	ga, _ := importsByDir("google", options, resources, listerID, noEnv, rawName, noFile)
+	ga, _ := importsByDir("google", "google", options, resources, listerID, noEnv, rawName, noFile)
 	if imports := ga[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "" {
-		t.Errorf("google: got %+v, want no provider", imports)
+		t.Errorf("google: got %+v, want no provider", ga)
+	}
+}
+
+// Roots go under the provider's command name, while import blocks keep
+// the Terraform provider: azurerm resources go under out/azure and need no
+// provider argument, as azurerm is what their type implies.
+func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
+	resources := map[string][]harvest.Resource{
+		"resource_group": {harvest.RecordBare("/subscriptions/s/resourceGroups/rg", "rg", "azurerm_resource_group", "azurerm")},
+	}
+	options := Options{Layout: "{out}/{provider}/", Out: "out"}
+
+	got, _ := importsByDir("azure", "azurerm", options, resources, listerID, noEnv, rawName, noFile)
+
+	want := map[string][]engine.Import{
+		filepath.Join("out", "azure"): {{Type: "azurerm_resource_group", Name: "rg", ID: "/subscriptions/s/resourceGroups/rg"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// directoryProvider is a provider whose roots go into a directory not
+// named after its Terraform provider, as Azure's do.
+type directoryProvider struct{ scopedProvider }
+
+func (directoryProvider) Name() string      { return "azurerm" }
+func (directoryProvider) Directory() string { return "azure" }
+
+// The directory, not the Terraform provider, names the roots and the
+// selection file's scope; a provider without one uses its name.
+func TestProviderDir(t *testing.T) {
+	if got := providerDir(&fakeProvider{}); got != "fake" {
+		t.Errorf("providerDir(fakeProvider): got %q, want fake", got)
+	}
+	if got := providerDir(directoryProvider{}); got != "azure" {
+		t.Errorf("providerDir(directoryProvider): got %q, want azure", got)
+	}
+	if got, want := discoveryScope(t.Context(), directoryProvider{}), "azure/111122223333/eu-west-2"; got != want {
+		t.Errorf("discoveryScope(directoryProvider): got %q, want %q", got, want)
 	}
 }
 
@@ -93,7 +133,7 @@ func TestImportsByDirUsesImportIDs(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, skipped := importsByDir("aws", options, resources, importID, noEnv, rawName, noFile)
+	got, skipped := importsByDir("aws", "aws", options, resources, importID, noEnv, rawName, noFile)
 
 	want := map[string][]engine.Import{
 		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "a", ID: "subnet-1/rtb-1"}},
@@ -190,7 +230,7 @@ func TestImportsByDirKeepRawNames(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, _ := importsByDir("aws", options, resources, listerID, noEnv, rawName, noFile)
+	got, _ := importsByDir("aws", "aws", options, resources, listerID, noEnv, rawName, noFile)
 
 	names := map[string]bool{}
 	for _, imp := range got[filepath.Join("out", "aws")] {

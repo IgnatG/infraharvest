@@ -286,8 +286,8 @@ func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	if _, ok := p.Services()[cloudAssetService]; !ok {
 		t.Fatal("cloud_asset isn't a service")
 	}
-	if slices.Contains(p.OptInServices(), cloudAssetService) {
-		t.Errorf("opt-in services: %v", p.OptInServices())
+	if _, optIn := harvest.Provider(p).(harvest.ProviderWithOptInServices); optIn {
+		t.Error("google has opt-in services, which * leaves out")
 	}
 	cat := catalogue.MustBuiltin("google")
 	p.SetCatalogue(cat)

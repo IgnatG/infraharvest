@@ -95,7 +95,7 @@ func TestAzureRoundTrip(t *testing.T) {
 
 	imported := map[string]int{}
 	// One root, for the subscription and the resource group.
-	wantDir := filepath.Join(out, "azurerm", os.Getenv("ARM_SUBSCRIPTION_ID"), azureResourceGroup)
+	wantDir := filepath.Join(out, "azure", os.Getenv("ARM_SUBSCRIPTION_ID"), azureResourceGroup)
 	checkAzureTags(t, wantDir)
 	for _, dir := range generatedDirs(t, out) {
 		if filepath.Clean(dir) != wantDir {

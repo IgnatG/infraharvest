@@ -1,4 +1,4 @@
-# Resources the GCP end-to-end test creates in floci-gcp before importing
+# Resources the Google Cloud end-to-end test creates in floci-gcp before importing
 # them. The provider reaches the emulator through the GOOGLE_*_CUSTOM_ENDPOINT
 # variables the test sets, like infraharvest's output.
 
