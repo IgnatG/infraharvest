@@ -7,7 +7,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -144,7 +143,7 @@ func newSandbox(ctx context.Context, t *testing.T) *sandbox {
 // directory, to apply as the fixture profile with vars (see seedSandbox).
 func (s *sandbox) seed(ctx context.Context, t *testing.T, name string, vars ...string) *sandboxEstate {
 	t.Helper()
-	return seedSandbox(ctx, t, name, s.fixtureDir, s.execPath, s.plugins, s.fixtureProfile, vars...)
+	return seedSandbox(ctx, t, name, s.fixtureDir, s.execPath, s.plugins, map[string]string{"AWS_PROFILE": s.fixtureProfile}, vars...)
 }
 
 // importer returns the import of services in regions, as the read-only
@@ -386,15 +385,6 @@ func rootFiles(t *testing.T, out, rel string) map[string]string {
 	return files
 }
 
-func readCoverage(t *testing.T, out string) report.Report {
-	t.Helper()
-	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
-		t.Fatal(err)
-	}
-	return coverage
-}
-
 // checkModuleCalls checks that both VPCs, with their NAT gateways, become
 // calls of the vpc module, one of them with a NAT gateway in each zone,
 // and the bucket a call of the s3-bucket module.
@@ -593,82 +583,4 @@ func importBlocks(t *testing.T, name, content string) int {
 		}
 	}
 	return n
-}
-
-// sandboxEstate is an estate of testdata/sandbox in a directory, applied
-// with vars, such as its suffix, which tells its names apart from other
-// runs'.
-type sandboxEstate struct {
-	tf   *tfexec.Terraform
-	vars []string
-}
-
-// seedSandbox writes testdata/sandbox/<name> into dir and initialises it,
-// to apply as profile with vars. The test's cleanup destroys what it
-// creates.
-func seedSandbox(ctx context.Context, t *testing.T, name, dir, execPath, plugins, profile string, vars ...string) *sandboxEstate {
-	t.Helper()
-	content, err := os.ReadFile(filepath.Join("testdata", "sandbox", name, "main.tf"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tf, err := engine.NewTerraform(dir, execPath, plugins, map[string]string{"AWS_PROFILE": profile})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tf.SetStdout(os.Stdout)
-	tf.SetStderr(os.Stderr)
-	t.Cleanup(func() {
-		// Its own deadline: the test's may have passed.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-		opts := make([]tfexec.DestroyOption, 0, len(vars))
-		for _, v := range vars {
-			opts = append(opts, tfexec.Var(v))
-		}
-		if err := tf.Destroy(ctx, opts...); err != nil {
-			t.Errorf("destroy the sandbox estate in %s: %v", dir, err)
-		}
-	})
-	if err := tf.Init(ctx); err != nil {
-		t.Fatalf("seed: init: %v", err)
-	}
-	return &sandboxEstate{tf: tf, vars: vars}
-}
-
-// apply applies the estate with its vars and opts, such as more variables
-// or targets, and returns the resources it then has.
-func (e *sandboxEstate) apply(ctx context.Context, t *testing.T, opts ...tfexec.ApplyOption) []*tfjson.StateResource {
-	t.Helper()
-	for _, v := range e.vars {
-		opts = append(opts, tfexec.Var(v))
-	}
-	if err := e.tf.Apply(ctx, opts...); err != nil {
-		t.Fatalf("seed: apply: %v", err)
-	}
-	state, err := e.tf.Show(ctx)
-	if err != nil {
-		t.Fatalf("seed: show: %v", err)
-	}
-	var created []*tfjson.StateResource
-	for _, r := range state.Values.RootModule.Resources {
-		if r.Mode == tfjson.ManagedResourceMode {
-			created = append(created, r)
-		}
-	}
-	return created
-}
-
-// envOr returns the environment variable name, or fallback if it is unset.
-func envOr(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return fallback
 }
