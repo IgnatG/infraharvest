@@ -45,7 +45,8 @@ var resourceManagerServices = []string{
 // --resource-group, that Azure Resource Graph knows, every resource group
 // of that scope, empty ones too, and the child resources Resource Graph
 // doesn't index (such as subnets and blob containers), read from Resource
-// Manager. The catalogue's inventory entries map a resource to its azurerm
+// Manager, with Log Analytics workspaces' data sources of the kinds azurerm
+// has types for (see workspaceDataSources). The catalogue's inventory entries map a resource to its azurerm
 // type, else aztft does, with its import ID, asking Resource Manager when
 // the ID alone can't say, as for a function app and a web app. Resources
 // another resource manages (managedBy), such as an AKS cluster's nodes,
@@ -98,6 +99,7 @@ func (g *ResourceGraphLister) List() error {
 	if err != nil {
 		return err
 	}
+	withoutWorkspaceDataSources(lister.ARMSchemaTree)
 	result, err := lister.ListByQuery(g.Context(), predicate)
 	if err != nil {
 		return err
@@ -113,10 +115,15 @@ func (g *ResourceGraphLister) List() error {
 		return err
 	}
 	found := withResourceGroups(result.Resources, groups)
+	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, found)
+	if err != nil {
+		return err
+	}
+	found = append(found, sources...)
 	apiOption := &aztft.APIOption{Cred: credential, ClientOption: clientOptions}
-	g.Resources = graphResources(found, g.catalogue(), func(id string) ([]aztft.Type, []string, bool, error) {
+	g.Resources = graphResources(found, g.catalogue(), knownTypes(sourceTypes, func(id string) ([]aztft.Type, []string, bool, error) {
 		return aztft.QueryTypeAndId(id, apiOption)
-	})
+	}))
 	return nil
 }
 
