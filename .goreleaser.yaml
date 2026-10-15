@@ -63,6 +63,38 @@ docker_signs:
 
 release:
   prerelease: auto
+  # Below the notes: how to install and verify this release. The notes
+  # themselves are the version's section of CHANGELOG.md, which the release
+  # workflow passes with --release-notes; without one, GitHub writes them
+  # from the merged pull requests (changelog below).
+  footer: |
+    ## Install
+
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_VERSION={{ .Tag }} sh
+    docker pull ghcr.io/ignatg/infraharvest:{{ .Tag }}
+    go install github.com/IgnatG/infraharvest@{{ .Tag }}
+    ```
+
+    The install script verifies the release's signature with cosign, which cloud shells don't include: see [Install](https://ignatg.github.io/infraharvest/install/) for how to add it there, and for the other ways to install.
+
+    ## Verify
+
+    The checksum file and the container image are signed with cosign, keyless, by the release workflow on `main`:
+
+    ```sh
+    cosign verify-blob \
+      --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      --bundle infraharvest_{{ .Version }}_SHA256SUMS.sigstore.json infraharvest_{{ .Version }}_SHA256SUMS
+    sha256sum --check --ignore-missing infraharvest_{{ .Version }}_SHA256SUMS
+
+    cosign verify ghcr.io/ignatg/infraharvest:{{ .Tag }} \
+      --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+    Every release is described in [CHANGELOG.md](https://github.com/IgnatG/infraharvest/blob/{{ .Tag }}/CHANGELOG.md).
 
 changelog:
   use: github-native
