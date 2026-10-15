@@ -64,7 +64,7 @@ func TestRootDir(t *testing.T) {
 // (--beta) for google_* resources.
 func TestImportsByDirNamesOtherProviders(t *testing.T) {
 	resources := map[string][]harvest.Resource{
-		"networks": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")},
+		"cloud_asset": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")},
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 

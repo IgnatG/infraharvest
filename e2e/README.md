@@ -38,7 +38,7 @@ An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so
 [`TestGoogleRoundTrip`](google_test.go) uses [floci-gcp](https://github.com/floci-io/floci-gcp), the GCP member of the same emulator family:
 
 1. Terraform creates the resources in [`testdata/google`](testdata/google/main.tf) in floci-gcp: a VPC network with a subnetwork and a firewall rule, a Cloud Storage bucket, a Pub/Sub topic with a subscription, a service account, grants in the project's IAM policy, and a KMS key ring with keys.
-2. `infraharvest import google --all` imports them: with `--services='*'`, with `--env-tags`, and with the old service names, the aliases of `cloud_asset`.
+2. `infraharvest import google --all` imports them: with `--services='*'`, and again with `--env-tags`.
 3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
 
 ```sh

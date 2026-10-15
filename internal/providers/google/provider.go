@@ -34,8 +34,7 @@ const regionLookupTimeout = time.Minute
 // Provider lists one Google Cloud project in one region (see Init):
 // through Cloud Asset Inventory (cloud_asset), and through the APIs of
 // what Cloud Asset Inventory doesn't find (iam, cloudsql, schedulerJobs,
-// dns). The names of the services infraharvest had before cloud_asset
-// replaced them are aliases of it (see serviceAliases).
+// dns).
 type Provider struct {
 	harvest.ProviderBase
 	// projectName is the ID of the project to list.
@@ -114,32 +113,25 @@ func (*Provider) Directory() string {
 	return providerName
 }
 
-// Services returns a new lister for every service: those
-// that list through an API of their own, cloud_asset, and cloud_asset
-// restricted to the types of each alias.
+// Services returns a new lister for every service: cloud_asset, and those
+// that list through an API of their own what Cloud Asset Inventory
+// doesn't find.
 func (*Provider) Services() map[string]harvest.Lister {
-	services := map[string]harvest.Lister{
+	return map[string]harvest.Lister{
 		cloudAssetService:   &CloudAssetLister{},
 		iamService:          &IamLister{},
 		cloudSQLService:     &CloudSQLLister{},
 		schedulerJobService: &SchedulerJobsLister{},
 		dnsService:          &DNSRecordSetsLister{},
 	}
-	for name, types := range serviceAliases {
-		services[name] = &CloudAssetLister{types: types}
-	}
-	return services
 }
 
 // Select makes the service called name the provider's current one,
 // with a new lister, and passes it the region, the project and the
-// catalogue. A name infraharvest no longer has fails with the reason.
+// catalogue.
 func (p *Provider) Select(name string, verbose bool) error {
 	service, ok := p.Services()[name]
 	if !ok {
-		if reason, removed := removedServices[name]; removed {
-			return fmt.Errorf("no longer a service of google: %s", reason)
-		}
 		return errors.New("not a service of google; \"infraharvest services google\" lists them")
 	}
 	p.Current = service

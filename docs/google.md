@@ -51,29 +51,17 @@ infraharvest import google --organization 123456789012 --services='*' --regions=
 
 The last four list, each through its own API, what Cloud Asset Inventory doesn't find. A project without the Cloud DNS, Cloud SQL Admin or Cloud Scheduler API enabled has nothing for that service to list, which is logged rather than reported as a failure.
 
-`iam`, `dns` and `cloudsql` used to list more: `iam` also service accounts and custom roles, `dns` the zones and `cloudsql` the instances. Those now come from `cloud_asset`, so `--services=iam` alone lists only the IAM members; add `cloud_asset`, or use `*`, for the rest.
+`iam` lists only the IAM members, `dns` only the record sets and `cloudsql` only the databases. Service accounts, custom roles, DNS zones and Cloud SQL instances come from `cloud_asset`, so add `cloud_asset`, or use `*`, for those.
 
-### The old service names
+### Types that aren't listed
 
-Before Cloud Asset Inventory took their place, infraharvest listed Google Cloud with one service for each API, such as `networks`, `firewall` and `gcs`. Those names still work: each runs `cloud_asset` for the types that service listed, and searches for those alone, so scripts and configuration files that name them keep working.
+`cloud_asset` lists only what Cloud Asset Inventory finds and the catalogue can map, so these types aren't imported:
 
-```sh
-infraharvest import google --services=networks,subnetworks,firewall,gcs --projects=my-project --regions=global,europe-west2 --all
-```
-
-They are opt-in: `*` lists their types through `cloud_asset` already, so it leaves them out, and naming one with `cloud_asset` lists its resources twice. The [services reference](reference/services.md#google-cloud) gives the types of each. Their resources go in the old services' files, such as `network.tf` and `gcs.tf`.
-
-What Cloud Asset Inventory doesn't find is no longer listed:
-
-| Old service | No longer listed | Why |
-|---|---|---|
-| `gcs` | `google_storage_bucket_iam_policy`, `google_storage_bucket_iam_binding`, `google_storage_bucket_iam_member`, `google_storage_notification`, and the reports of bucket and default object ACLs | Cloud Asset Inventory's resource search returns no IAM policies or notifications |
-| `monitoring` | `google_monitoring_group` | Cloud Asset Inventory has no asset type for monitoring groups |
-| `sslCertificates` | `google_compute_managed_ssl_certificate` (the service is gone) | Google-managed and self-managed certificates share one asset type and name pattern, so the catalogue can't tell them apart |
-| `regionSslCertificates` | `google_compute_region_ssl_certificate` (the service is gone) | as for `sslCertificates` |
-| `regionInstanceGroups` | the service is gone | the google provider has no resource of that type to import |
-
-`--services` naming a service that is gone fails that service, with the reason.
+| Types | Why |
+|---|---|
+| `google_storage_bucket_iam_policy`, `google_storage_bucket_iam_binding`, `google_storage_bucket_iam_member`, `google_storage_notification`, and the bucket and default object ACLs | Cloud Asset Inventory's resource search returns no IAM policies or notifications |
+| `google_monitoring_group` | Cloud Asset Inventory has no asset type for monitoring groups |
+| `google_compute_managed_ssl_certificate`, `google_compute_region_ssl_certificate` | Google-managed and self-managed certificates share one asset type and name pattern, so the catalogue can't tell them apart |
 
 ## Cloud Asset Inventory
 
@@ -96,8 +84,8 @@ Labels are recorded, where the listers read them (every resource `cloud_asset` l
 `--id` takes the type without `google_` and the ID the lister records: for what `cloud_asset` lists, the full name, or a bucket's name:
 
 ```sh
-infraharvest import google --services=gcs --projects=my-project --all --id=storage_bucket=my-logs
-infraharvest import google --services=networks,subnetworks --projects=my-project --regions=global,europe-west2 --all \
+infraharvest import google --services=cloud_asset --projects=my-project --all --id=storage_bucket=my-logs
+infraharvest import google --services=cloud_asset --projects=my-project --regions=global,europe-west2 --all \
   --id=compute_network=projects/my-project/global/networks/shared-vpc
 ```
 

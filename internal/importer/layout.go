@@ -19,10 +19,6 @@ var networkServices = map[string][]string{
 		"customer_gateway", "eip", "eni", "igw", "nacl", "nat", "route_table", "sg", "subnet",
 		"transit_gateway", "vpc", "vpc_endpoint", "vpc_peering", "vpn_connection", "vpn_gateway",
 	},
-	"google": {
-		"addresses", "externalVpnGateways", "firewall", "globalAddresses", "interconnectAttachments",
-		"networks", "routers", "routes", "subnetworks", "targetVpnGateways", "vpnTunnels",
-	},
 	"azurerm": {
 		"network_interface", "network_security_group", "public_ip", "subnet", "virtual_network",
 	},
@@ -47,13 +43,13 @@ var networkTypes = map[string][]string{
 // their name says nothing about a resource.
 var inventoryServices = []string{"cloud_asset", "resource_graph"}
 
-// camelWord is where a camelCase service name, such as backendServices,
+// camelWord is where a camelCase service name, such as schedulerJobs,
 // starts a word.
 var camelWord = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
 // configFile names the file of a root that a resource listed by service
 // goes in (see engine.Import.File): network.tf for the network, else the
-// service's, such as s3.tf or backend_services.tf. For a service that
+// service's, such as s3.tf or scheduler_jobs.tf. For a service that
 // lists through an inventory API, the catalogue's service for the type
 // counts, or else the type itself, such as key_vault.tf.
 func configFile(provider, service, typ string, cat *catalogue.Catalogue) string {

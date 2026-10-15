@@ -40,15 +40,8 @@ const searchReadMask = "name,assetType,project,displayName,location,labels,state
 // needs cloudasset.assets.searchAllResources on the project, which
 // roles/cloudasset.viewer grants, and the Cloud Asset API enabled in the
 // project that the credentials' quota goes to.
-//
-// An alias of an old service (see serviceAliases) is one restricted to
-// that service's types: it searches only for their asset types, and keeps
-// only resources of those types.
 type CloudAssetLister struct {
 	harvest.ListerBase
-	// types are the Terraform types to list; nil for every type the
-	// catalogue maps.
-	types []string
 }
 
 // List searches the project and keeps what is in the import's
@@ -71,23 +64,16 @@ func (g *CloudAssetLister) List() error {
 		return err
 	}
 	region, _ := g.Settings()["region"].(compute.Region)
-	resources := assetResources(results, cat, g.Provider(), project, region.Name)
-	if g.types != nil {
-		resources = slices.DeleteFunc(resources, func(r harvest.Resource) bool {
-			return !slices.Contains(types, r.Address.Type)
-		})
-	}
-	g.Resources = resources
+	g.Resources = assetResources(results, cat, g.Provider(), project, region.Name)
 	return nil
 }
 
 // Types returns the Terraform types the lister lists, sorted: those of
-// the catalogue's inventory entries, or, for an alias, those of its types
-// that have one.
-func (g *CloudAssetLister) Types(cat *catalogue.Catalogue) []string {
+// the catalogue's inventory entries.
+func (*CloudAssetLister) Types(cat *catalogue.Catalogue) []string {
 	var types []string
 	for _, typ := range cat.Types() {
-		if e, ok := cat.Entry(typ); ok && e.Inventory != nil && (g.types == nil || slices.Contains(g.types, typ)) {
+		if e, ok := cat.Entry(typ); ok && e.Inventory != nil {
 			types = append(types, typ)
 		}
 	}

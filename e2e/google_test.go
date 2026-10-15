@@ -18,7 +18,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -33,10 +32,6 @@ import (
 
 // googleProject is the project testdata/google creates its resources in.
 const googleProject = "infraharvest-e2e"
-
-// gcpAliases are the names of old services, aliases of cloud_asset, for
-// the types testdata/google covers, with iam for the project's IAM members.
-var gcpAliases = []string{"firewall", "gcs", "iam", "kms", "networks", "pubsub", "subnetworks"}
 
 // TestGoogleRoundTrip creates resources in floci-gcp, a GCP emulator, imports
 // them with --engine=terraform (or E2E_ENGINE=tofu) and checks the engine
@@ -109,17 +104,6 @@ func TestGoogleRoundTrip(t *testing.T) {
 	}; !slices.Equal(envRoots, want) {
 		t.Errorf("--env-tags=env: roots %v, want %v", envRoots, want)
 	}
-
-	// The old services' names, each of which searches for its own types
-	// alone: none of them lists the service account.
-	asked := len(search.assetTypes())
-	coverage = checkGoogleImport(ctx, t, engineName, execPath, plugins, withoutTypes(state, "google_service_account"), "--services="+strings.Join(gcpAliases, ","), "--regions=global,us-central1")
-	checkGoogleModules(t, coverage, map[string][]string{
-		adapters.GoogleNetwork.Source: {"google_compute_network", "google_compute_firewall"},
-	})
-	if searched := search.assetTypes()[asked:]; slices.Contains(searched, "iam.googleapis.com/ServiceAccount") || !slices.Contains(searched, "compute.googleapis.com/Network") {
-		t.Errorf("--services=%s searched for %v", strings.Join(gcpAliases, ","), searched)
-	}
 }
 
 // checkGoogleImport imports the project with flags, checks the import
@@ -178,22 +162,6 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 	return coverage
 }
 
-// standIn is a stand-in for the APIs floci-gcp doesn't serve, in front of
-// it.
-type standIn struct {
-	*httptest.Server
-
-	mu    sync.Mutex
-	asked []string
-}
-
-// assetTypes returns the asset types each search asked for, in order.
-func (s *standIn) assetTypes() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.asked)
-}
-
 // assetSearch stands in for Cloud Asset Inventory's searchAllResources,
 // and Cloud DNS's zone list, in front of the emulator at endpoint, which
 // gets every other request. The search finds the resources state lists,
@@ -201,7 +169,7 @@ func (s *standIn) assetTypes() []string {
 // their project, and the default network and one of its firewall rules,
 // which GCP creates in a project. It finds only the asset types asked for,
 // two at a time. The project has no DNS zones.
-func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *standIn {
+func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *httptest.Server {
 	t.Helper()
 	target, err := url.Parse(endpoint)
 	if err != nil {
@@ -248,8 +216,7 @@ func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *
 		res["project"] = "projects/123456789012"
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	stand := &standIn{}
-	stand.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	stand := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/dns/v1/"+project+"managedZones" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"managedZones": []}`))
@@ -264,11 +231,6 @@ func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *
 			return
 		}
 		q := r.URL.Query()
-		if q.Get("pageToken") == "" {
-			stand.mu.Lock()
-			stand.asked = append(stand.asked, q["assetTypes"]...)
-			stand.mu.Unlock()
-		}
 		var found []map[string]any
 		for _, res := range results {
 			if slices.Contains(q["assetTypes"], res["assetType"].(string)) {
@@ -350,15 +312,4 @@ func moduleResources(coverage report.Report, source string) []string {
 		}
 	}
 	return resources
-}
-
-// withoutTypes returns the resources of state that aren't of types.
-func withoutTypes(state []*tfjson.StateResource, types ...string) []*tfjson.StateResource {
-	var kept []*tfjson.StateResource
-	for _, r := range state {
-		if !slices.Contains(types, r.Type) {
-			kept = append(kept, r)
-		}
-	}
-	return kept
 }
