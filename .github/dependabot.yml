@@ -31,7 +31,8 @@ updates:
     cooldown:
       default-days: 1
 
-  # The base image digests pinned in the Dockerfile.
+  # The images the Dockerfile pins by tag and digest: the base images, and
+  # Terraform and OpenTofu, whose binaries the release image copies.
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -46,6 +47,17 @@ updates:
       interval: weekly
     groups:
       docs:
+        patterns: ["*"]
+    cooldown:
+      default-days: 7
+
+  # The providers the permission templates and the sandbox estates use.
+  - package-ecosystem: terraform
+    directories: ["/permissions/*", "/e2e/testdata/sandbox/*"]
+    schedule:
+      interval: weekly
+    groups:
+      terraform:
         patterns: ["*"]
     cooldown:
       default-days: 7
