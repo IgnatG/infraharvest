@@ -242,6 +242,11 @@ jobs:
     - name: floci-az logs
       if: failure()
       run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
+    # The sandbox test runs only by hand (sandbox-azure), so check here
+    # that it builds.
+    - name: Vet the sandbox test
+      if: matrix.engine == 'terraform'
+      run: go vet -tags e2e,sandbox,minimal,azure ./e2e/
 
   # The read-only permission templates must stay formatted and valid.
   permissions:

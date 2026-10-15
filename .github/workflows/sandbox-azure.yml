@@ -1,0 +1,165 @@
+# Imports a small estate from the Azure sandbox subscription and checks it
+# plans with no changes. Runs only when started by hand, and only after a
+# reviewer of the sandbox environment approves it. The estate is created in
+# its resource group as the fixture identity, imported as the read-only
+# identity, which has what permissions/azure grants, and destroyed at the
+# end, whatever happened. The identities and the resource group come from
+# a one-time bootstrap (e2e/testdata/sandbox/azure-bootstrap); see
+# e2e/README.md.
+name: sandbox-azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: Engine to import with
+        type: choice
+        options: [terraform, tofu]
+        default: terraform
+
+permissions:
+  contents: read
+  id-token: write # OpenID Connect, for the identities
+
+# One run at a time: each imports the whole of the estate's resource group,
+# so another run's estate would show up in its import.
+concurrency:
+  group: sandbox-azure
+  cancel-in-progress: false
+
+jobs:
+  round-trip:
+    name: round-trip (${{ inputs.engine }})
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 80
+    env:
+      E2E_ENGINE: ${{ inputs.engine }}
+      # Terraform, OpenTofu and infraharvest sign in with the job's GitHub
+      # ID token, as the identity ARM_CLIENT_ID names: the test sets it to
+      # the fixture's to create the estate and to the read-only one's to
+      # import it.
+      ARM_USE_OIDC: "true"
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      SANDBOX_AZURE_FIXTURE_CLIENT_ID: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
+      SANDBOX_AZURE_READONLY_CLIENT_ID: ${{ vars.AZURE_READONLY_CLIENT_ID }}
+      SANDBOX_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
+    steps:
+    - name: Directories
+      run: |
+        {
+          echo "SANDBOX_FIXTURE_DIR=$RUNNER_TEMP/fixture-azure"
+          echo "SANDBOX_PLUGIN_CACHE=$RUNNER_TEMP/plugins"
+          echo "SANDBOX_OUTPUT_DIR=$RUNNER_TEMP/out"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/plugins"
+        } >> "$GITHUB_ENV"
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: inputs.engine == 'terraform'
+      with:
+        terraform_wrapper: false
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      if: inputs.engine == 'tofu'
+      with:
+        tofu_wrapper: false
+    # The gate runs the scanners it finds (G5), as in the e2e jobs.
+    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      with:
+        tflint_version: v0.64.0
+    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+      with:
+        version: v0.75.0
+    # The Azure CLI, as the fixture identity, for the sweeps; Terraform and
+    # infraharvest don't use it.
+    - name: Azure CLI as the fixture identity
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    # What an earlier run may have left: the resource group holds nothing
+    # between runs.
+    - name: Leftovers
+      run: |
+        left=$(az resource list --subscription "$ARM_SUBSCRIPTION_ID" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
+        if [ -n "$left" ]; then
+          echo "::warning::Resources in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $left"
+        fi
+    - name: Round trip
+      run: go test -tags e2e,sandbox,minimal,azure -run '^TestSandboxAzure$' -timeout 60m -v ./e2e/
+    - name: Destroy the estate
+      if: always()
+      env:
+        ARM_CLIENT_ID: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
+      run: |
+        if [ ! -f "$SANDBOX_FIXTURE_DIR/terraform.tfstate" ]; then
+          echo "No estate state: nothing was created."
+          exit 0
+        fi
+        cd "$SANDBOX_FIXTURE_DIR"
+        vars=(-var "suffix=$E2E_ENGINE" -var "resource_group=$SANDBOX_AZURE_RESOURCE_GROUP")
+        "$E2E_ENGINE" init -input=false
+        "$E2E_ENGINE" destroy -auto-approve -input=false "${vars[@]}"
+        left=$("$E2E_ENGINE" state list)
+        if [ -n "$left" ]; then
+          echo "::error::Left in the estate: $left"
+          exit 1
+        fi
+    # The CLI's first sign-in may have run out by now: its federated token
+    # lasts minutes, its access token an hour.
+    - name: Azure CLI as the fixture identity, again
+      if: failure()
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    # When the run failed, deletes what Terraform's state doesn't hold,
+    # such as a resource whose creation failed half-way: the locks first,
+    # which would stop the rest, then every resource of the run, tagged
+    # infraharvest-sandbox=<engine>, a few rounds over, as some can only go
+    # once what uses them has. The resource group itself stays.
+    - name: Sweep the resource group
+      if: failure()
+      run: |
+        sub=(--subscription "$ARM_SUBSCRIPTION_ID")
+        locks=$(az lock list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
+        while IFS= read -r lock; do
+          if [ -n "$lock" ]; then
+            az lock delete "${sub[@]}" --ids "$lock" || true
+          fi
+        done <<< "$locks"
+        query="[?tags.\"infraharvest-sandbox\"=='$E2E_ENGINE'].id"
+        for _ in 1 2 3; do
+          ids=$(az resource list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query "$query" -o tsv)
+          if [ -z "$ids" ]; then
+            break
+          fi
+          while IFS= read -r id; do
+            az resource delete "${sub[@]}" --ids "$id" || true
+          done <<< "$ids"
+        done
+        left=$(az resource list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
+        if [ -n "$left" ]; then
+          echo "::error::Left in $SANDBOX_AZURE_RESOURCE_GROUP: $left"
+          exit 1
+        fi
+    - name: Upload the import
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: sandbox-azure-${{ inputs.engine }}
+        path: |
+          ${{ env.SANDBOX_OUTPUT_DIR }}
+          !${{ env.SANDBOX_OUTPUT_DIR }}/**/.terraform
+        if-no-files-found: ignore
+        include-hidden-files: true
+        retention-days: 7
