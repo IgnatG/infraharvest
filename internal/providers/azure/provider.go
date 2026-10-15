@@ -194,11 +194,20 @@ func (*Provider) Directory() string {
 // configuration is the user's to keep, so it registers none, as azurerm 5
 // does by default. The roots use azurerm 4 or 5 (4 when a module holds
 // the provider back), and the argument means the same in both.
+//
+// The features block sets storage.data_plane_available to false: azurerm
+// 4 otherwise reads a storage account's queue_properties and
+// static_website through the storage data plane, with the account's keys,
+// which Reader can't list, so the account fails to import. azurerm 5 has
+// dropped both blocks, for the separate azurerm_storage_account_*
+// resources, and ignores the flag; with it, 4 does the same.
 func (p *Provider) ProviderBlock() map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			providerName: map[string]interface{}{
-				"features":                        map[string]interface{}{},
+				"features": map[string]interface{}{
+					"storage": map[string]interface{}{"data_plane_available": false},
+				},
 				"resource_provider_registrations": "none",
 				"subscription_id":                 p.subscriptionID,
 			},

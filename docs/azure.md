@@ -24,7 +24,7 @@ infraharvest reads the `ARM_*` environment variables the azurerm provider docume
 
 `ARM_AUXILIARY_TENANT_IDS` names up to three more tenants the credential may get tokens for, separated by `;`. `ARM_ENVIRONMENT` picks the cloud: `public` (the default), `usgovernment` or `china`, or `stack` for a cloud such as Azure Stack Hub whose endpoints `ARM_METADATA_HOSTNAME` serves.
 
-Terraform's azurerm provider reads the same variables, so the generated roots plan with the same sign-in. Their provider block sets `subscription_id`, and `resource_provider_registrations = "none"`, so the generated configuration doesn't register resource providers on the subscription, which the Reader role can't: register them yourself if a later apply needs one.
+Terraform's azurerm provider reads the same variables, so the generated roots plan with the same sign-in. Their provider block sets `subscription_id`, and `resource_provider_registrations = "none"`, so the generated configuration doesn't register resource providers on the subscription, which the Reader role can't: register them yourself if a later apply needs one. Its features block sets `storage { data_plane_available = false }`, so azurerm 4 reads storage accounts without their keys, which Reader can't list, as azurerm 5 does: a storage account's queue and static website settings belong in the separate `azurerm_storage_account_*` resources (see [Permissions](permissions.md#azure)).
 
 ## Permissions
 

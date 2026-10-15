@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/stdata", "name": "default", "attributes": {"name": "default", "resource_group_name": "rg-data"}}
+]}

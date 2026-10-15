@@ -47,3 +47,11 @@ types:
       - reason: a saved search a solution adds to the Log Analytics workspace, such as the LogManagement searches every workspace has; select it to import it
         ignore_case: true
         attributes: { from_solution: "true" }
+  azurerm_storage_account_queue_properties:
+    skip:
+      - reason: the queue service settings every storage account has, which Terraform reads through the storage data plane, with the account's keys or a data role, which the Reader role doesn't grant; select it to import it
+        all: true
+  azurerm_storage_account_table_properties:
+    skip:
+      - reason: the table service settings every storage account has, which Terraform reads through the storage data plane, with the account's keys or a data role, which the Reader role doesn't grant; select it to import it
+        all: true
