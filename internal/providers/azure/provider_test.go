@@ -126,6 +126,10 @@ func TestSignInClientOptions(t *testing.T) {
 	if options.Transport == nil {
 		t.Error("no transport")
 	}
+	// infraharvest only reads: the SDK mustn't register resource providers.
+	if !options.DisableRPRegistration {
+		t.Error("resource provider registration left on")
+	}
 }
 
 // The metadata request takes the caller's context, so an interrupt stops
@@ -176,11 +180,15 @@ func TestResourceManagerHTTPClient(t *testing.T) {
 
 func TestProviderBlock(t *testing.T) {
 	p := &Provider{subscriptionID: "sub-1"}
+	// resource_provider_registrations "none": before the fix azurerm 4
+	// registered resource providers before each plan, which the Reader
+	// role can't, so every import of a real subscription failed.
 	want := map[string]interface{}{
 		"provider": map[string]interface{}{
 			"azurerm": map[string]interface{}{
-				"features":        map[string]interface{}{},
-				"subscription_id": "sub-1",
+				"features":                        map[string]interface{}{},
+				"resource_provider_registrations": "none",
+				"subscription_id":                 "sub-1",
 			},
 		},
 	}

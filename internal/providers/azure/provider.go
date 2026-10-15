@@ -140,6 +140,10 @@ func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCreden
 			Transport: subscriptionLimiter(cfg.subscriptionID).Client(resourceManagerHTTPClient()),
 		},
 		AuxiliaryTenants: cfg.auxiliaryTenants,
+		// The SDK otherwise answers a MissingSubscriptionRegistration
+		// error by registering the resource provider: infraharvest only
+		// reads, and the Reader role can't register one anyway.
+		DisableRPRegistration: true,
 	}
 	return cfg, credential, options, nil
 }
@@ -181,14 +185,22 @@ func (*Provider) Directory() string {
 	return directoryName
 }
 
-// ProviderBlock returns the provider "azurerm" block: the subscription
-// and the features block azurerm requires.
+// ProviderBlock returns the provider "azurerm" block: the subscription,
+// the features block azurerm requires, and resource_provider_registrations
+// "none". azurerm 4 otherwise registers dozens of resource providers on
+// the subscription before every plan, which takes a role that can write
+// to the subscription: with the Reader role infraharvest needs, every
+// plan failed. Registering them isn't the import's job, and the generated
+// configuration is the user's to keep, so it registers none, as azurerm 5
+// does by default. The roots use azurerm 4 or 5 (4 when a module holds
+// the provider back), and the argument means the same in both.
 func (p *Provider) ProviderBlock() map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			providerName: map[string]interface{}{
-				"features":        map[string]interface{}{},
-				"subscription_id": p.subscriptionID,
+				"features":                        map[string]interface{}{},
+				"resource_provider_registrations": "none",
+				"subscription_id":                 p.subscriptionID,
 			},
 		},
 	}
