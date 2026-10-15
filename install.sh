@@ -62,9 +62,13 @@ trap 'rm -rf "$tmp"' EXIT
 
 version="${INFRAHARVEST_VERSION:-}"
 if [ -z "$version" ]; then
-  fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json"
+  # GitHub's latest release is the newest that isn't a prerelease: a
+  # repository with only prereleases, or none yet, has no latest release
+  # and the API answers 404, which fetch reports as a failure.
+  no_latest="no release found: GitHub's latest release leaves out prereleases, and there may be none yet (or the API refused the request: see any error above, and set GITHUB_TOKEN if it is a rate limit). Set INFRAHARVEST_VERSION=vX.Y.Z to install a given release, prereleases included"
+  fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json" || fail "$no_latest"
   version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
-  [ -n "$version" ] || fail "couldn't find the latest release"
+  [ -n "$version" ] || fail "$no_latest"
 fi
 case "$version" in
   v*) ;;
