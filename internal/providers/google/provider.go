@@ -108,6 +108,12 @@ func (p *Provider) Name() string {
 	return providerName
 }
 
+// Directory returns google, the name of the provider's command, which its
+// roots go under with --beta too.
+func (*Provider) Directory() string {
+	return providerName
+}
+
 // Services returns a new lister for every service: those
 // that list through an API of their own, cloud_asset, and cloud_asset
 // restricted to the types of each alias.

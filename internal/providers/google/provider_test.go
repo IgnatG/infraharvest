@@ -147,8 +147,8 @@ func TestInit(t *testing.T) {
 	if err := p.Init(t.Context(), []string{"global", "", ""}); err != nil || p.projectName != "acme" || p.region.Name != "" || len(paths) != 0 {
 		t.Errorf("global: %v, %+v, calls %v", err, p, paths)
 	}
-	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" {
-		t.Errorf("europe-west1: %v, %+v", err, p)
+	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" || p.Directory() != "google" {
+		t.Errorf("europe-west1: %v, %+v, directory %q", err, p, p.Directory())
 	}
 	if !slices.Equal(paths, []string{"/compute/v1/projects/acme/regions/europe-west1?name"}) {
 		t.Errorf("calls %v", paths)

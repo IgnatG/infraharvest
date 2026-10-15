@@ -39,7 +39,7 @@ The import covers the subscription `ARM_SUBSCRIPTION_ID` names, unless one of th
 
 Each subscription goes into roots of its own, so with several, a custom `--layout` must contain `{account}`. `--parallel` imports that many subscriptions at once, each with its own Terraform, and a subscription that fails is reported while the run goes on to the next.
 
-`--resource-group` (`-g`) narrows the import to one resource group. Resources of a subscription span locations, so roots are split by resource group rather than by region: `<out>/azurerm/<subscription>/<resource group>/`, or `.../<subscription>/all/` for the whole subscription.
+`--resource-group` (`-g`) narrows the import to one resource group. Resources of a subscription span locations, so roots are split by resource group rather than by region: `<out>/azure/<subscription>/<resource group>/`, or `.../<subscription>/all/` for the whole subscription.
 
 ```sh
 infraharvest import azure --management-group platform --services=resource_graph --all --parallel 2

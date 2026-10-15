@@ -124,6 +124,7 @@ func (goldenOptional) OptInServices() []string                    { return nil }
 func (goldenOptional) Tags(context.Context, []Resource) (map[string]map[string]string, error) {
 	return nil, nil
 }
+func (goldenOptional) Directory() string { return "" }
 func (goldenOptional) Scope(context.Context) (account, region string, err error) {
 	return "", "", nil
 }
@@ -144,6 +145,7 @@ var (
 	_ ProviderWithModuleProviders     = goldenOptional{}
 	_ ProviderWithOptInServices       = goldenOptional{}
 	_ ProviderWithTags                = goldenOptional{}
+	_ ProviderWithDirectory           = goldenOptional{}
 	_ ProviderWithScope               = goldenOptional{}
 	_ ProviderWithDefaultTags         = goldenOptional{}
 	_ ProviderWithDefaultTagsArgument = goldenOptional{}

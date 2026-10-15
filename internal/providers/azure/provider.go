@@ -26,6 +26,10 @@ import (
 // and the provider of every listed resource.
 const providerName = "azurerm"
 
+// directoryName is the name of the provider's command, azure, which the
+// roots go under (see Directory), as AWS's and Google's go under theirs.
+const directoryName = "azure"
+
 // telemetryApplicationID is how infraharvest's requests introduce
 // themselves to Azure, in their User-Agent.
 const telemetryApplicationID = "infraharvest"
@@ -170,6 +174,11 @@ func resourceManagerHTTPClient() *http.Client {
 // Name returns "azurerm".
 func (*Provider) Name() string {
 	return providerName
+}
+
+// Directory returns "azure": roots go under <out>/azure/, not azurerm.
+func (*Provider) Directory() string {
+	return directoryName
 }
 
 // ProviderBlock returns the provider "azurerm" block: the subscription

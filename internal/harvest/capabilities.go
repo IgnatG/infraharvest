@@ -81,6 +81,16 @@ type ProviderWithTags interface {
 	Tags(ctx context.Context, resources []Resource) (map[string]map[string]string, error)
 }
 
+// ProviderWithDirectory is a provider whose roots go into a directory not
+// named after its Terraform provider (Name): Directory is the {provider}
+// of --layout and the first part of the selection file's scope. It is the
+// name of the provider's command, such as azure for azurerm and google for
+// google-beta, so that the output is laid out by what the user typed.
+// Without it, the directory is Name.
+type ProviderWithDirectory interface {
+	Directory() string
+}
+
 // ProviderWithScope is a provider that knows the account (or subscription,
 // or project) and the region an import covers. Output is laid out as
 // {out}/{provider}/{account}/{region}/, one root per state boundary.

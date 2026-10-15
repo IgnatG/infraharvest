@@ -190,6 +190,10 @@ func TestProviderBlock(t *testing.T) {
 	if got := p.Name(); got != "azurerm" {
 		t.Errorf("name %q", got)
 	}
+	// The roots go under the command's name; the provider stays azurerm.
+	if got := p.Directory(); got != "azure" {
+		t.Errorf("directory %q", got)
+	}
 }
 
 // Every call returns listers of its own, so concurrent services never
