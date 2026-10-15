@@ -1,6 +1,6 @@
 # End-to-end tests
 
-These tests run infraharvest against local cloud emulators, so they need no cloud account and cost nothing. CI runs them on every pull request, except the sandbox tests, which run against a real AWS account and only by hand (see [AWS sandbox](#aws-sandbox-a-real-account)).
+These tests run infraharvest against local cloud emulators, so they need no cloud account and cost nothing. CI runs them on every pull request, except the sandbox tests, which run against a real AWS account or Azure subscription, and only by hand (see [AWS sandbox](#aws-sandbox-a-real-account) and [Azure sandbox](#azure-sandbox-a-real-subscription)).
 
 ## AWS (Floci)
 
@@ -92,3 +92,37 @@ gh workflow run sandbox-aws -f estate=clusters -f engine=terraform
 [`TestSandboxAWSClusters`](sandbox_aws_test.go) creates it in `AWS_REGION`, every resource that takes tags tagged `infraharvest-sandbox=<engine>`, as in the main estate: a VPC with two private subnets and no NAT gateway; a PostgreSQL `db.t4g.micro` instance (20 GB of gp3, one zone, no backups, its master password managed by RDS in Secrets Manager) with a subnet group and a parameter group of its own; a Valkey replication group of one `cache.t4g.micro` node with a subnet group and a parameter group; and an EKS control plane with no nodes and no add-ons, its role, and an access entry with a read-only access policy for a role of its own. EKS authenticates through access entries alone and makes none for the fixture role that creates the cluster, so the import finds only the estate's. The test imports the region (`--services=eks,elasticache,iam,rds,sg,subnet,vpc`) as the read-only role and checks, as the main test does, that nothing fails or is left out, every check passes, every root plans as imports with no changes and every type created is imported. It also checks that the import leaves out the security group EKS creates for the cluster. There is no resume or incremental import: the main estate covers those.
 
 A run takes about an hour: about 15 minutes to create the estate (the cluster takes longest, ElastiCache and RDS create meanwhile), 15 to 20 to import and plan, and 10 to 15 to destroy; the job allows up to 160 minutes. It costs about $0.15 an hour, under $0.25 a run: the EKS control plane ($0.10 an hour), the database and the cache node (about $0.02 an hour each), their storage and the secret.
+
+## Azure sandbox (a real subscription)
+
+[`TestSandboxAzure`](sandbox_azure_test.go) runs against a real Azure subscription, for what floci-az can't show: Resource Graph, which `--services='*'` lists through, route tables, storage accounts, Key Vault, management locks, resource groups' tags, and whether the [read-only template](../docs/permissions.md#azure) grants enough. The `sandbox-azure` workflow runs it, started by hand (`gh workflow run sandbox-azure -f engine=terraform`), and only after a reviewer of the `sandbox` environment approves the run:
+
+1. It signs in as two user-assigned managed identities through GitHub's OpenID Connect (`ARM_USE_OIDC`), with no stored secrets: `AZURE_FIXTURE_CLIENT_ID` creates and destroys the estate, and `AZURE_READONLY_CLIENT_ID`, which has what [`permissions/azure`](../permissions/azure) grants (Reader on the subscription), imports it, as a user would. Both are variables of the environment, with `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_RESOURCE_GROUP` (by default `infraharvest-sandbox`). A one-time bootstrap creates them (see [Setting up the Azure sandbox](#setting-up-the-azure-sandbox)).
+2. Terraform creates [`testdata/sandbox/azure`](testdata/sandbox/azure/main.tf) in the estate's resource group as the fixture identity: a virtual network with two subnets, a network security group with a rule, a route table with a route, both associated with the subnets, a storage account with a container, a Key Vault in RBAC mode, a Log Analytics workspace, a user-assigned identity and a `CanNotDelete` lock on it. Every name starts `ih-sbx-<engine>-` (the storage account's `ihsbx<engine>`) and ends in a random suffix, and every resource that takes tags is tagged `infraharvest-sandbox=<engine>`.
+3. `infraharvest import azure --services='*' --resource-group=<group> --all` imports the group as the read-only identity. Nothing may be denied: the test looks for authorisation errors in the import's log and its report. Nothing may fail or be left out, every check of the verification gate must pass, and the one root, the group's, must plan as imports with no changes. Each azurerm type the estate created must be imported at least as many times as it was created; the group, the route table, the storage account and its container, the Key Vault and the lock must be imported by their IDs; and the group's tags must be in the configuration.
+4. The estate is destroyed, by the test and again by the workflow, whatever happened; the workflow fails if anything is left in its state. When the run failed, the workflow also deletes the group's locks and what is left in it tagged with the run's engine. The import is uploaded as an artifact (`sandbox-azure-<engine>`), without `.terraform`.
+
+The fixture identity is Contributor on the estate's resource group alone, with a custom role for its management locks, which Contributor can't manage: it can change nothing else in the subscription. Creating resource groups would take a role on the whole subscription, which Azure can't limit to names under a prefix, so the bootstrap creates the group, with its tags, and the estate lives in it; the group holds nothing between runs. For the same reason the fixture can't purge a deleted Key Vault, which belongs to the subscription: a run's vault stays soft-deleted for seven days, at no cost, under a name no other run uses. The read-only identity has Reader on the whole subscription, as the template grants, and the import keeps to the group, so the subscription may hold other things; one of its own is still best.
+
+Only one run, of either engine, runs at a time. Nothing in the estate bills by the hour: the network, the route table, the identity and the lock are free, and the empty storage account, the unused Key Vault and the workspace with no data cost a fraction of a cent, so a run costs well under $0.01. It should take under half an hour; the job allows 80 minutes.
+
+### Setting up the Azure sandbox
+
+[`testdata/sandbox/azure-bootstrap`](testdata/sandbox/azure-bootstrap/main.tf) creates what the workflow needs, once: the identities' resource group (`infraharvest-ci`) and the estate's (`infraharvest-sandbox`), the two identities with federated credentials that trust the `sandbox` environment's GitHub tokens, the fixture's roles on the estate's group, and the read-only identity's Reader role, through `permissions/azure` itself. It makes no app registration, so it needs no Entra ID role: an Owner of the subscription can apply it. In [Azure Cloud Shell](https://learn.microsoft.com/azure/cloud-shell/overview) (Bash), where Terraform and the Azure CLI are installed and signed in:
+
+```sh
+git clone https://github.com/IgnatG/infraharvest.git
+cd infraharvest/e2e/testdata/sandbox/azure-bootstrap
+az account set --subscription <subscription-id>
+terraform init
+terraform apply -var "subscription_id=$(az account show --query id -o tsv)"
+terraform output -raw gh_commands
+```
+
+`-var location=<region>` places the groups elsewhere than `westeurope`. The identities trust tokens whose subject is `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...` sets another. Keep the state, which Cloud Shell keeps in your home directory, to change or destroy it later.
+
+The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
+
+```sh
+gh workflow run sandbox-azure -R IgnatG/infraharvest -f engine=terraform
+```

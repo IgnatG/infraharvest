@@ -8,7 +8,7 @@ Thank you for helping. This page is the process: setting up, checking a change, 
 - Name the branch after the change's type: `fix/sqs-pagination`, `feat/azure-scope`, `docs/catalogue`.
 - Keep pull requests focused: one logical change each. A bug fix includes a test that fails without the fix.
 - Pull requests are squash-merged, so the title becomes the commit on `main`: write it as a [Conventional Commit](#commit-messages).
-- Say in the description what changes and why, how you tested it, and whether the AWS sandbox should run (see [Sandbox](#sandbox)).
+- Say in the description what changes and why, how you tested it, and whether a sandbox should run (see [Sandbox](#sandbox)).
 - A pull request merges once every check is green, the [CLA](#contributor-license-agreement) check included.
 
 ## Contributor License Agreement
@@ -121,7 +121,7 @@ Pushing the branch as `tidy/<anything>` does the same. Pin GitHub Actions to a f
 
 ### Sandbox
 
-The `sandbox-aws` workflow imports a real estate from the AWS sandbox account. It runs by hand, after a reviewer approves it, and only for changes to the AWS listers, the catalogue, the engine, the adapters or the sandbox itself. Say in the pull request whether it should run, and why.
+The `sandbox-aws` and `sandbox-azure` workflows import a real estate from the AWS sandbox account and from the Azure sandbox subscription. They run by hand, after a reviewer approves them, and only for changes to their cloud's listers or permissions template, the catalogue, the engine, the adapters or the sandbox itself. Say in the pull request whether either should run, and why.
 
 ## Documentation
 
