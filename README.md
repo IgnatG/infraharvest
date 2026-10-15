@@ -36,6 +36,8 @@ curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh
 go install github.com/IgnatG/infraharvest@latest
 ```
 
+The install script verifies the release's signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), which AWS CloudShell, Azure Cloud Shell and Google Cloud Shell don't include: [Install](docs/install.md#in-a-cloud-shell) shows how to add it there.
+
 infraharvest needs Terraform 1.5 or later, which it downloads if there is none on `PATH`, or OpenTofu 1.6 or later. See [Install](docs/install.md) for verifying a release, the image, and building from source.
 
 ## Quickstart
