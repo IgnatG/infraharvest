@@ -98,7 +98,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 
 	// Before the provider signs in: its clients take the rate.
 	ratelimit.SetDefault(options.RateLimit)
-	if err := provider.Init(args); err != nil {
+	if err := provider.Init(ctx, args); err != nil {
 		return err
 	}
 	options = ResolveServices(provider, options)

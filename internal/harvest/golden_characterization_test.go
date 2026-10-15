@@ -103,7 +103,7 @@ func (*goldenLister) List() error { return nil }
 
 type goldenProvider struct{ ProviderBase }
 
-func (*goldenProvider) Init([]string) error                   { return nil }
+func (*goldenProvider) Init(context.Context, []string) error  { return nil }
 func (*goldenProvider) Select(string, bool) error             { return nil }
 func (*goldenProvider) Name() string                          { return "golden" }
 func (*goldenProvider) Services() map[string]Lister           { return nil }

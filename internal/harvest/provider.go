@@ -3,6 +3,8 @@
 
 package harvest
 
+import "context"
+
 // Provider is a cloud provider that infraharvest can list resources from:
 // AWS, Azure or Google Cloud. The importer drives it through these methods;
 // optional extras are the ProviderWith* interfaces, which callers detect
@@ -13,8 +15,10 @@ package harvest
 // ready for Init.
 type Provider interface {
 	// Init takes the provider's positional settings, such as the region or
-	// the project, and prepares the provider. An error aborts the import.
-	Init(args []string) error
+	// the project, and prepares the provider. Any call it makes, such as one
+	// that checks the region, takes ctx, so an interrupt stops it. An error
+	// aborts the import.
+	Init(ctx context.Context, args []string) error
 	// Select makes the service called serviceName the provider's current
 	// one, which Selected then returns, and passes verbose on to it.
 	Select(serviceName string, verbose bool) error

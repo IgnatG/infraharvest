@@ -4,6 +4,8 @@
 package google
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -138,22 +140,43 @@ func TestInit(t *testing.T) {
 	t.Setenv(projectEnv, "")
 
 	p := &Provider{}
-	if err := p.Init([]string{"global", "", ""}); err == nil || !strings.Contains(err.Error(), projectEnv) {
+	if err := p.Init(t.Context(), []string{"global", "", ""}); err == nil || !strings.Contains(err.Error(), projectEnv) {
 		t.Errorf("without a project: %v", err)
 	}
 	t.Setenv(projectEnv, "acme")
-	if err := p.Init([]string{"global", "", ""}); err != nil || p.projectName != "acme" || p.region.Name != "" || len(paths) != 0 {
+	if err := p.Init(t.Context(), []string{"global", "", ""}); err != nil || p.projectName != "acme" || p.region.Name != "" || len(paths) != 0 {
 		t.Errorf("global: %v, %+v, calls %v", err, p, paths)
 	}
-	if err := p.Init([]string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" {
+	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" {
 		t.Errorf("europe-west1: %v, %+v", err, p)
 	}
 	if !slices.Equal(paths, []string{"/compute/v1/projects/acme/regions/europe-west1?name"}) {
 		t.Errorf("calls %v", paths)
 	}
-	err := p.Init([]string{"europe-west9", "acme", ""})
+	err := p.Init(t.Context(), []string{"europe-west9", "acme", ""})
 	if err == nil || !strings.Contains(err.Error(), "europe-west9") || !strings.Contains(err.Error(), "acme") {
 		t.Errorf("unknown region: %v", err)
+	}
+}
+
+// The region lookup takes the caller's context, so an interrupt stops it.
+// Before the fix it ran under a context of its own, which only its
+// one-minute timeout ended.
+func TestInitStopsWithItsContext(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name": "europe-west1"}`))
+	}))
+	defer server.Close()
+	t.Setenv(EndpointEnv, server.URL)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := (&Provider{}).Init(ctx, []string{"europe-west1", "acme", ""})
+	if !errors.Is(err, context.Canceled) || calls != 0 {
+		t.Errorf("got %v after %d calls, want %v before any", err, calls, context.Canceled)
 	}
 }
 

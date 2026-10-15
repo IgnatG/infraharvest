@@ -30,7 +30,7 @@ func Subscriptions(ctx context.Context, managementGroup string) ([]string, error
 	if err != nil {
 		return nil, err
 	}
-	_, credential, options, err := signIn(cfg)
+	_, credential, options, err := signIn(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

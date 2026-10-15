@@ -44,7 +44,7 @@ func (g *DNSRecordSetsLister) List() error {
 	}
 	project, _ := g.Settings()["project"].(string)
 	ctx := g.Context()
-	svc, err := dns.NewService(ctx, clientOptions()...)
+	svc, err := dns.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return err
 	}

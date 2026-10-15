@@ -43,7 +43,7 @@ func (g *SchedulerJobsLister) List() error {
 	}
 	project, _ := g.Settings()["project"].(string)
 	ctx := g.Context()
-	svc, err := cloudscheduler.NewService(ctx, clientOptions()...)
+	svc, err := cloudscheduler.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return err
 	}

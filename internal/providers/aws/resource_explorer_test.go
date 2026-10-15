@@ -172,7 +172,7 @@ func useExplorer(t *testing.T, f *fakeExplorer) *bytes.Buffer {
 func listRegion(t *testing.T, service string) []harvest.Resource {
 	t.Helper()
 	p := &Provider{}
-	if err := p.Init([]string{"eu-west-2", "default"}); err != nil {
+	if err := p.Init(t.Context(), []string{"eu-west-2", "default"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.Select(service, false); err != nil {

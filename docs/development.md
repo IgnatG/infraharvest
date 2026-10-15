@@ -87,7 +87,7 @@ The code is read more than written, so comments carry the reasoning. Write them 
 
 - Anything that does I/O or may run long takes a `context.Context` as its first argument: `importer.Import(ctx, ...)`, every method of `engine.Terraform`.
 - The context starts at the command (`c.Context()` in `internal/cli/providers/command.go`) and is passed down, so an interrupt stops the whole import; the sandbox's resume test relies on it.
-- A lister makes every API call with `g.Context()` (`harvest.ListerBase.Context`): it is set for each service, carries the `--list-timeout` deadline, and is cancelled when the user interrupts. New code never calls `context.Background()` or `context.TODO()` below the command; the few left in provider set-up (`internal/providers/azure/provider.go`, `internal/providers/google/provider.go`, `client.go`) are being removed.
+- A lister makes every API call with `g.Context()` (`harvest.ListerBase.Context`): it is set for each service, carries the `--list-timeout` deadline, and is cancelled when the user interrupts. Code below the command never calls `context.Background()` or `context.TODO()`, except `harvest.ListerBase.Context` for a lister no context was set for. A provider's `Init` takes the import's context for what it checks before listing, such as a Google region or an Azure Stack cloud's endpoints. A client that outlives the call it is made for takes `context.WithoutCancel(ctx)`, which keeps the context's values without its cancellation (`limitedClient` in `internal/providers/google/client.go`).
 - Whoever owns a timeout sets it, where it applies (`internal/adapters/cmd/adaptercheck/main.go`).
 
 ## Logging and output
