@@ -55,3 +55,10 @@ types:
     skip:
       - reason: the table service settings every storage account has, which Terraform reads through the storage data plane, with the account's keys or a data role, which the Reader role doesn't grant; select it to import it
         all: true
+  azurerm_storage_container:
+    # A container without an encryption scope of its own reports the
+    # account's, $account-encryption-key, which azurerm rejects as a scope
+    # name; left out, the container keeps it. The override flag at its
+    # default (true) needs a scope set, so it goes too: left out, it is
+    # true anyway.
+    omit: ["default_encryption_scope=$account-encryption-key", "encryption_scope_override_enabled=true"]

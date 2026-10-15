@@ -63,7 +63,12 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	}{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}} {
 		seen := map[string]bool{}
 		for _, name := range list.names {
-			if !identifier.MatchString(name) {
+			argument := name
+			if list.name == "omit" {
+				// name=value leaves the argument out only when set to value.
+				argument, _, _ = strings.Cut(name, "=")
+			}
+			if !identifier.MatchString(argument) {
 				fail("%s: %q isn't an argument name", list.name, name)
 			}
 			if seen[name] {

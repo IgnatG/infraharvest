@@ -79,6 +79,7 @@ func TestSchemaRejects(t *testing.T) {
 		"data source type": "provider: aws\ntypes:\n  aws_vpc:\n    data_source: { type: Vpc, argument: id }\n",
 		"inventory":        "provider: google\ntypes:\n  google_x:\n    inventory: { name: x }\n",
 		"attribute prefix": "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [] }\n",
+		"omitted value":    "provider: aws\ntypes:\n  aws_vpc:\n    omit: [\"=x\"]\n",
 	} {
 		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
 			t.Errorf("%s: the schema accepts\n%s", name, file)
@@ -241,6 +242,7 @@ func TestCheckRejects(t *testing.T) {
 		"empty attribute prefix":  "provider: aws\ntypes:\n  aws_x:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [\"\"] }\n",
 		"inventory types apart":   "provider: google\ntypes:\n  google_x:\n    inventory: { type: compute.googleapis.com/Disk, name: \"//compute.googleapis.com/projects/*/zones/*/disks/*\" }\n  google_y:\n    inventory: { type: compute.googleapis.com/disk }\n",
 		"repeated argument":       "provider: aws\ntypes:\n  aws_x:\n    omit: [a, a]\n",
+		"omitted value's name":    "provider: aws\ntypes:\n  aws_x:\n    omit: [\"=x\"]\n",
 		"cloud control service":   "provider: aws\ntypes:\n  aws_x:\n    cloud_control: { type: \"AWS::X::Y\", identifier: Id }\n",
 		"unknown field":           "provider: aws\ntypes:\n  aws_x:\n    imports: x\n",
 		"bad filter":              "provider: aws\ntypes:\n  aws_x:\n    import_id: \"{id|upper:x}\"\n",
@@ -251,6 +253,10 @@ func TestCheckRejects(t *testing.T) {
 	}
 	if _, err := load(t, map[string]string{"a.yaml": "provider: aws\ntypes:\n  aws_x: {}\n", "b.yaml": "provider: aws\ntypes:\n  aws_x: {}\n"}); err == nil || !strings.Contains(err.Error(), "aws_x is in") {
 		t.Errorf("a type in two files: got %v", err)
+	}
+	// name=value omits an argument only when it is set to value.
+	if _, err := load(t, map[string]string{"x.yaml": "provider: aws\ntypes:\n  aws_x:\n    omit: [a, \"b=$c\", \"d=true\"]\n"}); err != nil {
+		t.Errorf("omit with values: %v", err)
 	}
 }
 

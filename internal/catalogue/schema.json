@@ -56,8 +56,10 @@
           "minLength": 1
         },
         "omit": {
-          "description": "Arguments to leave out of generated configuration.",
-          "$ref": "#/$defs/names"
+          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(=.*)?$" },
+          "uniqueItems": true
         },
         "state_only": {
           "description": "Arguments the provider keeps only in state, which an import leaves unset.",
