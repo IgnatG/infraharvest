@@ -1,0 +1,75 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Missing resource type or permission
+description: >-
+  A resource type infraharvest doesn't import, or an access-denied error with
+  the read-only permissions under permissions/.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        `infraharvest services <provider>` lists the services each provider
+        has, and the services reference
+        (https://ignatg.github.io/infraharvest/reference/services/) the
+        Terraform resource types each one lists. Remove account,
+        subscription and project IDs and resource names you don't want
+        public.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is missing
+      options:
+        - A resource type infraharvest doesn't list or import
+        - Access denied with the read-only permissions
+        - A resource type imports with the wrong ID
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Cloud
+      options:
+        - AWS
+        - Azure
+        - Google Cloud
+    validations:
+      required: true
+  - type: input
+    id: resource-type
+    attributes:
+      label: Terraform resource type
+      description: The type as the Terraform provider names it.
+      placeholder: aws_sesv2_configuration_set
+    validations:
+      required: true
+  - type: input
+    id: service
+    attributes:
+      label: infraharvest service
+      description: The service you listed it with (`--services`), if any.
+      placeholder: ses
+  - type: input
+    id: version
+    attributes:
+      label: infraharvest version
+      description: What `infraharvest version` prints.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error
+      description: >-
+        For access denied: the error, with the API action it names. Say
+        whether you applied the templates under permissions/ unchanged.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >-
+        How the resource is used, links to the cloud's API documentation, or
+        the import ID Terraform expects.

@@ -144,7 +144,7 @@ The CPU profile covers the whole run; the heap profile is taken at its end, and 
 
 ## Licence
 
-By contributing, you agree that your contributions are licensed under the repository's licence (see [LICENSE](LICENSE)).
+By contributing, you agree that your contributions are licensed under the repository's licence (see [LICENSE](LICENSE)). The [CLA](CLA.md) you sign also grants the project owner the right to relicense them, under another open-source or a commercial licence (its section 3): the two go together, as [Contributor License Agreement](#contributor-license-agreement) explains.
 
 Every Go file starts with a two-line licence header, which the pre-commit hook and CI check (`scripts/check-headers.sh`):
 

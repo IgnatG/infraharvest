@@ -1,0 +1,95 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Bug report
+description: Something infraharvest does wrong, such as a crash, a wrong import or a root that doesn't plan cleanly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Thank you for reporting it. Report security vulnerabilities privately
+        instead, as SECURITY.md says. Before pasting output, remove what you
+        don't want public: account, subscription and project IDs, resource
+        names and secrets.
+  - type: input
+    id: version
+    attributes:
+      label: infraharvest version
+      description: What `infraharvest version` prints.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Cloud
+      options:
+        - AWS
+        - Azure
+        - Google Cloud
+        - Not specific to a cloud
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options:
+        - Terraform
+        - OpenTofu
+    validations:
+      required: true
+  - type: input
+    id: engine-version
+    attributes:
+      label: Engine and provider versions
+      description: >-
+        What `terraform version` or `tofu version` prints in the generated
+        root, or the versions in the report's manifest.json.
+      placeholder: Terraform v1.14.0, hashicorp/aws v6.20.0
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed infraharvest
+      options:
+        - Release archive
+        - Install script
+        - Container image
+        - GitHub Action
+        - go install
+        - Built from source
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran, with its flags.
+      render: sh
+      placeholder: >-
+        infraharvest import aws --services=vpc,subnet --regions=eu-west-2
+        --selection=selection.yaml
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: >-
+        What went wrong, and which resource types it affects. A root that
+        doesn't plan with no changes: the plan's output for the resource.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: >-
+        The log lines around the problem (`--verbose` adds detail), or the
+        relevant part of report/report.md.
+      render: text

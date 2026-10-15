@@ -1,0 +1,16 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# The issue chooser: every issue uses one of the forms in this directory.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/IgnatG/infraharvest/security/advisories/new
+    about: >-
+      Report vulnerabilities privately, never in a public issue
+      (see SECURITY.md).
+  - name: Documentation
+    url: https://ignatg.github.io/infraharvest/
+    about: >-
+      Install, usage, configuration, output, modules, permissions and the
+      catalogue.
