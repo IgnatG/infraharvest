@@ -197,6 +197,15 @@ resource "azurerm_log_analytics_workspace" "main" {
   tags                = local.tags
 }
 
+# A workspace data source, which infraharvest lists by kind.
+resource "azurerm_log_analytics_datasource_windows_event" "application" {
+  name                = "${local.name}-application"
+  resource_group_name = local.rg
+  workspace_name      = azurerm_log_analytics_workspace.main.name
+  event_log_name      = "Application"
+  event_types         = ["Error"]
+}
+
 resource "azurerm_user_assigned_identity" "app" {
   name                = local.name
   location            = local.location
