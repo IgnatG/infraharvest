@@ -52,9 +52,9 @@ type Provider struct {
 // Init takes the region (args[0]: global, the default, or a region's
 // name), the project (args[1], else GOOGLE_CLOUD_PROJECT) and the provider
 // type (args[2]). A region other than global is looked up through the
-// Compute Engine API, so that a misspelt --regions fails rather than
-// finding nothing.
-func (p *Provider) Init(args []string) error {
+// Compute Engine API, with ctx, so that a misspelt --regions fails rather
+// than finding nothing.
+func (p *Provider) Init(ctx context.Context, args []string) error {
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
@@ -75,7 +75,7 @@ func (p *Provider) Init(args []string) error {
 	if region == "" || region == globalRegion {
 		return nil
 	}
-	name, err := lookUpRegion(project, region)
+	name, err := lookUpRegion(ctx, project, region)
 	if err != nil {
 		return fmt.Errorf("google: region %s of project %s: %w", region, project, err)
 	}
@@ -84,11 +84,11 @@ func (p *Provider) Init(args []string) error {
 }
 
 // lookUpRegion returns the name of region as the Compute Engine API knows
-// it in project.
-func lookUpRegion(project, region string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), regionLookupTimeout)
+// it in project, asking with ctx.
+func lookUpRegion(ctx context.Context, project, region string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, regionLookupTimeout)
 	defer cancel()
-	svc, err := compute.NewService(ctx, clientOptions()...)
+	svc, err := compute.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return "", err
 	}

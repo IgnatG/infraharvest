@@ -4,6 +4,7 @@
 package harvest
 
 import (
+	"context"
 	"reflect"
 	"testing"
 )
@@ -27,7 +28,7 @@ type registryProvider struct {
 	initialised bool
 }
 
-func (p *registryProvider) Init(args []string) error {
+func (p *registryProvider) Init(_ context.Context, args []string) error {
 	p.initialised = true
 	if len(args) > 0 {
 		p.region = args[0]
@@ -105,7 +106,7 @@ func TestRegistryCollectsByService(t *testing.T) {
 	m := NewRegistry(&registryProvider{})
 	for _, service := range []string{"vpc", "none", "subnet", "bad"} {
 		provider := m.Register(service)
-		if err := provider.Init([]string{"eu-west-1"}); err != nil {
+		if err := provider.Init(t.Context(), []string{"eu-west-1"}); err != nil {
 			t.Fatal(err)
 		}
 		if service == "bad" {

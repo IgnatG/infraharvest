@@ -113,8 +113,8 @@ type fakeProvider struct {
 	service *fakeService
 }
 
-func (p *fakeProvider) Init([]string) error { return nil }
-func (p *fakeProvider) Name() string        { return "fake" }
+func (p *fakeProvider) Init(context.Context, []string) error { return nil }
+func (p *fakeProvider) Name() string                         { return "fake" }
 func (p *fakeProvider) Selected() harvest.Lister {
 	return p.service
 }

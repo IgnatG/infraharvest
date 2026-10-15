@@ -45,7 +45,7 @@ func (g *IamLister) List() error {
 	}
 	project, _ := g.Settings()["project"].(string)
 	ctx := g.Context()
-	svc, err := cloudresourcemanager.NewService(ctx, clientOptions()...)
+	svc, err := cloudresourcemanager.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return err
 	}

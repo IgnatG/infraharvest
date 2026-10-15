@@ -28,12 +28,14 @@ const EndpointEnv = "INFRAHARVEST_GCP_ENDPOINT"
 // whose requests to each API go through ratelimit.Default (see
 // limitedClient), or, with EndpointEnv set, one that sends each
 // googleapis.com request to the emulator, keeping its path, such as
-// /compute/v1/projects/....
-func clientOptions() []option.ClientOption {
+// /compute/v1/projects/.... ctx is the context of the call that needs a
+// client, which the first one finds the credentials with (see
+// limitedClient).
+func clientOptions(ctx context.Context) []option.ClientOption {
 	if target := emulator(); target != nil {
 		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: ratelimit.Default().Transport(emulatorTransport{target: target})})}
 	}
-	if client := limitedClient(); client != nil {
+	if client := limitedClient(ctx); client != nil {
 		return []option.ClientOption{option.WithHTTPClient(client)}
 	}
 	return nil
@@ -48,12 +50,15 @@ var (
 // every Google Cloud API, that sends each API's requests through
 // ratelimit.Default: Google's quotas are per API and project. It is nil
 // if there are no credentials; each API client then looks for them itself
-// and fails the same way.
-func limitedClient() *http.Client {
+// and fails the same way. The first call finds the credentials with ctx.
+func limitedClient(ctx context.Context) *http.Client {
 	limitedOnce.Do(func() {
-		// Once for the process: it only finds the credentials. Each request
-		// takes its listing'"'"'s context.
-		client, _, err := htransport.NewClient(context.Background(), option.WithScopes("https://www.googleapis.com/auth/cloud-platform"))
+		// Once for the process: it only finds the credentials, and each
+		// request takes its listing's context. The client outlives ctx,
+		// whose listing may end first, and its token source keeps the
+		// context it was made with to refresh tokens: so it keeps ctx's
+		// values but not its cancellation or deadline.
+		client, _, err := htransport.NewClient(context.WithoutCancel(ctx), option.WithScopes("https://www.googleapis.com/auth/cloud-platform"))
 		if err != nil {
 			log.Printf("google: no default credentials for a rate-limited client: %v", err)
 			return

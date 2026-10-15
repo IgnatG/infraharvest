@@ -4,7 +4,9 @@
 package azure
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"maps"
 	"net/http"
 	"reflect"
@@ -83,7 +85,7 @@ func TestInitTakesTheScope(t *testing.T) {
 		{[]string{"", "sub-2"}, "sub-2", ""},
 	} {
 		p := &Provider{}
-		if err := p.Init(tc.args); err != nil {
+		if err := p.Init(t.Context(), tc.args); err != nil {
 			t.Fatalf("%q: %v", tc.args, err)
 		}
 		if p.subscriptionID != tc.subscription || p.resourceGroup != tc.resourceGroup {
@@ -102,7 +104,7 @@ func TestInitTakesTheScope(t *testing.T) {
 // auxiliary tenants too, through the subscription's limiter.
 func TestSignInClientOptions(t *testing.T) {
 	cfg := authConfig{subscriptionID: "sub-options", cloud: cloud.AzureChina, auxiliaryTenants: []string{"t1", "t2"}}
-	got, credential, options, err := signIn(cfg)
+	got, credential, options, err := signIn(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +125,18 @@ func TestSignInClientOptions(t *testing.T) {
 	}
 	if options.Transport == nil {
 		t.Error("no transport")
+	}
+}
+
+// The metadata request takes the caller's context, so an interrupt stops
+// it. Before the fix it ran under a context of its own, which only its
+// timeout ended.
+func TestSignInStopsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	cfg := authConfig{subscriptionID: "sub-cancelled", metadataHost: "management.stack.example"}
+	if _, _, _, err := signIn(ctx, cfg); !errors.Is(err, context.Canceled) {
+		t.Errorf("got %v, want %v", err, context.Canceled)
 	}
 }
 

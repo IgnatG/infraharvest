@@ -78,8 +78,9 @@ type Provider struct {
 // and, optionally, the subscription (args[1]), which otherwise comes from
 // ARM_SUBSCRIPTION_ID. It reads the ARM_* environment and builds the
 // credential; with no subscription it fails with errNoSubscription before
-// any request. A custom cloud's endpoints are read from its metadata host.
-func (p *Provider) Init(args []string) error {
+// any request. A custom cloud's endpoints are read from its metadata host,
+// with ctx.
+func (p *Provider) Init(ctx context.Context, args []string) error {
 	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
 		return err
@@ -90,7 +91,7 @@ func (p *Provider) Init(args []string) error {
 	if cfg.subscriptionID == "" {
 		return errNoSubscription
 	}
-	cfg, credential, options, err := signIn(cfg)
+	cfg, credential, options, err := signIn(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -109,13 +110,14 @@ func (p *Provider) Init(args []string) error {
 	return nil
 }
 
-// signIn completes cfg's cloud, reading a metadata host's endpoints when
-// cfg has one, and returns cfg so completed, the credential cfg signs in
-// with and the options of the Resource Manager clients. It sends no request
-// other than the metadata one: the credential signs in on its first token.
-func signIn(cfg authConfig) (authConfig, azcore.TokenCredential, *arm.ClientOptions, error) {
+// signIn completes cfg's cloud, reading a metadata host's endpoints with
+// ctx when cfg has one, and returns cfg so completed, the credential cfg
+// signs in with and the options of the Resource Manager clients. It sends
+// no request other than the metadata one: the credential signs in on its
+// first token.
+func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCredential, *arm.ClientOptions, error) {
 	if cfg.metadataHost != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), signInHTTPTimeout)
+		ctx, cancel := context.WithTimeout(ctx, signInHTTPTimeout)
 		defer cancel()
 		described, err := cloudFromMetadata(ctx, http.DefaultClient, cfg.metadataHost)
 		if err != nil {

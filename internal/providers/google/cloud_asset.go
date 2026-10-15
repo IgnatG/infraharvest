@@ -61,7 +61,7 @@ func (g *CloudAssetLister) List() error {
 		return nil
 	}
 	ctx := g.Context()
-	svc, err := cloudasset.NewService(ctx, clientOptions()...)
+	svc, err := cloudasset.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return err
 	}

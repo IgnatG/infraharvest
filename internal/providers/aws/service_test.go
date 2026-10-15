@@ -98,7 +98,7 @@ func TestTerraformEnv(t *testing.T) {
 
 	// Without --regions, the region the profile resolves to.
 	defaultRegion := &Provider{}
-	if err := defaultRegion.Init([]string{ProfileRegion, "prod"}); err != nil {
+	if err := defaultRegion.Init(t.Context(), []string{ProfileRegion, "prod"}); err != nil {
 		t.Fatal(err)
 	}
 	env, err = defaultRegion.TerraformEnv(t.Context())

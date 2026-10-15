@@ -18,7 +18,7 @@ import (
 // resourcemanager.folders.list on them, which roles/browser and
 // roles/viewer grant.
 func Projects(ctx context.Context, organization string, folders []string) ([]string, error) {
-	svc, err := cloudresourcemanager.NewService(ctx, clientOptions()...)
+	svc, err := cloudresourcemanager.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return nil, err
 	}

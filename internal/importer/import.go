@@ -226,7 +226,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 	discoverers := make([]discovery.Discoverer, 0, len(options.Services))
 	for _, service := range options.Services {
 		serviceProvider := registry.Register(service)
-		if err := serviceProvider.Init(args); err != nil {
+		if err := serviceProvider.Init(ctx, args); err != nil {
 			return nil, err
 		}
 		discoverers = append(discoverers, discovery.Service(service, serviceProvider, options.Verbose, filters))

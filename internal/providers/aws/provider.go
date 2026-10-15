@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -29,7 +30,7 @@ type Provider struct {
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
 // a role to assume (args[2]). It contacts nothing, so it never fails: the
 // credentials are resolved when the first service lists.
-func (p *Provider) Init(args []string) error {
+func (p *Provider) Init(_ context.Context, args []string) error {
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
