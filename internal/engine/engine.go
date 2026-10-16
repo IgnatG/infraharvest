@@ -330,6 +330,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, withoutRejected(literal, result.Rejected), &result.Rejected, &rejected); err != nil {
 		return nil, err
 	}
+	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, opts); err != nil {
+		return nil, err
+	}
 	if opts.secretValues != nil {
 		// Only the variables still declared: Terraform warns about others.
 		if err := opts.secretValues.write(result.Secrets); err != nil {

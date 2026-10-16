@@ -359,7 +359,8 @@ func changedAttributes(before, after, afterUnknown any) []string {
 // the imported objects: what must never be written into a file. A value
 // that is also the whole of an attribute the plan doesn't mark sensitive is
 // left out: it is public already, such as an SSM parameter (whose value
-// the provider always marks sensitive) holding a region name.
+// the provider always marks sensitive) holding a region name, and so is a
+// value publicSensitive says isn't secret, such as a String parameter's.
 func sensitiveValues(p *tfjson.Plan) []string {
 	if p == nil {
 		return nil
@@ -369,6 +370,9 @@ func sensitiveValues(p *tfjson.Plan) []string {
 		if rc.Change != nil {
 			collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
 			collectPublic(rc.Change.Before, rc.Change.BeforeSensitive, public)
+			if v, ok := publicValue(rc); ok {
+				public[v] = true
+			}
 		}
 	}
 	values := make([]string, 0, len(seen))
