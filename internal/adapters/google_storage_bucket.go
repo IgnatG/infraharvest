@@ -32,6 +32,15 @@ var GoogleStorageBucket = Adapter{
 	},
 	Outputs: []string{"bucket", "name", "url"},
 	Map:     mapGoogleStorageBucket,
+	// The module's variables' defaults, from its variables.tf.
+	Defaults: map[string]cty.Value{
+		"autoclass":                cty.False,
+		"bucket_policy_only":       cty.True,
+		"force_destroy":            cty.False,
+		"hierarchical_namespace":   cty.False,
+		"public_access_prevention": cty.StringVal("inherited"),
+		"versioning":               cty.True,
+	},
 }
 
 func mapGoogleStorageBucket(c Cluster) (*Call, error) {

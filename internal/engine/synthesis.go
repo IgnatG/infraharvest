@@ -520,6 +520,10 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 		}
 		block.Body().AppendNewline()
 		for _, arg := range t.call.Arguments {
+			// As a person would call the module: without its defaults.
+			if t.adapter.IsDefault(arg.Name, arg.Value) {
+				continue
+			}
 			block.Body().SetAttributeRaw(arg.Name, arg.Value)
 		}
 		for _, rn := range renames {

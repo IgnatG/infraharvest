@@ -18,6 +18,8 @@ Clusters of resources that a curated public module can manage move into a call o
 
 Azure Verified Modules' resource group, network security group, virtual network and storage modules manage their resources through `azapi_resource`. Imported into them, azapi plans an update of its own arguments (such as `retry` and `timeouts`) and of body properties the modules set to null, so they can't pass the zero-change check, and those resources stay in the root or a generated local module.
 
+A call leaves out the arguments that are the module's own defaults, as a person calling it would: the network module's `mtu = 0` or `bgp_best_path_selection_mode = "LEGACY"`, the bucket module's `force_destroy = false`.
+
 A module may set arguments the provider keeps only in state, such as the iam-role module's `force_detach_policies`. Import can't set those. The plan then updates them in state alone, and the verification gate lists those updates.
 
 A module may use a provider besides the root's: the network module creates networks through `google-beta`, and Azure Verified Modules declare `azapi`. Only a root that keeps such a call requires and configures that provider, like its own (the same project, region and labels setting, or the same subscription and cloud) and pins it as it pins its own.
