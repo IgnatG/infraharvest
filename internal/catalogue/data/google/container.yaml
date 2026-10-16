@@ -24,6 +24,9 @@ types:
     # replace the cluster. Both are computed, so the plan stays the same
     # without them. initial_node_count stays: the provider reads it back
     # and, unset, would plan to replace the cluster.
+    # So does enable_autopilot, which an Autopilot cluster sets and which
+    # can't change without replacing the cluster: GKE manages its node
+    # pools, which google_container_node_pool leaves out by default.
     omit: [node_pool, node_config]
   google_container_node_pool:
     inventory: { type: container.googleapis.com/NodePool }
@@ -32,10 +35,16 @@ types:
       - "{id}"
     # A node pool has no labels of its own: the cloud_asset service
     # records its cluster's as asset.parent_labels.<key>, when the search
-    # found the cluster too. The search doesn't say whether a cluster is
-    # Autopilot, whose pools GKE manages, but those it adds are nap-*.
+    # found the cluster too, and asset.parent_autopilot=true when the
+    # cluster is an Autopilot cluster, whose pools, its default pool among
+    # them, GKE manages, or unknown when the project's clusters couldn't
+    # be listed. The pools node auto-provisioning adds are nap-*.
     skip:
       - reason: GKE's node auto-provisioning creates it for the cluster's workloads and deletes it when they no longer need it
         attribute_prefixes: { asset.name: [nap-] }
       - reason: a node pool of a cluster Cloud Composer created, which it deletes with the environment; select it to import it
         attribute_prefixes: { asset.parent_labels.goog-composer-version: [composer-] }
+      - reason: a node pool of an Autopilot cluster, which GKE manages, creating and deleting its node pools itself
+        attributes: { asset.parent_autopilot: "true" }
+      - reason: GKE may manage it, as the project's clusters couldn't be listed to tell whether its cluster is an Autopilot cluster; select it to import it
+        attributes: { asset.parent_autopilot: unknown }
