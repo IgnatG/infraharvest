@@ -440,7 +440,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	}
 
 	changes := map[string]string{}
-	addresses := []string{"aws_eip.other", "aws_security_group.web", "module.main.aws_route.this[0]"}
+	addresses := []string{"aws_eip.other", "aws_security_group.web", "module.vpc.aws_route.this[0]"}
 	for _, m := range members {
 		changes[m] = changeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 		addresses = append(addresses, trials[0].moduleAddress(m))
@@ -455,15 +455,15 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	}
 	imports := squashed(readFile(t, dir, ImportsFileName))
 	for _, want := range []string{
-		`to = module.main.aws_route.this[0] id = "public_0.0.0.0/0"`,
-		`to = module.main.aws_eip.this["nat"] id = "nat"`,
+		`to = module.vpc.aws_route.this[0] id = "public_0.0.0.0/0"`,
+		`to = module.vpc.aws_eip.this["nat"] id = "nat"`,
 		`to = aws_eip.other id = "other"`,
 	} {
 		if !strings.Contains(imports, want) {
 			t.Errorf("imports.tf misses %q:\n%s", want, imports)
 		}
 	}
-	if root := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(root, "vpc_id = module.main.vpc_id") {
+	if root := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(root, "vpc_id = module.vpc.vpc_id") {
 		t.Errorf("generated.tf:\n%s", root)
 	}
 }

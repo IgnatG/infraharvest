@@ -169,3 +169,19 @@ func TestLabelledTidyKeepsTaken(t *testing.T) {
 		t.Errorf("got %+v,\nwant %+v", got, want)
 	}
 }
+
+// A module call around the only resource of its type is named after the
+// type: module "main" would say nothing, and a root with a VPC and a bucket
+// module would call them main and main_2.
+func TestCallName(t *testing.T) {
+	for address, want := range map[string]string{
+		"aws_vpc.main":       "vpc",
+		"aws_s3_bucket.main": "s3_bucket",
+		"aws_s3_bucket.logs": "logs",
+		"aws_vpc.main_2":     "main_2",
+	} {
+		if got := callName(address); got != want {
+			t.Errorf("callName(%q): got %q, want %q", address, got, want)
+		}
+	}
+}

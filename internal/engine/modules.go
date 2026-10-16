@@ -674,8 +674,9 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 	used := map[string]bool{}
 	for _, g := range groups {
 		for ci, c := range g.clusters {
-			// Named after the parent; unique across the root's module calls.
-			base := strings.SplitN(c.members[0].address, ".", 2)[1]
+			// Named after the parent (see callName); unique across the root's
+			// module calls.
+			base := callName(c.members[0].address)
 			call := base
 			for n := 2; used[call]; n++ {
 				call = fmt.Sprintf("%s_%d", base, n)

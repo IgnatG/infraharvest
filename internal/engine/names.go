@@ -249,3 +249,15 @@ func sharedPrefix(imports []Import) string {
 	}
 	return best
 }
+
+// callName is the name of a module call built around the resource at
+// address: the resource's label, or, for main, which says only that the
+// root has one resource of the type, the type without its provider, as in
+// module "vpc" for aws_vpc.main.
+func callName(address string) string {
+	resourceType, label, _ := strings.Cut(address, ".")
+	if _, rest, ok := strings.Cut(resourceType, "_"); ok && label == mainLabel {
+		return rest
+	}
+	return label
+}
