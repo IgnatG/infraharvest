@@ -18,6 +18,13 @@ types:
       # a rule can't test whether a label is there whatever its value.
       - reason: Cloud Composer creates it for an environment and deletes it with the environment; select it to import it
         attribute_prefixes: { labels.goog-composer-version: [composer-] }
+    # A cluster's node pools import as google_container_node_pool, so the
+    # cluster leaves them, and its default pool's node_config, to those:
+    # inline, they would have two owners, and a change to either would
+    # replace the cluster. Both are computed, so the plan stays the same
+    # without them. initial_node_count stays: the provider reads it back
+    # and, unset, would plan to replace the cluster.
+    omit: [node_pool, node_config]
   google_container_node_pool:
     inventory: { type: container.googleapis.com/NodePool }
     import_id:

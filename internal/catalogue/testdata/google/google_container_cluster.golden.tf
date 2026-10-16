@@ -16,3 +16,5 @@ import {
 }
 
 # projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke: left out by default, would import as "projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke": Cloud Composer creates it for an environment and deletes it with the environment; select it to import it
+
+# Left out of generated configuration: deletion_policy=DELETE, node_pool, node_config
