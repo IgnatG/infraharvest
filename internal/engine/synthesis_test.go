@@ -280,7 +280,7 @@ func TestMapClustersDeclines(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, _ := moduleRoot(t, tc.root)
-			trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil)
+			trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -288,6 +288,23 @@ func TestMapClustersDeclines(t *testing.T) {
 				t.Errorf("trials=%d declined=%+v", len(trials), declined)
 			}
 		})
+	}
+}
+
+// A reference to a string the module has no output for, such as an
+// alarm's queue name, becomes the string again: the call matters more.
+func TestMapClustersWritesStringsWithoutOutputs(t *testing.T) {
+	dir, _ := moduleRoot(t, strings.Replace(twoBuckets, "policy = aws_s3_bucket.logs.arn", "policy = aws_s3_bucket.logs.region", 1))
+	values := map[string]map[string]any{"aws_s3_bucket.logs": {"region": "eu-west-2"}}
+	trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil, values)
+	if err != nil || len(trials) != 2 || len(declined) != 0 {
+		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
+	}
+	if err := writeCalls(dir, trials, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, `policy = "eu-west-2"`) {
+		t.Errorf("generated.tf:\n%s", got)
 	}
 }
 
@@ -430,7 +447,7 @@ resource "aws_security_group" "web" {
 // direction, and the call imports what the module keeps separately.
 func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	dir, _ := moduleRoot(t, network)
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil)
+	trials, declined, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil, nil)
 	if err != nil || len(declined) != 0 || len(trials) != 1 {
 		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
 	}
@@ -472,7 +489,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 // doesn't match.
 func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
 	dir, _ := moduleRoot(t, network)
-	trials, _, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil)
+	trials, _, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil, nil)
 	if err != nil || len(trials) != 1 {
 		t.Fatal(trials, err)
 	}
@@ -505,7 +522,7 @@ func TestMapClustersLeavesWhatTheAdapterLeaves(t *testing.T) {
 		return call, nil
 	}
 	dir, _ := moduleRoot(t, network)
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{leaving}, nil)
+	trials, declined, err := mapClusters(dir, []adapters.Adapter{leaving}, nil, nil)
 	if err != nil || len(declined) != 0 || len(trials) != 1 {
 		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
 	}
@@ -568,7 +585,7 @@ resource "google_project_iam_member" "f" {
   project = "declined"
 }
 `)
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{grantsAdapter}, nil)
+	trials, declined, err := mapClusters(dir, []adapters.Adapter{grantsAdapter}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +620,7 @@ resource "google_project_iam_member" "b" {
 		}
 		return call, err
 	}
-	trials, _, err := mapClusters(dir, []adapters.Adapter{named}, Names{"module.grants": true})
+	trials, _, err := mapClusters(dir, []adapters.Adapter{named}, Names{"module.grants": true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

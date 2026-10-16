@@ -43,6 +43,10 @@ type trial struct {
 	name    string
 	cluster adapters.Cluster
 	call    *adapters.Call
+	// literals are the values of the members' attributes the module has no
+	// output for, which references to them become, by reference, as
+	// aws_sqs_queue.jobs.name: a module call matters more than they do.
+	literals map[string]string
 	// rejected is why the plan didn't accept the call.
 	rejected string
 }
@@ -75,7 +79,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 	if err != nil {
 		return nil, baseline, nil, err
 	}
-	trials, declined, err := mapClusters(dir, opts.Adapters, opts.Taken)
+	trials, declined, err := mapClusters(dir, opts.Adapters, opts.Taken, opts.values)
 	if err != nil || len(trials) == 0 {
 		return declined, baseline, nil, err
 	}
@@ -302,7 +306,7 @@ func rejections(trials []*trial) []ModuleCall {
 // anchor it refers to, if that cluster has no member of its type yet or
 // the type may repeat. It returns the clusters the adapters mapped and the
 // ones they declined.
-func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []ModuleCall, error) {
+func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[string]map[string]any) ([]*trial, []ModuleCall, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, nil, err
@@ -390,7 +394,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []
 				return nil, nil, fmt.Errorf("%s: %w", a.Source, err)
 			}
 			t.cluster.Members = slices.DeleteFunc(slices.Clone(c.Members), func(m adapters.Resource) bool { return slices.Contains(call.Left, m.Address()) })
-			if reason := unfollowable(t, resources); reason != "" {
+			if reason := unfollowable(t, resources, values); reason != "" {
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
@@ -436,8 +440,9 @@ func uniqueName(base string, used map[string]bool) string {
 
 // unfollowable returns why references to a trial's members, from the
 // resources that stay and from the call's own arguments, can't all become
-// references to the module's outputs, or "".
-func unfollowable(t *trial, resources []resourceBlock) string {
+// references to the module's outputs or, for a string the module has no
+// output for, its imported value in values (see trial.literals), or "".
+func unfollowable(t *trial, resources []resourceBlock, values map[string]map[string]any) string {
 	members := t.members()
 	var traversals []hcl.Traversal
 	for _, r := range resources {
@@ -461,9 +466,19 @@ func unfollowable(t *trial, resources []resourceBlock) string {
 			return fmt.Sprintf("a reference to the whole of %s", target)
 		}
 		attr, ok := tr[2].(hcl.TraverseAttr)
-		if !ok || t.call.Outputs[target][attr.Name] == "" {
-			return fmt.Sprintf("the module has no output for a reference to %s", hclwrite.TokensForTraversal(tr[:3]).Bytes())
+		if ok && t.call.Outputs[target][attr.Name] != "" {
+			continue
 		}
+		// A reference to a string the module has no output for becomes
+		// the string again.
+		if v, isString := values[target][attr.Name].(string); ok && isString && len(tr) == 3 {
+			if t.literals == nil {
+				t.literals = map[string]string{}
+			}
+			t.literals[target+"."+attr.Name] = v
+			continue
+		}
+		return fmt.Sprintf("the module has no output for a reference to %s", hclwrite.TokensForTraversal(tr[:3]).Bytes())
 	}
 	return ""
 }
@@ -497,6 +512,9 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 				}
 				renames = append(renames, rename{[]string{typ, name, attr}, replacement})
 			}
+		}
+		for reference, v := range t.literals {
+			renames = append(renames, rename{strings.Split(reference, "."), hclwrite.TokensForValue(cty.StringVal(v))})
 		}
 	}
 	for _, r := range generated.resources() {

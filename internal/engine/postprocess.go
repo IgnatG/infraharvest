@@ -119,6 +119,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	if len(opts.Adapters) > 0 {
 		// Module calls may update arguments import can't set.
 		var lists map[string]int
+		opts.values = values
 		if declined, *baseline, lists, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
 			return nil, err
 		}

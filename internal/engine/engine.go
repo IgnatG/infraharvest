@@ -186,6 +186,11 @@ type Options struct {
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
 	secretValues *secretValues
+
+	// values are the imported values, by address, which postProcess sets
+	// for synthesize: references to what a module call takes and has no
+	// output for become the values again (see trial.literals).
+	values map[string]map[string]any
 }
 
 // Generate writes opts.Config and an import block per resource into dir,

@@ -75,7 +75,7 @@ resource "aws_cloudfront_distribution" "web" {
 }
 `)
 
-	edited, err := addRootVariables(dir, otherRoots, awsARNs, Names{"var.app_role_arn": true}, map[string]int{"aws_security_group.web": 1})
+	edited, err := addRootVariables(dir, otherRoots, awsARNs, Names{"var.app_role_arn": true}, map[string]int{"aws_security_group.web": 2})
 	if err != nil || len(edited) != 4 || edited["aws_security_group.web"] {
 		t.Fatalf("want four resources edited, got %v, %v", edited, err)
 	}
@@ -96,7 +96,7 @@ resource "aws_cloudfront_distribution" "web" {
 		`function_name = "app"`,
 		`comment = "app"`,
 		`origin_id = "web"`,
-		// Skipped.
+		// Skipped at level 2.
 		`resource "aws_security_group" "web" { vpc_id = "vpc-0abc1234" }`,
 	} {
 		if !strings.Contains(got, want) {
