@@ -52,9 +52,19 @@ func TestEngineRunCombinesImports(t *testing.T) {
 	}
 }
 
+// A run that fails before it imports anything replaces an earlier run's
+// report with one that records the failure; one that doesn't fail writes
+// none.
 func TestEngineRunUnused(t *testing.T) {
 	out := t.TempDir()
 	want := errors.New("no credentials")
+	if err := os.MkdirAll(filepath.Join(out, report.Dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	earlier := []byte(`{"exit_code": 0}`)
+	if err := os.WriteFile(filepath.Join(out, report.Dir, "coverage.json"), earlier, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	err := NewRun().Do(func() error {
 		activeRun.options = Options{Out: out}
@@ -64,8 +74,27 @@ func TestEngineRunUnused(t *testing.T) {
 	if !errors.Is(err, want) {
 		t.Errorf("got %v, want %v", err, want)
 	}
-	if _, statErr := os.Stat(filepath.Join(out, report.Dir)); statErr == nil {
-		t.Error("report written though nothing was imported")
+	var coverage report.Report
+	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if err := json.Unmarshal(content, &coverage); err != nil {
+		t.Fatal(err)
+	}
+	if coverage.ExitCode != ExitCode(want) || len(coverage.Failures) != 1 || coverage.Failures[0] != want.Error() {
+		t.Errorf("coverage.json: exit code %d, failures %q; want %d and %q", coverage.ExitCode, coverage.Failures, ExitCode(want), want)
+	}
+
+	ok := filepath.Join(out, "ok")
+	if err := NewRun().Do(func() error {
+		activeRun.options = Options{Out: ok}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(ok, report.Dir)); statErr == nil {
+		t.Error("report written though nothing was imported or failed")
 	}
 }
 

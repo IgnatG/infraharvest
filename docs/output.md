@@ -137,6 +137,8 @@ To check generated roots again, for example after editing them, run `infraharves
 | 2 | The import couldn't run, for example without credentials or a Terraform binary |
 | 3 | Something couldn't be imported, `--allow-partial` is set, and the output has the rest |
 
+An import that can't run still writes its report, with the error and exit code 2, so that an earlier run's report isn't taken for its own.
+
 ## Repairs
 
 When the configuration Terraform generates doesn't validate, infraharvest fixes what Terraform rejects where that doesn't change its meaning, then plans again. It removes arguments that are unset in effect (zero values), arguments that duplicate another one (`subnets` next to `subnet_mapping` blocks), and nested blocks whose arguments are all null. Inside objects, it writes `null` for unset strings that Terraform generated as `""`.

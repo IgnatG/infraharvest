@@ -112,6 +112,11 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 // importInto imports into run. It returns an error only if the import
 // couldn't run; what couldn't be imported goes into run.
 func importInto(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
+	if !run.used {
+		// Should the import fail before it gets as far as the report, the
+		// run still writes one there, with the failure (see Run.finish).
+		run.options = options
+	}
 	binary := engineBinary(options.Engine)
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()

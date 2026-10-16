@@ -70,9 +70,12 @@ func (r *Run) recordFailure(options Options, err error) {
 
 // finish writes the run's report, prints it for --format json, and returns
 // err if the command couldn't run, or the error for what wasn't imported
-// (see checkFailures). A run no import used returns err as is.
+// (see checkFailures). A run no import used returns err as is, after
+// writing a report that records err if the import that failed had an
+// output directory, so that an earlier run's report isn't taken for this
+// one's.
 func (r *Run) finish(err error) error {
-	if !r.used {
+	if !r.used && (err == nil || r.options.Out == "" || r.options.Discover) {
 		return err
 	}
 	if r.options.Discover {
