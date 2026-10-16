@@ -108,7 +108,7 @@ func mapIAMRole(c Cluster) (*Call, error) {
 			if err := namedAfterRole(r, m, name); err != nil {
 				return nil, err
 			}
-			if err := sameAsRole(r, m, "path", path, hasPath); err != nil {
+			if err := samePath(r, m, path, hasPath); err != nil {
 				return nil, err
 			}
 			if err := sameAsRole(r, m, "tags", tags, hasTags); err != nil {
@@ -170,6 +170,29 @@ func sameAsRole(r *Reader, m Resource, arg string, role hclwrite.Tokens, roleHas
 		return Declinef("%s has another %s than the role, as the module sets it", m.Address(), arg)
 	}
 	return nil
+}
+
+// samePath declines a member whose path differs from the role's, which
+// the module sets for both: the root path, /, is the same as none, as the
+// catalogue leaves it out where it is the default.
+func samePath(r *Reader, m Resource, role hclwrite.Tokens, roleHas bool) error {
+	value, ok := r.Attr("path")
+	if ok && isRootPath(value) {
+		ok = false
+	}
+	if roleHas && isRootPath(role) {
+		roleHas = false
+	}
+	if ok != roleHas || (ok && !sameTokens(value, role)) {
+		return Declinef("%s has another path than the role, as the module sets it", m.Address())
+	}
+	return nil
+}
+
+// isRootPath reports whether an expression is the literal path "/".
+func isRootPath(tokens hclwrite.Tokens) bool {
+	path, ok := literalString(tokens)
+	return ok && path == "/"
 }
 
 func sameTokens(a, b hclwrite.Tokens) bool {

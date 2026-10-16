@@ -209,6 +209,7 @@ func TestVPCLeavesModuleDefaults(t *testing.T) {
 		`"shop-private-a"`, `"shop-private-us-east-1a"`,
 		`"shop-private-b"`, `"shop-private-us-east-1b"`,
 		"map_public_ip_on_launch = true", "map_public_ip_on_launch = false",
+		"map_public_ip_on_launch             = true", "map_public_ip_on_launch             = false",
 		`domain               = "vpc"`, "",
 	).Replace(vpcSource)
 	call, err := VPC.Map(cluster(t, source))

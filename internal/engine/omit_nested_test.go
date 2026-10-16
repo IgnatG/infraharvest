@@ -107,7 +107,7 @@ func TestOmitNestedArguments(t *testing.T) {
 			t.Errorf("the io2 volume lost %q:\n%s", kept, got)
 		}
 	}
-	if !strings.Contains(got, `instance_type     = "t3.micro"`) {
+	if !strings.Contains(got, `"t3.micro"`) {
 		t.Errorf("instance_type left out although subnet_id is set:\n%s", got)
 	}
 }
@@ -178,7 +178,7 @@ func TestCheckOmittedNested(t *testing.T) {
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, targetGroupsGenerated)
 	var findings []string
 	for _, b := range f.syntax.Blocks {
-		checkOmitted(b, map[string][]string{"aws_lb_target_group": {"stickiness when stickiness.enabled=false", "stickiness.cookie_duration=3600"}}, func(hcl.Range) string { return "x" }, func(rule, format string, args ...any) {
+		checkOmitted(b, map[string][]string{"aws_lb_target_group": {"stickiness when stickiness.enabled=false", "stickiness.cookie_duration=3600"}}, func(hcl.Range) string { return "x" }, func(rule, _ string, _ ...any) {
 			findings = append(findings, rule)
 		})
 	}

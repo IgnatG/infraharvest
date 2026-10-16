@@ -2,7 +2,9 @@
 provider: aws
 service: iam
 types:
-  aws_iam_instance_profile: {}
+  aws_iam_instance_profile:
+    # What a profile that doesn't set it gets.
+    defaults: [path=/]
   aws_iam_policy:
     data_source: { type: aws_iam_policy, argument: arn }
   aws_iam_role:

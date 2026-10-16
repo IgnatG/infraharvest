@@ -103,6 +103,25 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
 	}
 }
 
+// A role whose root path the catalogue left out maps with an instance
+// profile that still has it: / is the same as no path. Before, the profile
+// was declined for another path than the role's.
+func TestIAMRoleRootPathIsNoPath(t *testing.T) {
+	_, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "ci" {
+  assume_role_policy = "{}"
+  name               = "ci"
+}
+resource "aws_iam_instance_profile" "ci" {
+  name = "ci"
+  path = "/"
+  role = aws_iam_role.ci.name
+}
+`))
+	if err != nil {
+		t.Errorf("want the profile mapped, got %v", err)
+	}
+}
+
 // A role at the root path, with sessions of an hour, leaves both to the
 // module's defaults.
 func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
