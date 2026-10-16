@@ -65,7 +65,10 @@ var DefaultStores = Stores{S3: NewS3, GCS: NewGCS, AzureBlob: NewAzureBlob, HCPT
 // gs://bucket/prefix and https://<account>.blob.core.windows.net/
 // container/prefix, all of whose *.tfstate objects are read, and
 // tfc://organization/workspace, the current state of HCP Terraform
-// workspaces (see loadWorkspaces), from stores.
+// workspaces (see loadWorkspaces), from stores. A source that holds no
+// state, such as a directory without state files or a workspace pattern
+// that matches no workspace, fails: it is most likely mistyped, and
+// leaving out nothing would import what it manages a second time.
 func Load(ctx context.Context, sources []string, stores Stores) (Resources, error) {
 	r := Resources{}
 	for _, source := range sources {
@@ -191,10 +194,12 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	if err != nil {
 		return err
 	}
+	found := 0
 	for _, key := range keys {
 		if !strings.HasSuffix(key, ".tfstate") {
 			continue
 		}
+		found++
 		content, err := store.Get(ctx, bucket, key)
 		if err != nil {
 			return err
@@ -202,6 +207,9 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 		if err := r.Parse(content, base+key); err != nil {
 			return err
 		}
+	}
+	if found == 0 {
+		return errors.New("no .tfstate object under the prefix")
 	}
 	return nil
 }
@@ -223,6 +231,9 @@ func (r Resources) loadWorkspaces(ctx context.Context, source string, stores Sto
 	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
 		if names, err = store.List(ctx, organization, prefix); err != nil {
 			return err
+		}
+		if len(names) == 0 {
+			return fmt.Errorf("no workspace of organization %s has a name starting with %q", organization, prefix)
 		}
 	}
 	base := "tfc://" + organization + "/"
@@ -257,7 +268,8 @@ func (r Resources) loadLocal(source string) error {
 		}
 		return r.Parse(content, source)
 	}
-	return filepath.WalkDir(source, func(path string, d fs.DirEntry, err error) error {
+	found := 0
+	err = filepath.WalkDir(source, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -267,12 +279,17 @@ func (r Resources) loadLocal(source string) error {
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".tfstate") {
 			return nil
 		}
+		found++
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		return r.Parse(content, path)
 	})
+	if err == nil && found == 0 {
+		return errors.New("no .tfstate file in the directory, outside .terraform")
+	}
+	return err
 }
 
 // Parse adds the managed resources of a state file found at where, in
