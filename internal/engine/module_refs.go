@@ -31,6 +31,9 @@ func holdModule(root, path string, write func(string) error) (bool, error) {
 	defer moduleRefs.Unlock()
 	wrote := false
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return false, err
+		}
 		tmp, err := os.MkdirTemp(filepath.Dir(path), "."+filepath.Base(path)+"-")
 		if err != nil {
 			return false, err
