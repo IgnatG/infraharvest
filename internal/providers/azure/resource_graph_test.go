@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -425,5 +426,53 @@ func TestSavedSearchSolution(t *testing.T) {
 		if got := savedSearchSolution(tc.workspace, tc.name); got != tc.want {
 			t.Errorf("savedSearchSolution(%q, %q): got %q, want %q", tc.workspace, tc.name, got, tc.want)
 		}
+	}
+}
+
+// pseudoID is the ID aztft gives a resource azurerm models apart from the
+// one owner names, as populate does: owner's ID with kind and the base64
+// of target's ID after it.
+func pseudoID(t *testing.T, owner, kind, target string) armid.ResourceId {
+	t.Helper()
+	rid, err := armid.ParseResourceId(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := rid.Clone().(*armid.ScopedResourceId)
+	id.AttrTypes = append(id.AttrTypes, kind)
+	id.AttrNames = append(id.AttrNames, base64.StdEncoding.EncodeToString([]byte(target)))
+	return id
+}
+
+// An association aztft finds as part of a resource is named after that
+// resource, and the associated one where it can have several. Before, it
+// was named after the base64 of the associated resource's ID, which made
+// labels hundreds of characters long.
+func TestGraphNameOfAssociations(t *testing.T) {
+	const network = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.Network"
+	subnet := network + "/virtualNetworks/net1/subnets/app"
+	nic := network + "/networkInterfaces/vm1-nic"
+	for _, tc := range []struct {
+		id   armid.ResourceId
+		want string
+	}{
+		{pseudoID(t, subnet, "routeTables", network+"/routeTables/ih-sbx-rt"), "app"},
+		{pseudoID(t, subnet, "networkSecurityGroups", network+"/networkSecurityGroups/web"), "app"},
+		{pseudoID(t, nic, "networkSecurityGroups", network+"/networkSecurityGroups/web"), "vm1-nic"},
+		{pseudoID(t, nic+"/ipConfigurations/internal", "applicationSecurityGroups", network+"/applicationSecurityGroups/web"), "vm1-nic_web"},
+		{pseudoID(t, network+"/natGateways/gw", "publicIPAddresses", network+"/publicIPAddresses/gw-ip"), "gw_gw-ip"},
+	} {
+		got := mapping{types: []aztft.Type{{AzureId: tc.id, TFType: "azurerm_x"}}, ids: []string{"x"}}.records("x", nil)
+		if len(got) != 1 || got[0].RawName != tc.want {
+			t.Errorf("%s: got %+v, want the name %q", tc.id, got, tc.want)
+		}
+	}
+	// Other resources keep the last name in their ID.
+	rid, err := armid.ParseResourceId(subnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := graphName(rid); got != "app" {
+		t.Errorf("subnet: got %q, want app", got)
 	}
 }

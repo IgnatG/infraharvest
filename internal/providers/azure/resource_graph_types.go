@@ -6,6 +6,7 @@ package azure
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
@@ -51,9 +53,55 @@ func (m mapping) records(id string, attributes map[string]string) []harvest.Reso
 	}
 	resources := make([]harvest.Resource, 0, len(m.types))
 	for i, t := range m.types {
-		resources = append(resources, harvest.Record(m.ids[i], lastSegment(t.AzureId.String()), t.TFType, "azurerm", attributes))
+		resources = append(resources, harvest.Record(m.ids[i], graphName(t.AzureId), t.TFType, "azurerm", attributes))
 	}
 	return resources
+}
+
+// graphName is the name a resource that aztft maps is labelled by: the
+// last name in its Azure ID. A resource azurerm models apart from the one
+// it is part of, such as a subnet's route table association, has an ID
+// that ends with the base64 of the associated resource's ID (aztft's
+// "property-like" resources), which would make a label hundreds of
+// characters long. It is named after the resource it is part of instead,
+// the subnet (a network interface for its IP configurations), and, where
+// that resource can have several of the kind, after the associated
+// resource too: a NAT gateway's public IP is <gateway>_<ip>.
+func graphName(id armid.ResourceId) string {
+	names, types := id.Names(), id.Types()
+	n := len(names)
+	if n < 2 || len(types) != n {
+		return lastSegment(id.String())
+	}
+	target, ok := encodedID(names[n-1])
+	if !ok {
+		return names[n-1]
+	}
+	owner := n - 2
+	single := oneOfEachKind[strings.ToLower(types[owner])]
+	for owner > 0 && strings.EqualFold(types[owner], "ipConfigurations") {
+		owner--
+	}
+	if single {
+		return names[owner]
+	}
+	return names[owner] + "_" + lastSegment(target)
+}
+
+// oneOfEachKind are the Resource Manager types, in lower case, whose
+// resources have at most one association of each kind aztft finds: a
+// subnet has one route table, one network security group and one NAT
+// gateway; a network interface one network security group.
+var oneOfEachKind = map[string]bool{"subnets": true, "networkinterfaces": true}
+
+// encodedID returns the Azure resource ID that name is the base64 of, as
+// aztft writes it into the ID of an association, and whether it is one.
+func encodedID(name string) (string, bool) {
+	decoded, err := base64.StdEncoding.DecodeString(name)
+	if err != nil || !strings.HasPrefix(strings.ToLower(string(decoded)), "/subscriptions/") {
+		return "", false
+	}
+	return strings.TrimSuffix(string(decoded), "/"), true
 }
 
 // fromQuery maps id through query, which aztft answers. Once the import
