@@ -124,6 +124,9 @@ jobs:
     # One test, by its whole name: -run takes a pattern, and TestSandboxAWS
     # alone would match the clusters test too.
     - name: Round trip
+      env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
       run: |
         case "$SANDBOX_ESTATE" in
           main) test=TestSandboxAWS timeout=120m ;;

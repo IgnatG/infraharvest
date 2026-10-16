@@ -2,6 +2,8 @@
 
 These tests run infraharvest against local cloud emulators, so they need no cloud account and cost nothing. CI runs them on every pull request, except the sandbox tests, which run against a real AWS account, Azure subscription or Google Cloud project, and only by hand (see [AWS sandbox](#aws-sandbox-a-real-account), [Azure sandbox](#azure-sandbox-a-real-subscription) and [Google Cloud sandbox](#google-cloud-sandbox-a-real-project)).
 
+A test whose emulator or sandbox isn't set up skips. CI sets `INFRAHARVEST_E2E_REQUIRED=1`, which makes it fail instead, so a broken setup doesn't pass as a run that tested nothing.
+
 ## AWS (Floci)
 
 [`TestAWSRoundTrip`](aws_test.go) uses [Floci](https://github.com/floci-io/floci), an open-source AWS emulator:

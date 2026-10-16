@@ -103,6 +103,9 @@ jobs:
           echo "::warning::Resources in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $left"
         fi
     - name: Round trip
+      env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
       run: go test -tags e2e,sandbox,minimal,azure -run '^TestSandboxAzure$' -timeout 90m -v ./e2e/
     - name: Destroy the estate
       if: always()

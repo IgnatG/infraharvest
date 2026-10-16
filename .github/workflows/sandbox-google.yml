@@ -119,6 +119,8 @@ jobs:
         fi
     - name: Round trip
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         SANDBOX_GOOGLE_FIXTURE_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
         SANDBOX_GOOGLE_READONLY_CREDENTIALS: ${{ steps.readonly.outputs.credentials_file_path }}
       run: go test -tags e2e,sandbox,minimal,google -run '^TestSandboxGoogle$' -timeout 90m -v ./e2e/

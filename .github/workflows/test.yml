@@ -249,6 +249,8 @@ jobs:
       run: .github/scripts/free-disk-space.sh wait
     - name: Test
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         AWS_ENDPOINT_URL: http://localhost:4566
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
@@ -299,6 +301,8 @@ jobs:
         echo "floci-gcp didn't start"; exit 1
     - name: Test
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4588
         E2E_ENGINE: ${{ matrix.engine }}
       run: go test -tags e2e,minimal,google -timeout 20m -v -run TestGoogle ./e2e/
@@ -356,6 +360,8 @@ jobs:
         echo "floci-az didn't start"; exit 1
     - name: Test
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         E2E_AZURE_METADATA_HOST: localhost:4577
         E2E_ENGINE: ${{ matrix.engine }}
       run: go test -tags e2e,minimal,azure -timeout 20m -v -run TestAzure ./e2e/

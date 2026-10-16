@@ -145,7 +145,7 @@ func newSandbox(ctx context.Context, t *testing.T) *sandbox {
 		region:          os.Getenv("AWS_REGION"),
 	}
 	if s.fixtureProfile == "" || s.readonlyProfile == "" || s.region == "" {
-		t.Skip("SANDBOX_AWS_FIXTURE_PROFILE, SANDBOX_AWS_READONLY_PROFILE and AWS_REGION name a sandbox account; see the sandbox-aws workflow")
+		skipUnconfigured(t, "SANDBOX_AWS_FIXTURE_PROFILE, SANDBOX_AWS_READONLY_PROFILE and AWS_REGION name a sandbox account; see the sandbox-aws workflow")
 	}
 	if os.Getenv("AWS_ENDPOINT_URL") != "" {
 		t.Fatal("AWS_ENDPOINT_URL is set: the sandbox test runs against AWS, not an emulator")

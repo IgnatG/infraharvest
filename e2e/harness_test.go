@@ -231,6 +231,22 @@ func stateOnly(resourceType string, changed map[string]string) bool {
 	return true
 }
 
+// requiredEnv, when set, makes a test that has no emulator or sandbox to
+// run against fail instead of skipping. The CI jobs that run the e2e and
+// sandbox tests set it, so a broken setup can't pass as a run that tested
+// nothing; a local run without it still skips.
+const requiredEnv = "INFRAHARVEST_E2E_REQUIRED"
+
+// skipUnconfigured skips the test for reason, which says what to set, or
+// fails it when requiredEnv is set.
+func skipUnconfigured(t *testing.T, reason string) {
+	t.Helper()
+	if os.Getenv(requiredEnv) != "" {
+		t.Fatalf("%s (%s is set, so the test must run)", reason, requiredEnv)
+	}
+	t.Skip(reason)
+}
+
 func isLoopback(endpoint string) bool {
 	u, err := url.Parse(endpoint)
 	if err != nil {
