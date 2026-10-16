@@ -6,6 +6,7 @@ package cli
 import (
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -31,7 +32,7 @@ func newVerifyCmd() *cobra.Command {
 			if len(args) == 1 {
 				options.Out = args[0]
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return importer.Verify(ctx, options, cmd.OutOrStdout())
 		},

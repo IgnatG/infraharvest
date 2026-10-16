@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/hashicorp/hcl/v2"
@@ -683,11 +685,49 @@ type secretValues struct {
 }
 
 func newSecretValues() (*secretValues, error) {
-	dir, err := os.MkdirTemp("", "infraharvest-secrets-")
+	// What a run killed before it could remove its own goes, once per
+	// process.
+	removeStaleOnce.Do(func() { removeStaleSecretValues(os.TempDir(), time.Now().Add(-staleSecretsAge)) })
+	dir, err := os.MkdirTemp("", secretValuesPattern)
 	if err != nil {
 		return nil, err
 	}
 	return &secretValues{dir: dir}, nil
+}
+
+// The temporary directories of secretValues, and the file in each.
+const (
+	secretValuesPattern = "infraharvest-secrets-"
+	secretValuesFile    = "secrets.tfvars.json"
+)
+
+// staleSecretsAge is how old a secretValues directory is when no run uses
+// it any more: a run that was killed left it.
+const staleSecretsAge = 24 * time.Hour
+
+// removeStaleOnce has newSecretValues remove stale directories once per
+// process.
+var removeStaleOnce sync.Once
+
+// removeStaleSecretValues removes the secretValues directories in parent
+// that neither changed nor had their values file change since before.
+func removeStaleSecretValues(parent string, before time.Time) {
+	dirs, err := filepath.Glob(filepath.Join(parent, secretValuesPattern+"*"))
+	if err != nil {
+		return
+	}
+	for _, dir := range dirs {
+		stale := true
+		for _, path := range []string{dir, filepath.Join(dir, secretValuesFile)} {
+			info, err := os.Stat(path)
+			if err == nil && info.ModTime().After(before) {
+				stale = false
+			}
+		}
+		if info, err := os.Stat(dir); stale && err == nil && info.IsDir() {
+			_ = os.RemoveAll(dir)
+		}
+	}
 }
 
 // write replaces the file with the values of the secrets that have one.
@@ -706,7 +746,7 @@ func (s *secretValues) write(secrets []Secret) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(s.dir, "secrets.tfvars.json")
+	path := filepath.Join(s.dir, secretValuesFile)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		return err
 	}

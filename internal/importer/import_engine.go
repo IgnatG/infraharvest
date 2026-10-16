@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 
 	goversion "github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -118,7 +119,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.options = options
 	}
 	binary := engineBinary(options.Engine)
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Before the provider signs in: its clients take the rate.
