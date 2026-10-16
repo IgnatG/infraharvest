@@ -120,7 +120,9 @@ jobs:
         jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<< "$NEEDS" > /dev/null
 
   # Windows runners are slow to compile all providers, so test the packages
-  # with OS-specific behaviour (file modes, paths, home directory lookup).
+  # with OS-specific behaviour (file modes, paths, home directory lookup,
+  # output and selection files, the MCP server's path checks). The
+  # CLI builds with two providers, as in the race job.
   test-windows:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -135,7 +137,12 @@ jobs:
         go-version-file: go.mod
         cache: true
     - name: Test
-      run: go test ./internal/engine/... ./internal/harvest/... ./internal/fsutil/... ./internal/managed/... ./internal/providers/aws/... ./internal/providers/azure/...
+      run: >-
+        go test
+        ./internal/engine/... ./internal/harvest/... ./internal/fsutil/... ./internal/managed/... ./internal/providers/aws/... ./internal/providers/azure/...
+        ./internal/importer/... ./internal/config/... ./internal/selection/... ./internal/mcpserver/...
+    - name: Test the CLI
+      run: go test -tags minimal,aws,google ./internal/cli/...
 
   govulncheck:
     needs: changes
