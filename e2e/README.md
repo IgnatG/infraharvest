@@ -7,20 +7,22 @@ These tests run infraharvest against local cloud emulators, so they need no clou
 [`TestAWSRoundTrip`](aws_test.go) uses [Floci](https://github.com/floci-io/floci), an open-source AWS emulator:
 
 1. Terraform creates the resources in [`testdata/aws`](testdata/aws/main.tf) in Floci.
-2. `infraharvest import aws --all` imports them. A second run imports again from the selection file `infraharvest discover aws` writes, and must write the same files byte for byte.
+2. `infraharvest import aws --all` imports them.
 3. Terraform plans the generated configuration, with the secret variables set to the values from step 1. Every resource must be an import with no changes, no resource may be left out (`rejected.hcl`), and every resource type created in step 1 must be imported.
 
-Run it locally (needs Docker and Terraform >= 1.5; compiling uses a few GB of RAM):
+Two more tests import the same resources: `TestAWSSelection` imports again from the selection file `infraharvest discover aws` writes, which must give the same files as `--all` byte for byte, and `TestAWSIncremental` adds what a selection left out with `--incremental`. CI runs each on a runner of its own; run in one process, they share the resources the first one creates.
+
+Run them locally (needs Docker and Terraform >= 1.5; compiling uses a few GB of RAM):
 
 ```sh
 docker compose -f e2e/compose.yaml up -d --wait
-AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws -v ./e2e/
+AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws -timeout 40m -v ./e2e/
 docker compose -f e2e/compose.yaml down
 ```
 
 Set `E2E_ENGINE=tofu` to run the same test with OpenTofu >= 1.6 (`--engine=tofu`). CI runs it with both engines, because the output must work on both.
 
-The test doesn't delete what it creates, so restart Floci (`down`, then `up`) before running it again.
+The tests don't delete what they create, so restart Floci (`down`, then `up`) before running them again.
 
 The test uses test credentials and empty AWS config files, and refuses any `AWS_ENDPOINT_URL` other than localhost, so it never touches a real account.
 

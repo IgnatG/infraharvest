@@ -174,9 +174,10 @@ jobs:
   # engine and checks the generated configuration plans with no changes.
   # No AWS account or credentials are involved.
   # The same round trip with each engine: the output must work on both.
-  # TestAWSRoundTrip takes most of the time, so it runs on a runner of its
-  # own, with its own Floci; the other tests (TestAWSParallelAccounts, which
-  # creates its resources in other accounts) share a second one.
+  # The tests that seed testdata/aws (TestAWSRoundTrip, TestAWSSelection,
+  # TestAWSIncremental) take most of the time, so each runs on a runner of
+  # its own, with its own Floci; the other tests (TestAWSParallelAccounts,
+  # which creates its resources in other accounts) share a fourth one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
@@ -187,14 +188,20 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, others]
+        shard: [round-trip, selection, incremental, others]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
           skip: ""
+        - shard: selection
+          run: ^TestAWSSelection$
+          skip: ""
+        - shard: incremental
+          run: ^TestAWSIncremental$
+          skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWSRoundTrip$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:

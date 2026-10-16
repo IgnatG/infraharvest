@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,13 +46,29 @@ var awsServices = []string{
 	"vpc_endpoint",
 }
 
-// TestAWSRoundTrip creates resources in an AWS emulator, imports them with
-// Terraform (or OpenTofu with E2E_ENGINE=tofu) and checks the engine plans every
-// generated resource as an import with no changes. Run it against Floci:
-//
-//	docker compose -f e2e/compose.yaml up -d --wait
-//	AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws ./e2e/
-func TestAWSRoundTrip(t *testing.T) {
+// awsEstate is testdata/aws, created in the AWS emulator for one test,
+// and the engine that test imports it with.
+type awsEstate struct {
+	ctx                  context.Context
+	engineName, execPath string
+	pluginCache          string
+	state                []*tfjson.StateResource
+}
+
+// awsSeeded is what seedAWS created in this process. The emulator can't
+// create testdata/aws twice, so the tests run against one Floci share it;
+// CI runs each on a runner of its own, with a Floci of its own (see the
+// e2e-aws job).
+var awsSeeded struct {
+	sync.Mutex
+	state []*tfjson.StateResource
+}
+
+// seedAWS creates testdata/aws in the AWS emulator at AWS_ENDPOINT_URL,
+// with Terraform (or OpenTofu with E2E_ENGINE=tofu), unless an earlier test
+// did, skipping the test when there is no emulator.
+func seedAWS(t *testing.T) awsEstate {
+	t.Helper()
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
 		t.Skip("AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
@@ -62,25 +79,33 @@ func TestAWSRoundTrip(t *testing.T) {
 	isolateAWSConfig(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 	cache := t.TempDir()
 	engineName, binary := e2eEngine(t)
 	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
+	pluginCache := filepath.Join(cache, "plugins")
+	awsSeeded.Lock()
+	defer awsSeeded.Unlock()
+	if awsSeeded.state == nil {
+		awsSeeded.state = seed(ctx, t, "aws", execPath, pluginCache)
+	}
+	return awsEstate{ctx: ctx, engineName: engineName, execPath: execPath, pluginCache: pluginCache, state: awsSeeded.state}
+}
 
-	state := seed(ctx, t, "aws", execPath, filepath.Join(cache, "plugins"))
-
-	out := importAWS(ctx, t, engineName, execPath, "--all")
-
-	// discover lists everything into a selection file; importing what it
-	// selects must give the same files as --all, and importing the
-	// unchanged estate again the same files (G7).
-	selectionFile := discoverAWS(ctx, t, state)
-	checkManagedState(ctx, t, state)
-	checkAssumeRole(ctx, t, state)
-	again := importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile)
+// TestAWSSelection checks discover and what imports through its
+// selection file: discover lists everything into the file, importing what
+// it selects gives the same files as --all, as importing the unchanged
+// estate again must (G7), and --managed-state and --assume-role work.
+func TestAWSSelection(t *testing.T) {
+	e := seedAWS(t)
+	out := importAWS(e.ctx, t, e.engineName, e.execPath, "--all")
+	selectionFile := discoverAWS(e.ctx, t, e.state)
+	checkManagedState(e.ctx, t, e.state)
+	checkAssumeRole(e.ctx, t, e.state)
+	again := importAWS(e.ctx, t, e.engineName, e.execPath, "--selection="+selectionFile)
 	if first, second := outputFiles(t, out), outputFiles(t, again); !reflect.DeepEqual(first, second) {
 		for name, content := range first {
 			if second[name] != content {
@@ -91,13 +116,33 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("two imports wrote %d and %d files", len(first), len(second))
 		}
 	}
+}
+
+// TestAWSIncremental checks --incremental adds what an import through a
+// selection file left out to the roots it generated (see
+// checkIncremental).
+func TestAWSIncremental(t *testing.T) {
+	e := seedAWS(t)
+	checkIncremental(e.ctx, t, e.engineName, e.execPath, e.pluginCache, discoverAWS(e.ctx, t, e.state), e.state)
+}
+
+// TestAWSRoundTrip creates resources in an AWS emulator, imports them with
+// Terraform (or OpenTofu with E2E_ENGINE=tofu) and checks the engine plans every
+// generated resource as an import with no changes. Run it against Floci:
+//
+//	docker compose -f e2e/compose.yaml up -d --wait
+//	AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws ./e2e/
+func TestAWSRoundTrip(t *testing.T) {
+	e := seedAWS(t)
+	ctx, engineName, execPath, state := e.ctx, e.engineName, e.execPath, e.state
+
+	out := importAWS(ctx, t, engineName, execPath, "--all")
 	// Running again with --resume generates no root again: nothing changed.
 	before := generatedTimes(t, out)
 	importAWS(ctx, t, engineName, execPath, "--all", "--resume", "--out="+out)
 	if after := generatedTimes(t, out); !reflect.DeepEqual(before, after) {
 		t.Errorf("--resume generated roots again: %v, then %v", before, after)
 	}
-	checkIncremental(ctx, t, engineName, execPath, filepath.Join(cache, "plugins"), selectionFile, state)
 
 	readFile(t, filepath.Join(out, ".gitignore"))
 	var coverage report.Report
@@ -160,7 +205,7 @@ func TestAWSRoundTrip(t *testing.T) {
 		} else if content != lock {
 			t.Errorf("%s: %s differs from the other directories'", dir, engine.LockFileName)
 		}
-		for typ, n := range checkNoChanges(ctx, t, dir, execPath, filepath.Join(cache, "plugins"), secretValues(t, dir, state)) {
+		for typ, n := range checkNoChanges(ctx, t, dir, execPath, e.pluginCache, secretValues(t, dir, state)) {
 			imported[typ] += n
 		}
 	}
