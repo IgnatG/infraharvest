@@ -66,7 +66,31 @@ func sqlAdmin(t *testing.T) (server *httptest.Server, requested func() []string)
 	}
 }
 
+// newCloudSQL is a lister of region of the project acme, with none of the
+// instance lists of other tests kept: a server on the same port would
+// otherwise give a test another's.
 func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
+	t.Helper()
+	forgetSQLInstances(t)
+	return cloudSQLLister(t, region)
+}
+
+// forgetSQLInstances drops the instance lists the process has kept, now
+// and when the test ends.
+func forgetSQLInstances(t *testing.T) {
+	t.Helper()
+	forget := func() {
+		sqlInstanceLists.Lock()
+		sqlInstanceLists.byKey = map[string]*sqlInstanceList{}
+		sqlInstanceLists.Unlock()
+	}
+	forget()
+	t.Cleanup(forget)
+}
+
+// cloudSQLLister is a lister of region of the project acme, with the
+// test's context.
+func cloudSQLLister(t *testing.T, region string) *CloudSQLLister {
 	t.Helper()
 	g := &CloudSQLLister{}
 	g.Configure(harvest.ListerConfig{Provider: "google", Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: region}}})
@@ -121,6 +145,76 @@ func TestCloudSQLList(t *testing.T) {
 				t.Errorf("asked for the databases of %s", instance)
 			}
 		}
+	}
+}
+
+// The imports of a project's regions share one instance list, each taking
+// the instances in its region, also when they list at once. Before, each
+// listed every instance of the project again.
+func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
+	server, requested := sqlAdmin(t)
+	t.Setenv(EndpointEnv, server.URL)
+	forgetSQLInstances(t)
+
+	regions := []string{"us-central1", "europe-west1", "us-central1", "asia-east1"}
+	listers := make([]*CloudSQLLister, len(regions))
+	errs := make([]error, len(regions))
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		listers[i] = cloudSQLLister(t, region)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = listers[i].List()
+		}()
+	}
+	wg.Wait()
+
+	for i, want := range []int{4, 0, 4, 0} {
+		if errs[i] != nil {
+			t.Fatalf("%s: %v", regions[i], errs[i])
+		}
+		if got := len(listers[i].Resources); got != want {
+			t.Errorf("%s: got %d resources, want %d", regions[i], got, want)
+		}
+	}
+	lists := 0
+	for _, path := range requested() {
+		if path == "/v1/projects/acme/instances" {
+			lists++
+		}
+	}
+	// Both pages, once.
+	if lists != 2 {
+		t.Errorf("got %d instance list requests, want 2: %v", lists, requested())
+	}
+}
+
+// An instance list that fails isn't kept: the next import lists again.
+func TestCloudSQLListsAgainAfterAFailure(t *testing.T) {
+	server, _ := sqlAdmin(t)
+	var mu sync.Mutex
+	failing := true
+	failOnce := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		f := failing
+		failing = false
+		mu.Unlock()
+		if f {
+			http.Error(w, `{"error": {"message": "failed"}}`, http.StatusInternalServerError)
+			return
+		}
+		server.Config.Handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(failOnce.Close)
+	t.Setenv(EndpointEnv, failOnce.URL)
+
+	if err := newCloudSQL(t, "us-central1").List(); err == nil {
+		t.Fatal("the failed list succeeded")
+	}
+	g := cloudSQLLister(t, "us-central1")
+	if err := g.List(); err != nil || len(g.Resources) != 4 {
+		t.Errorf("after a failure: got %d resources, %v", len(g.Resources), err)
 	}
 }
 
