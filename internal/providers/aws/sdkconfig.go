@@ -14,8 +14,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go/logging"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	ihlogging "github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
@@ -159,8 +161,12 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 		options = append(options, config.WithRetryMaxAttempts(defaultMaxAttempts))
 	}
 	if s.Verbose() {
-		// Headers only: bodies can hold secrets.
-		options = append(options, config.WithClientLogMode(aws.LogRequest|aws.LogResponse|aws.LogRetries))
+		// Headers only: bodies can hold secrets. The headers hold the
+		// request's signature and session token, so those are redacted.
+		options = append(options,
+			config.WithClientLogMode(aws.LogRequest|aws.LogResponse|aws.LogRetries),
+			config.WithLogger(redactingLogger{logger: logging.NewStandardLogger(os.Stderr)}),
+		)
 	}
 	return options
 }
@@ -193,4 +199,16 @@ func (s *Service) baseCredentials() (aws.Credentials, error) {
 		return aws.Credentials{}, errors.New("no AWS credentials found")
 	}
 	return provider.Retrieve(s.Context())
+}
+
+// redactingLogger is the SDK's logger with --verbose: it logs what logger
+// would, with the credentials in the requests and responses the SDK logs
+// redacted (see logging.RedactHTTP).
+type redactingLogger struct {
+	logger logging.Logger
+}
+
+// Logf logs the formatted entry, redacted.
+func (l redactingLogger) Logf(classification logging.Classification, format string, v ...any) {
+	l.logger.Logf(classification, "%s", ihlogging.RedactHTTP(fmt.Sprintf(format, v...)))
 }
