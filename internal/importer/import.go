@@ -236,7 +236,7 @@ func checkLayout(layout string, envTags []string) error {
 	}
 	segments := strings.FieldsFunc(rest, func(r rune) bool { return r == '/' || r == '\\' })
 	if slices.Contains(segments, "..") {
-		return fmt.Errorf("--layout %q leads out of --out with ..", layout)
+		return fmt.Errorf("--layout %q leads out of --out through a .. segment", layout)
 	}
 	if len(envTags) > 0 && layout != DefaultLayout && !strings.Contains(layout, "{env}") {
 		return fmt.Errorf("--env-tags splits roots by environment, but --layout %q has no {env}: add it where the environment goes", layout)
