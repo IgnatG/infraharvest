@@ -99,7 +99,8 @@ func recordIamAttachment(name, arn string) string {
 // inline policies and policy attachments. It then lists instance profiles.
 // A page mixes users, groups, policies and roles, and the lister still
 // records them kind by kind. A user deleted before its access keys are
-// listed has them left out. No user, group or role is asked for its own
+// listed has them left out. Users and roles carry their tags, for the
+// default selection to see. No user, group or role is asked for its own
 // policies or groups.
 func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
@@ -126,12 +127,13 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 							recordIamAttachment("IAMReadOnlyAccess", recordIamAWS+"IAMReadOnlyAccess")))+`</GroupDetailList>`+
 					`<RoleDetailList>`+recordIamRole("app",
 					`<AssumeRolePolicyDocument>`+recordIamDocument+`</AssumeRolePolicyDocument>`+
+						`<Tags><member><Key>team</Key><Value>data</Value></member></Tags>`+
 						recordIamInline("RolePolicyList", "inline-sqs", "inline-sns")+
 						recordIamAttached(
 							recordIamAttachment("custom", recordIamCustomer+"custom"),
 							recordIamAttachment("AmazonS3ReadOnlyAccess", recordIamAWS+"AmazonS3ReadOnlyAccess")))+`</RoleDetailList>`+
 					`<Policies>`+recordIamPolicy("custom", "ANPA1")+`</Policies>`,
-				`<UserDetailList>`+recordIamUser("bob", "AIDABOB", "")+`</UserDetailList>`+
+				`<UserDetailList>`+recordIamUser("bob", "AIDABOB", `<Tags><member><Key>ManagedBy</Key><Value>Terraform</Value></member></Tags>`)+`</UserDetailList>`+
 					`<GroupDetailList>`+recordIamGroup("devs", recordIamInline("GroupPolicyList")+recordIamAttached())+`</GroupDetailList>`+
 					`<RoleDetailList>`+recordIamRole("AWSServiceRoleForSupport",
 					recordIamAttached(recordIamAttachment("AWSSupportServiceRolePolicy", recordIamAWS+"aws-service-role/AWSSupportServiceRolePolicy")))+`</RoleDetailList>`+
@@ -176,7 +178,7 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 			map[string]string{"user": "alice@example.com", "groups.#": "1", "groups.0": "devs"}},
 		recordedResource{"aws_iam_access_key", "AKIAALICE1", "AKIAALICE1", map[string]string{"user": "alice@example.com"}},
 		recordedResource{"aws_iam_access_key", "AKIAALICE2", "AKIAALICE2", map[string]string{"user": "alice@example.com"}},
-		recordedResource{"aws_iam_user", "bob", "bob", map[string]string{"force_destroy": "false"}},
+		recordedResource{"aws_iam_user", "bob", "bob", map[string]string{"force_destroy": "false", "tags.ManagedBy": "Terraform"}},
 
 		recordedResource{"aws_iam_group", "admins", "admins", nil},
 		recordedResource{"aws_iam_group_policy", "admins:admin-inline", "admins_admin-inline", nil},
@@ -192,7 +194,7 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 		recordedResource{"aws_iam_policy", recordIamCustomer + "custom", "custom", nil},
 		recordedResource{"aws_iam_policy", recordIamCustomer + "boundary", "boundary", nil},
 
-		recordedResource{"aws_iam_role", "app", "app", nil},
+		recordedResource{"aws_iam_role", "app", "app", map[string]string{"tags.team": "data"}},
 		recordedResource{"aws_iam_role_policy", "app:inline-sqs", "app_inline-sqs", nil},
 		recordedResource{"aws_iam_role_policy", "app:inline-sns", "app_inline-sns", nil},
 		recordedResource{"aws_iam_role_policy_attachment", "app/" + recordIamCustomer + "custom", "app_custom",

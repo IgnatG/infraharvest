@@ -139,7 +139,7 @@ func (g *IamLister) getAuthorizationDetails(client *iam.Client) (iamAuthorizatio
 func (g *IamLister) addUsers(client *iam.Client, users []iamtypes.UserDetail) error {
 	for _, user := range users {
 		name := aws.ToString(user.UserName)
-		g.add(name, name, "aws_iam_user", map[string]string{"force_destroy": "false"})
+		g.add(name, name, "aws_iam_user", withIamTags(map[string]string{"force_destroy": "false"}, user.Tags))
 		for _, policy := range user.UserPolicyList {
 			inline := aws.ToString(policy.PolicyName)
 			// A user name may hold an @, as an email address does; the
@@ -214,7 +214,7 @@ func (g *IamLister) addPolicies(policies []iamtypes.ManagedPolicyDetail) {
 func (g *IamLister) addRoles(roles []iamtypes.RoleDetail) {
 	for _, role := range roles {
 		name := aws.ToString(role.RoleName)
-		g.add(name, name, "aws_iam_role", nil)
+		g.add(name, name, "aws_iam_role", withIamTags(nil, role.Tags))
 		for _, policy := range role.RolePolicyList {
 			inline := aws.ToString(policy.PolicyName)
 			g.add(name+":"+inline, name+"_"+inline, "aws_iam_role_policy", nil)
@@ -237,4 +237,19 @@ func (g *IamLister) getInstanceProfiles(client *iam.Client) error {
 		}
 		return nil
 	})
+}
+
+// withIamTags adds an IAM user's or role's tags to attributes as
+// tags.<key>, which the authorization details carry at no extra call, so
+// that the default selection sees them before generating anything, such
+// as a ManagedBy tag (see engine.OwnedBy). It returns attributes, or a
+// new map when that is nil.
+func withIamTags(attributes map[string]string, tags []iamtypes.Tag) map[string]string {
+	if attributes == nil {
+		attributes = map[string]string{}
+	}
+	for _, tag := range tags {
+		attributes["tags."+aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	return attributes
 }
