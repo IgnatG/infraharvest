@@ -47,31 +47,55 @@ func (t referenceTarget) node() string {
 // argument is named after the resource's type, like an S3 bucket name in
 // bucket = "...". An argument that names a parent resource refers to it
 // too (see parentNames): resource_group_name =
-// azurerm_resource_group.main.name.
+// azurerm_resource_group.main.name. Beyond those, it finds what
+// identities does: short IDs, names and the other attributes that
+// identify a resource, and IDs inside longer strings.
 // It doesn't make a resource refer to itself or two resources refer to
 // each other, directly or not. It reports whether it changed anything.
 func addReferences(dir string, values map[string]map[string]any) (bool, error) {
-	index := referenceIndex(values)
-	parents := parentIndex(values)
-	if len(index) == 0 && len(parents.byName) == 0 {
-		return false, nil
-	}
+	edited, err := addReferencesSkipping(dir, values, nil)
+	return len(edited) > 0, err
+}
+
+// addReferencesSkipping is addReferences for the resources skip leaves
+// it: a resource at level 1 gets only the references of the index and
+// its parents, which identify the resource by its whole ID, ARN or name;
+// one at level 2 or more gets none (see verifyEach). It returns the
+// resources it changed.
+func addReferencesSkipping(dir string, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	g := dependencies{}
-	changed := false
-	for _, r := range generated.resources() {
-		if referenceAttributes(r.address, r.syntax.Body, r.write.Body(), index, parents, g, generated.src) {
-			changed = true
+	r := &resolver{
+		index:   referenceIndex(values),
+		parents: parentIndex(values),
+		ids:     identityIndex(values, writtenArguments(generated)),
+		g:       dependencies{},
+		src:     generated.src,
+	}
+	edited := map[string]bool{}
+	for _, res := range generated.resources() {
+		level := skip[res.address]
+		if level >= 2 {
+			continue
+		}
+		if r.attributes(res.address, res.syntax.Body, res.write.Body(), "", level == 0) {
+			edited[res.address] = true
 		}
 	}
-	if !changed {
-		return false, nil
+	if len(edited) == 0 {
+		return nil, nil
 	}
-	return true, generated.save()
+	return edited, generated.save()
 }
+
+// googleAPIs and computeAPIs start the self links of Google Compute Engine
+// resources, as the provider writes them and as some APIs return them.
+const (
+	googleAPIs  = "https://www.googleapis.com/compute/"
+	computeAPIs = "https://compute.googleapis.com/compute/"
+)
 
 // referenceIndex maps each id, ARN, self link, email and IAM member value,
 // such as a service account's serviceAccount:<email>, to the attributes
@@ -107,6 +131,14 @@ func referenceIndex(values map[string]map[string]any) map[string][]referenceTarg
 				attribute = "member"
 			}
 			index[v] = append(index[v], referenceTarget{address: address, attribute: attribute})
+			// Some Google APIs name a resource by its self link on the
+			// service's own host, as a DNS zone's network_url does:
+			// https://compute.googleapis.com/compute/v1/... for
+			// https://www.googleapis.com/compute/v1/...
+			if rest, ok := strings.CutPrefix(v, googleAPIs); ok && key == "self_link" {
+				alias := computeAPIs + rest
+				index[alias] = append(index[alias], referenceTarget{address: address, attribute: attribute})
+			}
 		}
 	}
 	for _, targets := range index {
@@ -194,58 +226,158 @@ func namedAfter(argument, address string) bool {
 	return argument == typ[strings.LastIndex(typ, "_")+1:]
 }
 
-// referenceAttributes replaces the literals in body, of the resource at
-// address, and in its nested blocks, with references to the resources of
-// index and parents. It records the references it adds in g and skips
-// those that would close a cycle.
-func referenceAttributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, index map[string][]referenceTarget, parents parentNames, g dependencies, src []byte) bool {
+// resolver finds the references that replace literals, recording each in
+// g, which rules out those that would close a cycle.
+type resolver struct {
+	index   map[string][]referenceTarget
+	parents parentNames
+	// ids, if set, finds what index and parents don't (see identities).
+	ids *identities
+	g   dependencies
+	src []byte
+}
+
+// resolve returns the reference that replaces value, of the argument name
+// of the resource at address, in its nested block block ("" at the top):
+// one of index or parents, else, if all is set, one ids finds. preferred
+// are the resources other arguments of the same block refer to, which
+// settle a value several resources share.
+func (r *resolver) resolve(address, name, block, value string, all bool, preferred map[string]bool) (replacement, bool) {
+	t, ok := uniqueTarget(name, value, r.index[value])
+	if !ok {
+		t, ok = r.parents.parent(address, name, value)
+	}
+	if ok {
+		if t.address == address || !r.g.add(address, t.node()) {
+			return nil, false
+		}
+		return replacement{{ref: &t}}, true
+	}
+	if !all || r.ids == nil {
+		return nil, false
+	}
+	rp, ok := r.ids.resolve(address, effectiveArgument(name, block), block == "", value, r.parents, preferred)
+	if !ok || !r.addAll(address, rp) {
+		return nil, false
+	}
+	return rp, true
+}
+
+// addAll records the references of rp from address, unless one would
+// close a cycle or refer to address itself, and reports whether it did.
+func (r *resolver) addAll(address string, rp replacement) bool {
+	nodes := rp.nodes()
+	for _, n := range nodes {
+		if n == address || r.g.reaches(n, address, map[string]bool{}) {
+			return false
+		}
+	}
+	for _, n := range nodes {
+		r.g.add(address, n)
+	}
+	return true
+}
+
+// unreferencedMaps are arguments whose maps hold no references: tags and
+// labels describe a resource, even where a value is another's ID.
+var unreferencedMaps = map[string]bool{"tags": true, "tags_all": true, "labels": true, "terraform_labels": true, "effective_labels": true, "default_tags": true}
+
+// attributes replaces the literals in body, of the resource at address,
+// in its nested block block ("" at the top), and in its nested blocks,
+// with references (see resolve). With all set, it also looks in maps,
+// such as an alarm's dimensions, by their keys, and gives an argument the
+// reference another argument of the block got for the same ID, as an API
+// Gateway method's cache_namespace, which is its resource_id. It reports
+// whether it changed anything.
+func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclwrite.Body, block string, all bool) bool {
 	changed := false
-	names := make([]string, 0, len(syntax.Attributes))
-	for name := range syntax.Attributes {
-		names = append(names, name)
+	preferred := map[string]bool{}
+	byValue := map[string]replacement{}
+	var unresolved []string
+	resolve := func(name, value string) (replacement, bool) {
+		rp, ok := r.resolve(address, name, block, value, all, preferred)
+		if ok {
+			for _, n := range rp.nodes() {
+				preferred[n] = true
+			}
+		}
+		return rp, ok
 	}
-	sort.Slice(names, func(i, j int) bool {
-		return syntax.Attributes[names[i]].SrcRange.Start.Byte < syntax.Attributes[names[j]].SrcRange.Start.Byte
-	})
-	target := func(argument, value string) (referenceTarget, bool) {
-		t, ok := uniqueTarget(argument, value, index[value])
+	tokens := func(name, value string) (hclwrite.Tokens, bool) {
+		rp, ok := resolve(name, value)
 		if !ok {
-			t, ok = parents.parent(address, argument, value)
+			return nil, false
 		}
-		if !ok || t.address == address {
-			return referenceTarget{}, false
-		}
-		return t, g.add(address, t.node())
+		return rp.tokens(), true
 	}
-	for _, name := range names {
+	for _, name := range attributeNames(syntax) {
 		switch expr := syntax.Attributes[name].Expr.(type) {
 		case *hclsyntax.TemplateExpr:
-			if v, ok := literalString(expr); ok {
-				if t, ok := target(name, v); ok {
-					body.SetAttributeTraversal(name, t.traversal())
-					changed = true
-				}
+			v, ok := literalString(expr)
+			if !ok {
+				continue
+			}
+			rp, ok := resolve(name, v)
+			if !ok {
+				unresolved = append(unresolved, name)
+				continue
+			}
+			body.SetAttributeRaw(name, rp.tokens())
+			changed = true
+			if t, single := rp.single(); single && idAttribute(t.attribute) && distinctive(v) {
+				byValue[v] = rp
 			}
 		case *hclsyntax.TupleConsExpr:
-			if tokens, ok := referenceTuple(name, expr, target, src); ok {
-				body.SetAttributeRaw(name, tokens)
+			if replaced, ok := referenceTuple(name, expr, tokens, r.src); ok {
+				body.SetAttributeRaw(name, replaced)
+				changed = true
+			}
+		case *hclsyntax.ObjectConsExpr:
+			if !all || unreferencedMaps[name] {
+				continue
+			}
+			byKey := func(key, value string) (hclwrite.Tokens, bool) { return tokens(snakeCase(key), value) }
+			if replaced, ok := referenceObject(expr, byKey, r.src); ok {
+				body.SetAttributeRaw(name, replaced)
+				changed = true
+			}
+		}
+	}
+	if all {
+		for _, name := range unresolved {
+			v, _ := literalString(syntax.Attributes[name].Expr.(*hclsyntax.TemplateExpr))
+			if rp, ok := byValue[v]; ok {
+				body.SetAttributeRaw(name, rp.tokens())
 				changed = true
 			}
 		}
 	}
 	blocks := body.Blocks()
 	for i, b := range syntax.Blocks {
-		if i < len(blocks) && referenceAttributes(address, b.Body, blocks[i].Body(), index, parents, g, src) {
+		if i < len(blocks) && r.attributes(address, b.Body, blocks[i].Body(), b.Type, all) {
 			changed = true
 		}
 	}
 	return changed
 }
 
+// attributeNames returns the names of body's attributes in the order they
+// are written.
+func attributeNames(body *hclsyntax.Body) []string {
+	names := make([]string, 0, len(body.Attributes))
+	for name := range body.Attributes {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		return body.Attributes[names[i]].SrcRange.Start.Byte < body.Attributes[names[j]].SrcRange.Start.Byte
+	})
+	return names
+}
+
 // referenceTuple rewrites a list with the string literals that are
 // references replaced, if any are, and those of its objects' attributes,
 // such as a route table's routes. Other elements stay as written in src.
-func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(argument, value string) (referenceTarget, bool), src []byte) (hclwrite.Tokens, bool) {
+func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(argument, value string) (hclwrite.Tokens, bool), src []byte) (hclwrite.Tokens, bool) {
 	elems := make([]hclwrite.Tokens, 0, len(expr.Exprs))
 	replaced := false
 	for _, e := range expr.Exprs {
@@ -258,8 +390,8 @@ func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(
 		}
 		if tmpl, ok := e.(*hclsyntax.TemplateExpr); ok {
 			if v, ok := literalString(tmpl); ok {
-				if t, ok := target(argument, v); ok {
-					elems = append(elems, hclwrite.TokensForTraversal(t.traversal()))
+				if tokens, ok := target(argument, v); ok {
+					elems = append(elems, tokens)
 					replaced = true
 				} else {
 					elems = append(elems, hclwrite.TokensForValue(cty.StringVal(v)))
@@ -282,7 +414,7 @@ func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(
 // referenceObject rewrites an object with the string literals of its
 // attributes that are references replaced, if any are, each as the
 // argument its key names. Other attributes stay as written in src.
-func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value string) (referenceTarget, bool), src []byte) (hclwrite.Tokens, bool) {
+func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value string) (hclwrite.Tokens, bool), src []byte) (hclwrite.Tokens, bool) {
 	attrs := make([]hclwrite.ObjectAttrTokens, 0, len(expr.Items))
 	replaced := false
 	asWritten := func(e hclsyntax.Expression) (hclwrite.Tokens, bool) {
@@ -299,8 +431,8 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 		}
 		if tmpl, ok := item.ValueExpr.(*hclsyntax.TemplateExpr); ok {
 			if v, ok := literalString(tmpl); ok {
-				if t, ok := target(hcl.ExprAsKeyword(item.KeyExpr), v); ok {
-					attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: hclwrite.TokensForTraversal(t.traversal())})
+				if tokens, ok := target(keyName(item.KeyExpr), v); ok {
+					attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: tokens})
 					replaced = true
 					continue
 				}
@@ -316,6 +448,18 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 		return nil, false
 	}
 	return hclwrite.TokensForObject(attrs), true
+}
+
+// keyName returns an object key as written: an identifier, or a string.
+func keyName(expr hclsyntax.Expression) string {
+	if name := hcl.ExprAsKeyword(expr); name != "" {
+		return name
+	}
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
+		return ""
+	}
+	return v.AsString()
 }
 
 func literalString(expr *hclsyntax.TemplateExpr) (string, bool) {
@@ -372,10 +516,14 @@ type parentNames struct {
 	byName map[string][]namedResource
 	// ids has every resource's ID, by address.
 	ids map[string]string
+	// groups are the Azure resource groups, with their locations.
+	groups []namedResource
 }
 
 type namedResource struct {
 	address, id string
+	// location is a resource group's.
+	location string
 }
 
 // parentIndex indexes the resources of values whose IDs are paths.
@@ -390,8 +538,32 @@ func parentIndex(values map[string]map[string]any) parentNames {
 		if name, _ := attrs["name"].(string); name != "" {
 			p.byName[name] = append(p.byName[name], namedResource{address: address, id: id})
 		}
+		if location, _ := attrs["location"].(string); location != "" && resourceTypeOf(address) == "azurerm_resource_group" {
+			p.groups = append(p.groups, namedResource{address: address, id: id, location: location})
+		}
 	}
 	return p
+}
+
+// location returns the resource group whose location value is, of the
+// resource at address, if the resource is in the group: its ID starts
+// with the group's, whatever the case. A resource elsewhere keeps its
+// location, even where it is the same.
+func (p parentNames) location(address, value string) (referenceTarget, bool) {
+	own := strings.ToLower(p.ids[address])
+	if own == "" {
+		return referenceTarget{}, false
+	}
+	var found []namedResource
+	for _, g := range p.groups {
+		if g.address != address && g.location == value && strings.HasPrefix(own, strings.ToLower(g.id)+"/") {
+			found = append(found, g)
+		}
+	}
+	if len(found) != 1 {
+		return referenceTarget{}, false
+	}
+	return referenceTarget{address: found[0].address, attribute: "location"}, true
 }
 
 // parent returns the resource an argument <type>_name of the resource at

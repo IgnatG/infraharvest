@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -19,19 +20,22 @@ const placeholderString = "infraharvest-placeholder"
 
 // postProcess improves the configuration once it plans, in this order:
 // the tags an import leaves out (see fillEffectiveTags), arguments that
-// only repeat a default (see stripDefaults),
-// references between resources (see addReferences) and to resources it
-// doesn't manage (see addDataSources), shared tags (see
-// applyTagLift) and repeated identifiers (see liftLiterals). Each step is
-// checked against the plan before it (see verify) and undone if the plan
-// changes. Secret variables get their values in these plans where Generate
-// found them, and placeholder values where Terraform doesn't show them. If the
+// only repeat a default (see stripDefaults), references between resources
+// (see addReferences), to resources it doesn't manage (see
+// addDataSources), to what other roots manage (see addRootVariables) and
+// to what the cloud or the provider defines (see addLookups), shared tags
+// (see applyTagLift) and repeated identifiers (see liftLiterals). Each
+// step is checked against the plan before it (see verify) and undone if
+// the plan changes; the references by resource (see verifyEach). Secret
+// variables get their values in these plans where Generate found them,
+// and placeholder values where Terraform doesn't show them. If the
 // configuration doesn't plan even so, only the literal lift is made,
 // checked by validation. Last, clusters of resources move into modules:
-// curated ones first (see synthesize), then, once the resources left in
-// the root no longer repeat what the provider sets (see omitInherited),
-// generated local ones (see liftModules). It returns the clusters it
-// didn't move into a curated module, with why.
+// curated ones first (see synthesize), whose list outputs then replace
+// the lists of all their elements (see collapseOutputLists), then, once
+// the resources left in the root no longer repeat what the provider sets
+// (see omitInherited), generated local ones (see liftModules). It returns
+// the clusters it didn't move into a curated module, with why.
 func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
 	vars := append(placeholders(secrets), opts.secretValues.options()...)
 	baseline, values, changes, err := planValues(ctx, tf, vars)
@@ -74,21 +78,40 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	type step struct {
 		files []string
 		edit  func() (bool, error)
+		// each, instead of edit, is checked by resource (see verifyEach).
+		each func(skip map[string]int) (map[string]bool, error)
 	}
-	steps := []step{{[]string{GeneratedFileName}, func() (bool, error) { return addReferences(dir, values) }}}
+	steps := []step{{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+		return addReferencesSkipping(dir, values, skip)
+	}}}
 	if len(opts.External) > 0 {
-		steps = append(steps, step{[]string{GeneratedFileName, DataFileName}, func() (bool, error) {
-			return addDataSources(dir, opts.External, opts.DataSources, opts.Taken)
+		steps = append(steps, step{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return addDataSourcesSkipping(dir, opts.External, opts.DataSources, opts.Taken, skip)
 		}})
 	}
+	// After the data sources: variables are for what they can't read.
+	if len(opts.OtherRoots) > 0 {
+		steps = append(steps, step{files: []string{GeneratedFileName, VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return addRootVariables(dir, opts.OtherRoots, opts.ARNs, opts.Taken, skip)
+		}})
+	}
+	steps = append(steps, step{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+		return addLookups(dir, opts.Taken, skip)
+	}})
 	// Tags before literals, so a tag value is never made a local.
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags
-		steps = append(steps, step{[]string{GeneratedFileName, ProvidersFileName, LocalsFileName}, func() (bool, error) { return applyTagLift(dir, dt) }})
+		steps = append(steps, step{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt) }})
 	}
-	steps = append(steps, step{[]string{GeneratedFileName, LocalsFileName}, func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
+	steps = append(steps, step{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
 	for _, step := range steps {
-		if _, err := verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...); err != nil {
+		var err error
+		if step.each != nil {
+			_, err = verifyEach(ctx, tf, dir, *baseline, changes, vars, step.each, step.files...)
+		} else {
+			_, err = verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -96,8 +119,18 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	var declined []ModuleCall
 	if len(opts.Adapters) > 0 {
 		// Module calls may update arguments import can't set.
-		if declined, *baseline, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
+		var lists map[string]int
+		opts.values = values
+		if declined, *baseline, lists, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
 			return nil, err
+		}
+		if len(lists) > 0 {
+			collapse := func() (bool, error) {
+				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
+			}
+			if _, err := verify(ctx, tf, dir, *baseline, vars, collapse, GeneratedFileName); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// After the curated modules, whose calls take the project from the
@@ -161,6 +194,96 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 		return true, nil
 	}
 	return false, backup.restore()
+}
+
+// maxEditRounds bounds how often verifyEach plans an edit.
+const maxEditRounds = 3
+
+// verifyEach makes edit, which changes files in dir by resource, and
+// keeps what the plan accepts of it: where a resource then plans
+// differently from changes, its planned change before the edit (see
+// changeSignature), or an error is about it, it makes edit again on the
+// files as they were, with that resource's level in skip raised, until
+// the plan, with vars, matches baseline. edit returns the resources it
+// changed. It undoes the edit if the plan differs in a way no resource it
+// changed explains, and reports whether it kept any of it.
+func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
+	backup, err := backupFiles(dir, files...)
+	if err != nil {
+		return false, err
+	}
+	skip := map[string]int{}
+	for round := 0; round < maxEditRounds; round++ {
+		if round > 0 {
+			if err := backup.restore(); err != nil {
+				return false, err
+			}
+		}
+		edited, err := edit(skip)
+		if err != nil {
+			// The edit may have changed some of the files before failing.
+			return false, errors.Join(err, backup.restore())
+		}
+		if len(edited) == 0 {
+			return false, backup.restore()
+		}
+		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+		if err != nil {
+			return false, errors.Join(err, backup.restore())
+		}
+		if len(diags) == 0 && summary != nil && *summary == baseline {
+			return true, nil
+		}
+		blamed, err := blame(dir, p, diags, changes)
+		if err != nil {
+			return false, errors.Join(err, backup.restore())
+		}
+		progress := false
+		for address := range blamed {
+			if edited[address] {
+				skip[address]++
+				progress = true
+			}
+		}
+		if !progress {
+			break
+		}
+	}
+	return false, backup.restore()
+}
+
+// blame returns the resources the plan's errors are about, or, without
+// errors, those of p that plan differently from changes. It returns none
+// if an error is about no resource.
+func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[string]string) (map[string]bool, error) {
+	blamed := map[string]bool{}
+	if len(diags) > 0 {
+		generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+		if err != nil {
+			return nil, err
+		}
+		imports, err := loadOptionalHCL(filepath.Join(dir, ImportsFileName))
+		if err != nil || imports == nil {
+			return nil, err
+		}
+		assigned, unassigned := byResource(diags, generated, imports)
+		if len(unassigned) > 0 {
+			return nil, nil
+		}
+		for address := range assigned {
+			blamed[address] = true
+		}
+		return blamed, nil
+	}
+	if p == nil {
+		return nil, nil
+	}
+	for _, rc := range p.ResourceChanges {
+		if rc.Mode == tfjson.ManagedResourceMode && rc.Change != nil && changeSignature(rc) != changes[rc.Address] {
+			blamed[rc.Address] = true
+		}
+	}
+	return blamed, nil
 }
 
 // planValues plans with vars and returns the plan's change summary, and

@@ -228,7 +228,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	}
 	sort.Strings(dirs)
 	for _, dir := range dirs {
-		dirOpts := withOtherRoots(opts, byDir, dir)
+		dirOpts := withOtherRoots(opts, byDir, dir, options.Out)
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
 			return err
@@ -311,6 +311,14 @@ func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *ro
 		opts.DataSources = map[string]engine.DataSource{}
 		for typ, d := range sources {
 			opts.DataSources[typ] = engine.DataSource{Type: d.Type, Argument: d.Argument}
+		}
+	}
+	for _, typ := range cat.Types() {
+		if e, ok := cat.Entry(typ); ok && e.ARN != nil {
+			if opts.ARNs == nil {
+				opts.ARNs = map[string]engine.ARN{}
+			}
+			opts.ARNs[typ] = engine.ARN{Service: e.ARN.Service, ResourceType: e.ARN.ResourceType}
 		}
 	}
 	if placeholders := cat.Placeholders(); len(placeholders) > 0 {
@@ -599,26 +607,33 @@ func importsByDir(dirName, providerName string, options Options, resourcesByServ
 }
 
 // withOtherRoots returns opts for the root in dir, with what the other
-// roots of the import manage as external: references to it read it, as
-// references between roots do.
-func withOtherRoots(opts engine.Options, byDir map[string][]engine.Import, dir string) engine.Options {
+// roots of the import, under the output directory out, manage as
+// external: references to it read it, as references between roots do,
+// or a variable says where it comes from.
+func withOtherRoots(opts engine.Options, byDir map[string][]engine.Import, dir, out string) engine.Options {
 	if len(byDir) < 2 {
 		return opts
 	}
 	dirOpts := opts
 	dirOpts.External = slices.Clone(opts.External)
+	dirOpts.OtherRoots = slices.Clone(opts.OtherRoots)
 	for other, imports := range byDir {
 		if other == dir {
 			continue
 		}
 		for _, imp := range imports {
 			dirOpts.External = append(dirOpts.External, engine.External{Type: imp.Type, ID: imp.ID})
+			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: relativePath(out, other)})
 		}
 	}
 	slices.SortFunc(dirOpts.External, func(a, b engine.External) int {
 		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID))
 	})
 	dirOpts.External = slices.Compact(dirOpts.External)
+	slices.SortFunc(dirOpts.OtherRoots, func(a, b engine.RootResource) int {
+		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID), strings.Compare(a.Root, b.Root), strings.Compare(a.Name, b.Name))
+	})
+	dirOpts.OtherRoots = slices.Compact(dirOpts.OtherRoots)
 	return dirOpts
 }
 

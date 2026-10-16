@@ -159,6 +159,12 @@ type Options struct {
 	// DataSources, by resource type (see addDataSources).
 	External    []External
 	DataSources map[string]DataSource
+	// OtherRoots are the resources the import's other roots manage: what
+	// no data source reads of them, the configuration refers to through
+	// variables (see addRootVariables). ARNs say, by resource type, how the
+	// ARNs of types whose IDs aren't ARNs name their resources.
+	OtherRoots []RootResource
+	ARNs       map[string]ARN
 	// Scanners run in the verification gate (see runScanners).
 	Scanners []Scanner
 	// Taken are names Generate leaves alone, such as those of the root an
@@ -180,6 +186,11 @@ type Options struct {
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
 	secretValues *secretValues
+
+	// values are the imported values, by address, which postProcess sets
+	// for synthesize: references to what a module call takes and has no
+	// output for become the values again (see trial.literals).
+	values map[string]map[string]any
 }
 
 // Generate writes opts.Config and an import block per resource into dir,

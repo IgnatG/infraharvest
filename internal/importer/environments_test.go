@@ -79,15 +79,23 @@ func TestWithOtherRoots(t *testing.T) {
 		"envs/staging": {{Type: "aws_s3_bucket", ID: "logs-staging"}, {Type: "aws_sqs_queue", ID: "https://sqs/jobs"}},
 	}
 	opts := engine.Options{External: []engine.External{{Type: "aws_vpc", ID: "vpc-1"}}}
-	got := withOtherRoots(opts, byDir, "envs/prod").External
+	dirOpts := withOtherRoots(opts, byDir, "envs/prod", "")
 	want := []engine.External{{Type: "aws_s3_bucket", ID: "logs-staging"}, {Type: "aws_sqs_queue", ID: "https://sqs/jobs"}, {Type: "aws_vpc", ID: "vpc-1"}}
-	if !reflect.DeepEqual(got, want) {
+	if got := dirOpts.External; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+	// And where they are, for the variables of what no data source reads.
+	wantRoots := []engine.RootResource{
+		{Type: "aws_s3_bucket", ID: "logs-staging", Name: "resource", Root: "envs/staging"},
+		{Type: "aws_sqs_queue", ID: "https://sqs/jobs", Name: "resource", Root: "envs/staging"},
+	}
+	if got := dirOpts.OtherRoots; !reflect.DeepEqual(got, wantRoots) {
+		t.Errorf("other roots: got %v, want %v", got, wantRoots)
 	}
 	if len(opts.External) != 1 {
 		t.Error("opts changed")
 	}
-	if one := withOtherRoots(opts, map[string][]engine.Import{"a": nil}, "a"); len(one.External) != 1 {
+	if one := withOtherRoots(opts, map[string][]engine.Import{"a": nil}, "a", ""); len(one.External) != 1 {
 		t.Errorf("one root: %v", one.External)
 	}
 }
