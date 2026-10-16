@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -31,8 +32,9 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 // by "type id", with the reason, that it takes asking AWS to find: the
 // default VPC and its subnets, route tables and internet gateways, default
 // security groups and the security groups EKS creates for clusters, with
-// their rules, which AWS creates itself; what CloudFormation stacks
-// manage, which would otherwise have two owners; what other accounts share;
+// their rules, and the KMS grants AWS services make for themselves, which
+// AWS creates itself; what CloudFormation stacks manage, which would
+// otherwise have two owners; what other accounts share;
 // and the targets Auto Scaling groups and ECS services register in their
 // target groups, which they register and deregister themselves. The
 // catalogue's skip rules leave out what IDs tell, such as service-linked
@@ -66,6 +68,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 			excluded[key] = reasonCloudFormation(stack)
 		}
 	}
+	excludeServiceGrants(resources, excluded)
 	sharedErr := p.excludeShared(ctx, config, resources, excluded)
 	targetsErr := p.excludeRegisteredTargets(ctx, config, resources, excluded)
 	stacksErr = errors.Join(stacksErr, sharedErr, targetsErr)
@@ -149,6 +152,35 @@ func (p *Provider) excludeShared(ctx context.Context, config aws.Config, resourc
 		}
 	}
 	return nil
+}
+
+// reasonServiceGrant is why the default selection leaves out a KMS grant
+// an AWS service makes for itself, as RDS and EBS do for the keys they
+// encrypt with: the service creates and retires it, and as every argument
+// of a grant forces a new one, replacing it could break decryption.
+func reasonServiceGrant(grantee string) string {
+	return "grant to " + grantee + ", which an AWS service makes for itself and manages"
+}
+
+// awsServiceGrantee reports whether a grant's grantee principal is an AWS
+// service: a service principal, such as rds.eu-west-2.amazonaws.com, or a
+// service-linked role, whose path is /aws-service-role/.
+func awsServiceGrantee(grantee string) bool {
+	return strings.HasSuffix(grantee, ".amazonaws.com") || strings.HasSuffix(grantee, ".amazonaws.com.cn") ||
+		strings.Contains(grantee, ":role/aws-service-role/")
+}
+
+// excludeServiceGrants adds to excluded the KMS grants of resources whose
+// grantee principal, which the kms lister records, is an AWS service.
+func excludeServiceGrants(resources []harvest.Resource, excluded map[string]string) {
+	for _, r := range resources {
+		if r.Address.Type != "aws_kms_grant" {
+			continue
+		}
+		if grantee := r.Observed.Attributes["grantee_principal"]; awsServiceGrantee(grantee) {
+			excluded[r.Address.Type+" "+r.Observed.ID] = reasonServiceGrant(grantee)
+		}
+	}
 }
 
 // defaultNetwork is what AWS creates on its own: default VPCs, their

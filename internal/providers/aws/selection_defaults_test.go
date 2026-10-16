@@ -195,3 +195,44 @@ func TestExcludeShared(t *testing.T) {
 		t.Errorf("without owners: %d calls, %v", calls, err)
 	}
 }
+
+// The KMS grants AWS services make for themselves, to a service principal
+// or a service-linked role, are left out, naming the grantee, without
+// asking AWS more than for the stacks; grants to other principals, or that
+// record none, stay.
+func TestExcludedByDefaultServiceGrants(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListStacks" {
+			return noStacks
+		}
+		return recordUnexpected(t, call)
+	})
+	p := &Provider{region: "eu-west-2"}
+	const key = "arn:aws:kms:eu-west-2:123456789012:key/k-1:"
+	grant := func(id, grantee string) harvest.Resource {
+		attributes := map[string]string{}
+		if grantee != "" {
+			attributes["grantee_principal"] = grantee
+		}
+		return harvest.Record(key+id, id, "aws_kms_grant", "aws", attributes)
+	}
+	const linkedRole = "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+
+	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+		grant("rds", "rds.eu-west-2.amazonaws.com"),
+		grant("linked", linkedRole),
+		grant("app", "arn:aws:iam::123456789012:role/app"),
+		grant("none", ""),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"aws_kms_grant " + key + "rds":    reasonServiceGrant("rds.eu-west-2.amazonaws.com"),
+		"aws_kms_grant " + key + "linked": reasonServiceGrant(linkedRole),
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+}

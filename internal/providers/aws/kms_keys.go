@@ -97,9 +97,11 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 
 // addGrants records the grants of the key keyID as aws_kms_grant, imported
 // as <the grant's key ID>:<grant ID>, where the grant's key ID is the key's
-// ARN. A grant is named after its name, or else after the key, keyName. A
-// failure to list them is logged and ends the key's grants there: the key
-// itself stays listed.
+// ARN, with the principal the grant gives to as grantee_principal, by which
+// the default selection leaves out the grants AWS services make for
+// themselves (see awsServiceGrantee). A grant is named after its name, or
+// else after the key, keyName. A failure to list them is logged and ends
+// the key's grants there: the key itself stays listed.
 func (l *kmsLister) addGrants(keyID, keyName string) {
 	pages := kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
@@ -110,7 +112,11 @@ func (l *kmsLister) addGrants(keyID, keyName string) {
 		}
 		for _, grant := range page.Grants {
 			id := aws.ToString(grant.KeyId) + ":" + aws.ToString(grant.GrantId)
-			l.g.Resources = append(l.g.Resources, harvest.RecordBare(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws"))
+			attributes := map[string]string{}
+			if grantee := cmp.Or(aws.ToString(grant.GranteePrincipal), aws.ToString(grant.GranteeServicePrincipal)); grantee != "" {
+				attributes["grantee_principal"] = grantee
+			}
+			l.g.Resources = append(l.g.Resources, harvest.Record(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws", attributes))
 		}
 	}
 }

@@ -26,7 +26,9 @@ var recordKmsKeys = map[string]string{
 // can't describe are left out; a key whose grants it can't list is still
 // listed. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
 // key ID is the key's ARN. A key is named after its alias, and a grant
-// after its name: before, they were labelled after their IDs. An AWS
+// after its name: before, they were labelled after their IDs. A grant
+// records its grantee principal, by which the default selection leaves out
+// the grants AWS services make for themselves. An AWS
 // managed alias, alias/aws/<service>, is left out without describing its
 // key, and so is that key when the keys are listed.
 func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
@@ -45,7 +47,7 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 			switch recordJSONField(call, "KeyId") {
 			case "k-app":
 				id, token := recordPage(call, "grant")
-				return fmt.Sprintf(`{"Grants":[{"KeyId":"%sk-app","GrantId":"%s","Name":"lambda"}],"NextMarker":"%s","Truncated":%t}`, recordKmsKeyARN, id, token, token != "")
+				return fmt.Sprintf(`{"Grants":[{"KeyId":"%sk-app","GrantId":"%s","Name":"lambda","GranteePrincipal":"arn:aws:iam::123456789012:role/app"}],"NextMarker":"%s","Truncated":%t}`, recordKmsKeyARN, id, token, token != "")
 			case "k-off":
 				return recordJSONError("AccessDeniedException")
 			}
@@ -71,8 +73,8 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_kms_key", "k-app", "app", map[string]string{"key_id": "k-app"}},
-		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-1", "lambda", nil},
-		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-2", "lambda", nil},
+		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-1", "lambda", map[string]string{"grantee_principal": "arn:aws:iam::123456789012:role/app"}},
+		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-2", "lambda", map[string]string{"grantee_principal": "arn:aws:iam::123456789012:role/app"}},
 		recordedResource{"aws_kms_key", "k-off", "off", map[string]string{"key_id": "k-off"}},
 		recordedResource{"aws_kms_alias", "alias/app", "alias/app", nil},
 		recordedResource{"aws_kms_alias", "alias/off", "alias/off", nil},
