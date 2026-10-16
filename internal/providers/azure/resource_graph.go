@@ -299,10 +299,10 @@ func childListFailed(e azlist.ListError) bool {
 		return !slices.ContainsFunc(shapeErrors, func(prefix string) bool { return strings.HasPrefix(e.Message, prefix) })
 	}
 	status, _ := strconv.Atoi(m[1])
-	switch {
-	case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusRequestTimeout, status == http.StatusTooManyRequests:
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooManyRequests:
 		return true
-	case status == http.StatusNotImplemented:
+	case http.StatusNotImplemented:
 		return false
 	}
 	return status >= http.StatusInternalServerError
