@@ -30,6 +30,39 @@ types:
       - reason: in a cloud-shell-storage-<region> resource group, which Cloud Shell creates for its file share
         ignore_case: true
         attribute_prefixes: { resource_group_name: [cloud-shell-storage-] }
+      - reason: in an AzureBackupRG_<region>_<n> resource group, which Azure Backup creates for the restore point collections of the virtual machines it backs up; select it to import it
+        ignore_case: true
+        attribute_prefixes: { resource_group_name: [AzureBackupRG_] }
+  azurerm_monitor_data_collection_rule:
+    skip:
+      - reason: the data collection rule AKS creates when Container insights (MSCI-<region>-<cluster>) or managed Prometheus (MSProm-<region>-<cluster>) is enabled on a cluster; select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [MSCI-, MSProm-] }
+  azurerm_monitor_data_collection_endpoint:
+    skip:
+      - reason: the data collection endpoint AKS creates when managed Prometheus is enabled on a cluster (MSProm-<region>-<cluster>); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [MSProm-] }
+  azurerm_monitor_alert_prometheus_rule_group:
+    skip:
+      - reason: a recording rule group AKS creates when managed Prometheus is enabled on a cluster, such as NodeRecordingRulesRuleGroup-<cluster>; select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [NodeRecordingRulesRuleGroup-, KubernetesRecordingRulesRuleGroup-, NodeAndKubernetesRecordingRulesRuleGroup-, UXRecordingRulesRuleGroup] }
+  azurerm_log_analytics_solution:
+    skip:
+      - reason: the solution Microsoft Defender for Cloud (SecurityCenterFree) or AKS Container insights (ContainerInsights) adds to a Log Analytics workspace; select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: ["SecurityCenterFree(", "ContainerInsights("] }
+  azurerm_virtual_machine_extension:
+    # The names the extensions are installed under, whole: Defender for
+    # Cloud and Azure Policy name them so on every machine they reach.
+    skip:
+      - reason: an extension Microsoft Defender for Cloud installs on the virtual machine (Defender for Endpoint, MDE.*, or its security agent); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [MDE.Linux, MDE.Windows, AzureSecurityLinuxAgent, AzureSecurityWindowsAgent] }
+      - reason: the guest configuration extension Azure Policy installs on the virtual machine (AzurePolicyforLinux, AzurePolicyforWindows); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [AzurePolicyforLinux, AzurePolicyforWindows] }
   azurerm_managed_disk:
     skip:
       - reason: the OS disk of a virtual machine, which the machine's os_disk block creates and manages; a data disk attached to a machine is imported

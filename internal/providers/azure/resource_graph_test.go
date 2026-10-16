@@ -298,6 +298,7 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 		listed(t, app, nil),
 		listed(t, app+"/providers/Microsoft.Network/virtualNetworks/net1", nil),
 		listed(t, sub+"/resourceGroups/DefaultResourceGroup-EUS/providers/Microsoft.OperationalInsights/workspaces/DefaultWorkspace-1-EUS", nil),
+		listed(t, sub+"/resourceGroups/AzureBackupRG_eastus_1", nil),
 	}
 	cat := catalogue.MustBuiltin("azurerm")
 	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
@@ -324,6 +325,27 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 			if a["managed_by"] != aks || a["resource_group_name"] != "MC_rg-aks_aks_eastus" {
 				t.Errorf("node resource group: %v", a)
 			}
+		}
+	}
+	// What Azure Backup puts in its group, and what Defender for Cloud,
+	// Azure Policy and AKS add to a user's groups, by the names they give.
+	for _, tc := range []struct{ typ, id string }{
+		{"azurerm_virtual_machine_restore_point_collection", sub + "/resourceGroups/AzureBackupRG_eastus_1/providers/Microsoft.Compute/restorePointCollections/AzureBackup_vm1_123"},
+		{"azurerm_virtual_machine_extension", app + "/providers/Microsoft.Compute/virtualMachines/vm1/extensions/MDE.Linux"},
+		{"azurerm_virtual_machine_extension", app + "/providers/Microsoft.Compute/virtualMachines/vm1/extensions/AzurePolicyforWindows"},
+		{"azurerm_monitor_data_collection_rule", app + "/providers/Microsoft.Insights/dataCollectionRules/MSCI-eastus-aks"},
+		{"azurerm_monitor_data_collection_endpoint", app + "/providers/Microsoft.Insights/dataCollectionEndpoints/MSProm-eastus-aks"},
+		{"azurerm_monitor_alert_prometheus_rule_group", app + "/providers/Microsoft.AlertsManagement/prometheusRuleGroups/KubernetesRecordingRulesRuleGroup-aks"},
+		{"azurerm_log_analytics_solution", app + "/providers/Microsoft.OperationsManagement/solutions/SecurityCenterFree(logs)"},
+		{"azurerm_log_analytics_solution", app + "/providers/Microsoft.OperationsManagement/solutions/ContainerInsights(logs)"},
+	} {
+		rid, err := armid.ParseResourceId(tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := graphAttributes(azlist.AzureResource{Id: rid}, listedOwners{})
+		if reason := cat.Skipped(tc.typ, tc.id, a); reason == "" {
+			t.Errorf("%s %s (%v): not skipped", tc.typ, tc.id, a)
 		}
 	}
 }

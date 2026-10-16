@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.Insights/dataCollectionRules/MSCI-eastus-aks", "name": "msci_eastus_aks", "attributes": {"name": "MSCI-eastus-aks", "resource_group_name": "rg-aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.Insights/dataCollectionRules/MSProm-eastus-aks", "name": "msprom_eastus_aks", "attributes": {"name": "MSProm-eastus-aks", "resource_group_name": "rg-aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.Insights/dataCollectionRules/syslog", "name": "syslog", "attributes": {"name": "syslog", "resource_group_name": "rg-aks"}}
+]}

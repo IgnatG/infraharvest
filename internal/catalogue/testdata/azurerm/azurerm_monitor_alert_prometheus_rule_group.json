@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.AlertsManagement/prometheusRuleGroups/NodeRecordingRulesRuleGroup-aks", "name": "node_recording_rules", "attributes": {"name": "NodeRecordingRulesRuleGroup-aks", "resource_group_name": "rg-aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.AlertsManagement/prometheusRuleGroups/KubernetesRecordingRulesRuleGroup-aks", "name": "kubernetes_recording_rules", "attributes": {"name": "KubernetesRecordingRulesRuleGroup-aks", "resource_group_name": "rg-aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.AlertsManagement/prometheusRuleGroups/NodeAndKubernetesRecordingRulesRuleGroup-Win-aks", "name": "windows_recording_rules", "attributes": {"name": "NodeAndKubernetesRecordingRulesRuleGroup-Win-aks", "resource_group_name": "rg-aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.AlertsManagement/prometheusRuleGroups/pod-alerts", "name": "pod_alerts", "attributes": {"name": "pod-alerts", "resource_group_name": "rg-aks"}}
+]}

@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1/extensions/MDE.Linux", "name": "mde_linux", "attributes": {"name": "MDE.Linux", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1/extensions/AzureSecurityLinuxAgent", "name": "azure_security_linux_agent", "attributes": {"name": "AzureSecurityLinuxAgent", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1/extensions/AzurePolicyforLinux", "name": "azure_policy_for_linux", "attributes": {"name": "AzurePolicyforLinux", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1/extensions/CustomScript", "name": "custom_script", "attributes": {"name": "CustomScript", "resource_group_name": "rg-app"}}
+]}

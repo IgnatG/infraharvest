@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.Insights/dataCollectionEndpoints/MSProm-eastus-aks", "name": "msprom_eastus_aks", "attributes": {"name": "MSProm-eastus-aks", "resource_group_name": "rg-aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.Insights/dataCollectionEndpoints/logs", "name": "logs", "attributes": {"name": "logs", "resource_group_name": "rg-aks"}}
+]}
