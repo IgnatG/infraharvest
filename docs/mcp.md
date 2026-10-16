@@ -18,7 +18,7 @@ Their parameters are named after the flags they set: `provider`, `services` and 
 
 A parameter the provider's command has no flag for, such as `regions` for Azure, is rejected with an error naming it, and so is a Google scope without `projects`, `organization` or `folders`. The user confirms an import seeing what it reads in these terms: the accounts and profile, the subscriptions and resource group, or the projects, organizations and folders, with the regions and services.
 
-The agent can propose a selection, but only a person can start an import. infraharvest reads the cloud and writes files; it never applies anything. To add the server to Claude Code:
+The agent can propose a selection, but only a person can start an import. The confirmation is for the selection file as it was when the user was asked: if the agent changes the file before the import runs, nothing is imported. The files the tools read and write stay under `--root` (default: the current directory), and a symbolic link under it that leads elsewhere is rejected. infraharvest reads the cloud and writes files; it never applies anything. To add the server to Claude Code:
 
 ```sh
 claude mcp add infraharvest -- infraharvest mcp

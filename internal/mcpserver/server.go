@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -78,7 +79,9 @@ type tools struct {
 }
 
 // within checks that path, which the agent chose, is under the root: an
-// agent may not read or write files anywhere else on the machine.
+// agent may not read or write files anywhere else on the machine. The path
+// has to be under it as written and where it leads, so a symbolic link
+// under the root to somewhere else doesn't take it out.
 func (t *tools) within(what, path string) error {
 	root, err := filepath.Abs(t.root)
 	if err != nil {
@@ -88,11 +91,69 @@ func (t *tools) within(what, path string) error {
 	if err != nil {
 		return err
 	}
-	rel, err := filepath.Rel(root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	resolvedRoot, err := resolve(root)
+	if err != nil {
+		return err
+	}
+	// Some systems take a ".." after a symbolic link up from where the
+	// link leads, and others, Windows, up from the link: path must stay
+	// under the root either way.
+	for _, p := range []string{path, abs} {
+		resolved, err := resolve(p)
+		if err != nil {
+			return err
+		}
+		if !under(resolvedRoot, resolved) {
+			return fmt.Errorf("%s %q must be under %s", what, path, root)
+		}
+	}
+	if !under(root, abs) {
 		return fmt.Errorf("%s %q must be under %s", what, path, root)
 	}
 	return nil
+}
+
+// under reports whether path is dir or under it; both are absolute.
+func under(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolve returns where path leads, absolute: each symbolic link in it
+// that exists is followed, and a ".." after one goes up from where the
+// link leads. The part that doesn't exist yet is kept as it is.
+func resolve(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		// Not filepath.Join, which would take a ".." up from the element
+		// before it rather than from where that leads.
+		path = wd + string(filepath.Separator) + path
+	}
+	volume := filepath.VolumeName(path)
+	current := volume + string(filepath.Separator)
+	parts := strings.FieldsFunc(path[len(volume):], func(r rune) bool { return r == '/' || r == filepath.Separator })
+	for _, part := range parts {
+		switch part {
+		case ".":
+		case "..":
+			current = filepath.Dir(current)
+		default:
+			next := filepath.Join(current, part)
+			resolved, err := filepath.EvalSymlinks(next)
+			switch {
+			case err == nil:
+				current = resolved
+			case errors.Is(err, fs.ErrNotExist):
+				current = next
+			default:
+				return "", err
+			}
+		}
+	}
+	return current, nil
 }
 
 // Scope is what to list: a provider command, its services, and where to
@@ -248,6 +309,10 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Incremental {
 		args = append(args, "--incremental")
 	}
+	content, err := os.ReadFile(in.Selection)
+	if err != nil {
+		return nil, nil, err
+	}
 	summary, err := summarize(in.Selection)
 	if err != nil {
 		return nil, nil, err
@@ -263,7 +328,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		message = fmt.Sprintf("Add the resources that %s includes (%d excluded) and that the roots in %s don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	}
-	state := confirmationState(args, summary)
+	state := confirmationState(args, content)
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {
 			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", strings.Join(args, " "))), nil, nil
@@ -305,13 +370,16 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 const confirmation = "confirm_import"
 
 // confirmationState identifies an import the user is asked to confirm:
-// its arguments and what its selection file includes.
-func confirmationState(args []string, summary *SelectionSummary) string {
+// its arguments and the whole content of its selection file, so an agent
+// can't change what is imported once the user has confirmed, even keeping
+// the counts the user was shown.
+func confirmationState(args []string, content []byte) string {
 	sum := sha256.New()
 	for _, a := range args {
 		fmt.Fprintf(sum, "%q\n", a)
 	}
-	fmt.Fprintf(sum, "%d %d\n", summary.Included, summary.Excluded)
+	selectionSum := sha256.Sum256(content)
+	fmt.Fprintf(sum, "selection %x\n", selectionSum)
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
