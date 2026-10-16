@@ -545,9 +545,10 @@ jobs:
       run: go vet ./...
 
   # A required check: passes when the other Go and Terraform checks passed,
-  # or were skipped.
+  # or were skipped. Not the fuzzing, which can find an input a pull request
+  # didn't bring: it reports on its own.
   checks:
-    needs: [changes, test-windows, govulncheck, fuzz, engine-integration, permissions, build-tags, darwin]
+    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
