@@ -61,23 +61,83 @@ types:
     # name; left out, the container keeps it. The override flag at its
     # default (true) needs a scope set, so it goes too: left out, it is
     # true anyway.
-    omit: ["default_encryption_scope=$account-encryption-key", "encryption_scope_override_enabled=true"]
+    # The access level and metadata at their defaults, private and none,
+    # are left out too.
+    omit: ["default_encryption_scope=$account-encryption-key", "encryption_scope_override_enabled=true", container_access_type=private, "metadata={}"]
   azurerm_route_table:
     # Each route is imported as an azurerm_route of its own: inline, the
     # table would manage the routes too, and the two fight, as azurerm
     # warns. route is optional and computed, so left out, the table keeps
     # its routes; route = [] would delete them.
-    omit: [route]
+    # BGP route propagation is on by default.
+    omit: [route, bgp_route_propagation_enabled=true]
   azurerm_virtual_network:
     # Each subnet is imported as an azurerm_subnet of its own: inline, the
     # network would manage the subnets too, and the two fight, as azurerm
     # warns; inline, Terraform also writes each subnet's id, which can't be
     # set. subnet is optional and computed, so left out, the network keeps
-    # its subnets; subnet = [] would delete them.
-    omit: [subnet]
+    # its subnets; subnet = [] would delete them. dns_servers = [] is what
+    # Azure reports for a network on Azure's DNS: it is optional and
+    # computed, so left out, the network keeps its DNS servers, and an
+    # azurerm_virtual_network_dns_servers resource, which would fight [],
+    # can manage them. Private endpoint network policies are off by
+    # default.
+    omit: [subnet, "dns_servers=[]", private_endpoint_vnet_policies=Disabled]
   azurerm_network_security_group:
     # Each rule is imported as an azurerm_network_security_rule of its own:
     # inline, the group would manage the rules too, and the two fight, as
     # azurerm warns. security_rule is optional and computed, so left out,
     # the group keeps its rules; security_rule = [] would delete them.
     omit: [security_rule]
+  # The arguments below are left out where they are set to azurerm 5's
+  # default, which the import's provider is: each is optional, with that
+  # default or computed from what Azure reports, so left out, the plan is
+  # the same. azurerm 4 had other names and defaults for some of them,
+  # such as a storage account's allow_nested_items_to_be_public, true in 4.
+  azurerm_subnet:
+    omit:
+      - default_outbound_access_enabled=true
+      - private_endpoint_network_policies=Disabled
+      - private_link_service_network_policies_enabled=true
+  azurerm_key_vault:
+    # access_policy = [] is what Azure reports for a vault that authorises
+    # through Azure RBAC, or whose policies are separate
+    # azurerm_key_vault_access_policy resources, which [] would delete:
+    # access_policy is optional and computed, so left out, the vault keeps
+    # its policies. So is network_acls, which Azure reports, with no rules,
+    # for a vault open to every network.
+    omit:
+      - "access_policy=[]"
+      - 'network_acls={bypass = "AzureServices", default_action = "Allow"}'
+      - public_network_access_enabled=true
+      - soft_delete_retention_days=90
+  azurerm_log_analytics_workspace:
+    # azurerm 5 replaced internet_ingestion_enabled and
+    # internet_query_enabled with the *_access_type arguments.
+    omit:
+      - allow_resource_only_permissions=true
+      - daily_quota_gb=-1
+      - internet_ingestion_access_type=Enabled
+      - internet_query_access_type=Enabled
+      - local_authentication_enabled=true
+      - retention_in_days=30
+      - sku=PerGB2018
+  azurerm_storage_account:
+    # public_network_access replaces public_network_access_enabled, which
+    # azurerm 5 still reads; the file share retention policy of 7 days is
+    # the one every account starts with.
+    omit:
+      - access_tier=Hot
+      - account_kind=StorageV2
+      - allow_nested_items_to_be_public=false
+      - dns_endpoint_type=Standard
+      - https_traffic_only_enabled=true
+      - large_file_share_enabled=false
+      - local_user_enabled=true
+      - min_tls_version=TLS1_2
+      - public_network_access=Enabled
+      - public_network_access_enabled=true
+      - queue_encryption_key_type=Service
+      - shared_access_key_enabled=true
+      - "share_properties={retention_policy = {days = 7}}"
+      - table_encryption_key_type=Service

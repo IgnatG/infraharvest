@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.OperationalInsights/workspaces/log-app", "name": "log_app", "attributes": {"name": "log-app", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.OperationalInsights/workspaces/log-audit", "name": "log_audit", "attributes": {"name": "log-audit", "resource_group_name": "rg-app"}}
+]}

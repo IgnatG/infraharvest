@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.KeyVault/vaults/kv-app", "name": "kv_app", "attributes": {"name": "kv-app", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.KeyVault/vaults/kv-ops", "name": "kv_ops", "attributes": {"name": "kv-ops", "resource_group_name": "rg-app"}}
+]}
