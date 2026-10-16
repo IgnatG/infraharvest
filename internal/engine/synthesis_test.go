@@ -130,7 +130,7 @@ func TestSynthesizeLeavesOutModuleDefaults(t *testing.T) {
 	withDefaults := testAdapter
 	withDefaults.Defaults = map[string]cty.Value{"bucket": cty.StringVal("logs")}
 
-	if _, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{withDefaults}}, changeSummary{}, rootChanges(), nil); err != nil {
+	if _, _, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{withDefaults}}, changeSummary{}, rootChanges(), nil); err != nil {
 		t.Fatal(err)
 	}
 	root := squashed(readFile(t, dir, GeneratedFileName))
