@@ -35,3 +35,14 @@ types:
       - reason: the Compute Engine or App Engine default service account's roles/editor, which Google Cloud grants it when it creates the account; select it to import it
         attributes: { role: roles/editor }
         attribute_suffixes: { member: ["-compute@developer.gserviceaccount.com", "@appspot.gserviceaccount.com"] }
+      - reason: the legacy Cloud Build service account's roles/cloudbuild.builds.builder, which Google Cloud grants it when the Cloud Build API is enabled; select it to import it
+        attributes: { role: roles/cloudbuild.builds.builder }
+        attribute_suffixes: { member: ["@cloudbuild.gserviceaccount.com"] }
+      - reason: the Pub/Sub service agent's roles/iam.serviceAccountTokenCreator, which Google Cloud granted it in projects that enabled Pub/Sub before April 2021; select it to import it
+        attributes: { role: roles/iam.serviceAccountTokenCreator }
+        attribute_prefixes: { member: ["serviceAccount:service-"] }
+        attribute_suffixes: { member: ["@gcp-sa-pubsub.iam.gserviceaccount.com"] }
+      # IAM keeps a deleted principal's grants, as deleted:<member>?uid=<id>,
+      # until they are removed or the principal is restored.
+      - reason: a grant to a deleted principal, which no longer has it; select it to import it
+        attribute_prefixes: { member: ["deleted:"] }

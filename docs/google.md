@@ -53,7 +53,7 @@ The last four list, each through its own API, what Cloud Asset Inventory doesn't
 
 `iam` lists only the IAM members, `dns` only the record sets and `cloudsql` only the databases. Service accounts, custom roles, DNS zones and Cloud SQL instances come from `cloud_asset`, so add `cloud_asset`, or use `*`, for those.
 
-The default selection leaves out the grants Google Cloud makes itself: a service agent role (`roles/pubsub.serviceAgent`, `roles/compute.instanceGroupManagerServiceAgent`, ...), which it grants a service's agent when the service is enabled, and `roles/editor` for the Google APIs service agent (`<number>@cloudservices.gserviceaccount.com`) and the Compute Engine and App Engine default service accounts. The selection file can include them.
+The default selection leaves out the grants Google Cloud makes itself: a service agent role (`roles/pubsub.serviceAgent`, `roles/compute.instanceGroupManagerServiceAgent`, ...), which it grants a service's agent when the service is enabled, and `roles/editor` for the Google APIs service agent (`<number>@cloudservices.gserviceaccount.com`) and the Compute Engine and App Engine default service accounts, `roles/cloudbuild.builds.builder` for the legacy Cloud Build service account (`<number>@cloudbuild.gserviceaccount.com`), and the `roles/iam.serviceAccountTokenCreator` older projects gave the Pub/Sub service agent. It also leaves out grants to deleted principals (`deleted:...`). The selection file can include them.
 
 ### Types that aren't listed
 
