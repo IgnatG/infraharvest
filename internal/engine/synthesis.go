@@ -387,16 +387,14 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				}
 			}
 			slices.SortFunc(c.Members, func(x, y adapters.Resource) int { return strings.Compare(x.Address(), y.Address()) })
-			// Members that all use one other configuration of the provider
-			// are mapped without it, and the call passes it to the module.
-			provider := sharedProvider(c)
-			if provider != nil {
-				setProvider(c, nil)
-			}
+			// Members that use another configuration of the provider are
+			// mapped without it, and the call passes it to the module.
+			provider, setting := sharedProvider(c)
+			setProvider(setting, nil)
 			call, err := a.Map(c)
 			t := &trial{adapter: a, cluster: c, call: call, provider: provider}
-			if err != nil && provider != nil {
-				setProvider(c, provider)
+			if err != nil {
+				setProvider(setting, provider)
 			}
 			if adapters.IsDecline(err) {
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: err.Error()})
@@ -406,10 +404,10 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				return nil, nil, fmt.Errorf("%s: %w", a.Source, err)
 			}
 			t.cluster.Members = slices.DeleteFunc(slices.Clone(c.Members), func(m adapters.Resource) bool { return slices.Contains(call.Left, m.Address()) })
+			// What the call leaves in the root keeps its configuration.
+			setProvider(slices.DeleteFunc(slices.Clone(setting), func(r adapters.Resource) bool { return !slices.Contains(call.Left, r.Address()) }), provider)
 			if reason := unfollowable(t, resources, values); reason != "" {
-				if provider != nil {
-					setProvider(c, provider)
-				}
+				setProvider(setting, provider)
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
@@ -963,29 +961,35 @@ func literalObject(tokens hclwrite.Tokens) (cty.Value, bool) {
 	return v, true
 }
 
-// sharedProvider returns the provider meta-argument every resource of a
-// cluster sets, such as aws.without_default_tags (see applyTagLift), or
-// nil if one sets none or they differ.
-func sharedProvider(c adapters.Cluster) hclwrite.Tokens {
+// sharedProvider returns the provider meta-argument that the resources of
+// a cluster which set one share, such as aws.without_default_tags (see
+// applyTagLift), and those resources; nil if none sets one, or two set
+// different ones. The call passes it to the module, so the others use it
+// too: those that take no tags, such as a bucket's versioning, plan the
+// same through either configuration; one the provider tags would lose
+// the default tags, which the plan then rejects.
+func sharedProvider(c adapters.Cluster) (hclwrite.Tokens, []adapters.Resource) {
 	var shared hclwrite.Tokens
+	var setting []adapters.Resource
 	for _, r := range append([]adapters.Resource{c.Anchor}, c.Members...) {
 		attr := r.Body.GetAttribute("provider")
 		if attr == nil {
-			return nil
+			continue
 		}
 		tokens := attr.Expr().BuildTokens(nil)
 		if shared != nil && strings.TrimSpace(string(tokens.Bytes())) != strings.TrimSpace(string(shared.Bytes())) {
-			return nil
+			return nil, nil
 		}
 		shared = tokens
+		setting = append(setting, r)
 	}
-	return shared
+	return shared, setting
 }
 
-// setProvider sets the provider meta-argument of every resource of a
-// cluster to provider, or removes it for nil.
-func setProvider(c adapters.Cluster, provider hclwrite.Tokens) {
-	for _, r := range append([]adapters.Resource{c.Anchor}, c.Members...) {
+// setProvider sets the provider meta-argument of resources to provider, or
+// removes it for nil.
+func setProvider(resources []adapters.Resource, provider hclwrite.Tokens) {
+	for _, r := range resources {
 		if provider == nil {
 			r.Body.RemoveAttribute("provider")
 		} else {
