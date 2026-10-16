@@ -5,11 +5,15 @@ package azure
 
 import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // NetworkInterfaceLister lists network interfaces as
 // azurerm_network_interface, in --resource-group when it is set, else in the
-// whole subscription.
+// whole subscription. An interface a private endpoint or a Private Link
+// service created is recorded with it, as resource_graph records it
+// (private_endpoint, private_link_service), so the catalogue leaves it out.
 type NetworkInterfaceLister struct {
 	Service
 }
@@ -37,7 +41,28 @@ func (az *NetworkInterfaceLister) List() error {
 		if nic.ID == nil || nic.Name == nil {
 			continue
 		}
-		az.recordBare(*nic.ID, *nic.Name, "azurerm_network_interface")
+		attributes := interfaceOwners(nic)
+		if len(attributes) == 0 {
+			az.recordBare(*nic.ID, *nic.Name, "azurerm_network_interface")
+			continue
+		}
+		az.Resources = append(az.Resources, harvest.Record(*nic.ID, *nic.Name, "azurerm_network_interface", az.Provider(), attributes))
 	}
 	return nil
+}
+
+// interfaceOwners returns the private endpoint and the Private Link
+// service that created nic, if one did, as private_endpoint and
+// private_link_service.
+func interfaceOwners(nic *armnetwork.Interface) map[string]string {
+	attributes := map[string]string{}
+	if p := nic.Properties; p != nil {
+		if p.PrivateEndpoint != nil && p.PrivateEndpoint.ID != nil && *p.PrivateEndpoint.ID != "" {
+			attributes["private_endpoint"] = *p.PrivateEndpoint.ID
+		}
+		if p.PrivateLinkService != nil && p.PrivateLinkService.ID != nil && *p.PrivateLinkService.ID != "" {
+			attributes["private_link_service"] = *p.PrivateLinkService.ID
+		}
+	}
+	return attributes
 }

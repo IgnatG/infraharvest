@@ -117,6 +117,30 @@ func TestVirtualNetworkListsTheResourceGroup(t *testing.T) {
 	}
 }
 
+// An interface a private endpoint or a Private Link service created is
+// recorded with it, as resource_graph records it; the others bare.
+func TestNetworkInterfaceRecordsItsEndpoint(t *testing.T) {
+	const network = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/"
+	transport := &fakeTransport{body: armList(
+		armItem(network+"networkInterfaces/pe.nic", "pe.nic", `{"privateEndpoint":{"id":"`+network+`privateEndpoints/pe"}}`),
+		armItem(network+"networkInterfaces/pls.nic", "pls.nic", `{"privateLinkService":{"id":"`+network+`privateLinkServices/pls"}}`),
+		armItem(network+"networkInterfaces/vm1-nic", "vm1-nic", `{"ipConfigurations":[]}`),
+	)}
+	g := &NetworkInterfaceLister{}
+	g.Configure(harvest.ListerConfig{Settings: fakeArgs(transport, "rg1")})
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+	want := []listedResource{
+		{Type: "azurerm_network_interface", ID: network + "networkInterfaces/pe.nic", Name: "pe.nic", Attributes: map[string]string{"private_endpoint": network + "privateEndpoints/pe"}},
+		{Type: "azurerm_network_interface", ID: network + "networkInterfaces/pls.nic", Name: "pls.nic", Attributes: map[string]string{"private_link_service": network + "privateLinkServices/pls"}},
+		{Type: "azurerm_network_interface", ID: network + "networkInterfaces/vm1-nic", Name: "vm1-nic"},
+	}
+	if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
 // Every lister asks for the resource-group-scoped list with
 // --resource-group (floci-az has no other) and for the subscription-wide one
 // without it, and lists children under the parent's own resource group.

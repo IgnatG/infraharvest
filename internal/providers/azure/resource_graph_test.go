@@ -389,6 +389,55 @@ func TestGraphResourcesKeepsAttachedDataDisks(t *testing.T) {
 	}
 }
 
+// The network interface of a private endpoint or a Private Link service
+// is recorded with it and left out: the endpoint or service creates and
+// deletes it. A virtual machine's interface is kept.
+func TestGraphResourcesSkipsPrivateEndpointInterfaces(t *testing.T) {
+	const network = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Network"
+	endpoint := network + "/privateEndpoints/pe-blob"
+	service := network + "/privateLinkServices/pls-app"
+	nic := func(property, id string) map[string]interface{} {
+		properties := map[string]interface{}{"ipConfigurations": []interface{}{}}
+		if property != "" {
+			properties[property] = map[string]interface{}{"id": id}
+		}
+		return map[string]interface{}{"properties": properties}
+	}
+	listedResources := []azlist.AzureResource{
+		listed(t, network+"/networkInterfaces/pe-blob.nic.1", nic("privateEndpoint", endpoint)),
+		listed(t, network+"/networkInterfaces/pls-app.nic.1", nic("privateLinkService", service)),
+		listed(t, network+"/networkInterfaces/vm1-nic", nic("", "")),
+	}
+	cat := catalogue.MustBuiltin("azurerm")
+	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
+		rid, _ := armid.ParseResourceId(id)
+		return []aztft.Type{{AzureId: rid, TFType: "azurerm_network_interface"}}, []string{id}, true, nil
+	})
+	want := map[string]map[string]string{
+		network + "/networkInterfaces/pe-blob.nic.1": {"private_endpoint": endpoint},
+		network + "/networkInterfaces/pls-app.nic.1": {"private_link_service": service},
+		network + "/networkInterfaces/vm1-nic":       nil,
+	}
+	if len(resources) != len(want) {
+		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(want), resources)
+	}
+	for _, r := range resources {
+		owners, ok := want[r.Observed.ID]
+		if !ok {
+			t.Errorf("unexpected %s", r.Observed.ID)
+			continue
+		}
+		for k, v := range owners {
+			if r.Observed.Attributes[k] != v {
+				t.Errorf("%s: %s = %q, want %q", r.Observed.ID, k, r.Observed.Attributes[k], v)
+			}
+		}
+		if reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); (owners != nil) != (reason != "") {
+			t.Errorf("%s (%v): skipped %q", r.Observed.ID, r.Observed.Attributes, reason)
+		}
+	}
+}
+
 // The tables and saved searches every Log Analytics workspace has built
 // in are recorded with what tells them apart, and the built-in skip rules
 // leave them out; a table whose plan or retention was changed, a custom

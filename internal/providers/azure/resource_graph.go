@@ -273,10 +273,12 @@ func managedResourceGroups(listed []azlist.AzureResource) map[string]string {
 	return groups
 }
 
-// The Resource Manager types of a virtual machine and a managed disk.
+// The Resource Manager types of a virtual machine, a managed disk and a
+// network interface.
 const (
-	virtualMachineType = "Microsoft.Compute/virtualMachines"
-	managedDiskType    = "Microsoft.Compute/disks"
+	virtualMachineType   = "Microsoft.Compute/virtualMachines"
+	managedDiskType      = "Microsoft.Compute/disks"
+	networkInterfaceType = "Microsoft.Network/networkInterfaces"
 )
 
 // machineOSDisks returns the listed virtual machines whose OS disk is a
@@ -407,10 +409,24 @@ const (
 //     <solution>(<workspace>)_..., such as the LogManagement searches
 //     every workspace has: the solution, and from_solution "true".
 //
+// and what tells a resource another one creates and deletes with itself:
+//
+//   - of a network interface: the private endpoint (private_endpoint) or
+//     Private Link service (private_link_service) that created it.
+//
 // Other resources get nothing.
 func builtInAttributes(res azlist.AzureResource, attributes map[string]string) {
 	properties, _ := res.Properties["properties"].(map[string]interface{})
 	switch typ := res.Id.TypeString(); {
+	case strings.EqualFold(typ, networkInterfaceType):
+		for property, attribute := range map[string]string{
+			"privateEndpoint":    "private_endpoint",
+			"privateLinkService": "private_link_service",
+		} {
+			if id := nestedString(properties, property, "id"); id != "" {
+				attributes[attribute] = id
+			}
+		}
 	case strings.EqualFold(typ, workspaceTableType):
 		if schema, ok := properties["schema"].(map[string]interface{}); ok {
 			if tableType, ok := schema["tableType"].(string); ok {

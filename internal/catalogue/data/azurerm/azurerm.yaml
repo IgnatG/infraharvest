@@ -6,7 +6,8 @@
 # virtual machine's OS disk, os_disk_of too, while a data disk attached to
 # a machine gets attached_to instead, see graphAttributes), and of a Log
 # Analytics workspace's tables and saved searches what tells the built-in
-# ones apart (see builtInAttributes in
+# ones apart, and the private endpoint or Private Link service a network
+# interface belongs to (see builtInAttributes in
 # internal/providers/azure/resource_graph.go). Azure names ignore case, so
 # the rules do too.
 provider: azurerm
@@ -34,6 +35,14 @@ types:
       - reason: the OS disk of a virtual machine, which the machine's os_disk block creates and manages; a data disk attached to a machine is imported
         ignore_case: true
         attribute_prefixes: { os_disk_of: [/subscriptions/] }
+  azurerm_network_interface:
+    skip:
+      - reason: the network interface Azure creates for a private endpoint, which the endpoint creates and deletes with itself
+        ignore_case: true
+        attribute_prefixes: { private_endpoint: [/subscriptions/] }
+      - reason: the network interface Azure creates for a Private Link service, which the service creates and deletes with itself
+        ignore_case: true
+        attribute_prefixes: { private_link_service: [/subscriptions/] }
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource
