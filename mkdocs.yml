@@ -66,6 +66,7 @@ nav:
       - Permissions: permissions.md
       - AI agents (MCP): mcp.md
       - Catalogue: catalogue.md
+      - Troubleshooting: troubleshooting.md
   - Clouds:
       - AWS: aws.md
       - Azure: azure.md
