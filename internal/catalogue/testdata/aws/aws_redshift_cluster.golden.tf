@@ -10,7 +10,7 @@ import {
   id = "ledger"
 }
 
-# Left out of generated configuration: region, tags_all, *.tags_all, kms_key_id=AWS_OWNED_KMS_KEY
+# Left out of generated configuration: region, tags_all, *.tags_all, master_password, kms_key_id=AWS_OWNED_KMS_KEY
 
 # Generated configuration, without the arguments the catalogue omits:
 resource "aws_redshift_cluster" "analytics" {
