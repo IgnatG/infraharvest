@@ -68,15 +68,16 @@ func (t *trial) moduleAddress(member string) string {
 // matches. A module may set the arguments opts.StateOnly names, which
 // import can't. Calls are named other than the modules in opts.Taken. It
 // returns the clusters it didn't move, with why, and the plan's change
-// summary with the calls it kept.
-func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, changeSummary, error) {
+// summary with the calls it kept, and the lengths of their list outputs
+// (see outputLists).
+func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, changeSummary, map[string]int, error) {
 	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName, ProvidersFileName, VersionsFileName)
 	if err != nil {
-		return nil, baseline, err
+		return nil, baseline, nil, err
 	}
 	trials, declined, err := mapClusters(dir, opts.Adapters, opts.Taken)
 	if err != nil || len(trials) == 0 {
-		return declined, baseline, err
+		return declined, baseline, nil, err
 	}
 	reject := func(reason string, ts ...*trial) {
 		for _, t := range ts {
@@ -86,7 +87,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 		}
 	}
 	if err := writeCalls(dir, trials, opts.ModuleProviders); err != nil {
-		return nil, baseline, errors.Join(err, backup.restore())
+		return nil, baseline, nil, errors.Join(err, backup.restore())
 	}
 	if err := initTerraform(ctx, tf); err != nil {
 		// Typically: the registry can't be reached.
@@ -99,15 +100,15 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 		}
 		if round > 0 {
 			if err := backup.restore(); err != nil {
-				return nil, baseline, err
+				return nil, baseline, nil, err
 			}
 			if err := writeCalls(dir, active, opts.ModuleProviders); err != nil {
-				return nil, baseline, errors.Join(err, backup.restore())
+				return nil, baseline, nil, errors.Join(err, backup.restore())
 			}
 		}
 		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
-			return nil, baseline, errors.Join(err, backup.restore())
+			return nil, baseline, nil, errors.Join(err, backup.restore())
 		}
 		if !judge(active, p, summary, diags, baseline, changes, opts.StateOnly) {
 			if len(activeTrials(trials)) == len(active) {
@@ -119,15 +120,15 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 			continue
 		}
 		if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
-			return nil, baseline, err
+			return nil, baseline, nil, err
 		}
-		return append(declined, rejections(trials)...), *summary, nil
+		return append(declined, rejections(trials)...), *summary, outputLists(active), nil
 	}
 	reject("the plan didn't settle", trials...)
 	if err := backup.restore(); err != nil {
-		return nil, baseline, err
+		return nil, baseline, nil, err
 	}
-	return append(declined, rejections(trials)...), baseline, nil
+	return append(declined, rejections(trials)...), baseline, nil, nil
 }
 
 func activeTrials(trials []*trial) []*trial {

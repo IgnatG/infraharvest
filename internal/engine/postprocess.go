@@ -20,19 +20,20 @@ const placeholderString = "infraharvest-placeholder"
 
 // postProcess improves the configuration once it plans, in this order:
 // the tags an import leaves out (see fillEffectiveTags), arguments that
-// only repeat a default (see stripDefaults),
-// references between resources (see addReferences), to resources it
-// doesn't manage (see addDataSources), to what other roots manage (see
-// addRootVariables) and to what the cloud or the provider defines (see
-// addLookups), shared tags (see applyTagLift) and
-// repeated identifiers (see liftLiterals). Each step is checked against
-// the plan before it (see verify) and undone if the plan changes; the
-// references, by resource (see verifyEach). Secret variables get placeholder values in these plans. If the
-// configuration doesn't plan even so, only the literal lift is made,
-// checked by validation. Last, clusters of resources move into modules:
-// curated ones first (see synthesize), then, once the resources left in
-// the root no longer repeat what the provider sets (see omitInherited),
-// generated local ones (see liftModules). It returns the clusters it
+// only repeat a default (see stripDefaults), references between resources
+// (see addReferences), to resources it doesn't manage (see
+// addDataSources), to what other roots manage (see addRootVariables) and
+// to what the cloud or the provider defines (see addLookups), shared tags
+// (see applyTagLift) and repeated identifiers (see liftLiterals). Each
+// step is checked against the plan before it (see verify) and undone if
+// the plan changes; the references by resource (see verifyEach). Secret
+// variables get placeholder values in these plans. If the configuration
+// doesn't plan even so, only the literal lift is made, checked by
+// validation. Last, clusters of resources move into modules: curated ones
+// first (see synthesize), whose list outputs then replace the lists of
+// all their elements (see collapseOutputLists), then, once the resources
+// left in the root no longer repeat what the provider sets (see
+// omitInherited), generated local ones (see liftModules). It returns the clusters it
 // didn't move into a curated module, with why.
 func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
 	vars := append(placeholders(secrets), opts.secretValues.options()...)
@@ -117,8 +118,17 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	var declined []ModuleCall
 	if len(opts.Adapters) > 0 {
 		// Module calls may update arguments import can't set.
-		if declined, *baseline, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
+		var lists map[string]int
+		if declined, *baseline, lists, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
 			return nil, err
+		}
+		if len(lists) > 0 {
+			collapse := func() (bool, error) {
+				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
+			}
+			if _, err := verify(ctx, tf, dir, *baseline, vars, collapse, GeneratedFileName); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// After the curated modules, whose calls take the project from the

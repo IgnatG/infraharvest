@@ -20,6 +20,8 @@ Azure Verified Modules' resource group, network security group, virtual network 
 
 A call leaves out the arguments that are the module's own defaults, as a person calling it would: the network module's `mtu = 0` or `bgp_best_path_selection_mode = "LEGACY"`, the bucket module's `force_destroy = false`.
 
+References to the resources a call takes use the module's outputs: `vpc_id = module.vpc.vpc_id`, `subnet_id = module.vpc.public_subnets[0]`. A list of every element of a list output becomes the output, `subnets = module.vpc.public_subnets`: in any order where the argument is a set, as a load balancer's `subnets` and an Auto Scaling group's `vpc_zone_identifier` are, and otherwise only in the output's order. A load balancer's `subnet_mapping` blocks that only name those subnets become `subnets` too. The change is kept only if a new plan shows no extra changes.
+
 A module may set arguments the provider keeps only in state, such as the iam-role module's `force_detach_policies`. Import can't set those. The plan then updates them in state alone, and the verification gate lists those updates.
 
 A module may use a provider besides the root's: the network module creates networks through `google-beta`, and Azure Verified Modules declare `azapi`. Only a root that keeps such a call requires and configures that provider, like its own (the same project, region and labels setting, or the same subscription and cloud) and pins it as it pins its own.
