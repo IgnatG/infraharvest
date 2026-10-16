@@ -133,7 +133,8 @@ var generatedFiles = []string{
 // clearGenerated removes what a previous run generated in dir, so that the
 // root can be generated again: generatedFiles, the files its checkpoint
 // under out says the configuration was split into, and the files
-// --incremental added (see engine.AddedFileName).
+// --incremental added (see engine.AddedFileName), which the checkpoint
+// names too.
 func clearGenerated(out, dir string) error {
 	names := slices.Clone(generatedFiles)
 	if content, err := os.ReadFile(checkpointPath(out, dir)); err == nil {

@@ -491,32 +491,28 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 
 	run.must(ctx, t, "--incremental")
 	after := outputFiles(t, out)
-	var roots []string
-	for name := range after {
-		if path.Base(name) == engine.AddedFileName(2) {
-			roots = append(roots, path.Dir(name))
-		}
+	// The log group goes after the blocks of its type's file, or into a
+	// new one; the root's blocks stay as they were.
+	added := addedConfiguration(t, before, after)
+	if len(added) != 1 {
+		t.Fatalf("--incremental added to %v, want to one file of the root of %s", slices.Sorted(maps.Keys(added)), region)
 	}
-	if len(roots) != 1 || path.Base(roots[0]) != region {
-		t.Fatalf("--incremental added %s to %v, want to the root of %s only", engine.AddedFileName(2), roots, region)
+	var file string
+	for name := range added {
+		file = name
 	}
-	root := roots[0]
-	added := root + "/" + engine.AddedFileName(2)
-	if blocks := topBlocks(t, added, after[added]); len(blocks) != 1 || blocks[0].Type != "resource" || blocks[0].Labels[0] != "aws_cloudwatch_log_group" {
-		t.Errorf("%s holds more than the log group:\n%s", added, after[added])
+	root := path.Dir(file)
+	if path.Base(root) != region {
+		t.Fatalf("--incremental added to %s, want to the root of %s", file, region)
+	}
+	if blocks := topBlocks(t, file, added[file]); len(blocks) != 1 || blocks[0].Type != "resource" || blocks[0].Labels[0] != "aws_cloudwatch_log_group" {
+		t.Errorf("--incremental added more than the log group to %s:\n%s", file, added[file])
 	}
 	// The import blocks, data sources, variables and locals of the root may
 	// grow; nothing else changes.
-	growing := []string{engine.ImportsFileName, engine.DataFileName, engine.VariablesFileName, engine.LocalsFileName}
-	grows := func(name string) bool { return path.Dir(name) == root && slices.Contains(growing, path.Base(name)) }
 	for name, content := range before {
-		if strings.HasSuffix(name, ".tf") && after[name] != content && !grows(name) {
+		if slices.Contains(growingFiles, path.Base(name)) && path.Dir(name) != root && after[name] != content {
 			t.Errorf("--incremental changed %s", name)
-		}
-	}
-	for name := range after {
-		if _, ok := before[name]; !ok && strings.HasSuffix(name, ".tf") && name != added && !grows(name) {
-			t.Errorf("--incremental wrote %s", name)
 		}
 	}
 	imports := root + "/" + engine.ImportsFileName

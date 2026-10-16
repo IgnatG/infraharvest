@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -247,9 +248,9 @@ import {
 `)
 	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
 
-	addedFile, err := merge(staging, root, existing, awsDataSources)
-	if err != nil || addedFile != AddedFileName(2) {
-		t.Fatalf("got %q, %v", addedFile, err)
+	written, err := merge(staging, root, existing, awsDataSources, map[string]string{})
+	if err != nil || !slices.Equal(written, []string{AddedFileName(2)}) {
+		t.Fatalf("got %q, %v", written, err)
 	}
 
 	if got := readFile(t, root, GeneratedFileName); got != generatedBefore {
@@ -293,8 +294,8 @@ import {
 			t.Fatal(err)
 		}
 	}
-	if added, err := merge(staging, root, existing, awsDataSources); err != nil || added != AddedFileName(3) {
-		t.Fatalf("got %q, %v", added, err)
+	if written, err := merge(staging, root, existing, awsDataSources, map[string]string{}); err != nil || !slices.Equal(written, []string{AddedFileName(3)}) {
+		t.Fatalf("got %q, %v", written, err)
 	}
 	if got := readFile(t, root, AddedFileName(3)); !strings.Contains(got, `resource "aws_sqs_queue" "jobs"`) {
 		t.Errorf("%s:\n%s", AddedFileName(3), got)
@@ -435,5 +436,65 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	// Without the local, nothing is lifted.
 	if _, ok := appliedTags(nil, azureDefaultTags); ok {
 		t.Error("tags applied without a local")
+	}
+}
+
+// What an incremental import adds goes after the blocks of the file of
+// its type, which keeps the root's blocks as they were, or into a new
+// file of that name; only what names no file gets one of its own.
+func TestMergeIntoTheFilesOfTheTypes(t *testing.T) {
+	root := existingRoot(t)
+	network := "resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n"
+	writeConfig(t, root, "network.tf", network)
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, `resource "aws_instance" "web" {
+  ami = "ami-1"
+}
+
+resource "aws_sqs_queue" "jobs" {
+  name = "jobs"
+}
+
+resource "aws_subnet" "a" {
+  cidr_block = "10.0.1.0/24"
+}
+`)
+	fileOf := map[string]string{"aws_subnet.a": "network.tf", "aws_sqs_queue.jobs": "sqs.tf"}
+
+	written, err := merge(staging, root, nil, awsDataSources, fileOf)
+	if err != nil || !slices.Equal(written, []string{AddedFileName(2), "network.tf", "sqs.tf"}) {
+		t.Fatalf("got %q, %v", written, err)
+	}
+	if got := readFile(t, root, "network.tf"); !strings.HasPrefix(got, network) || !strings.Contains(got, `resource "aws_subnet" "a"`) {
+		t.Errorf("network.tf:\n%s", got)
+	}
+	if got := readFile(t, root, "sqs.tf"); !strings.HasPrefix(got, `resource "aws_sqs_queue" "jobs"`) {
+		t.Errorf("sqs.tf:\n%s", got)
+	}
+	if got := readFile(t, root, AddedFileName(2)); !strings.Contains(got, `resource "aws_instance" "web"`) || strings.Contains(got, "aws_subnet") {
+		t.Errorf("%s:\n%s", AddedFileName(2), got)
+	}
+
+	files := (&Result{Files: []string{"network.tf"}}).With(&Result{Files: written})
+	if !slices.Equal(files.Files, []string{AddedFileName(2), "network.tf", "sqs.tf"}) {
+		t.Errorf("the files of both: %v", files.Files)
+	}
+}
+
+// A root that doesn't initialize keeps the files of the types as they were.
+func TestAddUndoesWhatItAddedToTheFilesOfTheTypes(t *testing.T) {
+	root := existingRoot(t)
+	writeConfig(t, root, "sqs.tf", "resource \"aws_sqs_queue\" \"old\" {\n  name = \"old\"\n}\n")
+	before := dirFiles(t, root)
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
+
+	_, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs", File: "sqs.tf"}}, addOptions, nil)
+	if err == nil {
+		t.Fatal("want the init error")
+	}
+	if after := dirFiles(t, root); !reflect.DeepEqual(after, before) {
+		t.Errorf("root changed:\nbefore %v\nafter %v", before, after)
 	}
 }
