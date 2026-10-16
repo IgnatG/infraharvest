@@ -6,13 +6,13 @@ types:
     inventory: { type: pubsub.googleapis.com/Topic }
     # Cloud Functions creates only the subscription of a Pub/Sub trigger,
     # on a topic of the user's, so a gcf-* topic is the user's.
+    # The cloud-builds topic Cloud Build publishes to is the user's to
+    # create too.
     skip:
       - reason: Eventarc creates it for a trigger, such as a 2nd gen function's, and deletes it with the trigger
         attribute_prefixes: { asset.name: [eventarc-] }
       - reason: Artifact Analysis creates it for its notes and occurrences when the Container Analysis API is enabled; select it to import it
         attribute_prefixes: { asset.name: [container-analysis-] }
-      - reason: Cloud Build creates it for its build notifications when the Cloud Build API is enabled; select it to import it
-        attributes: { asset.name: cloud-builds }
   google_pubsub_subscription:
     inventory: { type: pubsub.googleapis.com/Subscription }
     skip:

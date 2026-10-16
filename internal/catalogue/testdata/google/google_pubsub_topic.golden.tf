@@ -10,6 +10,10 @@ import {
   id = "projects/acme-prod/topics/gcf-uploads"
 }
 
+import {
+  to = google_pubsub_topic.cloud_builds
+  id = "projects/acme-prod/topics/cloud-builds"
+}
+
 # projects/acme-prod/topics/eventarc-us-central1-thumbnail-123456-347: left out by default, would import as "projects/acme-prod/topics/eventarc-us-central1-thumbnail-123456-347": Eventarc creates it for a trigger, such as a 2nd gen function's, and deletes it with the trigger
 # projects/acme-prod/topics/container-analysis-occurrences-v1: left out by default, would import as "projects/acme-prod/topics/container-analysis-occurrences-v1": Artifact Analysis creates it for its notes and occurrences when the Container Analysis API is enabled; select it to import it
-# projects/acme-prod/topics/cloud-builds: left out by default, would import as "projects/acme-prod/topics/cloud-builds": Cloud Build creates it for its build notifications when the Cloud Build API is enabled; select it to import it
