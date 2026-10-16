@@ -13,12 +13,15 @@ import (
 
 // The lister lists volumes across pages, each followed by its attachments
 // in state attached, but leaves out a volume that is an instance's root
-// device, with its attachments, for the instance to manage. An attachment
-// is recorded by the ID Terraform derives from its device, instance and
+// device, with its attachments, for the instance to manage. The attached
+// instances are described in one DescribeInstances call, by an instance-id
+// filter, however many pages and volumes name them. An attachment is
+// recorded by the ID Terraform derives from its device, instance and
 // volume (its import ID is pinned by TestImportID), named
 // "<instance>:<device>". The DescribeInstances error is pinned by
 // TestEbsReturnsDescribeInstancesError.
 func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
+	describes := 0
 	useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
@@ -40,13 +43,53 @@ func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
 					<attachmentSet><item><volumeId>vol-root</volumeId><instanceId>i-1</instanceId><device>/dev/xvda</device><status>attached</status></item></attachmentSet></item>
 				</volumeSet><nextToken>`+nextPageToken+`</nextToken>`)
 		case "DescribeInstances":
-			id := form.Get("InstanceId.1")
-			if id != "i-1" && id != "i-2" {
-				t.Errorf("described instance %q", id)
+			describes++
+			if form.Get("InstanceId.1") != "" {
+				t.Errorf("instances named by InstanceIds, which fails on a gone instance: %s", call.Body)
 			}
-			return recordEC2(call.Op, `<reservationSet><item><reservationId>r-`+id+`</reservationId>
-				<instancesSet><item><instanceId>`+id+`</instanceId><rootDeviceName>/dev/xvda</rootDeviceName></item></instancesSet>
-				</item></reservationSet>`)
+			if form.Get("Filter.1.Name") != "instance-id" || form.Get("Filter.1.Value.1") != "i-1" ||
+				form.Get("Filter.1.Value.2") != "i-2" || form.Get("Filter.1.Value.3") != "" {
+				t.Errorf("instances described by %s, want an instance-id filter on i-1 and i-2", call.Body)
+			}
+			return recordEC2(call.Op, `<reservationSet>
+				<item><reservationId>r-1</reservationId><instancesSet><item><instanceId>i-1</instanceId><rootDeviceName>/dev/xvda</rootDeviceName></item></instancesSet></item>
+				<item><reservationId>r-2</reservationId><instancesSet><item><instanceId>i-2</instanceId><rootDeviceName>/dev/xvda</rootDeviceName></item></instancesSet></item>
+				</reservationSet>`)
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &EbsLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	if describes != 1 {
+		t.Errorf("DescribeInstances called %d times, want once", describes)
+	}
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil},
+		// vai- and the CRC-32 of "/dev/sdf-i-1-vol-1-".
+		recordedResource{"aws_volume_attachment", "vai-3944550031", "i-1:/dev/sdf",
+			map[string]string{"device_name": "/dev/sdf", "volume_id": "vol-1", "instance_id": "i-1"}},
+		recordedResource{"aws_ebs_volume", "vol-3", "vol-3", nil},
+		recordedResource{"aws_ebs_volume", "vol-4", "vol-4", nil},
+	)
+}
+
+// An instance that is gone by the time it is described is missing from
+// the DescribeInstances answer rather than failing it; its volume is not
+// taken for a root volume and the listing goes on.
+func TestRecordEbsKeepsVolumesOfGoneInstances(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		switch call.Op {
+		case "DescribeVolumes":
+			return recordEC2(call.Op, `<volumeSet>
+				<item><volumeId>vol-1</volumeId><status>in-use</status>
+					<attachmentSet><item><volumeId>vol-1</volumeId><instanceId>i-gone</instanceId><device>/dev/xvda</device><status>attached</status></item></attachmentSet></item>
+				</volumeSet>`)
+		case "DescribeInstances":
+			return recordEC2(call.Op, `<reservationSet/>`)
 		}
 		return recordUnexpected(t, call)
 	})
@@ -58,12 +101,26 @@ func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
 
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil},
-		// vai- and the CRC-32 of "/dev/sdf-i-1-vol-1-".
-		recordedResource{"aws_volume_attachment", "vai-3944550031", "i-1:/dev/sdf",
-			map[string]string{"device_name": "/dev/sdf", "volume_id": "vol-1", "instance_id": "i-1"}},
-		recordedResource{"aws_ebs_volume", "vol-3", "vol-3", nil},
-		recordedResource{"aws_ebs_volume", "vol-4", "vol-4", nil},
+		recordedResource{"aws_volume_attachment", volumeAttachmentID("/dev/xvda", "vol-1", "i-gone"), "i-gone:/dev/xvda",
+			map[string]string{"device_name": "/dev/xvda", "volume_id": "vol-1", "instance_id": "i-gone"}},
 	)
+}
+
+// Volumes attached to no instance need no DescribeInstances call.
+func TestRecordEbsDescribesNoInstancesForDetachedVolumes(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op != "DescribeVolumes" {
+			return recordUnexpected(t, call)
+		}
+		return recordEC2(call.Op, `<volumeSet><item><volumeId>vol-1</volumeId><status>available</status><attachmentSet/></item></volumeSet>`)
+	})
+	g := &EbsLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertRecorded(t, g.Resources, recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil})
 }
 
 // The tag filters that concern volumes, or every service, are passed to
