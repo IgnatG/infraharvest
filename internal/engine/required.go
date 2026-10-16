@@ -82,12 +82,12 @@ func requireMinimumVersion(dir string) error {
 			}
 		}
 	}
-	modules, err := installedModuleDirs(dir)
+	modules, err := installedModules(dir)
 	if err != nil {
 		return err
 	}
 	for _, m := range modules {
-		raise(requiredByModule(m))
+		raise(requiredByModule(m.dir))
 	}
 	path := filepath.Join(dir, VersionsFileName)
 	versions, err := loadOptionalHCL(path)
@@ -119,10 +119,16 @@ func shortVersion(v *version.Version) string {
 	return fmt.Sprintf("%d.%d.%d", s[0], s[1], s[2])
 }
 
-// installedModuleDirs returns the directories of the modules Terraform
-// installed for the root in dir, as its modules.json lists them; none if
-// it installed none.
-func installedModuleDirs(dir string) ([]string, error) {
+// installedModule is a module call Terraform installed for a root: its
+// key, such as vpc or vpc.nat for a module that one calls, and the
+// directory it is in.
+type installedModule struct {
+	key, dir string
+}
+
+// installedModules returns the modules Terraform installed for the root in
+// dir, as its modules.json lists them; none if it installed none.
+func installedModules(dir string) ([]installedModule, error) {
 	content, err := os.ReadFile(filepath.Join(dir, ".terraform", "modules", "modules.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -139,13 +145,13 @@ func installedModuleDirs(dir string) ([]string, error) {
 	if err := json.Unmarshal(content, &manifest); err != nil {
 		return nil, fmt.Errorf("modules.json: %w", err)
 	}
-	var dirs []string
+	var modules []installedModule
 	for _, m := range manifest.Modules {
 		if m.Key != "" && m.Dir != "" {
-			dirs = append(dirs, filepath.Join(dir, filepath.FromSlash(m.Dir)))
+			modules = append(modules, installedModule{key: m.Key, dir: filepath.Join(dir, filepath.FromSlash(m.Dir))})
 		}
 	}
-	return dirs, nil
+	return modules, nil
 }
 
 // requiredByModule returns the lowest Terraform version the module in dir
