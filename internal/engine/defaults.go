@@ -44,8 +44,13 @@ func (c defaultCandidate) key() string {
 //     provider's default, whatever the constant: false, 0 and "" as much
 //     as 3600, "/" or "Managed by Terraform";
 //   - optional arguments set empty, computed or not, but for those
-//     keepEmpty names by type, and blocks that set nothing but zero
-//     values (see removeIn).
+//     the catalogue's keep_empty names, and blocks that set nothing but zero
+//     values (see removeIn);
+//   - optional arguments, computed or not, set to the value the
+//     catalogue's defaults name for their type: what the provider or the
+//     cloud gives an argument it isn't told, such as a bucket's STANDARD
+//     storage class, by its path in nested blocks
+//     (soft_delete_policy.retention_duration_seconds=604800).
 //
 // Terraform writes every optional argument, so a resource lists dozens of
 // them. The providers' schemas don't say what their defaults are, so only
@@ -55,11 +60,10 @@ func (c defaultCandidate) key() string {
 // the difference are put back, the next time all of its arguments, until
 // the plan stays the same. Before each plan, validation, which needs no
 // cloud, puts back what leaving out made invalid, such as one of two
-// required alternatives. Computed arguments set to a constant stay:
-// leaving one out never shows in the plan, so it could hide a real
-// setting (the catalogue names those that are defaults; see omit). It
-// reports whether it changed generated.tf.
-func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, keepEmpty map[string][]string) (bool, error) {
+// required alternatives. Other computed arguments set to a constant
+// stay: leaving one out never shows in the plan, so it could hide a real
+// setting. It reports whether it changed generated.tf.
+func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
@@ -72,7 +76,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	// Only constants need the schema, to tell optional from computed, and
 	// empty blocks, which only a plan can tell from absent ones.
 	var schemas *tfjson.ProviderSchemas
-	if len(defaults) > 0 || hasConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
+	if len(rules.defaults) > 0 || hasConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
 			return false, fmt.Errorf("terraform providers schema: %w", err)
 		}
@@ -88,7 +92,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		if err != nil {
 			return false, err
 		}
-		if len(removeDefaults(f, nil, nil, nil)) == 0 {
+		if len(removeDefaults(f, nil, defaultRules{}, nil)) == 0 {
 			return false, nil
 		}
 		return true, f.save()
@@ -97,7 +101,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	// blamed counts the rounds in which each resource planned differently.
 	blamed := map[string]int{}
 	for round := 0; round < maxDefaultRounds; round++ {
-		removed, err := removeValid(ctx, tf, dir, restore, schemas, keepEmpty, keep)
+		removed, err := removeValid(ctx, tf, dir, restore, schemas, rules, keep)
 		if err != nil {
 			return false, err
 		}
@@ -158,7 +162,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 // resource that validation rejects, those its errors name or else all of
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
-func removeValid(ctx context.Context, tf Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, keepEmpty map[string][]string, keep map[string]bool) ([]defaultCandidate, error) {
+func removeValid(ctx context.Context, tf Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
@@ -168,7 +172,7 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 		if err != nil {
 			return nil, err
 		}
-		removed := removeDefaults(generated, schemas, keepEmpty, keep)
+		removed := removeDefaults(generated, schemas, rules, keep)
 		if len(removed) == 0 {
 			return nil, nil
 		}
@@ -312,11 +316,11 @@ func noWorse(now, before string) bool {
 
 // removeDefaults removes the candidates not in keep from every resource,
 // and returns them. Without schemas, only nulls are candidates.
-func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, keepEmpty map[string][]string, keep map[string]bool) []defaultCandidate {
+func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) []defaultCandidate {
 	var removed []defaultCandidate
 	for _, r := range f.resources() {
 		typ := resourceTypeOf(r.address)
-		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, keepEmpty[typ], keep)...)
+		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ]}, keep)...)
 	}
 	return removed
 }
@@ -325,15 +329,17 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, keepEmpty map[s
 // the body of one of its nested blocks at prefix, and returns them:
 //
 //   - nulls;
+//   - the values the catalogue's defaults name, computed or not;
 //   - empty values ("", [] or {}) of optional arguments, computed or not,
-//     but for those of keepEmpty: an empty computed argument, such as a
+//     but for those of keep_empty: an empty computed argument, such as a
 //     key vault's access_policy = [], only fights the separate resources
 //     that hold the setting, and left out it keeps what the cloud has;
 //   - other constants of optional arguments the provider doesn't compute;
 //   - nested blocks of optional types that set nothing but zero values,
+//     none of an argument the provider computes (see setsComputed),
 //     such as access_logs { bucket = "", enabled = false }, as a whole,
 //     and the blocks left empty once their arguments are out.
-func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, keepEmpty []string, keep map[string]bool) []defaultCandidate {
+func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, rules typeRules, keep map[string]bool) []defaultCandidate {
 	var removed []defaultCandidate
 	for name, attr := range syntax.Attributes {
 		path := append(append([]string(nil), prefix...), name)
@@ -341,9 +347,14 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		switch {
 		case isNullLiteral(attr.Expr):
 			c.null = true
+		case isNamedDefault(rules.defaults, path, attr.Expr):
+			s := schemaAttribute(schemas, typ, path)
+			if s == nil || !s.Optional || s.Required {
+				continue
+			}
 		case isEmptyValue(attr.Expr):
 			s := schemaAttribute(schemas, typ, path)
-			if s == nil || !s.Optional || s.Required || slices.Contains(keepEmpty, strings.Join(path, ".")) {
+			if s == nil || !s.Optional || s.Required || slices.Contains(rules.keepEmpty, strings.Join(path, ".")) {
 				continue
 			}
 		case isConstant(attr.Expr):
@@ -367,12 +378,12 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		}
 		blockPath := append(append([]string(nil), prefix...), b.Type)
 		c := defaultCandidate{address: address, path: blockPath}
-		if !keep[c.key()] && len(b.Body.Attributes)+len(b.Body.Blocks) > 0 && unsetBody(b.Body) && optionalBlock(schemas, typ, blockPath) {
+		if !keep[c.key()] && len(b.Body.Attributes)+len(b.Body.Blocks) > 0 && unsetBody(b.Body) && optionalBlock(schemas, typ, blockPath) && !setsComputed(schemas, typ, blockPath, b.Body) {
 			write.RemoveBlock(blocks[i])
 			removed = append(removed, c)
 			continue
 		}
-		removed = append(removed, removeIn(address, typ, blockPath, b.Body, blocks[i].Body(), schemas, keepEmpty, keep)...)
+		removed = append(removed, removeIn(address, typ, blockPath, b.Body, blocks[i].Body(), schemas, rules, keep)...)
 		// A block left with nothing set, such as ttl {}, only says it is
 		// there: it goes too, where the plan says that's the same.
 		if schemas != nil && isEmpty(blocks[i].Body()) && !keep[c.key()] {
@@ -425,6 +436,42 @@ func isEmptyValue(expr hclsyntax.Expression) bool {
 		return len(e.Items) == 0
 	}
 	return false
+}
+
+// defaultRules are what the catalogue tells stripDefaults, by type: the
+// values arguments default to, as path=value (see Options.Defaults), and
+// the arguments whose empty value is a setting (see Options.KeepEmpty).
+type defaultRules struct {
+	defaults, keepEmpty map[string][]string
+}
+
+// typeRules are a type's defaultRules: its defaults by path.
+type typeRules struct {
+	defaults  map[string]omission
+	keepEmpty []string
+}
+
+// defaultValues parses a type's defaults, path=value entries such as
+// storage_class=STANDARD or bgp.keepalive_interval=20, by path.
+func defaultValues(entries []string) map[string]omission {
+	if len(entries) == 0 {
+		return nil
+	}
+	values := make(map[string]omission, len(entries))
+	for _, entry := range entries {
+		path, value, ok := strings.Cut(entry, "=")
+		if ok && path != "" {
+			values[path] = omission{name: path, value: value}
+		}
+	}
+	return values
+}
+
+// isNamedDefault reports whether an attribute at path, set to expr, has the
+// value defaults names for that path.
+func isNamedDefault(defaults map[string]omission, path []string, expr hclsyntax.Expression) bool {
+	o, ok := defaults[strings.Join(path, ".")]
+	return ok && o.matches(expr)
 }
 
 // isEmpty reports whether body sets nothing.
@@ -496,6 +543,25 @@ func hasConstants(body *hclsyntax.Body) bool {
 	}
 	for _, b := range body.Blocks {
 		if hasConstants(b.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+// setsComputed reports whether a nested block's body at path, or a block
+// in it, sets an argument the provider computes to something but null:
+// left out, such as soft_delete_policy { retention_duration_seconds = 0 },
+// it would keep what the cloud has, which the plan can't tell from the
+// zero value it was.
+func setsComputed(schemas *tfjson.ProviderSchemas, typ string, path []string, body *hclsyntax.Body) bool {
+	for name, attr := range body.Attributes {
+		if s := schemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !isNullLiteral(attr.Expr) && (s == nil || s.Computed) {
+			return true
+		}
+	}
+	for _, b := range body.Blocks {
+		if setsComputed(schemas, typ, append(append([]string(nil), path...), b.Type), b.Body) {
 			return true
 		}
 	}

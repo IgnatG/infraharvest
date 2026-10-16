@@ -67,7 +67,7 @@ func TestStripDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -96,7 +96,7 @@ func TestStripDefaultsKeepsEmptyBlocksThePlanNeeds(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
 
-	if _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil); err != nil {
+	if _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, "setting {") {
@@ -110,7 +110,7 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want the nulls stripped, got %v, %v", stripped, err)
 	}
@@ -189,7 +189,7 @@ func TestStripDefaultsLeavesOutConstantDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_role.a")}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -229,7 +229,7 @@ func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
 		showns:      []*tfjson.Plan{importedPlan("aws_role.a")},
 	}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -265,7 +265,7 @@ func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{alpha, beta, importedPlan("aws_role.a")}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 	changes := map[string]string{"aws_lb.a": changeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	tf := &fakeTerraform{dir: dir, schemas: lbSchemas}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, map[string][]string{"aws_lb": {"route"}})
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{keepEmpty: map[string][]string{"aws_lb": {"route"}}})
 	if err != nil || !stripped {
 		t.Fatalf("want empty values stripped, got %v, %v", stripped, err)
 	}
@@ -343,5 +343,76 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 	}
 	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show" {
 		t.Errorf("calls: %s", calls)
+	}
+}
+
+// The catalogue's defaults go too, computed or not, by their path in
+// nested blocks, and a block they leave empty with them; another value
+// stays, and so does a default the plan shows isn't one. Before, a
+// bucket kept storage_class = "STANDARD" and
+// soft_delete_policy { retention_duration_seconds = 604800 }.
+func TestStripDefaultsNamedInTheCatalogue(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "google_storage_bucket" "a" {
+  name          = "a"
+  storage_class = "STANDARD"
+  rpo           = "DEFAULT"
+  location      = "EU"
+  soft_delete_policy {
+    retention_duration_seconds = 604800
+  }
+}
+
+resource "google_storage_bucket" "b" {
+  name          = "b"
+  storage_class = "NEARLINE"
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+}
+`)
+	content, err := ImportsFile([]Import{{Type: "google_storage_bucket", Name: "a", ID: "a"}, {Type: "google_storage_bucket", Name: "b", ID: "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, dir, ImportsFileName, string(content))
+	noChange := changeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+	changes := map[string]string{"google_storage_bucket.a": noChange, "google_storage_bucket.b": noChange}
+	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+		"registry.terraform.io/hashicorp/google": {ResourceSchemas: map[string]*tfjson.Schema{
+			"google_storage_bucket": {Block: &tfjson.SchemaBlock{
+				Attributes: map[string]*tfjson.SchemaAttribute{
+					"name":          {AttributeType: cty.String, Required: true},
+					"location":      {AttributeType: cty.String, Required: true},
+					"storage_class": {AttributeType: cty.String, Optional: true},
+					"rpo":           {AttributeType: cty.String, Optional: true, Computed: true},
+				},
+				NestedBlocks: map[string]*tfjson.SchemaBlockType{"soft_delete_policy": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"retention_duration_seconds": {AttributeType: cty.Number, Optional: true, Computed: true},
+				}}}},
+			}},
+		}},
+	}}
+	// Without rpo, the plan would change a's: its default is another.
+	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		resourceChange("google_storage_bucket.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"rpo": "DEFAULT"}, map[string]any{"rpo": nil}),
+		// And without b's storage class, which isn't the default, b's.
+		resourceChange("google_storage_bucket.b", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"storage_class": "NEARLINE"}, map[string]any{"storage_class": nil}),
+	}}
+	tf := &fakeTerraform{dir: dir, schemas: schemas, showns: []*tfjson.Plan{first, importedPlan("google_storage_bucket.a", "google_storage_bucket.b")}}
+	defaults := map[string][]string{"google_storage_bucket": {"storage_class=STANDARD", "rpo=DEFAULT", "soft_delete_policy.retention_duration_seconds=604800"}}
+
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{defaults: defaults})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{
+		`resource "google_storage_bucket" "a" { name = "a" rpo = "DEFAULT" location = "EU" }`,
+		`storage_class = "NEARLINE" soft_delete_policy { retention_duration_seconds = 0 }`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
 	}
 }
