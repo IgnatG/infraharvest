@@ -114,9 +114,15 @@ func TestAzureRoundTrip(t *testing.T) {
 			t.Errorf("%s: created %d, imported %d", typ, seeded[typ], imported[typ])
 		}
 	}
-	// The identity, with its federated credential, became a call of Azure
-	// Verified Modules' managed identity module; the plans above check
-	// that changes nothing.
+	// The identity, with its federated credential, becomes a call of Azure
+	// Verified Modules' managed identity module when the module accepts
+	// azurerm's newest major release; when it doesn't, the report says the
+	// module isn't called, and both stay in the root, on the newest
+	// azurerm, without the module's azapi provider. The plans above check
+	// that either changes nothing.
+	unused := slices.ContainsFunc(coverage.Unused, func(m report.UnusedModule) bool {
+		return m.Source == adapters.AzureUserAssignedIdentity.Source
+	})
 	var members []string
 	for _, d := range coverage.Directories {
 		for _, m := range d.Modules {
@@ -124,6 +130,15 @@ func TestAzureRoundTrip(t *testing.T) {
 				members = append(members, m.Resources...)
 			}
 		}
+	}
+	if unused {
+		if len(members) > 0 {
+			t.Errorf("%s isn't called, yet has %v", adapters.AzureUserAssignedIdentity.Source, members)
+		}
+		if versions := readFile(t, filepath.Join(wantDir, engine.VersionsFileName)); strings.Contains(versions, "azapi") {
+			t.Errorf("no module needs azapi, yet %s requires it:\n%s", engine.VersionsFileName, versions)
+		}
+		return
 	}
 	for _, typ := range []string{"azurerm_user_assigned_identity", "azurerm_federated_identity_credential"} {
 		if !slices.ContainsFunc(members, func(address string) bool { return strings.HasPrefix(address, typ+".") }) {
@@ -138,8 +153,8 @@ func TestAzureRoundTrip(t *testing.T) {
 }
 
 // checkAzureTags checks the tags the fixture's resources share became
-// local.tags: the resources refer to it, and so does the identity's module
-// call, merged with the identity's own tag.
+// local.tags: the resources refer to it, and so does the identity, or its
+// module call, merged with the identity's own tag.
 func checkAzureTags(t *testing.T, dir string) {
 	t.Helper()
 	if locals := strings.Join(strings.Fields(readFile(t, filepath.Join(dir, engine.LocalsFileName))), " "); !strings.Contains(locals, `env = "test"`) || !strings.Contains(locals, `project = "infraharvest-e2e"`) {
@@ -151,9 +166,8 @@ func checkAzureTags(t *testing.T, dir string) {
 	if strings.Count(generated, "= local.tags\n") < 4 {
 		t.Errorf("the resources don't refer to local.tags:\n%s", generated)
 	}
-	call := strings.Index(generated, "\nmodule \"")
-	if call < 0 || !strings.Contains(strings.Join(strings.Fields(generated[call:]), " "), `tags = merge(local.tags, { role = "ci" })`) {
-		t.Errorf("the module call doesn't merge local.tags:\n%s", generated)
+	if !strings.Contains(strings.Join(strings.Fields(generated), " "), `tags = merge(local.tags, { role = "ci" })`) {
+		t.Errorf("the identity doesn't merge local.tags:\n%s", generated)
 	}
 }
 

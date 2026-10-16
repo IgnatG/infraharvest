@@ -20,9 +20,13 @@ import (
 
 // AzureUserAssignedIdentity maps a user-assigned identity and its
 // federated identity credentials onto Azure Verified Modules' managed
-// identity module, which keys the credentials by name. The module holds
-// azurerm below 5: the provider is pinned below it in roots that have an
-// identity.
+// identity module, which keys the credentials by name. Release 0.5.3,
+// the newest, accepts azurerm below 5 only: an import doesn't call a
+// module that would hold the root a major release behind, so while
+// azurerm 5 is the newest, identities stay in the root as plain
+// resources. The adapter applies again once it is bumped to a release
+// that accepts azurerm 5, or with --modules latest-untested once one is
+// out.
 var AzureUserAssignedIdentity = Adapter{
 	Source:   "Azure/avm-res-managedidentity-userassignedidentity/azurerm",
 	Version:  "0.5.3",

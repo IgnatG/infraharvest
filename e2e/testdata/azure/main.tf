@@ -7,7 +7,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.0"
+      version = "~> 5.0"
     }
   }
 }
@@ -98,10 +98,9 @@ resource "azurerm_user_assigned_identity" "ci" {
 }
 
 resource "azurerm_federated_identity_credential" "github" {
-  name                = "github"
-  resource_group_name = azurerm_resource_group.main.name
-  parent_id           = azurerm_user_assigned_identity.ci.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = "https://token.actions.githubusercontent.com"
-  subject             = "repo:acme/app:ref:refs/heads/main"
+  name                      = "github"
+  user_assigned_identity_id = azurerm_user_assigned_identity.ci.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = "https://token.actions.githubusercontent.com"
+  subject                   = "repo:acme/app:ref:refs/heads/main"
 }

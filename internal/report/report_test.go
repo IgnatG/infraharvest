@@ -145,6 +145,7 @@ func TestWriteJSON(t *testing.T) {
 
 func TestMarkdown(t *testing.T) {
 	r := sample()
+	r.Unused = []UnusedModule{{Source: "acme/bucket/aws", Version: "1.0.0", Accepts: ">= 5.0, < 6.0"}}
 	r.Finish(map[string]int{"aws_sqs_queue": 1, "aws_ssm_parameter": 1, "aws_lb": 1}, nil, false)
 
 	got := r.Markdown()
@@ -156,6 +157,7 @@ func TestMarkdown(t *testing.T) {
 		"- `aws_lb.web` in `aws/us-east-1`: Invalid combination of arguments",
 		"- `aws_ssm_parameter_token_value` in `aws/us-east-1`: value of `aws_ssm_parameter.token`",
 		"- `aws_main_route_table_association` (1): Terraform can't import this resource type",
+		"`acme/bucket/aws` 1.0.0 isn't called: it accepts the provider at `>= 5.0, < 6.0` only, not its newest major release, so its resources stay in the root.",
 		"- `aws`: terraform init: no network",
 	} {
 		if !strings.Contains(got, want) {

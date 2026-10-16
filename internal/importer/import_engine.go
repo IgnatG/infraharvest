@@ -163,6 +163,11 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err != nil {
 		return err
 	}
+	moduleAdapters = withoutModules(moduleAdapters, root.refused)
+	var unusedModules []report.UnusedModule
+	for _, c := range root.refused {
+		unusedModules = append(unusedModules, report.UnusedModule{Source: c.module, Version: c.version, Accepts: c.constraint.String()})
+	}
 	if err := writeGitignore(options.Out); err != nil {
 		return err
 	}
@@ -205,6 +210,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
 		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version, HeldBack: root.heldBack},
 		Modules:  newerModules,
+		Unused:   unusedModules,
 	}
 	for _, f := range failures {
 		run.report.Failures = append(run.report.Failures, f.Error())
@@ -481,8 +487,11 @@ type rootFiles struct {
 	engineVersion string
 	provider      engine.Provider // Version is the constraint
 	// heldBack says which modules keep the provider below its newest
-	// release, if any do.
+	// release, within its newest major release, if any do.
 	heldBack string
+	// refused are the module versions that accept only an older major
+	// release of the provider: their adapters aren't used.
+	refused []moduleConstraint
 }
 
 // rootConfig renders versions.tf and providers.tf for every output
@@ -490,15 +499,23 @@ type rootFiles struct {
 // OpenTofu at execPath, and the provider pinned to its newest minor release
 // line in registry (the engine's default registry), unless its source names
 // another: the newest release the module versions the import may call
-// accept (constraints). A registryURL replaces the registry, for tests.
+// accept (constraints). A module version that accepts no release of the
+// provider's newest major release line doesn't hold the provider back: it
+// is refused, and the import doesn't call it (see newestMajor). A
+// registryURL replaces the registry, for tests.
 func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
 	engineVersion, err := engine.BinaryVersion(ctx, execPath)
 	if err != nil {
 		return nil, err
 	}
-	latest, err := engine.LatestProviderVersion(ctx, client, registryURL, qualifiedSource(registry, p.Source))
+	source := qualifiedSource(registry, p.Source)
+	latest, err := engine.LatestProviderVersion(ctx, client, registryURL, source)
 	if err != nil {
 		return nil, err
+	}
+	constraints, refused := newestMajor(ctx, client, registryURL, source, latest, constraints)
+	for _, c := range refused {
+		log.Printf("%s %s: not called: it accepts %s %s, and the newest release is %s; its resources stay in the root", c.module, c.version, p.Source, c.constraint, latest)
 	}
 	chosen, held := latest, ""
 	if len(constraints) > 0 {
@@ -506,7 +523,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		for i, c := range constraints {
 			all[i] = c.constraint
 		}
-		v, err := engine.ProviderVersion(ctx, client, registryURL, qualifiedSource(registry, p.Source), all)
+		v, err := engine.ProviderVersion(ctx, client, registryURL, source, all)
 		switch {
 		case err != nil:
 			// The modules' calls then fail their plans and are declined.
@@ -529,6 +546,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		engineVersion: engineVersion.String(),
 		provider:      p,
 		heldBack:      held,
+		refused:       refused,
 	}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 
 	goversion "github.com/hashicorp/go-version"
@@ -91,6 +92,39 @@ func heldBack(latest *goversion.Version, constraints []moduleConstraint) string 
 		verb = "accept"
 	}
 	return fmt.Sprintf("%s is available, but %s %s only older releases", latest, strings.Join(by, ", "), verb)
+}
+
+// newestMajor splits constraints into the module versions that accept a
+// release of the provider at source in latest's major release line, and
+// those that accept only older majors. A module that would hold the whole
+// root a major release behind isn't called: its resources stay in the
+// root, as plain resources of the newest provider, which is what someone
+// writing the configuration today would use.
+func newestMajor(ctx context.Context, client *http.Client, registryURL, source string, latest *goversion.Version, constraints []moduleConstraint) (admitted, refused []moduleConstraint) {
+	for _, c := range constraints {
+		v, err := engine.ProviderVersion(ctx, client, registryURL, source, []goversion.Constraints{c.constraint})
+		if err != nil || v.Segments()[0] != latest.Segments()[0] {
+			refused = append(refused, c)
+			continue
+		}
+		admitted = append(admitted, c)
+	}
+	return admitted, refused
+}
+
+// withoutModules returns list without the adapters of the module versions
+// in refused.
+func withoutModules(list []adapters.Adapter, refused []moduleConstraint) []adapters.Adapter {
+	if len(refused) == 0 {
+		return list
+	}
+	kept := make([]adapters.Adapter, 0, len(list))
+	for _, a := range list {
+		if !slices.ContainsFunc(refused, func(c moduleConstraint) bool { return c.module == a.Source && c.version == a.Version }) {
+			kept = append(kept, a)
+		}
+	}
+	return kept
 }
 
 // applicableAdapters returns the adapters whose anchor type the selected

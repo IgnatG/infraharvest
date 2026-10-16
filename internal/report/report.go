@@ -66,6 +66,18 @@ type Manifest struct {
 	// Modules are the curated modules with a newer release than the one
 	// their calls use: the one their adapters are tested with.
 	Modules []ModuleVersion `json:"modules,omitempty"`
+	// Unused are the curated modules the import doesn't call: they accept
+	// only an older major release of the provider than its newest, so
+	// their resources stay in the root, on the newest provider.
+	Unused []UnusedModule `json:"unused_modules,omitempty"`
+}
+
+// UnusedModule is a module version the import doesn't call: Accepts is
+// its constraint on the provider, which admits only older major releases.
+type UnusedModule struct {
+	Source  string `json:"source"`
+	Version string `json:"version"`
+	Accepts string `json:"accepts"`
 }
 
 // ModuleVersion is a module the import calls at Version while the registry
@@ -535,6 +547,9 @@ func (r *Report) Markdown() string {
 	}
 	for _, m := range r.Modules {
 		fmt.Fprintf(&b, "`%s` %s is available; the module calls use %s, the release its adapter is tested with (`--modules latest-untested` calls the newest).\n\n", m.Source, m.Latest, m.Version)
+	}
+	for _, m := range r.Unused {
+		fmt.Fprintf(&b, "`%s` %s isn't called: it accepts the provider at `%s` only, not its newest major release, so its resources stay in the root.\n\n", m.Source, m.Version, m.Accepts)
 	}
 
 	t := r.Totals
