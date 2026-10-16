@@ -444,10 +444,44 @@ jobs:
           echo "::error::google should not be compiled into a minimal,aws build"; exit 1
         fi
 
+  # macOS builds and tests only after merges (macos.yml), so compile and
+  # vet every package for darwin/arm64 here: a break in a darwin-only file
+  # shows on the pull request, not at the release.
+  darwin:
+    name: darwin/arm64 build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Free disk space
+      run: .github/scripts/free-disk-space.sh start
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Wait for free disk space
+      run: .github/scripts/free-disk-space.sh wait
+    - name: Build
+      env:
+        GOOS: darwin
+        GOARCH: arm64
+        CGO_ENABLED: "0"
+      run: go build ./...
+    - name: Vet
+      env:
+        GOOS: darwin
+        GOARCH: arm64
+        CGO_ENABLED: "0"
+      run: go vet ./...
+
   # A required check: passes when the other Go and Terraform checks passed,
   # or were skipped.
   checks:
-    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags]
+    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
