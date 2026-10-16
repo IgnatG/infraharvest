@@ -20,7 +20,7 @@ Each output directory gets:
 | `.terraform.lock.hcl` | The provider version, the same for every directory of one import |
 | `rejected.hcl` | Only if some resources couldn't be imported: their `import` block and generated configuration, under the errors Terraform reported. Terraform doesn't load this file. Fix a resource and move its import block into `imports.tf` and its resource into the configuration, or leave it out. Rejected resources make the import exit non-zero unless `--allow-partial` is set |
 
-Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud: on AWS, the `Name` tag where a resource has one (`aws_subnet.shop_private_eu_west_2a`), else the name or ID the lister found.
+Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud: on AWS, the `Name` tag where a resource has one (`aws_subnet.shop_private_eu_west_2a`), else the name or ID the lister found; on Google Cloud, the resource's own name or display name (`google_pubsub_topic.orders`, not its full name), a record set's zone, name within the zone and type, and an IAM grant's member and role (`google_project_iam_member.deployer_run_invoker`).
 
 ## Tidying
 

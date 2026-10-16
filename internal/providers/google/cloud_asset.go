@@ -164,11 +164,7 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 			continue
 		}
 		id := assetID(r.Name, r.Project, projectID)
-		name := r.DisplayName
-		if name == "" {
-			name = lastSegment(id)
-		}
-		resources = append(resources, harvest.Record(id, name, types[0], provider, assetAttributes(r, id, projectID)))
+		resources = append(resources, harvest.Record(id, assetName(r.DisplayName, id), types[0], provider, assetAttributes(r, id, projectID)))
 	}
 	if elsewhere > 0 {
 		where := "the global import"
@@ -178,6 +174,22 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 		log.Printf("%s: cloud_asset: %d resources of project %s are in other locations, for %s", provider, elsewhere, projectID, where)
 	}
 	return resources
+}
+
+// assetName is the name a resource's label is made from: its display
+// name, or the last segment of its ID without one. Some services' display
+// names are full resource names, such as a Pub/Sub topic's
+// projects/p/topics/t: those give their last segment, the resource's own
+// name, as AWS and Azure labels are made from names. Other display names
+// are kept whole, slashes and all, such as an alert policy's.
+func assetName(displayName, id string) string {
+	if strings.HasPrefix(displayName, "projects/") && lastSegment(displayName) != "" {
+		return lastSegment(displayName)
+	}
+	if displayName != "" {
+		return displayName
+	}
+	return lastSegment(id)
 }
 
 // regional matches the location of a resource in a region or zone, such

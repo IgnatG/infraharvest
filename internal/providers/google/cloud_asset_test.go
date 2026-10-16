@@ -65,6 +65,24 @@ func TestInRegion(t *testing.T) {
 	}
 }
 
+// A resource is named after its own name. Before, a Pub/Sub topic, whose
+// display name is its full name, was named
+// projects_acme_prod_topics_orders.
+func TestAssetName(t *testing.T) {
+	for _, tt := range []struct{ displayName, id, want string }{
+		{"projects/acme-prod/topics/orders", "projects/acme-prod/topics/orders", "orders"},
+		{"projects/acme-prod/subscriptions/orders-worker", "projects/acme-prod/subscriptions/orders-worker", "orders-worker"},
+		{"main", "projects/acme-prod/global/networks/main", "main"},
+		{"High latency / 5 min", "projects/acme-prod/alertPolicies/987", "High latency / 5 min"},
+		{"", "projects/acme-prod/regions/us-central1/disks/shared", "shared"},
+		{"", "acme-assets", "acme-assets"},
+	} {
+		if got := assetName(tt.displayName, tt.id); got != tt.want {
+			t.Errorf("assetName(%q, %q): got %q, want %q", tt.displayName, tt.id, got, tt.want)
+		}
+	}
+}
+
 func TestSnakeCase(t *testing.T) {
 	for in, want := range map[string]string{"email": "email", "uniqueId": "unique_id", "dnsName": "dns_name"} {
 		if got := snakeCase(in); got != want {

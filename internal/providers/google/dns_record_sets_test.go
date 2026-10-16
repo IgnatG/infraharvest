@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/dns/v1"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -95,12 +96,30 @@ func TestDNSRecordSetsList(t *testing.T) {
 		if cat.Skipped(r.Address.Type, r.Observed.ID, a) != "" {
 			skipped[r.Observed.ID] = true
 		}
-		if r.Observed.ID == "projects/acme/managedZones/example-com/rrsets/www.example.com./A" && r.RawName != "example-com_www.example.com-A" {
+		if r.Observed.ID == "projects/acme/managedZones/example-com/rrsets/www.example.com./A" && r.RawName != "example-com-www-A" {
 			t.Errorf("name %q", r.RawName)
 		}
 	}
 	if len(skipped) != 2 || !skipped["projects/acme/managedZones/example-com/rrsets/example.com./SOA"] || !skipped["projects/acme/managedZones/example-com/rrsets/example.com./NS"] {
 		t.Errorf("left out by default: %v, want the zone's own SOA and NS sets", skipped)
+	}
+}
+
+// A record set is named after its zone, its name within the zone and its
+// type: before, the zone's DNS name was in the name twice, once as the
+// zone's name and again at the end of the set's.
+func TestRecordSetName(t *testing.T) {
+	zone := &dns.ManagedZone{Name: "shop", DnsName: "shop.example.com."}
+	for _, tt := range []struct{ name, typ, want string }{
+		{"app.shop.example.com.", "A", "shop-app-A"},
+		{"a.b.Shop.Example.com.", "CNAME", "shop-a.b-CNAME"},
+		{"shop.example.com.", "MX", "shop-MX"},
+		{"other.example.net.", "A", "shop-other.example.net-A"},
+		{"myshop.example.com.", "A", "shop-myshop.example.com-A"},
+	} {
+		if got := recordSetName(zone, &dns.ResourceRecordSet{Name: tt.name, Type: tt.typ}); got != tt.want {
+			t.Errorf("recordSetName(%q, %q): got %q, want %q", tt.name, tt.typ, got, tt.want)
+		}
 	}
 }
 

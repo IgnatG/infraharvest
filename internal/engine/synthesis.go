@@ -393,7 +393,11 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
-			t.name = uniqueName(anchor.address[strings.IndexByte(anchor.address, '.')+1:], used)
+			name := anchor.address[strings.IndexByte(anchor.address, '.')+1:]
+			if call.Name != "" {
+				name = call.Name
+			}
+			t.name = uniqueName(name, used)
 			for _, m := range t.members() {
 				clustered[m] = true
 			}

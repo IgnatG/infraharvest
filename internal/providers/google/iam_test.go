@@ -71,6 +71,36 @@ func TestIamList(t *testing.T) {
 	if policyVersion != 3 {
 		t.Errorf("requested policy version %v, want 3 for conditional bindings", policyVersion)
 	}
+	var names []string
+	for _, r := range g.Resources {
+		names = append(names, r.RawName)
+	}
+	sort.Strings(names)
+	if want := []string{"ana_editor_expires_2027", "ana_viewer", "ops_viewer"}; strings.Join(names, " ") != strings.Join(want, " ") {
+		t.Errorf("names %v, want %v", names, want)
+	}
+}
+
+// A grant is named after the member's short name and the role's, as an
+// AWS policy attachment is after its role and policy. Before, it was named
+// after the role and the whole member, such as
+// roles_viewer_serviceaccount_deployer_acme_iam_gserviceaccount_com.
+func TestGrantName(t *testing.T) {
+	for _, tt := range []struct{ role, member, title, want string }{
+		{"roles/viewer", "serviceAccount:deployer@acme.iam.gserviceaccount.com", "", "deployer_viewer"},
+		{"roles/cloudscheduler.serviceAgent", "serviceAccount:service-123@gcp-sa-cloudscheduler.iam.gserviceaccount.com", "", "service-123_cloudscheduler.serviceAgent"},
+		{"projects/acme/roles/deployer", "group:ops@acme.example", "", "ops_deployer"},
+		{"roles/owner", "user:ana@acme.example", "until_2027", "ana_owner_until_2027"},
+		{"roles/viewer", "domain:acme.example", "", "acme.example_viewer"},
+		{"roles/storage.objectViewer", "allUsers", "", "allUsers_storage.objectViewer"},
+		{"roles/viewer", "deleted:serviceAccount:ci@acme.iam.gserviceaccount.com?uid=123", "", "ci_viewer"},
+		{"roles/run.invoker", "principal://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/gh/subject/build@acme.example", "", "build_run.invoker"},
+		{"roles/run.invoker", "principalSet://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/gh/attribute.repository/acme/shop", "", "shop_run.invoker"},
+	} {
+		if got := grantName(tt.role, tt.member, tt.title); got != tt.want {
+			t.Errorf("grantName(%q, %q, %q): got %q, want %q", tt.role, tt.member, tt.title, got, tt.want)
+		}
+	}
 }
 
 // The policy is the project's, in the import of global alone.

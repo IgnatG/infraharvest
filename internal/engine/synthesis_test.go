@@ -566,6 +566,38 @@ resource "google_project_iam_member" "f" {
 	}
 }
 
+// A call the adapter names is named so, made unique, rather than after its
+// anchor, which is only the first resource of a group.
+func TestMapClustersNamesCallsAsTheAdapterSays(t *testing.T) {
+	dir, _ := moduleRoot(t, `resource "google_project_iam_member" "a" {
+  project = "acme"
+}
+
+resource "google_project_iam_member" "b" {
+  project = "other"
+}
+`)
+	named := grantsAdapter
+	named.Map = func(c adapters.Cluster) (*adapters.Call, error) {
+		call, err := grantsAdapter.Map(c)
+		if call != nil {
+			call.Name = "grants"
+		}
+		return call, err
+	}
+	trials, _, err := mapClusters(dir, []adapters.Adapter{named}, Names{"module.grants": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tr := range trials {
+		names = append(names, tr.name)
+	}
+	if got := strings.Join(names, " "); got != "grants_2 grants_3" {
+		t.Errorf("calls named %s, want grants_2 grants_3: grants is taken", got)
+	}
+}
+
 // A module in a directory is called by its path from the root.
 func TestCallSource(t *testing.T) {
 	out := t.TempDir()

@@ -89,11 +89,11 @@ func dnsZones(ctx context.Context, svc *dns.Service, project string) ([]*dns.Man
 // projects/{project}/managedZones/{zone}/rrsets/{name}/{type} format. Its
 // attributes include the zone's DNS name, and whether the set is at the
 // zone's apex, so that the catalogue can tell the SOA and NS sets Cloud
-// DNS creates with every zone from the user's.
+// DNS creates with every zone from the user's. It is named after the zone,
+// the set's name within the zone and its type (see recordSetName).
 func dnsRecordSet(project string, zone *dns.ManagedZone, set *dns.ResourceRecordSet, provider string) harvest.Resource {
 	id := "projects/" + project + "/managedZones/" + zone.Name + "/rrsets/" + set.Name + "/" + set.Type
-	name := zone.Name + "_" + strings.TrimSuffix(set.Name, ".") + "-" + set.Type
-	return harvest.Record(id, name, dnsRecordSetType, provider, map[string]string{
+	return harvest.Record(id, recordSetName(zone, set), dnsRecordSetType, provider, map[string]string{
 		"project":      project,
 		"managed_zone": zone.Name,
 		"name":         set.Name,
@@ -101,4 +101,22 @@ func dnsRecordSet(project string, zone *dns.ManagedZone, set *dns.ResourceRecord
 		"dns_name":     zone.DnsName,
 		"apex":         strconv.FormatBool(strings.EqualFold(set.Name, zone.DnsName)),
 	})
+}
+
+// recordSetName names set after its zone, its name without the zone's DNS
+// name, which the zone's name already stands for, and its type:
+// app.shop.example.com. A in the zone shop is shop-app-A, and the zone's
+// apex MX set shop-MX. A name outside the zone's DNS name stays whole.
+func recordSetName(zone *dns.ManagedZone, set *dns.ResourceRecordSet) string {
+	parts := []string{zone.Name}
+	name := strings.TrimSuffix(set.Name, ".")
+	suffix := strings.TrimSuffix(zone.DnsName, ".")
+	switch lower := strings.ToLower(name); {
+	case strings.EqualFold(name, suffix):
+	case suffix != "" && strings.HasSuffix(lower, "."+strings.ToLower(suffix)):
+		parts = append(parts, name[:len(name)-len(suffix)-1])
+	default:
+		parts = append(parts, name)
+	}
+	return strings.Join(append(parts, set.Type), "-")
 }

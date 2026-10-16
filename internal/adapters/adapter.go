@@ -76,6 +76,10 @@ func (r Resource) Address() string {
 
 // Call is what a module call needs besides its source and version.
 type Call struct {
+	// Name, if set, is what the call is named, rather than its anchor's
+	// name: the anchor of a group is only its first resource in address
+	// order, such as one of a project's IAM grants.
+	Name string
 	// Arguments are the call's arguments, in order.
 	Arguments []Argument
 	// Addresses has each resource's address inside the module, such as

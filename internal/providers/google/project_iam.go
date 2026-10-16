@@ -86,5 +86,44 @@ func projectIAMMember(project, role, member, title, provider string) harvest.Res
 	if title != "" {
 		attributes["condition_title"] = title
 	}
-	return harvest.Record(strings.Join(parts, " "), strings.Join(parts[1:], "_"), projectIAMMemberType, provider, attributes)
+	return harvest.Record(strings.Join(parts, " "), grantName(role, member, title), projectIAMMemberType, provider, attributes)
+}
+
+// grantName names member's grant of role, as AWS names a role's policy
+// attachment after the role and the policy: the member's short name, the
+// role's and the condition's title, if any. The grant of roles/run.invoker
+// to serviceAccount:deployer@acme.iam.gserviceaccount.com is
+// deployer_run.invoker. Before, the name was the role and the whole
+// member. Grants whose names come out the same, such as those of two users
+// with the same name in different domains, get the labels' suffixes.
+func grantName(role, member, title string) string {
+	parts := []string{memberName(member), lastSegment(role)}
+	if title != "" {
+		parts = append(parts, title)
+	}
+	return strings.Join(parts, "_")
+}
+
+// memberName is an IAM member without its kind, and an email without its
+// domain: user:ana@acme.example is ana, a deleted service account
+// (deleted:serviceAccount:ci@acme.iam.gserviceaccount.com?uid=1) ci,
+// domain:acme.example acme.example, a workload identity principal
+// (principal://iam.googleapis.com/.../subject/build) the last segment of
+// its URI, and allUsers allUsers.
+func memberName(member string) string {
+	id := strings.TrimPrefix(member, "deleted:")
+	if _, rest, ok := strings.Cut(id, ":"); ok {
+		id = rest
+	}
+	id, _, _ = strings.Cut(id, "?")
+	if strings.HasPrefix(id, "//") {
+		id = lastSegment(strings.TrimRight(id, "/"))
+	}
+	if local, _, ok := strings.Cut(id, "@"); ok {
+		id = local
+	}
+	if id == "" {
+		return member
+	}
+	return id
 }
