@@ -23,6 +23,7 @@ func TestGeneratedRoots(t *testing.T) {
 		"aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
 		"aws/111122223333/global/" + engine.ProvidersFileName,
 		"aws/111122223333/eu-west-2/.terraform/modules/state/" + engine.ProvidersFileName,
+		CheckpointDir + "/incremental/aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
 		engine.ModulesDirName + "/s3_bucket_0123abcd/main.tf",
 		"report/report.md",
 	} {

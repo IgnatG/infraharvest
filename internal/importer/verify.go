@@ -130,7 +130,8 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 
 // generatedRoots returns the directories under out that an import
 // generated, sorted: those with a providers.tf, outside .terraform, the
-// generated modules and the bootstrap root.
+// generated modules, the bootstrap root and the checkpoints, where an
+// incremental import stages what it adds (see stagingDir).
 func generatedRoots(out string) ([]string, error) {
 	var roots []string
 	err := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
@@ -138,7 +139,7 @@ func generatedRoots(out string) ([]string, error) {
 			return err
 		}
 		topLevel := path != out && filepath.Dir(path) == filepath.Clean(out)
-		if d.IsDir() && (d.Name() == ".terraform" || (topLevel && (d.Name() == engine.ModulesDirName || d.Name() == config.BootstrapDir))) {
+		if d.IsDir() && (d.Name() == ".terraform" || (topLevel && (d.Name() == engine.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
 			return filepath.SkipDir
 		}
 		// Every root configures its provider; modules don't.
