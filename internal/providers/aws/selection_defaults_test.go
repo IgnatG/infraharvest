@@ -105,7 +105,7 @@ func TestExcludedByDefaultGlobal(t *testing.T) {
 }
 
 // What a CloudFormation stack manages is left out, by its ID or the ID
-// Terraform imports it with; what no stack manages isn't.
+// Terraform imports it with; what no stack manages, or one deleted, isn't.
 func TestExcludedByDefaultCloudFormation(t *testing.T) {
 	const ns = `xmlns="http://cloudformation.amazonaws.com/doc/2010-05-15/"`
 	var stacks []string
@@ -123,6 +123,8 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 			return `<ListStackResourcesResponse ` + ns + `><ListStackResourcesResult><StackResourceSummaries>` +
 				`<member><LogicalResourceId>Assets</LogicalResourceId><PhysicalResourceId>app-assets</PhysicalResourceId><ResourceType>AWS::S3::Bucket</ResourceType><ResourceStatus>CREATE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
 				`<member><LogicalResourceId>Cluster</LogicalResourceId><PhysicalResourceId>apps</PhysicalResourceId><ResourceType>AWS::ECS::Cluster</ResourceType><ResourceStatus>CREATE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
+				// A rolled-back stack lists what it deleted, which it no longer manages.
+				`<member><LogicalResourceId>Old</LogicalResourceId><PhysicalResourceId>own-bucket</PhysicalResourceId><ResourceType>AWS::S3::Bucket</ResourceType><ResourceStatus>DELETE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
 				`</StackResourceSummaries></ListStackResourcesResult></ListStackResourcesResponse>`
 		}
 		t.Errorf("unexpected call %s", call.Op)

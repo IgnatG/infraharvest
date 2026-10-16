@@ -5,6 +5,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -36,7 +37,8 @@ var liveStackStatuses = func() []cftypes.StackStatus {
 // CloudFormation stacks of the region config names manage, with the
 // stack's name. For the global services, such as IAM, it asks every
 // region the account has enabled: a stack in any of them can create a
-// role.
+// role. A region whose stacks can't be read, as one an SCP denies, is
+// reported, and the other regions are still asked.
 func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config) (map[string]string, error) {
 	regions := []string{config.Region}
 	if p.region == GlobalPseudoRegion {
@@ -52,18 +54,20 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 		}
 	}
 	managed := map[string]string{}
+	var failed []error
 	for _, region := range regions {
 		regional := config.Copy()
 		regional.Region = region
 		if err := stackResources(ctx, cloudformation.NewFromConfig(regional), managed); err != nil {
-			return managed, fmt.Errorf("CloudFormation stacks in %s: %w", region, err)
+			failed = append(failed, fmt.Errorf("CloudFormation stacks in %s: %w", region, err))
 		}
 	}
-	return managed, nil
+	return managed, errors.Join(failed...)
 }
 
 // stackResources adds the physical IDs of the resources of every live
-// stack to managed, nested stacks included.
+// stack to managed, nested stacks included, but for those the stack has
+// deleted, as a stack that rolled back lists them.
 func stackResources(ctx context.Context, svc *cloudformation.Client, managed map[string]string) error {
 	stacks := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)
 	for stacks.HasMorePages() {
@@ -80,7 +84,7 @@ func stackResources(ctx context.Context, svc *cloudformation.Client, managed map
 					return fmt.Errorf("stack %s: %w", name, err)
 				}
 				for _, r := range page.StackResourceSummaries {
-					if id := aws.ToString(r.PhysicalResourceId); id != "" {
+					if id := aws.ToString(r.PhysicalResourceId); id != "" && r.ResourceStatus != cftypes.ResourceStatusDeleteComplete {
 						managed[id] = name
 					}
 				}
