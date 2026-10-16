@@ -28,7 +28,7 @@ type External struct {
 }
 
 // dataFileHeader starts data.tf.
-const dataFileHeader = "# Resources this configuration refers to but doesn't manage: the import\n# listed them, and the selection left them out.\n"
+const dataFileHeader = "# What this configuration refers to but doesn't manage: resources the\n# selection left out or other roots manage, and what the cloud or the\n# provider defines.\n"
 
 // DataSource reads one resource of a type: the data source's type, and the
 // argument that takes the resource's ID.
@@ -44,6 +44,13 @@ type DataSource struct {
 // sources are named other than those in taken. It reports whether it
 // changed anything.
 func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
+	edited, err := addDataSourcesSkipping(dir, external, sources, taken, nil)
+	return len(edited) > 0, err
+}
+
+// addDataSourcesSkipping is addDataSources for the resources not in skip
+// (see verifyEach). It returns the resources it changed.
+func addDataSourcesSkipping(dir string, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
 	// In one order whatever the caller's, as the names depend on it.
 	external = slices.Clone(external)
 	sortExternal(external)
@@ -79,33 +86,33 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 		blocks[address] = e
 	}
 	if len(index) == 0 {
-		return false, nil
+		return nil, nil
 	}
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	g := dependencies{}
-	changed := false
-	for _, r := range generated.resources() {
-		if referenceAttributes(r.address, r.syntax.Body, r.write.Body(), index, parentNames{}, g, generated.src) {
-			changed = true
+	r := &resolver{index: index, g: dependencies{}, src: generated.src}
+	edited := map[string]bool{}
+	for _, res := range generated.resources() {
+		if skip[res.address] == 0 && r.attributes(res.address, res.syntax.Body, res.write.Body(), "", false) {
+			edited[res.address] = true
 		}
 	}
-	if !changed {
-		return false, nil
+	if len(edited) == 0 {
+		return nil, nil
 	}
 	if err := generated.save(); err != nil {
-		return false, err
+		return nil, err
 	}
 	// Write the data sources the configuration now refers to.
 	saved, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	referred := map[string]bool{}
-	for _, r := range saved.resources() {
-		for _, t := range allTraversals(r.syntax.Body) {
+	for _, res := range saved.resources() {
+		for _, t := range allTraversals(res.syntax.Body) {
 			if t.RootName() != "data" || len(t) < 3 {
 				continue
 			}
@@ -132,5 +139,5 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 		block := f.Body().AppendNewBlock("data", []string{typ, name})
 		block.Body().SetAttributeValue(sources[e.Type].Argument, cty.StringVal(e.ID))
 	}
-	return true, os.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
+	return edited, os.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
 }
