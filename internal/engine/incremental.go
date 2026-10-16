@@ -240,7 +240,12 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	// The resources go into the files of their types, such as network.tf,
 	// after the root's own blocks: those files are backed up too.
 	fileOf := blockFiles(result.Imported, result.Modules)
-	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName}
+	// The providers that added module calls use go into providers.tf and
+	// the file of the root's required_providers (see mergeProviders).
+	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName, VersionsFileName}
+	if required := requiredProvidersFile(files); !slices.Contains(names, required) {
+		names = append(names, required)
+	}
 	for _, name := range fileOf {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
@@ -364,8 +369,10 @@ func AddedFileName(n int) string {
 // locals, data sources and resources left out after root's own.
 // References to data sources that read a resource root has, existing, as
 // a resource block, or that root already has, use root's. The provider
-// configuration and the locals it uses stay root's. It returns the files
-// of resources it wrote to, sorted, also when it fails after writing them.
+// configuration and the locals it uses stay root's, but for the providers
+// root has none of, which it gets (see mergeProviders). It returns the
+// files of resources it wrote to, sorted, also when it fails after
+// writing them.
 func merge(staging, root string, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
 	generated, err := loadHCL(filepath.Join(staging, GeneratedFileName))
 	if err != nil {
@@ -458,6 +465,9 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		}
 	}
 	if err := mergeLocals(staging, root); err != nil {
+		return added, err
+	}
+	if err := mergeProviders(staging, root, rootFiles); err != nil {
 		return added, err
 	}
 	if rejected, err := os.ReadFile(filepath.Join(staging, RejectedFileName)); err == nil {
@@ -612,6 +622,141 @@ func mergeLocals(staging, root string) error {
 		body.SetAttributeRaw(l.name, l.tokens)
 	}
 	return f.save()
+}
+
+// mergeProviders adds to root the providers staging configures and
+// requires that root doesn't, such as google-beta, which a curated module
+// creates resources with (see writeModuleProviders): each block of
+// staging's providers.tf for a provider root has no block for goes to
+// root's providers.tf, and each provider staging's versions.tf requires
+// and root doesn't goes, with the version staging pinned it to, to root's
+// required_providers (see requiredProvidersFile). Without them, an added
+// module call would run on a provider root neither configures nor pins.
+// rootFiles are root's files before the merge.
+func mergeProviders(staging, root string, rootFiles []*hclFile) error {
+	configured := map[string]bool{}
+	required := map[string]bool{}
+	for _, f := range rootFiles {
+		for _, b := range f.syntax.Blocks {
+			switch b.Type {
+			case "provider":
+				if len(b.Labels) == 1 {
+					configured[b.Labels[0]] = true
+				}
+			case "terraform":
+				for _, nested := range b.Body.Blocks {
+					if nested.Type != "required_providers" {
+						continue
+					}
+					for name := range nested.Body.Attributes {
+						required[name] = true
+					}
+				}
+			}
+		}
+	}
+	providers, err := loadOptionalHCL(filepath.Join(staging, ProvidersFileName))
+	if err != nil {
+		return err
+	}
+	if providers != nil {
+		var blocks []*hclwrite.Block
+		for _, b := range providers.file.Body().Blocks() {
+			if b.Type() == "provider" && len(b.Labels()) == 1 && !configured[b.Labels()[0]] {
+				blocks = append(blocks, b)
+			}
+		}
+		if err := appendBlocks(filepath.Join(root, ProvidersFileName), "", blocks); err != nil {
+			return err
+		}
+	}
+	versions, err := loadOptionalHCL(filepath.Join(staging, VersionsFileName))
+	if err != nil || versions == nil {
+		return err
+	}
+	missing := map[string]hclwrite.Tokens{}
+	for _, b := range versions.file.Body().Blocks() {
+		if b.Type() != "terraform" {
+			continue
+		}
+		for _, nested := range b.Body().Blocks() {
+			if nested.Type() != "required_providers" {
+				continue
+			}
+			for name, attr := range nested.Body().Attributes() {
+				// A root that requires none of its providers, as one
+				// written by hand may, gets only the new ones.
+				if !required[name] && (len(required) > 0 || !configured[name]) {
+					missing[name] = attr.Expr().BuildTokens(nil)
+				}
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	path := filepath.Join(root, requiredProvidersFile(rootFiles))
+	f, err := loadOptionalHCL(path)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &hclFile{path: path, file: hclwrite.NewEmptyFile()}
+	}
+	body := requiredProvidersBody(f.file.Body())
+	names := make([]string, 0, len(missing))
+	for name := range missing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		body.SetAttributeRaw(name, missing[name])
+	}
+	return f.save()
+}
+
+// requiredProvidersFile returns the name of the file of files that has
+// the root's required_providers, or versions.tf, where Generate writes
+// them, if none has.
+func requiredProvidersFile(files []*hclFile) string {
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type != "terraform" {
+				continue
+			}
+			for _, nested := range b.Body.Blocks {
+				if nested.Type == "required_providers" {
+					return filepath.Base(f.path)
+				}
+			}
+		}
+	}
+	return VersionsFileName
+}
+
+// requiredProvidersBody returns the body of body's required_providers
+// block, adding the block, and a terraform block for it, where body has
+// none.
+func requiredProvidersBody(body *hclwrite.Body) *hclwrite.Body {
+	var terraform *hclwrite.Block
+	for _, b := range body.Blocks() {
+		if b.Type() != "terraform" {
+			continue
+		}
+		if required := b.Body().FirstMatchingBlock("required_providers", nil); required != nil {
+			return required.Body()
+		}
+		if terraform == nil {
+			terraform = b
+		}
+	}
+	if terraform == nil {
+		if len(body.Blocks()) > 0 {
+			body.AppendNewline()
+		}
+		terraform = body.AppendNewBlock("terraform", nil)
+	}
+	return terraform.Body().AppendNewBlock("required_providers", nil).Body()
 }
 
 // appendBlocks adds blocks to the end of the file at path, which starts

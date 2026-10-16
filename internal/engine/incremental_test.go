@@ -523,3 +523,145 @@ func TestAddUndoesWhatItAddedToTheFilesOfTheTypes(t *testing.T) {
 		t.Errorf("root changed:\nbefore %v\nafter %v", before, after)
 	}
 }
+
+// googleStagingProviders writes into staging the providers.tf and
+// versions.tf Generate writes for a module call that creates resources
+// with google-beta (see writeModuleProviders), pinned as pinModuleProviders
+// pins it.
+func googleStagingProviders(t *testing.T, staging string) {
+	t.Helper()
+	writeConfig(t, staging, ProvidersFileName, `provider "google" {
+  project = "acme-prod"
+}
+
+provider "google-beta" {
+  project = "acme-prod"
+}
+`)
+	writeConfig(t, staging, VersionsFileName, `terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 7.2"
+    }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 7.2"
+    }
+  }
+}
+`)
+}
+
+// A module call that needs google-beta brings its provider block and its
+// pinned requirement into a root that has neither; the root's own stay as
+// they were. Before, the call ran on an unconfigured, unpinned provider.
+func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
+	root := t.TempDir()
+	rootProviders := "provider \"google\" {\n  project = \"acme-prod\"\n  region  = \"us-central1\"\n}\n"
+	writeConfig(t, root, ProvidersFileName, rootProviders)
+	writeConfig(t, root, VersionsFileName, `terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 7.1"
+    }
+  }
+}
+`)
+	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, `module "main" {
+  source       = "terraform-google-modules/network/google"
+  version      = "13.0.0"
+  network_name = "main"
+  project_id   = "acme-prod"
+}
+`)
+	googleStagingProviders(t, staging)
+
+	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	providers := squashed(readFile(t, root, ProvidersFileName))
+	if !strings.HasPrefix(providers, squashed(rootProviders)) || !strings.Contains(providers, `provider "google-beta" { project = "acme-prod" }`) || strings.Count(providers, "provider ") != 2 {
+		t.Errorf("providers.tf: want the root's provider and google-beta:\n%s", providers)
+	}
+	versions := squashed(readFile(t, root, VersionsFileName))
+	for _, want := range []string{
+		`google = { source = "hashicorp/google" version = "~> 7.1" }`,
+		`google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" }`,
+	} {
+		if !strings.Contains(versions, want) {
+			t.Errorf("versions.tf misses %q:\n%s", want, versions)
+		}
+	}
+
+	// A root that has them gets nothing more.
+	before := dirFiles(t, root)
+	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	after := dirFiles(t, root)
+	for _, name := range []string{ProvidersFileName, VersionsFileName} {
+		if after[name] != before[name] {
+			t.Errorf("%s changed:\n%s", name, after[name])
+		}
+	}
+}
+
+// A root that requires none of its providers, as one written by hand may,
+// gets a required_providers block with only the provider it lacks.
+func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
+	root := t.TempDir()
+	writeConfig(t, root, "main.tf", "provider \"google\" {\n  project = \"acme-prod\"\n}\n")
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, "module \"main\" {\n  source = \"terraform-google-modules/network/google\"\n}\n")
+	googleStagingProviders(t, staging)
+
+	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	versions := squashed(readFile(t, root, VersionsFileName))
+	if !strings.Contains(versions, `terraform { required_providers { google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" } } }`) || strings.Contains(versions, "hashicorp/google\"") {
+		t.Errorf("versions.tf:\n%s", versions)
+	}
+	if providers := squashed(readFile(t, root, ProvidersFileName)); providers != `provider "google-beta" { project = "acme-prod" }` {
+		t.Errorf("providers.tf:\n%s", providers)
+	}
+}
+
+// A root that doesn't initialize gets its versions.tf back, without the
+// provider the added resources required.
+func TestAddUndoesTheProvidersItAdded(t *testing.T) {
+	root := existingRoot(t)
+	writeConfig(t, root, VersionsFileName, "terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n  }\n}\n")
+	before := dirFiles(t, root)
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
+	opts := Options{Config: map[string][]byte{
+		VersionsFileName:  []byte("terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n    awscc = {\n      source  = \"hashicorp/awscc\"\n      version = \"~> 1.0\"\n    }\n  }\n}\n"),
+		ProvidersFileName: []byte("provider \"aws\" {\n  region = \"us-east-1\"\n}\n\nprovider \"awscc\" {\n  region = \"us-east-1\"\n}\n"),
+	}}
+
+	if _, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err == nil {
+		t.Fatal("want the init error")
+	}
+	if after := dirFiles(t, root); !reflect.DeepEqual(after, before) {
+		t.Errorf("root changed:\nbefore %v\nafter %v", before, after)
+	}
+
+	// Initialized, it keeps them.
+	staging = filepath.Join(t.TempDir(), "staging")
+	tf = &fakeTerraform{dir: staging, generated: queueGenerated}
+	if _, err := Add(context.Background(), tf, &fakeTerraform{dir: root}, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	if versions := squashed(readFile(t, root, VersionsFileName)); !strings.Contains(versions, `awscc = { source = "hashicorp/awscc" version = "~> 1.0" }`) {
+		t.Errorf("versions.tf:\n%s", versions)
+	}
+	if providers := readFile(t, root, ProvidersFileName); strings.Count(providers, "provider ") != 2 || !strings.Contains(providers, `provider "awscc"`) {
+		t.Errorf("providers.tf:\n%s", providers)
+	}
+}
