@@ -37,8 +37,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The image oxsecurity/megalinter/flavors/go@v10.1.0 runs, by digest:
+      # the action names it only by its tag, which can move. To bump it, take
+      # the image tag from the new release's flavors/go/action.yml and its
+      # digest from the registry (docker buildx imagetools inspect).
       - name: MegaLinter
-        uses: oxsecurity/megalinter/flavors/go@9949bad031045f366be2467e00e8371a7328a2e2 # v10.1.0
+        uses: docker://ghcr.io/oxsecurity/megalinter-go@sha256:42e091a4bcbe9141fe420c2520ed7addf75ae60a0c9d42e3df1278eef1c90a88 # v10.1.0
         env:
           # For the pull request comment only; MegaLinter hides it from the
           # linters.
