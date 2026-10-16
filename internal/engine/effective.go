@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // EffectiveTags describes a provider whose resources' tags attribute holds
@@ -131,11 +133,29 @@ func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, sk
 		if len(tags) == 0 {
 			continue
 		}
-		r.write.Body().SetAttributeValue(et.Attribute, mapValue(tags))
+		setBeforeBlocks(r.write.Body(), et.Attribute, mapValue(tags))
 		filled = append(filled, r.address)
 	}
 	if len(filled) == 0 {
 		return nil, nil
 	}
 	return filled, generated.save()
+}
+
+// setBeforeBlocks sets the attribute name of body to value where the style
+// guide has arguments, before the nested blocks: a new attribute would
+// otherwise go after them, at the end of the body.
+func setBeforeBlocks(body *hclwrite.Body, name string, value cty.Value) {
+	if body.GetAttribute(name) != nil {
+		body.SetAttributeValue(name, value)
+		return
+	}
+	blocks := body.Blocks()
+	for _, b := range blocks {
+		body.RemoveBlock(b)
+	}
+	body.SetAttributeValue(name, value)
+	for _, b := range blocks {
+		body.AppendBlock(b)
+	}
 }

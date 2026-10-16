@@ -165,3 +165,24 @@ func TestStateOnlyOf(t *testing.T) {
 		t.Errorf("aws_iam_role: %v", got)
 	}
 }
+
+// The labels go with the other arguments, before the nested blocks, as
+// the style guide has them, not at the end of the resource.
+func TestFillTagsBeforeBlocks(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "google_pubsub_subscription" "orders" {
+  name = "orders"
+  expiration_policy {
+    ttl = "86400s"
+  }
+}
+`)
+	values := map[string]map[string]any{"google_pubsub_subscription.orders": {"labels": map[string]any{}, "effective_labels": map[string]any{"env": "prod"}}}
+	if _, err := fillTags(dir, googleLabels, values, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := `resource "google_pubsub_subscription" "orders" { name = "orders" labels = { env = "prod" } expiration_policy { ttl = "86400s" } }`
+	if got := squashed(readFile(t, dir, GeneratedFileName)); got != want {
+		t.Errorf("got %s\nwant %s", got, want)
+	}
+}
