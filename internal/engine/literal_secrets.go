@@ -160,6 +160,14 @@ func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags
 		if value == "" {
 			return nil
 		}
+		// A JSON document is looked into first, so that a secret in it
+		// becomes a variable of its own and the rest keeps its text; the
+		// whole value is judged only when nothing in it is a secret.
+		if !tags {
+			if found := secretsInJSONString(e, value, path, key); len(found) > 0 {
+				return found
+			}
+		}
 		keyName := key
 		if condition {
 			keyName = ""
@@ -167,10 +175,7 @@ func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags
 		if reason := secretReason(keyName, value, freeForm && !tags); reason != "" {
 			return []foundSecret{{attribute: path, key: key, value: value, reason: reason, literal: e, whole: true}}
 		}
-		if tags {
-			return nil
-		}
-		return secretsInJSONString(e, value, path, key)
+		return nil
 	case *hclsyntax.ObjectConsExpr:
 		values := map[string]string{}
 		for _, item := range e.Items {
