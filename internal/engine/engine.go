@@ -437,6 +437,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
+	if err := layoutDir(dir, opts.ModulesDir); err != nil {
+		return nil, err
+	}
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
 	}
