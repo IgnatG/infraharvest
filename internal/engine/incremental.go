@@ -368,7 +368,8 @@ func AddedFileName(n int) string {
 // of their own (see AddedFileName); and the import blocks, variables,
 // locals, data sources and resources left out after root's own.
 // References to data sources that read a resource root has, existing, as
-// a resource block, or that root already has, use root's. The provider
+// a resource block, or that root already has, use root's, as do references
+// to variables root declares the same (see stagedVariables). The provider
 // configuration and the locals it uses stay root's, but for the providers
 // root has none of, which it gets (see mergeProviders). It returns the
 // files of resources it wrote to, sorted, also when it fails after
@@ -400,6 +401,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			}
 		}
 	}
+	declared := rootDeclarations(rootFiles)
 	var data []*hclwrite.Block
 	staged, err := loadOptionalHCL(filepath.Join(staging, DataFileName))
 	if err != nil {
@@ -413,6 +415,11 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			}
 			replacement, ok := rootData[dataKey(b, sources)]
 			if !ok {
+				// A data source root declares the same, such as a lookup
+				// of the tenant: the staged one has another name.
+				replacement, ok = declared[declarationKey(b, staged.src)]
+			}
+			if !ok {
 				data = append(data, blocks[i])
 				continue
 			}
@@ -420,6 +427,10 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 				replaceTraversals(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
 			}
 		}
+	}
+	variables, err := stagedVariables(staging, declared, generated)
+	if err != nil {
+		return nil, err
 	}
 
 	// The blocks for each file, in the order they come; those without one
@@ -453,16 +464,17 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	if err := appendBlocks(filepath.Join(root, DataFileName), dataFileHeader, data); err != nil {
 		return added, err
 	}
-	for _, name := range []string{ImportsFileName, VariablesFileName} {
-		f, err := loadOptionalHCL(filepath.Join(staging, name))
-		if err != nil {
+	imports, err := loadOptionalHCL(filepath.Join(staging, ImportsFileName))
+	if err != nil {
+		return added, err
+	}
+	if imports != nil {
+		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.file.Body().Blocks()); err != nil {
 			return added, err
 		}
-		if f != nil {
-			if err := appendBlocks(filepath.Join(root, name), "", f.file.Body().Blocks()); err != nil {
-				return added, err
-			}
-		}
+	}
+	if err := appendBlocks(filepath.Join(root, VariablesFileName), "", variables); err != nil {
+		return added, err
 	}
 	if err := mergeLocals(staging, root); err != nil {
 		return added, err
@@ -551,6 +563,94 @@ func dataKey(b *hclsyntax.Block, sources map[string]DataSource) string {
 		}
 	}
 	return ""
+}
+
+// rootDeclarations returns, by declarationKey, the address of each data
+// source and each variable with a default that files declare, the first
+// of those that declare the same: data.<type>.<name> or var.<name>, as
+// steps of a reference.
+func rootDeclarations(files []*hclFile) map[string][]string {
+	declared := map[string][]string{}
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			var address []string
+			switch {
+			case b.Type == "data" && len(b.Labels) == 2:
+				address = []string{"data", b.Labels[0], b.Labels[1]}
+			case b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b):
+				address = []string{"var", b.Labels[0]}
+			default:
+				continue
+			}
+			key := declarationKey(b, f.src)
+			if _, ok := declared[key]; key != "" && !ok {
+				declared[key] = address
+			}
+		}
+	}
+	return declared
+}
+
+// hasDefault reports whether the variable block b has a default. One
+// without, such as a secret's, takes a value of its own: two of them
+// declared alike are still two values.
+func hasDefault(b *hclsyntax.Block) bool {
+	_, ok := b.Body.Attributes["default"]
+	return ok
+}
+
+// declarationKey identifies what the data or variable block b declares:
+// its type, its data source's type, and its arguments as src writes them,
+// whitespace aside. Two blocks with one key declare the same, such as two
+// lookups of the tenant Azure signs in to, or two variables for one
+// resource's ID with the same default. It is "" for a block with nested
+// blocks, which it doesn't compare.
+func declarationKey(b *hclsyntax.Block, src []byte) string {
+	if len(b.Labels) == 0 || len(b.Body.Blocks) > 0 {
+		return ""
+	}
+	key := b.Type + "\x00" + strings.Join(b.Labels[:len(b.Labels)-1], ".")
+	names := make([]string, 0, len(b.Body.Attributes))
+	for name := range b.Body.Attributes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		r := b.Body.Attributes[name].Expr.Range()
+		if r.Start.Byte < 0 || r.End.Byte > len(src) || r.Start.Byte > r.End.Byte {
+			return ""
+		}
+		key += "\x00" + name + "=" + strings.Join(strings.Fields(string(src[r.Start.Byte:r.End.Byte])), " ")
+	}
+	return key
+}
+
+// stagedVariables returns the blocks of staging's variables.tf to add to
+// root's, but for the variables with a default that root declares the
+// same (see rootDeclarations): references to those in generated's blocks
+// refer to root's instead, which has another name.
+func stagedVariables(staging string, declared map[string][]string, generated *hclFile) ([]*hclwrite.Block, error) {
+	staged, err := loadOptionalHCL(filepath.Join(staging, VariablesFileName))
+	if err != nil || staged == nil {
+		return nil, err
+	}
+	blocks := staged.file.Body().Blocks()
+	var kept []*hclwrite.Block
+	for i, b := range staged.syntax.Blocks {
+		if i >= len(blocks) {
+			break
+		}
+		if b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b) {
+			if replacement, ok := declared[declarationKey(b, staged.src)]; ok {
+				for _, block := range generated.file.Body().Blocks() {
+					replaceTraversals(block.Body(), []string{"var", b.Labels[0]}, replacement)
+				}
+				continue
+			}
+		}
+		kept = append(kept, blocks[i])
+	}
+	return kept, nil
 }
 
 // mergeLocals adds staging's locals to root's locals.tf, but for those its

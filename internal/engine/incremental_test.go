@@ -665,3 +665,133 @@ func TestAddUndoesTheProvidersItAdded(t *testing.T) {
 		t.Errorf("providers.tf:\n%s", providers)
 	}
 }
+
+// What an incremental import adds reads the data sources and takes the
+// variables with a default that the root declares the same, under the
+// root's names, rather than declaring them again under others; a secret's
+// variable, without a default, stays a variable of its own. Before, the
+// root declared the network lookup twice, as main and main_2.
+func TestMergeReusesTheRootsLookupsAndVariables(t *testing.T) {
+	root := t.TempDir()
+	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	writeConfig(t, root, DataFileName, `data "google_compute_network" "main" {
+  name    = "main"
+  project = "acme-prod"
+}
+`)
+	subnetwork := `description = "The self link of google_compute_subnetwork.app, which the root google/acme-prod/us-central1 manages. The default is its value when this root was imported."
+  type        = string
+  default     = "https://www.googleapis.com/compute/v1/projects/acme-prod/regions/us-central1/subnetworks/app"`
+	writeConfig(t, root, VariablesFileName, `variable "app_subnetwork_self_link" {
+  `+subnetwork+`
+}
+
+variable "token" {
+  type      = string
+  sensitive = true
+}
+`)
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, `resource "google_compute_router" "edge" {
+  name       = "edge"
+  network    = data.google_compute_network.main_2.self_link
+  subnetwork = var.app_subnetwork_self_link_2
+  token      = var.token_2
+  other      = data.google_compute_network.other.self_link
+}
+`)
+	writeConfig(t, staging, DataFileName, `data "google_compute_network" "main_2" {
+  name    = "main"
+  project = "acme-prod"
+}
+
+data "google_compute_network" "other" {
+  name    = "other"
+  project = "acme-prod"
+}
+`)
+	writeConfig(t, staging, VariablesFileName, `variable "app_subnetwork_self_link_2" {
+  `+subnetwork+`
+}
+
+variable "token_2" {
+  type      = string
+  sensitive = true
+}
+`)
+
+	written, err := merge(staging, root, nil, nil, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := squashed(readFile(t, root, written[0]))
+	for _, want := range []string{
+		"network = data.google_compute_network.main.self_link",
+		"subnetwork = var.app_subnetwork_self_link",
+		"token = var.token_2",
+		"other = data.google_compute_network.other.self_link",
+	} {
+		if !strings.Contains(added, want+" ") {
+			t.Errorf("%s misses %q:\n%s", written[0], want, added)
+		}
+	}
+	data := readFile(t, root, DataFileName)
+	if strings.Count(data, "data ") != 2 || strings.Contains(data, "main_2") || !strings.Contains(data, `data "google_compute_network" "other"`) {
+		t.Errorf("data.tf: want the root's lookup and the new one:\n%s", data)
+	}
+	variables := readFile(t, root, VariablesFileName)
+	if strings.Count(variables, "variable ") != 3 || strings.Contains(variables, "app_subnetwork_self_link_2") || !strings.Contains(variables, `variable "token_2"`) {
+		t.Errorf("variables.tf: want the root's variables and the secret's:\n%s", variables)
+	}
+}
+
+// A data source or variable declared otherwise, as with another default,
+// is one of its own.
+func TestDeclarationKey(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), "main.tf", `data "google_compute_network" "a" {
+  project = "acme-prod"
+  name    = "main"
+}
+
+data "google_compute_network" "b" {
+  name = "main"
+  project = "acme-prod"
+}
+
+data "google_compute_network" "c" {
+  name    = "main"
+  project = "acme-test"
+}
+
+data "google_compute_subnetwork" "d" {
+  name    = "main"
+  project = "acme-prod"
+}
+
+variable "e" {
+  default = "main"
+}
+
+data "aws_ami" "f" {
+  filter {
+    name   = "name"
+    values = ["al2023-*"]
+  }
+}
+`)
+	keys := map[string]string{}
+	for _, b := range f.syntax.Blocks {
+		keys[b.Labels[len(b.Labels)-1]] = declarationKey(b, f.src)
+	}
+	if keys["a"] != keys["b"] || keys["a"] == "" {
+		t.Errorf("the same lookup, in another order: %q, %q", keys["a"], keys["b"])
+	}
+	for _, other := range []string{"c", "d", "e"} {
+		if keys[other] == keys["a"] {
+			t.Errorf("%s: declared like a", other)
+		}
+	}
+	if keys["f"] != "" {
+		t.Errorf("a block with nested blocks: %q", keys["f"])
+	}
+}
