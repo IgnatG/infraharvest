@@ -7,8 +7,6 @@ infraharvest generates Terraform configuration for infrastructure that already e
 - **Read-only:** it never applies anything and writes no state; least-privilege [permission templates](docs/permissions.md) for each cloud.
 - **AWS, Azure and Google Cloud**, with Terraform or OpenTofu, from the command line, a [GitHub Action](action/README.md) or an [AI agent over MCP](docs/mcp.md).
 
-> **Before the first release.** v0.1.0 is in preparation, and commands and output may still change until then. Until it is out, install with `go install` (below).
-
 Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at [ignatg.github.io/infraharvest](https://ignatg.github.io/infraharvest/).
 
 ## Documentation
@@ -35,19 +33,17 @@ infraharvest reads the cloud and writes files; it never applies anything, and wr
 
 ## Installation
 
-With Go 1.27 or later, which works before the first release too:
-
-```sh
-go install github.com/IgnatG/infraharvest@latest
-```
-
-Once v0.1.0 is out: a [release](https://github.com/IgnatG/infraharvest/releases) archive (signed with cosign), the container image `ghcr.io/ignatg/infraharvest` (with Terraform and OpenTofu included), or the install script for Linux, macOS and cloud shells:
+With the install script, for Linux, macOS and cloud shells:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
 ```
 
-The install script verifies the release's signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), which AWS CloudShell, Azure Cloud Shell and Google Cloud Shell don't include: [Install](docs/install.md#in-a-cloud-shell) shows how to add it there.
+The install script verifies the release's signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), which AWS CloudShell, Azure Cloud Shell and Google Cloud Shell don't include: [Install](docs/install.md#in-a-cloud-shell) shows how to add it there. There is also a [release](https://github.com/IgnatG/infraharvest/releases) archive for each platform (signed with cosign), the container image `ghcr.io/ignatg/infraharvest` (with Terraform and OpenTofu included), and, with Go 1.27 or later:
+
+```sh
+go install github.com/IgnatG/infraharvest@latest
+```
 
 infraharvest needs Terraform 1.5 or later, which it downloads if there is none on `PATH`, or OpenTofu 1.6 or later. See [Install](docs/install.md) for verifying a release, the image, and building from source.
 
@@ -67,7 +63,7 @@ See the [Quickstart](docs/quickstart.md) for Azure and Google Cloud.
 - [Azure](docs/azure.md)
 - [Google Cloud](docs/google.md)
 
-Each is covered in depth: inventory APIs, the catalogue, curated modules, and end-to-end tests on an emulator on every pull request. AWS and Azure are also tested against a real account and subscription with the read-only permission templates; Google Cloud is next. A new provider is added by following the steps below.
+Each is covered in depth: inventory APIs, the catalogue, curated modules, and end-to-end tests on an emulator on every pull request. Each is also tested against a real AWS account, Azure subscription and Google Cloud project with the read-only permission templates. A new provider is added by following the steps below.
 
 ## Adding a provider
 
