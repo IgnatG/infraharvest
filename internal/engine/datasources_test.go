@@ -106,6 +106,66 @@ resource "aws_lambda_function" "b" {
 	}
 }
 
+// A data source is named after the resource's name, without the words of
+// its type, and after its ID where it has no name; the same resource
+// listed twice is read once, by its name.
+func TestAddDataSourcesNamedByResourceName(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_security_group" "web" {
+  vpc_id = "vpc-0abc1234"
+}
+
+resource "aws_security_group_rule" "web" {
+  security_group_id = "sg-0def5678"
+}
+`)
+	external := []External{
+		{Type: "aws_vpc", ID: "vpc-0abc1234"},
+		{Type: "aws_vpc", ID: "vpc-0abc1234", Name: "shop-vpc"},
+		{Type: "aws_security_group", ID: "sg-0def5678", Name: "sg-0def5678"},
+	}
+
+	changed, err := addDataSources(dir, external, awsDataSources, nil)
+	if err != nil || !changed {
+		t.Fatalf("want data sources, got %v, %v", changed, err)
+	}
+
+	generated := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{
+		"vpc_id = data.aws_vpc.shop.id",
+		"security_group_id = data.aws_security_group.sg_0def5678.id",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, generated)
+		}
+	}
+	data := squashed(readFile(t, dir, DataFileName))
+	if want := `data "aws_vpc" "shop" { id = "vpc-0abc1234" }`; !strings.Contains(data, want) {
+		t.Errorf("data.tf misses %q:\n%s", want, data)
+	}
+	if n := strings.Count(data, `data "aws_vpc"`); n != 1 {
+		t.Errorf("want the VPC read once, got %d:\n%s", n, data)
+	}
+}
+
+func TestDataLabel(t *testing.T) {
+	for _, tc := range []struct {
+		e    External
+		want string
+	}{
+		{External{Type: "aws_vpc", ID: "vpc-0abc1234"}, "vpc_0abc1234"},
+		{External{Type: "aws_vpc", ID: "vpc-0abc1234", Name: "vpc-0abc1234"}, "vpc_0abc1234"},
+		{External{Type: "aws_vpc", ID: "vpc-0abc1234", Name: "shop-prod-vpc"}, "shop_prod"},
+		{External{Type: "aws_iam_role", ID: "AdminRole", Name: "AdminRole"}, "admin_role"},
+		{External{Type: "aws_kms_key", ID: "1234abcd", Name: "ebs-key"}, "ebs"},
+		{External{Type: "aws_subnet", ID: "subnet-1", Name: "10.0.1.0"}, "r_10_0_1_0"},
+	} {
+		if got := dataLabel(tc.e); got != tc.want {
+			t.Errorf("dataLabel(%+v) = %q, want %q", tc.e, got, tc.want)
+		}
+	}
+}
+
 func TestAddDataSourcesWithoutReferences(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_vpc\" \"a\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")

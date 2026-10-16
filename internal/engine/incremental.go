@@ -221,11 +221,11 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	}
 	external := map[External]bool{}
 	for _, e := range opts.External {
-		external[e] = true
+		external[External{Type: e.Type, ID: e.ID}] = true
 	}
 	opts.External = slices.Clone(opts.External)
 	for _, e := range sortedExternal(existing) {
-		if !external[e] {
+		if !external[External{Type: e.Type, ID: e.ID}] {
 			opts.External = append(opts.External, e)
 		}
 	}
@@ -302,13 +302,21 @@ func sortedExternal(m map[External]string) []External {
 	return list
 }
 
-// sortExternal sorts list by type, then ID.
+// sortExternal sorts list by type, then ID, then name, with a name before
+// none.
 func sortExternal(list []External) {
 	sort.Slice(list, func(i, j int) bool {
-		if list[i].Type != list[j].Type {
-			return list[i].Type < list[j].Type
+		a, b := list[i], list[j]
+		if a.Type != b.Type {
+			return a.Type < b.Type
 		}
-		return list[i].ID < list[j].ID
+		if a.ID != b.ID {
+			return a.ID < b.ID
+		}
+		if (a.Name == "") != (b.Name == "") {
+			return a.Name != ""
+		}
+		return a.Name < b.Name
 	})
 }
 

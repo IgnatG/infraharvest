@@ -22,9 +22,29 @@ import (
 const DataFileName = "data.tf"
 
 // External is a resource the import listed but doesn't manage, such as one
-// the selection left out: the configuration may still refer to it.
+// the selection left out: the configuration may still refer to it. Name is
+// the name it was listed by, from which the label of the data source that
+// reads it is made; with none, the label is made from the ID.
 type External struct {
 	Type, ID string
+	Name     string `json:",omitempty"`
+}
+
+// sameResource reports whether a and b are the same resource, whatever
+// they are named.
+func sameResource(a, b External) bool {
+	return a.Type == b.Type && a.ID == b.ID
+}
+
+// dataLabel is the label of the data source that reads e: its name as a
+// resource's label is made (see Label), without the words of its type
+// (see withoutTypeWords), as in data.aws_vpc.shop for the VPC named
+// shop-vpc; or, without a name, its ID, as in data.aws_vpc.vpc_0abc1234.
+func dataLabel(e External) string {
+	if e.Name == "" || e.Name == e.ID {
+		return Label(e.ID)
+	}
+	return withoutTypeWords(e.Type, Label(e.Name))
 }
 
 // dataFileHeader starts data.tf.
@@ -51,9 +71,11 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 // addDataSourcesSkipping is addDataSources for the resources not in skip
 // (see verifyEach). It returns the resources it changed.
 func addDataSourcesSkipping(dir string, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
-	// In one order whatever the caller's, as the names depend on it.
+	// In one order whatever the caller's, as the names depend on it, and
+	// each resource once, with a name if any of its entries has one.
 	external = slices.Clone(external)
 	sortExternal(external)
+	external = slices.CompactFunc(external, sameResource)
 	index := map[string][]referenceTarget{}
 	blocks := map[string]External{} // data address -> resource
 	used := map[string]bool{}
@@ -76,7 +98,7 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 		if !ok || ids[e.ID] > 1 {
 			continue
 		}
-		base := source.Type + "." + Label(e.ID)
+		base := source.Type + "." + dataLabel(e)
 		address := base
 		for n := 2; used[address]; n++ {
 			address = fmt.Sprintf("%s_%d", base, n)
