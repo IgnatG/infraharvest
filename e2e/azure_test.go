@@ -116,11 +116,15 @@ func TestAzureRoundTrip(t *testing.T) {
 	}
 	// The identity, with its federated credential, becomes a call of Azure
 	// Verified Modules' managed identity module when the module accepts
-	// azurerm's newest major release; when it doesn't, the report says the
-	// module isn't called, and both stay in the root, on the newest
+	// azurerm's newest major release; when it doesn't, manifest.json says
+	// the module isn't called, and both stay in the root, on the newest
 	// azurerm, without the module's azapi provider. The plans above check
 	// that either changes nothing.
-	unused := slices.ContainsFunc(coverage.Unused, func(m report.UnusedModule) bool {
+	var manifest report.Manifest
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "manifest.json"))), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	unused := slices.ContainsFunc(manifest.Unused, func(m report.UnusedModule) bool {
 		return m.Source == adapters.AzureUserAssignedIdentity.Source
 	})
 	var members []string
