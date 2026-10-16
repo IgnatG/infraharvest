@@ -284,6 +284,34 @@ func TestLowerBound(t *testing.T) {
 	}
 }
 
+// Roots imported in parallel share the modules directory: one root's undo
+// leaves a module another calls, and the last user's undo removes it.
+func TestReleaseModulesKeepsSharedModules(t *testing.T) {
+	modulesDir := t.TempDir()
+	path := filepath.Join(modulesDir, "bucket_1a2b3c4d")
+	write := func(at string) error { return os.WriteFile(filepath.Join(at, "main.tf"), []byte("# module\n"), 0o644) }
+	a, b := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
+
+	if wrote, err := holdModule(a, path, write); err != nil || !wrote {
+		t.Fatalf("a: wrote %v, %v", wrote, err)
+	}
+	if wrote, err := holdModule(b, path, write); err != nil || wrote {
+		t.Fatalf("b: wrote %v, %v; want it reused", wrote, err)
+	}
+	if err := releaseModules(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(path, "main.tf")); err != nil {
+		t.Fatalf("a's undo removed the module b calls: %v", err)
+	}
+	if err := releaseModules(b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the module outlived its last user: %v", err)
+	}
+}
+
 // A module is reused only when its variables and outputs match too.
 func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)

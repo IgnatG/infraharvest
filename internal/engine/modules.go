@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -98,8 +97,9 @@ type moduleGroup struct {
 // same shape into a generated local module under modulesDir, one call per
 // cluster. Values the clusters share stay in the module; values that differ,
 // or refer to anything outside the cluster, become variables. It returns
-// the module directories it created; it changes nothing when no shape
-// repeats, or when moving would break a reference it can't follow.
+// the module directories it wrote, and holds the ones it calls (see
+// holdModule); it changes nothing when no shape repeats, or when moving
+// would break a reference it can't follow.
 func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
@@ -132,13 +132,12 @@ func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]stri
 	var created []string
 	for _, g := range groups {
 		path := filepath.Join(modulesDir, g.name)
-		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-			if err := writeModule(path, g, versions); err != nil {
-				return created, false, err
-			}
-			created = append(created, path)
-		} else if err != nil {
+		wrote, err := holdModule(dir, path, func(at string) error { return writeModule(at, g, versions) })
+		if err != nil {
 			return created, false, err
+		}
+		if wrote {
+			created = append(created, path)
 		}
 	}
 	if err := rewriteRoot(dir, generated, groups, modulesDir); err != nil {
@@ -752,14 +751,10 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, base
 	if err != nil {
 		return false, err
 	}
-	created, changed, err := modularize(dir, modulesDir, schemas)
+	_, changed, err := modularize(dir, modulesDir, schemas)
 	undo := func() error {
-		for _, path := range created {
-			if err := os.RemoveAll(path); err != nil {
-				return err
-			}
-		}
-		return backup.restore()
+		// What another root calls stays (see moduleRefs).
+		return errors.Join(releaseModules(dir), backup.restore())
 	}
 	if err != nil {
 		return false, errors.Join(err, undo())
