@@ -10,4 +10,4 @@ data "aws_security_group" "web" {
   id = "sg-0a1b2c3d4e5f60718"
 }
 
-# Left out of generated configuration: region, tags_all, ingress, egress
+# Left out of generated configuration: region, tags_all, *.tags_all, ingress, egress

@@ -24,7 +24,7 @@ data "aws_s3_bucket" "app_logs" {
 #   aws_s3_bucket_object_lock_configuration
 #   aws_s3_bucket_replication_configuration
 
-# Left out of generated configuration: region, tags_all, acceleration_status, acl, cors_rule, grant, lifecycle_rule, logging, object_lock_configuration, policy, replication_configuration, request_payer, server_side_encryption_configuration, versioning, website
+# Left out of generated configuration: region, tags_all, *.tags_all, acceleration_status, acl, cors_rule, grant, lifecycle_rule, logging, object_lock_configuration, policy, replication_configuration, request_payer, server_side_encryption_configuration, versioning, website
 
 # Generated configuration, without the arguments the catalogue omits:
 # __generated__ by Terraform

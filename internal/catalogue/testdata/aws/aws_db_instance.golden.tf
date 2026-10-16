@@ -5,6 +5,6 @@ import {
   id = "orders"
 }
 
-# Left out of generated configuration: region, tags_all, password
+# Left out of generated configuration: region, tags_all, *.tags_all, password
 
 # Kept in state only, so a plan may set: apply_immediately
