@@ -69,9 +69,9 @@ func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
 		recordedResource{"aws_securityhub_member", "333333333333", "securityhub_member_333333333333", map[string]string{
 			"account_id": "333333333333"}},
 		// Imported by the subscription's ARN; standards_arn is the standard's.
-		recordedResource{"aws_securityhub_standards_subscription", fsbp, fsbp, map[string]string{
+		recordedResource{"aws_securityhub_standards_subscription", fsbp, "aws-foundational-security-best-practices/v/1.0.0", map[string]string{
 			"standards_arn": recordSecurityHubStdsARN + "aws-foundational-security-best-practices/v/1.0.0"}},
-		recordedResource{"aws_securityhub_standards_subscription", cis, cis, map[string]string{
+		recordedResource{"aws_securityhub_standards_subscription", cis, "cis-aws-foundations-benchmark/v/1.4.0", map[string]string{
 			"standards_arn": recordSecurityHubStdsARN + "cis-aws-foundations-benchmark/v/1.4.0"}},
 	)
 }

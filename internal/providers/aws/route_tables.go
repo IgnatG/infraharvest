@@ -11,7 +11,8 @@ import (
 )
 
 // RouteTableLister lists the route tables of a region as aws_route_table,
-// each by its ID and followed by its associations:
+// each by its ID (named as routeTableName says) and followed by its
+// associations:
 //
 //   - the association that makes a table its VPC's main route table, as
 //     aws_main_route_table_association named after the VPC (the catalogue
@@ -53,7 +54,7 @@ func (g *RouteTableLister) List() error {
 func routeTableResources(table *types.RouteTable) []harvest.Resource {
 	tableID := aws.ToString(table.RouteTableId)
 	resources := []harvest.Resource{
-		harvest.RecordBare(tableID, tableID, "aws_route_table", "aws"),
+		harvest.RecordBare(tableID, routeTableName(table), "aws_route_table", "aws"),
 	}
 	for _, association := range table.Associations {
 		associationID := aws.ToString(association.RouteTableAssociationId)
@@ -82,4 +83,25 @@ func routeTableResources(table *types.RouteTable) []harvest.Resource {
 		}
 	}
 	return resources
+}
+
+// routeTableName is what a route table is named after, by ID, which the
+// import names after that resource's Name tag (a Name tag of the table's
+// own comes first): its VPC, followed by main, for a VPC's main route
+// table; the subnet, for a table only one subnet uses; else the table's
+// own ID.
+func routeTableName(table *types.RouteTable) string {
+	var subnets []string
+	for _, association := range table.Associations {
+		if aws.ToBool(association.Main) {
+			return aws.ToString(table.VpcId) + " main"
+		}
+		if subnet := aws.ToString(association.SubnetId); subnet != "" {
+			subnets = append(subnets, subnet)
+		}
+	}
+	if len(subnets) == 1 {
+		return subnets[0]
+	}
+	return aws.ToString(table.RouteTableId)
 }

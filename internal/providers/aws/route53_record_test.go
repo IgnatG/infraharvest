@@ -75,21 +75,21 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	record := func(id, name, typ, setID string) recordedResource {
-		return recordedResource{"aws_route53_record", id, id, map[string]string{
+	record := func(id, label, name, typ, setID string) recordedResource {
+		return recordedResource{"aws_route53_record", id, label, map[string]string{
 			"name": name, "zone_id": "Z1", "type": typ, "set_identifier": setID}}
 	}
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_route53_zone", "Z1", "Z1_example.com", map[string]string{"name": "example.com.", "force_destroy": "false"}},
-		record("Z1_example.com._NS_", "example.com", "NS", ""),
-		record("Z1_example.com._SOA_", "example.com", "SOA", ""),
-		record("Z1_*.example.com._A_", "*.example.com", "A", ""),
-		record("Z1_www.example.com._CNAME_blue", "www.example.com", "CNAME", "blue"),
-		record("Z1_www.example.com._CNAME_green", "www.example.com", "CNAME", "green"),
+		recordedResource{"aws_route53_zone", "Z1", "example.com", map[string]string{"name": "example.com.", "force_destroy": "false"}},
+		record("Z1_example.com._NS_", "example.com NS", "example.com", "NS", ""),
+		record("Z1_example.com._SOA_", "example.com SOA", "example.com", "SOA", ""),
+		record("Z1_*.example.com._A_", "wildcard A", "*.example.com", "A", ""),
+		record("Z1_www.example.com._CNAME_blue", "www CNAME blue", "www.example.com", "CNAME", "blue"),
+		record("Z1_www.example.com._CNAME_green", "www CNAME green", "www.example.com", "CNAME", "green"),
 		// A zone whose records can't be listed is listed without them.
-		recordedResource{"aws_route53_zone", "Z2", "Z2_internal.example", map[string]string{"name": "internal.example.", "force_destroy": "false"}},
-		recordedResource{"aws_route53_health_check", "hc-1", "hc-1_HTTPS", nil},
-		recordedResource{"aws_route53_health_check", "hc-2", "hc-2_TCP", nil},
+		recordedResource{"aws_route53_zone", "Z2", "internal.example", map[string]string{"name": "internal.example.", "force_destroy": "false"}},
+		recordedResource{"aws_route53_health_check", "hc-1", "example.com HTTPS", nil},
+		recordedResource{"aws_route53_health_check", "hc-2", "example.com TCP", nil},
 	)
 }
 
@@ -104,8 +104,8 @@ func TestRecordRoute53SwallowsErrors(t *testing.T) {
 		}
 
 		assertRecorded(t, g.Resources,
-			recordedResource{"aws_route53_health_check", "hc-1", "hc-1_HTTPS", nil},
-			recordedResource{"aws_route53_health_check", "hc-2", "hc-2_TCP", nil},
+			recordedResource{"aws_route53_health_check", "hc-1", "example.com HTTPS", nil},
+			recordedResource{"aws_route53_health_check", "hc-2", "example.com TCP", nil},
 		)
 	})
 	t.Run("health checks", func(t *testing.T) {

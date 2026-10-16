@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -47,7 +48,7 @@ func (g *SnsLister) List() error {
 
 // addSubscriptions records the subscriptions of the topic topicARN that
 // Terraform can manage as aws_sns_topic_subscription, imported by their
-// ARN and named subscription-<the ARN's last part>.
+// ARN and named after their endpoint and protocol (see subscriptionName).
 func (g *SnsLister) addSubscriptions(svc *sns.Client, topicARN *string) error {
 	pages := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{TopicArn: topicARN}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
@@ -60,7 +61,7 @@ func (g *SnsLister) addSubscriptions(svc *sns.Client, topicARN *string) error {
 			if !snsManagedSubscription(aws.ToString(subscription.Protocol), arn) {
 				continue
 			}
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, "subscription-"+snsLastPart(arn), "aws_sns_topic_subscription", "aws"))
+			g.Resources = append(g.Resources, harvest.RecordBare(arn, subscriptionName(subscription.Endpoint, subscription.Protocol), "aws_sns_topic_subscription", "aws"))
 		}
 	}
 	return nil
@@ -82,4 +83,23 @@ func snsManagedSubscription(protocol, arn string) bool {
 // name, or a subscription's ID. A value without ":" is returned whole.
 func snsLastPart(arn string) string {
 	return arn[strings.LastIndex(arn, ":")+1:]
+}
+
+// subscriptionName names a subscription after where it delivers and how:
+// a function's name, without its alias, the last part of another ARN
+// endpoint, such as a queue's name, or the host of a URL, then the
+// protocol, as in "jobs sqs".
+func subscriptionName(endpoint, protocol *string) string {
+	target := aws.ToString(endpoint)
+	u, err := url.Parse(target)
+	_, function, isFunction := strings.Cut(target, ":function:")
+	switch {
+	case err == nil && u.Host != "":
+		target = u.Host
+	case isFunction:
+		target, _, _ = strings.Cut(function, ":")
+	case strings.HasPrefix(target, "arn:"):
+		target = snsLastPart(target)
+	}
+	return strings.TrimSpace(target + " " + aws.ToString(protocol))
 }

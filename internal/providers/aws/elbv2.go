@@ -62,7 +62,8 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 }
 
 // listListeners records the listeners of the load balancer lbARN by ARN,
-// each followed by its rules and its extra certificates. An error is
+// named after their protocol and port (see listenerName), each followed by
+// its rules and its extra certificates. An error is
 // logged; the load balancer stays, without the listeners not yet read.
 func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string) {
 	input := &elasticloadbalancingv2.DescribeListenersInput{LoadBalancerArn: aws.String(lbARN)}
@@ -74,20 +75,21 @@ func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN s
 			return
 		}
 		for _, listener := range page.Listeners {
-			arn := aws.ToString(listener.ListenerArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, arn, "aws_lb_listener", "aws"))
-			g.listListenerRules(client, arn)
-			g.listListenerCertificates(client, listener)
+			arn, name := aws.ToString(listener.ListenerArn), listenerName(listener)
+			g.Resources = append(g.Resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
+			g.listListenerRules(client, arn, name)
+			g.listListenerCertificates(client, listener, name)
 		}
 	}
 }
 
 // listListenerRules records the rules of the listener listenerARN by ARN,
-// but its default rule, which Terraform manages as part of the listener.
+// named after the listener's name and their priority, but its
+// default rule, which Terraform manages as part of the listener.
 // DescribeRules has a marker but pages are walked by hand, with the
 // largest page size. An error is logged; the listener stays, with its
 // certificates.
-func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN string) {
+func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN, name string) {
 	err := paginateByMarker(func(marker *string) (*string, error) {
 		page, err := client.DescribeRules(g.Context(), &elasticloadbalancingv2.DescribeRulesInput{
 			ListenerArn: aws.String(listenerARN),
@@ -102,7 +104,7 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 				continue
 			}
 			arn := aws.ToString(rule.RuleArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, arn, "aws_lb_listener_rule", "aws"))
+			g.Resources = append(g.Resources, harvest.RecordBare(arn, name+" "+aws.ToString(rule.Priority), "aws_lb_listener_rule", "aws"))
 		}
 		return page.NextMarker, nil
 	})
@@ -115,9 +117,10 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 // listener beyond its default one, which Terraform sets on the listener
 // itself: the one the answer marks as the default, or else the first
 // certificate the listener reports. Each is recorded as
-// "<listener ARN>_<certificate ARN>", Terraform's import ID. An error is
+// "<listener ARN>_<certificate ARN>", Terraform's import ID, and named
+// after the listener's name. An error is
 // logged and ends the listener's certificates there.
-func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener) {
+func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener, name string) {
 	listenerARN := aws.ToString(listener.ListenerArn)
 	defaultARN := ""
 	if len(listener.Certificates) > 0 {
@@ -137,7 +140,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 				continue
 			}
 			id := listenerARN + "_" + certificateARN
-			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_lb_listener_certificate", "aws", map[string]string{
+			g.Resources = append(g.Resources, harvest.Record(id, name, "aws_lb_listener_certificate", "aws", map[string]string{
 				"listener_arn":    listenerARN,
 				"certificate_arn": certificateARN,
 			}))
@@ -155,9 +158,9 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 			return err
 		}
 		for _, group := range page.TargetGroups {
-			arn := aws.ToString(group.TargetGroupArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, aws.ToString(group.TargetGroupName), "aws_lb_target_group", "aws"))
-			g.listTargetGroupAttachments(client, arn)
+			arn, name := aws.ToString(group.TargetGroupArn), aws.ToString(group.TargetGroupName)
+			g.Resources = append(g.Resources, harvest.RecordBare(arn, name, "aws_lb_target_group", "aws"))
+			g.listTargetGroupAttachments(client, arn, name)
 		}
 	}
 	return nil
@@ -169,8 +172,10 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 // availability zone, after an empty port if it has none. The port and the
 // zone are recorded as attributes too. DescribeTargetHealth answers with
 // every target at once; an error is logged and leaves the group without
-// its targets.
-func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN string) {
+// its targets. Each target is named after the group, groupName, and the
+// target: an instance by its ID, which the import names after the
+// instance, an IP address, or the name of a Lambda function.
+func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN, groupName string) {
 	out, err := client.DescribeTargetHealth(g.Context(), &elasticloadbalancingv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(groupARN),
 	})
@@ -203,6 +208,16 @@ func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Cl
 			parts = append(parts, zone)
 		}
 		id := strings.Join(parts, ",")
-		g.Resources = append(g.Resources, harvest.Record(id, id, "aws_lb_target_group_attachment", "aws", attributes))
+		g.Resources = append(g.Resources, harvest.Record(id, groupName+" "+cloudControlName(targetID), "aws_lb_target_group_attachment", "aws", attributes))
 	}
+}
+
+// listenerName names a listener after its protocol and port, HTTPS 443,
+// which a label writes https_443.
+func listenerName(listener types.Listener) string {
+	name := string(listener.Protocol)
+	if listener.Port != nil {
+		name += " " + strconv.Itoa(int(*listener.Port))
+	}
+	return strings.TrimSpace(name)
 }

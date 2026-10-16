@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -160,7 +161,8 @@ func (g *LambdaLister) addEventSourceMappings(svc *lambda.Client) error {
 }
 
 // addLayerVersions records every version of every layer as an
-// aws_lambda_layer_version, imported and named by its ARN.
+// aws_lambda_layer_version, imported by its ARN and named after the layer
+// and the version: "deps 2".
 func (g *LambdaLister) addLayerVersions(svc *lambda.Client) error {
 	layers := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{}, stopOnDuplicateToken)
 	for layers.HasMorePages() {
@@ -177,7 +179,7 @@ func (g *LambdaLister) addLayerVersions(svc *lambda.Client) error {
 				}
 				for _, version := range versionPage.LayerVersions {
 					arn := aws.ToString(version.LayerVersionArn)
-					g.Resources = append(g.Resources, harvest.RecordBare(arn, arn, "aws_lambda_layer_version", "aws"))
+					g.Resources = append(g.Resources, harvest.RecordBare(arn, aws.ToString(layer.LayerName)+" "+strconv.FormatInt(version.Version, 10), "aws_lambda_layer_version", "aws"))
 				}
 			}
 		}

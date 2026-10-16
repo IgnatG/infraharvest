@@ -4,8 +4,12 @@
 package aws
 
 import (
+	"net/url"
+	"strings"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	"github.com/aws/aws-sdk-go-v2/service/apigatewayv2/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -72,8 +76,8 @@ func (g *APIGatewayV2Lister) listAPIs(svc *apigatewayv2.Client) ([]string, error
 	return apiIDs, err
 }
 
-// listStages lists the API's stages. Terraform imports a stage as
-// <API ID>/<stage name>, which also names it.
+// listStages lists the API's stages, named after their names. Terraform
+// imports a stage as <API ID>/<stage name>.
 func (g *APIGatewayV2Lister) listStages(svc *apigatewayv2.Client, apiID string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetStages(g.Context(), &apigatewayv2.GetStagesInput{ApiId: aws.String(apiID), NextToken: token})
@@ -86,7 +90,7 @@ func (g *APIGatewayV2Lister) listStages(svc *apigatewayv2.Client, apiID string) 
 			}
 			stageName := aws.ToString(stage.StageName)
 			id := apiID + "/" + stageName
-			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_apigatewayv2_stage", "aws", map[string]string{
+			g.Resources = append(g.Resources, harvest.Record(id, stageName, "aws_apigatewayv2_stage", "aws", map[string]string{
 				"api_id": apiID,
 				"name":   stageName,
 			}))
@@ -95,7 +99,7 @@ func (g *APIGatewayV2Lister) listStages(svc *apigatewayv2.Client, apiID string) 
 	})
 }
 
-// listModels lists the API's models, named after their IDs.
+// listModels lists the API's models, named after their names.
 func (g *APIGatewayV2Lister) listModels(svc *apigatewayv2.Client, apiID string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetModels(g.Context(), &apigatewayv2.GetModelsInput{ApiId: aws.String(apiID), NextToken: token})
@@ -104,7 +108,7 @@ func (g *APIGatewayV2Lister) listModels(svc *apigatewayv2.Client, apiID string) 
 		}
 		for _, model := range output.Items {
 			modelID := aws.ToString(model.ModelId)
-			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+modelID, modelID, "aws_apigatewayv2_model", "aws", map[string]string{
+			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+modelID, aws.ToString(model.Name), "aws_apigatewayv2_model", "aws", map[string]string{
 				"name":         aws.ToString(model.Name),
 				"content_type": aws.ToString(model.ContentType),
 				"schema":       aws.ToString(model.Schema),
@@ -115,7 +119,8 @@ func (g *APIGatewayV2Lister) listModels(svc *apigatewayv2.Client, apiID string) 
 	})
 }
 
-// listIntegrations lists the API's integrations, named after their IDs.
+// listIntegrations lists the API's integrations, named after what they
+// call (see integrationName).
 func (g *APIGatewayV2Lister) listIntegrations(svc *apigatewayv2.Client, apiID string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetIntegrations(g.Context(), &apigatewayv2.GetIntegrationsInput{ApiId: aws.String(apiID), NextToken: token})
@@ -127,7 +132,7 @@ func (g *APIGatewayV2Lister) listIntegrations(svc *apigatewayv2.Client, apiID st
 				continue
 			}
 			integrationID := aws.ToString(integration.IntegrationId)
-			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+integrationID, integrationID, "aws_apigatewayv2_integration", "aws", map[string]string{
+			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+integrationID, integrationName(integration), "aws_apigatewayv2_integration", "aws", map[string]string{
 				"api_id":           apiID,
 				"integration_type": string(integration.IntegrationType),
 			}))
@@ -136,10 +141,11 @@ func (g *APIGatewayV2Lister) listIntegrations(svc *apigatewayv2.Client, apiID st
 	})
 }
 
-// listRoutes lists the API's routes, named after their IDs, and once every
-// page of routes is in, each listed route's responses.
+// listRoutes lists the API's routes, named after their route keys (GET
+// /orders), and once every page of routes is in, each listed route's
+// responses.
 func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string) error {
-	var routeIDs []string
+	var routeIDs, routeKeys []string
 	err := paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetRoutes(g.Context(), &apigatewayv2.GetRoutesInput{ApiId: aws.String(apiID), NextToken: token})
 		if err != nil {
@@ -149,11 +155,12 @@ func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string) 
 			if aws.ToBool(route.ApiGatewayManaged) {
 				continue
 			}
-			routeID := aws.ToString(route.RouteId)
+			routeID, routeKey := aws.ToString(route.RouteId), aws.ToString(route.RouteKey)
 			routeIDs = append(routeIDs, routeID)
-			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+routeID, routeID, "aws_apigatewayv2_route", "aws", map[string]string{
+			routeKeys = append(routeKeys, routeKey)
+			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+routeID, routeKey, "aws_apigatewayv2_route", "aws", map[string]string{
 				"api_id":    apiID,
-				"route_key": aws.ToString(route.RouteKey),
+				"route_key": routeKey,
 			}))
 		}
 		return output.NextToken, nil
@@ -161,8 +168,8 @@ func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string) 
 	if err != nil {
 		return err
 	}
-	for _, routeID := range routeIDs {
-		if err := g.listRouteResponses(svc, apiID, routeID); err != nil {
+	for i, routeID := range routeIDs {
+		if err := g.listRouteResponses(svc, apiID, routeID, routeKeys[i]); err != nil {
 			return err
 		}
 	}
@@ -170,9 +177,9 @@ func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string) 
 }
 
 // listRouteResponses lists the responses of one route. Terraform imports
-// them as <API ID>/<route ID>/<route response ID>; each is named after its
-// own ID.
-func (g *APIGatewayV2Lister) listRouteResponses(svc *apigatewayv2.Client, apiID, routeID string) error {
+// them as <API ID>/<route ID>/<route response ID>; each is named after
+// the route's key, routeKey, and its own.
+func (g *APIGatewayV2Lister) listRouteResponses(svc *apigatewayv2.Client, apiID, routeID, routeKey string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetRouteResponses(g.Context(), &apigatewayv2.GetRouteResponsesInput{
 			ApiId:     aws.String(apiID),
@@ -183,18 +190,18 @@ func (g *APIGatewayV2Lister) listRouteResponses(svc *apigatewayv2.Client, apiID,
 			return nil, err
 		}
 		for _, response := range output.Items {
-			responseID := aws.ToString(response.RouteResponseId)
-			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+routeID+"/"+responseID, responseID, "aws_apigatewayv2_route_response", "aws", map[string]string{
+			responseID, responseKey := aws.ToString(response.RouteResponseId), aws.ToString(response.RouteResponseKey)
+			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+routeID+"/"+responseID, routeKey+" "+responseKey, "aws_apigatewayv2_route_response", "aws", map[string]string{
 				"api_id":             apiID,
 				"route_id":           routeID,
-				"route_response_key": aws.ToString(response.RouteResponseKey),
+				"route_response_key": responseKey,
 			}))
 		}
 		return output.NextToken, nil
 	})
 }
 
-// listAuthorizers lists the API's authorizers, named after their IDs.
+// listAuthorizers lists the API's authorizers, named after their names.
 func (g *APIGatewayV2Lister) listAuthorizers(svc *apigatewayv2.Client, apiID string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetAuthorizers(g.Context(), &apigatewayv2.GetAuthorizersInput{ApiId: aws.String(apiID), NextToken: token})
@@ -203,7 +210,7 @@ func (g *APIGatewayV2Lister) listAuthorizers(svc *apigatewayv2.Client, apiID str
 		}
 		for _, authorizer := range output.Items {
 			authorizerID := aws.ToString(authorizer.AuthorizerId)
-			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+authorizerID, authorizerID, "aws_apigatewayv2_authorizer", "aws", map[string]string{
+			g.Resources = append(g.Resources, harvest.Record(apiID+"/"+authorizerID, aws.ToString(authorizer.Name), "aws_apigatewayv2_authorizer", "aws", map[string]string{
 				"api_id":          apiID,
 				"name":            aws.ToString(authorizer.Name),
 				"authorizer_type": string(authorizer.AuthorizerType),
@@ -214,7 +221,7 @@ func (g *APIGatewayV2Lister) listAuthorizers(svc *apigatewayv2.Client, apiID str
 }
 
 // listVPCLinks lists the VPC links of API Gateway version 2, which belong
-// to the account rather than to an API. Each is named after its ID.
+// to the account rather than to an API. Each is named after its name.
 func (g *APIGatewayV2Lister) listVPCLinks(svc *apigatewayv2.Client) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetVpcLinks(g.Context(), &apigatewayv2.GetVpcLinksInput{NextToken: token})
@@ -223,8 +230,51 @@ func (g *APIGatewayV2Lister) listVPCLinks(svc *apigatewayv2.Client) error {
 		}
 		for _, link := range output.Items {
 			linkID := aws.ToString(link.VpcLinkId)
-			g.Resources = append(g.Resources, harvest.RecordBare(linkID, linkID, "aws_apigatewayv2_vpc_link", "aws"))
+			g.Resources = append(g.Resources, harvest.RecordBare(linkID, aws.ToString(link.Name), "aws_apigatewayv2_vpc_link", "aws"))
 		}
 		return output.NextToken, nil
 	})
+}
+
+// integrationName names an integration after what it calls: the function
+// of a Lambda integration, the host of an HTTP one (after the method, if
+// it isn't ANY), the load balancer of a private one, the action of an AWS
+// service one (SQS-SendMessage), and otherwise its type (MOCK).
+func integrationName(integration types.Integration) string {
+	integrationType := string(integration.IntegrationType)
+	target := integrationTarget(aws.ToString(integration.IntegrationUri))
+	if target == "" {
+		target = aws.ToString(integration.IntegrationSubtype)
+	}
+	if target == "" {
+		return integrationType
+	}
+	if method := aws.ToString(integration.IntegrationMethod); strings.HasPrefix(integrationType, "HTTP") && method != "" && method != "ANY" {
+		return method + " " + target
+	}
+	return target
+}
+
+// integrationTarget returns what the integration URI uri calls: a Lambda
+// function's name, whatever the URI wraps the function's ARN in; a URL's
+// host; a listener's load balancer; the last part of another ARN; or "".
+func integrationTarget(uri string) string {
+	if _, function, ok := strings.Cut(uri, ":function:"); ok {
+		function, _, _ = strings.Cut(function, "/")
+		function, _, _ = strings.Cut(function, ":")
+		return function
+	}
+	if u, err := url.Parse(uri); err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") {
+		return u.Host
+	}
+	if strings.HasPrefix(uri, "arn:") {
+		if _, listener, ok := strings.Cut(uri, ":listener/"); ok {
+			// listener/<app|net>/<load balancer>/<ID>/<ID>
+			if parts := strings.Split(listener, "/"); len(parts) > 1 {
+				return parts[1]
+			}
+		}
+		return arnName(uri)
+	}
+	return ""
 }

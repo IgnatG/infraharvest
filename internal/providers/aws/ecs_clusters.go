@@ -120,8 +120,8 @@ type latestTaskDefinition struct {
 }
 
 // listTaskDefinitions records the latest active revision of each task
-// definition family by its ARN, named "task-definition/<family>", with the
-// family as an attribute, in the order the families are first listed.
+// definition family by its ARN, named after the family, which it also
+// records as an attribute, in the order the families are first listed.
 // Older revisions are left out: they are history, and Terraform manages a
 // family as one resource. An error is returned, as the latest revisions
 // are not known until every page is read.
@@ -150,11 +150,11 @@ func (g *EcsLister) listTaskDefinitions(client *ecs.Client) error {
 		}
 	}
 	for _, family := range families {
-		arn := latest[family].arn
-		g.Resources = append(g.Resources, harvest.Record(arn, family, "aws_ecs_task_definition", "aws", map[string]string{
+		arn, name := latest[family].arn, strings.TrimPrefix(family, "task-definition/")
+		g.Resources = append(g.Resources, harvest.Record(arn, name, "aws_ecs_task_definition", "aws", map[string]string{
 			"task_definition":       arn,
 			"container_definitions": "{}",
-			"family":                strings.TrimPrefix(family, "task-definition/"),
+			"family":                name,
 			"arn":                   arn,
 		}))
 	}

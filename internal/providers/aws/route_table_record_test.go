@@ -6,6 +6,9 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 const recordRouteTablesPage1 = `<routeTableSet>
@@ -21,7 +24,9 @@ const recordRouteTablesPage1 = `<routeTableSet>
 // associations, each by its association ID: the main one as
 // aws_main_route_table_association named after the VPC, a subnet's or a
 // gateway's as aws_route_table_association named after the subnet or
-// gateway. An association with none of these is left out.
+// gateway. An association with none of these is left out. A main route
+// table is named after its VPC; one table without a subnet or with
+// several, after its ID.
 func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeRouteTables" {
@@ -46,7 +51,7 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_route_table", "rtb-main", "rtb-main", nil},
+		recordedResource{"aws_route_table", "rtb-main", "vpc-1 main", nil},
 		recordedResource{"aws_main_route_table_association", "rtbassoc-main", "vpc-1", map[string]string{
 			"vpc_id": "vpc-1", "route_table_id": "rtb-main"}},
 		recordedResource{"aws_route_table_association", "rtbassoc-a", "subnet-a", map[string]string{
@@ -69,4 +74,27 @@ func TestRecordRouteTableReturnsErrors(t *testing.T) {
 	g := &RouteTableLister{}
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+}
+
+// A route table without a Name tag is named after what it serves, by ID,
+// which the import names after that resource: before, it was labelled
+// rtb_0a1b2c3d.
+func TestRouteTableName(t *testing.T) {
+	association := func(main bool, subnet string) types.RouteTableAssociation {
+		return types.RouteTableAssociation{Main: aws.Bool(main), SubnetId: aws.String(subnet)}
+	}
+	for _, tc := range []struct {
+		associations []types.RouteTableAssociation
+		want         string
+	}{
+		{[]types.RouteTableAssociation{association(false, "subnet-a"), association(true, "")}, "vpc-1 main"},
+		{[]types.RouteTableAssociation{association(false, "subnet-a")}, "subnet-a"},
+		{[]types.RouteTableAssociation{association(false, "subnet-a"), association(false, "subnet-b")}, "rtb-1"},
+		{nil, "rtb-1"},
+	} {
+		table := &types.RouteTable{RouteTableId: aws.String("rtb-1"), VpcId: aws.String("vpc-1"), Associations: tc.associations}
+		if got := routeTableName(table); got != tc.want {
+			t.Errorf("routeTableName(%+v): got %q, want %q", tc.associations, got, tc.want)
+		}
+	}
 }

@@ -50,7 +50,7 @@ func (g *CodePipelineLister) listPipelines(ctx context.Context, client *codepipe
 }
 
 // listWebhooks adds each webhook as an aws_codepipeline_webhook, imported
-// by its ARN, which also names it.
+// by its ARN, named after the webhook's name, which the ARN ends with.
 func (g *CodePipelineLister) listWebhooks(ctx context.Context, client *codepipeline.Client) error {
 	p := codepipeline.NewListWebhooksPaginator(client, &codepipeline.ListWebhooksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -60,7 +60,7 @@ func (g *CodePipelineLister) listWebhooks(ctx context.Context, client *codepipel
 		}
 		for _, webhook := range page.Webhooks {
 			arn := aws.ToString(webhook.Arn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, arn, "aws_codepipeline_webhook", "aws"))
+			g.Resources = append(g.Resources, harvest.RecordBare(arn, cloudControlName(arn), "aws_codepipeline_webhook", "aws"))
 		}
 	}
 	return nil

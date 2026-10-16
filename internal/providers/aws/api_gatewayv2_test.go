@@ -58,3 +58,61 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 	assertIDs(t, g.Resources, "aws_apigatewayv2_vpc_link", "v1")
 	assertIDs(t, g.Resources, "aws_api_gateway_stage")
 }
+
+// Each part is named after what a person reads it by, not its ID: a stage
+// by its name, a route by its route key, an integration by what it calls,
+// a route response by its route's key and its own. Before, routes and
+// integrations were named after IDs such as okoipb1lhk, and stages after
+// <API ID>/<stage>.
+func TestAPIGatewayV2NamesParts(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		switch call.Path {
+		case "/v2/apis":
+			return `{"items":[{"apiId":"a1","name":"orders"}]}`
+		case "/v2/apis/a1/stages":
+			return `{"items":[{"stageName":"$default"}]}`
+		case "/v2/apis/a1/routes":
+			return `{"items":[{"routeId":"r1","routeKey":"GET /hello"}]}`
+		case "/v2/apis/a1/routes/r1/routeresponses":
+			return `{"items":[{"routeResponseId":"rr1","routeResponseKey":"$default"}]}`
+		case "/v2/apis/a1/integrations":
+			return `{"items":[
+				{"integrationId":"i1","integrationType":"AWS_PROXY","integrationMethod":"POST","integrationUri":"arn:aws:lambda:eu-west-2:123456789012:function:shop-fn"},
+				{"integrationId":"i2","integrationType":"AWS_PROXY","integrationUri":"arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:123456789012:function:shop-fn:live/invocations"},
+				{"integrationId":"i3","integrationType":"HTTP_PROXY","integrationMethod":"GET","integrationUri":"https://api.example.com/v1"},
+				{"integrationId":"i4","integrationType":"HTTP_PROXY","integrationMethod":"ANY","connectionType":"VPC_LINK","integrationUri":"arn:aws:elasticloadbalancing:eu-west-2:123456789012:listener/app/shop-web/50dc6c495c0c9188/0467ef3c8400ae65"},
+				{"integrationId":"i5","integrationType":"AWS_PROXY","integrationSubtype":"SQS-SendMessage"},
+				{"integrationId":"i6","integrationType":"MOCK"}]}`
+		case "/v2/apis/a1/models", "/v2/apis/a1/authorizers", "/v2/vpclinks":
+			return `{"items":[]}`
+		}
+		t.Errorf("unexpected call %s?%s", call.Path, call.Query.Encode())
+		return `{"items":[]}`
+	})
+	g := &APIGatewayV2Lister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"a1/$default": "$default",
+		"a1/r1":       "GET /hello",
+		"a1/r1/rr1":   "GET /hello $default",
+		"a1/i1":       "shop-fn",
+		"a1/i2":       "shop-fn",
+		"a1/i3":       "GET api.example.com",
+		"a1/i4":       "shop-web",
+		"a1/i5":       "SQS-SendMessage",
+		"a1/i6":       "MOCK",
+		"a1":          "orders",
+	}
+	for _, r := range g.Resources {
+		if name, ok := want[r.Observed.ID]; !ok || r.RawName != name {
+			t.Errorf("%s %s: named %q, want %q", r.Address.Type, r.Observed.ID, r.RawName, name)
+		}
+	}
+	if len(g.Resources) != len(want) {
+		t.Errorf("got %d resources, want %d", len(g.Resources), len(want))
+	}
+}

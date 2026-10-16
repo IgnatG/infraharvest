@@ -4,7 +4,9 @@
 package aws
 
 import (
+	"cmp"
 	"log"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -22,19 +24,41 @@ type KmsLister struct {
 // List records the keys, each followed by its grants, then the
 // aliases. Only keys a customer manages and that aren't being deleted are
 // listed, and only the aliases of such keys: AWS manages the rest, and a key
-// on its way out can't be imported for long. Failing to list keys or
-// aliases fails the service; a key or an alias whose key can't be
-// described is logged and left out.
+// on its way out can't be imported for long. The aliases are listed first,
+// as a key is named after its alias. Failing to list keys or aliases fails
+// the service; a key or an alias whose key can't be described is logged and
+// left out.
 func (g *KmsLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	lister := &kmsLister{g: g, svc: kms.NewFromConfig(config), keys: map[string]*types.KeyMetadata{}}
-	if err := lister.addKeys(); err != nil {
+	aliases, err := lister.listAliases()
+	if err != nil {
 		return err
 	}
-	return lister.addAliases()
+	if err := lister.addKeys(keyNames(aliases)); err != nil {
+		return err
+	}
+	for _, alias := range aliases {
+		name := aws.ToString(alias.AliasName)
+		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_kms_alias", "aws"))
+	}
+	return nil
+}
+
+// keyNames names each key that has aliases after the first of them in
+// alphabetical order, without its alias/ prefix, by key ID.
+func keyNames(aliases []types.AliasListEntry) map[string]string {
+	names := map[string]string{}
+	for _, alias := range aliases {
+		name := strings.TrimPrefix(aws.ToString(alias.AliasName), "alias/")
+		if key := aws.ToString(alias.TargetKeyId); names[key] == "" || name < names[key] {
+			names[key] = name
+		}
+	}
+	return names
 }
 
 // kmsLister holds what one listing of the KMS service shares: the client,
@@ -48,7 +72,8 @@ type kmsLister struct {
 
 // addKeys records every listable key as an aws_kms_key, imported by its ID,
 // which it also records as the key_id attribute, followed by its grants.
-func (l *kmsLister) addKeys() error {
+// A key is named after its alias, in names by key ID, or else its ID.
+func (l *kmsLister) addKeys(names map[string]string) error {
 	pages := kms.NewListKeysPaginator(l.svc, &kms.ListKeysInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(l.g.Context())
@@ -61,9 +86,10 @@ func (l *kmsLister) addKeys() error {
 				continue
 			}
 			id := aws.ToString(key.KeyId)
-			l.g.Resources = append(l.g.Resources, harvest.Record(id, id, "aws_kms_key", "aws",
+			name := cmp.Or(names[id], id)
+			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, "aws_kms_key", "aws",
 				map[string]string{"key_id": id}))
-			l.addGrants(id)
+			l.addGrants(id, name)
 		}
 	}
 	return nil
@@ -71,9 +97,10 @@ func (l *kmsLister) addKeys() error {
 
 // addGrants records the grants of the key keyID as aws_kms_grant, imported
 // as <the grant's key ID>:<grant ID>, where the grant's key ID is the key's
-// ARN. A failure to list them is logged and ends the key's grants there:
-// the key itself stays listed.
-func (l *kmsLister) addGrants(keyID string) {
+// ARN. A grant is named after its name, or else after the key, keyName. A
+// failure to list them is logged and ends the key's grants there: the key
+// itself stays listed.
+func (l *kmsLister) addGrants(keyID, keyName string) {
 	pages := kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(l.g.Context())
@@ -83,29 +110,30 @@ func (l *kmsLister) addGrants(keyID string) {
 		}
 		for _, grant := range page.Grants {
 			id := aws.ToString(grant.KeyId) + ":" + aws.ToString(grant.GrantId)
-			l.g.Resources = append(l.g.Resources, harvest.RecordBare(id, id, "aws_kms_grant", "aws"))
+			l.g.Resources = append(l.g.Resources, harvest.RecordBare(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws"))
 		}
 	}
 }
 
-// addAliases records the aliases of listable keys as aws_kms_alias,
-// imported by their name. An alias that points at no key is left out.
-func (l *kmsLister) addAliases() error {
+// listAliases returns the aliases of listable keys, which List records as
+// aws_kms_alias, imported by their name. An alias that points at no key is
+// left out.
+func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
+	var aliases []types.AliasListEntry
 	pages := kms.NewListAliasesPaginator(l.svc, &kms.ListAliasesInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(l.g.Context())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, alias := range page.Aliases {
 			if alias.TargetKeyId == nil || !kmsKeyListable(l.describe(*alias.TargetKeyId)) {
 				continue
 			}
-			name := aws.ToString(alias.AliasName)
-			l.g.Resources = append(l.g.Resources, harvest.RecordBare(name, name, "aws_kms_alias", "aws"))
+			aliases = append(aliases, alias)
 		}
 	}
-	return nil
+	return aliases, nil
 }
 
 // describe returns the metadata of the key keyID, or nil when it can't be

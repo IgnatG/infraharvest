@@ -13,15 +13,16 @@ const (
 	recordSNSARN = "arn:aws:sns:us-east-1:123456789012:"
 )
 
-func recordSNSSubscription(id, protocol string) string {
+func recordSNSSubscription(id, protocol, endpoint string) string {
 	return `<member><SubscriptionArn>` + id + `</SubscriptionArn><Protocol>` + protocol + `</Protocol><Owner>123456789012</Owner>` +
-		`<TopicArn>` + recordSNSARN + `alerts</TopicArn><Endpoint>e</Endpoint></member>`
+		`<TopicArn>` + recordSNSARN + `alerts</TopicArn><Endpoint>` + endpoint + `</Endpoint></member>`
 }
 
 // The lister lists topics by ARN, named after their last part, across
 // pages, each followed by its subscriptions, across pages, by ARN and named
-// subscription-<last part>. It leaves out email subscriptions and pending
-// ones, which Terraform can't manage. TestSnsSubscriptionsStopOnError
+// after their endpoint and protocol, not after their IDs as before. It
+// leaves out email subscriptions and pending ones, which Terraform can't
+// manage. TestSnsSubscriptionsStopOnError
 // (pagination_test.go) pins that a subscription listing error is returned.
 func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
@@ -37,14 +38,14 @@ func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 			case recordSNSARN + "alerts":
 				if recordSecondPage(call) {
 					return recordQuery(call.Op, recordSNSNS, `<Subscriptions>`+
-						recordSNSSubscription("PendingConfirmation", "sqs")+
-						recordSNSSubscription(recordSNSARN+"alerts:sub-4", "email-json")+
-						recordSNSSubscription(recordSNSARN+"alerts:sub-5", "https")+
+						recordSNSSubscription("PendingConfirmation", "sqs", recordSNSARN+"queue")+
+						recordSNSSubscription(recordSNSARN+"alerts:sub-4", "email-json", "ops@example.com")+
+						recordSNSSubscription(recordSNSARN+"alerts:sub-5", "https", "https://hooks.example.com/sns")+
 						`</Subscriptions>`)
 				}
 				return recordQuery(call.Op, recordSNSNS, `<Subscriptions>`+
-					recordSNSSubscription(recordSNSARN+"alerts:sub-1", "lambda")+
-					recordSNSSubscription(recordSNSARN+"alerts:sub-2", "email")+
+					recordSNSSubscription(recordSNSARN+"alerts:sub-1", "lambda", "arn:aws:lambda:us-east-1:123456789012:function:notify:live")+
+					recordSNSSubscription(recordSNSARN+"alerts:sub-2", "email", "ops@example.com")+
 					`</Subscriptions><NextToken>`+nextPageToken+`</NextToken>`)
 			case recordSNSARN + "orders.fifo":
 				return recordQuery(call.Op, recordSNSNS, `<Subscriptions/>`)
@@ -60,8 +61,8 @@ func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_sns_topic", recordSNSARN + "alerts", "alerts", nil},
-		recordedResource{"aws_sns_topic_subscription", recordSNSARN + "alerts:sub-1", "subscription-sub-1", nil},
-		recordedResource{"aws_sns_topic_subscription", recordSNSARN + "alerts:sub-5", "subscription-sub-5", nil},
+		recordedResource{"aws_sns_topic_subscription", recordSNSARN + "alerts:sub-1", "notify lambda", nil},
+		recordedResource{"aws_sns_topic_subscription", recordSNSARN + "alerts:sub-5", "hooks.example.com https", nil},
 		recordedResource{"aws_sns_topic", recordSNSARN + "orders.fifo", "orders.fifo", nil},
 	)
 }
