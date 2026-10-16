@@ -1,3 +1,7 @@
 {"resources": [
-  {"id": "projects/acme-prod/topics/orders", "name": "orders", "attributes": {"asset.project": "acme-prod", "asset.name": "orders", "asset.location": "global", "labels.team": "shop"}}
+  {"id": "projects/acme-prod/topics/orders", "name": "orders", "attributes": {"asset.project": "acme-prod", "asset.name": "orders", "asset.location": "global", "labels.team": "shop"}},
+  {"id": "projects/acme-prod/topics/eventarc-us-central1-thumbnail-123456-347", "name": "eventarc_thumbnail", "attributes": {"asset.project": "acme-prod", "asset.name": "eventarc-us-central1-thumbnail-123456-347", "asset.location": "global"}},
+  {"id": "projects/acme-prod/topics/gcf-resize-us-central1-uploads", "name": "gcf_resize", "attributes": {"asset.project": "acme-prod", "asset.name": "gcf-resize-us-central1-uploads", "asset.location": "global"}},
+  {"id": "projects/acme-prod/topics/container-analysis-occurrences-v1", "name": "container_analysis_occurrences_v1", "attributes": {"asset.project": "acme-prod", "asset.name": "container-analysis-occurrences-v1", "asset.location": "global"}},
+  {"id": "projects/acme-prod/topics/cloud-builds", "name": "cloud_builds", "attributes": {"asset.project": "acme-prod", "asset.name": "cloud-builds", "asset.location": "global"}}
 ]}

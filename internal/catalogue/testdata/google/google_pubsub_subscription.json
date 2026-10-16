@@ -1,3 +1,5 @@
 {"resources": [
-  {"id": "projects/acme-prod/subscriptions/orders-billing", "name": "orders_billing", "attributes": {"asset.project": "acme-prod", "asset.name": "orders-billing", "asset.location": "global"}}
+  {"id": "projects/acme-prod/subscriptions/orders-billing", "name": "orders_billing", "attributes": {"asset.project": "acme-prod", "asset.name": "orders-billing", "asset.location": "global"}},
+  {"id": "projects/acme-prod/subscriptions/eventarc-us-central1-thumbnail-123456-sub-347", "name": "eventarc_thumbnail_sub", "attributes": {"asset.project": "acme-prod", "asset.name": "eventarc-us-central1-thumbnail-123456-sub-347", "asset.location": "global"}},
+  {"id": "projects/acme-prod/subscriptions/gcf-resize-us-central1-uploads", "name": "gcf_resize", "attributes": {"asset.project": "acme-prod", "asset.name": "gcf-resize-us-central1-uploads", "asset.location": "global"}}
 ]}

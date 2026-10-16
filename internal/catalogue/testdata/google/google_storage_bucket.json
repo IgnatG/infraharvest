@@ -2,5 +2,11 @@
   {"id": "acme-prod-assets", "name": "acme_prod_assets", "attributes": {"asset.project": "acme-prod", "asset.name": "acme-prod-assets", "asset.location": "us", "labels.team": "web"}},
   {"id": "gcf-sources-123456789012-us-central1", "name": "gcf_sources", "attributes": {"asset.project": "acme-prod", "asset.name": "gcf-sources-123456789012-us-central1", "asset.location": "us-central1"}},
   {"id": "dataproc-staging-us-central1-123456789012-abcd1234", "name": "dataproc_staging", "attributes": {"asset.project": "acme-prod", "asset.name": "dataproc-staging-us-central1-123456789012-abcd1234", "asset.location": "us-central1"}},
+  {"id": "acme-prod_cloudbuild", "name": "acme_prod_cloudbuild", "attributes": {"asset.project": "acme-prod", "asset.name": "acme-prod_cloudbuild", "asset.location": "us"}},
+  {"id": "artifacts.acme-prod.appspot.com", "name": "artifacts_acme_prod_appspot_com", "attributes": {"asset.project": "acme-prod", "asset.name": "artifacts.acme-prod.appspot.com", "asset.location": "us"}},
+  {"id": "eu.artifacts.acme-prod.appspot.com", "name": "eu_artifacts_acme_prod_appspot_com", "attributes": {"asset.project": "acme-prod", "asset.name": "eu.artifacts.acme-prod.appspot.com", "asset.location": "eu"}},
+  {"id": "acme-prod.appspot.com", "name": "acme_prod_appspot_com", "attributes": {"asset.project": "acme-prod", "asset.name": "acme-prod.appspot.com", "asset.location": "us"}},
+  {"id": "staging.acme-prod.appspot.com", "name": "staging_acme_prod_appspot_com", "attributes": {"asset.project": "acme-prod", "asset.name": "staging.acme-prod.appspot.com", "asset.location": "us"}},
+  {"id": "us-central1-pipelines-1a2b3c4d-bucket", "name": "pipelines_bucket", "attributes": {"asset.project": "acme-prod", "asset.name": "us-central1-pipelines-1a2b3c4d-bucket", "asset.location": "us-central1", "labels.goog-composer-environment": "pipelines", "labels.goog-composer-location": "us-central1", "labels.goog-composer-version": "composer-2-9-7-airflow-2-9-3"}},
   {"id": "legacy-bucket", "name": "legacy_bucket", "attributes": {"name": "legacy-bucket"}}
 ]}

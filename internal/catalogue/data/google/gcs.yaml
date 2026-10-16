@@ -20,3 +20,14 @@ types:
     skip:
       - reason: Cloud Functions, Cloud Run or Dataproc creates it for its own use
         attribute_prefixes: { asset.name: [gcf-sources-, gcf-v2-sources-, gcf-v2-uploads-, run-sources-, dataproc-staging-, dataproc-temp-] }
+      - reason: Cloud Build creates it, as <project>_cloudbuild, for the sources gcloud builds submit uploads
+        attribute_suffixes: { asset.name: [_cloudbuild] }
+      # Only Google can create a bucket in the appspot.com domain.
+      - reason: Container Registry creates it for the project's images
+        attribute_prefixes: { asset.name: [artifacts., us.artifacts., eu.artifacts., asia.artifacts.] }
+        attribute_suffixes: { asset.name: [.appspot.com] }
+      - reason: App Engine creates it, as <project>.appspot.com or staging.<project>.appspot.com, with the project's app
+        attribute_suffixes: { asset.name: [.appspot.com] }
+      # The version label's value is always composer-<version>-airflow-<version>.
+      - reason: Cloud Composer creates it for an environment's DAGs, plugins and data; select it to import it
+        attribute_prefixes: { labels.goog-composer-version: [composer-] }
