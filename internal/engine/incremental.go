@@ -240,7 +240,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	// The resources go into the files of their types, such as network.tf,
 	// after the root's own blocks: those files are backed up too.
 	fileOf := blockFiles(result.Imported, result.Modules)
-	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName}
+	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName}
 	for _, name := range fileOf {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
@@ -251,6 +251,11 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, err
 	}
 	added, err := merge(staging, root, existing, opts.DataSources, fileOf)
+	if err == nil && opts.DefaultTags != nil {
+		// The added resources without the root's default tags use the
+		// configuration without them, which root may not have yet.
+		_, err = addRootAlias(staging, root, *opts.DefaultTags)
+	}
 	undo := func() error {
 		for _, name := range added {
 			if _, backedUp := backup.files[name]; backedUp {
