@@ -90,6 +90,13 @@ func addReferencesSkipping(dir string, values map[string]map[string]any, skip ma
 	return edited, generated.save()
 }
 
+// googleAPIs and computeAPIs start the self links of Google Compute Engine
+// resources, as the provider writes them and as some APIs return them.
+const (
+	googleAPIs  = "https://www.googleapis.com/compute/"
+	computeAPIs = "https://compute.googleapis.com/compute/"
+)
+
 // referenceIndex maps each id, ARN, self link, email and IAM member value,
 // such as a service account's serviceAccount:<email>, to the attributes
 // to refer to instead, one per resource that has the value, by address.
@@ -124,6 +131,14 @@ func referenceIndex(values map[string]map[string]any) map[string][]referenceTarg
 				attribute = "member"
 			}
 			index[v] = append(index[v], referenceTarget{address: address, attribute: attribute})
+			// Some Google APIs name a resource by its self link on the
+			// service's own host, as a DNS zone's network_url does:
+			// https://compute.googleapis.com/compute/v1/... for
+			// https://www.googleapis.com/compute/v1/...
+			if rest, ok := strings.CutPrefix(v, googleAPIs); ok && key == "self_link" {
+				alias := computeAPIs + rest
+				index[alias] = append(index[alias], referenceTarget{address: address, attribute: attribute})
+			}
 		}
 	}
 	for _, targets := range index {

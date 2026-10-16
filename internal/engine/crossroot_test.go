@@ -190,3 +190,54 @@ data "aws_vpc" "vpc_0abc1234" {
 		t.Errorf("want 4 data sources, got %d:\n%s", n, data)
 	}
 }
+
+// A Google network in the global root is read by a data source in the
+// regional roots, which name it by its self link on either API host; a
+// resource whose plan that changes gets a variable instead.
+func TestAddRootVariablesReadsGoogleNetworks(t *testing.T) {
+	const link = "https://www.googleapis.com/compute/v1/projects/acme/global/networks/main"
+	others := []RootResource{
+		{Type: "google_compute_network", ID: "projects/acme/global/networks/main", Name: "main", Root: "google/acme/global"},
+		{Type: "google_compute_firewall", ID: "projects/acme/global/firewalls/allow", Name: "allow", Root: "google/acme/global"},
+	}
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "google_compute_subnetwork" "app" {
+  name    = "app"
+  network = "`+link+`"
+}
+
+resource "google_compute_router" "nat" {
+  network = "https://compute.googleapis.com/compute/v1/projects/acme/global/networks/main"
+}
+
+resource "google_compute_router" "other" {
+  network = "`+link+`"
+}
+
+resource "google_compute_subnetwork" "elsewhere" {
+  network = "https://www.googleapis.com/compute/v1/projects/acme/global/networks/elsewhere"
+}
+`)
+	edited, err := addRootVariables(dir, others, nil, nil, map[string]int{"google_compute_router.other": 1})
+	if err != nil || len(edited) != 3 {
+		t.Fatalf("want three resources edited, got %v, %v", edited, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	if strings.Count(got, "network = data.google_compute_network.main.self_link") != 2 {
+		t.Errorf("want the subnetwork and the router to read the network:\n%s", got)
+	}
+	for _, want := range []string{
+		"network = var.main_network_self_link",
+		"networks/elsewhere",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if data := squashed(readFile(t, dir, DataFileName)); !strings.Contains(data, `data "google_compute_network" "main" { name = "main" project = "acme" }`) || strings.Count(data, "data \"") != 1 {
+		t.Errorf("data.tf:\n%s", data)
+	}
+	if variables := squashed(readFile(t, dir, VariablesFileName)); !strings.Contains(variables, `variable "main_network_self_link" { description = "The self link of google_compute_network.main, which the root google/acme/global manages.`) {
+		t.Errorf("variables.tf:\n%s", variables)
+	}
+}

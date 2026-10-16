@@ -469,3 +469,25 @@ func TestNamesType(t *testing.T) {
 		}
 	}
 }
+
+// A private DNS zone names its network on the Compute API's own host.
+func TestAddReferencesBySelfLinkOnTheComputeHost(t *testing.T) {
+	values := map[string]map[string]any{
+		"google_compute_network.main": {"id": "projects/acme/global/networks/main", "name": "main", "self_link": "https://www.googleapis.com/compute/v1/projects/acme/global/networks/main"},
+	}
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "google_dns_managed_zone" "internal" {
+  private_visibility_config {
+    networks {
+      network_url = "https://compute.googleapis.com/compute/v1/projects/acme/global/networks/main"
+    }
+  }
+}
+`)
+	if changed, err := addReferences(dir, values); err != nil || !changed {
+		t.Fatalf("want references, got changed=%v err=%v", changed, err)
+	}
+	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, "network_url = google_compute_network.main.self_link") {
+		t.Errorf("generated.tf:\n%s", got)
+	}
+}

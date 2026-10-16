@@ -92,7 +92,48 @@ func (v rootValues) match(argument, value string) (rootValue, bool) {
 	if len(found) == 0 {
 		found = v.byDNSName(value)
 	}
+	if len(found) == 0 {
+		found = v.bySelfLink(value)
+	}
 	return onlyValue(found)
+}
+
+// googleSelfLink matches a Google Compute Engine self link, on either host
+// Google's APIs use, with the resource's ID: projects/p/global/networks/n.
+var googleSelfLink = regexp.MustCompile(`^https://(?:www|compute)\.googleapis\.com/compute/(?:v1|beta)/(projects/[^/]+/.+)$`)
+
+// bySelfLink returns the Google resources whose self link value is.
+func (v rootValues) bySelfLink(value string) []rootValue {
+	m := googleSelfLink.FindStringSubmatch(value)
+	if m == nil {
+		return nil
+	}
+	var found []rootValue
+	for _, r := range v.byID[m[1]] {
+		found = append(found, rootValue{resource: r, attribute: "self_link"})
+	}
+	return found
+}
+
+// globalNetwork matches a Google network's ID, with its project and name.
+var globalNetwork = regexp.MustCompile(`^projects/([^/]+)/global/networks/([^/]+)$`)
+
+// rootLookup returns the data source that reads v wherever the root is,
+// if one does: a Google network, which is global, by its project and
+// name, as the regional roots' subnetworks and routers name it.
+func rootLookup(v rootValue) (lookup, bool) {
+	if v.resource.Type != "google_compute_network" || v.attribute != "self_link" {
+		return lookup{}, false
+	}
+	m := globalNetwork.FindStringSubmatch(v.resource.ID)
+	if m == nil {
+		return lookup{}, false
+	}
+	name := v.resource.Name
+	if name == "" {
+		name = m[2]
+	}
+	return lookup{typ: "google_compute_network", name: Label(name), args: [][2]string{{"name", m[2]}, {"project", m[1]}}, attribute: "self_link"}, true
 }
 
 // byARN returns the resources whose ARN value is: by the catalogue's ARN
@@ -197,16 +238,20 @@ func onlyValue(found []rootValue) (rootValue, bool) {
 
 // attributeWords say what an attribute of a resource of another root is,
 // for its variable's description.
-var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name": "The name", "dns_name": "The DNS name", "bucket_regional_domain_name": "The regional domain name"}
+var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name": "The name", "dns_name": "The DNS name", "bucket_regional_domain_name": "The regional domain name", "self_link": "The self link"}
 
-// addRootVariables replaces literals in generated.tf that are the ID, ARN
-// or DNS name of a resource another root manages (see rootValues.match),
-// in the resources skip leaves, with a variable each, which variables.tf
-// declares with the literal as its default and where it comes from as its
-// description: role_arn = var.app_role_arn. It is for what no data source
-// can read, such as a regional resource in the global root, whose
-// provider is in another region. Variables are named other than those in
-// taken and variables.tf. It returns the resources it changed.
+// addRootVariables replaces literals in generated.tf that are the ID, ARN,
+// self link or DNS name of a resource another root manages (see
+// rootValues.match), in the resources skip leaves. A value a data source
+// reads wherever the root is, as a Google network's self link (see
+// rootLookup), refers to the data source, added to data.tf; at level 1 in
+// skip, and for any other value, it refers to a variable, which
+// variables.tf declares with the literal as its default and where it comes
+// from as its description: role_arn = var.app_role_arn. That is for what
+// no data source can read, such as a regional resource in the global
+// root, whose provider is in another region. Variables and data sources
+// are named other than those in taken, variables.tf and data.tf. It
+// returns the resources it changed.
 func addRootVariables(dir string, others []RootResource, arns map[string]ARN, taken Names, skip map[string]int) (map[string]bool, error) {
 	if len(others) == 0 {
 		return nil, nil
@@ -270,15 +315,24 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		blocks = append(blocks, block)
 		return name
 	}
+	data, err := newDataBlocks(dir, taken)
+	if err != nil {
+		return nil, err
+	}
 	edited := map[string]bool{}
 	for _, r := range generated.resources() {
-		if skip[r.address] > 0 {
+		level := skip[r.address]
+		if level >= 2 {
 			continue
 		}
 		replace := func(argument, block, value string) (hclwrite.Tokens, bool) {
 			v, ok := values.match(effectiveArgument(argument, block), value)
 			if !ok {
 				return nil, false
+			}
+			// A data source first; a variable where its value differs.
+			if l, ok := rootLookup(v); ok && level == 0 {
+				return data.reference(l), true
 			}
 			return hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: variable(v, value)}}), true
 		}
@@ -290,6 +344,9 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		return nil, nil
 	}
 	if err := generated.save(); err != nil {
+		return nil, err
+	}
+	if err := data.write(); err != nil {
 		return nil, err
 	}
 	return edited, appendBlocks(path, "", blocks)

@@ -104,6 +104,66 @@ func lookupFor(resourceType, argument, value string) (lookup, bool) {
 	return lookup{}, false
 }
 
+// dataBlocks names the data sources of lookups, other than those in
+// taken and data.tf, and keeps the blocks to add to data.tf.
+type dataBlocks struct {
+	path      string
+	used      map[string]bool
+	addresses map[string]string // by lookup key
+	blocks    []*hclwrite.Block
+}
+
+func newDataBlocks(dir string, taken Names) (*dataBlocks, error) {
+	d := &dataBlocks{path: filepath.Join(dir, DataFileName), used: map[string]bool{}, addresses: map[string]string{}}
+	data, err := loadOptionalHCL(d.path)
+	if err != nil {
+		return nil, err
+	}
+	for name := range taken {
+		if address, ok := strings.CutPrefix(name, "data."); ok {
+			d.used[address] = true
+		}
+	}
+	if data != nil {
+		for _, b := range data.syntax.Blocks {
+			if b.Type == "data" && len(b.Labels) == 2 {
+				d.used[b.Labels[0]+"."+b.Labels[1]] = true
+			}
+		}
+	}
+	return d, nil
+}
+
+// reference returns the reference to l's attribute, adding its data
+// source the first time.
+func (d *dataBlocks) reference(l lookup) hclwrite.Tokens {
+	address, ok := d.addresses[l.key()]
+	if !ok {
+		base := l.typ + "." + l.name
+		address = base
+		for n := 2; d.used[address]; n++ {
+			address = fmt.Sprintf("%s_%d", base, n)
+		}
+		d.used[address] = true
+		d.addresses[l.key()] = address
+		typ, name, _ := strings.Cut(address, ".")
+		block := hclwrite.NewBlock("data", []string{typ, name})
+		for _, arg := range l.args {
+			block.Body().SetAttributeValue(arg[0], cty.StringVal(arg[1]))
+		}
+		d.blocks = append(d.blocks, block)
+	}
+	typ, name, _ := strings.Cut(address, ".")
+	return hclwrite.TokensForTraversal(hcl.Traversal{
+		hcl.TraverseRoot{Name: "data"}, hcl.TraverseAttr{Name: typ}, hcl.TraverseAttr{Name: name}, hcl.TraverseAttr{Name: l.attribute},
+	})
+}
+
+// write adds the data sources to data.tf.
+func (d *dataBlocks) write() error {
+	return appendBlocks(d.path, dataFileHeader, d.blocks)
+}
+
 // addLookups replaces literals in generated.tf that a data source reads
 // (see lookupFor) with references to it, such as tenant_id =
 // data.azurerm_client_config.current.tenant_id, for the resources not in
@@ -114,44 +174,9 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 	if err != nil {
 		return nil, err
 	}
-	dataPath := filepath.Join(dir, DataFileName)
-	data, err := loadOptionalHCL(dataPath)
+	data, err := newDataBlocks(dir, taken)
 	if err != nil {
 		return nil, err
-	}
-	used := map[string]bool{}
-	for name := range taken {
-		if address, ok := strings.CutPrefix(name, "data."); ok {
-			used[address] = true
-		}
-	}
-	if data != nil {
-		for _, b := range data.syntax.Blocks {
-			if b.Type == "data" && len(b.Labels) == 2 {
-				used[b.Labels[0]+"."+b.Labels[1]] = true
-			}
-		}
-	}
-	addresses := map[string]string{} // by key
-	var blocks []*hclwrite.Block
-	address := func(l lookup) string {
-		if a, ok := addresses[l.key()]; ok {
-			return a
-		}
-		base := l.typ + "." + l.name
-		a := base
-		for n := 2; used[a]; n++ {
-			a = fmt.Sprintf("%s_%d", base, n)
-		}
-		used[a] = true
-		addresses[l.key()] = a
-		typ, name, _ := strings.Cut(a, ".")
-		block := hclwrite.NewBlock("data", []string{typ, name})
-		for _, arg := range l.args {
-			block.Body().SetAttributeValue(arg[0], cty.StringVal(arg[1]))
-		}
-		blocks = append(blocks, block)
-		return a
 	}
 	edited := map[string]bool{}
 	for _, r := range generated.resources() {
@@ -164,10 +189,7 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 			if !ok {
 				return nil, false
 			}
-			dataType, name, _ := strings.Cut(address(l), ".")
-			return hclwrite.TokensForTraversal(hcl.Traversal{
-				hcl.TraverseRoot{Name: "data"}, hcl.TraverseAttr{Name: dataType}, hcl.TraverseAttr{Name: name}, hcl.TraverseAttr{Name: l.attribute},
-			}), true
+			return data.reference(l), true
 		}
 		if eachLiteral(r.syntax.Body, r.write.Body(), "", generated.src, replace) {
 			edited[r.address] = true
@@ -179,7 +201,7 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 	if err := generated.save(); err != nil {
 		return nil, err
 	}
-	return edited, appendBlocks(dataPath, dataFileHeader, blocks)
+	return edited, data.write()
 }
 
 // eachLiteral replaces the string literals of body, in nested block block

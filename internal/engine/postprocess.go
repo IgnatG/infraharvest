@@ -90,7 +90,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	}
 	// After the data sources: variables are for what they can't read.
 	if len(opts.OtherRoots) > 0 {
-		steps = append(steps, step{files: []string{GeneratedFileName, VariablesFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+		steps = append(steps, step{files: []string{GeneratedFileName, VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 			return addRootVariables(dir, opts.OtherRoots, opts.ARNs, opts.Taken, skip)
 		}})
 	}
