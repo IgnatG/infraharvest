@@ -1,8 +1,8 @@
 # google_pubsub_topic, from data/google/pubsub.yaml
 
 import {
-  to = google_pubsub_topic.orders
-  id = "projects/acme-prod/topics/orders"
+  to = google_pubsub_topic.cloud_builds
+  id = "projects/acme-prod/topics/cloud-builds"
 }
 
 import {
@@ -11,8 +11,8 @@ import {
 }
 
 import {
-  to = google_pubsub_topic.cloud_builds
-  id = "projects/acme-prod/topics/cloud-builds"
+  to = google_pubsub_topic.orders
+  id = "projects/acme-prod/topics/orders"
 }
 
 # projects/acme-prod/topics/eventarc-us-central1-thumbnail-123456-347: left out by default, would import as "projects/acme-prod/topics/eventarc-us-central1-thumbnail-123456-347": Eventarc creates it for a trigger, such as a 2nd gen function's, and deletes it with the trigger
