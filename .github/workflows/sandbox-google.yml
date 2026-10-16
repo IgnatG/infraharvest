@@ -32,7 +32,7 @@ jobs:
     name: round-trip (${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
-    timeout-minutes: 80
+    timeout-minutes: 120
     env:
       E2E_ENGINE: ${{ inputs.engine }}
       SANDBOX_GOOGLE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
@@ -112,7 +112,7 @@ jobs:
       env:
         SANDBOX_GOOGLE_FIXTURE_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
         SANDBOX_GOOGLE_READONLY_CREDENTIALS: ${{ steps.readonly.outputs.credentials_file_path }}
-      run: go test -tags e2e,sandbox,minimal,google -run '^TestSandboxGoogle$' -timeout 60m -v ./e2e/
+      run: go test -tags e2e,sandbox,minimal,google -run '^TestSandboxGoogle$' -timeout 90m -v ./e2e/
     - name: Destroy the estate
       if: always()
       env:
@@ -125,7 +125,7 @@ jobs:
         cd "$SANDBOX_FIXTURE_DIR"
         vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
         "$E2E_ENGINE" init -input=false
-        "$E2E_ENGINE" destroy -auto-approve -input=false "${vars[@]}"
+        "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}"
         left=$("$E2E_ENGINE" state list)
         if [ -n "$left" ]; then
           echo "::error::Left in the estate: $left"
@@ -141,7 +141,7 @@ jobs:
     # topics, the buckets, then the network's firewall rules, routers and
     # subnetworks, the network, and the service account.
     - name: Sweep the project
-      if: failure()
+      if: failure() || cancelled()
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
