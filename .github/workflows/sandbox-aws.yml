@@ -5,16 +5,18 @@
 # end, whatever happened. The main estate (TestSandboxAWS) is the usual
 # one; clusters (TestSandboxAWSClusters) holds an RDS database, an
 # ElastiCache replication group and an EKS cluster, which take longer and
-# cost more, so it runs only when asked for.
+# cost more, so it runs only when asked for; so does data
+# (TestSandboxAWSData): an EC2 instance, a Lambda function, an RDS
+# database, a Redshift cluster and an S3 bucket, destroyed straight after.
 name: sandbox-aws
 
 on:
   workflow_dispatch:
     inputs:
       estate:
-        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; slower and dearer)
+        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer)
         type: choice
-        options: [main, clusters]
+        options: [main, clusters, data]
         default: main
       engine:
         description: Engine to import with
@@ -39,7 +41,7 @@ jobs:
     environment: sandbox
     # The clusters estate's test may take two hours, and destroying what it
     # left half an hour more.
-    timeout-minutes: ${{ inputs.estate == 'clusters' && 160 || 110 }}
+    timeout-minutes: ${{ inputs.estate == 'clusters' && 160 || inputs.estate == 'data' && 90 || 110 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -116,6 +118,7 @@ jobs:
         case "$SANDBOX_ESTATE" in
           main) test=TestSandboxAWS timeout=90m ;;
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
+          data) test=TestSandboxAWSData timeout=60m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/

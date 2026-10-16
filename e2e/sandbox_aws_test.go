@@ -102,6 +102,30 @@ func TestSandboxAWSClusters(t *testing.T) {
 	checkEKSClusterGroup(t, coverage, state)
 }
 
+// sandboxDataServices are the infraharvest services that import what
+// testdata/sandbox/aws-data creates.
+var sandboxDataServices = []string{"ec2_instance", "iam", "lambda", "logs", "rds", "redshift", "s3", "sg", "subnet", "vpc"}
+
+// TestSandboxAWSData creates testdata/sandbox/aws-data, an EC2 instance,
+// a Lambda function, a PostgreSQL database, a Redshift cluster and an S3
+// bucket, in a real AWS account as the fixture profile, imports its region
+// as the read-only profile, and checks the engine plans every generated
+// resource as an import with no changes. The database and the cluster
+// cost by the hour, so the sandbox-aws workflow runs this test only when
+// asked to (estate=data), and destroys the estate straight after; see
+// e2e/README.md.
+func TestSandboxAWSData(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
+	defer cancel()
+	s := newSandbox(ctx, t)
+
+	estate := s.seed(ctx, t, "aws-data", "suffix="+s.engineName)
+	state := estate.apply(ctx, t)
+
+	s.importer(t, []string{s.region}, sandboxDataServices).must(ctx, t)
+	s.checkImport(ctx, t, state)
+}
+
 // sandbox is what a sandbox test runs with: the account's profiles and
 // region, the engine, and the directories that outlive the test, so that
 // the workflow can destroy what a failed run left and upload the import.
