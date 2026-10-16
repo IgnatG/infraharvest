@@ -116,42 +116,66 @@ func awsAccounts(ctx context.Context, options importer.Options) ([]string, error
 // awsCalls returns the Import calls that cover one account. Without
 // --regions, one call lists in the default region. With it, global
 // services are imported once, in the global region; those that only work
-// in us-east-1 there; and the rest in each of --regions, in order.
+// in us-east-1 there, with the regional ones when us-east-1 is one of
+// --regions; and the rest in each of --regions, in order.
 func awsCalls(options importer.Options) []call {
 	if len(options.Regions) == 0 {
 		return []call{awsCall(options, awsprovider.ProfileRegion, "the default region")}
 	}
 
 	global, eastOnly, regional := groupAWSServices(options)
-	var calls []call
+	// The services that only work in us-east-1 join that region's call
+	// when there is one, so that the two don't share a root.
+	eastWithRegional := len(eastOnly) > 0 && len(regional) > 0 && slices.Contains(options.Regions, awsprovider.GlobalHomeRegion)
+	// Each call needs a directory of its own when there are several, as
+	// the default layout's {region} gives them: global/, us-east-1/ and
+	// each region's, unless the pattern already has one.
+	calls := 0
+	if len(global) > 0 {
+		calls++
+	}
+	if len(eastOnly) > 0 && !eastWithRegional {
+		calls++
+	}
+	if len(regional) > 0 {
+		calls += len(options.Regions)
+	}
+	separate := calls > 1 && !strings.Contains(options.Layout, "{region}")
+	layout := func(dir string) string {
+		if separate {
+			return options.Layout + dir + "/"
+		}
+		return options.Layout
+	}
+
+	var result []call
 	if len(global) > 0 {
 		globalOptions := options
 		globalOptions.Services = global
 		globalOptions.Regions = []string{awsprovider.GlobalPseudoRegion}
-		calls = append(calls, awsCall(globalOptions, awsprovider.GlobalPseudoRegion, "the default region"))
+		globalOptions.Layout = layout("global")
+		result = append(result, awsCall(globalOptions, awsprovider.GlobalPseudoRegion, "the default region"))
 	}
-	if len(eastOnly) > 0 {
+	if len(eastOnly) > 0 && !eastWithRegional {
 		eastOptions := options
 		eastOptions.Services = eastOnly
 		eastOptions.Regions = []string{awsprovider.GlobalHomeRegion}
-		calls = append(calls, awsCall(eastOptions, awsprovider.GlobalHomeRegion, "region "+awsprovider.GlobalHomeRegion))
+		eastOptions.Layout = layout(awsprovider.GlobalHomeRegion)
+		result = append(result, awsCall(eastOptions, awsprovider.GlobalHomeRegion, "region "+awsprovider.GlobalHomeRegion))
 	}
 	if len(regional) == 0 {
-		return calls
+		return result
 	}
-	// Regional roots need a directory of their own per region when there
-	// are several regions, or global roots beside them, unless the
-	// pattern already has one.
-	perRegion := (len(options.Regions) > 1 || len(global) > 0) && !strings.Contains(options.Layout, "{region}")
 	for _, region := range options.Regions {
 		regionOptions := options
 		regionOptions.Services = regional
-		if perRegion {
-			regionOptions.Layout += region + "/"
+		if eastWithRegional && region == awsprovider.GlobalHomeRegion {
+			regionOptions.Services = append(slices.Clone(regional), eastOnly...)
 		}
-		calls = append(calls, awsCall(regionOptions, region, "region "+region))
+		regionOptions.Layout = layout(region)
+		result = append(result, awsCall(regionOptions, region, "region "+region))
 	}
-	return calls
+	return result
 }
 
 // awsCall returns the call that imports options in region. The AWS

@@ -22,7 +22,7 @@ Read-only access is enough: the AWS-managed `ReadOnlyAccess` policy, with an exp
 
 Without `--regions`, the import covers the region the profile or the environment sets (`AWS_REGION`, the profile's `region`). With it, each region is imported in turn into roots of its own: `<out>/aws/<account>/<region>/`.
 
-Global services are imported once, not per region, into `<out>/aws/<account>/global/`, with the provider's region set to `us-east-1`: `budgets`, `cloudfront`, `ecrpublic`, `iam`, `organization`, `route53` and `waf`. `wafv2_cloudfront`, the web ACLs that CloudFront uses, exists only in `us-east-1` and is imported there. A service AWS doesn't offer in a region is skipped there, with a log message.
+Global services are imported once, not per region, into `<out>/aws/<account>/global/`, with the provider's region set to `us-east-1`: `budgets`, `cloudfront`, `ecrpublic`, `iam`, `organization`, `route53` and `waf`. `wafv2_cloudfront`, the web ACLs that CloudFront uses, exists only in `us-east-1` and is imported there, with the regional services when `--regions` includes `us-east-1`. A custom `--layout` without `{region}` still gets `global/`, `us-east-1/` and each region's directory added when a run would otherwise put several of them in one root. A service AWS doesn't offer in a region is skipped there, with a log message.
 
 ## Several accounts
 
