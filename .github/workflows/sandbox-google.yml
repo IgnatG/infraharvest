@@ -125,7 +125,13 @@ jobs:
         cd "$SANDBOX_FIXTURE_DIR"
         vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
         "$E2E_ENGINE" init -input=false
-        "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}"
+        # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
+        # still deletes, is tried twice more before what is left counts.
+        for attempt in 1 2 3; do
+          "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}" && break
+          echo "::warning::destroy attempt $attempt failed"
+          sleep 60
+        done
         left=$("$E2E_ENGINE" state list)
         if [ -n "$left" ]; then
           echo "::error::Left in the estate: $left"
