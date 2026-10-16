@@ -294,7 +294,8 @@ resource "aws_lightsail_database" "db" {
 	for _, s := range result.Secrets {
 		variables = append(variables, s.Variable)
 	}
-	if want := []string{"aws_secretsmanager_secret_version_app_secret_string", "aws_lightsail_database_db_master_password"}; !reflect.DeepEqual(variables, want) {
+	// In the order of the resources, which the configuration sorts by type.
+	if want := []string{"aws_lightsail_database_db_master_password", "aws_secretsmanager_secret_version_app_secret_string"}; !reflect.DeepEqual(variables, want) {
 		t.Errorf("variables: got %v, want %v", variables, want)
 	}
 	got := readFile(t, dir, GeneratedFileName)
