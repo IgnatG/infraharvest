@@ -49,6 +49,9 @@ type trial struct {
 	literals map[string]string
 	// rejected is why the plan didn't accept the call.
 	rejected string
+	// provider, if set, is the provider configuration all the members use,
+	// such as aws.without_default_tags, which the call passes the module.
+	provider hclwrite.Tokens
 }
 
 func (t *trial) members() []string {
@@ -384,8 +387,17 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				}
 			}
 			slices.SortFunc(c.Members, func(x, y adapters.Resource) int { return strings.Compare(x.Address(), y.Address()) })
+			// Members that all use one other configuration of the provider
+			// are mapped without it, and the call passes it to the module.
+			provider := sharedProvider(c)
+			if provider != nil {
+				setProvider(c, nil)
+			}
 			call, err := a.Map(c)
-			t := &trial{adapter: a, cluster: c, call: call}
+			t := &trial{adapter: a, cluster: c, call: call, provider: provider}
+			if err != nil && provider != nil {
+				setProvider(c, provider)
+			}
 			if adapters.IsDecline(err) {
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: err.Error()})
 				continue
@@ -395,6 +407,9 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			}
 			t.cluster.Members = slices.DeleteFunc(slices.Clone(c.Members), func(m adapters.Resource) bool { return slices.Contains(call.Left, m.Address()) })
 			if reason := unfollowable(t, resources, values); reason != "" {
+				if provider != nil {
+					setProvider(c, provider)
+				}
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
@@ -536,6 +551,11 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 		// Git and local modules have none: a git source pins its ref.
 		if t.adapter.Version != "" {
 			block.Body().SetAttributeValue("version", cty.StringVal(t.adapter.Version))
+		}
+		if t.provider != nil {
+			local := strings.TrimSpace(string(t.provider.Bytes()))
+			local, _, _ = strings.Cut(local, ".")
+			block.Body().SetAttributeRaw("providers", hclwrite.TokensForObject([]hclwrite.ObjectAttrTokens{{Name: hclwrite.TokensForIdentifier(local), Value: t.provider}}))
 		}
 		block.Body().AppendNewline()
 		for _, arg := range t.call.Arguments {
@@ -941,4 +961,35 @@ func literalObject(tokens hclwrite.Tokens) (cty.Value, bool) {
 		return cty.NilVal, false
 	}
 	return v, true
+}
+
+// sharedProvider returns the provider meta-argument every resource of a
+// cluster sets, such as aws.without_default_tags (see applyTagLift), or
+// nil if one sets none or they differ.
+func sharedProvider(c adapters.Cluster) hclwrite.Tokens {
+	var shared hclwrite.Tokens
+	for _, r := range append([]adapters.Resource{c.Anchor}, c.Members...) {
+		attr := r.Body.GetAttribute("provider")
+		if attr == nil {
+			return nil
+		}
+		tokens := attr.Expr().BuildTokens(nil)
+		if shared != nil && strings.TrimSpace(string(tokens.Bytes())) != strings.TrimSpace(string(shared.Bytes())) {
+			return nil
+		}
+		shared = tokens
+	}
+	return shared
+}
+
+// setProvider sets the provider meta-argument of every resource of a
+// cluster to provider, or removes it for nil.
+func setProvider(c adapters.Cluster, provider hclwrite.Tokens) {
+	for _, r := range append([]adapters.Resource{c.Anchor}, c.Members...) {
+		if provider == nil {
+			r.Body.RemoveAttribute("provider")
+		} else {
+			r.Body.SetAttributeRaw("provider", provider)
+		}
+	}
 }

@@ -648,3 +648,40 @@ func TestCallSource(t *testing.T) {
 		}
 	}
 }
+
+// Members that all use one other configuration of the provider are mapped
+// without it; a cluster whose members differ keeps theirs.
+func TestSharedProvider(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
+  bucket   = "logs"
+  provider = aws.without_default_tags
+}
+
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket   = aws_s3_bucket.logs.id
+  provider = aws.without_default_tags
+}
+
+resource "aws_s3_bucket_versioning" "other" {
+  bucket = aws_s3_bucket.logs.id
+}
+`)
+	r := f.resources()
+	same := adapters.Cluster{Anchor: resourceOf(r[0]), Members: []adapters.Resource{resourceOf(r[1])}}
+	provider := sharedProvider(same)
+	if got := strings.TrimSpace(string(provider.Bytes())); got != "aws.without_default_tags" {
+		t.Fatalf("shared provider: got %q", got)
+	}
+	setProvider(same, nil)
+	if same.Anchor.Body.GetAttribute("provider") != nil || same.Members[0].Body.GetAttribute("provider") != nil {
+		t.Error("the provider stays on the members")
+	}
+	setProvider(same, provider)
+	if same.Anchor.Body.GetAttribute("provider") == nil {
+		t.Error("the provider isn't put back")
+	}
+	mixed := adapters.Cluster{Anchor: resourceOf(r[0]), Members: []adapters.Resource{resourceOf(r[2])}}
+	if sharedProvider(mixed) != nil {
+		t.Error("members with different providers share one")
+	}
+}
