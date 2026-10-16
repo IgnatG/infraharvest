@@ -171,11 +171,49 @@ var searchResults = []map[string]any{
 	asset("pubsub.googleapis.com/Topic", "//pubsub.googleapis.com/projects/acme-prod/topics/gone", "global", map[string]any{"state": "DELETED"}),
 }
 
+// listAssets lists region (global for "") of the project acme-prod from
+// search, with cat (the built-in catalogue for nil), with none of the
+// searches of other tests kept.
 func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue, region string) []harvest.Resource {
 	t.Helper()
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
+	forgetSearches(t)
+	return listAssetsIn(t, cat, region)
+}
+
+// forgetSearches drops the searches the process has kept, now and when
+// the test ends, so that a test's search doesn't reach another's, which
+// a server on the same port would otherwise give it.
+func forgetSearches(t *testing.T) {
+	t.Helper()
+	forget := func() {
+		searches.Lock()
+		searches.byKey = map[string]*projectSearch{}
+		searches.Unlock()
+	}
+	forget()
+	t.Cleanup(forget)
+}
+
+// listAssetsIn lists region (global for "") of the project acme-prod from
+// the endpoint EndpointEnv names, with cat (the built-in catalogue for
+// nil).
+func listAssetsIn(t *testing.T, cat *catalogue.Catalogue, region string) []harvest.Resource {
+	t.Helper()
+	g := assetLister(t, cat, region)
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+	return g.Resources
+}
+
+// assetLister is a lister of region (global for "") of the project
+// acme-prod, with cat (the built-in catalogue for nil), and the test's
+// context.
+func assetLister(t *testing.T, cat *catalogue.Catalogue, region string) *CloudAssetLister {
+	t.Helper()
 	g := &CloudAssetLister{}
 	g.SetContext(t.Context())
 	args := map[string]interface{}{"project": "acme-prod", "region": compute.Region{Name: region}}
@@ -183,10 +221,7 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 		args["catalogue"] = cat
 	}
 	g.Configure(harvest.ListerConfig{Provider: "google", Settings: args})
-	if err := g.List(); err != nil {
-		t.Fatal(err)
-	}
-	return g.Resources
+	return g
 }
 
 func byID(resources []harvest.Resource) map[string]harvest.Resource {
@@ -261,6 +296,75 @@ func TestCloudAssetListsARegion(t *testing.T) {
 		if got[id].Address.Type != typ {
 			t.Errorf("%s: got %q, want %s", id, got[id].Address.Type, typ)
 		}
+	}
+}
+
+// The imports of a project's regions and of global share one search, each
+// taking what is in its region, also when they list at once. Before, each
+// searched the whole project again: N regions made N+1 searches.
+func TestCloudAssetSearchesOncePerProject(t *testing.T) {
+	search := &fakeAssetSearch{results: searchResults, perPage: 500}
+	server := httptest.NewServer(search)
+	t.Cleanup(server.Close)
+	t.Setenv(EndpointEnv, server.URL)
+	forgetSearches(t)
+
+	regions := []string{"", "us-central1", "europe-west1", "us-central1", ""}
+	listers := make([]*CloudAssetLister, len(regions))
+	errs := make([]error, len(regions))
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		listers[i] = assetLister(t, nil, region)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = listers[i].List()
+		}()
+	}
+	wg.Wait()
+
+	got := make([][]harvest.Resource, len(regions))
+	for i, g := range listers {
+		if errs[i] != nil {
+			t.Fatalf("%q: %v", regions[i], errs[i])
+		}
+		got[i] = g.Resources
+	}
+	if len(search.requests) != 1 {
+		t.Errorf("got %d searches, want 1", len(search.requests))
+	}
+	for i, want := range []int{5, 3, 1, 3, 5} {
+		if len(got[i]) != want {
+			t.Errorf("%q: got %d resources, want %d: %v", regions[i], len(got[i]), want, byID(got[i]))
+		}
+	}
+}
+
+// A search that fails isn't kept: the next import searches again.
+func TestCloudAssetSearchesAgainAfterAFailure(t *testing.T) {
+	search := &fakeAssetSearch{results: searchResults, perPage: 500}
+	var fail sync.Mutex
+	failing := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fail.Lock()
+		f := failing
+		failing = false
+		fail.Unlock()
+		if f {
+			http.Error(w, "unavailable", http.StatusForbidden)
+			return
+		}
+		search.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(EndpointEnv, server.URL)
+	forgetSearches(t)
+
+	if err := assetLister(t, nil, "").List(); err == nil {
+		t.Fatal("the failed search succeeded")
+	}
+	if got := listAssetsIn(t, nil, ""); len(got) != 5 || len(search.requests) != 1 {
+		t.Errorf("after a failure: got %d resources from %d searches", len(got), len(search.requests))
 	}
 }
 
