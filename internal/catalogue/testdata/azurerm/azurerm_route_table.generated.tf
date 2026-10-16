@@ -18,3 +18,11 @@ resource "azurerm_route_table" "rt_app" {
     project = "network"
   }
 }
+
+resource "azurerm_route_table" "rt_firewall" {
+  bgp_route_propagation_enabled = false
+  location                      = "uksouth"
+  name                          = "rt-firewall"
+  resource_group_name           = "rg-network"
+  route                         = []
+}

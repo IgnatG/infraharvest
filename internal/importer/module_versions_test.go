@@ -59,6 +59,45 @@ func TestResolveAdapters(t *testing.T) {
 	}
 }
 
+// A module version that accepts only an older major release of the
+// provider isn't called, rather than hold the root a major behind; one
+// that accepts a release of the newest major still holds it back within it.
+func TestNewestMajor(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/providers/hashicorp/azurerm/versions" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"versions":[{"version":"4.81.0"},{"version":"5.0.0"},{"version":"5.9.0"},{"version":"5.10.0"},{"version":"6.0.0-beta1"}]}`))
+	}))
+	defer registry.Close()
+	old := moduleConstraint{module: "acme/identity/azurerm", version: "0.5.3", constraint: goversion.MustConstraints(goversion.NewConstraint(">= 4.60.0, < 5.0.0"))}
+	within := moduleConstraint{module: "acme/network/azurerm", version: "1.0.0", constraint: goversion.MustConstraints(goversion.NewConstraint(">= 5.0, < 5.10"))}
+	none := moduleConstraint{module: "acme/vault/azurerm", version: "2.0.0", constraint: goversion.MustConstraints(goversion.NewConstraint(">= 7.0"))}
+	latest := goversion.Must(goversion.NewVersion("5.10.0"))
+
+	admitted, refused := newestMajor(t.Context(), registry.Client(), registry.URL, "registry.terraform.io/hashicorp/azurerm", latest, []moduleConstraint{old, within, none})
+	if len(admitted) != 1 || admitted[0].module != within.module {
+		t.Errorf("admitted: %+v", admitted)
+	}
+	if len(refused) != 2 || refused[0].module != old.module || refused[1].module != none.module {
+		t.Errorf("refused: %+v", refused)
+	}
+
+	list := []adapters.Adapter{
+		{Source: "acme/identity/azurerm", Version: "0.5.3"},
+		{Source: "acme/identity/azurerm", Version: "0.6.0"},
+		{Source: "acme/network/azurerm", Version: "1.0.0"},
+	}
+	got := withoutModules(list, refused)
+	if len(got) != 2 || got[0].Version != "0.6.0" || got[1].Source != "acme/network/azurerm" {
+		t.Errorf("adapters kept: %+v", got)
+	}
+	if got := withoutModules(list, nil); len(got) != 3 {
+		t.Errorf("nothing refused: %+v", got)
+	}
+}
+
 // Only adapters whose anchor the import has apply: the others' modules
 // mustn't hold the provider back.
 func TestApplicableAdapters(t *testing.T) {

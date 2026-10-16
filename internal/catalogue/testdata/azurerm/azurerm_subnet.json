@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-network/providers/Microsoft.Network/virtualNetworks/vnet-hub/subnets/app", "name": "app", "attributes": {"name": "app", "resource_group_name": "rg-network"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-network/providers/Microsoft.Network/virtualNetworks/vnet-hub/subnets/private", "name": "private", "attributes": {"name": "private", "resource_group_name": "rg-network"}}
+]}

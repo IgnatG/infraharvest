@@ -185,31 +185,27 @@ func (*Provider) Directory() string {
 	return directoryName
 }
 
-// ProviderBlock returns the provider "azurerm" block: the subscription,
-// the features block azurerm requires, and resource_provider_registrations
-// "none". azurerm 4 otherwise registers dozens of resource providers on
-// the subscription before every plan, which takes a role that can write
-// to the subscription: with the Reader role infraharvest needs, every
-// plan failed. Registering them isn't the import's job, and the generated
-// configuration is the user's to keep, so it registers none, as azurerm 5
-// does by default. The roots use azurerm 4 or 5 (4 when a module holds
-// the provider back), and the argument means the same in both.
+// ProviderBlock returns the provider "azurerm" block: the subscription and
+// the features block azurerm requires, empty. The roots pin azurerm's
+// newest major release, 5 or later (a module that holds it to an older
+// one isn't called), whose defaults suit an import with the Reader role,
+// so the block sets nothing else:
 //
-// The features block sets storage.data_plane_available to false: azurerm
-// 4 otherwise reads a storage account's queue_properties and
-// static_website through the storage data plane, with the account's keys,
-// which Reader can't list, so the account fails to import. azurerm 5 has
-// dropped both blocks, for the separate azurerm_storage_account_*
-// resources, and ignores the flag; with it, 4 does the same.
+//   - azurerm 5 registers no resource providers on the subscription by
+//     default (resource_provider_registrations defaults to "none"), which
+//     a Reader can't: azurerm 4 did before every plan unless told not to;
+//   - azurerm 5 has dropped a storage account's queue_properties and
+//     static_website blocks, for the separate azurerm_storage_account_*
+//     resources, so it reads the account through Resource Manager alone
+//     and copes with being refused its keys: features.storage's
+//     data_plane_available, which azurerm 4 needed to do the same, no
+//     longer changes how the account is read.
 func (p *Provider) ProviderBlock() map[string]interface{} {
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
 			providerName: map[string]interface{}{
-				"features": map[string]interface{}{
-					"storage": map[string]interface{}{"data_plane_available": false},
-				},
-				"resource_provider_registrations": "none",
-				"subscription_id":                 p.subscriptionID,
+				"features":        map[string]interface{}{},
+				"subscription_id": p.subscriptionID,
 			},
 		},
 	}

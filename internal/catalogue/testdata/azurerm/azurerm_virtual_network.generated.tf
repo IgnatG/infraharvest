@@ -17,10 +17,22 @@ resource "azurerm_virtual_network" "vnet_hub" {
     private_link_service_network_policies_enabled = true
     route_table_id                                = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-network/providers/Microsoft.Network/routeTables/rt-app"
     security_group                                = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-network/providers/Microsoft.Network/networkSecurityGroups/nsg-app"
+    service_endpoint                              = []
     service_endpoint_policy_ids                   = []
-    service_endpoints                             = []
   }]
   tags = {
     project = "network"
   }
+}
+
+resource "azurerm_virtual_network" "vnet_spoke" {
+  address_space                  = ["10.71.0.0/16"]
+  bgp_community                  = null
+  dns_servers                    = ["10.70.0.4"]
+  edge_zone                      = null
+  location                       = "uksouth"
+  name                           = "vnet-spoke"
+  private_endpoint_vnet_policies = "Basic"
+  resource_group_name            = "rg-network"
+  subnet                         = []
 }
