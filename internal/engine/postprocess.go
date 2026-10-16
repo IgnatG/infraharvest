@@ -80,6 +80,8 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		edit  func() (bool, error)
 		// each, instead of edit, is checked by resource (see verifyEach).
 		each func(skip map[string]int) (map[string]bool, error)
+		// fallback, if set, is the edit to try when the plan rejects edit.
+		fallback func() (bool, error)
 	}
 	steps := []step{{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
@@ -101,15 +103,33 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	// Tags before literals, so a tag value is never made a local.
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags
-		steps = append(steps, step{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt) }})
+		// The schemas tell which resources the provider tags although
+		// they set no tags.
+		schemas, err := tf.ProvidersSchema(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("terraform providers schema: %w", err)
+		}
+		tags := step{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
+		if dt.Block != "" && dt.Applied == nil {
+			// Where the provider can't apply the tags without changing a
+			// resource's, the resources still share them through the local.
+			local := dt
+			local.Block, local.Argument = "", false
+			tags.fallback = func() (bool, error) { return applyTagLift(dir, local, schemas) }
+		}
+		steps = append(steps, tags)
 	}
 	steps = append(steps, step{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
 	for _, step := range steps {
+		var kept bool
 		var err error
 		if step.each != nil {
 			_, err = verifyEach(ctx, tf, dir, *baseline, changes, vars, step.each, step.files...)
 		} else {
-			_, err = verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...)
+			kept, err = verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...)
+		}
+		if err == nil && !kept && step.fallback != nil {
+			_, err = verify(ctx, tf, dir, *baseline, vars, step.fallback, step.files...)
 		}
 		if err != nil {
 			return nil, err

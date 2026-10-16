@@ -5,12 +5,15 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 )
 
 const networkGenerated = `resource "aws_subnet" "a" {
@@ -114,20 +117,44 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 	}
 }
 
-func TestSharedTags(t *testing.T) {
+func TestCommonTags(t *testing.T) {
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, networkGenerated)
+	resources, ok := taggedResources(f, awsDefaultTags, nil)
+	if !ok || len(resources) != 3 {
+		t.Fatalf("got %+v, %v, want the 3 resources with tags", resources, ok)
+	}
+	if common := commonTags(resources, awsDefaultTags.ReservedPrefix); !reflect.DeepEqual(common, map[string]string{"Project": "shop"}) {
+		t.Errorf("got %v, want Project=shop", common)
+	}
 
-	common, tagged := sharedTags(f, awsDefaultTags)
-
-	if tagged != 3 || len(common) != 1 || common["Project"] != "shop" {
-		t.Errorf("got %v from %d resources, want Project=shop from 3", common, tagged)
+	tags := func(m ...map[string]string) []taggedResource {
+		var list []taggedResource
+		for i, set := range m {
+			list = append(list, taggedResource{address: fmt.Sprintf("aws_x.r%d", i), tags: set})
+		}
+		return list
+	}
+	for name, tt := range map[string]struct {
+		resources []taggedResource
+		want      map[string]string
+	}{
+		// Most, not all: one resource's other value doesn't stop it.
+		"most": {tags(map[string]string{"env": "prod"}, map[string]string{"env": "prod"}, map[string]string{"env": "dev"}), map[string]string{"env": "prod"}},
+		// Resources without tags of their own don't count.
+		"untagged": {tags(map[string]string{"env": "prod"}, map[string]string{"env": "prod"}, nil, map[string]string{}, map[string]string{"aws:x": "y"}), map[string]string{"env": "prod"}},
+		"half":     {tags(map[string]string{"env": "prod"}, map[string]string{"env": "prod"}, map[string]string{"env": "dev"}, map[string]string{"env": "dev"}), map[string]string{}},
+		"one":      {tags(map[string]string{"env": "prod"}), map[string]string{}},
+	} {
+		if got := commonTags(tt.resources, "aws:"); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s: got %v, want %v", name, got, tt.want)
+		}
 	}
 }
 
 // liftTagsVerified lifts tags in dir as postProcess does, against an empty
 // baseline.
 func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
-	return verify(context.Background(), tf, dir, changeSummary{}, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags) },
+	return verify(context.Background(), tf, dir, changeSummary{}, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) },
 		GeneratedFileName, ProvidersFileName, LocalsFileName)
 }
 
@@ -256,7 +283,7 @@ resource "google_storage_bucket" "b" {
 		}
 	}
 	dt := DefaultTags{Provider: "google", Attribute: "labels", Block: "default_labels", ReservedPrefix: "goog-", Argument: true}
-	changed, err := applyTagLift(dir, dt)
+	changed, err := applyTagLift(dir, dt, nil)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
@@ -329,7 +356,7 @@ func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, azureGenerated)
 
-	changed, err := applyTagLift(dir, azureDefaultTags)
+	changed, err := applyTagLift(dir, azureDefaultTags, nil)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
@@ -371,8 +398,154 @@ resource "azurerm_resource_group" "b" {
 }
 `)
 
-	changed, err := applyTagLift(dir, azureDefaultTags)
+	changed, err := applyTagLift(dir, azureDefaultTags, nil)
 	if err != nil || changed {
 		t.Fatalf("want nothing lifted, got %v, %v", changed, err)
+	}
+}
+
+// taggedSchemas describe types the AWS provider tags, with tags and
+// tags_all, and one it doesn't.
+var taggedSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+	"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+		"aws_subnet": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+			"tags":     {AttributeType: cty.Map(cty.String), Optional: true},
+			"tags_all": {AttributeType: cty.Map(cty.String), Optional: true, Computed: true},
+		}}},
+		"aws_iam_user": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+			"name":     {AttributeType: cty.String, Required: true},
+			"tags":     {AttributeType: cty.Map(cty.String), Optional: true},
+			"tags_all": {AttributeType: cty.Map(cty.String), Optional: true, Computed: true},
+		}}},
+		"aws_route_table_association": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+			"subnet_id": {AttributeType: cty.String, Optional: true},
+		}}},
+	}},
+}}
+
+// The tags most resources share go to default_tags even when some
+// resources lack them, such as an untagged user, which default_tags would
+// tag: those use a configuration of the provider without default_tags.
+// A resource's own value of a shared tag stays, over the provider's.
+func TestLiftTagsMostResourcesShare(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "ci" {
+  name = "ci"
+}
+
+resource "aws_route_table_association" "a" {
+  subnet_id = "subnet-1"
+}
+
+resource "aws_subnet" "a" {
+  tags = {
+    Project = "shop"
+    Team    = "web"
+  }
+}
+
+resource "aws_subnet" "b" {
+  tags = {
+    Project = "shop"
+    Team    = "web"
+  }
+}
+
+resource "aws_subnet" "c" {
+  tags = {
+    Project = "legacy"
+    Team    = "web"
+  }
+}
+`)
+	writeConfig(t, dir, ProvidersFileName, awsProviders)
+
+	changed, err := applyTagLift(dir, awsDefaultTags, taggedSchemas)
+	if err != nil || !changed {
+		t.Fatalf("changed %v, %v", changed, err)
+	}
+	if got := squashed(readFile(t, dir, LocalsFileName)); !strings.Contains(got, `Project = "shop"`) || !strings.Contains(got, `Team = "web"`) {
+		t.Errorf("locals.tf:\n%s", got)
+	}
+	providers := squashed(readFile(t, dir, ProvidersFileName))
+	for _, want := range []string{
+		`provider "aws" { region = "us-east-1" default_tags { tags = local.tags } }`,
+		`provider "aws" { alias = "without_default_tags" region = "us-east-1" }`,
+	} {
+		if !strings.Contains(providers, want) {
+			t.Errorf("providers.tf misses %q:\n%s", want, providers)
+		}
+	}
+	generated := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{
+		`name = "ci" provider = aws.without_default_tags }`,
+		`resource "aws_subnet" "c" { tags = { Project = "legacy" } }`,
+		`resource "aws_subnet" "a" { }`,
+		`subnet_id = "subnet-1" }`,
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, generated)
+		}
+	}
+	if strings.Count(generated, "provider =") != 1 {
+		t.Errorf("only the user uses the other configuration:\n%s", generated)
+	}
+
+	// An incremental import reads the default configuration's tags.
+	files := []*hclFile{}
+	for _, name := range []string{ProvidersFileName, LocalsFileName} {
+		f, err := loadHCL(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	if tags, ok := appliedTags(files, awsDefaultTags); !ok || len(tags) != 2 {
+		t.Errorf("applied tags: %v, %v", tags, ok)
+	}
+}
+
+// When as many resources would need the other configuration as would
+// not, the resources that have the shared tags refer to the local instead.
+func TestLiftTagsIntoTheLocalWhenFewHaveThem(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "a" {
+  name = "a"
+}
+
+resource "aws_iam_user" "b" {
+  name = "b"
+}
+
+resource "aws_subnet" "a" {
+  tags = {
+    Project = "shop"
+  }
+}
+
+resource "aws_subnet" "b" {
+  tags = {
+    Project = "shop"
+    Team    = "web"
+  }
+}
+`)
+	writeConfig(t, dir, ProvidersFileName, awsProviders)
+
+	changed, err := applyTagLift(dir, awsDefaultTags, taggedSchemas)
+	if err != nil || !changed {
+		t.Fatalf("changed %v, %v", changed, err)
+	}
+	if got := readFile(t, dir, ProvidersFileName); got != awsProviders {
+		t.Errorf("providers.tf changed:\n%s", got)
+	}
+	generated := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`tags = local.tags`, `tags = merge(local.tags, { Team = "web" })`} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, generated)
+		}
+	}
+	if strings.Contains(generated, "provider =") {
+		t.Errorf("generated.tf:\n%s", generated)
 	}
 }

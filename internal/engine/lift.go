@@ -11,13 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-
+	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -63,17 +64,23 @@ var liftable = regexp.MustCompile(`^(arn:|/subscriptions/|projects/)|^[a-z][a-z0
 // arn:aws:iam::aws:policy/ReadOnlyAccess, whose name says what they grant.
 var wellKnown = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 
-// applyTagLift moves the tags every resource with tags shares into
-// local.tags, which the provider applies through dt.Block, and leaves each
-// resource only its other tags. AWS records each resource's full tag set
-// in tags_all, so whether that changes the plan depends on the provider:
-// postProcess keeps the lift only if the plan doesn't change (see verify).
-// Without dt.Block, each resource's tags become local.tags, merged with
-// its other tags (see referTags). It reports whether it changed anything.
-// With dt.Applied, it only leaves those tags out of the resources, or
-// makes the resources refer to them: the root has them already (see
-// applyDefaultTags).
-func applyTagLift(dir string, dt DefaultTags) (bool, error) {
+// applyTagLift moves the tags most tagged resources share (see
+// commonTags) into local.tags, and makes the resources that have them,
+// with these or other values, use it. With dt.Block, the provider applies
+// them, and each resource keeps only its other tags and its own values of
+// the shared ones, which win over the provider's. The resources that
+// would get tags they don't have, such as untagged ones, use a second
+// configuration of the provider, without dt.Block (see addAliasProvider):
+// AWS records each resource's full tag set in tags_all, so the tags must
+// not change. Without dt.Block, the resources that have the shared tags
+// set local.tags, merged with their other tags (see referTags), and so do
+// they with dt.Block when they are fewer than the others. postProcess
+// keeps the lift only if the plan doesn't change (see verify). schemas,
+// if set, tell which resources the provider tags although they set no
+// tags. It reports whether it changed anything. With dt.Applied, it only
+// leaves those tags out of the resources, or makes the resources refer to
+// them: the root has them already (see applyDefaultTags).
+func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
 	generatedPath := filepath.Join(dir, GeneratedFileName)
 	generated, err := loadHCL(generatedPath)
 	if err != nil {
@@ -84,18 +91,32 @@ func applyTagLift(dir string, dt DefaultTags) (bool, error) {
 		if dt.Block == "" {
 			changed = referTags(generated, dt.Attribute, dt.Applied)
 		} else {
-			changed = removeTags(generated, dt.Attribute, dt.Applied)
+			changed = removeTags(generated, dt.Attribute, dt.Applied, nil)
 		}
 		if !changed {
 			return false, nil
 		}
 		return true, generated.save()
 	}
-	common, tagged := sharedTags(generated, dt)
-	if len(common) == 0 || tagged < 2 {
+	resources, ok := taggedResources(generated, dt, schemas)
+	if !ok {
 		return false, nil
 	}
-	if dt.Block == "" {
+	common := commonTags(resources, dt.ReservedPrefix)
+	if len(common) == 0 {
+		return false, nil
+	}
+	uncovered := map[string]bool{}
+	for _, r := range resources {
+		for k := range common {
+			if _, ok := r.tags[k]; !ok {
+				uncovered[r.address] = true
+			}
+		}
+	}
+	if covered := len(resources) - len(uncovered); covered < 2 {
+		return false, nil
+	} else if dt.Block == "" || covered <= len(uncovered) {
 		referTags(generated, dt.Attribute, common)
 		if err := generated.save(); err != nil {
 			return false, err
@@ -106,11 +127,103 @@ func applyTagLift(dir string, dt DefaultTags) (bool, error) {
 	if err != nil || provider == nil {
 		return false, err
 	}
-	removeTags(generated, dt.Attribute, common)
+	if len(uncovered) > 0 {
+		alias := "without_" + dt.Block
+		if err := addAliasProvider(providers, provider, dt, alias); err != nil {
+			return false, err
+		}
+		for _, r := range generated.resources() {
+			if uncovered[r.address] {
+				r.write.Body().SetAttributeTraversal("provider", hcl.Traversal{hcl.TraverseRoot{Name: dt.Provider}, hcl.TraverseAttr{Name: alias}})
+			}
+		}
+	}
+	removeTags(generated, dt.Attribute, common, uncovered)
 	if err := generated.save(); err != nil {
 		return false, err
 	}
 	return true, setDefaultTags(dir, providers, provider, dt, common)
+}
+
+// taggedResource is a resource the provider applies its tags to, with its
+// literal tags: none if it sets none.
+type taggedResource struct {
+	address string
+	tags    map[string]string
+}
+
+// taggedResources returns the resources of f that set a literal
+// dt.Attribute, and, with dt.Block and schemas, those that don't although
+// the provider tags them: types with dt.Attribute and the attribute that
+// holds the tags the provider adds (tags_all for AWS, terraform_labels
+// for Google). Resources of another provider, or another configuration of
+// it, such as google-beta's, get none of the provider's tags. It returns
+// false if a resource's tags aren't a literal map of strings.
+func taggedResources(f *hclFile, dt DefaultTags, schemas *tfjson.ProviderSchemas) ([]taggedResource, bool) {
+	var list []taggedResource
+	for _, r := range f.resources() {
+		if p, ok := r.syntax.Body.Attributes["provider"]; ok {
+			traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
+			if diags.HasErrors() || len(traversal) != 1 || traversal.RootName() != dt.Provider {
+				continue
+			}
+		}
+		attr, ok := r.syntax.Body.Attributes[dt.Attribute]
+		if !ok {
+			if dt.Block != "" && receivesTags(schemas, resourceTypeOf(r.address), dt.Attribute) {
+				list = append(list, taggedResource{address: r.address, tags: map[string]string{}})
+			}
+			continue
+		}
+		tags, ok := stringMap(attr.Expr)
+		if !ok {
+			return nil, false
+		}
+		list = append(list, taggedResource{address: r.address, tags: tags})
+	}
+	return list, true
+}
+
+// receivesTags reports whether the schemas of typ have attribute and one
+// that holds the tags its provider adds to it.
+func receivesTags(schemas *tfjson.ProviderSchemas, typ, attribute string) bool {
+	if schemaAttribute(schemas, typ, []string{attribute}) == nil {
+		return false
+	}
+	for _, all := range []string{attribute + "_all", "terraform_" + attribute, "effective_" + attribute} {
+		if schemaAttribute(schemas, typ, []string{all}) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// commonTags returns the tags, key and value, that more than half of the
+// resources with tags of their own have, and at least two, without those
+// whose key starts with reserved, which the cloud sets.
+func commonTags(resources []taggedResource, reserved string) map[string]string {
+	counts := map[[2]string]int{}
+	voters := 0
+	for _, r := range resources {
+		own := 0
+		for k, v := range r.tags {
+			if reserved != "" && strings.HasPrefix(k, reserved) {
+				continue
+			}
+			counts[[2]string{k, v}]++
+			own++
+		}
+		if own > 0 {
+			voters++
+		}
+	}
+	common := map[string]string{}
+	for kv, n := range counts {
+		if n >= 2 && 2*n > voters {
+			common[kv[0]] = kv[1]
+		}
+	}
+	return common
 }
 
 // applyDefaultTags makes the provider in dir apply dt.Applied to every
@@ -130,15 +243,15 @@ func applyDefaultTags(dir string, dt DefaultTags) error {
 	return setDefaultTags(dir, providers, provider, dt, dt.Applied)
 }
 
-// loadProvider loads providers.tf and finds the block of the provider
-// named name, or nil.
+// loadProvider loads providers.tf and finds the default configuration of
+// the provider named name, the block without an alias, or nil.
 func loadProvider(dir, name string) (*hclFile, *hclwrite.Body, error) {
 	providers, err := loadHCL(filepath.Join(dir, ProvidersFileName))
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, b := range providers.file.Body().Blocks() {
-		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == name {
+		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == name && b.Body().GetAttribute("alias") == nil {
 			return providers, b.Body(), nil
 		}
 	}
@@ -161,12 +274,13 @@ func setDefaultTags(dir string, providers *hclFile, provider *hclwrite.Body, dt 
 }
 
 // removeTags leaves out of each resource's literal attribute the tags in
-// remove, with the same values, and reports whether it changed anything.
-func removeTags(f *hclFile, attribute string, remove map[string]string) bool {
+// remove, with the same values, but for the resources in skip, and reports
+// whether it changed anything.
+func removeTags(f *hclFile, attribute string, remove map[string]string, skip map[string]bool) bool {
 	changed := false
 	for _, r := range f.resources() {
 		attr, ok := r.syntax.Body.Attributes[attribute]
-		if !ok {
+		if !ok || skip[r.address] {
 			continue
 		}
 		tags, ok := stringMap(attr.Expr)
@@ -192,10 +306,11 @@ func removeTags(f *hclFile, attribute string, remove map[string]string) bool {
 	return changed
 }
 
-// referTags makes each resource whose literal attribute has every tag in
-// shared, with the same values, refer to local.<attribute> for them:
-// attribute = local.tags, or merge(local.tags, {...}) with its other
-// tags. It reports whether it changed anything.
+// referTags makes each resource whose literal attribute has every key of
+// shared refer to local.<attribute> for them: attribute = local.tags, or
+// merge(local.tags, {...}) with its other tags and its own values of the
+// shared ones, which merge puts over the local's. It reports whether it
+// changed anything.
 func referTags(f *hclFile, attribute string, shared map[string]string) bool {
 	local := hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: attribute}})
 	changed := false
@@ -210,11 +325,14 @@ func referTags(f *hclFile, attribute string, shared map[string]string) bool {
 		}
 		rest := maps.Clone(tags)
 		for k, v := range shared {
-			if value, ok := tags[k]; !ok || value != v {
+			value, ok := tags[k]
+			if !ok {
 				rest = nil
 				break
 			}
-			delete(rest, k)
+			if value == v {
+				delete(rest, k)
+			}
 		}
 		if rest == nil {
 			continue
@@ -229,40 +347,35 @@ func referTags(f *hclFile, attribute string, shared map[string]string) bool {
 	return changed
 }
 
-// sharedTags returns the tags, as key and value, that every resource with
-// a literal dt.Attribute has, without reserved ones, and how many such
-// resources there are. It returns nothing if any resource's tags aren't a
-// literal map of strings.
-func sharedTags(f *hclFile, dt DefaultTags) (map[string]string, int) {
-	var common map[string]string
-	tagged := 0
-	for _, r := range f.resources() {
-		attr, ok := r.syntax.Body.Attributes[dt.Attribute]
-		if !ok {
+// addAliasProvider adds to providers a configuration of the provider
+// whose block is provider, named alias, with the same arguments, but for
+// dt.Block: for the resources that don't have the tags it applies.
+func addAliasProvider(providers *hclFile, provider *hclwrite.Body, dt DefaultTags, alias string) error {
+	block := hclwrite.NewBlock("provider", []string{dt.Provider})
+	body := block.Body()
+	body.SetAttributeValue("alias", cty.StringVal(alias))
+	attributes := provider.Attributes()
+	for _, name := range slices.Sorted(maps.Keys(attributes)) {
+		if name == "alias" || (dt.Argument && name == dt.Block) {
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
-		if !ok {
-			return nil, 0
-		}
-		tagged++
-		if common == nil {
-			common = map[string]string{}
-			for k, v := range tags {
-				if dt.ReservedPrefix != "" && strings.HasPrefix(k, dt.ReservedPrefix) {
-					continue
-				}
-				common[k] = v
-			}
-			continue
-		}
-		for k, v := range common {
-			if tags[k] != v {
-				delete(common, k)
-			}
-		}
+		body.SetAttributeRaw(name, attributes[name].Expr().BuildTokens(nil))
 	}
-	return common, tagged
+	for _, b := range provider.Blocks() {
+		if !dt.Argument && b.Type() == dt.Block {
+			continue
+		}
+		copied, err := copyBlock(b)
+		if err != nil {
+			return fmt.Errorf("provider %s: %w", dt.Provider, err)
+		}
+		body.AppendBlock(copied)
+	}
+	file := providers.file.Body()
+	file.AppendNewline()
+	file.AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# For the resources without the tags that %s applies to the others.\n", dt.Block))}})
+	file.AppendBlock(block)
+	return nil
 }
 
 // stringMap evaluates a literal map of strings; null is an empty map.

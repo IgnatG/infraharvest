@@ -168,7 +168,7 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	if err := applyDefaultTags(dir, dt); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := applyTagLift(dir, dt)
+	changed, err := applyTagLift(dir, dt, nil)
 	if err != nil || !changed {
 		t.Fatalf("got %v, %v", changed, err)
 	}
@@ -408,7 +408,7 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	if err := applyDefaultTags(staging, dt); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := applyTagLift(staging, dt)
+	changed, err := applyTagLift(staging, dt, nil)
 	if err != nil || !changed {
 		t.Fatalf("got %v, %v", changed, err)
 	}
