@@ -54,7 +54,7 @@ var resourceManagerServices = []string{
 // The catalogue's skip rules leave out what another resource manages
 // (managedBy), such as an AKS cluster's nodes or a virtual machine's OS
 // disk, but not a data disk attached to a machine, and what Azure creates
-// itself, such as NetworkWatcherRG. What is in a group they leave out
+// itself, such as NetworkWatcherRG and its network watchers. What is in a group they leave out
 // whole is listed without its child resources (see inSkippedGroup).
 type ResourceGraphLister struct {
 	Service

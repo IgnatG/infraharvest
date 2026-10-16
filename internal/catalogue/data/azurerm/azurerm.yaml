@@ -21,9 +21,6 @@ types:
       - reason: another resource manages it (managedBy), such as the node resource group (MC_*) an AKS cluster creates and deletes, or a managed application's resource group
         ignore_case: true
         attribute_prefixes: { managed_by: [/subscriptions/] }
-      - reason: in NetworkWatcherRG, which Azure creates with a network watcher per region when a virtual network is created
-        ignore_case: true
-        attributes: { resource_group_name: NetworkWatcherRG }
       - reason: in a DefaultResourceGroup-<region>, which Azure creates for default Log Analytics workspaces (Container insights, Defender for Cloud)
         ignore_case: true
         attribute_prefixes: { resource_group_name: [DefaultResourceGroup-] }
@@ -33,6 +30,19 @@ types:
       - reason: in an AzureBackupRG_<region>_<n> resource group, which Azure Backup creates for the restore point collections of the virtual machines it backs up; select it to import it
         ignore_case: true
         attribute_prefixes: { resource_group_name: [AzureBackupRG_] }
+  # NetworkWatcherRG and its network watchers, one per region, are Azure's;
+  # the flow logs, connection monitors and anything else a user puts in
+  # the group are theirs, and imported.
+  azurerm_resource_group:
+    skip:
+      - reason: NetworkWatcherRG, which Azure creates to hold a network watcher per region when a virtual network is created
+        ignore_case: true
+        attributes: { resource_group_name: NetworkWatcherRG }
+  azurerm_network_watcher:
+    skip:
+      - reason: a network watcher in NetworkWatcherRG, which Azure creates for the region when a virtual network is created; its flow logs and connection monitors are imported
+        ignore_case: true
+        attributes: { resource_group_name: NetworkWatcherRG }
   azurerm_monitor_data_collection_rule:
     skip:
       - reason: the data collection rule AKS creates when Container insights (MSCI-<region>-<cluster>) or managed Prometheus (MSProm-<region>-<cluster>) is enabled on a cluster; select it to import it

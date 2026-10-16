@@ -348,6 +348,25 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 			t.Errorf("%s %s (%v): not skipped", tc.typ, tc.id, a)
 		}
 	}
+	// A user's flow logs and connection monitors in NetworkWatcherRG are
+	// kept, and so are their children listed.
+	watcher := watchers + "/providers/Microsoft.Network/networkWatchers/NetworkWatcher_eastus"
+	for _, tc := range []struct{ typ, id string }{
+		{"azurerm_network_watcher_flow_log", watcher + "/flowLogs/vnet-flows"},
+		{"azurerm_network_connection_monitor", watcher + "/connectionMonitors/app-latency"},
+	} {
+		rid, err := armid.ParseResourceId(tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := graphAttributes(azlist.AzureResource{Id: rid}, listedOwners{})
+		if reason := cat.Skipped(tc.typ, tc.id, a); reason != "" {
+			t.Errorf("%s %s (%v): skipped %q", tc.typ, tc.id, a, reason)
+		}
+	}
+	if inSkippedGroup(listed(t, watcher, nil), nil, cat) {
+		t.Error("a network watcher's flow logs and connection monitors aren't listed")
+	}
 }
 
 // A disk's managedBy is the virtual machine it is attached to. The
