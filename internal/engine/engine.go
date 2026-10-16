@@ -112,6 +112,10 @@ type Options struct {
 	// DefaultTags, if set, lets Generate move the tags every resource shares
 	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags
+	// EffectiveTags, if set, lets Generate write each resource's tags,
+	// which an import leaves out of the provider's tags attribute, from
+	// the attribute that has them all (see fillEffectiveTags).
+	EffectiveTags *EffectiveTags
 	// StateOnly names, per resource type, arguments the provider keeps only
 	// in state, which import can't set and the plan check (see runGate)
 	// lets change.

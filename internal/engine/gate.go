@@ -159,6 +159,11 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	return append(gate, determinism), nil
 }
 
+// stateOnlyChange is what the plan check's details say of a resource that
+// only updates state-only or secret arguments: the README tells people to
+// expect those updates (see WriteReadme).
+const stateOnlyChange = "only state-only or secret arguments change"
+
 // planCheck passes if the plan imports expected resources and has no
 // changes besides those imports, other than updates to the attributes
 // secrets set, to what a secret's placeholder makes unknown, or to the
@@ -213,7 +218,7 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 		explained := true
 		for _, l := range leaves {
 			switch {
-			case slices.Contains(stateOnly[rc.Type], topOf(l.path)):
+			case slices.Contains(stateOnlyOf(stateOnly, rc.Type), topOf(l.path)):
 			case slices.Contains(secretPaths[rc.Address], withoutIndexes(l.path)):
 			case placeholderChanged && l.unknown:
 			default:
@@ -221,7 +226,7 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 			}
 		}
 		if explained {
-			check.Details = append(check.Details, fmt.Sprintf("%s: only state-only or secret arguments change (%s)", rc.Address, strings.Join(change.Attributes, ", ")))
+			check.Details = append(check.Details, fmt.Sprintf("%s: %s (%s)", rc.Address, stateOnlyChange, strings.Join(change.Attributes, ", ")))
 			continue
 		}
 		check.Passed = false
@@ -239,6 +244,17 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 		check.Details = append(check.Details, fmt.Sprintf("the plan imports %d resources, the configuration has %d import blocks", importing, expected))
 	}
 	return check
+}
+
+// stateOnlyOf returns the arguments stateOnly names for typ, and under "*"
+// for every type, as the catalogue lists them: the Google provider keeps
+// every resource's labels and terraform_labels in state only after an
+// import, for example.
+func stateOnlyOf(stateOnly map[string][]string, typ string) []string {
+	if len(stateOnly["*"]) == 0 {
+		return stateOnly[typ]
+	}
+	return append(slices.Clone(stateOnly["*"]), stateOnly[typ]...)
 }
 
 // leaf is one attribute of a resource a plan changes, by its path, such as

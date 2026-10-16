@@ -116,6 +116,16 @@ type ProviderWithDefaultTagsArgument interface {
 	DefaultTagsArgument() bool
 }
 
+// ProviderWithEffectiveTags is a provider whose resources' tag attribute
+// holds only the tags their configuration sets, such as Google's labels:
+// an import leaves it empty, and the effective attribute (effective_labels)
+// has every tag. It returns the two attributes and the key prefix of tags
+// the cloud or the provider sets itself, which the configuration leaves
+// to it (goog-).
+type ProviderWithEffectiveTags interface {
+	EffectiveTags() (attribute, effective, reservedPrefix string)
+}
+
 // ProviderWithConcurrentListing is a provider whose services may list at the
 // same time, because their listers share only state that is safe for
 // concurrent use, when ConcurrentListing returns true.

@@ -75,7 +75,11 @@ Each resource's ID is its full name without the API's host, such as `projects/my
 
 ## Labels
 
-Labels are recorded, where the listers read them (every resource `cloud_asset` lists), for the selection file's rules, the picker and the report. In the generated configuration, the labels all resources of a root share move to the provider's `default_labels`, as `local.labels`; `goog-` labels, which are Google's own, stay on the resources.
+Labels are recorded, where the listers read them (every resource `cloud_asset` lists), for the selection file's rules, the picker and the report.
+
+Since the google provider's version 5.0, a resource's `labels` holds only the labels of its configuration, which an import leaves empty, and `effective_labels` every label the resource has. So Terraform generates no labels, and infraharvest writes each resource's `labels` from its `effective_labels`, without the `goog-` labels, which Google and the provider set themselves (such as `goog-terraform-provisioned`): those stay on the resources, outside the configuration. The plan then updates `labels` and `terraform_labels` in place, in state alone: `effective_labels`, and the resource, stay as they are, and `terraform apply` changes nothing in the cloud. The verification gate accepts those updates, and the README of each root says to expect them.
+
+The labels all resources of a root share move to the provider's `default_labels`, as `local.labels`, if the plan stays the same: not when another resource that takes labels has none, as `default_labels` would label it.
 
 ## The google-beta provider
 

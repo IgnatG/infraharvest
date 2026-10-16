@@ -189,10 +189,14 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	return imported
 }
 
-// stateOnlyArguments are the arguments the AWS provider keeps only in
+// stateOnlyArguments are, by provider, the arguments it keeps only in
 // state, which the plan sets after an import (see the catalogue's
-// state_only).
-var stateOnlyArguments = catalogue.MustBuiltin("aws").StateOnly()
+// state_only), by type and under catalogue.AllTypes for every type: the
+// Google provider's labels and terraform_labels, for example.
+var stateOnlyArguments = map[string]map[string][]string{
+	"aws":    catalogue.MustBuiltin("aws").StateOnly(),
+	"google": catalogue.MustBuiltin("google").StateOnly(),
+}
 
 // emulatorGaps are attributes Floci leaves out of its API responses where
 // AWS returns them, so the plan sets the provider's default. Each one is a
@@ -217,8 +221,10 @@ var onEmulator = true
 // stateOnly reports whether every changed attribute is a state-only argument
 // of resourceType, or, on an emulator, one the emulator doesn't return.
 func stateOnly(resourceType string, changed map[string]string) bool {
+	provider, _, _ := strings.Cut(resourceType, "_")
+	arguments := append(slices.Clone(stateOnlyArguments[provider][catalogue.AllTypes]), stateOnlyArguments[provider][resourceType]...)
 	for name := range changed {
-		if !slices.Contains(stateOnlyArguments[resourceType], name) && !(onEmulator && slices.Contains(emulatorGaps[resourceType], name)) {
+		if !slices.Contains(arguments, name) && !(onEmulator && slices.Contains(emulatorGaps[resourceType], name)) {
 			return false
 		}
 	}

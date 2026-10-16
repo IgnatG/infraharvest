@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The services are cloud_asset and those that list what Cloud Asset
@@ -122,5 +123,9 @@ func TestModuleProviders(t *testing.T) {
 	}
 	if attribute, block, prefix := p.DefaultTags(); attribute != "labels" || block != "default_labels" || prefix != "goog-" || !p.DefaultTagsArgument() {
 		t.Errorf("default tags: %s %s %s", attribute, block, prefix)
+	}
+	var _ harvest.ProviderWithEffectiveTags = p
+	if attribute, effective, prefix := p.EffectiveTags(); attribute != "labels" || effective != "effective_labels" || prefix != "goog-" {
+		t.Errorf("effective tags: %s %s %s", attribute, effective, prefix)
 	}
 }

@@ -188,7 +188,7 @@ func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjs
 					ok = false
 				}
 			case changeSignature(rc) != changes[member]:
-				updates, same := sameButStateOnly(changeSignature(rc), changes[member], stateOnly[rc.Type])
+				updates, same := sameButStateOnly(changeSignature(rc), changes[member], stateOnlyOf(stateOnly, rc.Type))
 				if !same {
 					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(changeSignature(rc)), describeSignature(changes[member]))
 					ok = false

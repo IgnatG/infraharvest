@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -65,7 +66,12 @@ func readmeFile(result *Result) []byte {
 		b.WriteString("\n")
 		step++
 	}
-	fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. Every resource should be planned for import, with no changes.\n", step)
+	if stateOnlyUpdates(result.Gate) {
+		// Such as Google Cloud labels, which an import leaves out of state.
+		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. Every resource should be planned for import, with no changes but the updates the checks below list: to arguments the provider keeps only in state, which the import leaves unset.\n", step)
+	} else {
+		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. Every resource should be planned for import, with no changes.\n", step)
+	}
 	fmt.Fprintf(&b, "%d. Run `terraform apply` to record the resources in state. It changes nothing in the cloud.\n", step+1)
 	fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, ImportsFileName)
 
@@ -98,6 +104,13 @@ func readmeFile(result *Result) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// stateOnlyUpdates reports whether the plan check passed with resources
+// that update state-only arguments (see planCheck).
+func stateOnlyUpdates(gate Gate) bool {
+	c := gate.check(CheckPlan)
+	return c.Passed && slices.ContainsFunc(c.Details, func(d string) bool { return strings.Contains(d, stateOnlyChange) })
 }
 
 // modulesSection lists the module calls and the clusters of resources that
