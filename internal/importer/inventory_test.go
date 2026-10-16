@@ -37,7 +37,7 @@ func TestInventory(t *testing.T) {
 	}
 
 	// import --reuse-inventory takes it from there, failures included.
-	listed, failures, err = listResources(t.Context(), &listingProvider{t: t}, Options{ReuseInventory: true, Out: out, Services: []string{"good", "bad"}}, args, "")
+	listed, failures, err = listResources(t.Context(), &listingProvider{t: t}, Options{ReuseInventory: true, Out: out, Services: []string{"good", "bad"}}, args, "fake/1/eu-west-2")
 	if err != nil || len(listed.resources["good"]) != 1 || listed.resources["good"][0].Observed.ID != "id-1" {
 		t.Fatalf("reuse: %v, %v", listed, err)
 	}
@@ -145,7 +145,7 @@ func TestInventoryKeepsTags(t *testing.T) {
 
 	// Reused, the resources are as listed, tags included.
 	options = Options{ReuseInventory: true, Out: out, Services: []string{"good"}}
-	reused, _, err := listResources(t.Context(), &listingProvider{t: t}, options, args, "")
+	reused, _, err := listResources(t.Context(), &listingProvider{t: t}, options, args, "fake/1/eu-west-2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,5 +176,34 @@ func TestReadTagsFromAttributes(t *testing.T) {
 	tags := readTags(t.Context(), &taggingProvider{}, map[string][]harvest.Resource{"good": {r}})
 	if got := tags[tagKey(r)]; got["team"] != "data" || got["env"] != "dev" {
 		t.Errorf("tags: %v, want team from the attributes and env from the provider", got)
+	}
+}
+
+// countingProvider counts the services it lists.
+type countingProvider struct {
+	fakeProvider
+	listed int
+}
+
+func (p *countingProvider) Select(name string, verbose bool) error {
+	p.listed++
+	return p.fakeProvider.Select(name, verbose)
+}
+
+// The saved inventory of the same arguments is of another account or
+// region when the scope they resolve to differs, as with another region in
+// the environment: it is listed again.
+func TestInventoryOfAnotherScope(t *testing.T) {
+	out := t.TempDir()
+	args := []string{"", "default"}
+	if _, _, err := listResources(t.Context(), &fakeProvider{}, Options{Discover: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-1"); err != nil {
+		t.Fatal(err)
+	}
+	p := &countingProvider{}
+	if _, _, err := listResources(t.Context(), p, Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-2"); err != nil {
+		t.Fatal(err)
+	}
+	if p.listed != 1 {
+		t.Errorf("listed %d services, want the inventory of eu-west-1 not reused for eu-west-2", p.listed)
 	}
 }
