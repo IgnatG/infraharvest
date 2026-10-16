@@ -108,7 +108,8 @@ resource "aws_lambda_function" "b" {
 
 // A data source is named after the resource's name, without the words of
 // its type, and after its ID where it has no name; the same resource
-// listed twice is read once, by its name.
+// listed twice is read once, by its name; a name the root uses goes to
+// what has it.
 func TestAddDataSourcesNamedByResourceName(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_security_group" "web" {
@@ -125,14 +126,14 @@ resource "aws_security_group_rule" "web" {
 		{Type: "aws_security_group", ID: "sg-0def5678", Name: "sg-0def5678"},
 	}
 
-	changed, err := addDataSources(dir, external, awsDataSources, nil)
+	changed, err := addDataSources(dir, external, awsDataSources, Names{"data.aws_vpc.shop": true})
 	if err != nil || !changed {
 		t.Fatalf("want data sources, got %v, %v", changed, err)
 	}
 
 	generated := squashed(readFile(t, dir, GeneratedFileName))
 	for _, want := range []string{
-		"vpc_id = data.aws_vpc.shop.id",
+		"vpc_id = data.aws_vpc.shop_2.id",
 		"security_group_id = data.aws_security_group.sg_0def5678.id",
 	} {
 		if !strings.Contains(generated, want) {
@@ -140,7 +141,7 @@ resource "aws_security_group_rule" "web" {
 		}
 	}
 	data := squashed(readFile(t, dir, DataFileName))
-	if want := `data "aws_vpc" "shop" { id = "vpc-0abc1234" }`; !strings.Contains(data, want) {
+	if want := `data "aws_vpc" "shop_2" { id = "vpc-0abc1234" }`; !strings.Contains(data, want) {
 		t.Errorf("data.tf misses %q:\n%s", want, data)
 	}
 	if n := strings.Count(data, `data "aws_vpc"`); n != 1 {
