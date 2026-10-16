@@ -124,6 +124,17 @@ func TestFillEffectiveTags(t *testing.T) {
 			labeled: []string{"orders"},
 		},
 		{
+			// An autoscaled group's size, say: labels elsewhere can't cause it.
+			name: "an unrelated change",
+			showns: []*tfjson.Plan{{ResourceChanges: []*tfjson.ResourceChange{
+				labelsUpdate("google_pubsub_topic.orders", false),
+				labelsUpdate("google_pubsub_topic.events", false),
+				resourceChange("google_compute_region_instance_group_manager.web", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"target_size": 2}, map[string]any{"target_size": 3}),
+			}}},
+			want:    true,
+			labeled: []string{"orders", "events"},
+		},
+		{
 			name:  "a plan error",
 			plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "bad"}}}},
 		},

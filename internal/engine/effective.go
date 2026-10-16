@@ -6,6 +6,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"log"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -44,8 +46,11 @@ const maxFillRounds = 2
 // the provider computes from it in state, which stateOnly names for the
 // type (the Google provider's labels and terraform_labels), and nothing
 // in the cloud. A resource that then plans any other change, against
-// changes (see changeSignature), keeps no tags; if the configuration
-// doesn't plan, none does. It reports whether it changed generated.tf.
+// changes (see changeSignature), keeps no tags, and is logged; the others
+// keep theirs. A change of a resource it didn't fill is the plan's own,
+// as an autoscaled group's size may be, and changes nothing. If the
+// configuration doesn't plan, no resource keeps tags. It reports whether
+// it changed generated.tf.
 func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, error) {
 	backup, err := backupFiles(dir, GeneratedFileName)
 	if err != nil {
@@ -85,17 +90,37 @@ func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et Effecti
 				continue
 			}
 			if !slices.Contains(filled, rc.Address) {
-				// A change no tags explain: leave the configuration as it was.
-				return false, backup.restore()
+				// Tags on other resources can't change it.
+				continue
 			}
 			left[rc.Address] = true
 			settled = false
 		}
 		if settled {
+			logUnfilled(dir, et, left)
 			return true, nil
 		}
 	}
-	return false, backup.restore()
+	// Out of rounds: the resources that settled keep their tags.
+	if err := backup.restore(); err != nil {
+		return false, err
+	}
+	filled, err := fillTags(dir, et, values, left)
+	if err != nil {
+		return false, errors.Join(err, backup.restore())
+	}
+	logUnfilled(dir, et, left)
+	return len(filled) > 0, nil
+}
+
+// logUnfilled logs the resources fillEffectiveTags left without their
+// tags, as their plan changed with them: the tags stay on the resources,
+// but the configuration doesn't manage them.
+func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
+	if len(left) == 0 {
+		return
+	}
+	log.Printf("%s: leaving %s out of %s, whose plans change with them; the resources keep them, unmanaged", dir, et.Attribute, strings.Join(slices.Sorted(maps.Keys(left)), ", "))
 }
 
 // fillTags sets et.Attribute of each resource in generated.tf whose
