@@ -153,10 +153,11 @@ jobs:
     # the run's engine, as the fixture service account. Networks,
     # subnetworks, firewall rules, routers and service accounts take no
     # labels, so the sweep finds everything by name, ih-sbx-<engine>-,
-    # which the estate gives every resource, and deletes what uses others
-    # first: the zones' record sets, the zones, the subscriptions and
-    # topics, the buckets, then the network's firewall rules, routers and
-    # subnetworks, the network, and the service account.
+    # which the estate gives every resource but its function, ih-sbx-function,
+    # and deletes what uses others first: the function, the zones' record
+    # sets, the zones, the subscriptions and topics, the buckets, then the
+    # network's firewall rules, routers and subnetworks, the network, and
+    # the service account.
     - name: Sweep the project
       if: failure() || cancelled()
       env:
@@ -166,6 +167,12 @@ jobs:
         prefix="ih-sbx-$E2E_ENGINE-"
         named="name ~ '^$prefix'"
         q=(--quiet)
+        functions=$(gcloud functions list --filter "name ~ '/functions/ih-sbx-'" --format 'value(name.basename(),name.segment(3))')
+        while read -r name region; do
+          if [ -n "$name" ]; then
+            gcloud functions delete "$name" --region "$region" "${q[@]}" || true
+          fi
+        done <<< "$functions"
         zones=$(gcloud dns managed-zones list --filter "$named" --format 'value(name)')
         while IFS= read -r zone; do
           if [ -z "$zone" ]; then
@@ -221,6 +228,7 @@ jobs:
           fi
         done <<< "$accounts"
         left=$(
+          gcloud functions list --filter "name ~ '/functions/ih-sbx-'" --format 'value(name)'
           gcloud dns managed-zones list --filter "$named" --format 'value(name)'
           gcloud pubsub topics list --filter "name ~ '/$prefix'" --format 'value(name)'
           gcloud pubsub subscriptions list --filter "name ~ '/$prefix'" --format 'value(name)'

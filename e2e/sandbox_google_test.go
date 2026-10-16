@@ -63,6 +63,19 @@ var googleAuthorizationErrors = []string{
 	"does not have", "denied on resource",
 }
 
+// sandboxGoogleLagging are the asset types whose search results lag
+// behind changes by hours rather than minutes: Cloud Asset Inventory syncs
+// functions every 7 hours
+// (https://cloud.google.com/asset-inventory/docs/supported-asset-types).
+// The test doesn't wait for them, and checkGoogleFunction looks for the
+// estate's function apart.
+var sandboxGoogleLagging = []string{"cloudfunctions.googleapis.com/Function"}
+
+// sandboxGoogleUnlisted are the types the estate creates that no lister
+// lists: a bucket's objects, such as the function's source, aren't
+// resources Cloud Asset Inventory finds.
+var sandboxGoogleUnlisted = []string{"google_storage_bucket_object"}
+
 // TestSandboxGoogle creates testdata/sandbox/google in a real project as
 // the fixture service account (the credentials file
 // SANDBOX_GOOGLE_FIXTURE_CREDENTIALS names), waits for Cloud Asset
@@ -72,9 +85,10 @@ var googleAuthorizationErrors = []string{
 // grants, as a user would, and checks that nothing was denied, that the
 // engine plans every generated resource as an import with no changes, and
 // that the import found what the estate created, by ID, with its labels,
-// the project and the read-only account's grants. It destroys the estate
-// when it is done. The sandbox-google workflow runs it, after approval;
-// see e2e/README.md.
+// the project and the read-only account's grants, and that the default
+// selection leaves out what Google created for the estate's function. It
+// destroys the estate when it is done. The sandbox-google workflow runs
+// it, after approval; see e2e/README.md.
 func TestSandboxGoogle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
 	defer cancel()
@@ -97,6 +111,7 @@ func TestSandboxGoogle(t *testing.T) {
 	imported := s.checkGoogleImport(ctx, t, coverage, created)
 	s.checkGoogleFound(t, coverage, created)
 	checkGoogleLabels(ctx, t, s, coverage, created)
+	checkGoogleFunction(t, coverage, created)
 	if imported["google_project"] == 0 {
 		t.Errorf("the import doesn't import the project %s", s.project)
 	}
@@ -190,7 +205,10 @@ func estateName(ctx context.Context, t *testing.T, estate *sandboxEstate) string
 // a minute, for the asset types of the estate alone. A search that is
 // denied fails the test at once. Resources of earlier runs it still finds
 // at the end are logged, and the test goes on: one a failed run left is
-// there to import.
+// there to import. It waits too for what Google creates for the estate's
+// function (see googleManagedFor), which the default selection must leave
+// out, but not for the function itself, whose search results lag by hours
+// (see sandboxGoogleLagging).
 func waitForInventory(ctx context.Context, t *testing.T, project string, created []*tfjson.StateResource, name string) {
 	t.Helper()
 	cat := catalogue.MustBuiltin("google")
@@ -199,7 +217,7 @@ func waitForInventory(ctx context.Context, t *testing.T, project string, created
 		assetTypes []string
 	)
 	for _, r := range created {
-		if e, ok := cat.Entry(r.Type); ok && e.Inventory != nil {
+		if e, ok := cat.Entry(r.Type); ok && e.Inventory != nil && !slices.Contains(sandboxGoogleLagging, e.Inventory.Type) {
 			want = append(want, r)
 			if !slices.Contains(assetTypes, e.Inventory.Type) {
 				assetTypes = append(assetTypes, e.Inventory.Type)
@@ -209,6 +227,13 @@ func waitForInventory(ctx context.Context, t *testing.T, project string, created
 	if len(want) == 0 {
 		t.Fatal("the estate creates nothing Cloud Asset Inventory lists")
 	}
+	estateTypes := slices.Clone(assetTypes)
+	managed := googleManagedFor(created)
+	for _, m := range managed {
+		if !slices.Contains(assetTypes, m.assetType) {
+			assetTypes = append(assetTypes, m.assetType)
+		}
+	}
 	slices.Sort(assetTypes)
 	svc, err := cloudasset.NewService(ctx, option.WithScopes(cloudasset.CloudPlatformScope))
 	if err != nil {
@@ -216,7 +241,7 @@ func waitForInventory(ctx context.Context, t *testing.T, project string, created
 	}
 	start := time.Now()
 	for {
-		missing, earlier, err := searchEstate(ctx, svc, cat, project, assetTypes, want, name)
+		missing, earlier, err := searchEstate(ctx, svc, cat, project, assetTypes, estateTypes, want, managed, name)
 		var apiErr *googleapi.Error
 		switch {
 		case errors.As(err, &apiErr) && apiErr.Code == http.StatusForbidden:
@@ -244,11 +269,13 @@ func waitForInventory(ctx context.Context, t *testing.T, project string, created
 }
 
 // searchEstate searches the project once for resources of assetTypes, and
-// returns the addresses of those of want it doesn't find yet and the
-// names of those of earlier runs it finds: named after the sandbox's
-// prefix but not after this run's name.
-func searchEstate(ctx context.Context, svc *cloudasset.Service, cat *catalogue.Catalogue, project string, assetTypes []string, want []*tfjson.StateResource, name string) (missing, earlier []string, err error) {
+// returns the addresses of those of want and what of managed it doesn't
+// find yet, and the names of those of earlier runs it finds, of the
+// estate's asset types: named after the sandbox's prefix but not after
+// this run's name.
+func searchEstate(ctx context.Context, svc *cloudasset.Service, cat *catalogue.Catalogue, project string, assetTypes, estateTypes []string, want []*tfjson.StateResource, managed []googleManaged, name string) (missing, earlier []string, err error) {
 	found := map[string]bool{}
+	foundManaged := make([]bool, len(managed))
 	err = svc.V1.SearchAllResources("projects/"+project).
 		AssetTypes(assetTypes...).
 		PageSize(500).
@@ -262,8 +289,14 @@ func searchEstate(ctx context.Context, svc *cloudasset.Service, cat *catalogue.C
 				for _, k := range keys {
 					found[k] = true
 				}
+				id := strings.TrimPrefix(keys[0], r.AssetType+" id:")
+				for i, m := range managed {
+					if m.assetType == r.AssetType && m.match(id) {
+						foundManaged[i] = true
+					}
+				}
 				named := strings.Join(keys, " ")
-				if strings.Contains(named, sandboxNamePrefix) && !strings.Contains(named, name) {
+				if strings.Contains(named, sandboxNamePrefix) && !strings.Contains(named, name) && slices.Contains(estateTypes, r.AssetType) {
 					earlier = append(earlier, r.Name)
 				}
 			}
@@ -276,6 +309,11 @@ func searchEstate(ctx context.Context, svc *cloudasset.Service, cat *catalogue.C
 		e, _ := cat.Entry(r.Type)
 		if !slices.ContainsFunc(stateKeys(r, e.Inventory.Type), func(k string) bool { return found[k] }) {
 			missing = append(missing, r.Address)
+		}
+	}
+	for i, m := range managed {
+		if !foundManaged[i] {
+			missing = append(missing, m.what)
 		}
 	}
 	return missing, earlier, nil
@@ -399,10 +437,12 @@ func (s *googleSandbox) checkGoogleImport(ctx context.Context, t *testing.T, cov
 	}
 	t.Logf("imported: %v", imported)
 
+	cat := catalogue.MustBuiltin("google")
 	seeded := map[string]int{}
 	for _, r := range created {
-		// Not random_string, which only names the estate's resources.
-		if strings.HasPrefix(r.Type, "google_") {
+		// Not random_string, which only names the estate's resources, nor
+		// what the import can't find yet (see googleListedNow).
+		if strings.HasPrefix(r.Type, "google_") && googleListedNow(cat, r.Type) {
 			seeded[r.Type]++
 		}
 	}
@@ -415,9 +455,10 @@ func (s *googleSandbox) checkGoogleImport(ctx context.Context, t *testing.T, cov
 }
 
 // checkGoogleFound checks that the import imports every resource the
-// estate created, by ID, which the import IDs of the google provider's
-// types are, and the read-only service account's grant of each role
-// permissions/google grants, from the project's IAM policy.
+// estate created that it can find (see googleListedNow), by ID, which
+// the import IDs of the google provider's types are, and the read-only
+// service account's grant of each role permissions/google grants, from
+// the project's IAM policy.
 func (s *googleSandbox) checkGoogleFound(t *testing.T, coverage report.Report, created []*tfjson.StateResource) {
 	t.Helper()
 	imported := map[string]bool{}
@@ -426,8 +467,9 @@ func (s *googleSandbox) checkGoogleFound(t *testing.T, coverage report.Report, c
 			imported[r.ID] = true
 		}
 	}
+	cat := catalogue.MustBuiltin("google")
 	for _, r := range created {
-		if !strings.HasPrefix(r.Type, "google_") {
+		if !strings.HasPrefix(r.Type, "google_") || !googleListedNow(cat, r.Type) {
 			continue
 		}
 		if id, _ := r.AttributeValues["id"].(string); id == "" || !imported[id] {
@@ -511,4 +553,113 @@ func plannedLabels(ctx context.Context, t *testing.T, dir, execPath, plugins str
 		labels[rc.Change.Importing.ID], _ = after["terraform_labels"].(map[string]any)
 	}
 	return labels
+}
+
+// googleListedNow reports whether the import must find the resources of
+// typ the estate created: not those no lister lists (see
+// sandboxGoogleUnlisted), nor those whose search results lag by hours
+// (see sandboxGoogleLagging), which checkGoogleFunction looks for.
+func googleListedNow(cat *catalogue.Catalogue, typ string) bool {
+	if slices.Contains(sandboxGoogleUnlisted, typ) {
+		return false
+	}
+	e, ok := cat.Entry(typ)
+	return !ok || e.Inventory == nil || !slices.Contains(sandboxGoogleLagging, e.Inventory.Type)
+}
+
+// googleManaged is a resource Google creates for one the estate created,
+// which the default selection must leave out: what it is, for messages,
+// its type and asset type, and whether an ID, as the import records it,
+// is its.
+type googleManaged struct {
+	what, typ, assetType string
+	match                func(id string) bool
+}
+
+// googleManagedFor returns what Google creates for each 2nd gen function
+// the estate created: the Cloud Run service it runs on, which its
+// service_config names, and the bucket Cloud Functions copies its source
+// to, gcf-v2-sources-<project number>-<region>, which outlives it.
+func googleManagedFor(created []*tfjson.StateResource) []googleManaged {
+	var managed []googleManaged
+	for _, r := range created {
+		if r.Type != "google_cloudfunctions2_function" {
+			continue
+		}
+		location, _ := r.AttributeValues["location"].(string)
+		service, _ := r.AttributeValues["name"].(string)
+		if configs, ok := r.AttributeValues["service_config"].([]any); ok && len(configs) == 1 {
+			if config, ok := configs[0].(map[string]any); ok {
+				if name, _ := config["service"].(string); name != "" {
+					service = name[strings.LastIndex(name, "/")+1:]
+				}
+			}
+		}
+		managed = append(managed,
+			googleManaged{
+				what:      "the Cloud Run service " + service + " that " + r.Address + " runs on",
+				typ:       "google_cloud_run_v2_service",
+				assetType: "run.googleapis.com/Service",
+				match: func(id string) bool {
+					return strings.HasSuffix(id, "/locations/"+location+"/services/"+service)
+				},
+			},
+			googleManaged{
+				what:      "the gcf-v2-sources bucket in " + location + " that holds the source of " + r.Address,
+				typ:       "google_storage_bucket",
+				assetType: "storage.googleapis.com/Bucket",
+				match: func(id string) bool {
+					return strings.HasPrefix(id, "gcf-v2-sources-") && strings.HasSuffix(id, "-"+location)
+				},
+			},
+		)
+	}
+	return managed
+}
+
+// checkGoogleFunction checks what the import makes of the estate's 2nd
+// gen function: the default selection leaves out, each with a reason, the
+// Cloud Run service it runs on and the bucket Cloud Functions keeps its
+// source in (see googleManagedFor), and imports the function, which
+// checkNoChanges planned. Cloud Asset Inventory syncs functions every 7
+// hours, so the search may not list this run's function yet: then the
+// test logs it, and fails only if the default selection left it out.
+func checkGoogleFunction(t *testing.T, coverage report.Report, created []*tfjson.StateResource) {
+	t.Helper()
+	managed := googleManagedFor(created)
+	if len(managed) == 0 {
+		t.Fatal("the estate creates no 2nd gen function")
+	}
+	for _, m := range managed {
+		i := slices.IndexFunc(coverage.Excluded, func(e report.Excluded) bool { return e.Type == m.typ && m.match(e.ID) })
+		switch {
+		case i < 0:
+			t.Errorf("the import doesn't leave out %s", m.what)
+		case coverage.Excluded[i].Reason == "":
+			t.Errorf("the import leaves out %s (%s) with no reason", m.what, coverage.Excluded[i].ID)
+		default:
+			t.Logf("%s left out: %s", coverage.Excluded[i].ID, coverage.Excluded[i].Reason)
+		}
+	}
+	imported := map[string]bool{}
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			imported[r.ID] = true
+		}
+	}
+	for _, r := range created {
+		if r.Type != "google_cloudfunctions2_function" {
+			continue
+		}
+		id, _ := r.AttributeValues["id"].(string)
+		i := slices.IndexFunc(coverage.Excluded, func(e report.Excluded) bool { return e.Type == r.Type && e.ID == id })
+		switch {
+		case imported[id]:
+			t.Logf("%s imported", id)
+		case i >= 0:
+			t.Errorf("the import leaves out %s, the estate's function, by default: %s", id, coverage.Excluded[i].Reason)
+		default:
+			t.Logf("the import doesn't find %s: Cloud Asset Inventory syncs functions every 7 hours, and hasn't listed it yet", id)
+		}
+	}
 }

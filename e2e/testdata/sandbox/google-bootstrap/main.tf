@@ -11,6 +11,9 @@
 # - infraharvest-ci-fixture, a service account that creates and destroys
 #   the estate, with the predefined roles that manage the estate's kinds
 #   of resources in the project, and nothing else;
+# - infraharvest-ci-function, a service account that Cloud Build builds
+#   the estate's function as and the function runs as, which the fixture
+#   may deploy it as;
 # - infraharvest-ci-readonly, a service account that imports the estate.
 #   permissions/google, the template users apply, grants it what it grants
 #   users: Viewer, Security Reviewer and Cloud Asset Viewer on the project.
@@ -33,13 +36,15 @@ locals {
   # environment's subject. The pool's name holds the project's number.
   principal = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/${var.github_subject}"
 
-  # What the estate creates (compute, dns, pubsub, storage, iam); what the
-  # import reads: cloudasset, cloudresourcemanager, cloudbilling, which the
-  # plan of the imported project reads its billing account from, and
-  # sqladmin and cloudscheduler, so that their services find nothing to
-  # list rather than the APIs disabled; and what the sign-in uses (sts,
-  # iamcredentials). serviceusage, which enables the rest, is enabled in
-  # new projects.
+  # What the estate creates (compute, dns, pubsub, storage, iam, and
+  # cloudfunctions, with run, cloudbuild and artifactregistry, which a 2nd
+  # gen function runs on and is built with, and logging, which its build
+  # logs go to); what the import reads: cloudasset, cloudresourcemanager,
+  # cloudbilling, which the plan of the imported project reads its billing
+  # account from, and sqladmin and cloudscheduler, so that their services
+  # find nothing to list rather than the APIs disabled; and what the
+  # sign-in uses (sts, iamcredentials). serviceusage, which enables the
+  # rest, is enabled in new projects.
   # Enabled first: enabling any other API goes through these two.
   foundation_services = toset([
     "cloudresourcemanager.googleapis.com",
@@ -47,14 +52,19 @@ locals {
   ])
 
   services = toset([
+    "artifactregistry.googleapis.com",
     "cloudasset.googleapis.com",
     "cloudbilling.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "cloudfunctions.googleapis.com",
     "cloudscheduler.googleapis.com",
     "compute.googleapis.com",
     "dns.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "logging.googleapis.com",
     "pubsub.googleapis.com",
+    "run.googleapis.com",
     "sqladmin.googleapis.com",
     "storage.googleapis.com",
     "sts.googleapis.com",
@@ -65,6 +75,10 @@ locals {
   # role to names under a prefix, so they apply to the whole project,
   # which is why the sandbox should have a project of its own.
   fixture_roles = toset([
+    # Functions: deploy and delete them, as infraharvest-ci-function,
+    # which the fixture may act as (see fixture_function below). Cloud
+    # Functions creates and deletes the Cloud Run service itself.
+    "roles/cloudfunctions.developer",
     # Networks, subnetworks and routers, but not firewall rules.
     "roles/compute.networkAdmin",
     # Firewall rules.
@@ -83,6 +97,15 @@ locals {
     "roles/iam.serviceAccountCreator",
     "roles/iam.serviceAccountDeleter",
     "roles/iam.serviceAccountViewer",
+  ])
+
+  # What infraharvest-ci-function needs to build the function, as a
+  # custom build service account, and nothing to run it: write the
+  # build's logs, push its image and read its source.
+  function_roles = toset([
+    "roles/artifactregistry.writer",
+    "roles/logging.logWriter",
+    "roles/storage.objectViewer",
   ])
 }
 
@@ -181,6 +204,33 @@ resource "google_project_iam_member" "fixture" {
   project = var.project_id
   role    = each.value
   member  = google_service_account.fixture.member
+}
+
+# Builds the estate's function, as its custom build service account, and
+# runs it: since July 2024, a new project's default Cloud Build service
+# account may lack what building a function needs.
+resource "google_service_account" "function" {
+  account_id   = "infraharvest-ci-function"
+  display_name = "infraharvest CI function"
+  description  = "infraharvest sandbox: builds and runs the estate's function."
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_project_iam_member" "function" {
+  for_each = local.function_roles
+
+  project = var.project_id
+  role    = each.value
+  member  = google_service_account.function.member
+}
+
+# Deploying a function as an account needs Service Account User on it:
+# the fixture has it on this account alone.
+resource "google_service_account_iam_member" "fixture_function" {
+  service_account_id = google_service_account.function.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = google_service_account.fixture.member
 }
 
 # The sandbox environment's jobs may impersonate each service account.
