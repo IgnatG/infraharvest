@@ -132,7 +132,7 @@ func (r *Run) selectResources(listed listing, defaults map[string]string, f *sel
 			}
 			r.discovered[typ]++
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason, Scope: scope})
-			leftOut = append(leftOut, engine.External{Type: typ, ID: id})
+			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(res.Provider, res, tags)})
 		}
 	}
 	// In a stable order: listed is a map, and the order names data sources.

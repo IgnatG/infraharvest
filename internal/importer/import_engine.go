@@ -682,14 +682,24 @@ func withOtherRoots(opts engine.Options, byDir map[string][]engine.Import, dir, 
 			continue
 		}
 		for _, imp := range imports {
-			dirOpts.External = append(dirOpts.External, engine.External{Type: imp.Type, ID: imp.ID})
+			dirOpts.External = append(dirOpts.External, engine.External{Type: imp.Type, ID: imp.ID, Name: imp.Name})
 			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: relativePath(out, other)})
 		}
 	}
+	// A name before none: the data source that reads it is named by it.
+	unnamed := func(e engine.External) int {
+		if e.Name == "" {
+			return 1
+		}
+		return 0
+	}
 	slices.SortFunc(dirOpts.External, func(a, b engine.External) int {
-		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID))
+		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID), cmp.Compare(unnamed(a), unnamed(b)), strings.Compare(a.Name, b.Name))
 	})
-	dirOpts.External = slices.Compact(dirOpts.External)
+	// Each resource once.
+	dirOpts.External = slices.CompactFunc(dirOpts.External, func(a, b engine.External) bool {
+		return a.Type == b.Type && a.ID == b.ID
+	})
 	slices.SortFunc(dirOpts.OtherRoots, func(a, b engine.RootResource) int {
 		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID), strings.Compare(a.Root, b.Root), strings.Compare(a.Name, b.Name))
 	})
