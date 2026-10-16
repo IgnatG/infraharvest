@@ -330,7 +330,7 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRu
 	var removed []defaultCandidate
 	for _, r := range f.resources() {
 		typ := resourceTypeOf(r.address)
-		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ]}, keep)...)
+		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ], tags: rules.tags}, keep)...)
 	}
 	return removed
 }
@@ -344,8 +344,8 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRu
 //     but for those of keep_empty: an empty computed argument, such as a
 //     key vault's access_policy = [], only fights the separate resources
 //     that hold the setting, and left out it keeps what the cloud has;
-//   - other constants of optional arguments the provider doesn't compute
-//     and doesn't mark sensitive;
+//   - other constants of optional arguments the provider doesn't compute,
+//     doesn't mark sensitive, but for the tags (see defaultRules);
 //   - nested blocks of optional types that set nothing but zero values,
 //     none of an argument the provider computes (see setsComputed),
 //     such as access_logs { bucket = "", enabled = false }, as a whole,
@@ -371,8 +371,8 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		case isConstant(attr.Expr):
 			s := schemaAttribute(schemas, typ, path)
 			// A sensitive value, such as a parameter's, is what the cloud has,
-			// never a default.
-			if s == nil || !s.Optional || s.Computed || s.Required || s.Sensitive {
+			// never a default; nor are the tags (see defaultRules).
+			if s == nil || !s.Optional || s.Computed || s.Required || s.Sensitive || (rules.tags != "" && strings.Join(path, ".") == rules.tags) {
 				continue
 			}
 		default:
@@ -454,14 +454,21 @@ func isEmptyValue(expr hclsyntax.Expression) bool {
 // defaultRules are what the catalogue tells stripDefaults, by type: the
 // values arguments default to, as path=value (see Options.Defaults), and
 // the arguments whose empty value is a setting (see Options.KeepEmpty).
+// tags, if set, is the attribute the resources' tags are in where an
+// import leaves them out of it (see EffectiveTags), such as a Google
+// resource's labels: its constants are the resource's tags, never a
+// default, though leaving them out plans the same, as the labels stay on
+// the resource, no longer managed.
 type defaultRules struct {
 	defaults, keepEmpty map[string][]string
+	tags                string
 }
 
 // typeRules are a type's defaultRules: its defaults by path.
 type typeRules struct {
 	defaults  map[string]string
 	keepEmpty []string
+	tags      string
 }
 
 // defaultValues parses a type's defaults, path=value entries such as

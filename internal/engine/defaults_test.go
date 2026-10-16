@@ -125,6 +125,35 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	}
 }
 
+// A Google resource's labels, which an import leaves out (see
+// EffectiveTags), are never a default: leaving them out would plan the
+// same, as the labels stay on the resource, no longer managed. Other
+// constants still go.
+func TestRemoveDefaultsKeepsTags(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "google_pubsub_topic" "events" {
+  name   = "events"
+  labels = { env = "prod" }
+  kms_key_name = "k"
+}
+`)
+	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+		"registry.terraform.io/hashicorp/google": {ResourceSchemas: map[string]*tfjson.Schema{
+			"google_pubsub_topic": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+				"name":         {AttributeType: cty.String, Required: true},
+				"labels":       {AttributeType: cty.Map(cty.String), Optional: true},
+				"kms_key_name": {AttributeType: cty.String, Optional: true},
+			}}},
+		}},
+	}}
+	removed := removeDefaults(f, schemas, defaultRules{tags: "labels"}, nil)
+	if len(removed) != 1 || removed[0].key() != "google_pubsub_topic.events\x00kms_key_name" {
+		t.Errorf("removed %v, want only kms_key_name", removed)
+	}
+	if got := squashed(string(f.file.Bytes())); !strings.Contains(got, `labels = { env = "prod" }`) {
+		t.Errorf("the labels are left out:\n%s", got)
+	}
+}
+
 func TestNoWorse(t *testing.T) {
 	for _, tc := range []struct {
 		now, before string

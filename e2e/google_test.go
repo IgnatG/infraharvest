@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -167,6 +169,22 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 	for _, typ := range sortedKeys(seeded) {
 		if imported[typ] < seeded[typ] {
 			t.Errorf("%v: %s: created %d, imported %d", flags, typ, seeded[typ], imported[typ])
+		}
+	}
+	// An import keeps labels in state only, so a configuration without
+	// them plans the same, and the plans above can't tell: each label must
+	// be set somewhere, on the resource, in a module call or in a local.
+	var config strings.Builder
+	for _, dir := range generatedDirs(t, out) {
+		config.WriteString(configuration(t, dir))
+	}
+	for _, r := range state {
+		labels, _ := r.AttributeValues["labels"].(map[string]any)
+		for key, value := range labels {
+			set := regexp.MustCompile(`"?` + regexp.QuoteMeta(key) + `"?\s*=\s*"` + regexp.QuoteMeta(fmt.Sprint(value)) + `"`)
+			if !set.MatchString(config.String()) {
+				t.Errorf("%v: the configuration doesn't set %s's label %s = %q", flags, r.Address, key, value)
+			}
 		}
 	}
 	return coverage
