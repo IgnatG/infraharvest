@@ -119,6 +119,35 @@ func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
 	)
 }
 
+// ListBuckets is asked for the region's buckets, and where its answer
+// gives each bucket's region, no bucket's location is read.
+func TestRecordS3UsesTheListedRegions(t *testing.T) {
+	useFakeAPI(t, func(apiCall) string { return "" })
+	testConfig.HTTPClient = &recordS3API{handle: func(bucket string, call apiCall) string {
+		if bucket != "" {
+			if call.Query.Has("policy") {
+				return `<Error><Code>NoSuchBucketPolicy</Code></Error>`
+			}
+			return recordUnexpected(t, call)
+		}
+		if got := call.Query.Get("bucket-region"); got != "eu-west-1" {
+			t.Errorf("ListBuckets bucket-region %q, want eu-west-1", got)
+		}
+		return `<ListAllMyBucketsResult ` + recordS3NS + `><Buckets>` +
+			`<Bucket><Name>logs-eu</Name><BucketRegion>eu-west-1</BucketRegion></Bucket>` +
+			`<Bucket><Name>other</Name><BucketRegion>us-east-1</BucketRegion></Bucket>` +
+			`</Buckets></ListAllMyBucketsResult>`
+	}}
+	g := &S3Lister{}
+	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertIDs(t, g.Resources, "aws_s3_bucket", "logs-eu")
+}
+
 // Without a region (ProfileRegion), the lister lists the buckets of the region
 // the SDK resolved.
 func TestRecordS3WithoutRegion(t *testing.T) {
