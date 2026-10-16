@@ -1,5 +1,7 @@
 # infraharvest
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/IgnatG/infraharvest/badge)](https://scorecard.dev/viewer/?uri=github.com/IgnatG/infraharvest)
+
 infraharvest generates Terraform configuration for infrastructure that already exists. It lists your resources, writes an `import` block for each, and has Terraform (or OpenTofu) generate the configuration with `plan -generate-config-out`. It then tidies that configuration and checks that it plans with no changes.
 
 - **Clean code, not a dump:** references between resources instead of IDs, shared tags as locals, secrets as variables, and clusters of resources as calls of curated modules.
