@@ -71,7 +71,7 @@ func layout(src []byte) ([]byte, bool) {
 		if (b.Type != "resource" && b.Type != "data") || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 			continue
 		}
-		inner, ok := layoutBody(src, b)
+		inner, ok := layoutBody(src, b, true)
 		if !ok {
 			continue
 		}
@@ -89,16 +89,65 @@ func layout(src []byte) ([]byte, bool) {
 // last line.
 type bodyItem struct {
 	name       string
-	block      *hclsyntax.Block // nil for an argument
+	attr       *hclsyntax.Attribute // nil for a block
+	block      *hclsyntax.Block     // nil for an argument
 	start, end int
+}
+
+// identityArguments name a resource, in the order they go first in its
+// block: its name, or what stands for it, then for Azure its resource
+// group and location.
+var identityArguments = []string{"name", "name_prefix", "bucket", "function_name", "family", "identifier", "cluster_identifier", "resource_group_name", "location"}
+
+// lastArguments are the arguments that go after the others.
+var lastArguments = []string{"tags", "labels"}
+
+// metaArguments go first in a resource's block, as Terraform's style
+// guide has them.
+var metaArguments = []string{"count", "for_each", "provider"}
+
+// argumentRank orders the arguments of a resource's block: meta-arguments,
+// the arguments that identify the resource, references to the resources
+// it belongs to or uses, the others, and its tags, as people write them.
+func argumentRank(it bodyItem) int {
+	if i := slices.Index(metaArguments, it.name); i >= 0 {
+		return i
+	}
+	if i := slices.Index(identityArguments, it.name); i >= 0 {
+		return 10 + i
+	}
+	if i := slices.Index(lastArguments, it.name); i >= 0 {
+		return 50 + i
+	}
+	if isReference(it.attr.Expr) {
+		return 30
+	}
+	return 40
+}
+
+// isReference reports whether expr is a reference to another resource,
+// a data source or a module, such as aws_vpc.main.id.
+func isReference(expr hclsyntax.Expression) bool {
+	traversal, diags := hcl.AbsTraversalForExpr(expr)
+	if diags.HasErrors() || len(traversal) < 2 {
+		return false
+	}
+	switch traversal.RootName() {
+	case "var", "local", "each", "count", "path", "terraform", "self":
+		return false
+	}
+	return true
 }
 
 // layoutBody returns the lines of the body of b, which src holds, laid out:
 // arguments first, then nested blocks, each group separated by one blank
-// line, and the nested blocks laid out the same way. It reports false if
-// body holds anything but arguments, blocks and the comments above them,
-// which it then leaves as they are.
-func layoutBody(src []byte, b *hclsyntax.Block) ([]byte, bool) {
+// line, and the nested blocks laid out the same way. In a resource's or
+// data source's own block, top, the arguments go in the order of
+// argumentRank, with the meta-arguments in a group of their own, each
+// nested block is a group, lifecycle goes last but for depends_on, after
+// it. It reports false if the body holds anything but arguments, blocks
+// and the comments above them, which it then leaves as they are.
+func layoutBody(src []byte, b *hclsyntax.Block, top bool) ([]byte, bool) {
 	body := b.Body
 	// Nothing after the opening brace on its line.
 	if len(bytes.TrimSpace(src[b.OpenBraceRange.End.Byte:lineEnd(src, b.OpenBraceRange.End.Byte)])) > 0 {
@@ -107,7 +156,7 @@ func layoutBody(src []byte, b *hclsyntax.Block) ([]byte, bool) {
 	var items []bodyItem
 	for name, attr := range body.Attributes {
 		start, end := itemLines(src, attr.SrcRange)
-		items = append(items, bodyItem{name: name, start: start, end: end})
+		items = append(items, bodyItem{name: name, attr: attr, start: start, end: end})
 	}
 	for _, nested := range body.Blocks {
 		start, end := itemLines(src, nested.Range())
@@ -125,22 +174,42 @@ func layoutBody(src []byte, b *hclsyntax.Block) ([]byte, bool) {
 	if to := lineStart(src, b.CloseBraceRange.Start.Byte); from > to || len(bytes.TrimSpace(src[from:to])) > 0 {
 		return nil, false
 	}
-	var arguments, blocks [][]byte
+	var meta, arguments, blocks, last [][]byte
+	var ranked []bodyItem
 	for _, it := range items {
-		text := itemText(src, it)
-		if it.block == nil {
-			arguments = append(arguments, text)
+		switch {
+		case it.block != nil && top && it.name == "lifecycle":
+			last = append([][]byte{itemText(src, it)}, last...)
+		case it.block != nil:
+			blocks = append(blocks, itemText(src, it))
+		case top && it.name == "depends_on":
+			last = append(last, itemText(src, it))
+		case top:
+			ranked = append(ranked, it)
+		default:
+			arguments = append(arguments, itemText(src, it))
+		}
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return argumentRank(ranked[i]) < argumentRank(ranked[j]) })
+	for _, it := range ranked {
+		if slices.Contains(metaArguments, it.name) {
+			meta = append(meta, itemText(src, it))
 		} else {
-			blocks = append(blocks, text)
+			arguments = append(arguments, itemText(src, it))
 		}
 	}
 	var groups [][]byte
-	if len(arguments) > 0 {
-		groups = append(groups, bytes.Join(arguments, nil))
+	for _, group := range [][][]byte{meta, arguments} {
+		if len(group) > 0 {
+			groups = append(groups, bytes.Join(group, nil))
+		}
 	}
-	if len(blocks) > 0 {
+	if top {
+		groups = append(groups, blocks...)
+	} else if len(blocks) > 0 {
 		groups = append(groups, bytes.Join(blocks, nil))
 	}
+	groups = append(groups, last...)
 	return bytes.Join(groups, []byte("\n")), true
 }
 
@@ -151,7 +220,7 @@ func itemText(src []byte, it bodyItem) []byte {
 	if b == nil || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 		return withNewline(text)
 	}
-	inner, ok := layoutBody(src, b)
+	inner, ok := layoutBody(src, b, false)
 	if !ok {
 		return withNewline(text)
 	}
