@@ -32,7 +32,7 @@ jobs:
     name: round-trip (${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
-    timeout-minutes: 80
+    timeout-minutes: 120
     env:
       E2E_ENGINE: ${{ inputs.engine }}
       # Terraform, OpenTofu and infraharvest sign in with the job's GitHub
@@ -94,7 +94,7 @@ jobs:
           echo "::warning::Resources in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $left"
         fi
     - name: Round trip
-      run: go test -tags e2e,sandbox,minimal,azure -run '^TestSandboxAzure$' -timeout 60m -v ./e2e/
+      run: go test -tags e2e,sandbox,minimal,azure -run '^TestSandboxAzure$' -timeout 90m -v ./e2e/
     - name: Destroy the estate
       if: always()
       env:
@@ -107,7 +107,7 @@ jobs:
         cd "$SANDBOX_FIXTURE_DIR"
         vars=(-var "suffix=$E2E_ENGINE" -var "resource_group=$SANDBOX_AZURE_RESOURCE_GROUP")
         "$E2E_ENGINE" init -input=false
-        "$E2E_ENGINE" destroy -auto-approve -input=false "${vars[@]}"
+        "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}"
         left=$("$E2E_ENGINE" state list)
         if [ -n "$left" ]; then
           echo "::error::Left in the estate: $left"
@@ -116,7 +116,7 @@ jobs:
     # The CLI's first sign-in may have run out by now: its federated token
     # lasts minutes, its access token an hour.
     - name: Azure CLI as the fixture identity, again
-      if: failure()
+      if: failure() || cancelled()
       uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
       with:
         client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
@@ -128,7 +128,7 @@ jobs:
     # infraharvest-sandbox=<engine>, a few rounds over, as some can only go
     # once what uses them has. The resource group itself stays.
     - name: Sweep the resource group
-      if: failure()
+      if: failure() || cancelled()
       run: |
         sub=(--subscription "$ARM_SUBSCRIPTION_ID")
         locks=$(az lock list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
