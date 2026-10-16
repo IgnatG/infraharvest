@@ -21,21 +21,30 @@ import (
 // targets as, with the ARN of their target group as target_group_arn.
 const targetAttachmentType = "aws_lb_target_group_attachment"
 
+// loadBalancerControllerTag is the tag the AWS Load Balancer Controller
+// of an EKS cluster gives the target groups it creates for the cluster's
+// Ingresses and Services, with the cluster's name as its value; it
+// registers the pods in them.
+const loadBalancerControllerTag = "tags.elbv2.k8s.aws/cluster"
+
 // reasonRegisteredTarget is why the default selection leaves out a target
-// that owner, an Auto Scaling group or an ECS service, registers in its
-// target group: the owner registers and deregisters its targets as it
-// scales and deploys, so Terraform would register or deregister live
-// targets on apply and destroy.
+// that owner, an Auto Scaling group, an ECS service or the AWS Load
+// Balancer Controller of an EKS cluster, registers in its target group:
+// the owner registers and deregisters its targets as it scales and
+// deploys, so Terraform would register or deregister live targets on apply
+// and destroy.
 func reasonRegisteredTarget(owner string) string {
 	return "registered by " + owner + ", which manages its targets"
 }
 
 // excludeRegisteredTargets adds to excluded the target group attachments
-// of resources whose target group an Auto Scaling group or an ECS service
-// registers its targets in. It asks Auto Scaling and ECS only when an
-// attachment was listed, and ECS only for target groups no Auto Scaling
-// group claims. An error of either is returned, joined, and what the other
-// found is still excluded.
+// of resources whose target group an Auto Scaling group, an ECS service or
+// the AWS Load Balancer Controller of an EKS cluster registers its targets
+// in. The controller's target groups are told by their tag, from the
+// listed target groups, without a call. Auto Scaling and ECS are asked
+// only when an attachment of some other target group was listed, and ECS
+// only for target groups no Auto Scaling group claims. An error of either
+// is returned, joined, and what the other found is still excluded.
 func (p *Provider) excludeRegisteredTargets(ctx context.Context, config aws.Config, resources []harvest.Resource, excluded map[string]string) error {
 	groups := map[string]bool{}
 	for _, r := range resources {
@@ -49,7 +58,17 @@ func (p *Provider) excludeRegisteredTargets(ctx context.Context, config aws.Conf
 		return nil
 	}
 	owners := map[string]string{}
-	err := autoScalingTargetGroups(ctx, autoscaling.NewFromConfig(config), groups, owners)
+	for _, r := range resources {
+		if r.Address.Type == "aws_lb_target_group" {
+			if cluster := r.Observed.Attributes[loadBalancerControllerTag]; cluster != "" {
+				claimTargetGroup(groups, owners, r.Observed.ID, "the AWS Load Balancer Controller of EKS cluster "+cluster)
+			}
+		}
+	}
+	var err error
+	if len(owners) < len(groups) {
+		err = autoScalingTargetGroups(ctx, autoscaling.NewFromConfig(config), groups, owners)
+	}
 	if len(owners) < len(groups) {
 		err = errors.Join(err, ecsTargetGroups(ctx, ecs.NewFromConfig(config), groups, owners))
 	}

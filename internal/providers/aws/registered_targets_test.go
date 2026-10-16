@@ -126,6 +126,36 @@ func TestExcludedByDefaultRegisteredTargetsAsksOnlyWhatItNeeds(t *testing.T) {
 	}
 }
 
+// The targets of a target group the AWS Load Balancer Controller of an EKS
+// cluster created, told by the tag it gives them, are left out without a
+// call: when it created every listed target group, neither Auto Scaling
+// nor ECS is asked.
+func TestExcludedByDefaultRegisteredTargetsOfLoadBalancerController(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListStacks" {
+			return noStacks
+		}
+		return recordUnexpected(t, call)
+	})
+	p := &Provider{region: "us-east-1"}
+	resources := []harvest.Resource{
+		harvest.Record(recordTargetGroupARN+"k8s/1", "k8s", "aws_lb_target_group", "aws", map[string]string{loadBalancerControllerTag: "apps"}),
+		targetAttachment("k8s", "10.0.0.1"),
+	}
+
+	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		targetAttachmentType + " " + resources[1].Observed.ID: reasonRegisteredTarget("the AWS Load Balancer Controller of EKS cluster apps"),
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+}
+
 // An Auto Scaling error is returned, and what ECS registers is still left
 // out.
 func TestExcludedByDefaultRegisteredTargetsReturnsErrors(t *testing.T) {

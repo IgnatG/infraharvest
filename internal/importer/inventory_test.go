@@ -171,6 +171,24 @@ func TestInventoryKeepsTags(t *testing.T) {
 	}
 }
 
+// The tags listed for a resource reach the provider's default selection
+// as tags.<key> attributes, in a copy that leaves the lister's record as
+// it was; a tag the lister recorded itself wins over the listed one.
+func TestWithTagAttributes(t *testing.T) {
+	r := harvest.Record("id-1", "one", "fake_thing", "fake", map[string]string{"name": "one", "tags.team": "listed by the lister"})
+	tagged := withTagAttributes(r, map[string]string{"team": "data", "env": "dev"})
+	want := map[string]string{"name": "one", "tags.team": "listed by the lister", "tags.env": "dev"}
+	if !reflect.DeepEqual(tagged.Observed.Attributes, want) {
+		t.Errorf("got %v, want %v", tagged.Observed.Attributes, want)
+	}
+	if len(r.Observed.Attributes) != 2 {
+		t.Errorf("the lister's record changed: %v", r.Observed.Attributes)
+	}
+	if same := withTagAttributes(r, nil); same.Observed != r.Observed {
+		t.Error("without tags, want the resource as it is")
+	}
+}
+
 // Tags the listers record in their attributes count too.
 func TestReadTagsFromAttributes(t *testing.T) {
 	r := harvest.Record("id-1", "one", "fake_thing", "fake", map[string]string{"tags.%": "1", "tags.team": "data"})
