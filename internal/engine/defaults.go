@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -121,6 +122,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 				return false, err
 			}
 			if len(unassigned) > 0 || len(assigned) == 0 {
+				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, diagnosticsError(diags))
 				return nullsOnly()
 			}
 			for address := range assigned {
@@ -128,7 +130,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			}
 			continue
 		}
-		differs := false
+		differs, noise := false, false
 		for _, rc := range p.ResourceChanges {
 			if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 				continue
@@ -136,24 +138,32 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if noWorse(changeSignature(rc), changes[rc.Address]) {
 				continue
 			}
+			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
+				// Nothing of it was left out: the plan differs from the
+				// one before by itself, as an emulator's may.
+				noise = true
+				continue
+			}
 			differs = true
 			blamed[rc.Address]++
-			if blamed[rc.Address] > 1 {
-				// The arguments behind the first difference weren't all:
-				// keep the resource's constants rather than plan again.
+			if blamed[rc.Address] > 1 || round == maxDefaultRounds-2 {
+				// The arguments behind the first difference weren't all,
+				// or there is one round left: keep the resource's
+				// constants rather than plan again.
 				keepAll(removed, rc.Address, keep)
 				continue
 			}
 			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), keep)
 		}
-		if !differs && summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change {
+		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
 			return true, nil
 		}
 		if !differs {
-			// The totals changed without a resource to blame.
+			log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, summary, baseline)
 			return nullsOnly()
 		}
 	}
+	log.Printf("%s: keeping the arguments that may be defaults, as the plan without them still changed after %d plans", dir, maxDefaultRounds)
 	return nullsOnly()
 }
 

@@ -73,9 +73,9 @@ var wellKnown = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 // configuration of the provider, without dt.Block (see addAliasProvider):
 // AWS records each resource's full tag set in tags_all, so the tags must
 // not change. Without dt.Block, the resources that have the shared tags
-// set local.tags, merged with their other tags (see referTags), and so do
-// they with dt.Block when they are fewer than the others. postProcess
-// keeps the lift only if the plan doesn't change (see verify). schemas,
+// set local.tags, merged with their other tags (see referTags); so do
+// they with dt.Block where the plan rejects the provider's (see the
+// fallback in postProcess). postProcess keeps the lift only if the plan doesn't change (see verify). schemas,
 // if set, tell which resources the provider tags although they set no
 // tags. It reports whether it changed anything. With dt.Applied, it only
 // leaves those tags out of the resources, or makes the resources refer to
@@ -118,7 +118,7 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 	if covered < 2 {
 		return false, nil
 	}
-	if dt.Block == "" || covered <= len(uncovered) {
+	if dt.Block == "" {
 		referTags(generated, dt.Attribute, common)
 		if err := generated.save(); err != nil {
 			return false, err

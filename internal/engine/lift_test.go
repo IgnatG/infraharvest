@@ -505,9 +505,10 @@ resource "aws_subnet" "c" {
 	}
 }
 
-// When as many resources would need the other configuration as would
-// not, the resources that have the shared tags refer to the local instead.
-func TestLiftTagsIntoTheLocalWhenFewHaveThem(t *testing.T) {
+// Where the plan rejects default_tags, postProcess lifts the tags as for a
+// provider without them: the resources that have the shared tags refer to
+// the local, and the others keep theirs.
+func TestLiftTagsIntoTheLocalAsTheFallback(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "a" {
   name = "a"
@@ -532,7 +533,9 @@ resource "aws_subnet" "b" {
 `)
 	writeConfig(t, dir, ProvidersFileName, awsProviders)
 
-	changed, err := applyTagLift(dir, awsDefaultTags, taggedSchemas)
+	local := awsDefaultTags
+	local.Block = ""
+	changed, err := applyTagLift(dir, local, taggedSchemas)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
