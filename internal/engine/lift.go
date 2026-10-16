@@ -114,9 +114,11 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 			}
 		}
 	}
-	if covered := len(resources) - len(uncovered); covered < 2 {
+	covered := len(resources) - len(uncovered)
+	if covered < 2 {
 		return false, nil
-	} else if dt.Block == "" || covered <= len(uncovered) {
+	}
+	if dt.Block == "" || covered <= len(uncovered) {
 		referTags(generated, dt.Attribute, common)
 		if err := generated.save(); err != nil {
 			return false, err
