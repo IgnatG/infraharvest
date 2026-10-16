@@ -58,7 +58,9 @@ func TestRecordTransitGatewayListsGatewaysRouteTablesAndAttachments(t *testing.T
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_ec2_transit_gateway", "tgw-1", "tgw-1", nil},
+		// The owner is recorded, for what another account shares (see
+		// excludeShared).
+		recordedResource{"aws_ec2_transit_gateway", "tgw-1", "tgw-1", map[string]string{"owner_id": "123456789012"}},
 		recordedResource{"aws_ec2_transit_gateway", "tgw-2", "tgw-2", nil},
 		recordedResource{"aws_ec2_transit_gateway_route_table", "tgw-rtb-1", "tgw-rtb-1", nil},
 		recordedResource{"aws_ec2_transit_gateway_route_table", "tgw-rtb-2", "tgw-rtb-2", nil},

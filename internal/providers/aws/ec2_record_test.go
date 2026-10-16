@@ -19,28 +19,27 @@ import (
 func TestRecordEc2ListsLiveInstances(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
-		switch call.Op {
-		case "DescribeInstances":
-			if form.Get("Filter.1.Name") != "" {
-				t.Errorf("instances filtered without a filter: %s", call.Body)
-			}
-			if recordSecondPage(call) {
-				return recordEC2(call.Op, `<reservationSet><item><reservationId>r-2</reservationId><instancesSet>
-					<item><instanceId>i-3</instanceId><instanceState><code>80</code><name>stopped</name></instanceState>
-						<tagSet><item><key>Name</key><value>first</value></item><item><key>team</key><value>data</value></item>
-						<item><key>name</key><value>second</value></item></tagSet></item>
-					<item><instanceId>i-4</instanceId><instanceState><code>32</code><name>shutting-down</name></instanceState></item>
-					<item><instanceId>i-5</instanceId><instanceState><code>0</code><name>pending</name></instanceState></item>
-					</instancesSet></item></reservationSet>`)
-			}
-			return recordEC2(call.Op, `<reservationSet><item><reservationId>r-1</reservationId><instancesSet>
-				<item><instanceId>i-1</instanceId><instanceState><code>16</code><name>running</name></instanceState>
-					<tagSet><item><key>Name</key><value>web</value></item></tagSet></item>
-				<item><instanceId>i-2</instanceId><instanceState><code>48</code><name>terminated</name></instanceState>
-					<tagSet><item><key>Name</key><value>gone</value></item></tagSet></item>
-				</instancesSet></item></reservationSet><nextToken>`+nextPageToken+`</nextToken>`)
+		if call.Op != "DescribeInstances" {
+			return recordUnexpected(t, call)
 		}
-		return recordUnexpected(t, call)
+		if form.Get("Filter.1.Name") != "" {
+			t.Errorf("instances filtered without a filter: %s", call.Body)
+		}
+		if recordSecondPage(call) {
+			return recordEC2(call.Op, `<reservationSet><item><reservationId>r-2</reservationId><instancesSet>
+				<item><instanceId>i-3</instanceId><instanceState><code>80</code><name>stopped</name></instanceState>
+					<tagSet><item><key>Name</key><value>first</value></item><item><key>team</key><value>data</value></item>
+					<item><key>name</key><value>second</value></item></tagSet></item>
+				<item><instanceId>i-4</instanceId><instanceState><code>32</code><name>shutting-down</name></instanceState></item>
+				<item><instanceId>i-5</instanceId><instanceState><code>0</code><name>pending</name></instanceState></item>
+				</instancesSet></item></reservationSet>`)
+		}
+		return recordEC2(call.Op, `<reservationSet><item><reservationId>r-1</reservationId><instancesSet>
+			<item><instanceId>i-1</instanceId><instanceState><code>16</code><name>running</name></instanceState>
+				<tagSet><item><key>Name</key><value>web</value></item></tagSet></item>
+			<item><instanceId>i-2</instanceId><instanceState><code>48</code><name>terminated</name></instanceState>
+				<tagSet><item><key>Name</key><value>gone</value></item></tagSet></item>
+			</instancesSet></item></reservationSet><nextToken>`+nextPageToken+`</nextToken>`)
 	})
 	g := &Ec2Lister{}
 

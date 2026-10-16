@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -179,14 +180,17 @@ func TestReadTagsFromAttributes(t *testing.T) {
 	}
 }
 
-// countingProvider counts the services it lists.
+// countingProvider counts the services it lists in countingListed: the
+// registry lists each service with a provider of its own, the zero value
+// of this type, so the count can't be a field.
 type countingProvider struct {
 	fakeProvider
-	listed int
 }
 
+var countingListed atomic.Int32
+
 func (p *countingProvider) Select(name string, verbose bool) error {
-	p.listed++
+	countingListed.Add(1)
 	return p.fakeProvider.Select(name, verbose)
 }
 
@@ -199,11 +203,11 @@ func TestInventoryOfAnotherScope(t *testing.T) {
 	if _, _, err := listResources(t.Context(), &fakeProvider{}, Options{Discover: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-1"); err != nil {
 		t.Fatal(err)
 	}
-	p := &countingProvider{}
-	if _, _, err := listResources(t.Context(), p, Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-2"); err != nil {
+	countingListed.Store(0)
+	if _, _, err := listResources(t.Context(), &countingProvider{}, Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-2"); err != nil {
 		t.Fatal(err)
 	}
-	if p.listed != 1 {
-		t.Errorf("listed %d services, want the inventory of eu-west-1 not reused for eu-west-2", p.listed)
+	if n := countingListed.Load(); n != 1 {
+		t.Errorf("listed %d services, want the inventory of eu-west-1 not reused for eu-west-2", n)
 	}
 }
