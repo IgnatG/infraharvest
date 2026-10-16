@@ -1,0 +1,49 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: govulncheck
+
+# Checks the binary for known vulnerabilities after each merge to main and
+# every week, as the tests workflow does on each pull request: a
+# vulnerability published after a dependency last changed fails here, with
+# no pull request to show it. The same gate and allowlist
+# (.github/govulncheck-allowlist.txt) as the pull request job.
+on:
+  push:
+    branches: [main]
+  schedule:
+  - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Free disk space
+      run: .github/scripts/free-disk-space.sh start
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    # Ubuntu runners have ~14 GB free, too little for this module's
+    # dependencies.
+    - name: Wait for free disk space
+      run: .github/scripts/free-disk-space.sh wait
+    - name: Build
+      run: go build -o infraharvest .
+    # Binary mode, as in the tests workflow: source mode needs more memory
+    # than a standard runner has for this module.
+    - name: govulncheck
+      run: .github/scripts/govulncheck-gate.sh ./infraharvest

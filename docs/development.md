@@ -158,7 +158,7 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 - Every new module adds to a build that is already heavy: prefer the standard library and the SDKs already in `go.mod`, and say in the pull request why a new one is worth it.
 - After changing imports or `go.mod`, run `go mod tidy` on GitHub: `make ci-tidy`, or push a branch named `tidy/<anything>`, then `make ci-download RUN=<id> NAME=go-mod` and commit `go.mod` and `go.sum`. The `tests` workflow fails when they aren't tidy.
 - GitHub Actions are pinned to a full commit SHA with the version in a trailing comment, and tools downloaded in workflows to a version and a SHA-256 digest. Dependabot proposes updates weekly.
-- `govulncheck` runs on the built binary; a finding fails unless `.github/govulncheck-allowlist.txt` covers it, with the reason.
+- `govulncheck` runs on the built binary on each pull request, and in the `govulncheck` workflow after each merge to `main` and weekly; a finding fails unless `.github/govulncheck-allowlist.txt` covers it, with the reason.
 
 ## Markdown
 
