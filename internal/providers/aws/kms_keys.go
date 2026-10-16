@@ -117,7 +117,10 @@ func (l *kmsLister) addGrants(keyID, keyName string) {
 
 // listAliases returns the aliases of listable keys, which List records as
 // aws_kms_alias, imported by their name. An alias that points at no key is
-// left out.
+// left out, and so is an AWS managed alias, alias/aws/<service>, without
+// describing its key: only AWS managed keys have those. Its key is
+// remembered as AWS managed, so that listing the keys doesn't describe it
+// either.
 func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 	var aliases []types.AliasListEntry
 	pages := kms.NewListAliasesPaginator(l.svc, &kms.ListAliasesInput{}, stopOnDuplicateToken)
@@ -127,7 +130,16 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 			return nil, err
 		}
 		for _, alias := range page.Aliases {
-			if alias.TargetKeyId == nil || !kmsKeyListable(l.describe(*alias.TargetKeyId)) {
+			if alias.TargetKeyId == nil {
+				continue
+			}
+			if strings.HasPrefix(aws.ToString(alias.AliasName), awsManagedAliasPrefix) {
+				if _, described := l.keys[*alias.TargetKeyId]; !described {
+					l.keys[*alias.TargetKeyId] = &types.KeyMetadata{KeyId: alias.TargetKeyId, KeyManager: types.KeyManagerTypeAws}
+				}
+				continue
+			}
+			if !kmsKeyListable(l.describe(*alias.TargetKeyId)) {
 				continue
 			}
 			aliases = append(aliases, alias)
@@ -135,6 +147,10 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 	}
 	return aliases, nil
 }
+
+// awsManagedAliasPrefix starts the aliases of the keys AWS manages for its
+// services, such as alias/aws/s3; no one else can create one.
+const awsManagedAliasPrefix = "alias/aws/"
 
 // describe returns the metadata of the key keyID, or nil when it can't be
 // described, which it logs. Successful answers are remembered.

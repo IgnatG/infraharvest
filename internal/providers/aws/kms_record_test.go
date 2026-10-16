@@ -11,10 +11,10 @@ import (
 const recordKmsKeyARN = "arn:aws:kms:us-east-1:123456789012:key/"
 
 // recordKmsKeys answers DescribeKey for the keys of the KMS tests: who
-// manages each key and its state, or an error.
+// manages each key and its state, or an error. The AWS managed key k-aws,
+// which alias/aws/s3 names, has none: it must not be described.
 var recordKmsKeys = map[string]string{
 	"k-app":     `{"KeyMetadata":{"KeyId":"k-app","KeyManager":"CUSTOMER","KeyState":"Enabled"}}`,
-	"k-aws":     `{"KeyMetadata":{"KeyId":"k-aws","KeyManager":"AWS","KeyState":"Enabled"}}`,
 	"k-doomed":  `{"KeyMetadata":{"KeyId":"k-doomed","KeyManager":"CUSTOMER","KeyState":"PendingDeletion"}}`,
 	"k-replica": `{"KeyMetadata":{"KeyId":"k-replica","KeyManager":"CUSTOMER","KeyState":"PendingReplicaDeletion"}}`,
 	"k-off":     `{"KeyMetadata":{"KeyId":"k-off","KeyManager":"CUSTOMER","KeyState":"Disabled"}}`,
@@ -26,7 +26,9 @@ var recordKmsKeys = map[string]string{
 // can't describe are left out; a key whose grants it can't list is still
 // listed. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
 // key ID is the key's ARN. A key is named after its alias, and a grant
-// after its name: before, they were labelled after their IDs.
+// after its name: before, they were labelled after their IDs. An AWS
+// managed alias, alias/aws/<service>, is left out without describing its
+// key, and so is that key when the keys are listed.
 func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
