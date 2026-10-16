@@ -294,11 +294,11 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			run.addDirectory(dir, added, addedResult, err)
 			continue
 		default:
-			if options.Resume {
-				// What changed is generated again, from scratch.
-				if err := clearGenerated(options.Out, dir); err != nil {
-					return err
-				}
+			// With --resume, what changed is generated again, from scratch;
+			// a directory no import wrote is left alone.
+			if err := claimRoot(options.Out, dir, fp, options.Resume); err != nil {
+				run.addDirectory(dir, byDir[dir], nil, err)
+				continue
 			}
 			log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
 			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, &run.lock)
