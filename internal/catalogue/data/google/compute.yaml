@@ -51,6 +51,15 @@ types:
         attribute_prefixes: { asset.name: [gke-] }
       - reason: GKE creates it for a persistent volume claim and deletes it with the claim
         attribute_prefixes: { asset.name: [pvc-] }
+      # The cloud_asset service records asset.boot_disk=true on the boot
+      # disk of an instance it lists, which the instance manages in its
+      # boot_disk block, and unknown when the instances' disks couldn't
+      # be listed. A data disk records nothing: the instance's
+      # attached_disk block attaches it by its source.
+      - reason: the boot disk of an instance, which manages it in its boot_disk block; select it to import it
+        attributes: { asset.boot_disk: "true" }
+      - reason: it may be the boot disk of an instance, as the project's instances couldn't be listed; select it to import it
+        attributes: { asset.boot_disk: unknown }
   google_compute_region_disk:
     inventory:
       type: compute.googleapis.com/Disk
@@ -60,6 +69,11 @@ types:
         attribute_prefixes: { asset.name: [gke-] }
       - reason: GKE creates it for a persistent volume claim and deletes it with the claim
         attribute_prefixes: { asset.name: [pvc-] }
+      # See google_compute_disk.
+      - reason: the boot disk of an instance, which manages it in its boot_disk block; select it to import it
+        attributes: { asset.boot_disk: "true" }
+      - reason: it may be the boot disk of an instance, as the project's instances couldn't be listed; select it to import it
+        attributes: { asset.boot_disk: unknown }
   google_compute_external_vpn_gateway:
     inventory:
       type: compute.googleapis.com/ExternalVpnGateway

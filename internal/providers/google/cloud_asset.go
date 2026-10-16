@@ -48,7 +48,8 @@ type CloudAssetLister struct {
 
 // List searches the project, or takes the search an import of another of
 // its regions made (see searchOnce), and keeps what is in the import's
-// region.
+// region, with the disks that are instances' boot disks marked (see
+// markBootDisks).
 func (g *CloudAssetLister) List() error {
 	cat := g.catalogue()
 	types := g.Types(cat)
@@ -67,7 +68,11 @@ func (g *CloudAssetLister) List() error {
 		return err
 	}
 	region, _ := g.Settings()["region"].(compute.Region)
-	g.Resources = assetResources(results, cat, g.Provider(), project, region.Name)
+	resources := assetResources(results, cat, g.Provider(), project, region.Name)
+	if err := markBootDisks(ctx, g.Provider(), project, results, resources); err != nil {
+		return err
+	}
+	g.Resources = resources
 	return nil
 }
 
