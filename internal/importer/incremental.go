@@ -45,10 +45,16 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if len(existing) == 0 && len(r.options.ManagedState) == 0 {
 		return imports, nil, nil, fmt.Errorf("%s has configuration, but neither its import blocks nor a checkpoint of the import that generated it say which resources it has: pass --managed-state with its state, so that the import leaves them out", dir)
 	}
+	owned := previouslyOwned(previous, opts)
 	var added []engine.Import
 	for _, imp := range imports {
-		if _, ok := existing[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
+		key := engine.External{Type: imp.Type, ID: imp.ID}
+		if _, ok := existing[key]; ok {
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope})
+			continue
+		}
+		if owner, ok := owned[key]; ok {
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: ownedReason(owner), Scope: r.scope})
 			continue
 		}
 		added = append(added, imp)
@@ -92,6 +98,28 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 		}
 	}
 	return added, result, holds, nil
+}
+
+// previouslyOwned returns, by type and import ID, who manages each
+// resource the import that generated a root left out because its tags,
+// as Terraform generated them, say another tool manages it (see
+// engine.Result.Owned): the listing may not see those tags, so without
+// this every incremental import would generate those resources again only
+// to leave them out again. None are returned when opts keep owned
+// resources, and a resource opts keep is left to generate.
+func previouslyOwned(previous *engine.Result, opts engine.Options) map[engine.External]engine.Owner {
+	if previous == nil || opts.IncludeOwned {
+		return nil
+	}
+	owned := map[engine.External]engine.Owner{}
+	for _, o := range previous.Owned {
+		typ := resourceTypeOf(o.Address)
+		if opts.KeepOwned[typ+" "+o.ID] {
+			continue
+		}
+		owned[engine.External{Type: typ, ID: o.ID}] = o.Owner
+	}
+	return owned
 }
 
 // stagingDir is where an incremental import into dir generates what it

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // The staging directory is always its own directory under the output's
@@ -61,5 +62,74 @@ func TestAddToRootFailsEveryImportOnACheckpointError(t *testing.T) {
 	}
 	if !reflect.DeepEqual(failed, imports) {
 		t.Errorf("failed: got %v, want every import", failed)
+	}
+}
+
+// A resource the import that generated the root left out because its
+// tags say another tool manages it is left out again, for that reason,
+// rather than generated again only to be left out: its tags may be ones
+// only Terraform reads, such as an IAM role's. With nothing else new, the
+// root stays as it is.
+func TestAddToRootLeavesOutWhatTheRootLeftOutAsOwned(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "123", "global")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, engine.GeneratedFileName), []byte("resource \"aws_iam_role\" \"app\" {\n  name = \"app\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, engine.ImportsFileName), []byte("import {\n  to = aws_iam_role.app\n  id = \"app\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	owner := engine.Owner{Tool: "Terraform", Tag: "ManagedBy=Terraform"}
+	previous := &engine.Result{
+		Imported: []engine.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}},
+		Owned:    []engine.OwnedResource{{Address: "aws_iam_role.ci", ID: "ci", Owner: owner}},
+	}
+	if err := saveCheckpoint(out, dir, "fp", previous); err != nil {
+		t.Fatal(err)
+	}
+	r := &Run{options: Options{Out: out}, scope: "aws/123/global"}
+	imports := []engine.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "ci", ID: "ci"}}
+
+	added, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
+
+	if err != nil || added != nil || result != nil || holds != nil {
+		t.Fatalf("want nothing new, got added=%v result=%v holds=%v err=%v", added, result, holds, err)
+	}
+	want := []report.Excluded{
+		{Type: "aws_iam_role", ID: "app", Reason: InRootReason, Scope: "aws/123/global"},
+		{Type: "aws_iam_role", ID: "ci", Reason: ownedReason(owner), Scope: "aws/123/global"},
+	}
+	if !reflect.DeepEqual(r.report.Excluded, want) {
+		t.Errorf("excluded:\ngot  %+v\nwant %+v", r.report.Excluded, want)
+	}
+}
+
+// What the root left out as owned is generated after all when the import
+// keeps owned resources, all of them or the one.
+func TestPreviouslyOwned(t *testing.T) {
+	owner := engine.Owner{Tool: "Pulumi", Tag: "pulumi:project=web"}
+	previous := &engine.Result{Owned: []engine.OwnedResource{
+		{Address: "aws_iam_role.ci", ID: "ci", Owner: owner},
+		{Address: "aws_iam_user.deploy", ID: "deploy", Owner: owner},
+	}}
+
+	if got, want := previouslyOwned(previous, engine.Options{}), map[engine.External]engine.Owner{
+		{Type: "aws_iam_role", ID: "ci"}:     owner,
+		{Type: "aws_iam_user", ID: "deploy"}: owner,
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got := previouslyOwned(previous, engine.Options{IncludeOwned: true}); len(got) != 0 {
+		t.Errorf("--include-owned: got %v, want none", got)
+	}
+	got := previouslyOwned(previous, engine.Options{KeepOwned: map[string]bool{"aws_iam_role ci": true}})
+	if _, ok := got[engine.External{Type: "aws_iam_role", ID: "ci"}]; ok || len(got) != 1 {
+		t.Errorf("keeping aws_iam_role ci: got %v, want only the user", got)
+	}
+	if got := previouslyOwned(nil, engine.Options{}); got != nil {
+		t.Errorf("no checkpoint: got %v, want none", got)
 	}
 }
