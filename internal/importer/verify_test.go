@@ -56,14 +56,14 @@ func TestVerifyOutputWithoutRoots(t *testing.T) {
 
 func TestWriteVerified(t *testing.T) {
 	results := []verifiedRoot{
-		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}}},
+		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}, {Name: engine.CheckScanners, Passed: true, Skipped: true}}},
 		{Path: "aws/1/global", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}, {Name: engine.CheckPlan, Details: []string{"aws_iam_role.a: update"}}}},
 	}
 	var b bytes.Buffer
 	if err := writeVerified(&b, results, FormatText); err != nil {
 		t.Fatal(err)
 	}
-	if want := "aws/1/eu-west-2: passed\naws/1/global: failed G3 plan\n"; b.String() != want {
+	if want := "aws/1/eu-west-2: passed; skipped G5 scanners\naws/1/global: failed G3 plan\n"; b.String() != want {
 		t.Errorf("got %q, want %q", b.String(), want)
 	}
 }

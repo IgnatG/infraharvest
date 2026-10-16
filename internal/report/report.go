@@ -221,8 +221,11 @@ type Module struct {
 // Check is one check of the verification gate on a directory: formatted,
 // valid, planning only imports, free of secrets, deterministic.
 type Check struct {
-	Name    string   `json:"name"`
-	Passed  bool     `json:"passed"`
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+	// Skipped checks couldn't run, so they checked nothing; they count
+	// as passed.
+	Skipped bool     `json:"skipped,omitempty"`
 	Details []string `json:"details,omitempty"`
 }
 
@@ -476,6 +479,20 @@ func (r *Report) FailedChecks() []string {
 	return failed
 }
 
+// SkippedChecks lists the checks that couldn't run, such as the scanners
+// check with no scanner installed, as "directory: check: details".
+func (r *Report) SkippedChecks() []string {
+	var skipped []string
+	for _, d := range r.Directories {
+		for _, c := range d.Checks {
+			if c.Passed && c.Skipped {
+				skipped = append(skipped, fmt.Sprintf("%s: %s: %s", d.Path, c.Name, strings.Join(c.Details, "; ")))
+			}
+		}
+	}
+	return skipped
+}
+
 func resourceType(address string) string {
 	t, _, _ := strings.Cut(address, ".")
 	return t
@@ -646,6 +663,11 @@ func (r *Report) Markdown() string {
 		checks = append(checks, "- "+f)
 	}
 	section("Failed checks", "These directories were generated, but failed a check of the verification gate. Each directory's README lists its checks.", checks)
+	var skippedChecks []string
+	for _, s := range r.SkippedChecks() {
+		skippedChecks = append(skippedChecks, "- "+s)
+	}
+	section("Skipped checks", "These checks couldn't run on these directories, so they checked nothing. They don't fail the import.", skippedChecks)
 	section("Failed directories", "Nothing in these directories was imported.", dirErrors)
 	section("Failed services", "These services couldn't be listed.", failures)
 	return b.String()

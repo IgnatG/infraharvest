@@ -399,7 +399,7 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		log.Printf("%s: %s", dir, w)
 	}
 	for _, c := range result.Gate {
-		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
+		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 		if !c.Passed {
 			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
 		}

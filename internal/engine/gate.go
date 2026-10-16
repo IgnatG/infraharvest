@@ -35,6 +35,10 @@ const (
 type Check struct {
 	Name   string
 	Passed bool
+	// Skipped checks couldn't run, such as the scanners check with no
+	// scanner installed: they checked nothing, so they are shown as
+	// skipped, but they don't fail the gate, so Passed is set too.
+	Skipped bool
 	// Details explain a failure, or note what a pass allowed.
 	Details []string
 	// Changes are the changes a plan check found, for CheckPlan.

@@ -280,8 +280,11 @@ type ImportResult struct {
 	Totals   report.CoverageTotal `json:"totals"`
 	// FailedChecks are the verification checks that failed, by directory.
 	FailedChecks []string `json:"failed_checks,omitempty"`
-	Failures     []string `json:"failures,omitempty"`
-	Report       string   `json:"report"`
+	// SkippedChecks are the verification checks that couldn't run, such
+	// as the scanners check with no scanner installed.
+	SkippedChecks []string `json:"skipped_checks,omitempty"`
+	Failures      []string `json:"failures,omitempty"`
+	Report        string   `json:"report"`
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
@@ -355,11 +358,12 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return errorResult(fmt.Sprintf("The import couldn't run (exit code %d):\n%s", code, tail(stderr))), nil, nil
 	}
 	result := &ImportResult{
-		ExitCode:     code,
-		Totals:       r.Totals,
-		FailedChecks: r.FailedChecks(),
-		Failures:     r.Failures,
-		Report:       filepath.Join(in.Out, report.Dir, "report.md"),
+		ExitCode:      code,
+		Totals:        r.Totals,
+		FailedChecks:  r.FailedChecks(),
+		SkippedChecks: r.SkippedChecks(),
+		Failures:      r.Failures,
+		Report:        filepath.Join(in.Out, report.Dir, "report.md"),
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)

@@ -36,6 +36,9 @@ func TestRunScanners(t *testing.T) {
 			if check.Passed != tc.passed || !strings.Contains(strings.Join(check.Details, "\n"), tc.detail) {
 				t.Errorf("got passed=%v %v, want passed=%v with %q", check.Passed, check.Details, tc.passed, tc.detail)
 			}
+			if check.Skipped != (len(tc.scanners) == 0) {
+				t.Errorf("skipped=%v with %d scanners", check.Skipped, len(tc.scanners))
+			}
 		})
 	}
 }

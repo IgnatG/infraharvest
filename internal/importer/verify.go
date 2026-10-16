@@ -76,7 +76,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		}
 		root := verifiedRoot{Path: relativePath(out, dir)}
 		for _, c := range gate {
-			root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
+			root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 			if !c.Passed {
 				failed = append(failed, fmt.Sprintf("%s: %s failed: %s", root.Path, c.Name, strings.Join(c.Details, "; ")))
 			}
@@ -103,14 +103,20 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 	}
 	for _, r := range results {
 		status := "passed"
-		var failedNames []string
+		var failedNames, skippedNames []string
 		for _, c := range r.Checks {
-			if !c.Passed {
+			switch {
+			case !c.Passed:
 				failedNames = append(failedNames, c.Name)
+			case c.Skipped:
+				skippedNames = append(skippedNames, c.Name)
 			}
 		}
 		if len(failedNames) > 0 {
 			status = "failed " + strings.Join(failedNames, ", ")
+		}
+		if len(skippedNames) > 0 {
+			status += "; skipped " + strings.Join(skippedNames, ", ")
 		}
 		if _, err := fmt.Fprintf(w, "%s: %s\n", r.Path, status); err != nil {
 			return err

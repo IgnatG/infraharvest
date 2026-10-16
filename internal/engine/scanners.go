@@ -107,10 +107,12 @@ func runTool(ctx context.Context, path string, args ...string) ([]byte, error) {
 }
 
 // runScanners runs scanners on dir. Blocking scanners' findings at warning
-// level or above fail the check; the others' are listed.
+// level or above fail the check; the others' are listed. With no scanner
+// installed, the check is skipped.
 func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 	check := Check{Name: CheckScanners, Passed: true}
 	if len(scanners) == 0 {
+		check.Skipped = true
 		check.Details = []string{"no scanner installed (tflint, trivy, checkov)"}
 		return check
 	}

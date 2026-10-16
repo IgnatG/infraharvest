@@ -297,3 +297,22 @@ func TestMerge(t *testing.T) {
 		t.Errorf("scopes %+v", r.Scopes)
 	}
 }
+
+// A check that couldn't run is listed as skipped, not as failed, and
+// doesn't make the import incomplete.
+func TestSkippedChecks(t *testing.T) {
+	r := &Report{Directories: []Directory{{Path: "aws", Checks: []Check{
+		{Name: "G1 format", Passed: true},
+		{Name: "G5 scanners", Passed: true, Skipped: true, Details: []string{"no scanner installed (tflint, trivy, checkov)"}},
+	}}}}
+
+	if got, want := r.SkippedChecks(), []string{"aws: G5 scanners: no scanner installed (tflint, trivy, checkov)"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("skipped checks: %v, want %v", got, want)
+	}
+	if len(r.FailedChecks()) != 0 || r.Incomplete() {
+		t.Errorf("a skipped check counts as failed: %v", r.FailedChecks())
+	}
+	if md := r.Markdown(); !strings.Contains(md, "## Skipped checks") || !strings.Contains(md, "- aws: G5 scanners: no scanner installed") || strings.Contains(md, "## Failed checks") {
+		t.Errorf("report:\n%s", md)
+	}
+}
