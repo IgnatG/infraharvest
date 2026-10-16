@@ -365,6 +365,10 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	for _, s := range result.Secrets {
 		reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
 	}
+	reported.Warnings = result.Warnings
+	for _, w := range result.Warnings {
+		log.Printf("%s: %s", dir, w)
+	}
 	for _, c := range result.Gate {
 		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
 		if !c.Passed {

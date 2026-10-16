@@ -19,16 +19,26 @@ import (
 )
 
 // Secret is a variable the generated configuration reads a secret value
-// from. Terraform doesn't write secret values into the configuration it
-// generates, so the user sets the variable before planning.
+// from. Terraform doesn't write the values the provider marks sensitive
+// into the configuration it generates, and infraharvest moves the secrets
+// it finds among the others out of it (see literalSecretsToVariables), so
+// the user sets the variable before planning.
 type Secret struct {
 	Variable  string // variable name
 	Address   string // address of the resource that uses it
-	Attribute string // attribute it sets, e.g. value or block[1].password
+	Attribute string // attribute it sets, e.g. value, block[1].password or environment.variables.API_SECRET
 
 	schemaPath []string // block types and attribute name, e.g. [block password]
 	ty         cty.Type // from the provider schema; cty.NilType if unknown
+	// key is the name a secret infraharvest found goes by, such as the
+	// environment variable API_SECRET, and value its value, which only
+	// infraharvest's own plans see (see secretValues); both are "" for
+	// values the provider marks sensitive, which Terraform doesn't show.
+	key, value string
 }
+
+// secretStoreAdvice ends the description of every secret variable.
+const secretStoreAdvice = "set this variable from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with TF_VAR_%s, and keep the value out of version control"
 
 // secretAttribute is an attribute Terraform generated as
 // "null # sensitive": it has a value Terraform won't show.
@@ -175,10 +185,16 @@ func variablesFile(secrets []Secret, schemas *tfjson.ProviderSchemas) ([]byte, e
 			body.AppendNewline()
 		}
 		b := body.AppendNewBlock("variable", []string{s.Variable}).Body()
-		b.SetAttributeValue("description", cty.StringVal(fmt.Sprintf(
-			"%s of %s. Terraform doesn't write secret values into the configuration it generates: set it before planning, for example in a .tfvars file kept out of version control.",
-			s.Attribute, s.Address)))
-		if ty := attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath); ty != cty.NilType {
+		why := "Terraform doesn't write secret values into the configuration it generates"
+		if s.key != "" {
+			why = "infraharvest found a secret value here and left it out of the configuration"
+		}
+		b.SetAttributeValue("description", cty.StringVal(fmt.Sprintf("%s of %s. %s: "+secretStoreAdvice+".", s.Attribute, s.Address, why, s.Variable)))
+		ty := s.ty
+		if ty == cty.NilType {
+			ty = attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
+		}
+		if ty != cty.NilType {
 			tokens, err := typeTokens(ty)
 			if err != nil {
 				return nil, fmt.Errorf("variable %s: %w", s.Variable, err)

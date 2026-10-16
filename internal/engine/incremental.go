@@ -311,6 +311,7 @@ func (r *Result) With(added *Result) *Result {
 		Rejected: append(slices.Clone(r.Rejected), added.Rejected...),
 		Modules:  append(slices.Clone(r.Modules), added.Modules...),
 		Gate:     added.Gate,
+		Warnings: append(slices.Clone(r.Warnings), added.Warnings...),
 	}
 }
 

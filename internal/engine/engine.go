@@ -17,6 +17,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -91,6 +92,9 @@ type Result struct {
 	Rejected []Rejection
 	// Gate is the result of the verification gate (see runGate).
 	Gate Gate
+	// Warnings are about what the configuration holds that people should
+	// look at, such as a tag named after an AWS access key ID.
+	Warnings []string `json:",omitempty"`
 	// Modules are the module calls the configuration makes, and the
 	// clusters of resources Generate didn't move into one, with why.
 	Modules []ModuleCall
@@ -157,6 +161,10 @@ type Options struct {
 	// Taken are names Generate leaves alone, such as those of the root an
 	// incremental import adds to (see Add).
 	Taken Names
+
+	// secretValues gives Generate's own plans the values of the secrets it
+	// found in the configuration (see literalSecretsToVariables).
+	secretValues *secretValues
 }
 
 // Generate writes opts.Config and an import block per resource into dir,
@@ -241,13 +249,33 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	if sorted || omitted || placed {
-		if diags, _, err = plan(ctx, tf); err != nil {
+	// Terraform wrote every value the provider doesn't mark sensitive into
+	// generated.tf, secrets among them: move those into variables before
+	// anything else reads the file. Generate's own plans read their values
+	// from outside the output (see secretValues).
+	literal, warnings, err := literalSecretsToVariables(generated, opts.Taken)
+	if err != nil {
+		return nil, err
+	}
+	if len(literal) > 0 {
+		if opts.secretValues, err = newSecretValues(); err != nil {
+			return nil, err
+		}
+		defer opts.secretValues.remove()
+		if err := opts.secretValues.write(literal); err != nil {
+			return nil, err
+		}
+		if err := writeVariables(dir, literal, nil); err != nil {
+			return nil, err
+		}
+	}
+	if sorted || omitted || placed || len(literal) > 0 {
+		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
 	}
 
-	result := &Result{}
+	result := &Result{Warnings: warnings}
 	var rejected bytes.Buffer
 	repaired := false
 	for round := 0; ; round++ {
@@ -281,7 +309,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			}
 			result.Rejected = append(result.Rejected, rejections...)
 		}
-		if diags, _, err = plan(ctx, tf); err != nil {
+		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}
 	}
@@ -299,8 +327,14 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		}
 		result.Rejected = append(result.Rejected, rejections...)
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, &result.Rejected, &rejected); err != nil {
+	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, withoutRejected(literal, result.Rejected), &result.Rejected, &rejected); err != nil {
 		return nil, err
+	}
+	if opts.secretValues != nil {
+		// Only the variables still declared: Terraform warns about others.
+		if err := opts.secretValues.write(result.Secrets); err != nil {
+			return nil, err
+		}
 	}
 	before, err := importTargets(dir)
 	if err != nil {
@@ -322,8 +356,14 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			result.Secrets[i].Address = to
 		}
 	}
+	// Errors can quote the values they reject.
+	for i := range result.Rejected {
+		for j, e := range result.Rejected[i].Errors {
+			result.Rejected[i].Errors[j] = redact(e, literal)
+		}
+	}
 	if rejected.Len() > 0 {
-		if err := os.WriteFile(filepath.Join(dir, RejectedFileName), rejected.Bytes(), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, RejectedFileName), redactBytes(rejected.Bytes(), literal), 0o644); err != nil {
 			return nil, err
 		}
 	}
@@ -384,28 +424,31 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 }
 
 // useVariables makes the secret attributes in generated.tf read from
-// sensitive variables, declared in variables.tf, named other than the
-// variables in taken, and validates the result. It leaves out resources
-// that still don't validate, adding them to rejections and out.
-func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, rejections *[]Rejection, out *bytes.Buffer) ([]Secret, error) {
+// sensitive variables, declared in variables.tf with those of literal (the
+// secrets infraharvest found in the configuration, which read from
+// variables already), named other than the variables in taken, and
+// validates the result. It leaves out resources that still don't validate,
+// adding them to rejections and out. It returns literal's variables first.
+func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer) ([]Secret, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
 	found := findSecrets(generated)
+	var schemas *tfjson.ProviderSchemas
+	if len(found) > 0 {
+		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
+			return nil, fmt.Errorf("terraform providers schema: %w", err)
+		}
+		found = withoutWriteOnly(found, schemas)
+	}
 	if len(found) == 0 {
-		return nil, nil
+		// Written again, without the variables of resources left out since.
+		return literal, writeVariables(dir, literal, schemas)
 	}
-	schemas, err := tf.ProvidersSchema(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("terraform providers schema: %w", err)
-	}
-	if found = withoutWriteOnly(found, schemas); len(found) == 0 {
-		return nil, nil
-	}
-	secrets := secretsToVariables(generated, found, taken)
-	for i, s := range secrets {
-		secrets[i].ty = attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
+	secrets := append(slices.Clone(literal), secretsToVariables(generated, found, withVariables(taken, literal))...)
+	for i := len(literal); i < len(secrets); i++ {
+		secrets[i].ty = attributeType(schemas, strings.SplitN(secrets[i].Address, ".", 2)[0], secrets[i].schemaPath)
 	}
 	if err := generated.save(); err != nil {
 		return nil, err

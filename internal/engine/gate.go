@@ -76,7 +76,7 @@ func (g Gate) check(name string) Check {
 // planning only imports, following the output standard (see
 // checkStandards), passing the installed scanners (see runScanners),
 // without secret values in any file, and without functions that make
-// output differ between runs. Secret variables get
+// output differ between runs. Secret variables Terraform doesn't show get
 // placeholder values in the plan, so the arguments they set may change;
 // so may the arguments opts.StateOnly names per type, which providers keep
 // only in state and import can't set.
@@ -86,11 +86,11 @@ func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, op
 		return nil, err
 	}
 	return gateWith(ctx, tf, dir, opts, func() (Check, []string, error) {
-		p, _, diags, err := showPlanWithSummary(ctx, tf, placeholders(secrets))
+		p, _, diags, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), opts.secretValues.options()...))
 		if err != nil {
 			return Check{}, nil, err
 		}
-		return planCheck(p, diags, secrets, opts.StateOnly, expected), sensitiveValues(p), nil
+		return planCheck(p, diags, secrets, opts.StateOnly, expected), append(sensitiveValues(p), knownValues(secrets)...), nil
 	})
 }
 
@@ -477,8 +477,10 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 // scanSecrets checks every file Generate wrote into dir for the plan's
-// sensitive values, for credential formats, and for provider blocks that
-// set a credential argument to a constant (see IsCredentialArgument).
+// sensitive values and the secret values Generate found, for credential
+// formats, for provider blocks that set a credential argument to a
+// constant (see IsCredentialArgument), and for any secret value written in
+// the configuration (see scanLiteralSecrets).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
 	err := walkOutput(dir, func(rel string, content string) {
@@ -502,6 +504,12 @@ func scanSecrets(dir string, sensitive []string) (Check, error) {
 		for _, name := range providerCredentials(rel, content) {
 			check.Passed = false
 			check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
+		}
+		// What Generate moves into variables, should any remain or come
+		// back with an edit.
+		if findings := scanLiteralSecrets(rel, content); len(findings) > 0 {
+			check.Passed = false
+			check.Details = append(check.Details, findings...)
 		}
 	})
 	return check, err
