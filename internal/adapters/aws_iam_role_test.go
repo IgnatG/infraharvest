@@ -13,7 +13,7 @@ func TestIAMRoleMapsEveryMember(t *testing.T) {
 	c := cluster(t, `resource "aws_iam_role" "ci" {
   assume_role_policy    = jsonencode({ Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }], Version = "2012-10-17" })
   force_detach_policies = false
-  max_session_duration  = 3600
+  max_session_duration  = 7200
   name                  = "ci"
   name_prefix           = null
   path                  = "/build/"
@@ -48,7 +48,7 @@ resource "aws_iam_role_policy_attachment" "ci_readonly" {
 		`name = "ci"`,
 		"use_name_prefix = false",
 		`source_trust_policy_documents = [jsonencode({ Statement = [{ Action = "sts:AssumeRole"`,
-		"max_session_duration = 3600",
+		"max_session_duration = 7200",
 		`path = "/build/"`,
 		`tags = { Team = "build" }`,
 		"create_inline_policy = true",
@@ -94,8 +94,33 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
 			t.Errorf("call sets %s:\n%s", unwanted, got)
 		}
 	}
-	if !strings.Contains(got, "tags = null") {
-		t.Errorf("an untagged role: want tags = null:\n%s", got)
+	// The module's defaults: no tags, as in the root, where the provider's
+	// default tags apply, the root path and sessions of an hour.
+	for _, unwanted := range []string{"tags", "path", "max_session_duration"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("an untagged role at the defaults: call sets %s:\n%s", unwanted, got)
+		}
+	}
+}
+
+// A role at the root path, with sessions of an hour, leaves both to the
+// module's defaults.
+func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
+	call, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "app" {
+  assume_role_policy   = "{}"
+  max_session_duration = 3600
+  name                 = "app"
+  path                 = "/"
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := render(t, IAMRole, call)
+	for _, unwanted := range []string{"path", "max_session_duration"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
+		}
 	}
 }
 

@@ -115,9 +115,18 @@ func mapVPC(c Cluster) (*Call, error) {
 		return nil, Declinef("%s has no CIDR block", vpc.Address())
 	}
 	call.Set("cidr", cidr)
-	for _, arg := range []string{"enable_dns_support", "enable_network_address_usage_metrics", "instance_tenancy"} {
-		if value, ok := vpc.r.Attr(arg); ok {
-			call.Set(arg, value)
+	// Each is passed unless it is the module's default: for usage
+	// metrics, null, which leaves the provider's default, false.
+	for _, arg := range []struct {
+		name  string
+		value cty.Value
+	}{
+		{"enable_dns_support", cty.True},
+		{"enable_network_address_usage_metrics", cty.False},
+		{"instance_tenancy", cty.StringVal("default")},
+	} {
+		if value, ok := vpc.r.Attr(arg.name); ok {
+			setUnlessDefault(call, arg.name, value, arg.value)
 		}
 	}
 	// The module's default is true, the provider's false.
@@ -125,7 +134,7 @@ func mapVPC(c Cluster) (*Call, error) {
 	if !ok {
 		hostnames = hclwrite.TokensForValue(cty.False)
 	}
-	call.Set("enable_dns_hostnames", hostnames)
+	setUnlessDefault(call, "enable_dns_hostnames", hostnames, cty.True)
 	vpc.r.IgnoreDefault("assign_generated_ipv6_cidr_block", cty.False)
 	if err := vpc.r.Done(); err != nil {
 		return nil, err
@@ -577,7 +586,8 @@ func vpcSubnets(call *Call, vpc Resource, kind string, subnets []*vpcSubnet, tab
 		}
 		suffix = s
 	}
-	call.Set(kind+"_subnet_suffix", hclwrite.TokensForValue(cty.StringVal(suffix)))
+	// The module's defaults are public and private.
+	setUnlessDefault(call, kind+"_subnet_suffix", hclwrite.TokensForValue(cty.StringVal(suffix)), cty.StringVal(kind))
 	for i, table := range tables {
 		call.Addresses[table.Address()] = fmt.Sprintf("aws_route_table.%s[%d]", kind, i)
 		call.Outputs[table.Address()] = map[string]string{"id": fmt.Sprintf("%s_route_table_ids[%d]", kind, i)}
@@ -616,11 +626,24 @@ func vpcSubnets(call *Call, vpc Resource, kind string, subnets []*vpcSubnet, tab
 		call.Outputs[s.association.Address()] = map[string]string{"id": fmt.Sprintf("%s_route_table_association_ids[%d]", kind, i)}
 	}
 	call.Set(kind+"_subnets", hclwrite.TokensForTuple(cidrs))
-	call.Set(kind+"_subnet_names", hclwrite.TokensForValue(stringList(names)))
+	// The module names each subnet <name>-<suffix>-<zone> unless told
+	// otherwise.
+	if !slices.EqualFunc(subnets, names, func(s *vpcSubnet, n string) bool { return n == name+"-"+suffix+"-"+s.az }) {
+		call.Set(kind+"_subnet_names", hclwrite.TokensForValue(stringList(names)))
+	}
 	if mapPublicIP != nil {
-		call.Set("map_public_ip_on_launch", mapPublicIP)
+		setUnlessDefault(call, "map_public_ip_on_launch", mapPublicIP, cty.False)
 	}
 	return nil
+}
+
+// setUnlessDefault sets a module argument unless value is the literal
+// def, the module's default.
+func setUnlessDefault(call *Call, name string, value hclwrite.Tokens, def cty.Value) {
+	if v, ok := literal(value); ok && v.Type().Equals(def.Type()) && v.RawEquals(def) {
+		return
+	}
+	call.Set(name, value)
 }
 
 // vpcNAT maps the module's NAT gateway of index i, which private subnets
@@ -647,8 +670,11 @@ func vpcNAT(call *Call, vpc Resource, i int, nat, eip *vpcPart, name string) err
 		}
 	}
 	nat.r.IgnoreDefault("secondary_private_ip_address_count", cty.Zero)
-	if domain, ok := literalString(mustAttr(eip.r, "domain")); !ok || domain != "vpc" {
-		return Declinef("%s isn't for use in a VPC", eip.Address())
+	// Left out of generated configuration at its default, vpc.
+	if tokens, set := eip.r.Attr("domain"); set {
+		if domain, ok := literalString(tokens); !ok || domain != "vpc" {
+			return Declinef("%s isn't for use in a VPC", eip.Address())
+		}
 	}
 	// Computed: the address's pool, and the gateway's network interface,
 	// which AWS attaches it to.

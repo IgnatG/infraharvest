@@ -61,17 +61,24 @@ func mapIAMRole(c Cluster) (*Call, error) {
 	}
 	call.Set("source_trust_policy_documents", hclwrite.TokensForTuple([]hclwrite.Tokens{trust}))
 	path, hasPath := role.Attr("path")
-	for _, arg := range []string{"description", "max_session_duration", "path", "permissions_boundary"} {
+	for _, arg := range []string{"description", "permissions_boundary"} {
 		if value, ok := role.Attr(arg); ok {
 			call.Set(arg, value)
 		}
 	}
-	// Untagged as in the root, where the provider's default tags apply.
+	// The module's defaults are null, which leave the provider's: a role
+	// at the root path, with sessions of up to an hour.
+	if hasPath {
+		setUnlessDefault(call, "path", path, cty.StringVal("/"))
+	}
+	if value, ok := role.Attr("max_session_duration"); ok {
+		setUnlessDefault(call, "max_session_duration", value, cty.NumberIntVal(3600))
+	}
+	// Untagged as in the root, where the provider's default tags apply:
+	// the module's default, no tags, is the same.
 	tags, hasTags := role.Attr("tags")
 	if hasTags {
 		call.Set("tags", tags)
-	} else {
-		call.Set("tags", hclwrite.TokensForValue(cty.NullVal(cty.Map(cty.String))))
 	}
 	// The module always sets it; the provider keeps it only in state.
 	role.Ignore("force_detach_policies")
