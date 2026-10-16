@@ -81,12 +81,12 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 		if strings.TrimSpace(rule.Reason) == "" {
 			fail("skip[%d]: missing a reason", i)
 		}
-		conditions := len(rule.IDs) > 0 || len(rule.IDPrefixes) > 0 || len(rule.Attributes) > 0 || len(rule.AttributePrefixes) > 0
+		conditions := len(rule.IDs) > 0 || len(rule.IDPrefixes) > 0 || len(rule.Attributes) > 0 || len(rule.AttributePrefixes) > 0 || len(rule.AttributeSuffixes) > 0
 		switch {
 		case rule.All && conditions:
-			fail("skip[%d]: all matches every resource, so it takes no ids, id_prefixes, attributes or attribute_prefixes", i)
+			fail("skip[%d]: all matches every resource, so it takes no ids, id_prefixes, attributes, attribute_prefixes or attribute_suffixes", i)
 		case !rule.All && !conditions:
-			fail("skip[%d]: set ids, id_prefixes, attributes or attribute_prefixes, or all: true for every resource", i)
+			fail("skip[%d]: set ids, id_prefixes, attributes, attribute_prefixes or attribute_suffixes, or all: true for every resource", i)
 		}
 		for _, p := range rule.IDPrefixes {
 			if p == "" {
@@ -96,6 +96,11 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 		for k, prefixes := range rule.AttributePrefixes {
 			if len(prefixes) == 0 || slices.Contains(prefixes, "") {
 				fail("skip[%d]: attribute_prefixes: %s: want prefixes, none empty", i, k)
+			}
+		}
+		for k, suffixes := range rule.AttributeSuffixes {
+			if len(suffixes) == 0 || slices.Contains(suffixes, "") {
+				fail("skip[%d]: attribute_suffixes: %s: want suffixes, none empty", i, k)
 			}
 		}
 	}

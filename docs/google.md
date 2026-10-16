@@ -53,6 +53,8 @@ The last four list, each through its own API, what Cloud Asset Inventory doesn't
 
 `iam` lists only the IAM members, `dns` only the record sets and `cloudsql` only the databases. Service accounts, custom roles, DNS zones and Cloud SQL instances come from `cloud_asset`, so add `cloud_asset`, or use `*`, for those.
 
+The default selection leaves out the grants Google Cloud makes itself: a service agent role (`roles/pubsub.serviceAgent`, `roles/compute.instanceGroupManagerServiceAgent`, ...), which it grants a service's agent when the service is enabled, and `roles/editor` for the Google APIs service agent (`<number>@cloudservices.gserviceaccount.com`) and the Compute Engine and App Engine default service accounts. The selection file can include them.
+
 ### Types that aren't listed
 
 `cloud_asset` lists only what Cloud Asset Inventory finds and the catalogue can map, so these types aren't imported:

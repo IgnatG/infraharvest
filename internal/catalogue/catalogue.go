@@ -122,6 +122,9 @@ type SkipRule struct {
 	// AttributePrefixes matches resources whose attributes start with one
 	// of these, such as a name the cloud gives what it creates.
 	AttributePrefixes map[string][]string `yaml:"attribute_prefixes,omitempty"`
+	// AttributeSuffixes matches resources whose attributes end with one of
+	// these, such as the domain of a service account the cloud manages.
+	AttributeSuffixes map[string][]string `yaml:"attribute_suffixes,omitempty"`
 	// IgnoreCase compares IDs and attributes whatever their case, as Azure
 	// names are.
 	IgnoreCase bool `yaml:"ignore_case,omitempty"`
@@ -451,10 +454,14 @@ func (i *Inventory) matches(assetType, name string) bool {
 func (r SkipRule) matches(id string, attributes map[string]string) bool {
 	equal := func(a, b string) bool { return a == b }
 	hasPrefix := strings.HasPrefix
+	hasSuffix := strings.HasSuffix
 	if r.IgnoreCase {
 		equal = strings.EqualFold
 		hasPrefix = func(s, prefix string) bool {
 			return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+		}
+		hasSuffix = func(s, suffix string) bool {
+			return len(s) >= len(suffix) && strings.EqualFold(s[len(s)-len(suffix):], suffix)
 		}
 	}
 	if len(r.IDs) > 0 && !slices.ContainsFunc(r.IDs, func(want string) bool { return equal(id, want) }) {
@@ -471,6 +478,12 @@ func (r SkipRule) matches(id string, attributes map[string]string) bool {
 	for k, prefixes := range r.AttributePrefixes {
 		value, ok := attributes[k]
 		if !ok || !slices.ContainsFunc(prefixes, func(p string) bool { return hasPrefix(value, p) }) {
+			return false
+		}
+	}
+	for k, suffixes := range r.AttributeSuffixes {
+		value, ok := attributes[k]
+		if !ok || !slices.ContainsFunc(suffixes, func(s string) bool { return hasSuffix(value, s) }) {
 			return false
 		}
 	}
