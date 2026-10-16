@@ -18,8 +18,12 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// maxDefaultRounds bounds how often stripDefaults plans.
-const maxDefaultRounds = 3
+// maxDefaultRounds bounds how often stripDefaults plans, and
+// maxDefaultValidations how often it validates before each plan.
+const (
+	maxDefaultRounds      = 4
+	maxDefaultValidations = 3
+)
 
 // defaultCandidate is an argument stripDefaults may leave out.
 type defaultCandidate struct {
@@ -36,8 +40,9 @@ func (c defaultCandidate) key() string {
 // although they change nothing:
 //
 //   - arguments set to null, which is the same as leaving them out;
-//   - optional, non-computed arguments set to a constant (false, 0, "",
-//     [] or {}) that is the provider's default;
+//   - optional, non-computed arguments set to a constant that is the
+//     provider's default, whatever the constant: false, 0 and "" as much
+//     as 3600, "/" or "Managed by Terraform";
 //   - optional arguments, computed or not, set to the value defaults
 //     names for their type, from the catalogue: what the provider or the
 //     cloud gives an argument it isn't told, such as a bucket's STANDARD
@@ -45,12 +50,16 @@ func (c defaultCandidate) key() string {
 //     (soft_delete_policy.retention_duration_seconds=604800).
 //
 // Terraform writes every optional argument, so a resource lists dozens of
-// them. Whether a constant is the default only the plan can tell: the
-// candidates are left out, and where a resource then plans differently from
-// changes (see changeSignature), its arguments behind the difference are
-// put back, until the plan stays the same. Other computed arguments set to
-// a constant stay: leaving one out never shows in the plan, so it could
-// hide a real setting. It reports whether it changed generated.tf.
+// them. The providers' schemas don't say what their defaults are, so only
+// the plan can tell a default from a setting: the candidates of every
+// resource are left out at once, and where a resource then plans
+// differently from changes (see changeSignature), its arguments behind
+// the difference are put back, the next time all of its arguments, until
+// the plan stays the same. Before each plan, validation, which needs no
+// cloud, puts back what leaving out made invalid, such as one of two
+// required alternatives. Other computed arguments set to a constant
+// stay: leaving one out never shows in the plan, so it could hide a real
+// setting. It reports whether it changed generated.tf.
 func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, defaults map[string][]string) (bool, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
@@ -64,7 +73,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	// Only constants need the schema, to tell optional from computed, and
 	// empty blocks, which only a plan can tell from absent ones.
 	var schemas *tfjson.ProviderSchemas
-	if len(defaults) > 0 || hasZeroConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
+	if len(defaults) > 0 || hasConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
 			return false, fmt.Errorf("terraform providers schema: %w", err)
 		}
@@ -86,45 +95,33 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		return true, f.save()
 	}
 	keep := map[string]bool{}
+	// blamed counts the rounds in which each resource planned differently.
+	blamed := map[string]int{}
 	for round := 0; round < maxDefaultRounds; round++ {
-		if err := restore(); err != nil {
-			return false, err
-		}
-		generated, err := loadHCL(path)
+		removed, err := removeValid(ctx, tf, dir, restore, schemas, keep, defaults)
 		if err != nil {
 			return false, err
 		}
-		removed := removeDefaults(generated, schemas, keep, defaults)
 		if len(removed) == 0 {
-			return false, nil
-		}
-		if err := generated.save(); err != nil {
-			return false, err
+			return false, restore()
 		}
 		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
 			return false, err
 		}
 		if len(diags) > 0 || p == nil {
-			// Leaving an argument out made the configuration invalid, such
-			// as one of two required alternatives: keep what the errors
-			// are about, or everything.
-			imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+			// Leaving an argument out made the configuration invalid in a
+			// way validation didn't see: keep what the errors are about,
+			// or everything.
+			assigned, unassigned, err := assignErrors(dir, diags)
 			if err != nil {
 				return false, err
 			}
-			edited, err := loadHCL(path)
-			if err != nil {
-				return false, err
-			}
-			assigned, unassigned := byResource(diags, edited, imports)
 			if len(unassigned) > 0 || len(assigned) == 0 {
 				return nullsOnly()
 			}
-			for _, c := range removed {
-				if _, ok := assigned[c.address]; ok {
-					keep[c.key()] = true
-				}
+			for address := range assigned {
+				keepAll(removed, address, keep)
 			}
 			continue
 		}
@@ -133,10 +130,18 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 				continue
 			}
-			if !noWorse(changeSignature(rc), changes[rc.Address]) {
-				differs = true
-				keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), keep)
+			if noWorse(changeSignature(rc), changes[rc.Address]) {
+				continue
 			}
+			differs = true
+			blamed[rc.Address]++
+			if blamed[rc.Address] > 1 {
+				// The arguments behind the first difference weren't all:
+				// keep the resource's constants rather than plan again.
+				keepAll(removed, rc.Address, keep)
+				continue
+			}
+			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), keep)
 		}
 		if !differs && summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change {
 			return true, nil
@@ -147,6 +152,110 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 	}
 	return nullsOnly()
+}
+
+// removeValid leaves the candidates not in keep out of generated.tf, as
+// restore has it, until the configuration validates: the candidates of a
+// resource that validation rejects, those its errors name or else all of
+// them, are kept. After maxDefaultValidations, the plan has the last word.
+// It returns the candidates it left out.
+func removeValid(ctx context.Context, tf Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, keep map[string]bool, defaults map[string][]string) ([]defaultCandidate, error) {
+	path := filepath.Join(dir, GeneratedFileName)
+	for validation := 0; ; validation++ {
+		if err := restore(); err != nil {
+			return nil, err
+		}
+		generated, err := loadHCL(path)
+		if err != nil {
+			return nil, err
+		}
+		removed := removeDefaults(generated, schemas, keep, defaults)
+		if len(removed) == 0 {
+			return nil, nil
+		}
+		if err := generated.save(); err != nil {
+			return nil, err
+		}
+		// Leaving out nulls never makes configuration invalid.
+		if validation == maxDefaultValidations || !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null }) {
+			return removed, nil
+		}
+		out, err := tf.Validate(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("terraform validate: %w", err)
+		}
+		if out.Valid {
+			return removed, nil
+		}
+		assigned, _, err := assignErrors(dir, errorDiagnostics(out.Diagnostics))
+		if err != nil {
+			return nil, err
+		}
+		if len(assigned) == 0 {
+			// Nothing to tell the resources apart by: let the plan say.
+			return removed, nil
+		}
+		for address, ds := range assigned {
+			keepNamed(removed, address, ds, keep)
+		}
+	}
+}
+
+// assignErrors assigns diags to the resources of dir they are about (see
+// byResource).
+func assignErrors(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
+	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	if err != nil {
+		return nil, nil, err
+	}
+	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	if err != nil {
+		return nil, nil, err
+	}
+	assigned, unassigned := byResource(diags, generated, imports)
+	return assigned, unassigned, nil
+}
+
+// keepNamed keeps the constant candidates of address that diags name, such
+// as the alternatives of "one of `a,b` must be specified", or all of them
+// if they name none.
+func keepNamed(removed []defaultCandidate, address string, diags []tfjson.Diagnostic, keep map[string]bool) {
+	var text strings.Builder
+	for _, d := range diags {
+		text.WriteString(d.Summary + " " + d.Detail + " ")
+	}
+	named := argumentNames(text.String())
+	matched := false
+	for _, c := range removed {
+		if !c.null && c.address == address && (named[c.path[0]] || named[c.path[len(c.path)-1]]) {
+			keep[c.key()] = true
+			matched = true
+		}
+	}
+	if !matched {
+		keepAll(removed, address, keep)
+	}
+}
+
+// argumentNames returns the words of text that could name an argument.
+func argumentNames(text string) map[string]bool {
+	names := map[string]bool{}
+	for _, word := range strings.FieldsFunc(text, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_'
+	}) {
+		names[word] = true
+	}
+	return names
+}
+
+// keepAll keeps every constant candidate of address. Nulls never count:
+// Terraform treats null as an omitted argument.
+func keepAll(removed []defaultCandidate, address string, keep map[string]bool) {
+	for _, c := range removed {
+		if !c.null && c.address == address {
+			keep[c.key()] = true
+		}
+	}
 }
 
 // keepChanged keeps the constant candidates of address behind changed:
@@ -160,13 +269,8 @@ func keepChanged(removed []defaultCandidate, address string, changed []string, k
 			matched = true
 		}
 	}
-	if matched {
-		return
-	}
-	for _, c := range removed {
-		if !c.null && c.address == address {
-			keep[c.key()] = true
-		}
+	if !matched {
+		keepAll(removed, address, keep)
 	}
 }
 
@@ -208,7 +312,7 @@ func noWorse(now, before string) bool {
 }
 
 // removeDefaults removes the candidates not in keep from every resource,
-// and returns them.
+// and returns them. Without schemas, only nulls are candidates.
 func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, keep map[string]bool, defaults map[string][]string) []defaultCandidate {
 	var removed []defaultCandidate
 	for _, r := range f.resources() {
@@ -231,7 +335,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			if s == nil || !s.Optional || s.Required {
 				continue
 			}
-		case isZeroConstant(attr.Expr):
+		case isConstant(attr.Expr):
 			s := schemaAttribute(schemas, typ, path)
 			if s == nil || !s.Optional || s.Computed || s.Required {
 				continue
@@ -307,6 +411,16 @@ func isNullLiteral(expr hclsyntax.Expression) bool {
 	return ok && lit.Val.IsNull()
 }
 
+// isConstant reports whether expr is a value that refers to nothing and
+// calls nothing, such as 3600, "/", true, ["a"] or {}, and isn't null.
+func isConstant(expr hclsyntax.Expression) bool {
+	if len(expr.Variables()) > 0 {
+		return false
+	}
+	v, diags := expr.Value(nil)
+	return !diags.HasErrors() && !v.IsNull() && v.IsWhollyKnown()
+}
+
 // isZeroConstant reports whether expr is false, 0, "", [] or {}.
 func isZeroConstant(expr hclsyntax.Expression) bool {
 	switch e := expr.(type) {
@@ -335,16 +449,16 @@ func isZeroConstant(expr hclsyntax.Expression) bool {
 	return false
 }
 
-// hasZeroConstants reports whether a body or its nested blocks set an
-// argument to false, 0, "", [] or {}.
-func hasZeroConstants(body *hclsyntax.Body) bool {
+// hasConstants reports whether a body or its nested blocks set an argument
+// to a constant (see isConstant).
+func hasConstants(body *hclsyntax.Body) bool {
 	for _, attr := range body.Attributes {
-		if isZeroConstant(attr.Expr) {
+		if isConstant(attr.Expr) {
 			return true
 		}
 	}
 	for _, b := range body.Blocks {
-		if hasZeroConstants(b.Body) {
+		if hasConstants(b.Body) {
 			return true
 		}
 	}
