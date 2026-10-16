@@ -10,9 +10,11 @@ types:
       create_before_destroy: true
       reason: "a stage refers to its deployment, so a new one must exist before the old one goes. To redeploy when the API changes, add triggers = { redeployment = sha1(jsonencode([...])) } listing the IDs of its resources, methods and integrations; the next apply then replaces this deployment once"
   aws_api_gateway_integration:
-    # Optional and computed, at what AWS gives an integration that doesn't
-    # set them: the cache namespace is its resource's ID.
-    omit: ["cache_namespace={resource_id}", passthrough_behavior=WHEN_NO_MATCH, response_transfer_mode=BUFFERED]
+    # The cache namespace AWS gives an integration that sets none: its
+    # resource's ID.
+    omit: ["cache_namespace={resource_id}"]
+    # What AWS gives an integration that doesn't set them.
+    defaults: [connection_type=INTERNET, passthrough_behavior=WHEN_NO_MATCH, response_transfer_mode=BUFFERED, timeout_milliseconds=29000]
   aws_api_gateway_model:
     skip:
       - reason: a model AWS creates with every REST API
@@ -21,10 +23,9 @@ types:
         attributes: { name: Error }
   aws_api_gateway_rest_api:
     arn: { service: apigateway, resource_type: "restapis" }
-    # Optional and computed, at what AWS gives a REST API that doesn't set
-    # them: an edge-optimised IPv4 endpoint.
+    # An edge-optimised IPv4 endpoint, which AWS gives a REST API that sets
+    # none.
     omit:
-      - api_key_source=HEADER
-      - disable_execute_api_endpoint=false
-      - security_policy=TLS_1_0
       - endpoint_configuration when endpoint_configuration.types=["EDGE"] and endpoint_configuration.ip_address_type=ipv4
+    # What AWS gives a REST API that doesn't set them.
+    defaults: [api_key_source=HEADER, disable_execute_api_endpoint=false, put_rest_api_mode=overwrite, security_policy=TLS_1_0]

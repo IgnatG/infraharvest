@@ -59,6 +59,19 @@ var VPC = Adapter{
 		"vpc_enable_dns_support", "vpc_id", "vpc_instance_tenancy", "vpc_main_route_table_id", "vpc_owner_id",
 	},
 	Map: mapVPC,
+	// The module's variables' defaults, from its variables.tf; its
+	// enable_network_address_usage_metrics defaults to null, which the
+	// provider takes as false. enable_dns_hostnames defaults to true,
+	// unlike the provider's false, so a VPC without it passes false.
+	Defaults: map[string]cty.Value{
+		"enable_dns_hostnames":                 cty.True,
+		"enable_dns_support":                   cty.True,
+		"enable_network_address_usage_metrics": cty.False,
+		"instance_tenancy":                     cty.StringVal("default"),
+		"map_public_ip_on_launch":              cty.False,
+		"private_subnet_suffix":                cty.StringVal("private"),
+		"public_subnet_suffix":                 cty.StringVal("public"),
+	},
 }
 
 // vpcPart is a resource of a VPC cluster, read.
@@ -115,18 +128,9 @@ func mapVPC(c Cluster) (*Call, error) {
 		return nil, Declinef("%s has no CIDR block", vpc.Address())
 	}
 	call.Set("cidr", cidr)
-	// Each is passed unless it is the module's default: for usage
-	// metrics, null, which leaves the provider's default, false.
-	for _, arg := range []struct {
-		name  string
-		value cty.Value
-	}{
-		{"enable_dns_support", cty.True},
-		{"enable_network_address_usage_metrics", cty.False},
-		{"instance_tenancy", cty.StringVal("default")},
-	} {
-		if value, ok := vpc.r.Attr(arg.name); ok {
-			setUnlessDefault(call, arg.name, value, arg.value)
+	for _, arg := range []string{"enable_dns_support", "enable_network_address_usage_metrics", "instance_tenancy"} {
+		if value, ok := vpc.r.Attr(arg); ok {
+			call.Set(arg, value)
 		}
 	}
 	// The module's default is true, the provider's false.
@@ -134,7 +138,7 @@ func mapVPC(c Cluster) (*Call, error) {
 	if !ok {
 		hostnames = hclwrite.TokensForValue(cty.False)
 	}
-	setUnlessDefault(call, "enable_dns_hostnames", hostnames, cty.True)
+	call.Set("enable_dns_hostnames", hostnames)
 	vpc.r.IgnoreDefault("assign_generated_ipv6_cidr_block", cty.False)
 	if err := vpc.r.Done(); err != nil {
 		return nil, err
@@ -586,8 +590,7 @@ func vpcSubnets(call *Call, vpc Resource, kind string, subnets []*vpcSubnet, tab
 		}
 		suffix = s
 	}
-	// The module's defaults are public and private.
-	setUnlessDefault(call, kind+"_subnet_suffix", hclwrite.TokensForValue(cty.StringVal(suffix)), cty.StringVal(kind))
+	call.Set(kind+"_subnet_suffix", hclwrite.TokensForValue(cty.StringVal(suffix)))
 	for i, table := range tables {
 		call.Addresses[table.Address()] = fmt.Sprintf("aws_route_table.%s[%d]", kind, i)
 		call.Outputs[table.Address()] = map[string]string{"id": fmt.Sprintf("%s_route_table_ids[%d]", kind, i)}
@@ -632,18 +635,9 @@ func vpcSubnets(call *Call, vpc Resource, kind string, subnets []*vpcSubnet, tab
 		call.Set(kind+"_subnet_names", hclwrite.TokensForValue(stringList(names)))
 	}
 	if mapPublicIP != nil {
-		setUnlessDefault(call, "map_public_ip_on_launch", mapPublicIP, cty.False)
+		call.Set("map_public_ip_on_launch", mapPublicIP)
 	}
 	return nil
-}
-
-// setUnlessDefault sets a module argument unless value is the literal
-// def, the module's default.
-func setUnlessDefault(call *Call, name string, value hclwrite.Tokens, def cty.Value) {
-	if v, ok := literal(value); ok && v.Type().Equals(def.Type()) && v.RawEquals(def) {
-		return
-	}
-	call.Set(name, value)
 }
 
 // vpcNAT maps the module's NAT gateway of index i, which private subnets

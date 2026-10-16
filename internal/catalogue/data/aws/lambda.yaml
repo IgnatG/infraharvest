@@ -11,12 +11,17 @@ types:
       # The hash of the code deployed, which AWS reports; set, it is what
       # makes the provider update the code.
       - code_sha256
-      # Optional and computed, at what AWS gives a function that doesn't
-      # set them: logs in text to /aws/lambda/<function>.
-      - architectures=["x86_64"]
-      - ephemeral_storage when ephemeral_storage.size=512
+      # Logs in text to /aws/lambda/<function>, and no tracing.
       - logging_config when logging_config.log_format=Text and logging_config.log_group=/aws/lambda/{function_name}
       - tracing_config when tracing_config.mode=PassThrough
+    # What AWS gives a function that doesn't set them.
+    defaults:
+      - architectures=["x86_64"]
+      - ephemeral_storage.size=512
+      - memory_size=128
+      - package_type=Zip
+      - reserved_concurrent_executions=-1
+      - timeout=3
     # AWS doesn't say where a zip package came from, and Terraform can't
     # read it back.
     placeholder:

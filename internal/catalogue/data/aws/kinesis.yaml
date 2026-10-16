@@ -7,8 +7,8 @@ types:
     omit:
       # Computed, written back as an argument.
       - arn
-      # Optional and computed, at what AWS gives a stream that doesn't set
-      # them: provisioned shards, the shard count given, and records of up
-      # to 1 MiB.
-      - max_record_size_in_kib=1024
+      # Provisioned shards, the shard count given.
       - stream_mode_details when stream_mode_details.stream_mode=PROVISIONED
+    # What AWS gives a stream that doesn't set them: records of up to
+    # 1 MiB, kept for a day.
+    defaults: [max_record_size_in_kib=1024, retention_period=24]

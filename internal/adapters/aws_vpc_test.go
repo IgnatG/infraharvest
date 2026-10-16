@@ -103,7 +103,7 @@ func TestVPCMapsEveryMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
+	got := called(t, VPC, call)
 	for _, want := range []string{
 		`name = "shop"`,
 		`cidr = "10.0.0.0/16"`,
@@ -182,7 +182,7 @@ func TestVPCAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
+	got := called(t, VPC, call)
 	for _, want := range []string{`name = "shop"`, "azs = []"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("call misses %q:\n%s", want, got)
@@ -215,7 +215,7 @@ func TestVPCLeavesModuleDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
+	got := called(t, VPC, call)
 	for _, unwanted := range []string{"_subnet_names", "_subnet_suffix", "instance_tenancy", "enable_network_address_usage_metrics", "map_public_ip_on_launch", "enable_dns_support"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
@@ -392,7 +392,7 @@ func TestVPCMapsANATGatewayPerZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
+	got := called(t, VPC, call)
 	for _, want := range []string{
 		`azs = ["us-east-1a", "us-east-1b"]`,
 		`public_subnets = ["10.0.1.0/24", "10.0.2.0/24"]`,

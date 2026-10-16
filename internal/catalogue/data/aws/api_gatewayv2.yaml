@@ -4,15 +4,15 @@ service: api_gatewayv2
 types:
   aws_apigatewayv2_api:
     arn: { service: apigateway, resource_type: "apis" }
-    # Optional and computed, at the default AWS reports.
-    omit: [ip_address_type=ipv4]
+    # What AWS gives an API that doesn't set them.
+    defaults: ["api_key_selection_expression=$request.header.x-api-key", ip_address_type=ipv4, "route_selection_expression=$request.method $request.path"]
   aws_apigatewayv2_integration:
-    # The timeout AWS gives an HTTP API's integration that sets none.
-    omit: [timeout_milliseconds=30000]
+    # What AWS gives an HTTP API's integration that doesn't set them.
+    defaults: [connection_type=INTERNET, timeout_milliseconds=30000]
   aws_apigatewayv2_stage:
     omit:
       # A stage that deploys itself points at the latest deployment, which
       # AWS reports; set, it pins the deployment the import found.
       - deployment_id when auto_deploy=true
-      # Optional and computed, at the default AWS reports.
-      - default_route_settings.logging_level=OFF
+    # What AWS gives a stage that doesn't set it.
+    defaults: [default_route_settings.logging_level=OFF]

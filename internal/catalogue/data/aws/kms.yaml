@@ -6,11 +6,10 @@ types:
   aws_kms_key:
     arn: { service: kms, resource_type: "key" }
     data_source: { type: aws_kms_key, argument: key_id }
+    # What AWS gives a key that doesn't set them: a single-region key,
+    # rotated yearly when rotation is on.
+    defaults: [multi_region=false, rotation_period_in_days=365]
     omit:
-      # Optional and computed, at what AWS gives a key that doesn't set
-      # them: a single-region key, rotated yearly when rotation is on, and
-      # the default key policy, which lets the account's IAM policies
-      # grant access to it.
-      - multi_region=false
-      - rotation_period_in_days=365
+      # The default key policy, which lets the account's IAM policies grant
+      # access to the key.
       - 'policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}'

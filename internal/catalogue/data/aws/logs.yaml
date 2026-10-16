@@ -4,9 +4,8 @@ service: logs
 types:
   aws_cloudwatch_log_group:
     arn: { service: logs, resource_type: "log-group" }
-    # Optional and computed, at what AWS gives a log group that doesn't set
-    # them.
-    omit: [deletion_protection_enabled=false, log_group_class=STANDARD]
+    # What AWS gives a log group that doesn't set them.
+    defaults: [deletion_protection_enabled=false, log_group_class=STANDARD]
     skip:
       - reason: log group Lambda creates for a function
         id_prefixes: [/aws/lambda/]

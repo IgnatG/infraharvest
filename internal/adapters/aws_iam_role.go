@@ -33,6 +33,13 @@ var IAMRole = Adapter{
 	},
 	Outputs: []string{"arn", "instance_profile_arn", "instance_profile_id", "instance_profile_name", "instance_profile_unique_id", "name", "unique_id"},
 	Map:     mapIAMRole,
+	// The module's path and max_session_duration default to null, which
+	// the provider takes as a role at the root path, with sessions of up
+	// to an hour.
+	Defaults: map[string]cty.Value{
+		"max_session_duration": cty.NumberIntVal(3600),
+		"path":                 cty.StringVal("/"),
+	},
 }
 
 func mapIAMRole(c Cluster) (*Call, error) {
@@ -61,18 +68,10 @@ func mapIAMRole(c Cluster) (*Call, error) {
 	}
 	call.Set("source_trust_policy_documents", hclwrite.TokensForTuple([]hclwrite.Tokens{trust}))
 	path, hasPath := role.Attr("path")
-	for _, arg := range []string{"description", "permissions_boundary"} {
+	for _, arg := range []string{"description", "max_session_duration", "path", "permissions_boundary"} {
 		if value, ok := role.Attr(arg); ok {
 			call.Set(arg, value)
 		}
-	}
-	// The module's defaults are null, which leave the provider's: a role
-	// at the root path, with sessions of up to an hour.
-	if hasPath {
-		setUnlessDefault(call, "path", path, cty.StringVal("/"))
-	}
-	if value, ok := role.Attr("max_session_duration"); ok {
-		setUnlessDefault(call, "max_session_duration", value, cty.NumberIntVal(3600))
 	}
 	// Untagged as in the root, where the provider's default tags apply:
 	// the module's default, no tags, is the same.

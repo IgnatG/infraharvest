@@ -57,13 +57,12 @@ What needs the cloud to decide, such as whether a VPC is the default one or a Cl
 
 ## Leaving out arguments
 
-Terraform writes every argument a resource has, so generated configuration repeats what the cloud gives a resource that doesn't set it. `omit` leaves those out, where leaving them out changes no plan: arguments that are optional and computed, at the value the cloud reports for a resource that sets none. Defaults in the provider's schema are the engine's to leave out, not the catalogue's.
+Terraform writes every argument a resource has, so generated configuration repeats what the cloud gives a resource that doesn't set it. `defaults` names such values, and the engine leaves them out where the plan stays the same. `omit` says what `defaults` can't: arguments to leave out only where conditions hold, blocks whatever they hold, and values that depend on the resource or on what the cloud alone can tell, such as a default policy or an instance type's CPU options. Each must be optional, and computed or never read back, so that leaving it out changes no plan.
 
 ```yaml
 types:
   aws_lb_target_group:
     omit:
-      - load_balancing_algorithm_type=round_robin        # an attribute at a value
       - stickiness when stickiness.enabled=false         # a block, where its own argument holds
   aws_instance:
     omit:

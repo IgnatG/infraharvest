@@ -16,3 +16,4 @@ types:
       - point_in_time_recovery when point_in_time_recovery.enabled=false
       - server_side_encryption when server_side_encryption.enabled=false
       - ttl when ttl.enabled=false
+    defaults: [table_class=STANDARD]

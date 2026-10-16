@@ -4,6 +4,11 @@ service: sqs
 types:
   aws_sqs_queue:
     arn: { service: sqs, resource_type: "" }
-    # Optional and computed, at what AWS gives a queue that doesn't set
-    # them: encrypted with SQS-managed keys.
-    omit: [kms_data_key_reuse_period_seconds=300, sqs_managed_sse_enabled=true]
+    # What AWS gives a queue that doesn't set them: encrypted with
+    # SQS-managed keys.
+    defaults:
+      - kms_data_key_reuse_period_seconds=300
+      - max_message_size=1048576
+      - message_retention_seconds=345600
+      - sqs_managed_sse_enabled=true
+      - visibility_timeout_seconds=30

@@ -4,7 +4,9 @@ service: eip
 types:
   aws_eip:
     arn: { service: ec2, resource_type: "elastic-ip" }
-    # Optional and computed, at what AWS gives an address that doesn't set
-    # them: for use in a VPC, from Amazon's pool, in the region's network
-    # border group.
-    omit: [domain=vpc, "network_border_group={region}", public_ipv4_pool=amazon]
+    # The region's network border group, which AWS gives an address that
+    # sets none.
+    omit: ["network_border_group={region}"]
+    # What AWS gives an address that doesn't set them: for use in a VPC,
+    # from Amazon's pool.
+    defaults: [domain=vpc, public_ipv4_pool=amazon]

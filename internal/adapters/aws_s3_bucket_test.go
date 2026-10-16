@@ -52,6 +52,20 @@ func render(t *testing.T, a Adapter, call *Call) string {
 	return squash(string(hclwrite.Format(f.Bytes())))
 }
 
+// called writes a call's arguments as the engine writes the call: without
+// those at the module's defaults (see Adapter.IsDefault).
+func called(t *testing.T, a Adapter, call *Call) string {
+	t.Helper()
+	without := *call
+	without.Arguments = nil
+	for _, arg := range call.Arguments {
+		if !a.IsDefault(arg.Name, arg.Value) {
+			without.Arguments = append(without.Arguments, arg)
+		}
+	}
+	return render(t, a, &without)
+}
+
 func TestS3BucketMapsEveryMember(t *testing.T) {
 	c := cluster(t, `resource "aws_s3_bucket" "artifacts" {
   bucket              = "artifacts"
@@ -128,7 +142,7 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, S3Bucket, call)
+	got := called(t, S3Bucket, call)
 	for _, want := range []string{
 		`bucket              = "artifacts"`,
 		"tags                = local.tags",
@@ -196,7 +210,7 @@ resource "aws_s3_bucket_versioning" "site" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, S3Bucket, call)
+	got := called(t, S3Bucket, call)
 	for _, want := range []string{"force_destroy = true", "object_lock_enabled = true", `object_ownership = "ObjectWriter"`, "block_public_policy = false", "ignore_public_acls = false", "restrict_public_buckets = false", `mfa_delete = "Enabled"`} {
 		if !strings.Contains(squash(got), want) {
 			t.Errorf("call misses %q:\n%s", want, got)
@@ -216,7 +230,7 @@ func TestS3BucketTurnsOffThePublicAccessBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := render(t, S3Bucket, call); !strings.Contains(got, "attach_public_policy = false") {
+	if got := called(t, S3Bucket, call); !strings.Contains(got, "attach_public_policy = false") {
 		t.Errorf("public access block not turned off:\n%s", got)
 	}
 }

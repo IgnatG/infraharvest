@@ -43,7 +43,7 @@ resource "aws_iam_role_policy_attachment" "ci_readonly" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, IAMRole, call)
+	got := called(t, IAMRole, call)
 	for _, want := range []string{
 		`name = "ci"`,
 		"use_name_prefix = false",
@@ -88,7 +88,7 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, IAMRole, call)
+	got := called(t, IAMRole, call)
 	for _, unwanted := range []string{"create_inline_policy", "create_instance_profile", "policies"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s:\n%s", unwanted, got)
@@ -116,7 +116,7 @@ func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, IAMRole, call)
+	got := called(t, IAMRole, call)
 	for _, unwanted := range []string{"path", "max_session_duration"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)

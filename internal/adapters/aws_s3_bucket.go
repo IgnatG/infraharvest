@@ -36,6 +36,20 @@ var S3Bucket = Adapter{
 		"s3_bucket_bucket_regional_domain_name", "s3_bucket_hosted_zone_id", "s3_bucket_id", "s3_bucket_region",
 	},
 	Map: mapS3Bucket,
+	// The module's variables' defaults, from its variables.tf; its
+	// bucket_namespace defaults to null, which the provider takes as
+	// global. The public access block's settings default to true, unlike
+	// the resource's false, so a block without one passes false.
+	Defaults: map[string]cty.Value{
+		"block_public_acls":       cty.True,
+		"block_public_policy":     cty.True,
+		"bucket_namespace":        cty.StringVal("global"),
+		"force_destroy":           cty.False,
+		"ignore_public_acls":      cty.True,
+		"object_lock_enabled":     cty.False,
+		"object_ownership":        cty.StringVal("BucketOwnerEnforced"),
+		"restrict_public_buckets": cty.True,
+	},
 }
 
 func mapS3Bucket(c Cluster) (*Call, error) {
@@ -58,18 +72,9 @@ func mapS3Bucket(c Cluster) (*Call, error) {
 		return nil, Declinef("%s has no bucket name", c.Anchor.Address())
 	}
 	call.Set("bucket", name)
-	// Each is passed unless it is the module's default: for the namespace,
-	// null, which leaves the provider's, global.
-	for _, arg := range []struct {
-		name  string
-		value cty.Value
-	}{
-		{"bucket_namespace", cty.StringVal("global")},
-		{"force_destroy", cty.False},
-		{"object_lock_enabled", cty.False},
-	} {
-		if value, ok := bucket.Attr(arg.name); ok {
-			setUnlessDefault(call, arg.name, value, arg.value)
+	for _, arg := range []string{"bucket_namespace", "force_destroy", "object_lock_enabled"} {
+		if value, ok := bucket.Attr(arg); ok {
+			call.Set(arg, value)
 		}
 	}
 	// Untagged as in the root, where the provider's default tags apply:
@@ -179,15 +184,15 @@ func s3Encryption(call *Call, r *Reader) error {
 	return nil
 }
 
-// s3PublicAccessBlock passes the four settings that aren't the module's
-// default, true: the resource's is false.
+// s3PublicAccessBlock passes the four settings explicitly: the module's
+// defaults are true, the resource's false.
 func s3PublicAccessBlock(call *Call, r *Reader) {
 	for _, arg := range []string{"block_public_acls", "block_public_policy", "ignore_public_acls", "restrict_public_buckets"} {
 		value, ok := r.Attr(arg)
 		if !ok {
 			value = hclwrite.TokensForValue(cty.False)
 		}
-		setUnlessDefault(call, arg, value, cty.True)
+		call.Set(arg, value)
 	}
 	// skip_destroy is kept only in state: pass what the import has.
 	value, ok := r.Attr("skip_destroy")
@@ -210,7 +215,7 @@ func s3OwnershipControls(call *Call, r *Reader) error {
 		return Declinef("ownership controls have no object_ownership")
 	}
 	call.Set("control_object_ownership", hclwrite.TokensForValue(cty.True))
-	setUnlessDefault(call, "object_ownership", ownership, cty.StringVal("BucketOwnerEnforced"))
+	call.Set("object_ownership", ownership)
 	return nil
 }
 
