@@ -20,7 +20,7 @@ modules:                 # your own modules, before the curated ones (see Module
   - source: git::https://github.com/acme/terraform-modules.git//bucket?ref=v1.4.0
 ```
 
-A setting is named after its flag, without the dashes. A list gives a flag several values: comma-separated for `regions` and `services`, and one filter per item for `id`, `tag` and `where`, which the command line takes once per filter, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]`.
+A setting is named after its flag, without the dashes. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one filter per item for `id`, `tag` and `where`, which the command line takes once per filter, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]`.
 
 Each root gets a `backend.tf` with its own state key (`imported/aws/<account>/<region>/terraform.tfstate`). S3 state is locked with S3's own lock file (`use_lockfile = true`), not DynamoDB. infraharvest writes `backend.tf` after checking the root, so importing never needs access to the state bucket.
 

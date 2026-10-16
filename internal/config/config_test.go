@@ -111,6 +111,28 @@ func TestLoadRejectsMistakes(t *testing.T) {
 	}
 }
 
+// Settings for a provider that names no command, such as the Terraform
+// provider's azurerm for azure, would never apply: they fail, listing the
+// commands.
+func TestApplyRejectsUnknownProviders(t *testing.T) {
+	f, err := Load(write(t, "version: 1\nproviders:\n  google:\n    projects: [p]\n  azurerm:\n    subscription: x\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, _, _, _, _ := flags()
+	if err := f.Apply(fs, "aws"); err == nil || !strings.Contains(err.Error(), `unknown provider "azurerm": use aws, azure, google`) {
+		t.Errorf("want an error listing the valid ones, got %v", err)
+	}
+	// The command being run is always one.
+	f, err = Load(write(t, "version: 1\nproviders:\n  fake:\n    profile: x\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Apply(fs, "fake"); err != nil {
+		t.Errorf("the running command's settings: %v", err)
+	}
+}
+
 func TestBackendFile(t *testing.T) {
 	for name, tc := range map[string]struct {
 		backend Backend

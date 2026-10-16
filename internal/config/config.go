@@ -10,9 +10,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -25,6 +27,10 @@ import (
 
 // Version is the configuration file format's version.
 const Version = 1
+
+// ProviderCommands are the provider commands providers: holds settings
+// for, whichever of them the binary is built with.
+var ProviderCommands = []string{"aws", "azure", "google"}
 
 // File is a configuration file.
 type File struct {
@@ -191,8 +197,15 @@ func required(values map[string]string) []string {
 }
 
 // Apply sets the flags the command line didn't, from the file's settings
-// and the provider's. It fails on a setting that isn't a flag.
+// and the provider's. It fails on a setting that isn't a flag, and on
+// settings for a provider that is neither one of ProviderCommands nor
+// provider, which would otherwise never apply.
 func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
+	for _, name := range slices.Sorted(maps.Keys(f.Providers)) {
+		if name != provider && !slices.Contains(ProviderCommands, name) {
+			return fmt.Errorf("providers: unknown provider %q: use %s", name, strings.Join(ProviderCommands, ", "))
+		}
+	}
 	for _, settings := range []map[string]any{f.Settings, f.Providers[provider]} {
 		names := make([]string, 0, len(settings))
 		for name := range settings {
