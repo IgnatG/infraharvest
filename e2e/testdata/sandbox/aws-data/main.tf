@@ -28,9 +28,9 @@ variable "suffix" {
 }
 
 variable "redshift_node_type" {
-  description = "The node type of the single-node Redshift cluster: the cheapest the region offers."
+  description = "The node type of the single-node Redshift cluster: the cheapest current one (DC2 is retired for new clusters)."
   type        = string
-  default     = "dc2.large"
+  default     = "ra3.large"
 }
 
 variable "run_id" {
@@ -226,8 +226,9 @@ resource "aws_db_instance" "main" {
 }
 
 # A single-node Redshift cluster, private, encrypted as Redshift encrypts
-# every new cluster, with the admin password in Secrets Manager, no
-# automated snapshots and no final one.
+# every new cluster, with the admin password in Secrets Manager, and no
+# final snapshot. RA3 clusters keep automated snapshots for at least a day;
+# Redshift deletes them with the cluster.
 resource "aws_redshift_subnet_group" "main" {
   name       = local.name
   subnet_ids = [for s in aws_subnet.private : s.id]
@@ -244,7 +245,7 @@ resource "aws_redshift_cluster" "main" {
   cluster_subnet_group_name           = aws_redshift_subnet_group.main.name
   vpc_security_group_ids              = [aws_security_group.data.id]
   publicly_accessible                 = false
-  automated_snapshot_retention_period = 0
+  automated_snapshot_retention_period = 1
   skip_final_snapshot                 = true
   tags                                = local.tags
 }
