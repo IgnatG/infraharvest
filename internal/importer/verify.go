@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -60,7 +63,8 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return err
 			}
-			opts.Omit, opts.StateOnly = cat.Omit(), cat.StateOnly()
+			v := lockedProviderVersion(dir, binary.Registry, provider)
+			opts.Omit, opts.StateOnly = cat.OmitFor(v), cat.StateOnlyFor(v)
 		}
 		tf, err := engine.NewTerraform(dir, execPath, filepath.Join(cacheDir, "plugins"), nil)
 		if err != nil {
@@ -161,4 +165,20 @@ func rootProvider(out, dir string, provider func(string) harvest.Provider) harve
 	}
 	first, _, _ := strings.Cut(relativePath(out, dir), "/")
 	return provider(first)
+}
+
+// lockedProviderVersion returns the version of provider that the lock file
+// of dir selected, through registry, or nil if it records none: the
+// catalogue entries that depend on the provider's version then don't
+// apply.
+func lockedProviderVersion(dir, registry string, provider harvest.Provider) *goversion.Version {
+	lock, err := os.ReadFile(filepath.Join(dir, engine.LockFileName))
+	if err != nil {
+		return nil
+	}
+	v, err := goversion.NewVersion(engine.LockedVersion(lock, qualifiedSource(registry, engineProvider(provider).Source)))
+	if err != nil {
+		return nil
+	}
+	return v
 }

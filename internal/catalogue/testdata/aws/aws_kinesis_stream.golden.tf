@@ -5,7 +5,7 @@ import {
   id = "arn:aws:kinesis:eu-west-2:123456789012:stream/clicks"
 }
 
-# Left out of generated configuration: region, tags_all, arn, stream_mode_details when stream_mode_details.stream_mode=PROVISIONED
+# Left out of generated configuration: region, tags_all, *.tags_all, arn, stream_mode_details when stream_mode_details.stream_mode=PROVISIONED
 
 # Left out where the plan stays the same, as the default: max_record_size_in_kib=1024, retention_period=24
 

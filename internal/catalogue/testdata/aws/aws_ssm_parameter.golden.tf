@@ -5,7 +5,7 @@ import {
   id = "/app/feature-flags"
 }
 
-# Left out of generated configuration: region, tags_all, arn
+# Left out of generated configuration: region, tags_all, *.tags_all, arn
 
 # Left out where the plan stays the same, as the default: data_type=text, key_id=alias/aws/ssm, tier=Standard
 

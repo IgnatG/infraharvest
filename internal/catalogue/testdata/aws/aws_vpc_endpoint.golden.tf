@@ -19,7 +19,7 @@ data "aws_vpc_endpoint" "ssm" {
   id = "vpce-0f1e2d3c4b5a69788"
 }
 
-# Left out of generated configuration: region, tags_all, dns_options when vpc_endpoint_type=Gateway, ip_address_type=ipv4 when vpc_endpoint_type=Gateway, private_dns_enabled=false when vpc_endpoint_type=Gateway, security_group_ids when vpc_endpoint_type=Gateway, subnet_configuration when vpc_endpoint_type=Gateway, subnet_ids when vpc_endpoint_type=Gateway, policy={"Version":"2008-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}, policy={"Statement":[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}
+# Left out of generated configuration: region, tags_all, *.tags_all, dns_options when vpc_endpoint_type=Gateway, ip_address_type=ipv4 when vpc_endpoint_type=Gateway, private_dns_enabled=false when vpc_endpoint_type=Gateway, security_group_ids when vpc_endpoint_type=Gateway, subnet_configuration when vpc_endpoint_type=Gateway, subnet_ids when vpc_endpoint_type=Gateway, policy={"Version":"2008-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}, policy={"Statement":[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}
 
 # Generated configuration, without the arguments the catalogue omits:
 resource "aws_vpc_endpoint" "s3" {

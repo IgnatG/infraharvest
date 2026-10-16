@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/go-version"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -72,6 +74,16 @@ type Entry struct {
 	// settings it uses when it deletes a resource: an import leaves them
 	// unset, so the verification gate accepts a plan that sets them.
 	StateOnly []string `yaml:"state_only,omitempty"`
+	// ProviderVersions adds to Omit, Defaults and StateOnly, by a
+	// constraint on the provider's version (">= 5.0", "< 5.0"), what holds
+	// only for the versions it accepts, such as a default a major release
+	// changed.
+	ProviderVersions map[string]*Versioned `yaml:"provider_versions,omitempty"`
+	// KeepEmpty names optional arguments whose empty value ("", [] or {})
+	// the provider documents as a setting of its own, such as one that
+	// removes what the cloud adds by default: they stay where they are set
+	// empty, which the engine otherwise leaves out.
+	KeepEmpty []string `yaml:"keep_empty,omitempty"`
 	// Skip lists the resources the default selection leaves out, with the
 	// reason, such as the ones the cloud creates itself.
 	Skip []SkipRule `yaml:"skip,omitempty"`
@@ -106,6 +118,15 @@ type Entry struct {
 type Lifecycle struct {
 	CreateBeforeDestroy bool   `yaml:"create_before_destroy"`
 	Reason              string `yaml:"reason"`
+}
+
+// Versioned is what an entry adds for the provider versions a constraint
+// accepts (see Entry.ProviderVersions), as the entry's fields of the same
+// names do for every version.
+type Versioned struct {
+	Omit      []string `yaml:"omit,omitempty"`
+	Defaults  []string `yaml:"defaults,omitempty"`
+	StateOnly []string `yaml:"state_only,omitempty"`
 }
 
 // Placeholder sets arguments that Terraform can't read back from the cloud,
@@ -347,15 +368,27 @@ func (c *Catalogue) Source(typ string) string {
 	return c.sources[typ]
 }
 
-// Omit returns the arguments to leave out of generated configuration, per
-// type and under AllTypes for every type: the entries whose conditions
-// don't depend on what a lister recorded (see ResourceOmit).
+// Omit returns the arguments to leave out of generated configuration
+// whatever the provider's version, per type and under AllTypes for every
+// type: the entries whose conditions don't depend on what a lister
+// recorded (see ResourceOmit).
 func (c *Catalogue) Omit() map[string][]string {
-	return c.lists(func(e *Entry) []string {
-		return slices.DeleteFunc(slices.Clone(e.Omit), func(entry string) bool {
-			_, conditions := listerConditions(entry)
-			return len(conditions) > 0
-		})
+	return c.OmitFor(nil)
+}
+
+// OmitFor returns the arguments to leave out of configuration generated
+// with version v of the provider: Omit, and what the entries'
+// provider_versions add for v. A nil v adds nothing.
+func (c *Catalogue) OmitFor(v *version.Version) map[string][]string {
+	return c.lists(v, func(e *Entry) []string { return withoutListerConditions(e.Omit) }, func(x *Versioned) []string { return withoutListerConditions(x.Omit) })
+}
+
+// withoutListerConditions returns the omit entries without a condition on
+// what a lister recorded (see ResourceOmit).
+func withoutListerConditions(entries []string) []string {
+	return slices.DeleteFunc(slices.Clone(entries), func(entry string) bool {
+		_, conditions := listerConditions(entry)
+		return len(conditions) > 0
 	})
 }
 
@@ -414,26 +447,62 @@ func listerConditionHolds(condition string, attributes map[string]string) bool {
 	return holds != negate
 }
 
-// Defaults returns the values optional arguments default to, as
-// path=value, per type.
+// Defaults returns the values optional arguments default to whatever the
+// provider's version, as path=value, per type.
 func (c *Catalogue) Defaults() map[string][]string {
-	return c.lists(func(e *Entry) []string { return e.Defaults })
+	return c.DefaultsFor(nil)
 }
 
-// StateOnly returns the arguments the provider keeps only in state, per
-// type and under AllTypes for every type.
+// DefaultsFor returns the values optional arguments default to with
+// version v of the provider: Defaults, and what the entries'
+// provider_versions add for v, such as a default a major release changed.
+func (c *Catalogue) DefaultsFor(v *version.Version) map[string][]string {
+	return c.lists(v, func(e *Entry) []string { return e.Defaults }, func(x *Versioned) []string { return x.Defaults })
+}
+
+// StateOnly returns the arguments the provider keeps only in state,
+// whatever its version, per type and under AllTypes for every type.
 func (c *Catalogue) StateOnly() map[string][]string {
-	return c.lists(func(e *Entry) []string { return e.StateOnly })
+	return c.StateOnlyFor(nil)
 }
 
-func (c *Catalogue) lists(field func(*Entry) []string) map[string][]string {
+// StateOnlyFor returns the arguments version v of the provider keeps only
+// in state: StateOnly, and what the entries' provider_versions add for v.
+func (c *Catalogue) StateOnlyFor(v *version.Version) map[string][]string {
+	return c.lists(v, func(e *Entry) []string { return e.StateOnly }, func(x *Versioned) []string { return x.StateOnly })
+}
+
+// lists returns each entry's field, with what its provider_versions add
+// for v in constraint order, by type.
+func (c *Catalogue) lists(v *version.Version, field func(*Entry) []string, versioned func(*Versioned) []string) map[string][]string {
 	lists := map[string][]string{}
 	for typ, e := range c.entries {
-		if l := field(e); len(l) > 0 {
-			lists[typ] = append([]string(nil), l...)
+		l := append([]string(nil), field(e)...)
+		if v != nil {
+			for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
+				if accepts(constraint, v) && e.ProviderVersions[constraint] != nil {
+					l = append(l, versioned(e.ProviderVersions[constraint])...)
+				}
+			}
+		}
+		if len(l) > 0 {
+			lists[typ] = l
 		}
 	}
 	return lists
+}
+
+// accepts reports whether the version constraint accepts v; check
+// rejects constraints that don't parse.
+func accepts(constraint string, v *version.Version) bool {
+	c, err := version.NewConstraint(constraint)
+	return err == nil && c.Check(v)
+}
+
+// KeepEmpty returns the arguments that stay where they are set empty,
+// per type.
+func (c *Catalogue) KeepEmpty() map[string][]string {
+	return c.lists(nil, func(e *Entry) []string { return e.KeepEmpty }, func(*Versioned) []string { return nil })
 }
 
 // DataSources returns the data source of each type that has one.
@@ -608,6 +677,12 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	}
 	if overlay.StateOnly != nil {
 		merged.StateOnly = overlay.StateOnly
+	}
+	if overlay.ProviderVersions != nil {
+		merged.ProviderVersions = overlay.ProviderVersions
+	}
+	if overlay.KeepEmpty != nil {
+		merged.KeepEmpty = overlay.KeepEmpty
 	}
 	if overlay.Skip != nil {
 		merged.Skip = overlay.Skip

@@ -6,11 +6,14 @@ package catalogue
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/hashicorp/go-version"
 )
 
 var (
@@ -41,7 +44,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
 			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
-			fail("the entry for every type only takes omit, state_only and skip")
+			fail("the entry for every type only takes omit, state_only, provider_versions and skip")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.Provider+"_") {
 		fail("not a %s resource type", c.Provider)
@@ -57,15 +60,46 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			fail("import_id %q has no field: every resource would import with the same ID", t)
 		}
 	}
-	for _, list := range []struct {
+	type argumentList struct {
 		name  string
 		names []string
-	}{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}} {
+	}
+	lists := []argumentList{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"keep_empty", e.KeepEmpty}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}}
+	defaults := []argumentList{{"defaults", e.Defaults}}
+	for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
+		if _, err := version.NewConstraint(constraint); err != nil {
+			fail("provider_versions: %q isn't a version constraint, such as \">= 5.0\": %v", constraint, err)
+		}
+		x := e.ProviderVersions[constraint]
+		if x == nil || len(x.Omit)+len(x.Defaults)+len(x.StateOnly) == 0 {
+			fail("provider_versions: %s sets neither omit, defaults nor state_only", constraint)
+			continue
+		}
+		if typ == AllTypes && len(x.Defaults) > 0 {
+			fail("provider_versions: %s: the entry for every type takes no defaults", constraint)
+		}
+		// What every version has already needs no constraint.
+		for _, l := range []argumentList{{"omit", x.Omit}, {"defaults", x.Defaults}, {"state_only", x.StateOnly}} {
+			base := map[string][]string{"omit": e.Omit, "defaults": e.Defaults, "state_only": e.StateOnly}[l.name]
+			for _, name := range l.names {
+				if slices.Contains(base, name) {
+					fail("provider_versions: %s: %s: %s is there for every version", constraint, l.name, name)
+				}
+			}
+			versioned := argumentList{"provider_versions: " + constraint + ": " + l.name, l.names}
+			if l.name == "defaults" {
+				defaults = append(defaults, versioned)
+			} else {
+				lists = append(lists, versioned)
+			}
+		}
+	}
+	for _, list := range lists {
 		seen := map[string]bool{}
 		for _, name := range list.names {
-			if list.name == "omit" {
+			if strings.HasSuffix(list.name, "omit") {
 				if err := checkOmission(name); err != nil {
-					fail("omit: %q: %v", name, err)
+					fail("%s: %q: %v", list.name, name, err)
 				}
 			} else if !identifier.MatchString(name) {
 				fail("%s: %q isn't an argument name", list.name, name)
@@ -79,21 +113,23 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	if l := e.Lifecycle; l != nil && (!l.CreateBeforeDestroy || strings.TrimSpace(l.Reason) == "") {
 		fail("lifecycle: set create_before_destroy: true, with a reason")
 	}
-	seen := map[string]bool{}
-	for _, entry := range e.Defaults {
-		path, _, ok := strings.Cut(entry, "=")
-		if !ok {
-			fail("defaults: %q: want path=value", entry)
-		}
-		for _, name := range strings.Split(path, ".") {
-			if !identifier.MatchString(name) {
-				fail("defaults: %q: %q isn't an argument or block name", entry, name)
+	for _, list := range defaults {
+		seen := map[string]bool{}
+		for _, entry := range list.names {
+			path, _, ok := strings.Cut(entry, "=")
+			if !ok {
+				fail("%s: %q: want path=value", list.name, entry)
 			}
+			for _, name := range strings.Split(path, ".") {
+				if !identifier.MatchString(name) {
+					fail("%s: %q: %q isn't an argument or block name", list.name, entry, name)
+				}
+			}
+			if seen[path] {
+				fail("%s: %s twice", list.name, path)
+			}
+			seen[path] = true
 		}
-		if seen[path] {
-			fail("defaults: %s twice", path)
-		}
-		seen[path] = true
 	}
 	for i, rule := range e.Skip {
 		if strings.TrimSpace(rule.Reason) == "" {
@@ -193,13 +229,17 @@ func placeholderList(e *Entry, list func(*Placeholder) []string) []string {
 // argumentPath is an argument, or one in nested blocks: a.b.c.
 var argumentPath = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
 
+// omittedPath is what an omit entry leaves out: an argument, or one in
+// nested blocks, where * stands for blocks of any type (a.b, *.b).
+var omittedPath = regexp.MustCompile(`^(([a-z][a-z0-9_]*|\*)\.)*[a-z][a-z0-9_]*$`)
+
 // checkOmission reports what's wrong with an omit entry: path or
 // path=value, optionally followed by " when " and conditions joined by
 // " and ", each path, path=value or !path, where a path starting with @
 // names what the lister recorded.
 func checkOmission(entry string) error {
 	target, conditions, hasConditions := strings.Cut(entry, " when ")
-	if name, _, _ := strings.Cut(target, "="); !argumentPath.MatchString(name) {
+	if name, _, _ := strings.Cut(target, "="); !omittedPath.MatchString(name) {
 		return fmt.Errorf("%q isn't an argument name or a path to one", name)
 	}
 	if !hasConditions {

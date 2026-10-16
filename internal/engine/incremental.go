@@ -237,14 +237,26 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	}
 	// What follows changes root: undo it on failure, so that root stays as
 	// it was and a rerun adds the resources again.
-	backup, err := backupFiles(root, DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName)
+	// The resources go into the files of their types, such as network.tf,
+	// after the root's own blocks: those files are backed up too.
+	fileOf := blockFiles(result.Imported, result.Modules)
+	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName}
+	for _, name := range fileOf {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	backup, err := backupFiles(root, names...)
 	if err != nil {
 		return nil, err
 	}
-	added, err := merge(staging, root, existing, opts.DataSources)
+	added, err := merge(staging, root, existing, opts.DataSources, fileOf)
 	undo := func() error {
-		if added != "" {
-			if err := os.Remove(filepath.Join(root, added)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		for _, name := range added {
+			if _, backedUp := backup.files[name]; backedUp {
+				continue
+			}
+			if err := os.Remove(filepath.Join(root, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 		}
@@ -253,6 +265,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	if err != nil {
 		return nil, errors.Join(err, undo())
 	}
+	result.Files = added
 	// After merge: the calls it added need their modules installed.
 	if err := initTerraform(ctx, rootTF, tfexec.Backend(false)); err != nil {
 		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
@@ -300,19 +313,28 @@ func sortExternal(list []External) {
 }
 
 // With returns what a root holds once an incremental import added added
-// to it (see Add): r's resources and added's, with added's checks.
+// to it (see Add): r's resources and added's, in the files of both, with
+// added's checks.
 func (r *Result) With(added *Result) *Result {
 	if r == nil {
 		return added
 	}
+	files := slices.Clone(r.Files)
+	for _, name := range added.Files {
+		if !slices.Contains(files, name) {
+			files = append(files, name)
+		}
+	}
+	slices.Sort(files)
 	return &Result{
 		Imported: append(slices.Clone(r.Imported), added.Imported...),
 		Secrets:  append(slices.Clone(r.Secrets), added.Secrets...),
 		Rejected: append(slices.Clone(r.Rejected), added.Rejected...),
 		Owned:    append(slices.Clone(r.Owned), added.Owned...),
 		Modules:  append(slices.Clone(r.Modules), added.Modules...),
-		Gate:     added.Gate,
 		Warnings: append(slices.Clone(r.Warnings), added.Warnings...),
+		Gate:     added.Gate,
+		Files:    files,
 	}
 }
 
@@ -322,22 +344,23 @@ func AddedFileName(n int) string {
 	return fmt.Sprintf("generated_%d.tf", n)
 }
 
-// merge adds what Generate wrote into staging to root: the resources and
-// module calls in a file of their own (see AddedFileName), and the import
-// blocks, variables, locals, data sources and resources left out after
-// root's own. References to data sources that read a resource root has,
-// existing, as a resource block, or that root already has, use root's.
-// The provider configuration and the locals it uses stay root's. It
-// returns the name of the file of resources it added to root, "" if it
-// failed before writing it.
-func merge(staging, root string, existing map[External]string, sources map[string]DataSource) (string, error) {
+// merge adds what Generate wrote into staging to root: each resource and
+// module call after the blocks of the file fileOf names for it by address
+// (see blockFiles), such as network.tf, or, where it names none, in a file
+// of their own (see AddedFileName); and the import blocks, variables,
+// locals, data sources and resources left out after root's own.
+// References to data sources that read a resource root has, existing, as
+// a resource block, or that root already has, use root's. The provider
+// configuration and the locals it uses stay root's. It returns the files
+// of resources it wrote to, sorted, also when it fails after writing them.
+func merge(staging, root string, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
 	generated, err := loadHCL(filepath.Join(staging, GeneratedFileName))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	rootFiles, err := configFiles(root)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// Where root reads or has each resource, by data source type and ID.
 	rootData := map[string][]string{}
@@ -360,7 +383,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	var data []*hclwrite.Block
 	staged, err := loadOptionalHCL(filepath.Join(staging, DataFileName))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if staged != nil {
 		blocks := staged.file.Body().Blocks()
@@ -379,18 +402,33 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		}
 	}
 
-	n := 2
-	for ; ; n++ {
-		if _, err := os.Stat(filepath.Join(root, AddedFileName(n))); errors.Is(err, fs.ErrNotExist) {
-			break
-		} else if err != nil {
-			return "", err
+	// The blocks for each file, in the order they come; those without one
+	// go to the next file of their own.
+	own := ""
+	var names []string
+	blocksFor := map[string][]*hclwrite.Block{}
+	for _, b := range generated.file.Body().Blocks() {
+		name := fileOf[blockAddress(b)]
+		if name == "" {
+			if own == "" {
+				if own, err = nextAddedFile(root); err != nil {
+					return nil, err
+				}
+			}
+			name = own
 		}
+		if _, ok := blocksFor[name]; !ok {
+			names = append(names, name)
+		}
+		blocksFor[name] = append(blocksFor[name], b)
 	}
-	added := AddedFileName(n)
-	generated.path = filepath.Join(root, added)
-	if err := generated.save(); err != nil {
-		return added, err
+	slices.Sort(names)
+	var added []string
+	for _, name := range names {
+		added = append(added, name)
+		if err := appendBlocks(filepath.Join(root, name), "", blocksFor[name]); err != nil {
+			return added, err
+		}
 	}
 	if err := appendBlocks(filepath.Join(root, DataFileName), dataFileHeader, data); err != nil {
 		return added, err
@@ -607,4 +645,17 @@ func loadOptionalHCL(path string) (*hclFile, error) {
 		return nil, nil
 	}
 	return f, err
+}
+
+// nextAddedFile returns the first of generated_2.tf, generated_3.tf and so
+// on (see AddedFileName) that root doesn't have.
+func nextAddedFile(root string) (string, error) {
+	for n := 2; ; n++ {
+		name := AddedFileName(n)
+		if _, err := os.Stat(filepath.Join(root, name)); errors.Is(err, fs.ErrNotExist) {
+			return name, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
 }

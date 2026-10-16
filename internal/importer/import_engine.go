@@ -313,7 +313,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 // engineOptions configures engine.Generate for provider's directories,
 // with what cat knows about its types.
 func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *rootFiles) engine.Options {
-	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners(), Omit: cat.Omit(), Defaults: cat.Defaults(), StateOnly: cat.StateOnly(), SplitFiles: true, TidyLabels: true}
+	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners(), Omit: cat.OmitFor(root.version), Defaults: cat.DefaultsFor(root.version), StateOnly: cat.StateOnlyFor(root.version), KeepEmpty: cat.KeepEmpty(), SplitFiles: true, TidyLabels: true}
 	if sources := cat.DataSources(); len(sources) > 0 {
 		opts.DataSources = map[string]engine.DataSource{}
 		for typ, d := range sources {
@@ -486,6 +486,9 @@ type rootFiles struct {
 	files         map[string][]byte // versions.tf and providers.tf
 	engineVersion string
 	provider      engine.Provider // Version is the constraint
+	// version is the provider version the constraint pins the release
+	// line of, which decides the catalogue entries that depend on it.
+	version *goversion.Version
 	// heldBack says which modules keep the provider below its newest
 	// release, within its newest major release, if any do.
 	heldBack string
@@ -495,8 +498,9 @@ type rootFiles struct {
 }
 
 // rootConfig renders versions.tf and providers.tf for every output
-// directory: required_version within the major release of the Terraform or
-// OpenTofu at execPath, and the provider pinned to its newest minor release
+// directory: required_version from the oldest Terraform release generated
+// configuration works with (engine.MinimumVersion; Generate raises it for
+// what a root uses), and the provider pinned to its newest minor release
 // line in registry (the engine's default registry), unless its source names
 // another: the newest release the module versions the import may call
 // accept (constraints). A module version that accepts no release of the
@@ -540,13 +544,14 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	}
 	return &rootFiles{
 		files: map[string][]byte{
-			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engineVersion), p),
+			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engine.MinimumVersion), p),
 			engine.ProvidersFileName: providers,
 		},
 		engineVersion: engineVersion.String(),
 		provider:      p,
 		heldBack:      held,
 		refused:       refused,
+		version:       chosen,
 	}, nil
 }
 

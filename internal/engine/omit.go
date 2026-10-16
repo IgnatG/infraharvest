@@ -53,7 +53,9 @@ func OmitArguments(path string, omit map[string][]string) (bool, error) {
 //   - name leaves the argument or block out whatever it is set to;
 //   - name=value leaves the attribute out only where it is set to value,
 //     such as a default the cloud reports;
-//   - a.b leaves out b in every nested block a (a.b=value likewise);
+//   - a.b leaves out b in every nested block a (a.b=value likewise), and
+//     *.b in every nested block of any type, such as the tags_all AWS
+//     computes in an instance's root_block_device;
 //   - any of these followed by " when " and conditions joined by " and "
 //     applies only where every condition holds: path (set, not null),
 //     path=value, or !path (not set). A condition's path starting with the
@@ -174,14 +176,16 @@ func (o omission) findIn(resource *hclsyntax.Body, chain []omitBody, steps []rem
 		}
 		return
 	}
-	index := 0
+	// The index of each block among the blocks of its type.
+	indexes := map[string]int{}
 	for _, b := range body.Blocks {
-		if b.Type != path[0] {
+		index := indexes[b.Type]
+		indexes[b.Type]++
+		if path[0] != "*" && b.Type != path[0] {
 			continue
 		}
-		next := append(append([]removalStep(nil), steps...), removalStep{typ: path[0], index: index})
-		o.findIn(resource, append(append([]omitBody(nil), chain...), omitBody{typ: path[0], body: b.Body}), next, path[1:], found)
-		index++
+		next := append(append([]removalStep(nil), steps...), removalStep{typ: b.Type, index: index})
+		o.findIn(resource, append(append([]omitBody(nil), chain...), omitBody{typ: b.Type, body: b.Body}), next, path[1:], found)
 	}
 }
 

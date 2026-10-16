@@ -64,7 +64,7 @@ func TestOmitBlockWhenItsArgumentsHold(t *testing.T) {
 	}
 }
 
-const instanceGenerated = `resource "aws_instance" "app" {
+const instanceNestedGenerated = `resource "aws_instance" "app" {
   availability_zone = "eu-west-2a"
   instance_type     = "t3.micro"
   subnet_id         = "subnet-1"
@@ -86,7 +86,7 @@ const instanceGenerated = `resource "aws_instance" "app" {
 // conditions starting with a referring to that block, the others to the
 // resource.
 func TestOmitNestedArguments(t *testing.T) {
-	got := omitResult(t, instanceGenerated, map[string][]string{"aws_instance": {
+	got := omitResult(t, instanceNestedGenerated, map[string][]string{"aws_instance": {
 		"availability_zone when subnet_id",
 		"root_block_device.iops=3000 when root_block_device.volume_type=gp3",
 		"root_block_device.throughput=125 when root_block_device.volume_type=gp3",

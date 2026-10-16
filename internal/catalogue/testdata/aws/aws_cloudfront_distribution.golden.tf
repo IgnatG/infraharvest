@@ -5,7 +5,7 @@ import {
   id = "E1A2B3C4D5E6F7"
 }
 
-# Left out of generated configuration: region, tags_all, default_cache_behavior.default_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=, default_cache_behavior.max_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=, ordered_cache_behavior.default_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=, ordered_cache_behavior.max_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=, viewer_certificate.minimum_protocol_version when viewer_certificate.cloudfront_default_certificate=true
+# Left out of generated configuration: region, tags_all, *.tags_all, default_cache_behavior.default_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=, default_cache_behavior.max_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=, ordered_cache_behavior.default_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=, ordered_cache_behavior.max_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=, viewer_certificate.minimum_protocol_version when viewer_certificate.cloudfront_default_certificate=true
 
 # Generated configuration, without the arguments the catalogue omits:
 resource "aws_cloudfront_distribution" "site" {

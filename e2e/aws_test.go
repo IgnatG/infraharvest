@@ -636,24 +636,14 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 
 	importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile, "--incremental", "--out="+out)
 	after := outputFiles(t, out)
-	added := map[string]bool{}
-	for name, content := range after {
-		if path.Base(name) == engine.AddedFileName(2) {
-			added[path.Dir(name)] = true
-			if !referencesVPC.MatchString(content) {
-				t.Errorf("%s doesn't refer to the VPC the root has:\n%s", name, content)
-			}
-			continue
-		}
-		// The resources the root had stay as they were; the import blocks,
-		// data sources, variables and locals may grow.
-		grows := []string{engine.ImportsFileName, engine.DataFileName, engine.VariablesFileName, engine.LocalsFileName}
-		if strings.HasSuffix(name, ".tf") && !slices.Contains(grows, path.Base(name)) && before[name] != "" && content != before[name] {
-			t.Errorf("--incremental changed %s", name)
+	added := addedConfiguration(t, before, after)
+	for name, content := range added {
+		if strings.Contains(content, `resource "aws_subnet"`) && !referencesVPC.MatchString(content) {
+			t.Errorf("what --incremental added to %s doesn't refer to the VPC the root has:\n%s", name, content)
 		}
 	}
 	if len(added) == 0 {
-		t.Fatalf("--incremental added no %s", engine.AddedFileName(2))
+		t.Fatal("--incremental added no resources")
 	}
 	var coverage report.Report
 	if err := json.Unmarshal([]byte(after[report.Dir+"/coverage.json"]), &coverage); err != nil {
@@ -694,9 +684,42 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 	}
 
 	importAWS(ctx, t, engineName, execPath, "--selection="+selectionFile, "--incremental", "--out="+out)
-	for name := range outputFiles(t, out) {
-		if path.Base(name) == engine.AddedFileName(3) {
-			t.Errorf("--incremental with nothing new wrote %s", name)
+	for name := range addedConfiguration(t, after, outputFiles(t, out)) {
+		t.Errorf("--incremental with nothing new wrote to %s", name)
+	}
+}
+
+// growingFiles are the files of a root whose blocks an incremental import
+// may add to anywhere, not only after the root's own.
+var growingFiles = []string{engine.ImportsFileName, engine.DataFileName, engine.VariablesFileName, engine.LocalsFileName}
+
+// addedConfiguration returns, by file, the configuration an incremental
+// import added to the .tf files of the output, from before to after: a new
+// file's content, or what an existing file has after the blocks it had.
+// The blocks a root had stay as they were, so it fails the test for a file
+// they changed in, but for growingFiles.
+func addedConfiguration(t *testing.T, before, after map[string]string) map[string]string {
+	t.Helper()
+	added := map[string]string{}
+	for name, content := range after {
+		if !strings.HasSuffix(name, ".tf") || slices.Contains(growingFiles, path.Base(name)) {
+			continue
+		}
+		old, existed := before[name]
+		switch {
+		case !existed:
+			added[name] = content
+		case content == old:
+		case strings.HasPrefix(content, old):
+			added[name] = content[len(old):]
+		default:
+			t.Errorf("--incremental changed %s", name)
 		}
 	}
+	for name := range before {
+		if _, ok := after[name]; !ok && strings.HasSuffix(name, ".tf") {
+			t.Errorf("--incremental removed %s", name)
+		}
+	}
+	return added
 }

@@ -5,4 +5,4 @@ import {
   id = "sessions"
 }
 
-# Left out of generated configuration: region, tags_all, auth_token
+# Left out of generated configuration: region, tags_all, *.tags_all, auth_token

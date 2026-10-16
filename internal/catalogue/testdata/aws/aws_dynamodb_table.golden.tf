@@ -10,7 +10,7 @@ import {
   id = "sessions"
 }
 
-# Left out of generated configuration: region, tags_all, read_capacity=0 when billing_mode=PAY_PER_REQUEST, write_capacity=0 when billing_mode=PAY_PER_REQUEST, global_secondary_index.read_capacity=0 when billing_mode=PAY_PER_REQUEST, global_secondary_index.write_capacity=0 when billing_mode=PAY_PER_REQUEST, point_in_time_recovery when point_in_time_recovery.enabled=false, server_side_encryption when server_side_encryption.enabled=false, ttl when ttl.enabled=false
+# Left out of generated configuration: region, tags_all, *.tags_all, read_capacity=0 when billing_mode=PAY_PER_REQUEST, write_capacity=0 when billing_mode=PAY_PER_REQUEST, global_secondary_index.read_capacity=0 when billing_mode=PAY_PER_REQUEST, global_secondary_index.write_capacity=0 when billing_mode=PAY_PER_REQUEST, point_in_time_recovery when point_in_time_recovery.enabled=false, server_side_encryption when server_side_encryption.enabled=false, ttl when ttl.enabled=false
 
 # Left out where the plan stays the same, as the default: table_class=STANDARD
 

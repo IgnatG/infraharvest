@@ -116,7 +116,7 @@ func TestGoldenInputsHaveEntries(t *testing.T) {
 func needsGolden(c *Catalogue, typ string) bool {
 	e, _ := c.Entry(typ)
 	return len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Skip) > 0 || len(e.Children) > 0 ||
-		e.DataSource != nil || len(e.Omit) > 0 || len(e.Defaults) > 0 || len(e.StateOnly) > 0 || e.Placeholder != nil || e.Lifecycle != nil || slices.Contains(alwaysGolden, typ)
+		e.DataSource != nil || len(e.Omit) > 0 || len(e.Defaults) > 0 || len(e.StateOnly) > 0 || len(e.ProviderVersions) > 0 || len(e.KeepEmpty) > 0 || e.Placeholder != nil || e.Lifecycle != nil || slices.Contains(alwaysGolden, typ)
 }
 
 func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
@@ -213,6 +213,22 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 		sorted := append([]string(nil), stateOnly...)
 		sort.Strings(sorted)
 		fmt.Fprintf(&out, "\n# Kept in state only, so a plan may set: %s\n", strings.Join(sorted, ", "))
+	}
+	if len(e.KeepEmpty) > 0 {
+		fmt.Fprintf(&out, "\n# Kept where set empty: %s\n", strings.Join(e.KeepEmpty, ", "))
+	}
+	for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
+		x := e.ProviderVersions[constraint]
+		fmt.Fprintf(&out, "\n# With provider versions %s:\n", constraint)
+		if len(x.Omit) > 0 {
+			fmt.Fprintf(&out, "#   left out of generated configuration: %s\n", strings.Join(x.Omit, ", "))
+		}
+		if len(x.Defaults) > 0 {
+			fmt.Fprintf(&out, "#   left out where the plan stays the same, as the default: %s\n", strings.Join(x.Defaults, ", "))
+		}
+		if len(x.StateOnly) > 0 {
+			fmt.Fprintf(&out, "#   kept in state only: %s\n", strings.Join(x.StateOnly, ", "))
+		}
 	}
 	if p := e.Placeholder; p != nil {
 		fmt.Fprintf(&out, "\n# Without any of %s: placeholders, ignored by Terraform (%s):\n", strings.Join(p.OneOf, ", "), p.Reason)

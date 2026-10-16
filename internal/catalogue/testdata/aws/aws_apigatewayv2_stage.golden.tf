@@ -10,7 +10,7 @@ import {
   id = "h1j2k3l4m5/v1"
 }
 
-# Left out of generated configuration: region, tags_all, deployment_id when auto_deploy=true
+# Left out of generated configuration: region, tags_all, *.tags_all, deployment_id when auto_deploy=true
 
 # Left out where the plan stays the same, as the default: default_route_settings.logging_level=OFF
 

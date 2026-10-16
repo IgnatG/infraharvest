@@ -5,6 +5,6 @@ import {
   id = "orders"
 }
 
-# Left out of generated configuration: region, tags_all, master_password
+# Left out of generated configuration: region, tags_all, *.tags_all, master_password
 
 # Kept in state only, so a plan may set: enable_global_write_forwarding, enable_local_write_forwarding

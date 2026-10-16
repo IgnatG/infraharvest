@@ -72,11 +72,14 @@ jobs:
       # checkpoints (gitignored) are not, and a queue is new.
       - name: Add a queue
         run: |
-          # The resources' files, which adding to the roots leaves as they are.
-          find "$RUNNER_TEMP/out" -name '*.tf' -not -path '*/.terraform/*' \
+          # The resources' files, whose blocks adding to the roots leaves as
+          # they are: new ones go after them.
+          mkdir "$RUNNER_TEMP/before"
+          cd "$RUNNER_TEMP/out"
+          find . -name '*.tf' -not -path '*/.terraform/*' \
             -not -name imports.tf -not -name data.tf -not -name variables.tf -not -name locals.tf \
-            -not -name 'generated_*.tf' -exec sha256sum {} + > "$RUNNER_TEMP/out.sha256"
-          test -s "$RUNNER_TEMP/out.sha256"
+            -exec cp --parents {} "$RUNNER_TEMP/before" \;
+          test -n "$(find "$RUNNER_TEMP/before" -name '*.tf')"
           rm -rf "$RUNNER_TEMP/out/.infraharvest"
           aws sqs create-queue --queue-name infraharvest-action-new
       - name: Run the action again
@@ -93,11 +96,22 @@ jobs:
           EXIT_CODE: ${{ steps.again.outputs.exit-code }}
         run: |
           test "$EXIT_CODE" = 0
-          sha256sum --check "$RUNNER_TEMP/out.sha256"
-          added=$(find "$RUNNER_TEMP/out" -name generated_2.tf)
-          test -n "$added"
-          grep -q "infraharvest-action-new" $added
-          ! grep -q '"infraharvest-action"' $added
+          # What each file had stays at its start; what follows, and the
+          # files that are new, is what was added.
+          added=""
+          cd "$RUNNER_TEMP/out"
+          while IFS= read -r file; do
+            if [ -f "$RUNNER_TEMP/before/$file" ]; then
+              size=$(wc -c < "$RUNNER_TEMP/before/$file")
+              cmp -n "$size" "$RUNNER_TEMP/before/$file" "$file"
+              added+=$(tail -c +"$((size + 1))" "$file")
+            else
+              added+=$(cat "$file")
+            fi
+          done < <(find . -name '*.tf' -not -path '*/.terraform/*' \
+            -not -name imports.tf -not -name data.tf -not -name variables.tf -not -name locals.tf)
+          grep -q "infraharvest-action-new" <<< "$added"
+          ! grep -q '"infraharvest-action"' <<< "$added"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs

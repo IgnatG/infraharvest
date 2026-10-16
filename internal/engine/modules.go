@@ -152,7 +152,10 @@ func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]stri
 // parent with the longest type, the first by address of those; a resource
 // with children isn't a child.
 func findClusters(f *hclFile) []*cluster {
-	resources := f.resources()
+	// A resource of another configuration of its provider, such as one
+	// without the default tags (see applyTagLift), would need it passed to
+	// the module: it stays in the root.
+	resources := slices.DeleteFunc(f.resources(), aliasedProvider)
 	byAddress := map[string]resourceBlock{}
 	for _, r := range resources {
 		byAddress[r.address] = r
@@ -868,4 +871,15 @@ func lowerBound(constraint string) (string, error) {
 		return "", fmt.Errorf("%q has no lower bound", constraint)
 	}
 	return ">= " + bound.Original(), nil
+}
+
+// aliasedProvider reports whether r uses a configuration of its provider
+// with an alias, such as provider = aws.without_default_tags.
+func aliasedProvider(r resourceBlock) bool {
+	p, ok := r.syntax.Body.Attributes["provider"]
+	if !ok {
+		return false
+	}
+	traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
+	return diags.HasErrors() || len(traversal) > 1
 }

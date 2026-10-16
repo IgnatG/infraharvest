@@ -42,9 +42,11 @@ The comment on the first line lets editors with the YAML language server check f
 | `service` | The infraharvest service that lists the type, if not the file's. |
 | `import_id` | A template, or a list of them: the first whose fields all have values builds the import ID. `{id}` is the ID the lister found and `{<name>}` one of the attributes it recorded. Filters change a field: `{id\|after_last:/}` keeps what follows the last `/`; `before_last`, `trim_prefix` and `trim_suffix` work the same way. When no template has all its fields, the resource is reported as not importable. |
 | `not_importable` | Why Terraform can't import the type. Its resources are reported, not imported. |
-| `omit` | Arguments to leave out of generated configuration. Each must be optional, and computed or never read back (such as a password AWS doesn't return), so that leaving it out changes no plan. `name=value` leaves an attribute out only where it is set to that value, such as a default the cloud reports that the provider rejects as an argument (`default_encryption_scope=$account-encryption-key`). `a.b` reaches into nested blocks, and conditions after ` when ` narrow where an entry applies (see [Leaving out arguments](#leaving-out-arguments)). Under the type `"*"`, they apply to every type. |
+| `omit` | Arguments to leave out of generated configuration. Each must be optional, and computed or never read back (such as a password AWS doesn't return), so that leaving it out changes no plan. `name=value` leaves an attribute out only where it is set to that value, such as a default the cloud reports that the provider rejects as an argument (`default_encryption_scope=$account-encryption-key`). `a.b` reaches into nested blocks, `*.b` into nested blocks of any type (such as the `tags_all` AWS computes in an instance's `root_block_device`), and conditions after ` when ` narrow where an entry applies (see [Leaving out arguments](#leaving-out-arguments)). Under the type `"*"`, they apply to every type. |
 | `defaults` | The values the provider or the cloud gives optional arguments it isn't told, as `path=value`, with a path into nested blocks: `storage_class=STANDARD`, `soft_delete_policy.retention_duration_seconds=604800`. Generated configuration leaves out the arguments set to them, and a block they leave empty, where the plan stays the same, as it does the zero values the provider defaults to. Unlike those, computed arguments go too: the catalogue says the value is the default, so leaving it out hides no setting. |
 | `state_only` | Arguments the provider keeps only in state, such as settings it uses when it deletes a resource. An import leaves them unset, so the verification gate accepts a plan that sets them. |
+| `keep_empty` | Optional arguments whose empty value (`""`, `[]` or `{}`) the provider documents as a setting of its own, such as one that removes what the cloud adds by default. Generated configuration keeps them where they are set empty; other empty values are left out (see [Tidying](output.md#tidying)). |
+| `provider_versions` | What `omit`, `defaults` and `state_only` hold only for some versions of the provider, by a [version constraint](https://developer.hashicorp.com/terraform/language/expressions/version-constraints) on it, such as a default that a major release changed (see [Provider versions](#provider-versions)). |
 | `lifecycle` | Lifecycle settings every resource of the type gets, with the `reason`, which goes in a comment above them: `create_before_destroy: true`, such as for an API Gateway deployment, which a stage refers to while it is replaced. They change how Terraform replaces a resource, never the plan of an import. |
 | `skip` | Rules for resources the default selection leaves out, each with a `reason` and conditions that must all hold: `ids`, `id_prefixes`, `attributes` (values the lister recorded), `attribute_prefixes` (values that start with one of these), `attribute_suffixes` (values that end with one of these), or `all: true` for every resource of the type. `ignore_case: true` compares them whatever the case, as Azure names are. Rules under the type `"*"` apply to every type, after the type's own. A selection file can still include them. |
 | `children` | Types of the separate resources that hold parts of a resource's configuration. The provider checks which a resource has and imports those with it. |
@@ -79,6 +81,25 @@ types:
 - `@attribute=value`, `@attribute` (set and not empty) and `!@attribute` are conditions on what the lister recorded for the resource, for what only the cloud can tell, such as whether an instance's CPU options are its type's defaults.
 - A value is compared as a string (`true`, `3`, `text`). `{*}` in it stands for any text, and `{argument}` for the value of one of the resource's string arguments: `cache_namespace={resource_id}`. A value that is a JSON object or array is compared as JSON with the argument's value, such as a policy, with arrays in any order.
 - Whether an entry applies is decided on the resource as Terraform generated it, before anything is left out. The verification gate's standards check fails a resource that still sets an argument where an entry applies.
+
+## Provider versions
+
+Some of what the catalogue knows holds only for some versions of the provider: a default that a major release changed, or an argument it renamed. `provider_versions` holds those `omit`, `defaults` and `state_only` entries, under a version constraint on the provider:
+
+```yaml
+provider: azurerm
+types:
+  azurerm_storage_account:
+    provider_versions:
+      "< 5.0":
+        defaults: [allow_nested_items_to_be_public=true]
+      ">= 5.0":
+        defaults: [allow_nested_items_to_be_public=false]
+```
+
+An import applies the entries whose constraint accepts the provider version it pins (`~> 4.81` pins 4.81 and later 4.x releases, so `< 5.0` applies), after the entry's own; `infraharvest verify` applies those that accept the version in the root's lock file. Constraints take the operators Terraform's do (`=`, `!=`, `>`, `>=`, `<`, `<=`, `~>`, joined with commas). An entry under a constraint must add something, and not repeat what the entry has for every version.
+
+Defaults of optional arguments that the provider doesn't compute need no entry: infraharvest finds them by plan (see [Tidying](output.md#tidying)). What needs a `defaults` entry is a default the cloud sets for an argument the provider computes, which a plan can't tell from a setting. The entry for every type, `"*"`, takes no `defaults`.
 
 ## Inventory types
 

@@ -210,8 +210,9 @@ func TestDependenciesRejectCycles(t *testing.T) {
 	}
 }
 
-// postProcess plans once for the imported values, then once per step it
-// keeps or undoes, showing the plan of the steps it checks by resource.
+// postProcess plans once for the imported values, reads the schemas to
+// find defaults among the constants, then plans once per step it keeps or
+// undoes, showing the plan of the steps it checks by resource.
 func TestPostProcessAddsReferences(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
@@ -221,7 +222,7 @@ func TestPostProcessAddsReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := []string{"plan", "show", "plan", "show"}; !reflect.DeepEqual(tf.calls, want) {
+	if want := []string{"plan", "show", "schema", "plan", "show"}; !reflect.DeepEqual(tf.calls, want) {
 		t.Errorf("calls: got %v, want %v", tf.calls, want)
 	}
 	if got := readFile(t, dir, GeneratedFileName); !strings.Contains(got, "aws_vpc.main.id") {

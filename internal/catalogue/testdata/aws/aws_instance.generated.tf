@@ -52,6 +52,9 @@ resource "aws_instance" "app" {
     encrypted             = true
     iops                  = 3000
     throughput            = 125
+    tags_all = {
+      Name = "app"
+    }
     volume_size           = 8
     volume_type           = "gp3"
   }

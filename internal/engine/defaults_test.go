@@ -67,7 +67,7 @@ func TestStripDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -83,7 +83,7 @@ func TestStripDefaults(t *testing.T) {
 			t.Errorf("generated.tf still has %s:\n%s", gone, got)
 		}
 	}
-	if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show,plan,show" {
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
 		t.Errorf("calls: %s", calls)
 	}
 }
@@ -96,7 +96,7 @@ func TestStripDefaultsKeepsEmptyBlocksThePlanNeeds(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
 
-	if _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil); err != nil {
+	if _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, "setting {") {
@@ -110,7 +110,7 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, nil)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want the nulls stripped, got %v, %v", stripped, err)
 	}
@@ -140,6 +140,209 @@ func TestNoWorse(t *testing.T) {
 		if got := noWorse(tc.now, tc.before); got != tc.want {
 			t.Errorf("noWorse(%q, %q) = %v", tc.now, tc.before, got)
 		}
+	}
+}
+
+var roleSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+	"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+		"aws_role": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+			"name":                 {AttributeType: cty.String, Required: true},
+			"description":          {AttributeType: cty.String, Optional: true},
+			"max_session_duration": {AttributeType: cty.Number, Optional: true},
+			"path":                 {AttributeType: cty.String, Optional: true},
+			"managed":              {AttributeType: cty.String, Optional: true, Computed: true},
+			"alpha":                {AttributeType: cty.String, Optional: true},
+			"beta":                 {AttributeType: cty.String, Optional: true},
+			"gamma":                {AttributeType: cty.Number, Optional: true},
+		}}},
+	}},
+}}
+
+// roleRoot is a root with one aws_role, generated as content, which plans
+// with no change.
+func roleRoot(t *testing.T, content string) (string, map[string]string) {
+	t.Helper()
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, content)
+	imports, err := ImportsFile([]Import{{Type: "aws_role", Name: "a", ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, dir, ImportsFileName, string(imports))
+	return dir, map[string]string{"aws_role.a": changeSignature(resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+}
+
+// Any constant can be an optional argument's default, not only false, 0
+// and "": the plan tells which are, and the others stay. Computed
+// arguments stay whatever their value.
+func TestStripDefaultsLeavesOutConstantDefaults(t *testing.T) {
+	dir, changes := roleRoot(t, `resource "aws_role" "a" {
+  description          = "the app's role"
+  managed              = "x"
+  max_session_duration = 3600
+  name                 = "app"
+  path                 = "/"
+}
+`)
+	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"description": "the app's role"}, map[string]any{"description": nil}),
+	}}
+	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_role.a")}}
+
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`description = "the app's role"`, `managed = "x"`, `name = "app"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	for _, gone := range []string{"max_session_duration", "path"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("generated.tf still has %s:\n%s", gone, got)
+		}
+	}
+	// One plan for all the arguments, one more for those put back.
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
+	}
+}
+
+// What validation rejects once the defaults are out, such as one of two
+// required alternatives, comes back before any plan: the arguments the
+// errors name, and the rest of the resource's constants still go.
+func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
+	dir, changes := roleRoot(t, `resource "aws_role" "a" {
+  alpha = "a"
+  beta  = "b"
+  gamma = 1
+  name  = "app"
+}
+`)
+	rejected := errorAt(1, "Invalid combination of arguments", `"alpha": one of `+"`alpha,beta`"+` must be specified`)
+	tf := &fakeTerraform{
+		dir:         dir,
+		schemas:     roleSchemas,
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
+		showns:      []*tfjson.Plan{importedPlan("aws_role.a")},
+	}
+
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`alpha = "a"`, `beta = "b"`, `name = "app"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "gamma") {
+		t.Errorf("generated.tf still has gamma:\n%s", got)
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
+	}
+}
+
+// A resource that plans differently a second time keeps all its
+// constants, so that the plans stay few.
+func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
+	dir, changes := roleRoot(t, `resource "aws_role" "a" {
+  alpha = "a"
+  beta  = "b"
+  gamma = 1
+  name  = "app"
+}
+`)
+	alpha := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"alpha": "a"}, map[string]any{"alpha": nil}),
+	}}
+	beta := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"beta": "b"}, map[string]any{"beta": nil}),
+	}}
+	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{alpha, beta, importedPlan("aws_role.a")}}
+
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`alpha = "a"`, `beta = "b"`, "gamma = 1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	if stripped {
+		t.Error("nothing was left out, yet stripDefaults reports a change")
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
+	}
+}
+
+var lbSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+	"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+		"aws_lb": {Block: &tfjson.SchemaBlock{
+			Attributes: map[string]*tfjson.SchemaAttribute{
+				"name":            {AttributeType: cty.String, Required: true},
+				"description":     {AttributeType: cty.String, Optional: true},
+				"route":           {AttributeType: cty.List(cty.String), Optional: true, Computed: true},
+				"security_groups": {AttributeType: cty.Set(cty.String), Optional: true, Computed: true},
+			},
+			NestedBlocks: map[string]*tfjson.SchemaBlockType{
+				"access_logs": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"bucket":  {AttributeType: cty.String, Required: true},
+					"enabled": {AttributeType: cty.Bool, Optional: true},
+				}}},
+			},
+		}},
+	}},
+}}
+
+// Empty values go whether or not the provider computes the argument, but
+// for those the catalogue keeps; so do optional blocks of zero values as a
+// whole, even with a required argument set to "".
+func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "a" {
+  description     = ""
+  name            = "web"
+  route           = []
+  security_groups = []
+  access_logs {
+    bucket  = ""
+    enabled = false
+  }
+}
+`)
+	imports, err := ImportsFile([]Import{{Type: "aws_lb", Name: "a", ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, dir, ImportsFileName, string(imports))
+	changes := map[string]string{"aws_lb.a": changeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	tf := &fakeTerraform{dir: dir, schemas: lbSchemas}
+
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{keepEmpty: map[string][]string{"aws_lb": {"route"}}})
+	if err != nil || !stripped {
+		t.Fatalf("want empty values stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`name = "web"`, "route = []"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	for _, gone := range []string{"description", "security_groups", "access_logs", "bucket"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("generated.tf still has %s:\n%s", gone, got)
+		}
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
 	}
 }
 
@@ -193,11 +396,13 @@ resource "google_storage_bucket" "b" {
 	// Without rpo, the plan would change a's: its default is another.
 	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		resourceChange("google_storage_bucket.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"rpo": "DEFAULT"}, map[string]any{"rpo": nil}),
+		// And without b's storage class, which isn't the default, b's.
+		resourceChange("google_storage_bucket.b", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"storage_class": "NEARLINE"}, map[string]any{"storage_class": nil}),
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: schemas, showns: []*tfjson.Plan{first, importedPlan("google_storage_bucket.a", "google_storage_bucket.b")}}
 	defaults := map[string][]string{"google_storage_bucket": {"storage_class=STANDARD", "rpo=DEFAULT", "soft_delete_policy.retention_duration_seconds=604800"}}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaults)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{defaults: defaults})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}

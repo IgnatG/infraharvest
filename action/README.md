@@ -39,7 +39,7 @@ jobs:
 
 The role only needs read access: see [permissions/aws](../permissions/aws).
 
-Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go into `generated_2.tf`, `generated_3.tf` and so on, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
+Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go after the blocks of the files of their types, such as `network.tf`, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
 
 ## Inputs
 

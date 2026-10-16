@@ -648,3 +648,52 @@ func TestCallSource(t *testing.T) {
 		}
 	}
 }
+
+// Members that use another configuration of the provider are mapped
+// without it, and those that use the default one, such as a bucket's
+// versioning, which takes no tags, go with them; two other configurations
+// share none.
+func TestSharedProvider(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
+  bucket   = "logs"
+  provider = aws.without_default_tags
+}
+
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.logs.id
+}
+
+resource "aws_s3_bucket_versioning" "other" {
+  bucket   = aws_s3_bucket.logs.id
+  provider = aws.other
+}
+`)
+	r := f.resources()
+	bucket, versioning := resourceOf(r[0]), resourceOf(r[1])
+	c := adapters.Cluster{Anchor: bucket, Members: []adapters.Resource{versioning}}
+	provider, setting := sharedProvider(c)
+	if got := strings.TrimSpace(string(provider.Bytes())); got != "aws.without_default_tags" {
+		t.Fatalf("shared provider: got %q", got)
+	}
+	if len(setting) != 1 || setting[0].Address() != bucket.Address() {
+		t.Fatalf("want only the bucket setting it, got %v", setting)
+	}
+	setProvider(setting, nil)
+	if bucket.Body.GetAttribute("provider") != nil {
+		t.Error("the provider stays on the bucket")
+	}
+	setProvider(setting, provider)
+	if bucket.Body.GetAttribute("provider") == nil {
+		t.Error("the provider isn't put back")
+	}
+	if versioning.Body.GetAttribute("provider") != nil {
+		t.Error("the provider is put on a member that had none")
+	}
+	mixed := adapters.Cluster{Anchor: bucket, Members: []adapters.Resource{resourceOf(r[2])}}
+	if p, _ := sharedProvider(mixed); p != nil {
+		t.Error("members with different providers share one")
+	}
+	if p, _ := sharedProvider(adapters.Cluster{Anchor: versioning}); p != nil {
+		t.Error("a cluster on the default configuration shares another")
+	}
+}

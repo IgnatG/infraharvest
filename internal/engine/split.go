@@ -24,20 +24,15 @@ var reservedFiles = []string{
 	LocalsFileName, DataFileName, "backend.tf", "outputs.tf", "main.tf",
 }
 
-// splitFiles moves the blocks of generated.tf into the files the imports
-// name (see Import.File), such as network.tf for a VPC: each resource into
-// its import's file, and each module call into the file of the first
-// resource it took. Blocks that name no file stay in generated.tf, which
-// goes when nothing is left in it. It returns the files it wrote.
-func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, error) {
+// blockFiles returns the file each block goes in, by address: each
+// resource its import's file (see Import.File), and each module call the
+// file of the first resource it took.
+func blockFiles(imports []Import, calls []ModuleCall) map[string]string {
 	fileOf := map[string]string{}
 	for _, imp := range imports {
 		if imp.File != "" && strings.HasSuffix(imp.File, ".tf") && !slices.Contains(reservedFiles, imp.File) {
 			fileOf[imp.Type+"."+imp.Name] = imp.File
 		}
-	}
-	if len(fileOf) == 0 {
-		return nil, nil
 	}
 	for _, c := range calls {
 		if c.Declined == "" && len(c.Resources) > 0 {
@@ -46,6 +41,30 @@ func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, err
 			}
 		}
 	}
+	return fileOf
+}
+
+// blockAddress returns the address of a resource block or a module call,
+// or "".
+func blockAddress(b *hclwrite.Block) string {
+	switch {
+	case b.Type() == "resource" && len(b.Labels()) == 2:
+		return b.Labels()[0] + "." + b.Labels()[1]
+	case b.Type() == "module" && len(b.Labels()) == 1:
+		return "module." + b.Labels()[0]
+	}
+	return ""
+}
+
+// splitFiles moves the blocks of generated.tf into the files the imports
+// name (see blockFiles), such as network.tf for a VPC. Blocks that name no
+// file stay in generated.tf, which goes when nothing is left in it. It
+// returns the files it wrote.
+func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, error) {
+	fileOf := blockFiles(imports, calls)
+	if len(fileOf) == 0 {
+		return nil, nil
+	}
 	path := filepath.Join(dir, GeneratedFileName)
 	generated, err := loadHCL(path)
 	if err != nil {
@@ -53,14 +72,7 @@ func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, err
 	}
 	files := map[string]*hclwrite.File{}
 	for _, b := range generated.file.Body().Blocks() {
-		var address string
-		switch {
-		case b.Type() == "resource" && len(b.Labels()) == 2:
-			address = b.Labels()[0] + "." + b.Labels()[1]
-		case b.Type() == "module" && len(b.Labels()) == 1:
-			address = "module." + b.Labels()[0]
-		}
-		name := fileOf[address]
+		name := fileOf[blockAddress(b)]
 		if name == "" {
 			continue
 		}

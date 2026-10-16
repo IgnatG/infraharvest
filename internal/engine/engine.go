@@ -137,6 +137,10 @@ type Options struct {
 	// in state, which import can't set and the plan check (see runGate)
 	// lets change.
 	StateOnly map[string][]string
+	// KeepEmpty names, per resource type, optional arguments whose empty
+	// value ("", [] or {}) is a setting of its own, which Generate keeps
+	// where they are set empty (see stripDefaults).
+	KeepEmpty map[string][]string
 	// Placeholders, per resource type, set what Terraform can't read back,
 	// such as where a function's code comes from (see SetPlaceholders).
 	Placeholders map[string]Placeholder
@@ -221,6 +225,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
+	// Several steps need the providers' schemas: read them once per init.
+	tf = &schemaCache{Terraform: tf}
 	imports = labelled(imports, opts.Taken, opts.TidyLabels)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
@@ -431,6 +437,15 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
+	if err := typeLiteralsOf(ctx, tf, dir); err != nil {
+		return nil, err
+	}
+	if err := layoutDir(dir, opts.ModulesDir); err != nil {
+		return nil, err
+	}
+	if err := requireMinimumVersion(dir); err != nil {
+		return nil, err
+	}
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
 	}
@@ -546,6 +561,31 @@ func writeVariables(dir string, secrets []Secret, schemas *tfjson.ProviderSchema
 		return err
 	}
 	return os.WriteFile(path, content, 0o644)
+}
+
+// schemaCache is a Terraform that reads the providers' schemas once, until
+// the next init, which may install other providers, such as a module's.
+type schemaCache struct {
+	Terraform
+	schemas *tfjson.ProviderSchemas
+	read    bool
+}
+
+func (c *schemaCache) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	c.schemas, c.read = nil, false
+	return c.Terraform.Init(ctx, opts...)
+}
+
+func (c *schemaCache) ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error) {
+	if c.read {
+		return c.schemas, nil
+	}
+	schemas, err := c.Terraform.ProvidersSchema(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.schemas, c.read = schemas, true
+	return schemas, nil
 }
 
 // environ returns the current environment as a map.

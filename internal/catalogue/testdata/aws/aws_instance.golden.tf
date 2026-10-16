@@ -10,7 +10,7 @@ import {
   id = "i-0f1e2d3c4b5a69788"
 }
 
-# Left out of generated configuration: region, tags_all, primary_network_interface, availability_zone when subnet_id, root_block_device.iops=3000 when root_block_device.volume_type=gp3, root_block_device.throughput=125 when root_block_device.volume_type=gp3, cpu_options when @cpu_options=default, credit_specification when instance_type=t2.{*} and credit_specification.cpu_credits=standard, credit_specification when instance_type=t3.{*} and credit_specification.cpu_credits=unlimited, credit_specification when instance_type=t3a.{*} and credit_specification.cpu_credits=unlimited, credit_specification when instance_type=t4g.{*} and credit_specification.cpu_credits=unlimited
+# Left out of generated configuration: region, tags_all, *.tags_all, primary_network_interface, availability_zone when subnet_id, root_block_device.iops=3000 when root_block_device.volume_type=gp3, root_block_device.throughput=125 when root_block_device.volume_type=gp3, cpu_options when @cpu_options=default, credit_specification when instance_type=t2.{*} and credit_specification.cpu_credits=standard, credit_specification when instance_type=t3.{*} and credit_specification.cpu_credits=unlimited, credit_specification when instance_type=t3a.{*} and credit_specification.cpu_credits=unlimited, credit_specification when instance_type=t4g.{*} and credit_specification.cpu_credits=unlimited
 
 # i-0a1b2c3d4e5f60718: also left out, from what its lister recorded: cpu_options
 

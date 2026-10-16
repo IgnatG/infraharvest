@@ -62,7 +62,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		}
 	}
 	// First, so the steps below see only the arguments that matter.
-	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, opts.Defaults)
+	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty})
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +80,8 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		edit  func() (bool, error)
 		// each, instead of edit, is checked by resource (see verifyEach).
 		each func(skip map[string]int) (map[string]bool, error)
+		// fallback, if set, is the edit to try when the plan rejects edit.
+		fallback func() (bool, error)
 	}
 	steps := []step{{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
@@ -101,15 +103,33 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	// Tags before literals, so a tag value is never made a local.
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags
-		steps = append(steps, step{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt) }})
+		// The schemas tell which resources the provider tags although
+		// they set no tags.
+		schemas, err := tf.ProvidersSchema(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("terraform providers schema: %w", err)
+		}
+		tags := step{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
+		if dt.Block != "" && dt.Applied == nil {
+			// Where the provider can't apply the tags without changing a
+			// resource's, the resources still share them through the local.
+			local := dt
+			local.Block, local.Argument = "", false
+			tags.fallback = func() (bool, error) { return applyTagLift(dir, local, schemas) }
+		}
+		steps = append(steps, tags)
 	}
 	steps = append(steps, step{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
 	for _, step := range steps {
+		var kept bool
 		var err error
 		if step.each != nil {
 			_, err = verifyEach(ctx, tf, dir, *baseline, changes, vars, step.each, step.files...)
 		} else {
-			_, err = verify(ctx, tf, dir, *baseline, vars, step.edit, step.files...)
+			kept, err = verify(ctx, tf, dir, *baseline, changes, vars, step.edit, step.files...)
+		}
+		if err == nil && !kept && step.fallback != nil {
+			_, err = verify(ctx, tf, dir, *baseline, changes, vars, step.fallback, step.files...)
 		}
 		if err != nil {
 			return nil, err
@@ -128,7 +148,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 			collapse := func() (bool, error) {
 				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
 			}
-			if _, err := verify(ctx, tf, dir, *baseline, vars, collapse, GeneratedFileName); err != nil {
+			if _, err := verify(ctx, tf, dir, *baseline, changes, vars, collapse, GeneratedFileName); err != nil {
 				return nil, err
 			}
 		}
@@ -137,7 +157,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	// resources; checked like the steps above.
 	if len(opts.Inherited) > 0 {
 		inherited := func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }
-		if _, err := verify(ctx, tf, dir, *baseline, vars, inherited, GeneratedFileName); err != nil {
+		if _, err := verify(ctx, tf, dir, *baseline, changes, vars, inherited, GeneratedFileName); err != nil {
 			return nil, err
 		}
 	}
@@ -171,9 +191,15 @@ func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string, taken 
 }
 
 // verify makes edit, which changes files in dir, and keeps it only if the
-// configuration then plans, with vars, without errors and with the same
-// changes as baseline. It reports whether it kept the edit.
-func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummary, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
+// configuration then plans, with vars, without errors, with the same
+// change summary as baseline, and with each resource changes has planning
+// the same change it had (see changeSignature): the same actions, on the
+// same attributes. Totals alone would let an edit hide a real change in a
+// resource that already has an expected update, such as a label-only one
+// after an import. Resources changes doesn't have, such as those moved
+// into module calls since, are judged by the totals. It reports whether
+// it kept the edit.
+func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
 	backup, err := backupFiles(dir, files...)
 	if err != nil {
 		return false, err
@@ -186,11 +212,11 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 	if !changed {
 		return false, nil
 	}
-	diags, summary, err := plan(ctx, tf, vars...)
+	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil {
-		return false, fmt.Errorf("terraform plan: %w", err)
+		return false, err
 	}
-	if len(diags) == 0 && summary != nil && *summary == baseline {
+	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
 	}
 	return false, backup.restore()
@@ -204,7 +230,8 @@ const maxEditRounds = 3
 // differently from changes, its planned change before the edit (see
 // changeSignature), or an error is about it, it makes edit again on the
 // files as they were, with that resource's level in skip raised, until
-// the plan, with vars, matches baseline. edit returns the resources it
+// the plan, with vars, matches baseline, every resource planning the
+// change it had (see sameChanges). edit returns the resources it
 // changed. It undoes the edit if the plan differs in a way no resource it
 // changed explains, and reports whether it kept any of it.
 func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
@@ -231,7 +258,7 @@ func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSu
 		if err != nil {
 			return false, errors.Join(err, backup.restore())
 		}
-		if len(diags) == 0 && summary != nil && *summary == baseline {
+		if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 			return true, nil
 		}
 		blamed, err := blame(dir, p, diags, changes)
@@ -279,11 +306,37 @@ func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[st
 		return nil, nil
 	}
 	for _, rc := range p.ResourceChanges {
-		if rc.Mode == tfjson.ManagedResourceMode && rc.Change != nil && changeSignature(rc) != changes[rc.Address] {
+		if changedFrom(rc, changes) {
 			blamed[rc.Address] = true
 		}
 	}
 	return blamed, nil
+}
+
+// sameChanges reports whether every resource of changes that p plans has
+// the change changes has for it.
+func sameChanges(p *tfjson.Plan, changes map[string]string) bool {
+	if p == nil {
+		return len(changes) == 0
+	}
+	for _, rc := range p.ResourceChanges {
+		if changedFrom(rc, changes) {
+			return false
+		}
+	}
+	return true
+}
+
+// changedFrom reports whether a resource a plan has plans another change
+// than the one changes has for it (see changeSignature). A resource changes
+// doesn't have, such as one moved into a module call since, is judged by
+// the plan's totals instead.
+func changedFrom(rc *tfjson.ResourceChange, changes map[string]string) bool {
+	if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
+		return false
+	}
+	want, ok := changes[rc.Address]
+	return ok && changeSignature(rc) != want
 }
 
 // planValues plans with vars and returns the plan's change summary, and

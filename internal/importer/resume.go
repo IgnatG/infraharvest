@@ -53,6 +53,7 @@ func fingerprint(engineVersion string, imports []engine.Import, opts engine.Opti
 		Config          map[string][]byte
 		Omit, Defaults  map[string][]string
 		StateOnly       map[string][]string
+		KeepEmpty       map[string][]string
 		DefaultTags     *engine.DefaultTags
 		EffectiveTags   *engine.EffectiveTags
 		Inherited       []string
@@ -66,7 +67,7 @@ func fingerprint(engineVersion string, imports []engine.Import, opts engine.Opti
 		KeepOwned       map[string]bool
 		OtherRoots      []engine.RootResource
 		ARNs            map[string]engine.ARN
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs})
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs})
 	if err != nil {
 		return "", err
 	}
@@ -132,7 +133,8 @@ var generatedFiles = []string{
 // clearGenerated removes what a previous run generated in dir, so that the
 // root can be generated again: generatedFiles, the files its checkpoint
 // under out says the configuration was split into, and the files
-// --incremental added (see engine.AddedFileName).
+// --incremental added (see engine.AddedFileName), which the checkpoint
+// names too.
 func clearGenerated(out, dir string) error {
 	names := slices.Clone(generatedFiles)
 	if content, err := os.ReadFile(checkpointPath(out, dir)); err == nil {

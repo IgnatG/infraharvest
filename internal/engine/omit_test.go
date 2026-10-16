@@ -54,8 +54,8 @@ func TestGenerateOmitsArguments(t *testing.T) {
 		}
 	}
 	// Leaving arguments out moves lines, so the errors are planned for again.
-	if strings.Join(tf.calls, ",") != "init,plan,plan,plan,show,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan plan plan show fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,plan,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan plan plan show schema fmt validate plan show]", tf.calls)
 	}
 }
 
@@ -136,5 +136,62 @@ func TestCheckOmittedByValue(t *testing.T) {
 	}
 	if !slices.Equal(findings, want) {
 		t.Errorf("got %q, want %q", findings, want)
+	}
+}
+
+const instanceGenerated = `resource "aws_instance" "app" {
+  instance_type = "t4g.nano"
+  tags_all      = { Name = "app" }
+  ebs_block_device {
+    device_name = "/dev/sdf"
+    tags_all    = { Name = "data" }
+  }
+  root_block_device {
+    tags        = { Name = "app" }
+    tags_all    = { Name = "app" }
+    volume_size = 8
+    volume_type = "gp3"
+  }
+}
+`
+
+// block.name leaves out an argument of nested blocks, of any type for
+// *.name, as it does at the top for name.
+func TestOmitArgumentsInNestedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, GeneratedFileName, instanceGenerated).path
+	omit := map[string][]string{"*": {"tags_all", "*.tags_all"}, "aws_instance": {"root_block_device.volume_type=gp3", "ebs_block_device.volume_type=gp3"}}
+
+	changed, err := OmitArguments(path, omit)
+	if err != nil || !changed {
+		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, gone := range []string{"tags_all", "volume_type"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("%s not left out:\n%s", gone, got)
+		}
+	}
+	for _, kept := range []string{`device_name = "/dev/sdf"`, `tags = { Name = "app" }`, "volume_size = 8"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("%q missing:\n%s", kept, got)
+		}
+	}
+
+	var findings []string
+	for _, b := range writeConfig(t, t.TempDir(), GeneratedFileName, instanceGenerated).syntax.Blocks {
+		checkOmitted(b, omit, func(hcl.Range) string { return "x" }, func(rule, format string, args ...any) {
+			findings = append(findings, rule+": "+fmt.Sprintf(format, args...))
+		})
+	}
+	slices.Sort(findings)
+	want := []string{
+		"deprecated-argument: x: aws_instance.app sets ebs_block_device.tags_all",
+		"deprecated-argument: x: aws_instance.app sets root_block_device.tags_all",
+		"deprecated-argument: x: aws_instance.app sets root_block_device.volume_type",
+		"deprecated-argument: x: aws_instance.app sets tags_all",
+	}
+	if !slices.Equal(findings, want) {
+		t.Errorf("standards: got %q, want %q", findings, want)
 	}
 }

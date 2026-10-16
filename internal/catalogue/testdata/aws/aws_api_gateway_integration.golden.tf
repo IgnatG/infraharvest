@@ -5,7 +5,7 @@ import {
   id = "a1b2c3d4e5/xyz789/GET"
 }
 
-# Left out of generated configuration: region, tags_all, cache_namespace={resource_id}
+# Left out of generated configuration: region, tags_all, *.tags_all, cache_namespace={resource_id}
 
 # Left out where the plan stays the same, as the default: connection_type=INTERNET, passthrough_behavior=WHEN_NO_MATCH, response_transfer_mode=BUFFERED, timeout_milliseconds=29000
 

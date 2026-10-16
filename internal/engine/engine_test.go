@@ -471,8 +471,8 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
 	}
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan,show,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate plan plan show fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate plan plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
@@ -512,8 +512,8 @@ func TestGenerateRepairsAndReplans(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate validate plan plan show fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "multivalue") || !strings.Contains(got, `name = "example.internal"`) {
 		t.Errorf("zero value not removed or file not formatted:\n%s", got)
@@ -581,8 +581,8 @@ func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate validate plan plan show fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "rotation_period_in_days") {
 		t.Errorf("rejected zero value not removed:\n%s", got)
