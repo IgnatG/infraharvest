@@ -31,8 +31,10 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 // by "type id", with the reason, that it takes asking AWS to find: the
 // default VPC and its subnets, route tables and internet gateways, default
 // security groups and the security groups EKS creates for clusters, with
-// their rules, which AWS creates itself; and what
-// CloudFormation stacks manage, which would otherwise have two owners. The
+// their rules, which AWS creates itself; what CloudFormation stacks
+// manage, which would otherwise have two owners; what other accounts share;
+// and the targets Auto Scaling groups and ECS services register in their
+// target groups, which they register and deregister themselves. The
 // catalogue's skip rules leave out what IDs tell, such as service-linked
 // roles.
 func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Resource) (map[string]string, error) {
@@ -65,7 +67,8 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		}
 	}
 	sharedErr := p.excludeShared(ctx, config, resources, excluded)
-	stacksErr = errors.Join(stacksErr, sharedErr)
+	targetsErr := p.excludeRegisteredTargets(ctx, config, resources, excluded)
+	stacksErr = errors.Join(stacksErr, sharedErr, targetsErr)
 	if !network || p.region == GlobalPseudoRegion {
 		return excluded, stacksErr
 	}
