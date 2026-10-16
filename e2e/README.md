@@ -151,6 +151,7 @@ It needs a project of its own with billing enabled (Compute Engine and Cloud DNS
 git clone https://github.com/IgnatG/infraharvest.git
 cd infraharvest/e2e/testdata/sandbox/google-bootstrap
 gcloud config set project <project-id>
+gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com
 terraform init
 terraform apply -var "project_id=$(gcloud config get-value project)"
 terraform output -raw gh_commands

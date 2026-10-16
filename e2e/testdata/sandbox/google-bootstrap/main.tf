@@ -40,17 +40,21 @@ locals {
   # list rather than the APIs disabled; and what the sign-in uses (sts,
   # iamcredentials). serviceusage, which enables the rest, is enabled in
   # new projects.
+  # Enabled first: enabling any other API goes through these two.
+  foundation_services = toset([
+    "cloudresourcemanager.googleapis.com",
+    "serviceusage.googleapis.com",
+  ])
+
   services = toset([
     "cloudasset.googleapis.com",
     "cloudbilling.googleapis.com",
-    "cloudresourcemanager.googleapis.com",
     "cloudscheduler.googleapis.com",
     "compute.googleapis.com",
     "dns.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "pubsub.googleapis.com",
-    "serviceusage.googleapis.com",
     "sqladmin.googleapis.com",
     "storage.googleapis.com",
     "sts.googleapis.com",
@@ -84,11 +88,37 @@ locals {
 
 # Left enabled when the bootstrap is destroyed: other things in the
 # project may use them.
+resource "google_project_service" "foundation" {
+  for_each = local.foundation_services
+
+  service            = each.value
+  disable_on_destroy = false
+}
+
+# A newly enabled API takes a minute or so to be usable.
+resource "time_sleep" "foundation" {
+  create_duration = "90s"
+
+  depends_on = [google_project_service.foundation]
+}
+
 resource "google_project_service" "enabled" {
   for_each = local.services
 
   service            = each.value
   disable_on_destroy = false
+
+  depends_on = [time_sleep.foundation]
+}
+
+moved {
+  from = google_project_service.enabled["cloudresourcemanager.googleapis.com"]
+  to   = google_project_service.foundation["cloudresourcemanager.googleapis.com"]
+}
+
+moved {
+  from = google_project_service.enabled["serviceusage.googleapis.com"]
+  to   = google_project_service.foundation["serviceusage.googleapis.com"]
 }
 
 resource "google_iam_workload_identity_pool" "github" {
