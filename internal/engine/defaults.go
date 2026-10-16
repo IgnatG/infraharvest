@@ -218,7 +218,7 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, keep map[string
 	return removed
 }
 
-func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, keep map[string]bool, defaults map[string]omission) []defaultCandidate {
+func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, keep map[string]bool, defaults map[string]string) []defaultCandidate {
 	var removed []defaultCandidate
 	for name, attr := range syntax.Attributes {
 		path := append(append([]string(nil), prefix...), name)
@@ -265,15 +265,15 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 
 // defaultValues parses a type's defaults, path=value entries such as
 // storage_class=STANDARD or bgp.keepalive_interval=20, by path.
-func defaultValues(entries []string) map[string]omission {
+func defaultValues(entries []string) map[string]string {
 	if len(entries) == 0 {
 		return nil
 	}
-	values := make(map[string]omission, len(entries))
+	values := make(map[string]string, len(entries))
 	for _, entry := range entries {
 		path, value, ok := strings.Cut(entry, "=")
 		if ok && path != "" {
-			values[path] = omission{name: path, value: value}
+			values[path] = value
 		}
 	}
 	return values
@@ -281,9 +281,9 @@ func defaultValues(entries []string) map[string]omission {
 
 // isNamedDefault reports whether an attribute at path, set to expr, has the
 // value defaults names for that path.
-func isNamedDefault(defaults map[string]omission, path []string, expr hclsyntax.Expression) bool {
-	o, ok := defaults[strings.Join(path, ".")]
-	return ok && o.matches(expr)
+func isNamedDefault(defaults map[string]string, path []string, expr hclsyntax.Expression) bool {
+	value, ok := defaults[strings.Join(path, ".")]
+	return ok && matchesValue(expr, value, nil)
 }
 
 // isEmpty reports whether body sets nothing.

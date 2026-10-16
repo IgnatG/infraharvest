@@ -40,7 +40,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
-			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 {
+			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
 			fail("the entry for every type only takes omit, state_only and skip")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.Provider+"_") {
@@ -63,12 +63,11 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	}{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}} {
 		seen := map[string]bool{}
 		for _, name := range list.names {
-			argument := name
 			if list.name == "omit" {
-				// name=value leaves the argument out only when set to value.
-				argument, _, _ = strings.Cut(name, "=")
-			}
-			if !identifier.MatchString(argument) {
+				if err := checkOmission(name); err != nil {
+					fail("omit: %q: %v", name, err)
+				}
+			} else if !identifier.MatchString(name) {
 				fail("%s: %q isn't an argument name", list.name, name)
 			}
 			if seen[name] {
@@ -76,6 +75,9 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			}
 			seen[name] = true
 		}
+	}
+	if l := e.Lifecycle; l != nil && (!l.CreateBeforeDestroy || strings.TrimSpace(l.Reason) == "") {
+		fail("lifecycle: set create_before_destroy: true, with a reason")
 	}
 	seen := map[string]bool{}
 	for _, entry := range e.Defaults {
@@ -186,4 +188,34 @@ func placeholderList(e *Entry, list func(*Placeholder) []string) []string {
 		return nil
 	}
 	return list(e.Placeholder)
+}
+
+// argumentPath is an argument, or one in nested blocks: a.b.c.
+var argumentPath = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
+
+// checkOmission reports what's wrong with an omit entry: path or
+// path=value, optionally followed by " when " and conditions joined by
+// " and ", each path, path=value or !path, where a path starting with @
+// names what the lister recorded.
+func checkOmission(entry string) error {
+	target, conditions, hasConditions := strings.Cut(entry, " when ")
+	if name, _, _ := strings.Cut(target, "="); !argumentPath.MatchString(name) {
+		return fmt.Errorf("%q isn't an argument name or a path to one", name)
+	}
+	if !hasConditions {
+		return nil
+	}
+	for _, c := range strings.Split(conditions, " and ") {
+		name, _, _ := strings.Cut(strings.TrimPrefix(c, "!"), "=")
+		if listed, ok := strings.CutPrefix(name, "@"); ok {
+			if !identifier.MatchString(listed) {
+				return fmt.Errorf("condition %q: %q isn't an attribute name", c, listed)
+			}
+			continue
+		}
+		if !argumentPath.MatchString(name) {
+			return fmt.Errorf("condition %q: %q isn't an argument name or a path to one", c, name)
+		}
+	}
+	return nil
 }
