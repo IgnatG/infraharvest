@@ -331,6 +331,27 @@ types:
 	if _, err := Load("aws", filepath.Join(dir, "missing")); err == nil {
 		t.Error("a missing directory: want an error")
 	}
+
+	// A provider no catalogue has is most likely mistyped; a directory
+	// without catalogue files, most likely the wrong one.
+	other := t.TempDir()
+	write(t, other, "aws.yml", "provider: aws\ntypes:\n  aws_widget:\n    not_importable: no import yet\n")
+	c, err = Load("aws", other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Entry("aws_widget"); !ok {
+		t.Error("a .yml file: want its entries")
+	}
+	write(t, other, "typo.yaml", "provider: awss\ntypes: {}\n")
+	if _, err := Load("aws", other); err == nil || !strings.Contains(err.Error(), `typo.yaml: unknown provider "awss"`) {
+		t.Errorf("an unknown provider: want an error naming the file, got %v", err)
+	}
+	empty := t.TempDir()
+	write(t, empty, "README.md", "notes")
+	if _, err := Load("aws", empty); err == nil || !strings.Contains(err.Error(), "no .yaml or .yml files") {
+		t.Errorf("a directory without catalogue files: want an error, got %v", err)
+	}
 }
 
 func parseCatalogue(t *testing.T, file string) *Catalogue {
@@ -352,7 +373,7 @@ func load(t *testing.T, files map[string]string) (map[string]*Catalogue, error) 
 	for name, content := range files {
 		write(t, dir, name, content)
 	}
-	return loadFS(os.DirFS(dir), ".", true)
+	return loadFS(os.DirFS(dir), ".", true, nil)
 }
 
 func write(t *testing.T, dir, name, content string) {

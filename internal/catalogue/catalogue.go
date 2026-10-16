@@ -219,7 +219,7 @@ var (
 // without one.
 func Builtin(provider string) (*Catalogue, error) {
 	builtinOnce.Do(func() {
-		builtins, builtinErr = loadFS(builtin, "data", true)
+		builtins, builtinErr = loadFS(builtin, "data", true, nil)
 	})
 	if builtinErr != nil {
 		return nil, builtinErr
@@ -244,19 +244,27 @@ func Providers() ([]string, error) {
 }
 
 // Load returns the provider's built-in catalogue with the entries of the
-// .yaml files in dir on top: an entry for a type the built-in catalogue
-// has replaces the fields it sets, so omit: [] clears a list. Files for
-// other providers are left out. An empty dir loads the built-in catalogue
-// alone.
+// .yaml and .yml files in dir on top: an entry for a type the built-in
+// catalogue has replaces the fields it sets, so omit: [] clears a list.
+// Files for the other providers with a built-in catalogue are left out; a
+// file for any other provider, or a dir without catalogue files, is an
+// error. An empty dir loads the built-in catalogue alone.
 func Load(provider, dir string) (*Catalogue, error) {
 	base, err := Builtin(provider)
 	if err != nil || dir == "" {
 		return base, err
 	}
 	// Checked once merged: an entry may name a built-in child type.
-	overlays, err := loadFS(os.DirFS(dir), ".", false)
+	known, err := Providers()
+	if err != nil {
+		return nil, err
+	}
+	overlays, err := loadFS(os.DirFS(dir), ".", false, known)
 	if err != nil {
 		return nil, fmt.Errorf("catalogue %s: %w", dir, err)
+	}
+	if len(overlays) == 0 {
+		return nil, fmt.Errorf("catalogue %s: no .yaml or .yml files", dir)
 	}
 	overlay, ok := overlays[provider]
 	if !ok {
@@ -276,16 +284,17 @@ func Load(provider, dir string) (*Catalogue, error) {
 	return merged, nil
 }
 
-// loadFS reads every .yaml file under root, by provider, and checks the
-// catalogues if check is set.
-func loadFS(fsys fs.FS, root string, check bool) (map[string]*Catalogue, error) {
+// loadFS reads every .yaml or .yml file under root, by provider, and
+// checks the catalogues if check is set. With providers, a file for
+// another provider is an error: its provider is most likely mistyped.
+func loadFS(fsys fs.FS, root string, check bool, providers []string) (map[string]*Catalogue, error) {
 	catalogues := map[string]*Catalogue{}
 	var errs []error
 	err := fs.WalkDir(fsys, root, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || path.Ext(name) != ".yaml" {
+		if ext := path.Ext(name); d.IsDir() || (ext != ".yaml" && ext != ".yml") {
 			return nil
 		}
 		content, err := fs.ReadFile(fsys, name)
@@ -295,6 +304,10 @@ func loadFS(fsys fs.FS, root string, check bool) (map[string]*Catalogue, error) 
 		f, err := Parse(content)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			return nil
+		}
+		if providers != nil && !slices.Contains(providers, f.Provider) {
+			errs = append(errs, fmt.Errorf("%s: unknown provider %q: use %s", name, f.Provider, strings.Join(providers, ", ")))
 			return nil
 		}
 		c, ok := catalogues[f.Provider]
