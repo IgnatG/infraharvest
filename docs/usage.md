@@ -30,7 +30,7 @@ In a terminal, `discover` then opens the picker on the file (`--pick=false` skip
 
 `--all` imports everything the default selection includes, without a file. The report lists what was excluded and why.
 
-Running `discover` again updates the selection file. Entries keep their decisions and notes, resources that no longer exist are dropped, and new ones are added with `new: true`, decided by the file's rules and defaults. Review those, then remove the mark.
+Running `discover` again updates the selection file. Entries keep their decisions and notes, resources that no longer exist are dropped (unless the listing failed in part, as for an account whose credentials expired: then the entries it didn't find stay as they were), and new ones are added with `new: true`, decided by the file's rules and defaults. Review those, then remove the mark.
 
 `discover` also saves what it listed under `<out>/.infraharvest`. `import --selection selection.yaml --reuse-inventory` imports from that saved list instead of listing the cloud again, as long as it covers the same services, region and account. On a large estate, that saves the listing time a second time. Child resources, such as an S3 bucket's configuration, are still read at import.
 

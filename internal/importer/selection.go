@@ -177,15 +177,16 @@ func (r *Run) selectionPath() string {
 	return r.options.Selection
 }
 
-// writeSelection writes what discover listed.
-func (r *Run) writeSelection() error {
+// writeSelection writes what discover listed; with partial set, as after a
+// failed listing, it keeps the entries of the file it didn't list.
+func (r *Run) writeSelection(partial bool) error {
 	path := r.selectionPath()
 	f, err := selection.Load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		// Merge lists each resource once; nothing is new in a first file.
 		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
-		f.Merge(r.listed)
+		f.Merge(r.listed, false)
 		for i := range f.Resources {
 			f.Resources[i].New = false
 		}
@@ -193,8 +194,12 @@ func (r *Run) writeSelection() error {
 		return err
 	default:
 		// Running discover again: keep the decisions people made.
-		added, dropped := f.Merge(r.listed)
-		log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped", path, added, dropped)
+		added, dropped := f.Merge(r.listed, partial)
+		if partial {
+			log.Printf("updated %s: %d new resources marked new: true for review; the listing failed in part, so the entries it didn't find stay", path, added)
+		} else {
+			log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped", path, added, dropped)
+		}
 	}
 	if err := f.Save(path); err != nil {
 		return err

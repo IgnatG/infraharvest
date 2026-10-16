@@ -156,7 +156,7 @@ func TestDiscoverWritesEachResourceOnce(t *testing.T) {
 
 	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
 	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
-	if err := run.writeSelection(); err != nil {
+	if err := run.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +182,7 @@ func TestDiscoverWritesSelection(t *testing.T) {
 	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
 	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
-	if err := run.writeSelection(); err != nil {
+	if err := run.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -250,7 +250,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 	first := NewRun()
 	first.options = Options{Discover: true, Selection: path}
 	first.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "", importIDForSelection)
-	if err := first.writeSelection(); err != nil {
+	if err := first.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
 	f, err := selection.Load(path)
@@ -276,7 +276,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 		},
 	}
 	again.addDiscovered(listing{resources: listed}, defaultsForSelection, "", importIDForSelection)
-	if err := again.writeSelection(); err != nil {
+	if err := again.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
 

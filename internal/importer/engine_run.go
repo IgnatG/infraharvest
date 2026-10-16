@@ -76,7 +76,8 @@ func (r *Run) finish(err error) error {
 		return err
 	}
 	if r.options.Discover {
-		if writeErr := r.writeSelection(); writeErr != nil {
+		// After a failure, what didn't list may be only what failed.
+		if writeErr := r.writeSelection(err != nil || len(r.failures) > 0); writeErr != nil {
 			return couldNotRun(err, writeErr)
 		}
 		if err != nil {
