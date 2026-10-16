@@ -33,7 +33,7 @@ func TestBuiltinLoads(t *testing.T) {
 	if e, ok := aws.Entry("aws_vpc"); !ok || e.Service != "vpc" || e.DataSource == nil {
 		t.Errorf("aws_vpc: got %+v, want the vpc service's entry with a data source", e)
 	}
-	if got := aws.Omit()[AllTypes]; !reflect.DeepEqual(got, []string{"region", "tags_all"}) {
+	if got := aws.Omit()[AllTypes]; !reflect.DeepEqual(got, []string{"region", "tags_all", "*.tags_all"}) {
 		t.Errorf("omit for every type: got %v", got)
 	}
 	if source := aws.Source("aws_vpc"); source != "data/aws/vpc.yaml" {
@@ -598,5 +598,27 @@ func TestKeepEmpty(t *testing.T) {
 	}
 	if _, err := load(t, map[string]string{"x.yaml": "provider: aws\ntypes:\n  aws_x:\n    keep_empty: [Route]\n"}); err == nil {
 		t.Error("keep_empty of a name that isn't an argument's: want an error")
+	}
+}
+
+// An omit entry may name an argument of nested blocks, of any type for
+// *.name.
+func TestOmitInNestedBlocks(t *testing.T) {
+	ok := "provider: aws\ntypes:\n  aws_x:\n    omit: [root_block_device.tags_all, \"*.tags_all\", \"a.b.c=1\"]\n"
+	if _, err := load(t, map[string]string{"x.yaml": ok}); err != nil {
+		t.Errorf("nested omit entries: %v", err)
+	}
+	schema := loadSchema(t)
+	if err := schema.Validate(yamlToJSON(t, []byte(ok))); err != nil {
+		t.Errorf("the schema rejects nested omit entries: %v", err)
+	}
+	for _, entry := range []string{".a", "*", "a.*", "a..b", "A.b"} {
+		file := "provider: aws\ntypes:\n  aws_x:\n    omit: [\"" + entry + "\"]\n"
+		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
+			t.Errorf("omit %q: want an error", entry)
+		}
+		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
+			t.Errorf("omit %q: the schema accepts it", entry)
+		}
 	}
 }

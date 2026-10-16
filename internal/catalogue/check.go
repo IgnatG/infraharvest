@@ -18,6 +18,7 @@ import (
 
 var (
 	identifier       = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	nestedBlocks     = regexp.MustCompile(`^(([a-z][a-z0-9_]*|\*)\.)+`)
 	cloudFormation   = regexp.MustCompile(`^[A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+$`)
 	cloudControlProp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
 	inventoryType    = regexp.MustCompile(`^[A-Za-z0-9.-]+(/[A-Za-z0-9]+)+$`)
@@ -98,8 +99,11 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 		for _, name := range list.names {
 			argument := name
 			if strings.HasSuffix(list.name, "omit") {
-				// name=value leaves the argument out only when set to value.
+				// name=value leaves the argument out only when set to value,
+				// and block.name the argument of nested blocks, of any type
+				// for *.name.
 				argument, _, _ = strings.Cut(name, "=")
+				argument = nestedBlocks.ReplaceAllString(argument, "")
 			}
 			if !identifier.MatchString(argument) {
 				fail("%s: %q isn't an argument name", list.name, name)

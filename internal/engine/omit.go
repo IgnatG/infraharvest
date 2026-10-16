@@ -21,11 +21,11 @@ import (
 )
 
 // OmitArguments removes from the resources in path the arguments omit
-// names for their type, under "*" for every type, or under a resource's
-// address (type.name) for that resource alone, whether written as
-// attributes or as blocks (see omission for the entries' form). Whether
-// an entry applies is decided on the resource as generated, before
-// anything is removed. It reports whether it removed anything.
+// names for their type, or under "*" for every type, whether written as
+// attributes or as blocks. An entry name=value removes the attribute only
+// where it is set to that value (see omission), and an entry
+// block.name, the argument in the nested blocks of that type, or of any
+// type for *.name. It reports whether it removed anything.
 func OmitArguments(path string, omit map[string][]string) (bool, error) {
 	if len(omit) == 0 {
 		return false, nil
@@ -36,79 +36,94 @@ func OmitArguments(path string, omit map[string][]string) (bool, error) {
 			if block.Type() != "resource" || len(block.Labels()) != 2 || i >= len(syntax.Blocks) {
 				continue
 			}
-			var found []removal
-			for _, o := range omissions(omit, block.Labels()[0], block.Labels()[1]) {
-				found = append(found, o.find(syntax.Blocks[i].Body)...)
+			// Every body an omission applies to, before anything is
+			// removed: removing blocks would misalign the two trees.
+			type target struct {
+				o      omission
+				bodies []bodyPair
 			}
-			if removeAll(block.Body(), found) {
-				changed = true
+			var targets []target
+			for _, o := range omissions(omit, block.Labels()[0]) {
+				targets = append(targets, target{o, nestedBodies(bodyPair{block.Body(), syntax.Blocks[i].Body}, o.blocks)})
+			}
+			for _, t := range targets {
+				for _, b := range t.bodies {
+					if attr, ok := b.syntax.Attributes[t.o.name]; ok && t.o.matches(attr.Expr) && b.write.RemoveAttribute(t.o.name) != nil {
+						changed = true
+					}
+					if !t.o.always {
+						continue
+					}
+					for _, nested := range b.write.Blocks() {
+						if nested.Type() == t.o.name && b.write.RemoveBlock(nested) {
+							changed = true
+						}
+					}
+				}
 			}
 		}
 		return changed
 	})
 }
 
-// omission is an entry of a catalogue's omit list:
-//
-//   - name leaves the argument or block out whatever it is set to;
-//   - name=value leaves the attribute out only where it is set to value,
-//     such as a default the cloud reports;
-//   - a.b leaves out b in every nested block a (a.b=value likewise);
-//   - any of these followed by " when " and conditions joined by " and "
-//     applies only where every condition holds: path (set, not null),
-//     path=value, or !path (not set). A condition's path starting with the
-//     blocks the argument is in refers to those blocks, else to the
-//     resource, where it holds if it holds in any of the blocks it names:
-//     stickiness when stickiness.enabled=false.
-//
-// A value is compared as a string (true, 3, "text"). In it, {*} stands for
-// any text and {argument} for the value of one of the resource's string
-// arguments. A value that is a JSON object or array is compared as JSON,
-// against the attribute's JSON, such as a policy: keys and values alike,
-// with arrays in any order.
+// bodyPair is a body in both trees.
+type bodyPair struct {
+	write  *hclwrite.Body
+	syntax *hclsyntax.Body
+}
+
+// nestedBodies returns the bodies of the nested blocks at path in body,
+// such as root_block_device, where * stands for blocks of any type; body
+// itself for an empty path.
+func nestedBodies(body bodyPair, path []string) []bodyPair {
+	if len(path) == 0 {
+		return []bodyPair{body}
+	}
+	var bodies []bodyPair
+	blocks := body.write.Blocks()
+	for i, b := range body.syntax.Blocks {
+		if i < len(blocks) && (path[0] == "*" || b.Type == path[0]) {
+			bodies = append(bodies, nestedBodies(bodyPair{blocks[i].Body(), b.Body}, path[1:])...)
+		}
+	}
+	return bodies
+}
+
+// nestedSyntaxBodies is nestedBodies for a syntax tree alone.
+func nestedSyntaxBodies(body *hclsyntax.Body, path []string) []*hclsyntax.Body {
+	if len(path) == 0 {
+		return []*hclsyntax.Body{body}
+	}
+	var bodies []*hclsyntax.Body
+	for _, b := range body.Blocks {
+		if path[0] == "*" || b.Type == path[0] {
+			bodies = append(bodies, nestedSyntaxBodies(b.Body, path[1:])...)
+		}
+	}
+	return bodies
+}
+
+// omission is an entry of a catalogue's omit list: name, which leaves the
+// argument out whatever its value, or name=value, which leaves the
+// attribute out only where it is set to value, such as a default the
+// cloud reports that the provider rejects as an argument. Either may
+// start with the types of the nested blocks the argument is in, such as
+// root_block_device.tags_all, where * stands for any type.
 type omission struct {
-	path   []string
+	blocks []string
+	name   string
 	value  string
 	always bool
 	when   []omitCondition
 }
 
-// omitCondition is a condition of an omission (see omission).
-type omitCondition struct {
-	path   []string
-	value  string
-	valued bool
-	negate bool
-}
-
-// parseOmission reads an omit entry (see omission).
-func parseOmission(entry string) omission {
-	target, conditions, hasConditions := strings.Cut(entry, " when ")
-	name, value, withValue := strings.Cut(strings.TrimSpace(target), "=")
-	o := omission{path: strings.Split(name, "."), value: value, always: !withValue}
-	if !hasConditions {
-		return o
-	}
-	for _, c := range strings.Split(conditions, " and ") {
-		c = strings.TrimSpace(c)
-		negate := strings.HasPrefix(c, "!")
-		c = strings.TrimPrefix(c, "!")
-		name, value, valued := strings.Cut(c, "=")
-		o.when = append(o.when, omitCondition{path: strings.Split(name, "."), value: value, valued: valued, negate: negate})
-	}
-	return o
-}
-
-// omissions returns the entries of omit for every type, for typ and for
-// the resource typ.name.
-func omissions(omit map[string][]string, typ, name string) []omission {
-	entries := append(append([]string(nil), omit["*"]...), omit[typ]...)
-	if name != "" {
-		entries = append(entries, omit[typ+"."+name]...)
-	}
-	list := make([]omission, 0, len(entries))
-	for _, entry := range entries {
-		list = append(list, parseOmission(entry))
+// omissions returns the entries of omit for every type and for typ.
+func omissions(omit map[string][]string, typ string) []omission {
+	var list []omission
+	for _, entry := range append(append([]string(nil), omit["*"]...), omit[typ]...) {
+		name, value, withValue := strings.Cut(entry, "=")
+		path := strings.Split(name, ".")
+		list = append(list, omission{blocks: path[:len(path)-1], name: path[len(path)-1], value: value, always: !withValue})
 	}
 	return list
 }

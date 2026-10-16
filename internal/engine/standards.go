@@ -238,12 +238,19 @@ func checkOmitted(b *hclsyntax.Block, omit map[string][]string, where func(hcl.R
 	if len(b.Labels) != 2 {
 		return
 	}
-	for _, o := range omissions(omit, b.Labels[0], "") {
-		for _, r := range o.find(b.Body) {
-			if r.block >= 0 {
-				fail("deprecated-argument", "%s: %s.%s has a %s block", where(r.rng), b.Labels[0], b.Labels[1], r.path())
-			} else {
-				fail("deprecated-argument", "%s: %s.%s sets %s", where(r.rng), b.Labels[0], b.Labels[1], r.path())
+	for _, o := range omissions(omit, b.Labels[0]) {
+		name := strings.Join(append(append([]string(nil), o.blocks...), o.name), ".")
+		for _, body := range nestedSyntaxBodies(b.Body, o.blocks) {
+			if attr, ok := body.Attributes[o.name]; ok && o.matches(attr.Expr) {
+				fail("deprecated-argument", "%s: %s.%s sets %s", where(attr.SrcRange), b.Labels[0], b.Labels[1], name)
+			}
+			if !o.always {
+				continue
+			}
+			for _, inner := range body.Blocks {
+				if inner.Type == o.name {
+					fail("deprecated-argument", "%s: %s.%s has a %s block", where(inner.DefRange()), b.Labels[0], b.Labels[1], name)
+				}
 			}
 		}
 	}
