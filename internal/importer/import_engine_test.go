@@ -360,7 +360,6 @@ func TestResourceNamesResolvesIDs(t *testing.T) {
 		if got := nameOf(tc.r); got != tc.want {
 			t.Errorf("name of %s %s: got %q, want %q", tc.r.Address.Type, tc.r.Observed.ID, got, tc.want)
 		}
-		}
 	}
 }
 

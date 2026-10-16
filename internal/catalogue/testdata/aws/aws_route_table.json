@@ -1,1 +1,1 @@
-{"resources": [{"id": "rtb-0a1b2c3d4e5f60718", "name": "private"}]}
+{"resources": [{"id": "rtb-0a1b2c3d4e5f60718", "name": "private"}, {"id": "rtb-0f1e2d3c4b5a69788", "name": "main", "attributes": {"main": "true", "as_created": "true"}}, {"id": "rtb-0123456789abcdef0", "name": "shared_main", "attributes": {"main": "true"}}]}

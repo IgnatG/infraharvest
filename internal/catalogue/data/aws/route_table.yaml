@@ -7,6 +7,11 @@ types:
   aws_route_table:
     arn: { service: ec2, resource_type: "route-table" }
     data_source: { type: aws_route_table, argument: route_table_id }
+    skip:
+      # Imported, it would be a route table without routes: configuration
+      # that refers to it reads it through the data source.
+      - reason: the main route table AWS creates with every VPC, unchanged, with only the VPC's local routes; the VPC records it as its main_route_table_id
+        attributes: { main: "true", as_created: "true" }
   aws_route_table_association:
     # A subnet's association, or a gateway's (an edge association).
     import_id:
