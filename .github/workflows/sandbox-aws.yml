@@ -5,16 +5,18 @@
 # end, whatever happened. The main estate (TestSandboxAWS) is the usual
 # one; clusters (TestSandboxAWSClusters) holds an RDS database, an
 # ElastiCache replication group and an EKS cluster, which take longer and
-# cost more, so it runs only when asked for.
+# cost more, so it runs only when asked for; so does data
+# (TestSandboxAWSData): an EC2 instance, a Lambda function, an RDS
+# database, a Redshift cluster and an S3 bucket, destroyed straight after.
 name: sandbox-aws
 
 on:
   workflow_dispatch:
     inputs:
       estate:
-        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; slower and dearer)
+        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer)
         type: choice
-        options: [main, clusters]
+        options: [main, clusters, data]
         default: main
       engine:
         description: Engine to import with
@@ -37,9 +39,10 @@ jobs:
     name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
-    # The clusters estate's test may take two hours, and destroying what it
-    # left half an hour more.
-    timeout-minutes: ${{ inputs.estate == 'clusters' && 160 || 110 }}
+    # go test gets the test's own deadline plus the 30 minutes its cleanup
+    # destroy has, and a margin, so that it never stops a destroy halfway;
+    # the job, another half an hour for the destroy step below.
+    timeout-minutes: ${{ inputs.estate == 'data' && 130 || 160 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -114,8 +117,9 @@ jobs:
     - name: Round trip
       run: |
         case "$SANDBOX_ESTATE" in
-          main) test=TestSandboxAWS timeout=90m ;;
+          main) test=TestSandboxAWS timeout=120m ;;
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
+          data) test=TestSandboxAWSData timeout=90m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/
@@ -146,7 +150,7 @@ jobs:
           vars+=(-var "second_region=$SANDBOX_AWS_SECOND_REGION")
         fi
         "$E2E_ENGINE" init -input=false
-        "$E2E_ENGINE" destroy -auto-approve -input=false "${vars[@]}"
+        "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}"
         left=$("$E2E_ENGINE" state list)
         if [ -n "$left" ]; then
           echo "::error::Left in the estate: $left"

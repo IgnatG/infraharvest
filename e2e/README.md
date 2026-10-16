@@ -95,6 +95,16 @@ gh workflow run sandbox-aws -f estate=clusters -f engine=terraform
 
 A run takes about an hour: about 15 minutes to create the estate (the cluster takes longest, ElastiCache and RDS create meanwhile), 15 to 20 to import and plan, and 10 to 15 to destroy; the job allows up to 160 minutes. It costs about $0.15 an hour, under $0.25 a run: the EKS control plane ($0.10 an hour), the database and the cache node (about $0.02 an hour each), their storage and the secret.
 
+### The data estate
+
+[`testdata/sandbox/aws-data`](testdata/sandbox/aws-data/main.tf) holds what most AWS accounts have, the database and the warehouse included, which cost by the hour, so a run creates it only when asked to and destroys it as soon as the import is planned:
+
+```sh
+gh workflow run sandbox-aws -f estate=data -f engine=terraform
+```
+
+[`TestSandboxAWSData`](sandbox_aws_test.go) creates it in `AWS_REGION`, every resource tagged `infraharvest-sandbox=<engine>`: a VPC with two private subnets and no NAT gateway, and one security group; a `t4g.nano` EC2 instance with no public address; a Lambda function with its role and log group; an S3 bucket; a PostgreSQL `db.t4g.micro` instance (one zone, no backups, no final snapshot, its master password managed by RDS in Secrets Manager); and a single-node Redshift cluster (`dc2.large`, or the `redshift_node_type` variable; no automated snapshots, no final snapshot, its admin password managed by Redshift in Secrets Manager). The test imports the region (`--services=ec2_instance,iam,lambda,logs,rds,redshift,s3,sg,subnet,vpc`) as the read-only role and checks, as the main test does, that nothing fails or is left out, every check passes, every root plans as imports with no changes and every type created is imported. The workflow destroys the estate whatever happened, and allows the job 90 minutes. RDS and Redshift take 5 to 15 minutes each to create and to delete, in parallel; a run costs well under $1.
+
 ## Azure sandbox (a real subscription)
 
 [`TestSandboxAzure`](sandbox_azure_test.go) runs against a real Azure subscription, for what floci-az can't show: Resource Graph, which `--services='*'` lists through, route tables, storage accounts, Key Vault, management locks, resource groups' tags, and whether the [read-only template](../docs/permissions.md#azure) grants enough. The `sandbox-azure` workflow runs it, started by hand (`gh workflow run sandbox-azure -f engine=terraform`), and only after a reviewer of the `sandbox` environment approves the run:
