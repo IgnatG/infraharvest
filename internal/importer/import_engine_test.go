@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -381,5 +382,38 @@ func TestWithResourceOmissions(t *testing.T) {
 	}
 	if got := byDir["out"][1].Omit; got != nil {
 		t.Errorf("db: omit %v, want none", got)
+	}
+}
+
+// --modules decides what holds clusters of resources: curated modules, the
+// organisation's own and generated local ones (registry, latest-untested
+// and the default), generated local modules only (local), or nothing, every
+// resource staying in the root (none).
+func TestModuleOptions(t *testing.T) {
+	out := filepath.Join("out", "aws")
+	resolved := []adapters.Adapter{{Source: "acme/bucket/aws", Version: "1.0.0"}}
+	local := filepath.Join(out, engine.ModulesDirName)
+	for _, tc := range []struct {
+		mode       string
+		registry   bool
+		adapters   []adapters.Adapter
+		modulesDir string
+	}{
+		{"", true, resolved, local},
+		{ModulesRegistry, true, resolved, local},
+		{ModulesLatestUntested, true, resolved, local},
+		{ModulesLocal, false, nil, local},
+		{ModulesNone, false, nil, ""},
+	} {
+		if got := modulesFromRegistry(tc.mode); got != tc.registry {
+			t.Errorf("--modules %q: modulesFromRegistry = %v, want %v", tc.mode, got, tc.registry)
+		}
+		gotAdapters, gotDir := moduleOptions(tc.mode, out, resolved)
+		if !reflect.DeepEqual(gotAdapters, tc.adapters) {
+			t.Errorf("--modules %q: adapters %+v, want %+v", tc.mode, gotAdapters, tc.adapters)
+		}
+		if gotDir != tc.modulesDir {
+			t.Errorf("--modules %q: modules directory %q, want %q", tc.mode, gotDir, tc.modulesDir)
+		}
 	}
 }

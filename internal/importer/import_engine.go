@@ -57,6 +57,26 @@ const (
 	ModulesNone = "none"
 )
 
+// modulesFromRegistry reports whether --modules mode tries curated public
+// modules, and the organisation's own, before generated local ones.
+func modulesFromRegistry(mode string) bool {
+	return mode == "" || mode == ModulesRegistry || mode == ModulesLatestUntested
+}
+
+// moduleOptions returns the engine's module options for --modules mode:
+// the adapters of the modules resolved for it, and the directory, under
+// out, of the generated local modules. ModulesLocal generates local modules
+// only; ModulesNone keeps every resource in the root, with neither.
+func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapters []adapters.Adapter, modulesDir string) {
+	switch {
+	case modulesFromRegistry(mode):
+		return resolved, filepath.Join(out, engine.ModulesDirName)
+	case mode == ModulesLocal:
+		return nil, filepath.Join(out, engine.ModulesDirName)
+	}
+	return nil, ""
+}
+
 // engineBinary is the binary --engine runs.
 func engineBinary(name string) engine.Binary {
 	if name == EngineTofu {
@@ -153,7 +173,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	var moduleAdapters []adapters.Adapter
 	var newerModules []report.ModuleVersion
 	var constraints []moduleConstraint
-	if options.Modules == "" || options.Modules == ModulesRegistry || options.Modules == ModulesLatestUntested {
+	if modulesFromRegistry(options.Modules) {
 		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Name()), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
 		// The organisation's own modules come first.
 		own := applicableAdapters(catalogueAdapters(ctx, execPath, run.modules, provider.Name()), selected)
@@ -179,13 +199,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	opts.IncludeOwned = options.IncludeOwned
 	opts.KeepOwned = keptOwned(selected, listed, importID)
 	opts.External = leftOut
-	switch options.Modules {
-	case "", ModulesRegistry, ModulesLatestUntested:
-		opts.Adapters = moduleAdapters
-		opts.ModulesDir = filepath.Join(options.Out, engine.ModulesDirName)
-	case ModulesLocal:
-		opts.ModulesDir = filepath.Join(options.Out, engine.ModulesDirName)
-	}
+	opts.Adapters, opts.ModulesDir = moduleOptions(options.Modules, options.Out, moduleAdapters)
 	envOf := func(harvest.Resource) string { return "" }
 	if strings.Contains(options.Layout, "{env}") {
 		keys := options.EnvTags
