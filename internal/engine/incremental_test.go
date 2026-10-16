@@ -152,7 +152,7 @@ func TestAppliedTags(t *testing.T) {
 }
 
 func TestLabelledLeavesTakenLabels(t *testing.T) {
-	got := labelled([]Import{{Type: "aws_vpc", Name: "main", ID: "vpc-2"}, {Type: "aws_subnet", Name: "main", ID: "subnet-1"}}, Names{"aws_vpc.main": true})
+	got := labelled([]Import{{Type: "aws_vpc", Name: "main", ID: "vpc-2"}, {Type: "aws_subnet", Name: "main", ID: "subnet-1"}}, Names{"aws_vpc.main": true}, false)
 	want := []Import{{Type: "aws_subnet", Name: "main", ID: "subnet-1"}, {Type: "aws_vpc", Name: "main_2", ID: "vpc-2"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)

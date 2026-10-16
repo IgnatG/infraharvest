@@ -5,7 +5,8 @@ package harvest
 
 // prune applies the lister's ID filters to its resources and drops
 // duplicates, keeping the order. A resource is a duplicate of an earlier
-// kept one with the same type and address.
+// kept one with the same type and ID. Resources with the same type and
+// name are not: two APIs can each have a stage named $default.
 //
 // Attribute filters are not applied here: they are for the listers that can
 // pass them to the cloud API, and a resource whose lister recorded no such
@@ -18,11 +19,11 @@ func prune(s *ListerBase) {
 		return
 	}
 
-	// resourceKey identifies a resource for spotting duplicates. The
-	// address alone is not enough, since resources of different types may
-	// share one.
+	// resourceKey identifies a resource for spotting duplicates. The ID
+	// alone is not enough, since resources of different types may share
+	// one.
 	type resourceKey struct {
-		resourceType, address string
+		resourceType, id string
 	}
 	kept := make(map[resourceKey]bool)
 	var resources []Resource
@@ -30,7 +31,7 @@ func prune(s *ListerBase) {
 		if !passesIDFilters(s.filters, resource) {
 			continue
 		}
-		key := resourceKey{resource.Address.Type, resource.Address.ID}
+		key := resourceKey{resource.Address.Type, resource.Observed.ID}
 		if kept[key] {
 			continue
 		}

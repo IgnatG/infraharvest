@@ -20,7 +20,18 @@ Each output directory gets:
 | `.terraform.lock.hcl` | The provider version, the same for every directory of one import |
 | `rejected.hcl` | Only if some resources couldn't be imported: their `import` block and generated configuration, under the errors Terraform reported. Terraform doesn't load this file. Fix a resource and move its import block into `imports.tf` and its resource into the configuration, or leave it out. Rejected resources make the import exit non-zero unless `--allow-partial` is set |
 
-Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource names are snake_case labels made from the names the resources have in the cloud: on AWS, the `Name` tag where a resource has one (`aws_subnet.shop_private_eu_west_2a`), else the name or ID the lister found; on Google Cloud, the resource's own name or display name (`google_pubsub_topic.orders`, not its full name), a record set's zone, name within the zone and type, and an IAM grant's member and role (`google_project_iam_member.deployer_run_invoker`).
+Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource labels are described under [Resource labels](#resource-labels).
+
+## Resource labels
+
+The label of each resource block (the `NAME` in `resource "TYPE" "NAME"`) follows the [HashiCorp style guide](https://developer.hashicorp.com/terraform/language/style): lower case words joined by underscores, made from what a person knows the resource by rather than from its ID.
+
+- **The name in the cloud:** a resource's name, or on AWS its `Name` tag where it has one; on Google Cloud, the resource's own name or display name (`google_pubsub_topic.orders`, not its full name), a record set's zone, name within the zone and type, and an IAM grant's member and role (`google_project_iam_member.deployer_run_invoker`). Words of a camelCase name stay apart (`AllowHttpApi` becomes `allow_http_api`), and a name that repeats itself, such as a cluster's name in front of a service named after the cluster, says it once.
+- **Something human for what has no name:** an API Gateway route by its route key (`GET /hello` becomes `get_hello`), a stage by its name, an integration by the function or host it calls, a load balancer listener by its protocol and port (`http_80`), a VPC endpoint by its service (`s3`), a KMS key by its alias, an SNS subscription by its endpoint and protocol, a Route 53 record by its name in the zone and its type (`www_cname`), an Azure subnet's route table or security group association by the subnet (`app`).
+- **What it belongs to, by its name:** where a resource is known by another's ID, the label uses that resource's name: a route table association or a route table without a `Name` tag after its subnet, an Elastic IP after its NAT gateway or instance.
+- **Without what the root already says:** a label drops the words of its resource type (`aws_sqs_queue.orders`, not `orders_queue`) and the prefix most of the root's names share, such as a project's name (`aws_ecs_service.web`, not `shop_prod_web`). A resource whose type the root has no other of is labelled `main`.
+
+Labels are unique per type: a label two resources would share gets `_2`, `_3` and so on, in import ID order, so the same resources get the same labels on every run whatever order they are listed in. `--incremental` and `--resume` match resources by their import IDs, not their labels, and an incremental import never takes a label the root uses, nor labels a new resource `main` when the root already has one of its type.
 
 ## Secrets
 
