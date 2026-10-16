@@ -35,7 +35,7 @@ func (g *SubnetLister) List() error {
 		}
 		for _, subnet := range page.Subnets {
 			id := aws.ToString(subnet.SubnetId)
-			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_subnet", "aws"))
+			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_subnet", "aws", ownerAttributes(subnet.OwnerId)))
 		}
 	}
 	return nil

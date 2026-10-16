@@ -64,6 +64,8 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 			excluded[key] = reasonCloudFormation(stack)
 		}
 	}
+	sharedErr := p.excludeShared(ctx, config, resources, excluded)
+	stacksErr = errors.Join(stacksErr, sharedErr)
 	if !network || p.region == GlobalPseudoRegion {
 		return excluded, stacksErr
 	}
@@ -106,6 +108,44 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		}
 	}
 	return excluded, err
+}
+
+// sharedTypes are the types another account can share with this one
+// through AWS RAM, whose listers record the owner_id.
+var sharedTypes = map[string]bool{"aws_vpc": true, "aws_subnet": true, "aws_ec2_transit_gateway": true}
+
+// reasonShared is why the default selection leaves out what another
+// account shares with this one: that account manages it, and this one
+// can't change it; the configuration reads it through a data source.
+func reasonShared(owner string) string {
+	return "shared by account " + owner + " through AWS RAM, which manages it"
+}
+
+// excludeShared adds to excluded the VPCs, subnets and transit gateways of
+// resources that another account owns and shares with this one. It asks
+// for the caller's account only if one of them records an owner.
+func (p *Provider) excludeShared(ctx context.Context, config aws.Config, resources []harvest.Resource, excluded map[string]string) error {
+	var owned []harvest.Resource
+	for _, r := range resources {
+		if sharedTypes[r.Address.Type] && r.Observed.Attributes["owner_id"] != "" {
+			owned = append(owned, r)
+		}
+	}
+	if len(owned) == 0 {
+		return nil
+	}
+	service := &Service{}
+	service.SetContext(ctx)
+	account, err := service.callerAccount(config)
+	if err != nil {
+		return fmt.Errorf("find the AWS account, for what other accounts share: %w", err)
+	}
+	for _, r := range owned {
+		if owner := r.Observed.Attributes["owner_id"]; owner != aws.ToString(account) {
+			excluded[r.Address.Type+" "+r.Observed.ID] = reasonShared(owner)
+		}
+	}
+	return nil
 }
 
 // defaultNetwork is what AWS creates on its own: default VPCs, their
@@ -196,4 +236,15 @@ func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config) (defau
 
 func ec2Filter(name string, values ...string) ec2types.Filter {
 	return ec2types.Filter{Name: aws.String(name), Values: values}
+}
+
+// ownerAttributes are the attributes of a resource another account may
+// own (see sharedTypes): its owner_id, when AWS gives one, in a map of the
+// resource's own, as RecordBare gives.
+func ownerAttributes(owner *string) map[string]string {
+	attributes := map[string]string{}
+	if id := aws.ToString(owner); id != "" {
+		attributes["owner_id"] = id
+	}
+	return attributes
 }

@@ -34,7 +34,7 @@ func (g *VpcLister) List() error {
 		}
 		for _, vpc := range page.Vpcs {
 			id := aws.ToString(vpc.VpcId)
-			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_vpc", "aws"))
+			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_vpc", "aws", ownerAttributes(vpc.OwnerId)))
 		}
 	}
 	return nil

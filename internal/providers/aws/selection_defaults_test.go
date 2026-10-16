@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -150,5 +152,46 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 	}
 	if len(stacks) != 1 || !strings.Contains(stacks[0], "StackName=arn") {
 		t.Errorf("ListStackResources: %q, want one call by stack ID", stacks)
+	}
+}
+
+// What another account shares with this one through AWS RAM is left out:
+// that account manages it. What this account owns, or what records no
+// owner, stays.
+func TestExcludeShared(t *testing.T) {
+	calls := 0
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op != "GetCallerIdentity" {
+			t.Errorf("unexpected call %s", call.Op)
+			return ""
+		}
+		calls++
+		return recordBudgetsCallerIdentity(call)
+	})
+	p := &Provider{region: "eu-west-2"}
+	resources := []harvest.Resource{
+		harvest.Record("subnet-shared", "shared", "aws_subnet", "aws", ownerAttributes(aws.String("210987654321"))),
+		harvest.Record("subnet-own", "own", "aws_subnet", "aws", ownerAttributes(aws.String("123456789012"))),
+		harvest.Record("vpc-1", "vpc", "aws_vpc", "aws", ownerAttributes(nil)),
+	}
+	config, err := p.config(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded := map[string]string{}
+	if err := p.excludeShared(t.Context(), config, resources, excluded); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"aws_subnet subnet-shared": reasonShared("210987654321")}; !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+	if calls != 1 {
+		t.Errorf("GetCallerIdentity called %d times, want once", calls)
+	}
+
+	// Without an owner recorded, it asks nothing.
+	calls = 0
+	if err := p.excludeShared(t.Context(), config, resources[2:], map[string]string{}); err != nil || calls != 0 {
+		t.Errorf("without owners: %d calls, %v", calls, err)
 	}
 }
