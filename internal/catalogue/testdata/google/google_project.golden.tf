@@ -9,3 +9,5 @@ import {
   to = google_project.acme_prod
   id = "acme-prod"
 }
+
+# Left out of generated configuration: deletion_policy=DELETE, deletion_policy=PREVENT
