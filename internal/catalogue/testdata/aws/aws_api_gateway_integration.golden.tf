@@ -5,7 +5,9 @@ import {
   id = "a1b2c3d4e5/xyz789/GET"
 }
 
-# Left out of generated configuration: region, tags_all, cache_namespace={resource_id}, passthrough_behavior=WHEN_NO_MATCH, response_transfer_mode=BUFFERED
+# Left out of generated configuration: region, tags_all, cache_namespace={resource_id}
+
+# Left out where the plan stays the same, as the default: connection_type=INTERNET, passthrough_behavior=WHEN_NO_MATCH, response_transfer_mode=BUFFERED, timeout_milliseconds=29000
 
 # Generated configuration, without the arguments the catalogue omits:
 resource "aws_api_gateway_integration" "shop_orders_get" {
@@ -14,7 +16,9 @@ resource "aws_api_gateway_integration" "shop_orders_get" {
   content_handling        = ""
   http_method             = "GET"
   integration_http_method = "POST"
+  passthrough_behavior    = "WHEN_NO_MATCH"
   resource_id             = "xyz789"
+  response_transfer_mode  = "BUFFERED"
   rest_api_id             = "a1b2c3d4e5"
   timeout_milliseconds    = 29000
   type                    = "AWS_PROXY"
