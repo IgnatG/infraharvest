@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 func TestCheckFailures(t *testing.T) {
@@ -153,10 +156,28 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 }
 
 // What no Import call could do fails the command once, before any scope:
-// an unknown service or engine, or an import that says neither
-// --selection nor --all.
+// an unknown service or engine, an import that says neither --selection
+// nor --all, a selection file or catalogue that doesn't load, and a
+// managed state source that doesn't parse or isn't there.
 func TestCheckOptions(t *testing.T) {
 	p := &servicesProvider{}
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	goodSelection := write("selection.yaml", fmt.Sprintf("version: %d\n", selection.Version))
+	badSelection := write("old.yaml", "version: 99\n")
+	missing := filepath.Join(dir, "missing")
+	write("catalogue/broken.yaml", "types: [\n")
+	state := write("state/a.tfstate", `{"version": 4}`)
 	for _, tc := range []struct {
 		options Options
 		want    string
@@ -167,6 +188,15 @@ func TestCheckOptions(t *testing.T) {
 		{Options{All: true, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
 		{Options{All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
 		{Options{Services: []string{"vpc"}}, "selection"},
+		{Options{Selection: goodSelection}, ""},
+		{Options{Selection: badSelection}, "--selection: " + badSelection + ": version 99"},
+		{Options{Selection: missing}, "--selection"},
+		{Options{Discover: true, Selection: missing}, ""},
+		{Options{All: true, Catalogue: filepath.Join(dir, "catalogue")}, "--catalogue"},
+		{Options{All: true, ManagedState: []string{state, filepath.Dir(state), "backend", "s3://bucket/prefix", "tfc://org/app-*"}}, ""},
+		{Options{All: true, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
+		{Options{All: true, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
+		{Options{All: true, ManagedState: []string{missing}}, "--managed-state: state " + missing},
 	} {
 		err := CheckOptions(p, tc.options)
 		switch {

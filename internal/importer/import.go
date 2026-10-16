@@ -14,7 +14,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // Defaults of the flags every provider command shares.
@@ -153,10 +155,12 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // CheckOptions rejects what a provider command was told that no Import
 // call could do, before any account, region or project is planned: an
 // unknown --engine, --format or --modules, a filter that doesn't parse,
-// an import that says neither --selection nor --all, and --services or
-// --skip names provider has no service of. Checked once, they fail the
-// command the same way however many scopes it covers, instead of failing
-// each scope and reading as a partial import.
+// an import that says neither --selection nor --all, --services or --skip
+// names provider has no service of, and the selection file, catalogue
+// and managed state sources it can tell are wrong (see checkSources).
+// Checked once, they fail the command the same way however many scopes
+// it covers, instead of failing each scope and reading as a partial
+// import.
 func CheckOptions(provider harvest.Provider, options Options) error {
 	switch options.Engine {
 	case "", EngineTerraform, EngineTofu:
@@ -184,6 +188,36 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 		if len(unknown) > 0 {
 			return fmt.Errorf("%s: %s has no service %s (infraharvest services %s lists them)", flag, provider.Name(), strings.Join(unknown, ", "), provider.Name())
 		}
+	}
+	return checkSources(provider, options)
+}
+
+// checkSources rejects the files and sources the import reads that can be
+// checked before anything is listed: a --selection file that doesn't load
+// (discover writes it instead), a --catalogue directory that doesn't, and
+// a --managed-state source that doesn't parse or, for a local path,
+// doesn't exist. The state itself is read once the resources are listed.
+func checkSources(provider harvest.Provider, options Options) error {
+	if options.Selection != "" && !options.Discover {
+		if _, err := selection.Load(options.Selection); err != nil {
+			return fmt.Errorf("--selection: %w", err)
+		}
+	}
+	if options.Catalogue != "" {
+		if _, err := providerCatalogue(provider, options.Catalogue); err != nil {
+			return fmt.Errorf("--catalogue: %w", err)
+		}
+	}
+	// The configured backend's state is resolved with the configuration
+	// file (see excludeManaged).
+	sources := make([]string, 0, len(options.ManagedState))
+	for _, s := range options.ManagedState {
+		if s != backendState {
+			sources = append(sources, s)
+		}
+	}
+	if err := managed.CheckSources(sources); err != nil {
+		return fmt.Errorf("--managed-state: %w", err)
 	}
 	return nil
 }
