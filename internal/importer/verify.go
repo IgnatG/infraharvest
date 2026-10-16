@@ -12,10 +12,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	goversion "github.com/hashicorp/go-version"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -58,7 +61,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	var failed []string
 	for _, dir := range roots {
 		opts := engine.Options{Scanners: scanners}
-		if provider := rootProvider(out, dir, options.Provider); provider != nil {
+		if provider := rootProvider(out, dir, options); provider != nil {
 			cat, err := providerCatalogue(provider, catalogueDir)
 			if err != nil {
 				return err
@@ -161,16 +164,60 @@ type VerifyOptions struct {
 	// Provider returns a new provider of the given name, or nil when it
 	// isn't compiled in: each root's catalogue comes from its provider.
 	Provider func(name string) harvest.Provider
+	// Names are the providers Provider knows, by which a root's provider
+	// blocks find the provider it belongs to (see rootProvider).
+	Names []string
 }
 
-// rootProvider returns the provider a root belongs to, from the layout's
-// first directory ({provider}/...), or nil.
-func rootProvider(out, dir string, provider func(string) harvest.Provider) harvest.Provider {
-	if provider == nil {
+// rootProvider returns the provider a root belongs to, or nil: the one
+// whose Terraform provider the root's providers.tf configures, of those
+// options.Names names, else the first directory of the root's path that
+// names a provider, as {provider} does in the default layout and in that
+// of roots per environment (envs/<env>/{provider}/...).
+func rootProvider(out, dir string, options VerifyOptions) harvest.Provider {
+	if options.Provider == nil {
 		return nil
 	}
-	first, _, _ := strings.Cut(relativePath(out, dir), "/")
-	return provider(first)
+	if configured := configuredProviders(dir); len(configured) > 0 {
+		for _, name := range options.Names {
+			p := options.Provider(name)
+			if p != nil && slices.Contains(configured, catalogueName(p.Name())) {
+				return p
+			}
+		}
+	}
+	for _, segment := range strings.Split(relativePath(out, dir), "/") {
+		if p := options.Provider(segment); p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
+// configuredProviders returns the catalogues (see catalogueName) of the
+// Terraform providers the provider blocks of dir's providers.tf configure,
+// such as google for google-beta; none if it doesn't parse.
+func configuredProviders(dir string) []string {
+	path := filepath.Join(dir, engine.ProvidersFileName)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	f, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil
+	}
+	var names []string
+	for _, b := range body.Blocks {
+		if b.Type == "provider" && len(b.Labels) == 1 {
+			names = append(names, catalogueName(b.Labels[0]))
+		}
+	}
+	return names
 }
 
 // lockedProviderVersion returns the version of provider that the lock file

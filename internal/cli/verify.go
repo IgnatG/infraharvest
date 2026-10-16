@@ -14,7 +14,7 @@ import (
 )
 
 func newVerifyCmd() *cobra.Command {
-	options := importer.VerifyOptions{Provider: providers.New}
+	options := importer.VerifyOptions{Provider: providers.New, Names: providers.Names()}
 	cmd := &cobra.Command{
 		Use:   "verify [output-directory]",
 		Short: "Check generated roots again: format, validate, plan, standards, scanners, secrets, determinism",
