@@ -124,6 +124,19 @@ jobs:
             echo "::warning::Resources tagged infraharvest-sandbox=$E2E_ENGINE in $region: $left"
           fi
         done
+    # Redshift creates a cluster through its service-linked role, which an
+    # account has only once a cluster was made; created with the cluster,
+    # it isn't ready in time and CreateCluster fails ("Unable to assume the
+    # SLR"). It is made here, once per account, and kept: it costs nothing,
+    # and the account's later clusters use it.
+    - name: Redshift's service-linked role
+      if: inputs.estate == 'data'
+      run: |
+        if ! aws iam get-role --profile fixture --role-name AWSServiceRoleForRedshift > /dev/null 2>&1; then
+          aws iam create-service-linked-role --profile fixture --aws-service-name redshift.amazonaws.com > /dev/null
+          # IAM is eventually consistent: give Redshift time to see it.
+          sleep 30
+        fi
     # One test, by its whole name: -run takes a pattern, and TestSandboxAWS
     # alone would match the clusters test too.
     - name: Round trip
