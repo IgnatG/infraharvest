@@ -18,7 +18,7 @@ const recordEcsARN = "arn:aws:ecs:us-east-1:123456789012:"
 // recordEcsTaskDefinition is what the lister records for the task
 // definition arn.
 func recordEcsTaskDefinition(family, arn string) recordedResource {
-	return recordedResource{"aws_ecs_task_definition", arn, "task-definition/" + family, map[string]string{
+	return recordedResource{"aws_ecs_task_definition", arn, family, map[string]string{
 		"task_definition":       arn,
 		"container_definitions": "{}",
 		"family":                family,

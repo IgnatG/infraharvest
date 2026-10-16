@@ -327,3 +327,38 @@ func TestResourceName(t *testing.T) {
 		}
 	}
 }
+
+// A word of a resource's name that is another resource's ID becomes that
+// resource's name: an association named after its subnet's ID reads as
+// the subnet's Name tag, and an Elastic IP named after its NAT gateway as
+// the gateway's. A name that is its own ID, or an ID nothing has a name
+// for, stays as it is.
+func TestResourceNamesResolvesIDs(t *testing.T) {
+	subnet := harvest.RecordBare("subnet-1", "subnet-1", "aws_subnet", "aws")
+	association := harvest.RecordBare("rtbassoc-1", "subnet-1", "aws_route_table_association", "aws")
+	nat := harvest.RecordBare("nat-1", "nat-1", "aws_nat_gateway", "aws")
+	eip := harvest.RecordBare("eipalloc-1", "nat-1", "aws_eip", "aws")
+	table := harvest.RecordBare("rtb-1", "vpc-9 main", "aws_route_table", "aws")
+	listed := listing{
+		resources: map[string][]harvest.Resource{"subnet": {subnet}, "route_table": {association, table}, "eip": {eip}},
+		tags: map[string]map[string]string{
+			tagKey(subnet): {"Name": "shop-public-a"},
+			tagKey(nat):    {"Name": "shop-nat"},
+		},
+	}
+	// The NAT gateway is a child, listed only in resourcesByService.
+	nameOf := resourceNames("aws", listed, map[string][]harvest.Resource{"nat": {nat}})
+	for _, tc := range []struct {
+		r    harvest.Resource
+		want string
+	}{
+		{subnet, "shop-public-a"},
+		{association, "shop-public-a"},
+		{eip, "shop-nat"},
+		{table, "vpc-9 main"},
+	} {
+		if got := nameOf(tc.r); got != tc.want {
+			t.Errorf("name of %s %s: got %q, want %q", tc.r.Address.Type, tc.r.Observed.ID, got, tc.want)
+		}
+	}
+}

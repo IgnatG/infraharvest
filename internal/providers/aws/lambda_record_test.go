@@ -96,9 +96,9 @@ func TestRecordLambdaListsFunctionsMappingsAndLayers(t *testing.T) {
 			"event_source_arn": "arn:aws:sqs:us-east-1:123456789012:uuid-1", "function_name": resize}},
 		recordedResource{"aws_lambda_event_source_mapping", "uuid-2", "uuid-2", map[string]string{
 			"event_source_arn": "arn:aws:sqs:us-east-1:123456789012:uuid-2", "function_name": resize}},
-		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:1", recordLambdaARN + "layer:deps:1", nil},
-		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:2", recordLambdaARN + "layer:deps:2", nil},
-		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:tools:1", recordLambdaARN + "layer:tools:1", nil},
+		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:1", "deps 1", nil},
+		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:2", "deps 2", nil},
+		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:tools:1", "tools 1", nil},
 	)
 }
 

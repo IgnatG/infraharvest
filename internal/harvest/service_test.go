@@ -173,6 +173,19 @@ func TestPrune(t *testing.T) {
 			wantIDs:   []string{"admins", "admins"},
 		},
 		{
+			// Two APIs' $default stages share a type and an address but not
+			// an ID. Before, the second was dropped as a duplicate.
+			name: "same name, other id",
+			resources: []Resource{
+				RecordBare("api1/$default", "$default", "aws_apigatewayv2_stage", "aws"),
+				RecordBare("api2/$default", "$default", "aws_apigatewayv2_stage", "aws"),
+				RecordBare("api2/$default", "$default", "aws_apigatewayv2_stage", "aws"),
+			},
+			filters:   []Filter{{Service: "aws_vpc", Path: "id", Values: []string{"other"}}},
+			wantTypes: []string{"aws_apigatewayv2_stage", "aws_apigatewayv2_stage"},
+			wantIDs:   []string{"api1/$default", "api2/$default"},
+		},
+		{
 			// The ID filter applies; the attribute filter, meant for the
 			// listers, must not drop resources that recorded no tags.
 			name: "attribute and id filters",

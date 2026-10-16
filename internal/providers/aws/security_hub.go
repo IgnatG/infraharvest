@@ -77,7 +77,8 @@ func (g *SecurityhubLister) listMembers(client *securityhub.Client) error {
 
 // listStandardsSubscriptions records the enabled standards by the
 // subscription's ARN, which Terraform imports them by, with the
-// standard's own ARN as standards_arn.
+// standard's own ARN as standards_arn, named after the standard and its
+// version (see standardName).
 func (g *SecurityhubLister) listStandardsSubscriptions(client *securityhub.Client) error {
 	pages := securityhub.NewGetEnabledStandardsPaginator(client, &securityhub.GetEnabledStandardsInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
@@ -87,9 +88,19 @@ func (g *SecurityhubLister) listStandardsSubscriptions(client *securityhub.Clien
 		}
 		for _, subscription := range page.StandardsSubscriptions {
 			arn := aws.ToString(subscription.StandardsSubscriptionArn)
-			g.Resources = append(g.Resources, harvest.Record(arn, arn, "aws_securityhub_standards_subscription", "aws",
+			g.Resources = append(g.Resources, harvest.Record(arn, standardName(arn), "aws_securityhub_standards_subscription", "aws",
 				map[string]string{"standards_arn": aws.ToString(subscription.StandardsArn)}))
 		}
 	}
 	return nil
+}
+
+// standardName returns the standard and version a standards subscription's
+// ARN, arn, names: aws-foundational-security-best-practices/v/1.0.0 for
+// arn:aws:securityhub:<region>:<account>:subscription/aws-foundational-security-best-practices/v/1.0.0.
+func standardName(arn string) string {
+	if _, standard, ok := strings.Cut(arn, ":subscription/"); ok {
+		return standard
+	}
+	return arn
 }

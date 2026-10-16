@@ -393,7 +393,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
-			name := anchor.address[strings.IndexByte(anchor.address, '.')+1:]
+			name := callName(anchor.address)
 			if call.Name != "" {
 				name = call.Name
 			}

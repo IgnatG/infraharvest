@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"cmp"
 	"log"
 	"strings"
 
@@ -35,7 +36,7 @@ func (g *Route53Lister) List() error {
 }
 
 // listHostedZones records every hosted zone by its ID without the
-// "/hostedzone/" prefix, named "<ID>_<domain>", each followed by its
+// "/hostedzone/" prefix, named after its domain, each followed by its
 // records. The zone's domain is recorded with its trailing dot.
 func (g *Route53Lister) listHostedZones(client *route53.Client) {
 	p := route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
@@ -48,11 +49,11 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) {
 		for _, zone := range page.HostedZones {
 			zoneID := strings.TrimPrefix(aws.ToString(zone.Id), "/hostedzone/")
 			domain := aws.ToString(zone.Name)
-			g.Resources = append(g.Resources, harvest.Record(zoneID, zoneID+"_"+strings.TrimSuffix(domain, "."), "aws_route53_zone", "aws", map[string]string{
+			g.Resources = append(g.Resources, harvest.Record(zoneID, strings.TrimSuffix(domain, "."), "aws_route53_zone", "aws", map[string]string{
 				"name":          domain,
 				"force_destroy": "false",
 			}))
-			g.listRecords(client, zoneID)
+			g.listRecords(client, zoneID, domain)
 		}
 	}
 }
@@ -63,12 +64,12 @@ type recordPosition struct {
 	name, recordType, identifier string
 }
 
-// listRecords records every record set of the zone zoneID, NS and SOA
-// included. The pages are walked by hand, from the name, type and set
-// identifier that each truncated page gives for the next, and stop should
-// a page point at the position it was asked for. An error is logged; the
-// records read before it are kept.
-func (g *Route53Lister) listRecords(client *route53.Client, zoneID string) {
+// listRecords records every record set of the zone zoneID, whose domain
+// is domain, NS and SOA included. The pages are walked by hand, from the
+// name, type and set identifier that each truncated page gives for the
+// next, and stop should a page point at the position it was asked for. An
+// error is logged; the records read before it are kept.
+func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain string) {
 	input := &route53.ListResourceRecordSetsInput{HostedZoneId: aws.String(zoneID)}
 	for {
 		page, err := client.ListResourceRecordSets(g.Context(), input)
@@ -77,7 +78,7 @@ func (g *Route53Lister) listRecords(client *route53.Client, zoneID string) {
 			return
 		}
 		for _, recordSet := range page.ResourceRecordSets {
-			g.addRecord(zoneID, recordSet)
+			g.addRecord(zoneID, domain, recordSet)
 		}
 		if !page.IsTruncated {
 			return
@@ -99,12 +100,14 @@ func (g *Route53Lister) listRecords(client *route53.Client, zoneID string) {
 // ends in "_" for a record set without a set identifier. The ID keeps the
 // name's trailing dot; the name attribute does not. Route 53 returns the
 // wildcard label "*" escaped as "\052", which is turned back into "*".
-func (g *Route53Lister) addRecord(zoneID string, recordSet types.ResourceRecordSet) {
+// The record set is named after its name within the zone's domain, its
+// type and its set identifier (see recordName).
+func (g *Route53Lister) addRecord(zoneID, domain string, recordSet types.ResourceRecordSet) {
 	name := strings.Replace(aws.ToString(recordSet.Name), `\052`, "*", 1)
 	recordType := string(recordSet.Type)
 	setIdentifier := aws.ToString(recordSet.SetIdentifier)
 	id := zoneID + "_" + name + "_" + recordType + "_" + setIdentifier
-	g.Resources = append(g.Resources, harvest.Record(id, id, "aws_route53_record", "aws", map[string]string{
+	g.Resources = append(g.Resources, harvest.Record(id, recordName(name, domain, recordType, setIdentifier), "aws_route53_record", "aws", map[string]string{
 		"name":           strings.TrimSuffix(name, "."),
 		"zone_id":        zoneID,
 		"type":           recordType,
@@ -112,9 +115,9 @@ func (g *Route53Lister) addRecord(zoneID string, recordSet types.ResourceRecordS
 	}))
 }
 
-// listHealthChecks records every health check by ID, named
-// "<ID>_<check type>". An error is logged; the checks read before it are
-// kept.
+// listHealthChecks records every health check by ID, named after what it
+// checks, its domain name or IP address, and its type: "example.com
+// HTTPS". An error is logged; the checks read before it are kept.
 func (g *Route53Lister) listHealthChecks(client *route53.Client) {
 	p := route53.NewListHealthChecksPaginator(client, &route53.ListHealthChecksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -125,11 +128,26 @@ func (g *Route53Lister) listHealthChecks(client *route53.Client) {
 		}
 		for _, check := range page.HealthChecks {
 			id := aws.ToString(check.Id)
-			checkType := ""
-			if check.HealthCheckConfig != nil {
-				checkType = string(check.HealthCheckConfig.Type)
+			name := ""
+			if config := check.HealthCheckConfig; config != nil {
+				name = strings.TrimSpace(cmp.Or(aws.ToString(config.FullyQualifiedDomainName), aws.ToString(config.IPAddress)) + " " + string(config.Type))
 			}
-			g.Resources = append(g.Resources, harvest.RecordBare(id, id+"_"+checkType, "aws_route53_health_check", "aws"))
+			g.Resources = append(g.Resources, harvest.RecordBare(id, cmp.Or(name, id), "aws_route53_health_check", "aws"))
 		}
 	}
+}
+
+// recordName names a record set: its name, name, with the zone's domain,
+// domain, left out (wildcard for *, the domain itself for the zone's
+// apex), then its type and its set identifier, if it has one, as in
+// "www CNAME blue".
+func recordName(name, domain, recordType, setIdentifier string) string {
+	relative := strings.TrimSuffix(strings.TrimSuffix(name, "."+domain), ".")
+	switch {
+	case name == domain:
+		relative = strings.TrimSuffix(domain, ".")
+	case relative == "*":
+		relative = "wildcard"
+	}
+	return strings.TrimSpace(relative + " " + recordType + " " + setIdentifier)
 }

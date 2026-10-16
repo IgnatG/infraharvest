@@ -38,8 +38,8 @@ func TestRecordCodePipelineListsPipelinesAndWebhooks(t *testing.T) {
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_codepipeline", "web", "web", nil},
 		recordedResource{"aws_codepipeline", "api", "api", nil},
-		recordedResource{"aws_codepipeline_webhook", recordCodePipelineWebhook + "web-push", recordCodePipelineWebhook + "web-push", nil},
-		recordedResource{"aws_codepipeline_webhook", recordCodePipelineWebhook + "api-push", recordCodePipelineWebhook + "api-push", nil},
+		recordedResource{"aws_codepipeline_webhook", recordCodePipelineWebhook + "web-push", "web-push", nil},
+		recordedResource{"aws_codepipeline_webhook", recordCodePipelineWebhook + "api-push", "api-push", nil},
 	)
 }
 

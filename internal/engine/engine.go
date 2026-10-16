@@ -171,6 +171,11 @@ type Options struct {
 	// their tags say another tool manages them, such as those a selection
 	// file includes.
 	KeepOwned map[string]bool
+	// TidyLabels has Generate label resources the way a person names those
+	// of one root (see tidyLabels): without the words of their type, without
+	// a prefix most of their names share, and main for the only resource of
+	// a type. Without it, labels are the names as Label writes them.
+	TidyLabels bool
 
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
@@ -202,7 +207,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	imports = labelled(imports, opts.Taken)
+	imports = labelled(imports, opts.Taken, opts.TidyLabels)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err

@@ -25,7 +25,8 @@ var recordKmsKeys = map[string]string{
 // followed by its grants, then the aliases of such keys. Keys and aliases it
 // can't describe are left out; a key whose grants it can't list is still
 // listed. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
-// key ID is the key's ARN.
+// key ID is the key's ARN. A key is named after its alias, and a grant
+// after its name: before, they were labelled after their IDs.
 func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
@@ -67,10 +68,10 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_kms_key", "k-app", "k-app", map[string]string{"key_id": "k-app"}},
-		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-1", recordKmsKeyARN + "k-app:grant-1", nil},
-		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-2", recordKmsKeyARN + "k-app:grant-2", nil},
-		recordedResource{"aws_kms_key", "k-off", "k-off", map[string]string{"key_id": "k-off"}},
+		recordedResource{"aws_kms_key", "k-app", "app", map[string]string{"key_id": "k-app"}},
+		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-1", "lambda", nil},
+		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-2", "lambda", nil},
+		recordedResource{"aws_kms_key", "k-off", "off", map[string]string{"key_id": "k-off"}},
 		recordedResource{"aws_kms_alias", "alias/app", "alias/app", nil},
 		recordedResource{"aws_kms_alias", "alias/off", "alias/off", nil},
 	)

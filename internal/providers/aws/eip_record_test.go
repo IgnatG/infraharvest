@@ -7,7 +7,9 @@ import "testing"
 
 // The lister lists each Elastic IP by allocation ID, associated or not,
 // from one DescribeAddresses call. An EC2-Classic address, which has no
-// allocation ID, is left out.
+// allocation ID, is left out. An address associated with an instance is
+// named after the instance's ID, which the import names after the
+// instance; before, every address was labelled eipalloc_....
 func TestRecordElasticIPListsAddressesByAllocationID(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeAddresses" {
@@ -27,7 +29,7 @@ func TestRecordElasticIPListsAddressesByAllocationID(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_eip", "eipalloc-1", "eipalloc-1", nil},
+		recordedResource{"aws_eip", "eipalloc-1", "i-1", nil},
 		recordedResource{"aws_eip", "eipalloc-2", "eipalloc-2", nil},
 	)
 }
