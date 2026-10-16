@@ -42,12 +42,12 @@ The comment on the first line lets editors with the YAML language server check f
 | `service` | The infraharvest service that lists the type, if not the file's. |
 | `import_id` | A template, or a list of them: the first whose fields all have values builds the import ID. `{id}` is the ID the lister found and `{<name>}` one of the attributes it recorded. Filters change a field: `{id\|after_last:/}` keeps what follows the last `/`; `before_last`, `trim_prefix` and `trim_suffix` work the same way. When no template has all its fields, the resource is reported as not importable. |
 | `not_importable` | Why Terraform can't import the type. Its resources are reported, not imported. |
-| `omit` | Arguments to leave out of generated configuration. Each must be optional, and computed or never read back (such as a password AWS doesn't return), so that leaving it out changes no plan. `name=value` leaves an attribute out only where it is set to that value, such as a default the cloud reports that the provider rejects as an argument (`default_encryption_scope=$account-encryption-key`). `block.name` leaves out an argument of nested blocks of that type, and `*.name` of nested blocks of any type, such as the `tags_all` AWS computes in an instance's `root_block_device`. Under the type `"*"`, they apply to every type. |
-| `defaults` | The values the provider or the cloud gives optional arguments it isn't told, as `path=value`, with a path into nested blocks: `storage_class=STANDARD`, `soft_delete_policy.retention_duration_seconds=604800`. Generated configuration leaves out the arguments set to them, and a block they leave empty, where the plan stays the same, as it does the zero values the provider defaults to. Unlike those, computed arguments go too: the catalogue says the value is the default, so leaving it out hides no setting. |
+| `omit` | Arguments to leave out of generated configuration. Each must be optional, and computed or never read back (such as a password AWS doesn't return), so that leaving it out changes no plan. `name=value` leaves an attribute out only where it is set to that value, such as a default the cloud reports that the provider rejects as an argument (`default_encryption_scope=$account-encryption-key`). `a.b` reaches into nested blocks, `*.b` into nested blocks of any type (such as the `tags_all` AWS computes in an instance's `root_block_device`), and conditions after ` when ` narrow where an entry applies (see [Leaving out arguments](#leaving-out-arguments)). Under the type `"*"`, they apply to every type. |
 | `defaults` | The values the provider or the cloud gives optional arguments it isn't told, as `path=value`, with a path into nested blocks: `storage_class=STANDARD`, `soft_delete_policy.retention_duration_seconds=604800`. Generated configuration leaves out the arguments set to them, and a block they leave empty, where the plan stays the same, as it does the zero values the provider defaults to. Unlike those, computed arguments go too: the catalogue says the value is the default, so leaving it out hides no setting. |
 | `state_only` | Arguments the provider keeps only in state, such as settings it uses when it deletes a resource. An import leaves them unset, so the verification gate accepts a plan that sets them. |
 | `keep_empty` | Optional arguments whose empty value (`""`, `[]` or `{}`) the provider documents as a setting of its own, such as one that removes what the cloud adds by default. Generated configuration keeps them where they are set empty; other empty values are left out (see [Tidying](output.md#tidying)). |
-| `provider_versions` | What `omit` and `state_only` hold only for some versions of the provider, by a [version constraint](https://developer.hashicorp.com/terraform/language/expressions/version-constraints) on it, such as a default that a major release changed (see [Provider versions](#provider-versions)). |
+| `provider_versions` | What `omit`, `defaults` and `state_only` hold only for some versions of the provider, by a [version constraint](https://developer.hashicorp.com/terraform/language/expressions/version-constraints) on it, such as a default that a major release changed (see [Provider versions](#provider-versions)). |
+| `lifecycle` | Lifecycle settings every resource of the type gets, with the `reason`, which goes in a comment above them: `create_before_destroy: true`, such as for an API Gateway deployment, which a stage refers to while it is replaced. They change how Terraform replaces a resource, never the plan of an import. |
 | `skip` | Rules for resources the default selection leaves out, each with a `reason` and conditions that must all hold: `ids`, `id_prefixes`, `attributes` (values the lister recorded), `attribute_prefixes` (values that start with one of these), `attribute_suffixes` (values that end with one of these), or `all: true` for every resource of the type. `ignore_case: true` compares them whatever the case, as Azure names are. Rules under the type `"*"` apply to every type, after the type's own. A selection file can still include them. |
 | `children` | Types of the separate resources that hold parts of a resource's configuration. The provider checks which a resource has and imports those with it. |
 | `data_source` | The data source that reads one resource by its import ID, and the argument that takes the ID. When the selection leaves a resource out, configuration that refers to it reads it through this. |
@@ -56,6 +56,31 @@ The comment on the first line lets editors with the YAML language server check f
 | `inventory` | The `type` a cloud's inventory API lists resources of the type as, and, when that type covers several Terraform types, the `name` pattern of this one's resources (see [Inventory types](#inventory-types)). |
 
 What needs the cloud to decide, such as whether a VPC is the default one or a CloudFormation stack manages a resource, stays in the provider's code.
+
+## Leaving out arguments
+
+Terraform writes every argument a resource has, so generated configuration repeats what the cloud gives a resource that doesn't set it. `defaults` names such values, and the engine leaves them out where the plan stays the same. `omit` says what `defaults` can't: arguments to leave out only where conditions hold, blocks whatever they hold, and values that depend on the resource or on what the cloud alone can tell, such as a default policy or an instance type's CPU options. Each must be optional, and computed or never read back, so that leaving it out changes no plan.
+
+```yaml
+types:
+  aws_lb_target_group:
+    omit:
+      - stickiness when stickiness.enabled=false         # a block, where its own argument holds
+  aws_instance:
+    omit:
+      - root_block_device.iops=3000 when root_block_device.volume_type=gp3   # in nested blocks
+      - availability_zone when subnet_id                 # where another argument is set
+      - cpu_options when @cpu_options=default            # where the lister recorded a value
+  aws_sns_topic:
+    omit:
+      - 'policy={"Version":"2008-10-17","Id":"__default_policy_ID","Statement":[...]}'
+```
+
+- An entry is a path, `name` or `a.b.c` through nested blocks, optionally with `=value`, then optionally ` when ` and conditions joined by ` and `. Without a value, the argument or block goes whatever it holds.
+- A condition is `path` (set and not null), `path=value`, or `!path` (not set, or not at that value with `!path=value`). A condition whose path starts with the blocks the argument is in refers to those same blocks; any other refers to the resource, where it holds if it holds in any of the blocks it names.
+- `@attribute=value`, `@attribute` (set and not empty) and `!@attribute` are conditions on what the lister recorded for the resource, for what only the cloud can tell, such as whether an instance's CPU options are its type's defaults.
+- A value is compared as a string (`true`, `3`, `text`). `{*}` in it stands for any text, and `{argument}` for the value of one of the resource's string arguments: `cache_namespace={resource_id}`. A value that is a JSON object or array is compared as JSON with the argument's value, such as a policy, with arrays in any order.
+- Whether an entry applies is decided on the resource as Terraform generated it, before anything is left out. The verification gate's standards check fails a resource that still sets an argument where an entry applies.
 
 ## Provider versions
 

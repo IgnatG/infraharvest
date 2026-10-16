@@ -18,7 +18,6 @@ import (
 
 var (
 	identifier       = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	nestedBlocks     = regexp.MustCompile(`^(([a-z][a-z0-9_]*|\*)\.)+`)
 	cloudFormation   = regexp.MustCompile(`^[A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+$`)
 	cloudControlProp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
 	inventoryType    = regexp.MustCompile(`^[A-Za-z0-9.-]+(/[A-Za-z0-9]+)+$`)
@@ -44,7 +43,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
-			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 {
+			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
 			fail("the entry for every type only takes omit, state_only, provider_versions and skip")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.Provider+"_") {
@@ -98,15 +97,11 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	for _, list := range lists {
 		seen := map[string]bool{}
 		for _, name := range list.names {
-			argument := name
 			if strings.HasSuffix(list.name, "omit") {
-				// name=value leaves the argument out only when set to value,
-				// and block.name the argument of nested blocks, of any type
-				// for *.name.
-				argument, _, _ = strings.Cut(name, "=")
-				argument = nestedBlocks.ReplaceAllString(argument, "")
-			}
-			if !identifier.MatchString(argument) {
+				if err := checkOmission(name); err != nil {
+					fail("%s: %q: %v", list.name, name, err)
+				}
+			} else if !identifier.MatchString(name) {
 				fail("%s: %q isn't an argument name", list.name, name)
 			}
 			if seen[name] {
@@ -114,6 +109,9 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			}
 			seen[name] = true
 		}
+	}
+	if l := e.Lifecycle; l != nil && (!l.CreateBeforeDestroy || strings.TrimSpace(l.Reason) == "") {
+		fail("lifecycle: set create_before_destroy: true, with a reason")
 	}
 	for _, list := range defaults {
 		seen := map[string]bool{}
@@ -231,13 +229,17 @@ func placeholderList(e *Entry, list func(*Placeholder) []string) []string {
 // argumentPath is an argument, or one in nested blocks: a.b.c.
 var argumentPath = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
 
+// omittedPath is what an omit entry leaves out: an argument, or one in
+// nested blocks, where * stands for blocks of any type (a.b, *.b).
+var omittedPath = regexp.MustCompile(`^(([a-z][a-z0-9_]*|\*)\.)*[a-z][a-z0-9_]*$`)
+
 // checkOmission reports what's wrong with an omit entry: path or
 // path=value, optionally followed by " when " and conditions joined by
 // " and ", each path, path=value or !path, where a path starting with @
 // names what the lister recorded.
 func checkOmission(entry string) error {
 	target, conditions, hasConditions := strings.Cut(entry, " when ")
-	if name, _, _ := strings.Cut(target, "="); !argumentPath.MatchString(name) {
+	if name, _, _ := strings.Cut(target, "="); !omittedPath.MatchString(name) {
 		return fmt.Errorf("%q isn't an argument name or a path to one", name)
 	}
 	if !hasConditions {

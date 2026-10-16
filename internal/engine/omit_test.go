@@ -186,8 +186,8 @@ func TestOmitArgumentsInNestedBlocks(t *testing.T) {
 	}
 	slices.Sort(findings)
 	want := []string{
-		"deprecated-argument: x: aws_instance.app sets *.tags_all",
-		"deprecated-argument: x: aws_instance.app sets *.tags_all",
+		"deprecated-argument: x: aws_instance.app sets ebs_block_device.tags_all",
+		"deprecated-argument: x: aws_instance.app sets root_block_device.tags_all",
 		"deprecated-argument: x: aws_instance.app sets root_block_device.volume_type",
 		"deprecated-argument: x: aws_instance.app sets tags_all",
 	}

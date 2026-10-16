@@ -37,7 +37,7 @@
     },
     "omit": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^(([a-z][a-z0-9_]*|\\*)\\.)*[a-z][a-z0-9_]*(=.*)?$" },
+      "items": { "type": "string", "pattern": "^(([a-z][a-z0-9_]*|\\*)\\.)*[a-z][a-z0-9_]*(=.*| when .+)?$" },
       "uniqueItems": true
     },
     "template": {
@@ -66,7 +66,7 @@
           "minLength": 1
         },
         "omit": {
-          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value.",
+          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value; a.b for b in nested blocks a, *.b in nested blocks of any type; either followed by \" when \" and conditions joined by \" and \" (path, path=value, !path, @attribute=value for what the lister recorded). See docs/catalogue.md.",
           "$ref": "#/$defs/omit"
         },
         "defaults": {

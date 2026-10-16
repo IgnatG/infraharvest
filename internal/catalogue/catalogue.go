@@ -370,7 +370,8 @@ func (c *Catalogue) Source(typ string) string {
 
 // Omit returns the arguments to leave out of generated configuration
 // whatever the provider's version, per type and under AllTypes for every
-// type.
+// type: the entries whose conditions don't depend on what a lister
+// recorded (see ResourceOmit).
 func (c *Catalogue) Omit() map[string][]string {
 	return c.OmitFor(nil)
 }
@@ -379,7 +380,71 @@ func (c *Catalogue) Omit() map[string][]string {
 // with version v of the provider: Omit, and what the entries'
 // provider_versions add for v. A nil v adds nothing.
 func (c *Catalogue) OmitFor(v *version.Version) map[string][]string {
-	return c.lists(v, func(e *Entry) []string { return e.Omit }, func(x *Versioned) []string { return x.Omit })
+	return c.lists(v, func(e *Entry) []string { return withoutListerConditions(e.Omit) }, func(x *Versioned) []string { return withoutListerConditions(x.Omit) })
+}
+
+// withoutListerConditions returns the omit entries without a condition on
+// what a lister recorded (see ResourceOmit).
+func withoutListerConditions(entries []string) []string {
+	return slices.DeleteFunc(slices.Clone(entries), func(entry string) bool {
+		_, conditions := listerConditions(entry)
+		return len(conditions) > 0
+	})
+}
+
+// ResourceOmit returns the arguments to leave out of the generated
+// configuration of one resource of typ besides those Omit returns: the
+// entries with a condition on what its lister recorded, @attribute=value
+// (or @attribute, set and not empty, or !@attribute, not), where those
+// conditions hold for attributes, without them.
+func (c *Catalogue) ResourceOmit(typ string, attributes map[string]string) []string {
+	e, ok := c.entries[typ]
+	if !ok {
+		return nil
+	}
+	var list []string
+	for _, entry := range e.Omit {
+		rest, conditions := listerConditions(entry)
+		if len(conditions) > 0 && !slices.ContainsFunc(conditions, func(cond string) bool { return !listerConditionHolds(cond, attributes) }) {
+			list = append(list, rest)
+		}
+	}
+	return list
+}
+
+// listerConditions splits an omit entry into the entry without its
+// conditions on what the lister recorded, and those conditions.
+func listerConditions(entry string) (string, []string) {
+	target, conditions, ok := strings.Cut(entry, " when ")
+	if !ok {
+		return entry, nil
+	}
+	var kept, lister []string
+	for _, c := range strings.Split(conditions, " and ") {
+		c = strings.TrimSpace(c)
+		if strings.HasPrefix(strings.TrimPrefix(c, "!"), "@") {
+			lister = append(lister, c)
+		} else {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return target, lister
+	}
+	return target + " when " + strings.Join(kept, " and "), lister
+}
+
+// listerConditionHolds reports whether a condition on what a lister
+// recorded, @name=value, @name or !@name, holds for attributes.
+func listerConditionHolds(condition string, attributes map[string]string) bool {
+	negate := strings.HasPrefix(condition, "!")
+	name, value, valued := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(condition, "!"), "@"), "=")
+	got := attributes[name]
+	holds := got != ""
+	if valued {
+		holds = got == value
+	}
+	return holds != negate
 }
 
 // Defaults returns the values optional arguments default to whatever the
