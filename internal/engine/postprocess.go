@@ -27,14 +27,15 @@ const placeholderString = "infraharvest-placeholder"
 // (see applyTagLift) and repeated identifiers (see liftLiterals). Each
 // step is checked against the plan before it (see verify) and undone if
 // the plan changes; the references by resource (see verifyEach). Secret
-// variables get placeholder values in these plans. If the configuration
-// doesn't plan even so, only the literal lift is made, checked by
-// validation. Last, clusters of resources move into modules: curated ones
-// first (see synthesize), whose list outputs then replace the lists of
-// all their elements (see collapseOutputLists), then, once the resources
-// left in the root no longer repeat what the provider sets (see
-// omitInherited), generated local ones (see liftModules). It returns the clusters it
-// didn't move into a curated module, with why.
+// variables get their values in these plans where Generate found them,
+// and placeholder values where Terraform doesn't show them. If the
+// configuration doesn't plan even so, only the literal lift is made,
+// checked by validation. Last, clusters of resources move into modules:
+// curated ones first (see synthesize), whose list outputs then replace
+// the lists of all their elements (see collapseOutputLists), then, once
+// the resources left in the root no longer repeat what the provider sets
+// (see omitInherited), generated local ones (see liftModules). It returns
+// the clusters it didn't move into a curated module, with why.
 func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
 	vars := append(placeholders(secrets), opts.secretValues.options()...)
 	baseline, values, changes, err := planValues(ctx, tf, vars)
