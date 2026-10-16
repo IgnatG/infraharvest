@@ -171,7 +171,7 @@ func clearGenerated(out, dir string) error {
 // previous run generated in dir is removed (see clearGenerated). Last, a
 // checkpoint without a result records that the root's generation started,
 // so that a later run knows the files are infraharvest's even if this one
-// fails.
+// fails, and that the root isn't complete (see unfinishedRoot).
 func claimRoot(out, dir, fp string, resume bool) error {
 	owned, err := fileExists(checkpointPath(out, dir))
 	if err != nil {
@@ -200,6 +200,49 @@ func claimRoot(out, dir, fp string, resume bool) error {
 		}
 	}
 	return saveCheckpoint(out, dir, fp, nil)
+}
+
+// readCheckpoint returns the checkpoint of dir under out; nil if there is
+// none.
+func readCheckpoint(out, dir string) (*checkpoint, error) {
+	path := checkpointPath(out, dir)
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var c checkpoint
+	if err := json.Unmarshal(content, &c); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &c, nil
+}
+
+// unfinishedRoot reports whether dir is what an import that didn't finish
+// generating it left: its checkpoint records that the generation started
+// (see claimRoot) and no result or, without a checkpoint, the root has
+// generated.tf but not the README written last.
+func unfinishedRoot(out, dir string) (bool, error) {
+	c, err := readCheckpoint(out, dir)
+	if err != nil {
+		return false, err
+	}
+	if c != nil {
+		return c.Result == nil, nil
+	}
+	return unfinishedFiles(dir)
+}
+
+// unfinishedFiles reports whether dir has generated.tf but no README.
+func unfinishedFiles(dir string) (bool, error) {
+	generated, err := fileExists(filepath.Join(dir, engine.GeneratedFileName))
+	if err != nil || !generated {
+		return false, err
+	}
+	readme, err := fileExists(filepath.Join(dir, engine.ReadmeFileName))
+	return !readme, err
 }
 
 // fileExists reports whether path exists.

@@ -271,6 +271,15 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			if incremental, err = engine.HasConfiguration(dir); err != nil {
 				return err
 			}
+			if incremental && options.Resume {
+				// With --resume, a root whose import didn't finish is
+				// generated again rather than added to (see addToRoot).
+				unfinished, err := unfinishedRoot(options.Out, dir)
+				if err != nil {
+					return err
+				}
+				incremental = !unfinished
+			}
 		}
 		switch {
 		case result != nil:

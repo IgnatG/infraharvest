@@ -7,10 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -34,6 +31,15 @@ const InRootReason = "already in the root"
 // are new.
 func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import, opts engine.Options, tr terraformRun) ([]engine.Import, *engine.Result, *engine.Result, error) {
 	out := r.options.Out
+	// A root whose import didn't finish isn't one to add to: what it
+	// has was never checked, and may be only part of it.
+	unfinished, err := unfinishedRoot(out, dir)
+	if err != nil {
+		return imports, nil, nil, err
+	}
+	if unfinished {
+		return imports, nil, nil, fmt.Errorf("the import that generated %s didn't finish: generate the root again with --resume, then add to it with --incremental", dir)
+	}
 	previous, err := checkpointResult(out, dir)
 	if err != nil {
 		return imports, nil, nil, err
@@ -143,16 +149,9 @@ func stagingDir(out, dir string) string {
 // checkpointResult returns the result the checkpoint of dir records, from
 // whichever run; nil if there is none.
 func checkpointResult(out, dir string) (*engine.Result, error) {
-	content, err := os.ReadFile(checkpointPath(out, dir))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
+	c, err := readCheckpoint(out, dir)
+	if err != nil || c == nil {
 		return nil, err
-	}
-	var c checkpoint
-	if err := json.Unmarshal(content, &c); err != nil {
-		return nil, fmt.Errorf("%s: %w", checkpointPath(out, dir), err)
 	}
 	return c.Result, nil
 }
