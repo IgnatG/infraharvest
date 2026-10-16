@@ -77,6 +77,10 @@
           "description": "Arguments the provider keeps only in state, which an import leaves unset.",
           "$ref": "#/$defs/names"
         },
+        "keep_empty": {
+          "description": "Optional arguments whose empty value the provider documents as a setting of its own: they stay where they are set empty.",
+          "$ref": "#/$defs/names"
+        },
         "provider_versions": {
           "description": "By a constraint on the provider's version, such as \">= 5.0\", what omit, defaults and state_only hold only for the versions it accepts.",
           "type": "object",

@@ -137,6 +137,10 @@ type Options struct {
 	// in state, which import can't set and the plan check (see runGate)
 	// lets change.
 	StateOnly map[string][]string
+	// KeepEmpty names, per resource type, optional arguments whose empty
+	// value ("", [] or {}) is a setting of its own, which Generate keeps
+	// where they are set empty (see stripDefaults).
+	KeepEmpty map[string][]string
 	// Placeholders, per resource type, set what Terraform can't read back,
 	// such as where a function's code comes from (see SetPlaceholders).
 	Placeholders map[string]Placeholder

@@ -79,6 +79,11 @@ type Entry struct {
 	// only for the versions it accepts, such as a default a major release
 	// changed.
 	ProviderVersions map[string]*Versioned `yaml:"provider_versions,omitempty"`
+	// KeepEmpty names optional arguments whose empty value ("", [] or {})
+	// the provider documents as a setting of its own, such as one that
+	// removes what the cloud adds by default: they stay where they are set
+	// empty, which the engine otherwise leaves out.
+	KeepEmpty []string `yaml:"keep_empty,omitempty"`
 	// Skip lists the resources the default selection leaves out, with the
 	// reason, such as the ones the cloud creates itself.
 	Skip []SkipRule `yaml:"skip,omitempty"`
@@ -429,6 +434,12 @@ func accepts(constraint string, v *version.Version) bool {
 	return err == nil && c.Check(v)
 }
 
+// KeepEmpty returns the arguments that stay where they are set empty,
+// per type.
+func (c *Catalogue) KeepEmpty() map[string][]string {
+	return c.lists(nil, func(e *Entry) []string { return e.KeepEmpty }, func(*Versioned) []string { return nil })
+}
+
 // DataSources returns the data source of each type that has one.
 func (c *Catalogue) DataSources() map[string]DataSource {
 	sources := map[string]DataSource{}
@@ -604,6 +615,9 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	}
 	if overlay.ProviderVersions != nil {
 		merged.ProviderVersions = overlay.ProviderVersions
+	}
+	if overlay.KeepEmpty != nil {
+		merged.KeepEmpty = overlay.KeepEmpty
 	}
 	if overlay.Skip != nil {
 		merged.Skip = overlay.Skip

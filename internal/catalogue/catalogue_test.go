@@ -588,3 +588,15 @@ func TestCheckRejectsProviderVersions(t *testing.T) {
 		t.Errorf("the schema rejects valid provider_versions: %v", err)
 	}
 }
+
+// keep_empty lists, per type, the arguments whose empty value is a
+// setting; overlays replace the list.
+func TestKeepEmpty(t *testing.T) {
+	c := parseCatalogue(t, "provider: aws\ntypes:\n  aws_default_route_table:\n    keep_empty: [route]\n  aws_vpc: {}\n")
+	if got := c.KeepEmpty(); !reflect.DeepEqual(got, map[string][]string{"aws_default_route_table": {"route"}}) {
+		t.Errorf("keep_empty: got %v", got)
+	}
+	if _, err := load(t, map[string]string{"x.yaml": "provider: aws\ntypes:\n  aws_x:\n    keep_empty: [Route]\n"}); err == nil {
+		t.Error("keep_empty of a name that isn't an argument's: want an error")
+	}
+}

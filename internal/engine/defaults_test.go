@@ -283,73 +283,65 @@ func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
 	}
 }
 
-// The catalogue's defaults go too, computed or not, by their path in
-// nested blocks, and a block they leave empty with them; another value
-// stays, and so does a default the plan shows isn't one. Before, a
-// bucket kept storage_class = "STANDARD" and
-// soft_delete_policy { retention_duration_seconds = 604800 }.
-func TestStripDefaultsNamedInTheCatalogue(t *testing.T) {
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_storage_bucket" "a" {
-  name          = "a"
-  storage_class = "STANDARD"
-  rpo           = "DEFAULT"
-  location      = "EU"
-  soft_delete_policy {
-    retention_duration_seconds = 604800
-  }
-}
+var lbSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+	"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+		"aws_lb": {Block: &tfjson.SchemaBlock{
+			Attributes: map[string]*tfjson.SchemaAttribute{
+				"name":            {AttributeType: cty.String, Required: true},
+				"description":     {AttributeType: cty.String, Optional: true},
+				"route":           {AttributeType: cty.List(cty.String), Optional: true, Computed: true},
+				"security_groups": {AttributeType: cty.Set(cty.String), Optional: true, Computed: true},
+			},
+			NestedBlocks: map[string]*tfjson.SchemaBlockType{
+				"access_logs": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"bucket":  {AttributeType: cty.String, Required: true},
+					"enabled": {AttributeType: cty.Bool, Optional: true},
+				}}},
+			},
+		}},
+	}},
+}}
 
-resource "google_storage_bucket" "b" {
-  name          = "b"
-  storage_class = "NEARLINE"
-  soft_delete_policy {
-    retention_duration_seconds = 0
+// Empty values go whether or not the provider computes the argument, but
+// for those the catalogue keeps; so do optional blocks of zero values as a
+// whole, even with a required argument set to "".
+func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "a" {
+  description     = ""
+  name            = "web"
+  route           = []
+  security_groups = []
+  access_logs {
+    bucket  = ""
+    enabled = false
   }
 }
 `)
-	content, err := ImportsFile([]Import{{Type: "google_storage_bucket", Name: "a", ID: "a"}, {Type: "google_storage_bucket", Name: "b", ID: "b"}})
+	imports, err := ImportsFile([]Import{{Type: "aws_lb", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
-	noChange := changeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))
-	changes := map[string]string{"google_storage_bucket.a": noChange, "google_storage_bucket.b": noChange}
-	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
-		"registry.terraform.io/hashicorp/google": {ResourceSchemas: map[string]*tfjson.Schema{
-			"google_storage_bucket": {Block: &tfjson.SchemaBlock{
-				Attributes: map[string]*tfjson.SchemaAttribute{
-					"name":          {AttributeType: cty.String, Required: true},
-					"location":      {AttributeType: cty.String, Required: true},
-					"storage_class": {AttributeType: cty.String, Optional: true},
-					"rpo":           {AttributeType: cty.String, Optional: true, Computed: true},
-				},
-				NestedBlocks: map[string]*tfjson.SchemaBlockType{"soft_delete_policy": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
-					"retention_duration_seconds": {AttributeType: cty.Number, Optional: true, Computed: true},
-				}}}},
-			}},
-		}},
-	}}
-	// Without rpo, the plan would change a's: its default is another.
-	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
-		resourceChange("google_storage_bucket.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"rpo": "DEFAULT"}, map[string]any{"rpo": nil}),
-		// And without b's storage class, which isn't the default, b's.
-		resourceChange("google_storage_bucket.b", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"storage_class": "NEARLINE"}, map[string]any{"storage_class": nil}),
-	}}
-	tf := &fakeTerraform{dir: dir, schemas: schemas, showns: []*tfjson.Plan{first, importedPlan("google_storage_bucket.a", "google_storage_bucket.b")}}
-	defaults := map[string][]string{"google_storage_bucket": {"storage_class=STANDARD", "rpo=DEFAULT", "soft_delete_policy.retention_duration_seconds=604800"}}
+	writeConfig(t, dir, ImportsFileName, string(imports))
+	changes := map[string]string{"aws_lb.a": changeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	tf := &fakeTerraform{dir: dir, schemas: lbSchemas}
 
-	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaults)
+	stripped, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, map[string][]string{"aws_lb": {"route"}})
 	if err != nil || !stripped {
-		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+		t.Fatalf("want empty values stripped, got %v, %v", stripped, err)
 	}
 	got := squashed(readFile(t, dir, GeneratedFileName))
-	for _, want := range []string{
-		`resource "google_storage_bucket" "a" { name = "a" rpo = "DEFAULT" location = "EU" }`,
-		`storage_class = "NEARLINE" soft_delete_policy { retention_duration_seconds = 0 }`,
-	} {
+	for _, want := range []string{`name = "web"`, "route = []"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
 		}
+	}
+	for _, gone := range []string{"description", "security_groups", "access_logs", "bucket"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("generated.tf still has %s:\n%s", gone, got)
+		}
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
 	}
 }
