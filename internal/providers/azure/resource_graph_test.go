@@ -460,6 +460,29 @@ func TestGraphResourcesSkipsPrivateEndpointInterfaces(t *testing.T) {
 	}
 }
 
+// What is in a group the built-in rules leave out whole is listed without
+// its child resources; what is in any other group, or is left out for
+// itself alone, has them listed.
+func TestInSkippedGroup(t *testing.T) {
+	const sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
+	aks := sub + "/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"
+	nodes := sub + "/resourceGroups/MC_rg-aks_aks_eastus"
+	managed := map[string]string{strings.ToUpper(nodes): aks}
+	cat := catalogue.MustBuiltin("azurerm")
+	for id, want := range map[string]bool{
+		nodes + "/providers/Microsoft.Network/virtualNetworks/aks-vnet":                                                      true,
+		sub + "/resourceGroups/DefaultResourceGroup-EUS/providers/Microsoft.OperationalInsights/workspaces/DefaultWorkspace": true,
+		sub + "/resourceGroups/rg-app/providers/Microsoft.Network/virtualNetworks/net1":                                      false,
+		// Left out by its name, not its group: its children are listed.
+		sub + "/resourceGroups/rg-app/providers/Microsoft.Insights/actionGroups/Application Insights Smart Detection": false,
+		sub + "/resourceGroups/rg-app": false,
+	} {
+		if got := inSkippedGroup(listed(t, id, nil), managed, cat); got != want {
+			t.Errorf("%s: got %v, want %v", id, got, want)
+		}
+	}
+}
+
 // The tables and saved searches every Log Analytics workspace has built
 // in are recorded with what tells them apart, and the built-in skip rules
 // leave them out; a table whose plan or retention was changed, a custom

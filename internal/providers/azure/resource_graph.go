@@ -54,7 +54,8 @@ var resourceManagerServices = []string{
 // The catalogue's skip rules leave out what another resource manages
 // (managedBy), such as an AKS cluster's nodes or a virtual machine's OS
 // disk, but not a data disk attached to a machine, and what Azure creates
-// itself, such as NetworkWatcherRG.
+// itself, such as NetworkWatcherRG. What is in a group they leave out
+// whole is listed without its child resources (see inSkippedGroup).
 type ResourceGraphLister struct {
 	Service
 }
@@ -110,7 +111,30 @@ func (g *ResourceGraphLister) List() error {
 		return err
 	}
 	withoutWorkspaceDataSources(lister.ARMSchemaTree)
-	result, err := lister.ListByQuery(g.Context(), predicate)
+	groups, err := graphResourceGroups(g.Context(), credential, &clientOptions, subscriptionID, predicate)
+	if err != nil {
+		return err
+	}
+	rows, err := lister.ListResourcesByQuery(g.Context(), predicate)
+	if err != nil {
+		return err
+	}
+	cat := g.catalogue()
+	// What is in a group the default selection leaves out whole, such as
+	// an AKS cluster's MC_* group, is listed, so that it can be selected,
+	// but without its child resources, and the data sources of its
+	// workspaces, which would take requests for what is left out anyway.
+	// Naming the group with --resource-group lists them all.
+	managedGroups := managedResourceGroups(groups)
+	var parents, alone []azlist.AzureResource
+	for _, res := range rows {
+		if resourceGroup == "" && inSkippedGroup(res, managedGroups, cat) {
+			alone = append(alone, res)
+		} else {
+			parents = append(parents, res)
+		}
+	}
+	result, err := lister.ListRemaining(g.Context(), parents)
 	if err != nil {
 		return err
 	}
@@ -119,18 +143,14 @@ func (g *ResourceGraphLister) List() error {
 		// can't read: the rest are listed.
 		log.Printf("azurerm: resource_graph: %v", e)
 	}
-	groups, err := graphResourceGroups(g.Context(), credential, &clientOptions, subscriptionID, predicate)
-	if err != nil {
-		return err
-	}
-	found := withResourceGroups(result.Resources, groups)
-	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, found)
+	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
+	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources)
 	if err != nil {
 		return err
 	}
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
-	g.Resources = graphResources(found, g.catalogue(), knownTypes(sourceTypes, query))
+	g.Resources = graphResources(found, cat, knownTypes(sourceTypes, query))
 	if err := g.Context().Err(); err != nil {
 		return err
 	}
@@ -205,6 +225,33 @@ func withResourceGroups(listed, groups []azlist.AzureResource) []azlist.AzureRes
 		}
 	}
 	return listed
+}
+
+// inSkippedGroup reports whether the catalogue's rules for every type
+// leave out res and anything under it for the resource group it is in
+// alone, whatever its name, type or tags: as they leave out what is in a
+// group another resource manages, such as an AKS cluster's MC_* group, or
+// in a DefaultResourceGroup-<region>. managedGroups are the managed
+// groups (see managedResourceGroups). The rules are asked about an ID
+// under res, so a rule for res's own ID alone doesn't count.
+func inSkippedGroup(res azlist.AzureResource, managedGroups map[string]string, cat *catalogue.Catalogue) bool {
+	rg, ok := res.Id.RootScope().(*armid.ResourceGroup)
+	if !ok {
+		return false
+	}
+	attributes := map[string]string{"resource_group_name": rg.Name}
+	if by := managedGroups[strings.ToUpper(rg.String())]; by != "" {
+		attributes["resource_group_managed_by"] = by
+	}
+	return cat.Skipped(catalogue.AllTypes, res.Id.String()+"/", attributes) != ""
+}
+
+// byID sorts resources by ID, as azlist returns them, and returns them.
+func byID(resources []azlist.AzureResource) []azlist.AzureResource {
+	slices.SortFunc(resources, func(a, b azlist.AzureResource) int {
+		return strings.Compare(a.Id.String(), b.Id.String())
+	})
+	return resources
 }
 
 // queryType maps an Azure resource ID to its azurerm types and import IDs,
