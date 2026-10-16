@@ -66,6 +66,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 		names []string
 	}
 	lists := []argumentList{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"keep_empty", e.KeepEmpty}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}}
+	defaults := []argumentList{{"defaults", e.Defaults}}
 	for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
 		if _, err := version.NewConstraint(constraint); err != nil {
 			fail("provider_versions: %q isn't a version constraint, such as \">= 5.0\": %v", constraint, err)

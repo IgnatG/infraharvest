@@ -344,7 +344,8 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRu
 //     but for those of keep_empty: an empty computed argument, such as a
 //     key vault's access_policy = [], only fights the separate resources
 //     that hold the setting, and left out it keeps what the cloud has;
-//   - other constants of optional arguments the provider doesn't compute;
+//   - other constants of optional arguments the provider doesn't compute
+//     and doesn't mark sensitive;
 //   - nested blocks of optional types that set nothing but zero values,
 //     none of an argument the provider computes (see setsComputed),
 //     such as access_logs { bucket = "", enabled = false }, as a whole,
@@ -369,7 +370,9 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			}
 		case isConstant(attr.Expr):
 			s := schemaAttribute(schemas, typ, path)
-			if s == nil || !s.Optional || s.Computed || s.Required {
+			// A sensitive value, such as a parameter's, is what the cloud has,
+			// never a default.
+			if s == nil || !s.Optional || s.Computed || s.Required || s.Sensitive {
 				continue
 			}
 		default:
