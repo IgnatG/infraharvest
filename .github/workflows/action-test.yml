@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 name: action-test
 
 # Runs the GitHub Action (action/) with a binary built from this commit
@@ -13,6 +16,7 @@ on:
       - internal/report/**
       - main.go
       - .github/workflows/action-test.yml
+      - .github/scripts/free-disk-space.sh
   workflow_dispatch:
 
 permissions:
@@ -28,14 +32,16 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-east-1
     steps:
-      - name: Free disk space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
       - name: Build
         run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
