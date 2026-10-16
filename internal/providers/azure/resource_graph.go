@@ -5,8 +5,10 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -54,8 +56,12 @@ var resourceManagerServices = []string{
 // The catalogue's skip rules leave out what another resource manages
 // (managedBy), such as an AKS cluster's nodes or a virtual machine's OS
 // disk, but not a data disk attached to a machine, and what Azure creates
-// itself, such as NetworkWatcherRG and its network watchers. What is in a group they leave out
-// whole is listed without its child resources (see inSkippedGroup).
+// itself, such as NetworkWatcherRG and its network watchers. What is in a
+// group they leave out whole is listed without its child resources (see
+// inSkippedGroup). A child list that fails such that resources may be
+// missing, such as one refused or throttled, fails the service in part
+// (see childListFailures): what was listed is imported, and the failure
+// is reported.
 type ResourceGraphLister struct {
 	Service
 }
@@ -138,10 +144,9 @@ func (g *ResourceGraphLister) List() error {
 	if err != nil {
 		return err
 	}
-	for _, e := range result.Errors {
-		// Child resource types a resource doesn't have, or the caller
-		// can't read: the rest are listed.
-		log.Printf("azurerm: resource_graph: %v", e)
+	childErr := childListFailures(result.Errors)
+	if err := g.Context().Err(); err != nil {
+		return err
 	}
 	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
 	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources)
@@ -157,7 +162,7 @@ func (g *ResourceGraphLister) List() error {
 	if g.Verbose() {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}
-	return nil
+	return childErr
 }
 
 // resourceGroupsQuery lists the resource groups that predicate (see
@@ -252,6 +257,55 @@ func byID(resources []azlist.AzureResource) []azlist.AzureResource {
 		return strings.Compare(a.Id.String(), b.Id.String())
 	})
 	return resources
+}
+
+// listStatus is the HTTP status of a failed list in the message of an
+// azlist.ListError, as the Azure SDK's ResponseError writes it.
+var listStatus = regexp.MustCompile(`RESPONSE (\d{3}):`)
+
+// shapeErrors start the messages of the azlist.ListErrors for an item of
+// a list that it couldn't read, such as one without an ID: azurerm has no
+// type to import those by either.
+var shapeErrors = []string{"marshalling ", "unmarshalling ", "no resource id found", "resource id is not a string", "parsing resource id "}
+
+// childListFailures returns, joined as a partial error (see
+// harvest.Partial), the failures among the child resource lists azlist
+// reports that leave the listing incomplete, so that the service fails in
+// part, keeping what it listed, rather than leaving resources out unseen:
+// a list refused (401, 403), throttled (429), timed out (408) or failed
+// by Resource Manager (5xx), or that got no answer at all. azlist leaves
+// out the 404s of resources without children of a type; the other
+// answers, such as 400 or 409 for a child type a resource's SKU or state
+// doesn't have, 405 and 501 for types that can't be listed, and items it
+// couldn't read, are logged, as nothing was left out that could be
+// imported.
+func childListFailures(errs []azlist.ListError) error {
+	var failures []error
+	for _, e := range errs {
+		if childListFailed(e) {
+			failures = append(failures, fmt.Errorf("azurerm: resource_graph: %w", e))
+		} else {
+			log.Printf("azurerm: resource_graph: %v", e)
+		}
+	}
+	return harvest.Partial(errors.Join(failures...))
+}
+
+// childListFailed reports whether e left resources out (see
+// childListFailures).
+func childListFailed(e azlist.ListError) bool {
+	m := listStatus.FindStringSubmatch(e.Message)
+	if m == nil {
+		return !slices.ContainsFunc(shapeErrors, func(prefix string) bool { return strings.HasPrefix(e.Message, prefix) })
+	}
+	status, _ := strconv.Atoi(m[1])
+	switch {
+	case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusRequestTimeout, status == http.StatusTooManyRequests:
+		return true
+	case status == http.StatusNotImplemented:
+		return false
+	}
+	return status >= http.StatusInternalServerError
 }
 
 // queryType maps an Azure resource ID to its azurerm types and import IDs,
