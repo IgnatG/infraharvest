@@ -81,6 +81,31 @@ func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
 	}
 }
 
+// A service that lists in part keeps what it listed, and fails the import
+// all the same.
+func TestInitAllServicesResourcesKeepsAPartialListing(t *testing.T) {
+	registry := harvest.NewRegistry(&fakeProvider{})
+	options := Options{Services: []string{"good", "partial", "bad"}}
+
+	failures, err := listServices(t.Context(), registry, options, nil)
+	if err != nil {
+		t.Fatalf("a partial listing must not abort the run: %v", err)
+	}
+	if len(failures) != 2 || !strings.Contains(failures[0].Error(), "service partial: a zone's records: access denied") || !strings.Contains(failures[1].Error(), "service bad") {
+		t.Errorf("want failures for services partial and bad, got %v", failures)
+	}
+	byService := registry.ByService()
+	if got := byService["partial"]; len(got) != 1 || got[0].Observed.ID != "id-2" {
+		t.Errorf("want the partial service's resource kept, got %v", got)
+	}
+	if _, ok := byService["bad"]; ok {
+		t.Error("failed service should be removed from the registry")
+	}
+	if got := len(registry.Resources); got != 2 {
+		t.Errorf("want the good and the partial services' resources, got %d resources", got)
+	}
+}
+
 func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 	registry := harvest.NewRegistry(&fakeProvider{})
 	options := Options{Services: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
@@ -110,7 +135,8 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 }
 
 // fakeProvider lists one resource per service, fails for service "bad",
-// and lists service "slow" until its context is done.
+// lists one and fails in part for service "partial", and lists service
+// "slow" until its context is done.
 type fakeProvider struct {
 	harvest.Provider
 	service *fakeService
@@ -135,6 +161,9 @@ func (s *fakeService) List() error {
 	switch s.Name() {
 	case "bad":
 		return errors.New("access denied")
+	case "partial":
+		s.Resources = []harvest.Resource{harvest.RecordBare("id-2", "two", "fake_thing", "fake")}
+		return harvest.Partial(errors.New("a zone's records: access denied"))
 	case "slow":
 		// Like listers that log a failed call and go on.
 		<-s.Context().Done()

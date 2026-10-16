@@ -16,8 +16,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// fake lists one resource after delay, or fails with err; with hang, it
-// lists until its context is done, and returns no error.
+// fake lists one resource after delay, and returns it with err; with
+// hang, it lists until its context is done, and returns it with err too.
 type fake struct {
 	name    string
 	delay   time.Duration
@@ -40,19 +40,17 @@ func (f *fake) Discover(ctx context.Context) ([]harvest.Resource, error) {
 			}
 		}
 	}
+	listed := []harvest.Resource{harvest.RecordBare(f.name+"-1", f.name, "fake_thing", "fake")}
 	if f.hang {
 		<-ctx.Done()
-		return nil, nil
+		return listed, f.err
 	}
 	select {
 	case <-time.After(f.delay):
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	if f.err != nil {
-		return nil, f.err
-	}
-	return []harvest.Resource{harvest.RecordBare(f.name+"-1", f.name, "fake_thing", "fake")}, nil
+	return listed, f.err
 }
 
 func TestListKeepsTheOrderAndTheBound(t *testing.T) {
@@ -75,24 +73,34 @@ func TestListKeepsTheOrderAndTheBound(t *testing.T) {
 	}
 }
 
+// A discoverer that fails, or whose deadline passes, has what it found
+// left out; one that fails in part keeps it, unless its deadline passed.
 func TestListReportsFailuresAndDeadlines(t *testing.T) {
 	ds := []Discoverer{
 		&fake{name: "good"},
 		&fake{name: "bad", err: errors.New("access denied")},
 		&fake{name: "slow", hang: true},
+		&fake{name: "partial", err: harvest.Partial(errors.New("a part was refused"))},
+		&fake{name: "slow partial", hang: true, err: harvest.Partial(errors.New("a part was refused"))},
 	}
-	results, err := List(t.Context(), ds, Options{Timeout: 10 * time.Millisecond, Parallel: 3})
+	results, err := List(t.Context(), ds, Options{Timeout: 10 * time.Millisecond, Parallel: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if results[0].Err != nil || len(results[0].Resources) != 1 {
 		t.Errorf("good: %+v", results[0])
 	}
-	if results[1].Err == nil || results[1].Err.Error() != "access denied" {
+	if results[1].Err == nil || results[1].Err.Error() != "access denied" || len(results[1].Resources) != 0 {
 		t.Errorf("bad: %+v", results[1])
 	}
-	if !errors.Is(results[2].Err, ErrDeadline) {
+	if !errors.Is(results[2].Err, ErrDeadline) || len(results[2].Resources) != 0 {
 		t.Errorf("slow: %+v", results[2])
+	}
+	if !harvest.IsPartial(results[3].Err) || len(results[3].Resources) != 1 {
+		t.Errorf("partial: %+v", results[3])
+	}
+	if !errors.Is(results[4].Err, ErrDeadline) || len(results[4].Resources) != 0 {
+		t.Errorf("slow partial: %+v", results[4])
 	}
 }
 
@@ -163,5 +171,44 @@ func TestListLabelsTheDiscoverers(t *testing.T) {
 	}
 	if want := map[string]string{"provider": "fake", "service": "compute"}; !maps.Equal(provider.service.labels, want) {
 		t.Errorf("a service: got labels %v, want %v", provider.service.labels, want)
+	}
+}
+
+// errProvider's service lists one resource and returns err.
+type errProvider struct {
+	harvest.Provider
+	err     error
+	service *errService
+}
+
+func (p *errProvider) Name() string             { return "fake" }
+func (p *errProvider) Selected() harvest.Lister { return p.service }
+func (p *errProvider) Select(name string, _ bool) error {
+	p.service = &errService{err: p.err}
+	p.service.Configure(harvest.ListerConfig{Service: name})
+	return nil
+}
+
+type errService struct {
+	harvest.ListerBase
+	err error
+}
+
+func (s *errService) List() error {
+	s.Resources = append(s.Resources, harvest.RecordBare("id-1", "one", "fake_thing", "fake"))
+	return s.err
+}
+
+// A service whose lister fails in part returns what it listed with the
+// error; one whose lister fails returns nothing.
+func TestServiceKeepsWhatAPartialListingFound(t *testing.T) {
+	refused := errors.New("a part was refused")
+	resources, err := Service("dns", &errProvider{err: harvest.Partial(refused)}, false, nil).Discover(t.Context())
+	if !harvest.IsPartial(err) || !errors.Is(err, refused) || len(resources) != 1 {
+		t.Errorf("partial: got %d resources and %v, want 1 and the partial error", len(resources), err)
+	}
+	resources, err = Service("dns", &errProvider{err: refused}, false, nil).Discover(t.Context())
+	if !errors.Is(err, refused) || resources != nil {
+		t.Errorf("failed: got %d resources and %v, want none and the error", len(resources), err)
 	}
 }

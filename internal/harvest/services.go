@@ -13,7 +13,9 @@ import "context"
 // List, the listing itself.
 type Lister interface {
 	// List lists the service's resources from the cloud and stores them in
-	// the lister.
+	// the lister. An error fails the service, and what it listed is left
+	// out, unless it is a PartialError (see Partial): the lister listed
+	// all it could, and what it listed is kept.
 	List() error
 	// Listed returns the resources the lister holds.
 	Listed() []Resource

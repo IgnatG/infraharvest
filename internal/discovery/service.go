@@ -29,7 +29,9 @@ func (s *service) Name() string {
 }
 
 // Discover initialises the service, applies the filters and lists with
-// List, whose API calls take ctx (see harvest.ListerBase.Context).
+// List, whose API calls take ctx (see harvest.ListerBase.Context). When
+// List fails in part (see harvest.Partial), it returns what was listed
+// with the error.
 // Its goroutine, and those the lister starts, carry the provider's name as
 // a label next to the service label List gives them.
 func (s *service) Discover(ctx context.Context) (resources []harvest.Resource, err error) {
@@ -48,11 +50,17 @@ func (s *service) discover(ctx context.Context) ([]harvest.Resource, error) {
 	lister := s.provider.Selected()
 	lister.SetFilters(s.filters)
 	lister.SetContext(ctx)
-	if err := lister.List(); err != nil {
+	err := lister.List()
+	if err != nil && !harvest.IsPartial(err) {
 		log.Printf("%s: listing %s failed: %v", s.provider.Name(), s.name, err)
 		return nil, err
 	}
 	lister.Prune()
+	if err != nil {
+		// What it listed is kept, and err still fails the import.
+		log.Printf("%s: listed %s in part: %v", s.provider.Name(), s.name, err)
+		return lister.Listed(), err
+	}
 	log.Printf("%s: listed %s", s.provider.Name(), s.name)
 	return lister.Listed(), nil
 }

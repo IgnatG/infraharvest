@@ -31,7 +31,7 @@ jq -r '.directories[] | .path as $dir | .checks[]? | select(.passed | not) | "\(
 
 ## Access denied
 
-A service fails with the cloud's denial in its message, `service <name>: ...`, and the import exits 1 (or 3 with `--allow-partial`): `AccessDenied` or `UnauthorizedOperation` on AWS, `AuthorizationFailed` on Azure, a `403` with `PERMISSION_DENIED` on Google Cloud. A resource Terraform couldn't read is left out instead, with Terraform's error, in `rejected.hcl` and `left_out`.
+A service fails with the cloud's denial in its message, `service <name>: ...`, and the import exits 1 (or 3 with `--allow-partial`): `AccessDenied` or `UnauthorizedOperation` on AWS, `AuthorizationFailed` on Azure, a `403` with `PERMISSION_DENIED` on Google Cloud. A service denied only a part, such as one Route 53 hosted zone's records or an Azure child resource list, keeps the rest it listed. A resource Terraform couldn't read is left out instead, with Terraform's error, in `rejected.hcl` and `left_out`.
 
 - Run as the principal the [permissions templates](permissions.md) grant: on AWS `ReadOnlyAccess` with the data-read deny, on Azure Reader, on Google Cloud `roles/viewer`, `roles/iam.securityReviewer` and `roles/cloudasset.viewer`.
 - On AWS, the templates deny `kms:Decrypt`, so SSM `SecureString` parameters fail to import by design (see [Permissions](permissions.md#aws)).

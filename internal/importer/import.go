@@ -344,9 +344,10 @@ func ResolveServices(provider harvest.Provider, options Options) Options {
 // options.Services into registry, each service with a provider of
 // its own initialised with args. A service that fails to list, or that
 // takes longer than options.ListTimeout, is left out of the registry and
-// returned among the failures; the error is for what stops the whole
-// listing: a provider that can't be initialised, a filter that doesn't
-// parse, or an interrupt.
+// returned among the failures; one that lists in part (see
+// harvest.Partial) keeps what it listed, and is among the failures too.
+// The error is for what stops the whole listing: a provider that can't be
+// initialised, a filter that doesn't parse, or an interrupt.
 func listServices(ctx context.Context, registry *harvest.Registry, options Options, args []string) ([]error, error) {
 	filters, err := options.filters()
 	if err != nil {
@@ -377,7 +378,9 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 			// Name the flag that sets the deadline, so the fix is plain.
 			cause = fmt.Errorf("listing took longer than --list-timeout %s; its resources may be incomplete", options.ListTimeout)
 		}
-		failed = append(failed, result.Name)
+		if !harvest.IsPartial(cause) {
+			failed = append(failed, result.Name)
+		}
 		failures = append(failures, fmt.Errorf("service %s: %w", result.Name, cause))
 	}
 	registry.Unregister(failed)
