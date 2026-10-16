@@ -59,6 +59,19 @@ var VPC = Adapter{
 		"vpc_enable_dns_support", "vpc_id", "vpc_instance_tenancy", "vpc_main_route_table_id", "vpc_owner_id",
 	},
 	Map: mapVPC,
+	// The module's variables' defaults, from its variables.tf; its
+	// enable_network_address_usage_metrics defaults to null, which the
+	// provider takes as false. enable_dns_hostnames defaults to true,
+	// unlike the provider's false, so a VPC without it passes false.
+	Defaults: map[string]cty.Value{
+		"enable_dns_hostnames":                 cty.True,
+		"enable_dns_support":                   cty.True,
+		"enable_network_address_usage_metrics": cty.False,
+		"instance_tenancy":                     cty.StringVal("default"),
+		"map_public_ip_on_launch":              cty.False,
+		"private_subnet_suffix":                cty.StringVal("private"),
+		"public_subnet_suffix":                 cty.StringVal("public"),
+	},
 }
 
 // vpcPart is a resource of a VPC cluster, read.
@@ -616,7 +629,11 @@ func vpcSubnets(call *Call, vpc Resource, kind string, subnets []*vpcSubnet, tab
 		call.Outputs[s.association.Address()] = map[string]string{"id": fmt.Sprintf("%s_route_table_association_ids[%d]", kind, i)}
 	}
 	call.Set(kind+"_subnets", hclwrite.TokensForTuple(cidrs))
-	call.Set(kind+"_subnet_names", hclwrite.TokensForValue(stringList(names)))
+	// The module names each subnet <name>-<suffix>-<zone> unless told
+	// otherwise.
+	if !slices.EqualFunc(subnets, names, func(s *vpcSubnet, n string) bool { return n == name+"-"+suffix+"-"+s.az }) {
+		call.Set(kind+"_subnet_names", hclwrite.TokensForValue(stringList(names)))
+	}
 	if mapPublicIP != nil {
 		call.Set("map_public_ip_on_launch", mapPublicIP)
 	}
@@ -647,8 +664,11 @@ func vpcNAT(call *Call, vpc Resource, i int, nat, eip *vpcPart, name string) err
 		}
 	}
 	nat.r.IgnoreDefault("secondary_private_ip_address_count", cty.Zero)
-	if domain, ok := literalString(mustAttr(eip.r, "domain")); !ok || domain != "vpc" {
-		return Declinef("%s isn't for use in a VPC", eip.Address())
+	// Left out of generated configuration at its default, vpc.
+	if tokens, set := eip.r.Attr("domain"); set {
+		if domain, ok := literalString(tokens); !ok || domain != "vpc" {
+			return Declinef("%s isn't for use in a VPC", eip.Address())
+		}
 	}
 	// Computed: the address's pool, and the gateway's network interface,
 	// which AWS attaches it to.

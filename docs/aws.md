@@ -53,7 +53,28 @@ It needs `resource-explorer-2:GetIndex`, `GetDefaultView`, `GetView`, `ListSuppo
 
 ## What the default selection leaves out
 
-`discover` leaves out what AWS creates and manages itself: default VPCs with their subnets, route tables and internet gateways, default security groups and network ACLs, the security groups EKS creates, service-linked roles, the log groups Lambda creates, the default parameter, option and subnet groups of RDS and ElastiCache, and the AWS managed FullAWSAccess service control policy with its attachments. It also leaves out every resource a CloudFormation stack manages, nested stacks and CDK apps included, naming the stack: global resources are checked against the stacks of every enabled region. Each is in the selection file with the reason, and `include: true` takes it in. See [Choosing what to import](usage.md#choosing-what-to-import).
+`discover` leaves out what AWS creates and manages itself: default VPCs with their subnets, route tables and internet gateways, the main route table of every other VPC while it is as AWS created it (no tags, no routes but the local ones, no subnets of its own), default security groups and network ACLs, the security groups EKS creates, service-linked roles, the log groups Lambda creates, the default parameter, option and subnet groups of RDS and ElastiCache, and the AWS managed FullAWSAccess service control policy with its attachments. It also leaves out every resource a CloudFormation stack manages, nested stacks and CDK apps included, naming the stack: global resources are checked against the stacks of every enabled region. Each is in the selection file with the reason, and `include: true` takes it in. See [Choosing what to import](usage.md#choosing-what-to-import).
+
+## Generated configuration
+
+Terraform writes every argument a resource has. infraharvest leaves out those at what AWS gives a resource that doesn't set them, where leaving them out changes no plan, so the configuration says what is particular to each resource. The catalogue lists them per type (see [Leaving out arguments](catalogue.md#leaving-out-arguments)), for example:
+
+- an instance's zone when it has a subnet, the launch API's defaults (stop on shutdown, no detailed monitoring, default tenancy, the open capacity reservation preference, enclaves off, gp3's baseline IOPS and throughput), CPU options at the instance type's defaults or for a type that takes none (the lister compares them with `ec2:DescribeInstanceTypes`, which `ReadOnlyAccess` grants), and the credit option each burstable family launches with: `standard` for T2, `unlimited` for T3, T3a and T4g;
+- a target group's stickiness when it is off, and its target group health at the thresholds AWS starts with; a listener's first action's order;
+- a Lambda function's default architecture, ephemeral storage, tracing and logging to `/aws/lambda/<function>`, and its `code_sha256`, the hash of the code deployed;
+- an on-demand DynamoDB table's capacity of 0, and point-in-time recovery, TTL and encryption with a key DynamoDB owns when they are off;
+- a CloudFront cache behaviour's legacy `default_ttl` and `max_ttl` when it has a cache policy, and `minimum_protocol_version` with the default certificate;
+- the default policies AWS writes: a KMS key's (`key-default-1`), an SNS topic's (`__default_policy_ID`), and a VPC endpoint's full access;
+- the arguments only interface endpoints take, on a gateway endpoint;
+- an ECS service's `iam_role` when its tasks use `awsvpc`, which a service with a network configuration runs, or when it is the service-linked role;
+- an API Gateway v2 stage's `deployment_id` when the stage deploys itself;
+- `arn`, which the provider computes, where it writes it back as an argument (SSM parameters, Kinesis streams).
+
+A Lambda function whose code was deployed outside Terraform gets a placeholder `filename` and ignores changes to it and to `code_sha256`, which in provider 6 is what makes the provider update the code: to deploy it with Terraform, put the package at `filename`, set `code_sha256 = filebase64sha256(...)` of it, and remove the `ignore_changes`.
+
+An API Gateway deployment gets `create_before_destroy`, as the provider's documentation recommends, since a stage refers to it. It doesn't get the `triggers` the documentation also recommends: AWS doesn't keep them, so set on an imported deployment, they would replace it on the first plan. A comment says how to add them, at the cost of that one replacement.
+
+A load balancer listener that forwards to one target group keeps both `target_group_arn` and the `forward` block the import reads: the provider can't tell which of the two was set, and the configuration without either plans an update.
 
 ## Services at end of life
 

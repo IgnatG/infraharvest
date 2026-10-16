@@ -4,3 +4,12 @@ service: cloudfront
 types:
   aws_cloudfront_distribution:
     arn: { service: cloudfront, resource_type: "distribution" }
+    omit:
+      # The legacy TTLs CloudFront reports for a cache behaviour with a
+      # cache policy, which sets its TTLs instead.
+      - default_cache_behavior.default_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=
+      - default_cache_behavior.max_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=
+      - ordered_cache_behavior.default_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=
+      - ordered_cache_behavior.max_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=
+      # Fixed by CloudFront for its default certificate.
+      - viewer_certificate.minimum_protocol_version when viewer_certificate.cloudfront_default_certificate=true

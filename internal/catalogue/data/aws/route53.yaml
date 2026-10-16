@@ -11,3 +11,6 @@ types:
   aws_route53_zone:
     arn: { service: route53, resource_type: "hostedzone" }
     data_source: { type: aws_route53_zone, argument: zone_id }
+    # What AWS, and the provider for the comment, give a zone that doesn't
+    # set them.
+    defaults: ["comment=Managed by Terraform", enable_accelerated_recovery=false]

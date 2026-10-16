@@ -7,12 +7,27 @@ types:
     # Imported by ARN, the generated configuration names the function by
     # its ARN, and the provider plans to replace it.
     import_id: "{function_name}"
+    omit:
+      # The hash of the code deployed, which AWS reports; set, it is what
+      # makes the provider update the code.
+      - code_sha256
+      # Logs in text to /aws/lambda/<function>, and no tracing.
+      - logging_config when logging_config.log_format=Text and logging_config.log_group=/aws/lambda/{function_name}
+      - tracing_config when tracing_config.mode=PassThrough
+    # What AWS gives a function that doesn't set them.
+    defaults:
+      - architectures=["x86_64"]
+      - ephemeral_storage.size=512
+      - memory_size=128
+      - package_type=Zip
+      - reserved_concurrent_executions=-1
+      - timeout=3
     # AWS doesn't say where a zip package came from, and Terraform can't
     # read it back.
     placeholder:
       one_of: [filename, image_uri, s3_bucket]
       set: { filename: "lambda/{function_name}.zip" }
-      ignore: [filename, source_code_hash]
-      reason: "the function's code is deployed outside Terraform; filename is a placeholder. To deploy it with Terraform, put the package there, set source_code_hash and remove this"
+      ignore: [filename, code_sha256]
+      reason: "the function's code is deployed outside Terraform; filename is a placeholder. To deploy it with Terraform, put the package there, set code_sha256 to its filebase64sha256, which is what makes the provider update the code when the package changes, and remove this"
   aws_lambda_permission:
     import_id: "{function_name}/{statement_id}"

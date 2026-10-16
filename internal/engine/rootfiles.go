@@ -26,6 +26,12 @@ type Import struct {
 	// File, if set, is the file of the root the resource's configuration
 	// goes in, such as network.tf (see Options.SplitFiles).
 	File string `json:",omitempty"`
+	// Omit, if set, are arguments to leave out of this resource's
+	// generated configuration besides those Options.Omit names for its
+	// type, in the same form: what the catalogue leaves out depending on
+	// what the lister recorded, such as CPU options at the instance
+	// type's defaults.
+	Omit []string `json:",omitempty"`
 }
 
 // Provider describes the provider the generated configuration uses.

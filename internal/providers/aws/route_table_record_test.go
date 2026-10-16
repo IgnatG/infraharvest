@@ -5,6 +5,7 @@ package aws
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,7 +52,7 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_route_table", "rtb-main", "vpc-1 main", nil},
+		recordedResource{"aws_route_table", "rtb-main", "vpc-1 main", map[string]string{"main": "true"}},
 		recordedResource{"aws_main_route_table_association", "rtbassoc-main", "vpc-1", map[string]string{
 			"vpc_id": "vpc-1", "route_table_id": "rtb-main"}},
 		recordedResource{"aws_route_table_association", "rtbassoc-a", "subnet-a", map[string]string{
@@ -61,6 +62,51 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 			"gateway_id": "igw-1", "route_table_id": "rtb-edge"}},
 		recordedResource{"aws_route_table", "rtb-lonely", "rtb-lonely", nil},
 	)
+}
+
+// A main route table is as AWS created it when it has no tags, no routes
+// but the local ones, no propagated routes, and no association but the
+// main one: only then is it recorded as_created, which the catalogue
+// skips by default.
+func TestRecordRouteTableMarksMainTablesAsCreated(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op != "DescribeRouteTables" {
+			return recordUnexpected(t, call)
+		}
+		mainTable := func(id, extra string) string {
+			return `<item><routeTableId>` + id + `</routeTableId><vpcId>vpc-1</vpcId>
+				<associationSet><item><main>true</main><routeTableAssociationId>rtbassoc-` + id + `</routeTableAssociationId><routeTableId>` + id + `</routeTableId></item></associationSet>
+				<routeSet><item><destinationCidrBlock>10.0.0.0/16</destinationCidrBlock><gatewayId>local</gatewayId></item>
+					<item><destinationIpv6CidrBlock>2001:db8::/56</destinationIpv6CidrBlock><gatewayId>local</gatewayId></item></routeSet>` + extra + `</item>`
+		}
+		return recordEC2(call.Op, `<routeTableSet>`+
+			mainTable("rtb-new", "")+
+			mainTable("rtb-tagged", `<tagSet><item><key>Name</key><value>main</value></item></tagSet>`)+
+			mainTable("rtb-propagating", `<propagatingVgwSet><item><gatewayId>vgw-1</gatewayId></item></propagatingVgwSet>`)+
+			`</routeTableSet>`)
+	})
+	g := &RouteTableLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string]map[string]string{}
+	for _, r := range g.Resources {
+		if r.Address.Type == "aws_route_table" {
+			got[r.Observed.ID] = r.Observed.Attributes
+		}
+	}
+	want := map[string]map[string]string{
+		"rtb-new":         {"main": "true", "as_created": "true"},
+		"rtb-tagged":      {"main": "true"},
+		"rtb-propagating": {"main": "true"},
+	}
+	for id, attributes := range want {
+		if !maps.Equal(got[id], attributes) {
+			t.Errorf("%s: recorded %v, want %v", id, got[id], attributes)
+		}
+	}
 }
 
 // An error on any page fails the service.

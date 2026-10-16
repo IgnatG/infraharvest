@@ -36,6 +36,20 @@ var S3Bucket = Adapter{
 		"s3_bucket_bucket_regional_domain_name", "s3_bucket_hosted_zone_id", "s3_bucket_id", "s3_bucket_region",
 	},
 	Map: mapS3Bucket,
+	// The module's variables' defaults, from its variables.tf; its
+	// bucket_namespace defaults to null, which the provider takes as
+	// global. The public access block's settings default to true, unlike
+	// the resource's false, so a block without one passes false.
+	Defaults: map[string]cty.Value{
+		"block_public_acls":       cty.True,
+		"block_public_policy":     cty.True,
+		"bucket_namespace":        cty.StringVal("global"),
+		"force_destroy":           cty.False,
+		"ignore_public_acls":      cty.True,
+		"object_lock_enabled":     cty.False,
+		"object_ownership":        cty.StringVal("BucketOwnerEnforced"),
+		"restrict_public_buckets": cty.True,
+	},
 }
 
 func mapS3Bucket(c Cluster) (*Call, error) {
@@ -132,7 +146,14 @@ func s3Versioning(call *Call, r *Reader) error {
 		return Declinef("versioning has no versioning_configuration")
 	}
 	var versioning Object
-	versioning.Copy(config, "status", "mfa_delete")
+	versioning.Copy(config, "status")
+	// Left out, the module passes null, and the provider keeps what AWS
+	// reports: Disabled unless it is on.
+	if value, ok := config.Attr("mfa_delete"); ok {
+		if v, ok := literalString(value); !ok || v != "Disabled" {
+			versioning.Set("mfa_delete", value)
+		}
+	}
 	call.Set("versioning", versioning.Tokens())
 	return nil
 }

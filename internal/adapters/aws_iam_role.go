@@ -33,6 +33,13 @@ var IAMRole = Adapter{
 	},
 	Outputs: []string{"arn", "instance_profile_arn", "instance_profile_id", "instance_profile_name", "instance_profile_unique_id", "name", "unique_id"},
 	Map:     mapIAMRole,
+	// The module's path and max_session_duration default to null, which
+	// the provider takes as a role at the root path, with sessions of up
+	// to an hour.
+	Defaults: map[string]cty.Value{
+		"max_session_duration": cty.NumberIntVal(3600),
+		"path":                 cty.StringVal("/"),
+	},
 }
 
 func mapIAMRole(c Cluster) (*Call, error) {
@@ -66,12 +73,11 @@ func mapIAMRole(c Cluster) (*Call, error) {
 			call.Set(arg, value)
 		}
 	}
-	// Untagged as in the root, where the provider's default tags apply.
+	// Untagged as in the root, where the provider's default tags apply:
+	// the module's default, no tags, is the same.
 	tags, hasTags := role.Attr("tags")
 	if hasTags {
 		call.Set("tags", tags)
-	} else {
-		call.Set("tags", hclwrite.TokensForValue(cty.NullVal(cty.Map(cty.String))))
 	}
 	// The module always sets it; the provider keeps it only in state.
 	role.Ignore("force_detach_policies")
@@ -102,7 +108,7 @@ func mapIAMRole(c Cluster) (*Call, error) {
 			if err := namedAfterRole(r, m, name); err != nil {
 				return nil, err
 			}
-			if err := sameAsRole(r, m, "path", path, hasPath); err != nil {
+			if err := samePath(r, m, path, hasPath); err != nil {
 				return nil, err
 			}
 			if err := sameAsRole(r, m, "tags", tags, hasTags); err != nil {
@@ -164,6 +170,29 @@ func sameAsRole(r *Reader, m Resource, arg string, role hclwrite.Tokens, roleHas
 		return Declinef("%s has another %s than the role, as the module sets it", m.Address(), arg)
 	}
 	return nil
+}
+
+// samePath declines a member whose path differs from the role's, which
+// the module sets for both: the root path, /, is the same as none, as the
+// catalogue leaves it out where it is the default.
+func samePath(r *Reader, m Resource, role hclwrite.Tokens, roleHas bool) error {
+	value, ok := r.Attr("path")
+	if ok && isRootPath(value) {
+		ok = false
+	}
+	if roleHas && isRootPath(role) {
+		roleHas = false
+	}
+	if ok != roleHas || (ok && !sameTokens(value, role)) {
+		return Declinef("%s has another path than the role, as the module sets it", m.Address())
+	}
+	return nil
+}
+
+// isRootPath reports whether an expression is the literal path "/".
+func isRootPath(tokens hclwrite.Tokens) bool {
+	path, ok := literalString(tokens)
+	return ok && path == "/"
 }
 
 func sameTokens(a, b hclwrite.Tokens) bool {

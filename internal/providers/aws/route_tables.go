@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"slices"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -11,8 +13,9 @@ import (
 )
 
 // RouteTableLister lists the route tables of a region as aws_route_table,
-// each by its ID (named as routeTableName says) and followed by its
-// associations:
+// each by its ID (named as routeTableName says), recording main "true"
+// for a VPC's main route table and as_created "true" for one as AWS
+// creates it (see asCreated), and followed by its associations:
 //
 //   - the association that makes a table its VPC's main route table, as
 //     aws_main_route_table_association named after the VPC (the catalogue
@@ -55,6 +58,12 @@ func routeTableResources(table *types.RouteTable) []harvest.Resource {
 	tableID := aws.ToString(table.RouteTableId)
 	resources := []harvest.Resource{
 		harvest.RecordBare(tableID, routeTableName(table), "aws_route_table", "aws"),
+	}
+	if slices.ContainsFunc(table.Associations, func(a types.RouteTableAssociation) bool { return aws.ToBool(a.Main) }) {
+		resources[0].Observed.Attributes["main"] = "true"
+		if asCreated(table) {
+			resources[0].Observed.Attributes["as_created"] = "true"
+		}
 	}
 	for _, association := range table.Associations {
 		associationID := aws.ToString(association.RouteTableAssociationId)
@@ -104,4 +113,24 @@ func routeTableName(table *types.RouteTable) string {
 		return subnets[0]
 	}
 	return aws.ToString(table.RouteTableId)
+}
+
+// asCreated reports whether a main route table is as AWS creates it with
+// its VPC: without tags, routes but the VPC's local ones, propagated
+// routes, or associations but the main one.
+func asCreated(table *types.RouteTable) bool {
+	if len(table.Tags) > 0 || len(table.PropagatingVgws) > 0 {
+		return false
+	}
+	for _, route := range table.Routes {
+		if aws.ToString(route.GatewayId) != "local" {
+			return false
+		}
+	}
+	for _, association := range table.Associations {
+		if !aws.ToBool(association.Main) {
+			return false
+		}
+	}
+	return true
 }

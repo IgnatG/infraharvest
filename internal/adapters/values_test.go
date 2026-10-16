@@ -51,3 +51,30 @@ func TestDefaultsAreInputs(t *testing.T) {
 		}
 	}
 }
+
+// The AWS modules' defaults: a call leaves out what the module would set
+// anyway, and keeps what differs, such as the VPC module's
+// enable_dns_hostnames = false, whose default is true.
+func TestAWSModuleDefaults(t *testing.T) {
+	for _, tt := range []struct {
+		adapter *Adapter
+		input   string
+		value   cty.Value
+		want    bool
+	}{
+		{&VPC, "enable_dns_hostnames", cty.True, true},
+		{&VPC, "enable_dns_hostnames", cty.False, false},
+		{&VPC, "public_subnet_suffix", cty.StringVal("public"), true},
+		{&VPC, "private_subnet_suffix", cty.StringVal("app"), false},
+		{&S3Bucket, "block_public_acls", cty.True, true},
+		{&S3Bucket, "block_public_acls", cty.False, false},
+		{&S3Bucket, "object_ownership", cty.StringVal("BucketOwnerEnforced"), true},
+		{&IAMRole, "path", cty.StringVal("/"), true},
+		{&IAMRole, "max_session_duration", cty.NumberIntVal(3600), true},
+		{&IAMRole, "max_session_duration", cty.NumberIntVal(7200), false},
+	} {
+		if got := tt.adapter.IsDefault(tt.input, hclwrite.TokensForValue(tt.value)); got != tt.want {
+			t.Errorf("%s: IsDefault(%s, %#v): got %v, want %v", tt.adapter.Source, tt.input, tt.value, got, tt.want)
+		}
+	}
+}

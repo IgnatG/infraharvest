@@ -2,5 +2,29 @@
 provider: aws
 service: alb
 types:
+  aws_lb:
+    # What AWS gives a load balancer that doesn't set them.
+    defaults: [enable_prefix_for_ipv6_source_nat=off, ip_address_type=ipv4]
+  aws_lb_listener:
+    # Mutual TLS that is off.
+    omit: [mutual_authentication when mutual_authentication.mode=off]
+    # What AWS gives a listener that doesn't set them: the first action's
+    # order is its position.
+    defaults: [default_action.order=1, routing_http_response_server_enabled=true, tcp_idle_timeout_seconds=350]
   aws_lb_target_group:
     state_only: [lambda_multi_value_headers_enabled, proxy_protocol_v2]
+    # Stickiness that is off, whatever its cookie settings.
+    omit: [stickiness when stickiness.enabled=false]
+    # What AWS gives a target group that doesn't set them, and target
+    # group health at the thresholds AWS starts with.
+    defaults:
+      - connection_termination=false
+      - ip_address_type=ipv4
+      - load_balancing_algorithm_type=round_robin
+      - load_balancing_anomaly_mitigation=off
+      - load_balancing_cross_zone_enabled=use_load_balancer_configuration
+      - protocol_version=HTTP1
+      - target_group_health.dns_failover.minimum_healthy_targets_count=off
+      - target_group_health.dns_failover.minimum_healthy_targets_percentage=off
+      - target_group_health.unhealthy_state_routing.minimum_healthy_targets_count=1
+      - target_group_health.unhealthy_state_routing.minimum_healthy_targets_percentage=off

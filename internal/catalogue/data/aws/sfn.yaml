@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: sfn
+types:
+  aws_sfn_state_machine:
+    # Optional and computed, at what AWS gives a state machine that doesn't
+    # set them: encrypted with a key AWS owns, no logging, no tracing.
+    omit:
+      - encryption_configuration when encryption_configuration.type=AWS_OWNED_KEY
+      - logging_configuration when logging_configuration.level=OFF and logging_configuration.include_execution_data=false
+      - tracing_configuration when tracing_configuration.enabled=false

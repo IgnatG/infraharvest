@@ -362,3 +362,24 @@ func TestResourceNamesResolvesIDs(t *testing.T) {
 		}
 	}
 }
+
+// An import gets the arguments the catalogue leaves out of its resource
+// depending on what the lister recorded: the instance at its type's CPU
+// options leaves them out, the other keeps them.
+func TestWithResourceOmissions(t *testing.T) {
+	atDefaults := harvest.Record("i-1", "app", "aws_instance", "aws", map[string]string{"cpu_options": "default"})
+	tuned := harvest.RecordBare("i-2", "db", "aws_instance", "aws")
+	byDir := map[string][]engine.Import{"out": {
+		{Type: "aws_instance", Name: "app", ID: "i-1"},
+		{Type: "aws_instance", Name: "db", ID: "i-2"},
+	}}
+
+	withResourceOmissions(byDir, map[string][]harvest.Resource{"ec2_instance": {atDefaults, tuned}}, catalogue.MustBuiltin("aws"), listerID)
+
+	if got := byDir["out"][0].Omit; !reflect.DeepEqual(got, []string{"cpu_options"}) {
+		t.Errorf("app: omit %v, want [cpu_options]", got)
+	}
+	if got := byDir["out"][1].Omit; got != nil {
+		t.Errorf("db: omit %v, want none", got)
+	}
+}

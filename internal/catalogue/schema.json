@@ -56,9 +56,9 @@
           "minLength": 1
         },
         "omit": {
-          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value.",
+          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value; a.b for b in nested blocks a; either followed by \" when \" and conditions joined by \" and \" (path, path=value, !path, @attribute=value for what the lister recorded). See docs/catalogue.md.",
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(=.*)?$" },
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*(=.*| when .+)?$" },
           "uniqueItems": true
         },
         "defaults": {
@@ -109,6 +109,16 @@
             "one_of": { "$ref": "#/$defs/names" },
             "set": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
             "ignore": { "$ref": "#/$defs/names" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        "lifecycle": {
+          "description": "Lifecycle settings every resource of the type gets, with the reason, which goes in a comment above them.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create_before_destroy", "reason"],
+          "properties": {
+            "create_before_destroy": { "const": true },
             "reason": { "type": "string", "minLength": 1 }
           }
         },

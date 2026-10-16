@@ -9,3 +9,16 @@ types:
   aws_ecs_service:
     import_id: "{cluster}/{name}"
     state_only: [wait_for_steady_state]
+    omit:
+      # Not to be set for tasks in awsvpc mode, which a service with a
+      # network configuration runs, and otherwise the service-linked role
+      # AWS reports when the service names none.
+      - iam_role when network_configuration
+      - iam_role=/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS
+      # A rolling deployment without a bake time or hooks.
+      - deployment_configuration when deployment_configuration.strategy=ROLLING and deployment_configuration.bake_time_in_minutes=0 and !deployment_configuration.lifecycle_hook
+    # What AWS gives a service that doesn't set them.
+    defaults: [availability_zone_rebalancing=ENABLED, platform_version=LATEST]
+  aws_ecs_task_definition:
+    # What AWS gives a task definition that doesn't set them.
+    defaults: [enable_fault_injection=false, network_mode=bridge]

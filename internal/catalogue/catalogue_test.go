@@ -249,6 +249,10 @@ func TestCheckRejects(t *testing.T) {
 		"repeated default":        "provider: google\ntypes:\n  google_x:\n    defaults: [\"a=1\", \"a=2\"]\n",
 		"every type's defaults":   "provider: google\ntypes:\n  \"*\":\n    defaults: [\"a=1\"]\n",
 		"omitted value's name":    "provider: aws\ntypes:\n  aws_x:\n    omit: [\"=x\"]\n",
+		"omitted condition":       "provider: aws\ntypes:\n  aws_x:\n    omit: [\"a when =x\"]\n",
+		"omitted path":            "provider: aws\ntypes:\n  aws_x:\n    omit: [\"a..b\"]\n",
+		"lifecycle reason":        "provider: aws\ntypes:\n  aws_x:\n    lifecycle: { create_before_destroy: true }\n",
+		"every type's lifecycle":  "provider: aws\ntypes:\n  \"*\":\n    lifecycle: { create_before_destroy: true, reason: r }\n",
 		"cloud control service":   "provider: aws\ntypes:\n  aws_x:\n    cloud_control: { type: \"AWS::X::Y\", identifier: Id }\n",
 		"unknown field":           "provider: aws\ntypes:\n  aws_x:\n    imports: x\n",
 		"bad filter":              "provider: aws\ntypes:\n  aws_x:\n    import_id: \"{id|upper:x}\"\n",
@@ -269,6 +273,11 @@ func TestCheckRejects(t *testing.T) {
 	// name=value omits an argument only when it is set to value.
 	if _, err := load(t, map[string]string{"x.yaml": "provider: aws\ntypes:\n  aws_x:\n    omit: [a, \"b=$c\", \"d=true\"]\n"}); err != nil {
 		t.Errorf("omit with values: %v", err)
+	}
+	// Nested arguments, conditions, and conditions on what the lister
+	// recorded.
+	if _, err := load(t, map[string]string{"x.yaml": "provider: aws\ntypes:\n  aws_x:\n    omit: [\"a.b=1 when c and !d.e and f=g\", \"h when @i=default\"]\n"}); err != nil {
+		t.Errorf("omit with paths and conditions: %v", err)
 	}
 }
 

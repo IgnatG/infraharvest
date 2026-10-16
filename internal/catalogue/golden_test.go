@@ -116,7 +116,7 @@ func TestGoldenInputsHaveEntries(t *testing.T) {
 func needsGolden(c *Catalogue, typ string) bool {
 	e, _ := c.Entry(typ)
 	return len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Skip) > 0 || len(e.Children) > 0 ||
-		e.DataSource != nil || len(e.Omit) > 0 || len(e.Defaults) > 0 || len(e.StateOnly) > 0 || e.Placeholder != nil || slices.Contains(alwaysGolden, typ)
+		e.DataSource != nil || len(e.Omit) > 0 || len(e.Defaults) > 0 || len(e.StateOnly) > 0 || e.Placeholder != nil || e.Lifecycle != nil || slices.Contains(alwaysGolden, typ)
 }
 
 func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
@@ -140,6 +140,10 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 
 	var imports []engine.Import
 	var notes []string
+	// resourceOmit has, by address, what the catalogue leaves out of a
+	// resource's configuration depending on what its lister recorded.
+	resourceOmit := map[string][]string{}
+	var resourceNotes []string
 	data := hclwrite.NewEmptyFile()
 	for _, r := range listing.Resources {
 		if !hclsyntax.ValidIdentifier(r.Name) {
@@ -153,6 +157,10 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 			notes = append(notes, fmt.Sprintf("%s: left out by default, would import as %q: %s", r.ID, id, skipped))
 		default:
 			imports = append(imports, engine.Import{Type: typ, Name: r.Name, ID: id})
+		}
+		if extra := c.ResourceOmit(typ, r.Attributes); len(extra) > 0 {
+			resourceOmit[typ+"."+r.Name] = extra
+			resourceNotes = append(resourceNotes, fmt.Sprintf("%s: also left out, from what its lister recorded: %s", r.ID, strings.Join(extra, ", ")))
 		}
 		if ok && e.DataSource != nil {
 			if len(data.Body().Blocks()) > 0 {
@@ -190,6 +198,12 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 	if len(e.Omit) > 0 {
 		fmt.Fprintf(&out, "\n# Left out of generated configuration: %s\n", strings.Join(omit, ", "))
 	}
+	if len(resourceNotes) > 0 {
+		out.WriteString("\n")
+		for _, note := range resourceNotes {
+			fmt.Fprintf(&out, "# %s\n", note)
+		}
+	}
 	if len(e.Defaults) > 0 {
 		sorted := append([]string(nil), e.Defaults...)
 		sort.Strings(sorted)
@@ -207,10 +221,17 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 		}
 		fmt.Fprintf(&out, "#   lifecycle.ignore_changes = [%s]\n", strings.Join(p.Ignore, ", "))
 	}
+	if l := e.Lifecycle; l != nil {
+		fmt.Fprintf(&out, "\n# Every resource gets lifecycle.create_before_destroy = %t (%s)\n", l.CreateBeforeDestroy, l.Reason)
+	}
 	generated := strings.TrimSuffix(input, ".json") + ".generated.tf"
 	if _, err := os.Stat(generated); err == nil {
 		out.WriteString("\n# Generated configuration, without the arguments the catalogue omits:\n")
-		out.Write(omitted(t, generated, c.Omit()))
+		omit := c.Omit()
+		for address, extra := range resourceOmit {
+			omit[address] = extra
+		}
+		out.Write(omitted(t, generated, omit))
 	}
 	return out.Bytes()
 }

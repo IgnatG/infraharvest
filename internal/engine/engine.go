@@ -140,6 +140,9 @@ type Options struct {
 	// Placeholders, per resource type, set what Terraform can't read back,
 	// such as where a function's code comes from (see SetPlaceholders).
 	Placeholders map[string]Placeholder
+	// Lifecycles, per resource type, are lifecycle settings every resource
+	// of the type gets, such as create_before_destroy (see SetLifecycles).
+	Lifecycles map[string]Lifecycle
 	// SplitFiles moves the configuration out of generated.tf, once it is
 	// done, into the files the imports name (see Import.File).
 	SplitFiles bool
@@ -267,11 +270,15 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	omitted, err := OmitArguments(generated, opts.Omit)
+	omitted, err := OmitArguments(generated, withResourceOmissions(opts.Omit, imports))
 	if err != nil {
 		return nil, err
 	}
 	placed, err := SetPlaceholders(generated, opts.Placeholders)
+	if err != nil {
+		return nil, err
+	}
+	lifecycled, err := SetLifecycles(generated, opts.Lifecycles)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +302,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	if sorted || omitted || placed || len(literal) > 0 {
+	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
 		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
 		}

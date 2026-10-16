@@ -232,21 +232,18 @@ func sameDir(a, b string) bool {
 
 // checkOmitted fails a resource that sets an argument its provider leaves
 // out of generated configuration, such as an S3 bucket's deprecated
-// inline arguments, or sets one to the value it is left out for.
+// inline arguments, or sets one to the value it is left out for, where
+// the entry's conditions hold.
 func checkOmitted(b *hclsyntax.Block, omit map[string][]string, where func(hcl.Range) string, fail func(rule, format string, args ...any)) {
 	if len(b.Labels) != 2 {
 		return
 	}
-	for _, o := range omissions(omit, b.Labels[0]) {
-		if attr, ok := b.Body.Attributes[o.name]; ok && o.matches(attr.Expr) {
-			fail("deprecated-argument", "%s: %s.%s sets %s", where(attr.SrcRange), b.Labels[0], b.Labels[1], o.name)
-		}
-		if !o.always {
-			continue
-		}
-		for _, inner := range b.Body.Blocks {
-			if inner.Type == o.name {
-				fail("deprecated-argument", "%s: %s.%s has a %s block", where(inner.DefRange()), b.Labels[0], b.Labels[1], o.name)
+	for _, o := range omissions(omit, b.Labels[0], "") {
+		for _, r := range o.find(b.Body) {
+			if r.block >= 0 {
+				fail("deprecated-argument", "%s: %s.%s has a %s block", where(r.rng), b.Labels[0], b.Labels[1], r.path())
+			} else {
+				fail("deprecated-argument", "%s: %s.%s sets %s", where(r.rng), b.Labels[0], b.Labels[1], r.path())
 			}
 		}
 	}

@@ -195,6 +195,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		return configFile(provider.Name(), service, r.Address.Type, cat)
 	}
 	byDir, skipped := importsByDir(providerDir(provider), provider.Name(), options, resourcesByService, importID, envOf, nameOf, fileOf)
+	withResourceOmissions(byDir, resourcesByService, cat, importID)
 
 	run.used = true
 	run.options = options
@@ -325,6 +326,12 @@ func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *ro
 		opts.Placeholders = map[string]engine.Placeholder{}
 		for typ, p := range placeholders {
 			opts.Placeholders[typ] = engine.Placeholder{OneOf: p.OneOf, Set: p.Set, Ignore: p.Ignore, Reason: p.Reason}
+		}
+	}
+	if lifecycles := cat.Lifecycles(); len(lifecycles) > 0 {
+		opts.Lifecycles = map[string]engine.Lifecycle{}
+		for typ, l := range lifecycles {
+			opts.Lifecycles[typ] = engine.Lifecycle{CreateBeforeDestroy: l.CreateBeforeDestroy, Reason: l.Reason}
 		}
 	}
 	if withDefaultTags, ok := provider.(harvest.ProviderWithDefaultTags); ok {
@@ -604,6 +611,36 @@ func importsByDir(dirName, providerName string, options Options, resourcesByServ
 		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", providerName, skipped[typ], typ)
 	}
 	return byDir, skipped
+}
+
+// withResourceOmissions sets, on each import of byDir, the arguments the
+// catalogue leaves out of its resource's configuration depending on what
+// its lister recorded (see catalogue.Catalogue.ResourceOmit), matching
+// imports to the resources they came from by type and import ID.
+func withResourceOmissions(byDir map[string][]engine.Import, resourcesByService map[string][]harvest.Resource, cat *catalogue.Catalogue, importID func(harvest.Resource) (string, bool)) {
+	omit := map[string][]string{}
+	for _, resources := range resourcesByService {
+		for _, r := range resources {
+			if r.Address == nil || r.Observed == nil {
+				continue
+			}
+			extra := cat.ResourceOmit(r.Address.Type, r.Observed.Attributes)
+			if len(extra) == 0 {
+				continue
+			}
+			if id, ok := importID(r); ok {
+				omit[r.Address.Type+"\x00"+id] = extra
+			}
+		}
+	}
+	if len(omit) == 0 {
+		return
+	}
+	for _, imports := range byDir {
+		for i, imp := range imports {
+			imports[i].Omit = omit[imp.Type+"\x00"+imp.ID]
+		}
+	}
 }
 
 // withOtherRoots returns opts for the root in dir, with what the other

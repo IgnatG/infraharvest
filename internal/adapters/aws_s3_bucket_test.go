@@ -52,6 +52,20 @@ func render(t *testing.T, a Adapter, call *Call) string {
 	return squash(string(hclwrite.Format(f.Bytes())))
 }
 
+// called writes a call's arguments as the engine writes the call: without
+// those at the module's defaults (see Adapter.IsDefault).
+func called(t *testing.T, a Adapter, call *Call) string {
+	t.Helper()
+	without := *call
+	without.Arguments = nil
+	for _, arg := range call.Arguments {
+		if !a.IsDefault(arg.Name, arg.Value) {
+			without.Arguments = append(without.Arguments, arg)
+		}
+	}
+	return render(t, a, &without)
+}
+
 func TestS3BucketMapsEveryMember(t *testing.T) {
 	c := cluster(t, `resource "aws_s3_bucket" "artifacts" {
   bucket              = "artifacts"
@@ -128,10 +142,9 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, S3Bucket, call)
+	got := called(t, S3Bucket, call)
 	for _, want := range []string{
 		`bucket              = "artifacts"`,
-		"force_destroy       = false",
 		"tags                = local.tags",
 		`id     = "expire-old-builds"`,
 		"expiration = {",
@@ -139,15 +152,12 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 		"tags   = { Env = \"dev\" }",
 		`storage_class = "GLACIER"`,
 		"control_object_ownership = true",
-		`object_ownership         = "BucketOwnerEnforced"`,
 		"attach_policy = true",
 		`policy        = jsonencode({ Resource = "${aws_s3_bucket.artifacts.arn}/*" })`,
-		"block_public_acls                = true",
 		"skip_destroy_public_access_block = null",
 		`sse_algorithm = "AES256"`,
 		"bucket_key_enabled = false",
 		`status     = "Enabled"`,
-		`mfa_delete = "Disabled"`,
 	} {
 		if !strings.Contains(got, squash(want)) {
 			t.Errorf("call misses %q:\n%s", want, got)
@@ -156,11 +166,58 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 	if strings.Contains(got, "attach_public_policy") || strings.Contains(got, "kms_master_key_id") {
 		t.Errorf("unexpected argument:\n%s", got)
 	}
+	// At the module's defaults.
+	for _, unwanted := range []string{"force_destroy", "object_lock_enabled", "  object_ownership", "block_public_acls", "block_public_policy", "ignore_public_acls", "restrict_public_buckets", "mfa_delete"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
+		}
+	}
 	if call.Addresses["aws_s3_bucket_versioning.artifacts"] != "aws_s3_bucket_versioning.this[0]" || call.Addresses["aws_s3_bucket.artifacts"] != "aws_s3_bucket.this[0]" {
 		t.Errorf("addresses: %v", call.Addresses)
 	}
 	if call.Outputs["aws_s3_bucket.artifacts"]["arn"] != "s3_bucket_arn" {
 		t.Errorf("outputs: %v", call.Outputs)
+	}
+}
+
+// Settings other than the module's defaults are passed: public access
+// allowed, another object ownership, MFA delete on.
+func TestS3BucketPassesOtherThanModuleDefaults(t *testing.T) {
+	call, err := S3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "site" {
+  bucket              = "site"
+  force_destroy       = true
+  object_lock_enabled = true
+}
+resource "aws_s3_bucket_ownership_controls" "site" {
+  bucket = aws_s3_bucket.site.id
+  rule {
+    object_ownership = "ObjectWriter"
+  }
+}
+resource "aws_s3_bucket_public_access_block" "site" {
+  bucket              = aws_s3_bucket.site.id
+  block_public_acls   = true
+  block_public_policy = false
+}
+resource "aws_s3_bucket_versioning" "site" {
+  bucket = aws_s3_bucket.site.id
+  versioning_configuration {
+    mfa_delete = "Enabled"
+    status     = "Enabled"
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := called(t, S3Bucket, call)
+	for _, want := range []string{"force_destroy = true", "object_lock_enabled = true", `object_ownership = "ObjectWriter"`, "block_public_policy = false", "ignore_public_acls = false", "restrict_public_buckets = false", `mfa_delete = "Enabled"`} {
+		if !strings.Contains(squash(got), want) {
+			t.Errorf("call misses %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "block_public_acls") {
+		t.Errorf("call sets block_public_acls at the module's default:\n%s", got)
 	}
 }
 
@@ -173,7 +230,7 @@ func TestS3BucketTurnsOffThePublicAccessBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := render(t, S3Bucket, call); !strings.Contains(got, "attach_public_policy = false") {
+	if got := called(t, S3Bucket, call); !strings.Contains(got, "attach_public_policy = false") {
 		t.Errorf("public access block not turned off:\n%s", got)
 	}
 }

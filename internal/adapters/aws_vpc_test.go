@@ -103,11 +103,10 @@ func TestVPCMapsEveryMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
+	got := called(t, VPC, call)
 	for _, want := range []string{
 		`name = "shop"`,
 		`cidr = "10.0.0.0/16"`,
-		"enable_dns_support = true",
 		"enable_dns_hostnames = false",
 		"manage_default_network_acl = false",
 		"manage_default_route_table = false",
@@ -117,11 +116,9 @@ func TestVPCMapsEveryMember(t *testing.T) {
 		`azs = ["us-east-1b", "us-east-1a"]`,
 		`public_subnets = ["10.0.2.0/24", "10.0.1.0/24"]`,
 		`public_subnet_names = ["shop-public-b", "shop-public-a"]`,
-		`public_subnet_suffix = "public"`,
 		"map_public_ip_on_launch = true",
 		`private_subnets = ["10.0.12.0/24", "10.0.11.0/24"]`,
 		`private_subnet_names = ["shop-private-b", "shop-private-a"]`,
-		`private_subnet_suffix = "private"`,
 		"enable_nat_gateway = true",
 		"single_nat_gateway = true",
 		`tags = { Team = "net" }`,
@@ -133,6 +130,12 @@ func TestVPCMapsEveryMember(t *testing.T) {
 	}
 	if strings.Contains(got, "public_subnet_tags") || strings.Contains(got, "vpc_tags") {
 		t.Errorf("tags every resource has set twice:\n%s", got)
+	}
+	// At the module's defaults.
+	for _, unwanted := range []string{"enable_dns_support", "_subnet_suffix"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
+		}
 	}
 	wantAddresses := map[string]string{
 		"aws_vpc.main":                          "aws_vpc.this[0]",
@@ -179,14 +182,45 @@ func TestVPCAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
-	for _, want := range []string{`name = "shop"`, "azs = []", "enable_dns_hostnames = true"} {
+	got := called(t, VPC, call)
+	for _, want := range []string{`name = "shop"`, "azs = []"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("call misses %q:\n%s", want, got)
 		}
 	}
+	// The module's default.
+	if strings.Contains(got, "enable_dns_hostnames") {
+		t.Errorf("call sets enable_dns_hostnames to the module's default:\n%s", got)
+	}
 	if len(call.Imports) != 0 || strings.Contains(got, "public_subnets") {
 		t.Errorf("subnets in the call:\n%s", got)
+	}
+}
+
+// Arguments at the module's defaults are left to it: subnets named as it
+// names them, suffixes, tenancy, usage metrics off, and public IPs not
+// mapped. An Elastic IP whose domain is left out, at its default, is a
+// VPC's.
+func TestVPCLeavesModuleDefaults(t *testing.T) {
+	source := strings.NewReplacer(
+		`enable_dns_support               = true`, "enable_dns_support = true\n  enable_network_address_usage_metrics = false\n  instance_tenancy = \"default\"",
+		`"shop-public-a"`, `"shop-public-us-east-1a"`,
+		`"shop-public-b"`, `"shop-public-us-east-1b"`,
+		`"shop-private-a"`, `"shop-private-us-east-1a"`,
+		`"shop-private-b"`, `"shop-private-us-east-1b"`,
+		"map_public_ip_on_launch = true", "map_public_ip_on_launch = false",
+		"map_public_ip_on_launch             = true", "map_public_ip_on_launch             = false",
+		`domain               = "vpc"`, "",
+	).Replace(vpcSource)
+	call, err := VPC.Map(cluster(t, source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := called(t, VPC, call)
+	for _, unwanted := range []string{"_subnet_names", "_subnet_suffix", "instance_tenancy", "enable_network_address_usage_metrics", "map_public_ip_on_launch", "enable_dns_support"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
+		}
 	}
 }
 
@@ -359,12 +393,11 @@ func TestVPCMapsANATGatewayPerZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, VPC, call)
+	got := called(t, VPC, call)
 	for _, want := range []string{
 		`azs = ["us-east-1a", "us-east-1b"]`,
 		`public_subnets = ["10.0.1.0/24", "10.0.2.0/24"]`,
 		`private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]`,
-		`private_subnet_suffix = "private"`,
 		"enable_nat_gateway = true",
 		"one_nat_gateway_per_az = true",
 	} {

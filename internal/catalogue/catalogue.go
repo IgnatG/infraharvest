@@ -95,6 +95,17 @@ type Entry struct {
 	// Placeholder is for configuration Terraform can't read back, such as
 	// a Lambda function's code.
 	Placeholder *Placeholder `yaml:"placeholder,omitempty"`
+	// Lifecycle is lifecycle settings every resource of the type gets,
+	// such as create_before_destroy for what others refer to while it is
+	// replaced.
+	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty"`
+}
+
+// Lifecycle is lifecycle settings for every resource of a type, with the
+// reason, which goes in a comment above them.
+type Lifecycle struct {
+	CreateBeforeDestroy bool   `yaml:"create_before_destroy"`
+	Reason              string `yaml:"reason"`
 }
 
 // Placeholder sets arguments that Terraform can't read back from the cloud,
@@ -337,9 +348,70 @@ func (c *Catalogue) Source(typ string) string {
 }
 
 // Omit returns the arguments to leave out of generated configuration, per
-// type and under AllTypes for every type.
+// type and under AllTypes for every type: the entries whose conditions
+// don't depend on what a lister recorded (see ResourceOmit).
 func (c *Catalogue) Omit() map[string][]string {
-	return c.lists(func(e *Entry) []string { return e.Omit })
+	return c.lists(func(e *Entry) []string {
+		return slices.DeleteFunc(slices.Clone(e.Omit), func(entry string) bool {
+			_, conditions := listerConditions(entry)
+			return len(conditions) > 0
+		})
+	})
+}
+
+// ResourceOmit returns the arguments to leave out of the generated
+// configuration of one resource of typ besides those Omit returns: the
+// entries with a condition on what its lister recorded, @attribute=value
+// (or @attribute, set and not empty, or !@attribute, not), where those
+// conditions hold for attributes, without them.
+func (c *Catalogue) ResourceOmit(typ string, attributes map[string]string) []string {
+	e, ok := c.entries[typ]
+	if !ok {
+		return nil
+	}
+	var list []string
+	for _, entry := range e.Omit {
+		rest, conditions := listerConditions(entry)
+		if len(conditions) > 0 && !slices.ContainsFunc(conditions, func(cond string) bool { return !listerConditionHolds(cond, attributes) }) {
+			list = append(list, rest)
+		}
+	}
+	return list
+}
+
+// listerConditions splits an omit entry into the entry without its
+// conditions on what the lister recorded, and those conditions.
+func listerConditions(entry string) (string, []string) {
+	target, conditions, ok := strings.Cut(entry, " when ")
+	if !ok {
+		return entry, nil
+	}
+	var kept, lister []string
+	for _, c := range strings.Split(conditions, " and ") {
+		c = strings.TrimSpace(c)
+		if strings.HasPrefix(strings.TrimPrefix(c, "!"), "@") {
+			lister = append(lister, c)
+		} else {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return target, lister
+	}
+	return target + " when " + strings.Join(kept, " and "), lister
+}
+
+// listerConditionHolds reports whether a condition on what a lister
+// recorded, @name=value, @name or !@name, holds for attributes.
+func listerConditionHolds(condition string, attributes map[string]string) bool {
+	negate := strings.HasPrefix(condition, "!")
+	name, value, valued := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(condition, "!"), "@"), "=")
+	got := attributes[name]
+	holds := got != ""
+	if valued {
+		holds = got == value
+	}
+	return holds != negate
 }
 
 // Defaults returns the values optional arguments default to, as
@@ -558,6 +630,9 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	if overlay.Placeholder != nil {
 		merged.Placeholder = overlay.Placeholder
 	}
+	if overlay.Lifecycle != nil {
+		merged.Lifecycle = overlay.Lifecycle
+	}
 	return &merged
 }
 
@@ -580,4 +655,15 @@ func (c *Catalogue) Placeholders() map[string]Placeholder {
 		}
 	}
 	return placeholders
+}
+
+// Lifecycles returns the lifecycle settings of each type that has them.
+func (c *Catalogue) Lifecycles() map[string]Lifecycle {
+	lifecycles := map[string]Lifecycle{}
+	for typ, e := range c.entries {
+		if e.Lifecycle != nil {
+			lifecycles[typ] = *e.Lifecycle
+		}
+	}
+	return lifecycles
 }

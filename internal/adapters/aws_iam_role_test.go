@@ -13,7 +13,7 @@ func TestIAMRoleMapsEveryMember(t *testing.T) {
 	c := cluster(t, `resource "aws_iam_role" "ci" {
   assume_role_policy    = jsonencode({ Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }], Version = "2012-10-17" })
   force_detach_policies = false
-  max_session_duration  = 3600
+  max_session_duration  = 7200
   name                  = "ci"
   name_prefix           = null
   path                  = "/build/"
@@ -43,12 +43,12 @@ resource "aws_iam_role_policy_attachment" "ci_readonly" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, IAMRole, call)
+	got := called(t, IAMRole, call)
 	for _, want := range []string{
 		`name = "ci"`,
 		"use_name_prefix = false",
 		`source_trust_policy_documents = [jsonencode({ Statement = [{ Action = "sts:AssumeRole"`,
-		"max_session_duration = 3600",
+		"max_session_duration = 7200",
 		`path = "/build/"`,
 		`tags = { Team = "build" }`,
 		"create_inline_policy = true",
@@ -88,14 +88,58 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, IAMRole, call)
+	got := called(t, IAMRole, call)
 	for _, unwanted := range []string{"create_inline_policy", "create_instance_profile", "policies"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s:\n%s", unwanted, got)
 		}
 	}
-	if !strings.Contains(got, "tags = null") {
-		t.Errorf("an untagged role: want tags = null:\n%s", got)
+	// The module's defaults: no tags, as in the root, where the provider's
+	// default tags apply, the root path and sessions of an hour.
+	for _, unwanted := range []string{"tags", "path", "max_session_duration"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("an untagged role at the defaults: call sets %s:\n%s", unwanted, got)
+		}
+	}
+}
+
+// A role whose root path the catalogue left out maps with an instance
+// profile that still has it: / is the same as no path. Before, the profile
+// was declined for another path than the role's.
+func TestIAMRoleRootPathIsNoPath(t *testing.T) {
+	_, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "ci" {
+  assume_role_policy = "{}"
+  name               = "ci"
+}
+resource "aws_iam_instance_profile" "ci" {
+  name = "ci"
+  path = "/"
+  role = aws_iam_role.ci.name
+}
+`))
+	if err != nil {
+		t.Errorf("want the profile mapped, got %v", err)
+	}
+}
+
+// A role at the root path, with sessions of an hour, leaves both to the
+// module's defaults.
+func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
+	call, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "app" {
+  assume_role_policy   = "{}"
+  max_session_duration = 3600
+  name                 = "app"
+  path                 = "/"
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := called(t, IAMRole, call)
+	for _, unwanted := range []string{"path", "max_session_duration"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
+		}
 	}
 }
 

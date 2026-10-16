@@ -1,1 +1,1 @@
-{"resources": [{"id": "arn:aws:ecs:us-east-1:123456789012:service/apps/web", "name": "apps_web", "attributes": {"cluster": "apps", "name": "web"}}]}
+{"resources": [{"id": "arn:aws:ecs:us-east-1:123456789012:service/apps/web", "name": "apps_web", "attributes": {"cluster": "apps", "name": "web"}}, {"id": "arn:aws:ecs:us-east-1:123456789012:service/apps/worker", "name": "apps_worker", "attributes": {"cluster": "apps", "name": "worker"}}]}

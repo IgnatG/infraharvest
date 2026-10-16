@@ -18,4 +18,6 @@ data "aws_iam_role" "ecs_service_linked" {
 
 # Left out of generated configuration: region, tags_all, inline_policy, managed_policy_arns
 
+# Left out where the plan stays the same, as the default: max_session_duration=3600, path=/
+
 # Kept in state only, so a plan may set: force_detach_policies

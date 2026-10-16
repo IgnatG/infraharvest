@@ -5,3 +5,16 @@ types:
   aws_vpc_endpoint:
     arn: { service: ec2, resource_type: "vpc-endpoint" }
     data_source: { type: aws_vpc_endpoint, argument: id }
+    omit:
+      # What AWS reports for a gateway endpoint of arguments only
+      # interface endpoints take.
+      - dns_options when vpc_endpoint_type=Gateway
+      - ip_address_type=ipv4 when vpc_endpoint_type=Gateway
+      - private_dns_enabled=false when vpc_endpoint_type=Gateway
+      - security_group_ids when vpc_endpoint_type=Gateway
+      - subnet_configuration when vpc_endpoint_type=Gateway
+      - subnet_ids when vpc_endpoint_type=Gateway
+      # The policy AWS gives an endpoint that sets none, full access: a
+      # gateway endpoint's, then an interface endpoint's.
+      - 'policy={"Version":"2008-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}'
+      - 'policy={"Statement":[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}'

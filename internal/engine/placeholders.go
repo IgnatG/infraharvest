@@ -76,15 +76,7 @@ func setPlaceholder(body *hclwrite.Body, label string, p Placeholder) {
 		})
 		body.SetAttributeValue(name, cty.StringVal(value))
 	}
-	var lifecycle *hclwrite.Body
-	for _, b := range body.Blocks() {
-		if b.Type() == "lifecycle" {
-			lifecycle = b.Body()
-		}
-	}
-	if lifecycle == nil {
-		lifecycle = body.AppendNewBlock("lifecycle", nil).Body()
-	}
+	lifecycle := lifecycleBlock(body)
 	ignored := make([]hclwrite.Tokens, 0, len(p.Ignore))
 	for _, name := range p.Ignore {
 		ignored = append(ignored, hclwrite.TokensForIdentifier(name))
