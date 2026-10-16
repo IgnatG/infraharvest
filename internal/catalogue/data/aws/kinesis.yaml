@@ -4,3 +4,11 @@ service: kinesis
 types:
   aws_kinesis_stream:
     arn: { service: kinesis, resource_type: "stream" }
+    omit:
+      # Computed, written back as an argument.
+      - arn
+      # Optional and computed, at what AWS gives a stream that doesn't set
+      # them: provisioned shards, the shard count given, and records of up
+      # to 1 MiB.
+      - max_record_size_in_kib=1024
+      - stream_mode_details when stream_mode_details.stream_mode=PROVISIONED

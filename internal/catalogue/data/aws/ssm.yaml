@@ -4,3 +4,12 @@ service: ssm
 types:
   aws_ssm_parameter:
     arn: { service: ssm, resource_type: "parameter" }
+    omit:
+      # Computed, written back as an argument.
+      - arn
+      # Optional and computed, at what AWS gives a parameter that doesn't
+      # set them: text, in the standard tier, a SecureString encrypted
+      # with the AWS managed key.
+      - data_type=text
+      - key_id=alias/aws/ssm
+      - tier=Standard

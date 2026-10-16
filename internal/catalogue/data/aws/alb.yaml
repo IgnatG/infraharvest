@@ -2,5 +2,28 @@
 provider: aws
 service: alb
 types:
+  aws_lb:
+    # Optional and computed, at the defaults AWS reports.
+    omit: [enable_prefix_for_ipv6_source_nat=off, ip_address_type=ipv4]
+  aws_lb_listener:
+    # Optional and computed, at the defaults AWS reports: the first action's
+    # order is its position, and mutual TLS is off.
+    omit:
+      - default_action.order=1
+      - mutual_authentication when mutual_authentication.mode=off
+      - routing_http_response_server_enabled=true
+      - tcp_idle_timeout_seconds=350
   aws_lb_target_group:
     state_only: [lambda_multi_value_headers_enabled, proxy_protocol_v2]
+    # Optional and computed, at the defaults AWS reports: stickiness that
+    # is off, whatever its cookie settings, and target group health at the
+    # thresholds AWS starts with.
+    omit:
+      - connection_termination=false
+      - ip_address_type=ipv4
+      - load_balancing_algorithm_type=round_robin
+      - load_balancing_anomaly_mitigation=off
+      - load_balancing_cross_zone_enabled=use_load_balancer_configuration
+      - protocol_version=HTTP1
+      - stickiness when stickiness.enabled=false
+      - target_group_health when target_group_health.dns_failover.minimum_healthy_targets_count=off and target_group_health.dns_failover.minimum_healthy_targets_percentage=off and target_group_health.unhealthy_state_routing.minimum_healthy_targets_count=1 and target_group_health.unhealthy_state_routing.minimum_healthy_targets_percentage=off
