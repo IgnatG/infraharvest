@@ -17,7 +17,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
 )
 
 // Each fake API below serves two pages. The second page is returned when the
@@ -407,7 +406,7 @@ func TestEveryPaginatorStopsOnDuplicateToken(t *testing.T) {
 
 // A paginator does not advance after an error, so a lister that logged the
 // error and went on asked for the same page forever.
-func TestIamGroupPoliciesStopOnError(t *testing.T) {
+func TestIamAccessKeysStopOnError(t *testing.T) {
 	calls := 0
 	useFakeAPI(t, func(call apiCall) string {
 		calls++
@@ -416,27 +415,23 @@ func TestIamGroupPoliciesStopOnError(t *testing.T) {
 		}
 		const ns = `xmlns="https://iam.amazonaws.com/doc/2010-05-08/"`
 		switch call.Op {
-		case "ListGroups":
-			return `<ListGroupsResponse ` + ns + `><ListGroupsResult><Groups><member>
-				<GroupName>admins</GroupName><GroupId>AGPA1</GroupId><Path>/</Path>
-				<Arn>arn:aws:iam::123456789012:group/admins</Arn>
-				</member></Groups><IsTruncated>false</IsTruncated></ListGroupsResult></ListGroupsResponse>`
-		case "ListGroupPolicies":
+		case "GetAccountAuthorizationDetails":
+			return `<GetAccountAuthorizationDetailsResponse ` + ns + `><GetAccountAuthorizationDetailsResult><UserDetailList><member>
+				<UserName>alice</UserName><UserId>AIDA1</UserId><Path>/</Path>
+				<Arn>arn:aws:iam::123456789012:user/alice</Arn>
+				</member></UserDetailList><IsTruncated>false</IsTruncated></GetAccountAuthorizationDetailsResult></GetAccountAuthorizationDetailsResponse>`
+		case "ListAccessKeys":
 			return `<ErrorResponse ` + ns + `><Error><Code>Throttling</Code><Message>Rate exceeded</Message></Error></ErrorResponse>`
 		}
 		t.Fatalf("unexpected call %s", call.Op)
 		return ""
 	})
 	g := &IamLister{}
-	config, err := g.sdkConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	err = g.getGroups(iam.NewFromConfig(config))
+	err := g.List()
 
 	if err == nil || !strings.Contains(err.Error(), "Throttling") {
-		t.Errorf("want the ListGroupPolicies error, got %v", err)
+		t.Errorf("want the ListAccessKeys error, got %v", err)
 	}
 }
 
