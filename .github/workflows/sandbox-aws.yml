@@ -34,6 +34,13 @@ concurrency:
   group: sandbox-aws
   cancel-in-progress: false
 
+# The Terraform and OpenTofu the jobs install, the ones the release image
+# copies: bump them with the Dockerfile's hashicorp/terraform and
+# opentofu/opentofu tags, which dependabot tracks.
+env:
+  TERRAFORM_VERSION: 1.16.6
+  TOFU_VERSION: 1.13.1
+
 jobs:
   round-trip:
     name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
@@ -72,10 +79,12 @@ jobs:
       if: inputs.engine == 'terraform'
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       if: inputs.engine == 'tofu'
       with:
         tofu_wrapper: false
+        tofu_version: ${{ env.TOFU_VERSION }}
     # The gate runs the scanners it finds (G5), as in the e2e jobs.
     - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
       with:
