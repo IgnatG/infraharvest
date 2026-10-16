@@ -154,10 +154,18 @@ REPOSITORY_CHECKOV_ARGUMENTS:
 
 # Links in the documentation. Workflows and the action name local
 # emulators, release download URLs built from variables and the OIDC
-# issuer, none of which resolve from here.
+# issuer, none of which resolve from here. A site that doesn't answer at
+# once, as reuse.software sometimes doesn't, gets more time and retries
+# before it fails a pull request.
 SPELL_LYCHEE_FILTER_REGEX_INCLUDE: '\.md$'
 SPELL_LYCHEE_ARGUMENTS:
   - --exclude-loopback
+  - --max-retries
+  - "5"
+  - --retry-wait-time
+  - "5"
+  - --timeout
+  - "30"
   - --exclude
   - '(\$\{|\$%7B|\{\{)'
 
