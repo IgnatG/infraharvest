@@ -48,8 +48,9 @@ jobs:
     environment: sandbox
     # go test gets the test's own deadline plus the 30 minutes its cleanup
     # destroy has, and a margin, so that it never stops a destroy halfway;
-    # the job, another half an hour for the destroy step below.
-    timeout-minutes: ${{ inputs.estate == 'data' && 130 || 160 }}
+    # the job, another half an hour for the destroy step below and one for
+    # the sweep.
+    timeout-minutes: ${{ inputs.estate == 'data' && 160 || 190 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -58,6 +59,8 @@ jobs:
       E2E_ENGINE: ${{ inputs.engine }}
       SANDBOX_AWS_FIXTURE_PROFILE: fixture
       SANDBOX_AWS_READONLY_PROFILE: readonly
+      # Tags every resource of the estate with this run, for the sweep.
+      TF_VAR_run_id: ${{ github.run_id }}
     steps:
     - name: Directories
       run: |
@@ -174,6 +177,17 @@ jobs:
           echo "::error::Left in the estate: $left"
           exit 1
         fi
+    # The last resort, whatever the destroy did: deletes what still carries
+    # this run's tag (TF_VAR_run_id) and costs the most while it exists, and
+    # warns about the rest. It touches nothing without the tag.
+    - name: Sweep what the run left
+      if: always()
+      timeout-minutes: 30
+      env:
+        AWS_PROFILE: fixture
+        RUN_ID: ${{ github.run_id }}
+      # Both regions, and us-east-1, as for the leftovers.
+      run: .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1
     # Only the report: the generated configuration describes the estate, and
     # the artifacts of a public repository are public.
     - name: Upload the report

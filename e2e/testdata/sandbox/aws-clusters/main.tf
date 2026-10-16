@@ -23,10 +23,20 @@ variable "suffix" {
   default     = "terraform"
 }
 
+variable "run_id" {
+  description = "The CI run that applies the estate, if any. Every resource is tagged with it, so the run's last sweep finds what the run left, and nothing else."
+  type        = string
+  default     = ""
+}
+
+locals {
+  # The tags every resource carries, so a sweep finds what a run left.
+  sandbox_tags = { for k, v in { infraharvest-sandbox = var.suffix, infraharvest-sandbox-run = var.run_id } : k => v if v != "" }
+}
+
 provider "aws" {
-  # Every resource carries the tag, so a sweep finds what a run left.
   default_tags {
-    tags = { infraharvest-sandbox = var.suffix }
+    tags = local.sandbox_tags
   }
 }
 
