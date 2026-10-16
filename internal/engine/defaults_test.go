@@ -125,10 +125,11 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	}
 }
 
-// A Google resource's labels, which an import keeps in state only, are
-// never a default: leaving them out would plan the same, as the labels
-// stay on the resource, but no longer managed. Other constants still go.
-func TestRemoveDefaultsKeepsStateOnlyArguments(t *testing.T) {
+// A Google resource's labels, which an import leaves out (see
+// EffectiveTags), are never a default: leaving them out would plan the
+// same, as the labels stay on the resource, no longer managed. Other
+// constants still go.
+func TestRemoveDefaultsKeepsTags(t *testing.T) {
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "google_pubsub_topic" "events" {
   name   = "events"
   labels = { env = "prod" }
@@ -144,7 +145,7 @@ func TestRemoveDefaultsKeepsStateOnlyArguments(t *testing.T) {
 			}}},
 		}},
 	}}
-	removed := removeDefaults(f, schemas, defaultRules{stateOnly: map[string][]string{"*": {"labels", "terraform_labels"}}}, nil)
+	removed := removeDefaults(f, schemas, defaultRules{tags: "labels"}, nil)
 	if len(removed) != 1 || removed[0].key() != "google_pubsub_topic.events\x00kms_key_name" {
 		t.Errorf("removed %v, want only kms_key_name", removed)
 	}

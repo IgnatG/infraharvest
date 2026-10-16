@@ -62,7 +62,11 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		}
 	}
 	// First, so the steps below see only the arguments that matter.
-	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty, stateOnly: opts.StateOnly})
+	rules := defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty}
+	if et := opts.EffectiveTags; et != nil {
+		rules.tags = et.Attribute
+	}
+	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, rules)
 	if err != nil {
 		return nil, err
 	}
