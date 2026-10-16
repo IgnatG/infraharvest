@@ -498,8 +498,9 @@ type rootFiles struct {
 }
 
 // rootConfig renders versions.tf and providers.tf for every output
-// directory: required_version within the major release of the Terraform or
-// OpenTofu at execPath, and the provider pinned to its newest minor release
+// directory: required_version from the oldest Terraform release generated
+// configuration works with (engine.MinimumVersion; Generate raises it for
+// what a root uses), and the provider pinned to its newest minor release
 // line in registry (the engine's default registry), unless its source names
 // another: the newest release the module versions the import may call
 // accept (constraints). A module version that accepts no release of the
@@ -543,7 +544,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	}
 	return &rootFiles{
 		files: map[string][]byte{
-			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engineVersion), p),
+			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engine.MinimumVersion), p),
 			engine.ProvidersFileName: providers,
 		},
 		engineVersion: engineVersion.String(),

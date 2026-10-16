@@ -12,7 +12,7 @@ Each output directory gets:
 
 | File | Contents |
 |---|---|
-| `versions.tf` | `required_version` within the major release of the Terraform that generated it (`>= 1.16, < 2.0`), and the provider pinned to its newest minor release line (`~> 6.67`) |
+| `versions.tf` | `required_version` from the oldest Terraform release the configuration works with, within its major release: 1.5, which brought import blocks (`>= 1.5, < 2.0`), or the release a later feature it uses came with, such as write-only arguments (1.11), or the lowest version a module it calls requires. And the provider pinned to its newest minor release line (`~> 6.67`) |
 | `providers.tf` | The provider configuration |
 | `imports.tf` | One `import` block per resource. Delete it after the first `terraform apply` |
 | `network.tf`, `s3.tf`, `iam.tf`, ... | The configuration Terraform generated for the resources, a file per service: the network's resources (VPCs, subnets, route tables, gateways, security groups) together in `network.tf`, the others in their service's file. A module call goes with the first resource it took |
