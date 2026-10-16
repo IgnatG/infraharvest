@@ -26,7 +26,7 @@ func TestReadmeFile(t *testing.T) {
 		"| `aws_sqs_queue` | 1 |\n" +
 		"| `aws_ssm_parameter` | 1 |\n" +
 		"\n## Next steps\n\n" +
-		"1. Set the secret variables in `variables.tf`. Terraform doesn't write secret values into the configuration it generates. Keep the values out of version control, for example in a `.tfvars` file (`.gitignore` excludes them):\n\n" +
+		"1. Set the secret variables in `variables.tf`. infraharvest never writes secret values into the configuration: set each from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`, and keep the values out of version control (`.gitignore` excludes `.tfvars` files):\n\n" +
 		"   - `aws_ssm_parameter_token_value`: value of `aws_ssm_parameter.token`\n\n" +
 		"2. Run `terraform init` and `terraform plan`. Every resource should be planned for import, with no changes.\n" +
 		"3. Run `terraform apply` to record the resources in state. It changes nothing in the cloud.\n" +

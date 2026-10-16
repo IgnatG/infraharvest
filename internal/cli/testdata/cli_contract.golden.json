@@ -124,6 +124,13 @@
         "persistent": true
       },
       {
+        "name": "include-owned",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "incremental",
         "type": "bool",
         "default": "false",
@@ -323,6 +330,13 @@
         "name": "id",
         "type": "stringArray",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "include-owned",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -531,6 +545,13 @@
         "name": "id",
         "type": "stringArray",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "include-owned",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -757,6 +778,13 @@
         "persistent": true
       },
       {
+        "name": "include-owned",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "incremental",
         "type": "bool",
         "default": "false",
@@ -956,6 +984,13 @@
         "name": "id",
         "type": "stringArray",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "include-owned",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -1164,6 +1199,13 @@
         "name": "id",
         "type": "stringArray",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "include-owned",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {

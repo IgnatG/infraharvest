@@ -50,6 +50,7 @@ infraharvest discover aws
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
@@ -93,6 +94,7 @@ infraharvest discover azure
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
@@ -137,6 +139,7 @@ infraharvest discover google
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
@@ -193,6 +196,7 @@ infraharvest import aws
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
@@ -235,6 +239,7 @@ infraharvest import azure
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
@@ -278,6 +283,7 @@ infraharvest import google
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |

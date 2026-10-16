@@ -59,7 +59,7 @@ func readmeFile(result *Result) []byte {
 	b.WriteString("\n## Next steps\n\n")
 	step := 1
 	if len(result.Secrets) > 0 {
-		fmt.Fprintf(&b, "%d. Set the secret variables in `%s`. Terraform doesn't write secret values into the configuration it generates. Keep the values out of version control, for example in a `.tfvars` file (`.gitignore` excludes them):\n\n", step, VariablesFileName)
+		fmt.Fprintf(&b, "%d. Set the secret variables in `%s`. infraharvest never writes secret values into the configuration: set each from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`, and keep the values out of version control (`.gitignore` excludes `.tfvars` files):\n\n", step, VariablesFileName)
 		for _, s := range result.Secrets {
 			fmt.Fprintf(&b, "   - `%s`: %s of `%s`\n", s.Variable, s.Attribute, s.Address)
 		}
@@ -84,8 +84,14 @@ func readmeFile(result *Result) []byte {
 	if len(result.Modules) > 0 {
 		b.WriteString(modulesSection(result.Modules))
 	}
+	if len(result.Warnings) > 0 {
+		b.WriteString("\n## Warnings\n\n")
+		for _, w := range result.Warnings {
+			fmt.Fprintf(&b, "- %s.\n", w)
+		}
+	}
 	if len(result.Gate) > 0 {
-		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had placeholder values in the plan.\n\n| Check | Result |\n|---|---|\n")
+		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
 		for _, c := range result.Gate {
 			status := "passed"
 			if !c.Passed {

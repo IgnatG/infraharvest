@@ -4,6 +4,8 @@
 package engine
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -155,5 +157,71 @@ func TestVariablesFile(t *testing.T) {
 	}
 	if strings.Count(string(got), "type ") != 1 {
 		t.Errorf("want one type constraint:\n%s", got)
+	}
+}
+
+// Only a SecureString parameter's value is secret: a String or StringList
+// parameter's is written as it is, which plans clean after import, and the
+// gate doesn't take it for a leak although the provider marks it
+// sensitive.
+func TestGenerateWritesStringParameterValues(t *testing.T) {
+	for _, tc := range []struct {
+		typ, name, value string
+		variable         bool
+	}{
+		{"String", "/app/region", "eu-west-2-primary", false},
+		{"StringList", "/app/zones", "eu-west-2a,eu-west-2b", false},
+		{"SecureString", "/app/key", "s3cure-value", true},
+		// Its name says it is a secret, whatever its type.
+		{"String", "/app/db_password", "plain-but-secret", true},
+	} {
+		t.Run(tc.typ+tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			generated := strings.ReplaceAll(strings.ReplaceAll(ssmGenerated, "SecureString", tc.typ), "/app/env", tc.name)
+			tf := &fakeTerraform{
+				dir:       dir,
+				generated: generated,
+				plans: []fakePlan{{diags: []tfjson.Diagnostic{
+					errorAt(4, "Invalid combination of arguments", `"value": one of insecure_value,value,value_wo must be specified`),
+				}}},
+				schemas: ssmSchemas,
+				shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{{
+					Address: "aws_ssm_parameter.app_env",
+					Mode:    tfjson.ManagedResourceMode,
+					Type:    "aws_ssm_parameter",
+					Change: &tfjson.Change{
+						Actions:         tfjson.Actions{tfjson.ActionNoop},
+						Before:          map[string]any{"name": tc.name, "type": tc.typ, "value": tc.value},
+						BeforeSensitive: map[string]any{"value": true},
+					},
+				}}},
+			}
+
+			result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: tc.name}}, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got := readFile(t, dir, GeneratedFileName)
+			_, statErr := os.Stat(filepath.Join(dir, VariablesFileName))
+			if tc.variable {
+				if len(result.Secrets) != 1 || statErr != nil || !strings.Contains(got, "value = var.aws_ssm_parameter_app_env_value") {
+					t.Errorf("want the value in a variable, got secrets %+v:\n%s", result.Secrets, got)
+				}
+				if strings.Contains(got, tc.value) {
+					t.Errorf("secret value written:\n%s", got)
+				}
+				return
+			}
+			if len(result.Secrets) != 0 || statErr == nil {
+				t.Errorf("want no secret variable, got %+v", result.Secrets)
+			}
+			if !strings.Contains(got, `value = "`+tc.value+`"`) || strings.Contains(got, "# sensitive") {
+				t.Errorf("want the value written as it is:\n%s", got)
+			}
+			if check := result.Gate.check(CheckSecrets); !check.Passed {
+				t.Errorf("G6 failed: %+v", check)
+			}
+		})
 	}
 }

@@ -183,6 +183,8 @@ type fakeTerraform struct {
 	showns      []*tfjson.Plan // returned by successive ShowPlanFile calls
 	initErr     error
 	calls       []string
+	// varFiles has the content of the var files plans were given, by path.
+	varFiles map[string]string
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
@@ -193,6 +195,17 @@ func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
 func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
 	f.calls = append(f.calls, "plan")
 	for _, opt := range opts {
+		if v, ok := opt.(*tfexec.VarFileOption); ok {
+			path := reflect.ValueOf(v).Elem().FieldByName("path").String()
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return false, err
+			}
+			if f.varFiles == nil {
+				f.varFiles = map[string]string{}
+			}
+			f.varFiles[path] = string(content)
+		}
 		if _, ok := opt.(*tfexec.GenerateConfigOutOption); ok {
 			content := f.generated
 			if content == "" {
@@ -629,7 +642,7 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 		t.Errorf("write-only value_wo should be left out:\n%s", got)
 	}
 	wantVariables := `variable "aws_ssm_parameter_app_env_value" {
-  description = "value of aws_ssm_parameter.app_env. Terraform doesn't write secret values into the configuration it generates: set it before planning, for example in a .tfvars file kept out of version control."
+  description = "value of aws_ssm_parameter.app_env. Terraform doesn't write secret values into the configuration it generates: set this variable from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with TF_VAR_aws_ssm_parameter_app_env_value, and keep the value out of version control."
   type        = string
   sensitive   = true
 }

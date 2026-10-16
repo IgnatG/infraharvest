@@ -162,6 +162,9 @@ type Directory struct {
 	Imported []Resource `json:"imported"`
 	LeftOut  []LeftOut  `json:"left_out,omitempty"`
 	Secrets  []Secret   `json:"secrets,omitempty"`
+	// Warnings are about what the configuration holds that people should
+	// look at, such as a tag named after an AWS access key ID.
+	Warnings []string `json:"warnings,omitempty"`
 	// Modules are the directory's module calls, and the clusters of
 	// resources that stayed in the root, with why.
 	Modules []Module `json:"modules,omitempty"`
@@ -545,7 +548,7 @@ func (r *Report) Markdown() string {
 		}
 	}
 	if r.Totals.Managed > 0 || r.Totals.OtherTool > 0 {
-		b.WriteString("\n## Managed and unmanaged\n\nTerraform already manages some of what was discovered, according to the state read with --managed-state, and other tools, such as CloudFormation, manage some more: the import left those out. The rest isn't under infrastructure as code yet.\n\n")
+		b.WriteString("\n## Managed and unmanaged\n\nTerraform already manages some of what was discovered, according to the state read with --managed-state or to the resources' tags, and other tools, such as CloudFormation or Pulumi, manage some more: the import left those out (--include-owned imports those their tags say are managed). The rest isn't under infrastructure as code yet.\n\n")
 		if len(r.Scopes) > 1 {
 			b.WriteString("| Account and region | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
 			for _, s := range r.Scopes {
@@ -574,7 +577,7 @@ func (r *Report) Markdown() string {
 		}
 	}
 
-	var leftOut, secrets, modules, declined, dirErrors []string
+	var leftOut, secrets, warnings, modules, declined, dirErrors []string
 	for _, d := range r.Directories {
 		for _, m := range d.Modules {
 			resources := "`" + strings.Join(m.Resources, "`, `") + "`"
@@ -591,6 +594,9 @@ func (r *Report) Markdown() string {
 		for _, s := range d.Secrets {
 			secrets = append(secrets, fmt.Sprintf("- `%s` in `%s`: %s of `%s`", s.Variable, d.Path, s.Attribute, s.Address))
 		}
+		for _, w := range d.Warnings {
+			warnings = append(warnings, fmt.Sprintf("- `%s`: %s.", d.Path, w))
+		}
 		if d.Error != "" {
 			dirErrors = append(dirErrors, fmt.Sprintf("- `%s`: %s", d.Path, d.Error))
 		}
@@ -602,7 +608,8 @@ func (r *Report) Markdown() string {
 		fmt.Fprintf(&b, "\n## %s\n\n%s\n\n%s\n", title, intro, strings.Join(lines, "\n"))
 	}
 	section("Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", leftOut)
-	section("Secrets to set", "Set these variables before planning: Terraform doesn't write secret values into the configuration it generates.", secrets)
+	section("Secrets to set", "Set these variables before planning, from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`: infraharvest never writes secret values into its output.", secrets)
+	section("Warnings", "Look at these before using the configuration.", warnings)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string

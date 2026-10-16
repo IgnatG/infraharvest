@@ -24,7 +24,8 @@ const placeholderString = "infraharvest-placeholder"
 // doesn't manage (see addDataSources), shared tags (see
 // applyTagLift) and repeated identifiers (see liftLiterals). Each step is
 // checked against the plan before it (see verify) and undone if the plan
-// changes. Secret variables get placeholder values in these plans. If the
+// changes. Secret variables get their values in these plans where Generate
+// found them, and placeholder values where Terraform doesn't show them. If the
 // configuration doesn't plan even so, only the literal lift is made,
 // checked by validation. Last, clusters of resources move into modules:
 // curated ones first (see synthesize), then, once the resources left in
@@ -32,7 +33,7 @@ const placeholderString = "infraharvest-placeholder"
 // generated local ones (see liftModules). It returns the clusters it
 // didn't move into a curated module, with why.
 func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
-	vars := placeholders(secrets)
+	vars := append(placeholders(secrets), opts.secretValues.options()...)
 	baseline, values, changes, err := planValues(ctx, tf, vars)
 	if err != nil {
 		return nil, err
@@ -188,10 +189,14 @@ func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*c
 	return summary, values, changes, nil
 }
 
-// placeholders gives each secret variable a value of its type.
+// placeholders gives each secret variable without a known value (see
+// secretValues) a value of its type.
 func placeholders(secrets []Secret) []tfexec.PlanOption {
 	vars := make([]tfexec.PlanOption, 0, len(secrets))
 	for _, s := range secrets {
+		if s.value != "" {
+			continue
+		}
 		value := placeholderString
 		switch {
 		case s.ty.Equals(cty.Number):

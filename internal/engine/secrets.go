@@ -4,8 +4,11 @@
 package engine
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,16 +22,26 @@ import (
 )
 
 // Secret is a variable the generated configuration reads a secret value
-// from. Terraform doesn't write secret values into the configuration it
-// generates, so the user sets the variable before planning.
+// from. Terraform doesn't write the values the provider marks sensitive
+// into the configuration it generates, and infraharvest moves the secrets
+// it finds among the others out of it (see literalSecretsToVariables), so
+// the user sets the variable before planning.
 type Secret struct {
 	Variable  string // variable name
 	Address   string // address of the resource that uses it
-	Attribute string // attribute it sets, e.g. value or block[1].password
+	Attribute string // attribute it sets, e.g. value, block[1].password or environment.variables.API_SECRET
 
 	schemaPath []string // block types and attribute name, e.g. [block password]
 	ty         cty.Type // from the provider schema; cty.NilType if unknown
+	// key is the name a secret infraharvest found goes by, such as the
+	// environment variable API_SECRET, and value its value, which only
+	// infraharvest's own plans see (see secretValues); both are "" for
+	// values the provider marks sensitive, which Terraform doesn't show.
+	key, value string
 }
+
+// secretStoreAdvice ends the description of every secret variable.
+const secretStoreAdvice = "set this variable from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with TF_VAR_%s, and keep the value out of version control"
 
 // secretAttribute is an attribute Terraform generated as
 // "null # sensitive": it has a value Terraform won't show.
@@ -175,10 +188,16 @@ func variablesFile(secrets []Secret, schemas *tfjson.ProviderSchemas) ([]byte, e
 			body.AppendNewline()
 		}
 		b := body.AppendNewBlock("variable", []string{s.Variable}).Body()
-		b.SetAttributeValue("description", cty.StringVal(fmt.Sprintf(
-			"%s of %s. Terraform doesn't write secret values into the configuration it generates: set it before planning, for example in a .tfvars file kept out of version control.",
-			s.Attribute, s.Address)))
-		if ty := attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath); ty != cty.NilType {
+		why := "Terraform doesn't write secret values into the configuration it generates"
+		if s.key != "" {
+			why = "infraharvest found a secret value here and left it out of the configuration"
+		}
+		b.SetAttributeValue("description", cty.StringVal(fmt.Sprintf("%s of %s. %s: "+secretStoreAdvice+".", s.Attribute, s.Address, why, s.Variable)))
+		ty := s.ty
+		if ty == cty.NilType {
+			ty = attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
+		}
+		if ty != cty.NilType {
 			tokens, err := typeTokens(ty)
 			if err != nil {
 				return nil, fmt.Errorf("variable %s: %w", s.Variable, err)
@@ -246,4 +265,115 @@ func typeTokens(ty cty.Type) (hclwrite.Tokens, error) {
 		return nil, diags
 	}
 	return f.Body().GetAttribute("type").Expr().BuildTokens(nil), nil
+}
+
+// publicRule names a sensitive argument whose value isn't secret when
+// another argument of the resource doesn't have one of some values.
+type publicRule struct {
+	attribute string // the sensitive argument
+	when      string // the argument that decides
+	secretIn  []string
+}
+
+// publicSensitive are, by resource type, sensitive arguments whose value
+// is often public. An SSM parameter's value is always sensitive in the
+// provider, but only a SecureString's is secret: a String or StringList
+// parameter's is written into the configuration as it is. Its
+// insecure_value would plan an update after import, as the provider reads
+// an imported parameter's value into value.
+var publicSensitive = map[string]publicRule{
+	"aws_ssm_parameter": {attribute: "value", when: "type", secretIn: []string{"SecureString"}},
+}
+
+// isPublic reports whether rule says the value of rule.attribute isn't
+// secret in a resource whose rule.when argument has value when.
+func (rule publicRule) isPublic(when string) bool {
+	return when != "" && !slices.Contains(rule.secretIn, when)
+}
+
+// publicSecretsToLiterals writes into the configuration the values of the
+// secrets publicSensitive says aren't secret, as the plan shows them, and
+// returns the other secrets. Values that look like secrets all the same
+// (see secretReason) stay in their variables. It plans only if a secret
+// may be public.
+func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options) ([]Secret, error) {
+	path := filepath.Join(dir, GeneratedFileName)
+	generated, err := loadHCL(path)
+	if err != nil {
+		return nil, err
+	}
+	bodies := map[string]*hclsyntax.Body{}
+	writes := map[string]*hclwrite.Body{}
+	for _, r := range generated.resources() {
+		bodies[r.address], writes[r.address] = r.syntax.Body, r.write.Body()
+	}
+	candidate := func(s Secret) (publicRule, bool) {
+		rule, ok := publicSensitive[strings.SplitN(s.Address, ".", 2)[0]]
+		if !ok || s.key != "" || s.Attribute != rule.attribute || bodies[s.Address] == nil {
+			return rule, false
+		}
+		return rule, rule.isPublic(stringLiteral(attributeExpr(bodies[s.Address], rule.when)))
+	}
+	possible := false
+	for _, s := range secrets {
+		if _, ok := candidate(s); ok {
+			possible = true
+		}
+	}
+	if !possible {
+		return secrets, nil
+	}
+	p, _, _, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), opts.secretValues.options()...))
+	if err != nil || p == nil {
+		return secrets, err
+	}
+	imported := map[string]map[string]any{}
+	for _, rc := range p.ResourceChanges {
+		if rc.Change != nil {
+			if before, ok := rc.Change.Before.(map[string]any); ok {
+				imported[rc.Address] = before
+			}
+		}
+	}
+	var kept []Secret
+	changed := false
+	for _, s := range secrets {
+		rule, ok := candidate(s)
+		if !ok {
+			kept = append(kept, s)
+			continue
+		}
+		value, isString := imported[s.Address][rule.attribute].(string)
+		name := stringLiteral(attributeExpr(bodies[s.Address], "name"))
+		if !isString || secretReason(name, value, true) != "" {
+			kept = append(kept, s)
+			continue
+		}
+		// Set afresh, without Terraform's "# sensitive" comment.
+		writes[s.Address].RemoveAttribute(rule.attribute)
+		writes[s.Address].SetAttributeValue(rule.attribute, cty.StringVal(value))
+		changed = true
+	}
+	if !changed {
+		return secrets, nil
+	}
+	if err := generated.save(); err != nil {
+		return nil, err
+	}
+	return kept, writeVariables(dir, kept, nil)
+}
+
+// publicValue returns the value of a sensitive argument of rc's imported
+// object that publicSensitive says isn't secret, as publicSecretsToLiterals
+// writes it.
+func publicValue(rc *tfjson.ResourceChange) (string, bool) {
+	rule, ok := publicSensitive[rc.Type]
+	if !ok || rc.Change == nil {
+		return "", false
+	}
+	before, _ := rc.Change.Before.(map[string]any)
+	when, _ := before[rule.when].(string)
+	value, isString := before[rule.attribute].(string)
+	name, _ := before["name"].(string)
+	return value, isString && rule.isPublic(when) && secretReason(name, value, true) == ""
 }
