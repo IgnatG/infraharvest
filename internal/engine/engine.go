@@ -334,7 +334,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	for round := 0; ; round++ {
 		errs, err := unresolved("terraform plan", dir, diags)
 		if err != nil {
-			return nil, err
+			// Errors can quote the values they reject, as below.
+			return nil, errors.New(redact(err.Error(), literal))
 		}
 		if len(errs) == 0 {
 			break
@@ -344,7 +345,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			for _, ds := range errs {
 				all = append(all, ds...)
 			}
-			return nil, fmt.Errorf("terraform plan: %w", diagnosticsError(all))
+			// Errors can quote the values they reject, as below.
+			return nil, fmt.Errorf("terraform plan: %s", redact(diagnosticsError(all).Error(), literal))
 		}
 		// Terraform writes generated.tf even when the configuration it
 		// generated is invalid. Repair it once; leave out what is left.
