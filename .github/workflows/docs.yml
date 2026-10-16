@@ -5,9 +5,12 @@ name: docs
 # build. On main it publishes the site to GitHub Pages, once the
 # repository's Pages source is GitHub Actions and the repository variable
 # DOCS_PAGES is true.
+#
+# Every pull request runs the workflow, so that the docs job, which gathers
+# the build, always reports and can be a required check: a pull request
+# that doesn't change the site skips the build, and docs passes.
 on:
   pull_request:
-    paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]
   push:
     branches: [main]
     paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]
@@ -21,8 +24,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # docs=true when a pull request changes the site, its build or this
+  # workflow, and on every push and workflow_dispatch.
+  changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs: ${{ steps.diff.outputs.docs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The history for the merge base, without file contents.
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Changes the site
+        id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docs=true
+          if [ -n "$BASE" ] && [ -n "$HEAD" ] && files=$(git diff --name-only --no-renames "$BASE...$HEAD"); then
+            if ! grep -qE '^(docs/|mkdocs\.yml$|\.github/workflows/docs\.yml$)' <<< "$files"; then
+              docs=false
+            fi
+          fi
+          echo "docs=$docs"
+          echo "docs=$docs" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,10 +76,25 @@ jobs:
         with:
           path: site
 
+  # A required check: passes when the build passed, or was skipped.
+  docs:
+    needs: [changes, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the jobs passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<< "$NEEDS" > /dev/null
+
   deploy:
     if: github.ref == 'refs/heads/main' && vars.DOCS_PAGES == 'true'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write # publish the site
       id-token: write # prove the deployment comes from this workflow

@@ -125,7 +125,7 @@ The `sandbox-aws`, `sandbox-azure` and `sandbox-google` workflows import a real 
 
 ## Documentation
 
-The documentation is the Markdown under `docs/`, which GitHub renders and [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) builds into the site (`mkdocs.yml`, with the navigation). The `docs` workflow builds it strictly on every change, so a broken link or a page missing from the navigation fails, and publishes it from `main` to GitHub Pages. The Markdown rules are in `.markdownlint-cli2.yaml` (see [docs/development.md](docs/development.md#markdown)). To preview the site: `pip install -r docs/requirements.txt && mkdocs serve`.
+The documentation is the Markdown under `docs/`, which GitHub renders and [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) builds into the site (`mkdocs.yml`, with the navigation). The `docs` workflow builds it strictly on every change, so a broken link or a page missing from the navigation fails, and publishes it from `main` to GitHub Pages. Its `docs` job reports on every pull request, and passes when the build passed or, for a pull request that doesn't change the site, was skipped. The Markdown rules are in `.markdownlint-cli2.yaml` (see [docs/development.md](docs/development.md#markdown)). To preview the site: `pip install -r docs/requirements.txt && mkdocs serve`.
 
 The pages under `docs/reference/` are generated: change the code they come from and rewrite them as [Golden files](#golden-files) describes.
 
