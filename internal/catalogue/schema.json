@@ -30,6 +30,16 @@
       "items": { "$ref": "#/$defs/name" },
       "uniqueItems": true
     },
+    "defaults": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*=.*$" },
+      "uniqueItems": true
+    },
+    "omit": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(=.*)?$" },
+      "uniqueItems": true
+    },
     "template": {
       "description": "An import ID template: text and fields in braces, {id} for the lister's ID or {<attribute>}, with filters such as {id|after_last:/}.",
       "type": "string",
@@ -56,20 +66,31 @@
           "minLength": 1
         },
         "omit": {
-          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value; a.b for b in nested blocks a; either followed by \" when \" and conditions joined by \" and \" (path, path=value, !path, @attribute=value for what the lister recorded). See docs/catalogue.md.",
-          "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*(=.*| when .+)?$" },
-          "uniqueItems": true
+          "description": "Arguments to leave out of generated configuration: name, whatever its value, or name=value, only where it is set to value.",
+          "$ref": "#/$defs/omit"
         },
         "defaults": {
           "description": "The values the provider or the cloud gives optional arguments it isn't told, as path=value, with a path into nested blocks: left out where the plan stays the same.",
-          "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*=.*$" },
-          "uniqueItems": true
+          "$ref": "#/$defs/defaults"
         },
         "state_only": {
           "description": "Arguments the provider keeps only in state, which an import leaves unset.",
           "$ref": "#/$defs/names"
+        },
+        "provider_versions": {
+          "description": "By a constraint on the provider's version, such as \">= 5.0\", what omit, defaults and state_only hold only for the versions it accepts.",
+          "type": "object",
+          "propertyNames": { "pattern": "^\\s*(=|!=|>=|<=|>|<|~>)?\\s*v?[0-9]+(\\.[0-9]+)*\\s*(,\\s*(=|!=|>=|<=|>|<|~>)?\\s*v?[0-9]+(\\.[0-9]+)*\\s*)*$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "omit": { "$ref": "#/$defs/omit" },
+              "defaults": { "$ref": "#/$defs/defaults" },
+              "state_only": { "$ref": "#/$defs/names" }
+            }
+          }
         },
         "skip": {
           "description": "Resources the default selection leaves out: all the conditions a rule sets must hold.",

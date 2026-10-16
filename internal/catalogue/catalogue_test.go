@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/hashicorp/go-version"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -491,5 +493,98 @@ func TestBuiltinInventoryPatternsTellTypesApart(t *testing.T) {
 				t.Errorf("%s: %s %q maps to %v", c.Source(typ), e.Inventory.Type, name, got)
 			}
 		}
+	}
+}
+
+// provider_versions adds what holds only for the provider versions a
+// constraint accepts to what holds for every version; without a version,
+// it adds nothing.
+func TestProviderVersions(t *testing.T) {
+	c := parseCatalogue(t, `
+provider: azurerm
+types:
+  azurerm_storage_account:
+    omit: [a]
+    state_only: [s]
+    provider_versions:
+      "< 5.0":
+        omit: [allow_nested_items_to_be_public=true]
+        defaults: [min_tls_version=TLS1_0]
+      ">= 5.0":
+        omit: [allow_nested_items_to_be_public=false]
+        defaults: [min_tls_version=TLS1_2]
+        state_only: [t]
+  azurerm_log_analytics_workspace:
+    provider_versions:
+      ">= 5.0, < 6.0":
+        omit: [internet_ingestion_enabled]
+`)
+	v4 := version.Must(version.NewVersion("4.81.0"))
+	v5 := version.Must(version.NewVersion("5.10.0"))
+	for _, tt := range []struct {
+		name      string
+		got, want []string
+	}{
+		{"omit without a version", c.Omit()["azurerm_storage_account"], []string{"a"}},
+		{"omit for 4.81.0", c.OmitFor(v4)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=true"}},
+		{"omit for 5.10.0", c.OmitFor(v5)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=false"}},
+		{"defaults without a version", c.Defaults()["azurerm_storage_account"], nil},
+		{"defaults for 4.81.0", c.DefaultsFor(v4)["azurerm_storage_account"], []string{"min_tls_version=TLS1_0"}},
+		{"defaults for 5.10.0", c.DefaultsFor(v5)["azurerm_storage_account"], []string{"min_tls_version=TLS1_2"}},
+		{"state_only without a version", c.StateOnly()["azurerm_storage_account"], []string{"s"}},
+		{"state_only for 4.81.0", c.StateOnlyFor(v4)["azurerm_storage_account"], []string{"s"}},
+		{"state_only for 5.10.0", c.StateOnlyFor(v5)["azurerm_storage_account"], []string{"s", "t"}},
+		{"only versioned, without a version", c.Omit()["azurerm_log_analytics_workspace"], nil},
+		{"only versioned, for 4.81.0", c.OmitFor(v4)["azurerm_log_analytics_workspace"], nil},
+		{"only versioned, for 5.10.0", c.OmitFor(v5)["azurerm_log_analytics_workspace"], []string{"internet_ingestion_enabled"}},
+	} {
+		if !reflect.DeepEqual(tt.got, tt.want) {
+			t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)
+		}
+	}
+
+	dir := t.TempDir()
+	write(t, dir, "azurerm.yaml", "provider: azurerm\ntypes:\n  azurerm_storage_account:\n    provider_versions:\n      \">= 6.0\":\n        omit: [b]\n")
+	overlaid, err := Load("azurerm", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := overlaid.OmitFor(v5)["azurerm_storage_account"]; slices.Contains(got, "allow_nested_items_to_be_public=false") {
+		t.Errorf("an overlay's provider_versions replace the built-in ones; got %v", got)
+	}
+}
+
+// The checks reject version constraints that don't parse, constraints
+// that add nothing, and what every version has already.
+func TestCheckRejectsProviderVersions(t *testing.T) {
+	for name, file := range map[string]string{
+		"constraint":            "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      five:\n        omit: [a]\n",
+		"nothing added":         "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\": {}\n",
+		"every version's":       "provider: aws\ntypes:\n  aws_x:\n    omit: [a]\n    provider_versions:\n      \">= 5.0\":\n        omit: [a]\n",
+		"argument name":         "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\":\n        state_only: [A]\n",
+		"omitted value name":    "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\":\n        omit: [\"=x\"]\n",
+		"unknown field":         "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\":\n        skip: []\n",
+		"defaults path":         "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\":\n        defaults: [a]\n",
+		"every type's defaults": "provider: aws\ntypes:\n  \"*\":\n    provider_versions:\n      \">= 5.0\":\n        defaults: [a=1]\n",
+	} {
+		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
+			t.Errorf("%s: want an error for\n%s", name, file)
+		}
+	}
+	schema := loadSchema(t)
+	for name, file := range map[string]string{
+		"constraint":    "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      five:\n        omit: [a]\n",
+		"nothing added": "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\": {}\n",
+	} {
+		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
+			t.Errorf("%s: the schema accepts\n%s", name, file)
+		}
+	}
+	ok := "provider: aws\ntypes:\n  \"*\":\n    provider_versions:\n      \"~> 6.0\":\n        omit: [a]\n  aws_x:\n    provider_versions:\n      \">= 5.0, < 6.0\":\n        omit: [\"b=c\"]\n        state_only: [d]\n"
+	if _, err := load(t, map[string]string{"x.yaml": ok}); err != nil {
+		t.Errorf("valid provider_versions: %v", err)
+	}
+	if err := schema.Validate(yamlToJSON(t, []byte(ok))); err != nil {
+		t.Errorf("the schema rejects valid provider_versions: %v", err)
 	}
 }
