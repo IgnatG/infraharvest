@@ -87,16 +87,13 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 		return false, err
 	}
 	if dt.Applied != nil {
-		var changed bool
 		if dt.Block == "" {
-			changed = referTags(generated, dt.Attribute, dt.Applied)
-		} else {
-			changed = removeTags(generated, dt.Attribute, dt.Applied, nil)
+			if !referTags(generated, dt.Attribute, dt.Applied) {
+				return false, nil
+			}
+			return true, generated.save()
 		}
-		if !changed {
-			return false, nil
-		}
-		return true, generated.save()
+		return applyAppliedTags(dir, generated, dt, schemas)
 	}
 	resources, ok := taggedResources(generated, dt, schemas)
 	if !ok {
@@ -130,7 +127,7 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 		return false, err
 	}
 	if len(uncovered) > 0 {
-		alias := "without_" + dt.Block
+		alias := aliasFor(dt)
 		if err := addAliasProvider(providers, provider, dt, alias); err != nil {
 			return false, err
 		}
@@ -145,6 +142,120 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 		return false, err
 	}
 	return true, setDefaultTags(dir, providers, provider, dt, common)
+}
+
+// applyAppliedTags is applyTagLift for the root an incremental import adds
+// to, whose provider applies dt.Applied through dt.Block: the resources
+// that have those tags leave them out, and those that would get tags they
+// don't have, such as untagged ones, keep theirs and use the second
+// configuration of the provider, without dt.Block, as the root's own do
+// (see addRootAlias).
+func applyAppliedTags(dir string, generated *hclFile, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
+	resources, ok := taggedResources(generated, dt, schemas)
+	if !ok {
+		return false, nil
+	}
+	uncovered := map[string]bool{}
+	for _, r := range resources {
+		// A value of its own wins over the provider's.
+		for k := range dt.Applied {
+			if _, ok := r.tags[k]; !ok {
+				uncovered[r.address] = true
+			}
+		}
+	}
+	changed := removeTags(generated, dt.Attribute, dt.Applied, uncovered)
+	if len(uncovered) > 0 {
+		providers, provider, err := loadProvider(dir, dt.Provider)
+		if err != nil {
+			return false, err
+		}
+		if provider == nil {
+			return false, fmt.Errorf("%s has no provider %q to apply default tags", ProvidersFileName, dt.Provider)
+		}
+		alias := aliasFor(dt)
+		if !hasAlias(providers, dt.Provider, alias) {
+			if err := addAliasProvider(providers, provider, dt, alias); err != nil {
+				return false, err
+			}
+			if err := providers.save(); err != nil {
+				return false, err
+			}
+		}
+		for _, r := range generated.resources() {
+			if uncovered[r.address] {
+				r.write.Body().SetAttributeTraversal("provider", hcl.Traversal{hcl.TraverseRoot{Name: dt.Provider}, hcl.TraverseAttr{Name: alias}})
+			}
+		}
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	return true, generated.save()
+}
+
+// aliasFor is the alias of the second configuration of dt's provider, for
+// the resources without the tags dt.Block applies.
+func aliasFor(dt DefaultTags) string {
+	return "without_" + dt.Block
+}
+
+// hasAlias reports whether providers configures the provider name with
+// alias.
+func hasAlias(providers *hclFile, name, alias string) bool {
+	for _, b := range providers.syntax.Blocks {
+		if b.Type != "provider" || len(b.Labels) != 1 || b.Labels[0] != name {
+			continue
+		}
+		if attr, ok := b.Body.Attributes["alias"]; ok {
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.AsString() == alias {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// addRootAlias adds to root's providers.tf the second configuration of
+// dt's provider (see addAliasProvider) if the resources an incremental
+// import staged in staging use it and root has none, and reports whether
+// it did.
+func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
+	if dt.Block == "" {
+		return false, nil
+	}
+	generated, err := loadHCL(filepath.Join(staging, GeneratedFileName))
+	if err != nil {
+		return false, err
+	}
+	alias := aliasFor(dt)
+	used := false
+	for _, r := range generated.resources() {
+		if p, ok := r.syntax.Body.Attributes["provider"]; ok {
+			traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
+			if !diags.HasErrors() && len(traversal) == 2 && traversal.RootName() == dt.Provider {
+				if a, ok := traversal[1].(hcl.TraverseAttr); ok && a.Name == alias {
+					used = true
+					break
+				}
+			}
+		}
+	}
+	if !used {
+		return false, nil
+	}
+	providers, provider, err := loadProvider(root, dt.Provider)
+	if err != nil || hasAlias(providers, dt.Provider, alias) {
+		return false, err
+	}
+	if provider == nil {
+		return false, fmt.Errorf("%s has no provider %q", filepath.Join(root, ProvidersFileName), dt.Provider)
+	}
+	if err := addAliasProvider(providers, provider, dt, alias); err != nil {
+		return false, err
+	}
+	return true, providers.save()
 }
 
 // taggedResource is a resource the provider applies its tags to, with its

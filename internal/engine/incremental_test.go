@@ -174,19 +174,44 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 		t.Fatalf("got %v, %v", changed, err)
 	}
 	generated := squashed(readFile(t, dir, GeneratedFileName))
+	subnets, group, _ := strings.Cut(generated, `resource "aws_security_group" "web"`)
 	for _, want := range []string{
-		`Team = "web"`, // a different value stays
+		`Team = "web"`, // a value of its own stays
 		`"aws:cloudformation:stack-name" = "net"`,
 	} {
-		if !strings.Contains(generated, want) {
-			t.Errorf("generated.tf misses %q:\n%s", want, generated)
+		if !strings.Contains(subnets, want) {
+			t.Errorf("the subnets miss %q:\n%s", want, generated)
 		}
 	}
-	if strings.Contains(generated, `Project = "shop"`) || strings.Contains(generated, `Team = "data"`) {
-		t.Errorf("generated.tf repeats the applied tags:\n%s", generated)
+	if strings.Contains(subnets, `Project = "shop"`) || strings.Contains(subnets, `Team = "data"`) {
+		t.Errorf("the subnets repeat the applied tags:\n%s", generated)
 	}
-	if providers := squashed(readFile(t, dir, ProvidersFileName)); !strings.Contains(providers, "default_tags { tags = local.tags }") {
+	// The group has no Team, which the provider would add: it keeps its
+	// tags, without the provider's.
+	if !strings.Contains(group, `Project = "shop"`) || !strings.Contains(group, "provider = aws.without_default_tags") {
+		t.Errorf("the group without Team doesn't keep its tags on the configuration without default tags:\n%s", generated)
+	}
+	providers := squashed(readFile(t, dir, ProvidersFileName))
+	if !strings.Contains(providers, "default_tags { tags = local.tags }") {
 		t.Errorf("providers.tf doesn't apply the tags:\n%s", providers)
+	}
+	if strings.Count(providers, `alias = "without_default_tags"`) != 1 {
+		t.Errorf("providers.tf has no configuration without default tags, or two:\n%s", providers)
+	}
+
+	// The root gets the configuration once, as the root's own provider
+	// without default_tags.
+	root := t.TempDir()
+	writeConfig(t, root, ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n  default_tags {\n    tags = local.tags\n  }\n}\n")
+	for i, want := range []bool{true, false} {
+		added, err := addRootAlias(dir, root, dt)
+		if err != nil || added != want {
+			t.Fatalf("run %d: added %v, %v; want %v", i+1, added, err, want)
+		}
+	}
+	rootProviders := squashed(readFile(t, root, ProvidersFileName))
+	if !strings.HasSuffix(rootProviders, `provider "aws" { alias = "without_default_tags" region = "eu-west-2" }`) || strings.Count(rootProviders, "alias") != 1 {
+		t.Errorf("root's providers.tf:\n%s", rootProviders)
 	}
 	if locals := squashed(readFile(t, dir, LocalsFileName)); !strings.Contains(locals, `Project = "shop"`) {
 		t.Errorf("locals.tf misses the tags:\n%s", locals)
