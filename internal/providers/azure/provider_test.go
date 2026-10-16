@@ -180,20 +180,16 @@ func TestResourceManagerHTTPClient(t *testing.T) {
 
 func TestProviderBlock(t *testing.T) {
 	p := &Provider{subscriptionID: "sub-1"}
-	// resource_provider_registrations "none": before the fix azurerm 4
-	// registered resource providers before each plan, which the Reader
-	// role can't, so every import of a real subscription failed.
-	// storage.data_plane_available false: azurerm 4 otherwise reads a
-	// storage account's queue properties with its keys, which Reader can't
-	// list, and the account fails to import.
+	// Nothing but the subscription and the features block: azurerm 5
+	// registers no resource providers by default, which the Reader role
+	// can't, and reads storage accounts without their keys, so neither
+	// resource_provider_registrations = "none" nor storage's
+	// data_plane_available = false, which azurerm 4 needed, is written.
 	want := map[string]interface{}{
 		"provider": map[string]interface{}{
 			"azurerm": map[string]interface{}{
-				"features": map[string]interface{}{
-					"storage": map[string]interface{}{"data_plane_available": false},
-				},
-				"resource_provider_registrations": "none",
-				"subscription_id":                 "sub-1",
+				"features":        map[string]interface{}{},
+				"subscription_id": "sub-1",
 			},
 		},
 	}
