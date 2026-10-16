@@ -188,7 +188,7 @@ func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string, taken 
 	}
 	validation, err := tf.Validate(ctx)
 	if err != nil {
-		return fmt.Errorf("terraform validate: %w", err)
+		return errors.Join(fmt.Errorf("terraform validate: %w", err), backup.restore())
 	}
 	if !validation.Valid {
 		return backup.restore()
@@ -220,7 +220,7 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 	}
 	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, backup.restore())
 	}
 	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
