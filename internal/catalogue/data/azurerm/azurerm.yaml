@@ -2,9 +2,11 @@
 # What Azure creates itself, which the default selection leaves out. The
 # resource_graph service records each resource's name, its resource group
 # (resource_group_name; a resource group's own name) and what manages the
-# group (resource_group_managed_by) or the resource (managed_by), and of
-# a Log Analytics workspace's tables and saved searches what tells the
-# built-in ones apart (see builtInAttributes in
+# group (resource_group_managed_by) or the resource (managed_by; of a
+# virtual machine's OS disk, os_disk_of too, while a data disk attached to
+# a machine gets attached_to instead, see graphAttributes), and of a Log
+# Analytics workspace's tables and saved searches what tells the built-in
+# ones apart (see builtInAttributes in
 # internal/providers/azure/resource_graph.go). Azure names ignore case, so
 # the rules do too.
 provider: azurerm
@@ -15,7 +17,7 @@ types:
       - reason: in a resource group another resource manages, such as an AKS cluster's node resource group (MC_*); that resource creates and deletes what is in it
         ignore_case: true
         attribute_prefixes: { resource_group_managed_by: [/subscriptions/] }
-      - reason: another resource manages it, such as the node resource group (MC_*) an AKS cluster creates and deletes
+      - reason: another resource manages it (managedBy), such as the node resource group (MC_*) an AKS cluster creates and deletes, or a managed application's resource group
         ignore_case: true
         attribute_prefixes: { managed_by: [/subscriptions/] }
       - reason: in NetworkWatcherRG, which Azure creates with a network watcher per region when a virtual network is created
@@ -27,6 +29,11 @@ types:
       - reason: in a cloud-shell-storage-<region> resource group, which Cloud Shell creates for its file share
         ignore_case: true
         attribute_prefixes: { resource_group_name: [cloud-shell-storage-] }
+  azurerm_managed_disk:
+    skip:
+      - reason: the OS disk of a virtual machine, which the machine's os_disk block creates and manages; a data disk attached to a machine is imported
+        ignore_case: true
+        attribute_prefixes: { os_disk_of: [/subscriptions/] }
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource

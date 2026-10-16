@@ -51,9 +51,10 @@ var resourceManagerServices = []string{
 // import ID, reading what the ID alone can't say, as between a function
 // app and a web app, from what the listing returned, and asking Resource
 // Manager only for what it didn't (see graphResources and newLookup).
-// Resources another resource manages (managedBy), such as an AKS
-// cluster's nodes, are left out; the catalogue's skip rules leave out
-// what Azure creates itself, such as NetworkWatcherRG.
+// The catalogue's skip rules leave out what another resource manages
+// (managedBy), such as an AKS cluster's nodes or a virtual machine's OS
+// disk, but not a data disk attached to a machine, and what Azure creates
+// itself, such as NetworkWatcherRG.
 type ResourceGraphLister struct {
 	Service
 }
@@ -92,12 +93,18 @@ func (g *ResourceGraphLister) List() error {
 		clientOptions = *options
 	}
 	// The resource groups come from graphResourceGroups, in one query:
-	// azlist would GET each group that holds a resource.
+	// azlist would GET each group that holds a resource. Resources with a
+	// managedBy are listed too: azlist would drop every attached disk,
+	// whose managedBy is its virtual machine, while aztft imports the
+	// machine's data disk attachments, which need the disks. The
+	// catalogue's skip rules leave out what another resource owns (see
+	// graphAttributes).
 	lister, err := azlist.NewLister(azlist.Option{
 		SubscriptionId: subscriptionID,
 		Cred:           credential,
 		ClientOpt:      clientOptions,
 		Recursive:      true,
+		IncludeManaged: true,
 	})
 	if err != nil {
 		return err
@@ -217,13 +224,13 @@ type queryType func(id string) (types []aztft.Type, ids []string, exact bool, er
 // report. Resources azurerm has no type for, or several it can't choose
 // between, are logged and left out.
 func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, query queryType) []harvest.Resource {
-	managedGroups := managedResourceGroups(listed)
+	owners := listedOwners{groups: managedResourceGroups(listed), osDisks: machineOSDisks(listed)}
 	attributes := make([]map[string]string, len(listed))
 	mapped := make([][]harvest.Resource, len(listed))
 	var lookups []int
 	for i, res := range listed {
 		id := res.Id.String()
-		attributes[i] = graphAttributes(res, managedGroups)
+		attributes[i] = graphAttributes(res, owners)
 		switch types := cat.FromInventory(res.Id.TypeString(), id); len(types) {
 		case 0:
 		case 1:
@@ -266,25 +273,115 @@ func managedResourceGroups(listed []azlist.AzureResource) map[string]string {
 	return groups
 }
 
+// The Resource Manager types of a virtual machine and a managed disk.
+const (
+	virtualMachineType = "Microsoft.Compute/virtualMachines"
+	managedDiskType    = "Microsoft.Compute/disks"
+)
+
+// machineOSDisks returns the listed virtual machines whose OS disk is a
+// managed disk, by upper-case ID, with the upper-case ID of that disk,
+// as the machine's storageProfile names it.
+func machineOSDisks(listed []azlist.AzureResource) map[string]string {
+	disks := map[string]string{}
+	for _, res := range listed {
+		if !strings.EqualFold(res.Id.TypeString(), virtualMachineType) {
+			continue
+		}
+		if disk := nestedString(res.Properties, "properties", "storageProfile", "osDisk", "managedDisk", "id"); disk != "" {
+			disks[strings.ToUpper(res.Id.String())] = strings.ToUpper(disk)
+		}
+	}
+	return disks
+}
+
+// nestedString returns the string at path in properties, or "" where
+// there is none.
+func nestedString(properties map[string]interface{}, path ...string) string {
+	for _, key := range path[:len(path)-1] {
+		properties, _ = properties[key].(map[string]interface{})
+	}
+	s, _ := properties[path[len(path)-1]].(string)
+	return s
+}
+
+// listedOwners is what graphAttributes reads of the other listed
+// resources: the resource groups another resource manages, with what
+// manages each (see managedResourceGroups), and the OS disks of virtual
+// machines (see machineOSDisks).
+type listedOwners struct {
+	groups  map[string]string
+	osDisks map[string]string
+}
+
 // graphAttributes records what the catalogue's skip rules and import ID
 // templates may use: the resource's name, the resource group it is in
-// (or is), what manages that resource group (or the resource, for a
-// resource group), and its tags, as Terraform flattens them,
-// tags.<key>.
-func graphAttributes(res azlist.AzureResource, managedGroups map[string]string) map[string]string {
+// (or is), what manages that resource group (or the resource:
+// managed_by), and its tags, as Terraform flattens them, tags.<key>.
+//
+// A managed disk's managedBy is the virtual machine it is attached to. Of
+// the machine's OS disk, which the machine's os_disk block manages, it is
+// recorded as managed_by, with os_disk_of; of a data disk, which is a
+// resource of its own that an azurerm_virtual_machine_data_disk_attachment
+// attaches, as attached_to, not managed_by.
+func graphAttributes(res azlist.AzureResource, owners listedOwners) map[string]string {
 	attributes := tagAttributes(res.Properties["tags"])
 	attributes["name"] = lastSegment(res.Id.String())
 	if rg, ok := res.Id.RootScope().(*armid.ResourceGroup); ok {
 		attributes["resource_group_name"] = rg.Name
-		if by := managedGroups[strings.ToUpper(rg.String())]; by != "" {
+		if by := owners.groups[strings.ToUpper(rg.String())]; by != "" {
 			attributes["resource_group_managed_by"] = by
 		}
 	}
 	if by, _ := res.Properties["managedBy"].(string); by != "" {
-		attributes["managed_by"] = by
+		switch diskRole(res, by, owners.osDisks) {
+		case dataDisk:
+			attributes["attached_to"] = by
+		case osDisk:
+			attributes["managed_by"] = by
+			attributes["os_disk_of"] = by
+		default:
+			attributes["managed_by"] = by
+		}
 	}
 	builtInAttributes(res, attributes)
 	return attributes
+}
+
+// diskKind is what a managed disk is to the virtual machine that its
+// managedBy names.
+type diskKind int
+
+const (
+	notMachineDisk diskKind = iota
+	osDisk
+	dataDisk
+)
+
+// diskRole tells whether res is the OS disk or a data disk of the
+// virtual machine by, its managedBy: from the machine's storageProfile
+// when the machine was listed with one (osDisks, see machineOSDisks),
+// else from the disk's osType, which only an OS disk has. It returns
+// notMachineDisk for a resource that isn't a managed disk, or one that
+// something other than a virtual machine manages.
+func diskRole(res azlist.AzureResource, by string, osDisks map[string]string) diskKind {
+	if !strings.EqualFold(res.Id.TypeString(), managedDiskType) {
+		return notMachineDisk
+	}
+	machine, err := armid.ParseResourceId(by)
+	if err != nil || !strings.EqualFold(machine.TypeString(), virtualMachineType) {
+		return notMachineDisk
+	}
+	if disk, ok := osDisks[strings.ToUpper(machine.String())]; ok {
+		if disk == strings.ToUpper(res.Id.String()) {
+			return osDisk
+		}
+		return dataDisk
+	}
+	if nestedString(res.Properties, "properties", "osType") != "" {
+		return osDisk
+	}
+	return dataDisk
 }
 
 // The Resource Manager types of a Log Analytics workspace's tables and

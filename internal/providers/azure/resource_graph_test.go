@@ -328,6 +328,67 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 	}
 }
 
+// A disk's managedBy is the virtual machine it is attached to. The
+// machine's OS disk, which its os_disk block manages, is left out, told
+// apart by the machine's storageProfile, or by the disk's osType when the
+// machine isn't listed; a data disk, which the machine's data disk
+// attachment needs, is kept. Before, azlist dropped every attached disk.
+func TestGraphResourcesKeepsAttachedDataDisks(t *testing.T) {
+	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app"
+	vm := rg + "/providers/Microsoft.Compute/virtualMachines/vm1"
+	other := rg + "/providers/Microsoft.Compute/virtualMachines/vm2"
+	disks := rg + "/providers/Microsoft.Compute/disks/"
+	disk := func(by, osType string) map[string]interface{} {
+		properties := map[string]interface{}{}
+		if osType != "" {
+			properties["osType"] = osType
+		}
+		return map[string]interface{}{"managedBy": by, "properties": properties}
+	}
+	listedResources := []azlist.AzureResource{
+		listed(t, vm, map[string]interface{}{"properties": map[string]interface{}{"storageProfile": map[string]interface{}{
+			"osDisk": map[string]interface{}{"managedDisk": map[string]interface{}{"id": strings.ToUpper(disks + "vm1-os")}},
+		}}}),
+		listed(t, disks+"vm1-os", disk(vm, "Linux")),
+		// A data disk made from an OS disk's snapshot keeps its osType.
+		listed(t, disks+"vm1-data", disk(vm, "Linux")),
+		// vm2 isn't listed: the osType tells.
+		listed(t, disks+"vm2-os", disk(other, "Windows")),
+		listed(t, disks+"vm2-data", disk(other, "")),
+		listed(t, disks+"spare", disk("", "")),
+	}
+	cat := catalogue.MustBuiltin("azurerm")
+	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
+		rid, _ := armid.ParseResourceId(id)
+		typ := "azurerm_managed_disk"
+		if strings.Contains(id, "/virtualMachines/") {
+			typ = "azurerm_linux_virtual_machine"
+		}
+		return []aztft.Type{{AzureId: rid, TFType: typ}}, []string{id}, true, nil
+	})
+	if len(resources) != len(listedResources) {
+		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(listedResources), resources)
+	}
+	skipped := map[string]bool{disks + "vm1-os": true, disks + "vm2-os": true}
+	for _, r := range resources {
+		reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
+		if skipped[r.Observed.ID] != (reason != "") {
+			t.Errorf("%s (%v): skipped %q", r.Observed.ID, r.Observed.Attributes, reason)
+		}
+		a := r.Observed.Attributes
+		switch r.Observed.ID {
+		case disks + "vm1-os":
+			if a["os_disk_of"] != vm || a["managed_by"] != vm {
+				t.Errorf("OS disk: %v", a)
+			}
+		case disks + "vm1-data":
+			if _, ok := a["managed_by"]; ok || a["attached_to"] != vm {
+				t.Errorf("data disk: %v", a)
+			}
+		}
+	}
+}
+
 // The tables and saved searches every Log Analytics workspace has built
 // in are recorded with what tells them apart, and the built-in skip rules
 // leave them out; a table whose plan or retention was changed, a custom
