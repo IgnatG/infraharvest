@@ -768,7 +768,7 @@ func resourceName(providerName string, r harvest.Resource, tags map[string]strin
 // resourcesByService, becomes that resource's own name. So an
 // association a lister names after the subnet it belongs to, by the
 // subnet's ID, is labelled after the subnet's Name tag, and an Elastic IP
-// named after its NAT gateway after the gateway's. Where several
+// named after its instance after the instance's. Where several
 // resources have the ID, such as a bucket and its versioning, the name
 // comes from the one of the first type in alphabetical order, among those
 // whose name isn't their ID.
