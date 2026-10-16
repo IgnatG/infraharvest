@@ -73,6 +73,7 @@ var serviceTable = []serviceEntry{
 	{"ecs", scopeRegional, listerOf[EcsLister]()},
 	{"efs", scopeRegional, listerOf[EfsLister]()},
 	{"eip", scopeRegional, listerOf[ElasticIPLister]()},
+	{"eni", scopeRegional, listerOf[NetworkInterfaceLister]()},
 	{"eks", scopeRegional, listerOf[EksLister]()},
 	{"elastic_beanstalk", scopeRegional, listerOf[BeanstalkLister]()},
 	{"elasticache", scopeRegional, listerOf[ElastiCacheLister]()},

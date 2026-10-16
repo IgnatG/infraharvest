@@ -1,0 +1,45 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package aws
+
+import (
+	"net/url"
+	"testing"
+)
+
+// The lister asks for the network interfaces AWS doesn't manage, of the
+// types people create, and leaves out an instance's primary interface and
+// any requester-managed one the answer still has.
+func TestRecordNetworkInterfaces(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op != "DescribeNetworkInterfaces" {
+			return recordUnexpected(t, call)
+		}
+		form, err := url.ParseQuery(call.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if form.Get("Filter.1.Name") != "requester-managed" || form.Get("Filter.1.Value.1") != "false" || form.Get("Filter.2.Name") != "interface-type" || form.Get("Filter.2.Value.1") != "interface" {
+			t.Errorf("filters: %v", form)
+		}
+		return recordEC2(call.Op, `<networkInterfaceSet>
+			<item><networkInterfaceId>eni-own</networkInterfaceId><requesterManaged>false</requesterManaged></item>
+			<item><networkInterfaceId>eni-secondary</networkInterfaceId><requesterManaged>false</requesterManaged>
+				<attachment><instanceId>i-1</instanceId><deviceIndex>1</deviceIndex></attachment></item>
+			<item><networkInterfaceId>eni-primary</networkInterfaceId><requesterManaged>false</requesterManaged>
+				<attachment><instanceId>i-1</instanceId><deviceIndex>0</deviceIndex></attachment></item>
+			<item><networkInterfaceId>eni-lambda</networkInterfaceId><requesterManaged>true</requesterManaged></item>
+			</networkInterfaceSet>`)
+	})
+	g := &NetworkInterfaceLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_network_interface", "eni-own", "eni-own", nil},
+		recordedResource{"aws_network_interface", "eni-secondary", "eni-secondary", nil},
+	)
+}
