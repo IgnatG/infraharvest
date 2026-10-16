@@ -77,13 +77,15 @@ jobs:
     - name: Test
       run: go test ./...
 
-  # Accounts and projects import in parallel (--parallel): the run state
-  # they share, under the race detector. Two providers keep the build
-  # small.
+  # Accounts and projects import in parallel (--parallel), and listers,
+  # discovery and the engine run concurrent work of their own: the state
+  # they share, under the race detector. Two providers keep the CLI's build
+  # small; the provider packages build on their own.
   race:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -98,7 +100,10 @@ jobs:
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Race
-      run: go test -race -tags minimal,aws,google ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
+      run: >-
+        go test -race -tags minimal,aws,google
+        ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
+        ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
 
   # A required check: passes when go test and race passed, or were skipped.
   test:
