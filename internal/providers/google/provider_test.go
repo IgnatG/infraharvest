@@ -128,4 +128,8 @@ func TestModuleProviders(t *testing.T) {
 	if attribute, effective, prefix := p.EffectiveTags(); attribute != "labels" || effective != "effective_labels" || prefix != "goog-" {
 		t.Errorf("effective tags: %s %s %s", attribute, effective, prefix)
 	}
+	var _ harvest.ProviderWithInheritedArguments = p
+	if got := strings.Join(p.InheritedArguments(), ","); got != "project,region,zone" {
+		t.Errorf("inherited arguments: %s", got)
+	}
 }

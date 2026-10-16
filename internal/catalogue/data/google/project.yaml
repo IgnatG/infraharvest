@@ -12,3 +12,5 @@ types:
     import_id:
       - "{asset.project}"
       - "{id}"
+    # A project's deletion_policy defaults to PREVENT instead.
+    omit: [deletion_policy=PREVENT]

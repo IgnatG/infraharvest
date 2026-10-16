@@ -198,6 +198,14 @@ func (*Provider) EffectiveTags() (attribute, effective, reservedPrefix string) {
 	return "labels", "effective_labels", "goog-"
 }
 
+// InheritedArguments are the provider block's arguments a resource takes
+// as its own when it doesn't set them: the project and the region (and a
+// zone, though the provider block sets none), which the provider block
+// sets to the import's.
+func (*Provider) InheritedArguments() []string {
+	return []string{"project", "region", "zone"}
+}
+
 // DefaultTagsArgument says default_labels is an argument of the provider
 // block, not a block.
 func (*Provider) DefaultTagsArgument() bool {

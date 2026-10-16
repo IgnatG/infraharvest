@@ -126,6 +126,14 @@ type ProviderWithEffectiveTags interface {
 	EffectiveTags() (attribute, effective, reservedPrefix string)
 }
 
+// ProviderWithInheritedArguments is a provider whose resources take some
+// arguments of its provider block as theirs when they don't set them, such
+// as Google's project and region, so the engine leaves them out of the
+// resources that repeat the provider's value.
+type ProviderWithInheritedArguments interface {
+	InheritedArguments() []string
+}
+
 // ProviderWithConcurrentListing is a provider whose services may list at the
 // same time, because their listers share only state that is safe for
 // concurrent use, when ConcurrentListing returns true.

@@ -325,6 +325,9 @@ func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *ro
 		attribute, effective, reserved := withEffectiveTags.EffectiveTags()
 		opts.EffectiveTags = &engine.EffectiveTags{Attribute: attribute, Effective: effective, ReservedPrefix: reserved}
 	}
+	if withInherited, ok := provider.(harvest.ProviderWithInheritedArguments); ok {
+		opts.Inherited = withInherited.InheritedArguments()
+	}
 	if withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders); ok {
 		opts.ModuleProviders = map[string]engine.Provider{}
 		for name, p := range withModuleProviders.ModuleProviders() {

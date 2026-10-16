@@ -116,6 +116,11 @@ type Options struct {
 	// which an import leaves out of the provider's tags attribute, from
 	// the attribute that has them all (see fillEffectiveTags).
 	EffectiveTags *EffectiveTags
+	// Inherited names arguments of the provider block that resources take
+	// as theirs when they don't set them, such as Google's project and
+	// region: Generate leaves them out of the resources that repeat the
+	// provider's value (see omitInherited).
+	Inherited []string
 	// StateOnly names, per resource type, arguments the provider keeps only
 	// in state, which import can't set and the plan check (see runGate)
 	// lets change.

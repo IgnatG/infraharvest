@@ -35,7 +35,7 @@ Repeated values move into `locals.tf`:
 - **Shared tags:** tags every resource in a directory shares become `local.tags`. On AWS they are applied through the provider's `default_tags`, and each resource keeps only its other tags. Because AWS records every tag in `tags_all`, the move is kept only if a new plan shows no extra changes. On Google Cloud, where an import leaves `labels` empty, each resource first gets the labels of its `effective_labels` but Google's own `goog-` labels (see [Labels](google.md#labels)); the labels every resource shares then become `local.labels`, applied through the provider's `default_labels`. On Azure, where azurerm has no such setting, each resource and module call sets `tags = local.tags`, or `merge(local.tags, { ... })` with its other tags; `hidden-` tags stay on the resources.
 - **Repeated identifiers:** IDs and ARNs used three or more times (`vpc_id = "vpc-0abc1234"`) become locals named after the argument that uses them (`local.vpc_id`).
 
-AWS resources don't repeat `region` (the provider's) or the computed `tags_all`.
+AWS resources don't repeat `region` (the provider's) or the computed `tags_all`. Google Cloud resources left in the root don't repeat the provider's `project` and `region`, where the provider gives them its own (curated modules take the project as an input), or `deletion_policy` at its default (`DELETE`, or `PREVENT` for a project), which is the provider's setting for `terraform destroy`, not the resource's.
 
 Clusters of resources move into module calls: see [Modules](modules.md).
 

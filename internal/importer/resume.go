@@ -54,12 +54,13 @@ func fingerprint(engineVersion string, imports []engine.Import, opts engine.Opti
 		Omit, StateOnly map[string][]string
 		DefaultTags     *engine.DefaultTags
 		EffectiveTags   *engine.EffectiveTags
+		Inherited       []string
 		Modules         bool
 		Adapters        []string
 		External        []engine.External
 		DataSources     map[string]engine.DataSource
 		Placeholders    map[string]engine.Placeholder
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.StateOnly, opts.DefaultTags, opts.EffectiveTags, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders})
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.StateOnly, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders})
 	if err != nil {
 		return "", err
 	}
