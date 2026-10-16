@@ -235,6 +235,17 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	// Terraform writes every value the provider doesn't mark sensitive
+	// into generated.tf, secrets among them, and with the mode it chooses.
+	// The directory stays private until those secrets are moved out of
+	// the file below; should Generate fail before that, it stays so.
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, err
+	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
 	for name, content := range opts.Config {
 		files[name] = content
@@ -307,6 +318,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		if err := writeVariables(dir, literal, nil); err != nil {
 			return nil, err
 		}
+	}
+	if err := os.Chmod(dir, info.Mode()&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
+		return nil, err
 	}
 	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
 		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
