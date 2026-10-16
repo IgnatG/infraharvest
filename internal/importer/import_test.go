@@ -157,8 +157,10 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 
 // What no Import call could do fails the command once, before any scope:
 // an unknown service or engine, an import that says neither --selection
-// nor --all, a selection file or catalogue that doesn't load, and a
-// managed state source that doesn't parse or isn't there.
+// nor --all, a selection file or catalogue that doesn't load, a
+// managed state source that doesn't parse or isn't there, a --layout
+// that leads out of --out, has a placeholder nothing fills in, or no
+// {env} for --env-tags, and a negative number of a flag that counts.
 func TestCheckOptions(t *testing.T) {
 	p := &servicesProvider{}
 	dir := t.TempDir()
@@ -197,6 +199,22 @@ func TestCheckOptions(t *testing.T) {
 		{Options{All: true, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
 		{Options{All: true, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
 		{Options{All: true, ManagedState: []string{missing}}, "--managed-state: state " + missing},
+		{Options{All: true, Layout: "{out}/{provider}/{account}/{region}/{service}/{env}/"}, ""},
+		{Options{All: true, Layout: `{out}\{provider}\`}, ""},
+		{Options{All: true, Layout: "{out}"}, ""},
+		{Options{All: true, Layout: "{out}/{project}/"}, "unknown placeholder {project}"},
+		{Options{All: true, Layout: "{provider}/{account}/"}, "must start with {out}/"},
+		{Options{All: true, Layout: "/srv/roots/{provider}/"}, "must start with {out}/"},
+		{Options{All: true, Layout: "{out}-{provider}/"}, "must start with {out}/"},
+		{Options{All: true, Layout: "{out}/../{provider}/"}, "leads out of --out"},
+		{Options{All: true, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
+		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
+		{Options{All: true, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
+		{Options{All: true, RateLimit: -1}, "--rate-limit can't be negative"},
+		{Options{All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
+		{Options{All: true, ListParallel: -1}, "--list-parallel can't be negative"},
+		{Options{All: true, Parallel: -2}, "--parallel can't be negative"},
 	} {
 		err := CheckOptions(p, tc.options)
 		switch {

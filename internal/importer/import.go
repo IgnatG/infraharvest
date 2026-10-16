@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -156,8 +157,10 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // call could do, before any account, region or project is planned: an
 // unknown --engine, --format or --modules, a filter that doesn't parse,
 // an import that says neither --selection nor --all, --services or --skip
-// names provider has no service of, and the selection file, catalogue
-// and managed state sources it can tell are wrong (see checkSources).
+// names provider has no service of, a --layout checkLayout rejects, a
+// negative --rate-limit, --list-timeout, --list-parallel or --parallel,
+// and the selection file, catalogue and managed state sources it can tell
+// are wrong (see checkSources).
 // Checked once, they fail the command the same way however many scopes
 // it covers, instead of failing each scope and reading as a partial
 // import.
@@ -189,7 +192,56 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 			return fmt.Errorf("%s: %s has no service %s (infraharvest services %s lists them)", flag, provider.Name(), strings.Join(unknown, ", "), provider.Name())
 		}
 	}
+	if err := checkLayout(options.Layout, options.EnvTags); err != nil {
+		return err
+	}
+	for _, f := range []struct {
+		flag     string
+		negative bool
+	}{
+		{"--rate-limit", options.RateLimit < 0},
+		{"--list-timeout", options.ListTimeout < 0},
+		{"--list-parallel", options.ListParallel < 0},
+		{"--parallel", options.Parallel < 0},
+	} {
+		if f.negative {
+			return fmt.Errorf("%s can't be negative", f.flag)
+		}
+	}
 	return checkSources(provider, options)
+}
+
+// layoutPlaceholders are the placeholders a --layout may use.
+var layoutPlaceholders = []string{"{out}", "{provider}", "{account}", "{region}", "{service}", "{env}"}
+
+// placeholder matches a placeholder of a --layout.
+var placeholder = regexp.MustCompile(`\{[^{}]*\}`)
+
+// checkLayout rejects a --layout ("" is the default) that would put roots
+// outside --out, or that has a placeholder nothing fills in, and
+// --env-tags with a layout of its own that has no {env} to split
+// environments into.
+func checkLayout(layout string, envTags []string) error {
+	if layout == "" {
+		return nil
+	}
+	for _, p := range placeholder.FindAllString(layout, -1) {
+		if !slices.Contains(layoutPlaceholders, p) {
+			return fmt.Errorf("--layout %q: unknown placeholder %s: use %s", layout, p, strings.Join(layoutPlaceholders, ", "))
+		}
+	}
+	rest, ok := strings.CutPrefix(layout, "{out}")
+	if !ok || (rest != "" && rest[0] != '/' && rest[0] != '\\') {
+		return fmt.Errorf("--layout %q must start with {out}/, so that the roots go under --out", layout)
+	}
+	segments := strings.FieldsFunc(rest, func(r rune) bool { return r == '/' || r == '\\' })
+	if slices.Contains(segments, "..") {
+		return fmt.Errorf("--layout %q leads out of --out with ..", layout)
+	}
+	if len(envTags) > 0 && layout != DefaultLayout && !strings.Contains(layout, "{env}") {
+		return fmt.Errorf("--env-tags splits roots by environment, but --layout %q has no {env}: add it where the environment goes", layout)
+	}
+	return nil
 }
 
 // checkSources rejects the files and sources the import reads that can be
