@@ -133,8 +133,7 @@ module "net" {
 
 module "net" {
   source = "./net"
-  x {
-  }
+  x {}
   y = 1
 }
 `,
@@ -209,6 +208,42 @@ resource "aws_sqs_queue" "q" {
 	} {
 		if !strings.Contains(string(got), apart) {
 			t.Errorf("no blank line in %q:\n%s", apart, got)
+		}
+	}
+}
+
+// Blocks and objects that hold nothing go on one line; a heredoc's text
+// and a block with a comment stay as they are.
+func TestLayoutCollapsesEmptyBlocks(t *testing.T) {
+	got, ok := layout([]byte(`resource "aws_wafv2_web_acl" "a" {
+  name = "a"
+  policy = <<EOT
+{
+}
+EOT
+  tags = {
+  }
+  default_action {
+    allow {
+    }
+  }
+  rule {
+    # nothing yet
+  }
+}
+
+provider "azurerm" {
+  features {
+
+  }
+}
+`))
+	if !ok {
+		t.Fatal("doesn't parse")
+	}
+	for _, want := range []string{"    allow {}\n", " = {}\n", "<<EOT\n{\n}\nEOT\n", "  rule {\n    # nothing yet\n  }\n", "  features {}\n"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("misses %q:\n%s", want, got)
 		}
 	}
 }

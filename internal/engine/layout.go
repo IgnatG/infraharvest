@@ -77,7 +77,7 @@ func layout(src []byte) ([]byte, bool) {
 		}
 		out = slices.Concat(out[:b.OpenBraceRange.End.Byte], []byte("\n"), inner, out[b.CloseBraceRange.Start.Byte:])
 	}
-	formatted := hclwrite.Format(out)
+	formatted := collapseEmptyBlocks(hclwrite.Format(out))
 	if _, diags := hclsyntax.ParseConfig(formatted, "", hcl.InitialPos); diags.HasErrors() {
 		return nil, false
 	}
@@ -262,4 +262,31 @@ func withNewline(text []byte) []byte {
 		return text
 	}
 	return append(slices.Clone(text), '\n')
+}
+
+// collapseEmptyBlocks writes the blocks and objects of src that hold
+// nothing on one line, as allow {} and tags = {}, as people write them.
+func collapseEmptyBlocks(src []byte) []byte {
+	tokens, diags := hclsyntax.LexConfig(src, "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return src
+	}
+	var out []byte
+	last := 0
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i].Type != hclsyntax.TokenOBrace {
+			continue
+		}
+		j := i + 1
+		for j < len(tokens) && tokens[j].Type == hclsyntax.TokenNewline {
+			j++
+		}
+		if j == i+1 || j == len(tokens) || tokens[j].Type != hclsyntax.TokenCBrace {
+			continue
+		}
+		out = append(out, src[last:tokens[i].Range.End.Byte]...)
+		last = tokens[j].Range.Start.Byte
+		i = j
+	}
+	return append(out, src[last:]...)
 }
