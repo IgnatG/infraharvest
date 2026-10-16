@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/pricings/VirtualMachines", "name": "virtual_machines", "attributes": {"tier": "Standard", "subplan": "P2", "deprecated": "false"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/pricings/StorageAccounts", "name": "storage_accounts", "attributes": {"tier": "Free"}}
+]}

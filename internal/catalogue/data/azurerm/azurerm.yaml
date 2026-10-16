@@ -76,6 +76,14 @@ types:
       - reason: the network interface Azure creates for a Private Link service, which the service creates and deletes with itself
         ignore_case: true
         attribute_prefixes: { private_link_service: [/subscriptions/] }
+  azurerm_security_center_subscription_pricing:
+    service: security_center_subscription_pricing
+    # Every subscription has every plan, on Free until Defender for Cloud
+    # is turned on for it; the lister records each plan's tier.
+    skip:
+      - reason: a Microsoft Defender for Cloud plan left on the Free tier, as every subscription has each plan; select it to import it
+        ignore_case: true
+        attributes: { tier: Free }
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource
