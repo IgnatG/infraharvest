@@ -174,6 +174,47 @@ jobs:
     - name: govulncheck
       run: .github/scripts/govulncheck-gate.sh ./infraharvest
 
+  # Fuzzes the parsers of what people and clouds hand infraharvest (state,
+  # selection files, filters) and the secret detectors, briefly: go test
+  # ./... runs only their seed inputs. go test fuzzes one target at a time.
+  # A failing input is uploaded; commit it under the package's
+  # testdata/fuzz to keep it as a seed.
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Fuzz
+      run: |
+        while read -r target pkg; do
+          echo "::group::$target ($pkg)"
+          go test -run='^$' -fuzz="^$target\$" -fuzztime=30s "$pkg"
+          echo "::endgroup::"
+        done <<'EOF'
+        FuzzSecretsInJSONString ./internal/engine/
+        FuzzSecretsInHCL ./internal/engine/
+        FuzzLiteralSecrets ./internal/engine/
+        FuzzParse ./internal/managed/
+        FuzzLoad ./internal/selection/
+        FuzzParseFilters ./internal/harvest/
+        EOF
+    - name: Upload the failing inputs
+      if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: fuzz-failures
+        path: internal/**/testdata/fuzz/
+        if-no-files-found: ignore
+
   # Runs the Terraform engine end to end against real Terraform and the
   # random provider (no cloud credentials needed).
   engine-integration:
@@ -506,7 +547,7 @@ jobs:
   # A required check: passes when the other Go and Terraform checks passed,
   # or were skipped.
   checks:
-    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
+    needs: [changes, test-windows, govulncheck, fuzz, engine-integration, permissions, build-tags, darwin]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
