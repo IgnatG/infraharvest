@@ -19,7 +19,7 @@ data "aws_kms_key" "shared" {
   key_id = "0987dcba-09fe-87dc-65ba-ab0987654321"
 }
 
-# Left out of generated configuration: region, tags_all, policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}
+# Left out of generated configuration: region, tags_all, *.tags_all, policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}
 
 # Left out where the plan stays the same, as the default: multi_region=false, rotation_period_in_days=365
 

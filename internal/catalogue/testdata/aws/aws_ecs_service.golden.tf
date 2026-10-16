@@ -10,7 +10,7 @@ import {
   id = "apps/worker"
 }
 
-# Left out of generated configuration: region, tags_all, iam_role when network_configuration, iam_role=/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS, deployment_configuration when deployment_configuration.strategy=ROLLING and deployment_configuration.bake_time_in_minutes=0 and !deployment_configuration.lifecycle_hook
+# Left out of generated configuration: region, tags_all, *.tags_all, iam_role when network_configuration, iam_role=/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS, deployment_configuration when deployment_configuration.strategy=ROLLING and deployment_configuration.bake_time_in_minutes=0 and !deployment_configuration.lifecycle_hook
 
 # Left out where the plan stays the same, as the default: availability_zone_rebalancing=ENABLED, platform_version=LATEST
 

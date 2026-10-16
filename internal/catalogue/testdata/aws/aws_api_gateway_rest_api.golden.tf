@@ -5,7 +5,7 @@ import {
   id = "a1b2c3d4e5"
 }
 
-# Left out of generated configuration: region, tags_all, endpoint_configuration when endpoint_configuration.types=["EDGE"] and endpoint_configuration.ip_address_type=ipv4
+# Left out of generated configuration: region, tags_all, *.tags_all, endpoint_configuration when endpoint_configuration.types=["EDGE"] and endpoint_configuration.ip_address_type=ipv4
 
 # Left out where the plan stays the same, as the default: api_key_source=HEADER, disable_execute_api_endpoint=false, put_rest_api_mode=overwrite, security_policy=TLS_1_0
 

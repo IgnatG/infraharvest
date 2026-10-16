@@ -5,7 +5,7 @@ import {
   id = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/0123456789abcdef"
 }
 
-# Left out of generated configuration: region, tags_all, stickiness when stickiness.enabled=false
+# Left out of generated configuration: region, tags_all, *.tags_all, stickiness when stickiness.enabled=false
 
 # Left out where the plan stays the same, as the default: connection_termination=false, ip_address_type=ipv4, load_balancing_algorithm_type=round_robin, load_balancing_anomaly_mitigation=off, load_balancing_cross_zone_enabled=use_load_balancer_configuration, protocol_version=HTTP1, target_group_health.dns_failover.minimum_healthy_targets_count=off, target_group_health.dns_failover.minimum_healthy_targets_percentage=off, target_group_health.unhealthy_state_routing.minimum_healthy_targets_count=1, target_group_health.unhealthy_state_routing.minimum_healthy_targets_percentage=off
 

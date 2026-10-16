@@ -5,7 +5,7 @@ import {
   id = "orders"
 }
 
-# Left out of generated configuration: region, tags_all, code_sha256, logging_config when logging_config.log_format=Text and logging_config.log_group=/aws/lambda/{function_name}, tracing_config when tracing_config.mode=PassThrough
+# Left out of generated configuration: region, tags_all, *.tags_all, code_sha256, logging_config when logging_config.log_format=Text and logging_config.log_group=/aws/lambda/{function_name}, tracing_config when tracing_config.mode=PassThrough
 
 # Left out where the plan stays the same, as the default: architectures=["x86_64"], ephemeral_storage.size=512, memory_size=128, package_type=Zip, reserved_concurrent_executions=-1, timeout=3
 

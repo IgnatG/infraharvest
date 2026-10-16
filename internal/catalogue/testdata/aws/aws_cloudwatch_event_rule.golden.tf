@@ -5,7 +5,7 @@ import {
   id = "default/nightly"
 }
 
-# Left out of generated configuration: region, tags_all, is_enabled
+# Left out of generated configuration: region, tags_all, *.tags_all, is_enabled
 
 # Left out where the plan stays the same, as the default: event_bus_name=default, state=ENABLED
 

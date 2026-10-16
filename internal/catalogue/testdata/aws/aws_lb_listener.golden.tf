@@ -5,7 +5,7 @@ import {
   id = "arn:aws:elasticloadbalancing:eu-west-2:123456789012:listener/app/web/0123456789abcdef/fedcba9876543210"
 }
 
-# Left out of generated configuration: region, tags_all, mutual_authentication when mutual_authentication.mode=off
+# Left out of generated configuration: region, tags_all, *.tags_all, mutual_authentication when mutual_authentication.mode=off
 
 # Left out where the plan stays the same, as the default: default_action.order=1, routing_http_response_server_enabled=true, tcp_idle_timeout_seconds=350
 

@@ -10,7 +10,7 @@ import {
   id = "eipalloc-0a1b2c3d4e5f60718"
 }
 
-# Left out of generated configuration: region, tags_all, network_border_group={region}
+# Left out of generated configuration: region, tags_all, *.tags_all, network_border_group={region}
 
 # Left out where the plan stays the same, as the default: domain=vpc, public_ipv4_pool=amazon
 
