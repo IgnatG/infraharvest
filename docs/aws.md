@@ -24,6 +24,8 @@ Without `--regions`, the import covers the region the profile or the environment
 
 Global services are imported once, not per region, into `<out>/aws/<account>/global/`, with the provider's region set to `us-east-1`: `budgets`, `cloudfront`, `ecrpublic`, `iam`, `organization`, `route53` and `waf`. `wafv2_cloudfront`, the web ACLs that CloudFront uses, exists only in `us-east-1` and is imported there, with the regional services when `--regions` includes `us-east-1`. A custom `--layout` without `{region}` still gets `global/`, `us-east-1/` and each region's directory added when a run would otherwise put several of them in one root. A service AWS doesn't offer in a region is skipped there, with a log message.
 
+`route53` lists each hosted zone with its records, then the health checks. When the records of a zone, or the health checks, fail to list, what was listed is imported all the same and the service is reported as failed, so the import exits 1, or 3 with `--allow-partial`; when the zones themselves fail to list, nothing of `route53` is imported.
+
 ## Several accounts
 
 `--accounts` imports the accounts it names, and `--organization` every active account of the organization the credentials belong to. Listing the organization's accounts needs `organizations:ListAccounts`, which the management account and a delegated administrator have. In each account, infraharvest assumes the role `--assume-role` names, where `{account}` stands for the account ID. It defaults to `arn:aws:iam::{account}:role/infraharvest-readonly`, the role the permissions configuration creates:

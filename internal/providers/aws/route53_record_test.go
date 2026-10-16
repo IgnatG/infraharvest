@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordRoute53NS = `xmlns="https://route53.amazonaws.com/doc/2013-04-01/"`
@@ -72,10 +74,10 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 	useFakeAPI(t, recordRoute53API(t))
 	g := &Route53Lister{}
 
-	// Zone Z2's records fail to list: the error says so, and the other
-	// zone and the health checks are listed all the same.
-	if err := g.List(); err == nil || !strings.Contains(err.Error(), "records of zone Z2") {
-		t.Fatalf("want the error of zone Z2's records, got %v", err)
+	// Zone Z2's records fail to list: the error says so, and is partial,
+	// as the other zone and the health checks are listed all the same.
+	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "records of zone Z2") {
+		t.Fatalf("want the partial error of zone Z2's records, got %v", err)
 	}
 
 	record := func(id, label, name, typ, setID string) recordedResource {
@@ -96,14 +98,16 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 	)
 }
 
-// Errors are returned, and what was listed besides is kept.
+// Errors are returned, and what was listed besides is kept. A zone list
+// that fails fails the service; health checks that fail to list, once the
+// zones are listed, leave the listing partial.
 func TestRecordRoute53ReturnsErrors(t *testing.T) {
 	t.Run("zones", func(t *testing.T) {
 		useFakeAPI(t, recordRoute53API(t, "/2013-04-01/hostedzone"))
 		g := &Route53Lister{}
 
-		if err := g.List(); err == nil {
-			t.Error("want the error returned")
+		if err := g.List(); err == nil || harvest.IsPartial(err) {
+			t.Errorf("want the error returned, not partial, got %v", err)
 		}
 
 		assertRecorded(t, g.Resources,
@@ -115,8 +119,8 @@ func TestRecordRoute53ReturnsErrors(t *testing.T) {
 		useFakeAPI(t, recordRoute53API(t, "/2013-04-01/healthcheck"))
 		g := &Route53Lister{}
 
-		if err := g.List(); err == nil {
-			t.Error("want the error returned")
+		if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "health checks") {
+			t.Errorf("want the partial error of the health checks, got %v", err)
 		}
 
 		assertIDs(t, g.Resources, "aws_route53_zone", "Z1", "Z2")
