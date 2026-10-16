@@ -48,7 +48,7 @@ const googleProject = "infraharvest-e2e"
 func TestGoogleRoundTrip(t *testing.T) {
 	endpoint := os.Getenv(google.EndpointEnv)
 	if endpoint == "" {
-		t.Skip(google.EndpointEnv + " is not set; start floci-gcp in e2e/compose.yaml")
+		skipUnconfigured(t, google.EndpointEnv+" is not set; start floci-gcp in e2e/compose.yaml")
 	}
 	if !isLoopback(endpoint) {
 		t.Fatalf("%s=%s: the test creates resources, so it only runs against a local emulator", google.EndpointEnv, endpoint)

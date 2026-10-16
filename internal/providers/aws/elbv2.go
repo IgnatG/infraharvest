@@ -174,7 +174,10 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 // every target at once; an error is logged and leaves the group without
 // its targets. Each target is named after the group, groupName, and the
 // target: an instance by its ID, which the import names after the
-// instance, an IP address, or the name of a Lambda function.
+// instance, an IP address, or the name of a Lambda function. The default
+// selection leaves out the targets Auto Scaling groups and ECS services
+// register (see excludeRegisteredTargets), which it finds by the
+// target_group_arn attribute.
 func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN, groupName string) {
 	out, err := client.DescribeTargetHealth(g.Context(), &elasticloadbalancingv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(groupARN),

@@ -24,11 +24,15 @@ type IamLister struct {
 	Service
 }
 
-// List lists the account's IAM resources section by section:
-// users, groups, policies, roles, instance profiles. The first error ends
-// the listing and is returned, so that a failed list never passes for an
-// empty one; the one exception is an entity deleted between the list that
-// named it and the reading of its own lists (see iamGone).
+// List lists the account's IAM resources section by section: users,
+// groups, policies, roles, instance profiles. Users, groups, policies and
+// roles, with their inline policies, policy attachments and group
+// memberships, all come from the account's authorization details, a few
+// pages for the whole account rather than a few lists per user, group and
+// role; only access keys are still listed user by user. The first error
+// ends the listing and is returned, so that a failed list never passes for
+// an empty one; the one exception is a user deleted between the details
+// that named it and the listing of its access keys (see iamGone).
 func (g *IamLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -37,46 +41,28 @@ func (g *IamLister) List() error {
 	client := iam.NewFromConfig(config)
 	g.Resources = nil
 
-	sections := []struct {
-		name string
-		list func(*iam.Client) error
-	}{
-		{"users", g.getUsers},
-		{"groups", g.getGroups},
-		{"policies", g.getPolicies},
-		{"roles", g.getRoles},
-		{"instance profiles", g.getInstanceProfiles},
+	details, err := g.getAuthorizationDetails(client)
+	if err != nil {
+		return fmt.Errorf("authorization details: %w", err)
 	}
-	for _, section := range sections {
-		if err := section.list(client); err != nil {
-			return fmt.Errorf("%s: %w", section.name, err)
-		}
+	if err := g.addUsers(client, details.users); err != nil {
+		return fmt.Errorf("users: %w", err)
+	}
+	g.addGroups(details.groups)
+	g.addPolicies(details.policies)
+	g.addRoles(details.roles)
+	if err := g.getInstanceProfiles(client); err != nil {
+		return fmt.Errorf("instance profiles: %w", err)
 	}
 	return nil
 }
 
-// iamGone reports whether err says that the entity whose own lists were
-// being read, a user, group or role, no longer exists: it was deleted
-// after the list that named it, so there is nothing of it left to import.
+// iamGone reports whether err says that the user whose access keys were
+// being listed no longer exists: it was deleted after the details that
+// named it, so there is nothing of it left to import.
 func iamGone(err error) bool {
 	var gone *iamtypes.NoSuchEntityException
 	return errors.As(err, &gone)
-}
-
-// iamSubList runs list, which reads what (its inline policies, say) of the
-// user, group or role (kind) called name. An entity that went away
-// meanwhile is logged and the list left out; any other error is returned,
-// saying whose list it was.
-func iamSubList(what, kind, name string, list func() error) error {
-	err := list()
-	switch {
-	case err == nil:
-		return nil
-	case iamGone(err):
-		log.Printf("aws: iam: %s of %s %s: it no longer exists; leaving it out: %v", what, kind, name, err)
-		return nil
-	}
-	return fmt.Errorf("%s of %s %s: %w", what, kind, name, err)
 }
 
 // iamPages is what every IAM paginator offers, for eachIamPage.
@@ -110,78 +96,77 @@ func (g *IamLister) add(id, name, resourceType string, attributes map[string]str
 	g.Resources = append(g.Resources, harvest.Record(id, name, resourceType, "aws", attributes))
 }
 
-// getUsers records every user by its user name, which Terraform imports
-// it by, each followed by its inline policies, its policy attachments,
-// its group memberships and its access keys.
-func (g *IamLister) getUsers(client *iam.Client) error {
-	userLists := []struct {
-		what string
-		list func(*iam.Client, string) error
-	}{
-		{"inline policies", g.listUserInlinePolicies},
-		{"policy attachments", g.listUserAttachments},
-		{"group memberships", g.listUserGroupMemberships},
-		{"access keys", g.listUserAccessKeys},
-	}
-	pages := iam.NewListUsersPaginator(client, &iam.ListUsersInput{}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListUsersOutput) error {
-		for _, user := range page.Users {
-			name := aws.ToString(user.UserName)
-			g.add(name, name, "aws_iam_user", map[string]string{"force_destroy": "false"})
-			for _, l := range userLists {
-				if err := iamSubList(l.what, "user", name, func() error { return l.list(client, name) }); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
+// iamAuthorizationDetails is every page of the account's authorization
+// details put together: its users, groups, customer-managed policies and
+// roles, each with its inline policies and policy attachments.
+type iamAuthorizationDetails struct {
+	users    []iamtypes.UserDetail
+	groups   []iamtypes.GroupDetail
+	policies []iamtypes.ManagedPolicyDetail
+	roles    []iamtypes.RoleDetail
 }
 
-// listUserInlinePolicies records the inline policies of user as
-// <user>:<policy>, which is how Terraform imports them.
-func (g *IamLister) listUserInlinePolicies(client *iam.Client, user string) error {
-	pages := iam.NewListUserPoliciesPaginator(client, &iam.ListUserPoliciesInput{UserName: aws.String(user)}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListUserPoliciesOutput) error {
-		for _, policy := range page.PolicyNames {
+// getAuthorizationDetails reads the account's authorization details, all
+// pages of them, leaving out the AWS managed policies, which exist in every
+// account and are not imported. A page mixes users, groups, policies and
+// roles, so all pages are read before anything is recorded, to record them
+// kind by kind.
+func (g *IamLister) getAuthorizationDetails(client *iam.Client) (iamAuthorizationDetails, error) {
+	var details iamAuthorizationDetails
+	input := &iam.GetAccountAuthorizationDetailsInput{Filter: []iamtypes.EntityType{
+		iamtypes.EntityTypeUser,
+		iamtypes.EntityTypeGroup,
+		iamtypes.EntityTypeLocalManagedPolicy,
+		iamtypes.EntityTypeRole,
+	}}
+	pages := iam.NewGetAccountAuthorizationDetailsPaginator(client, input, stopOnDuplicateToken)
+	err := eachIamPage(g.Context(), pages, func(page *iam.GetAccountAuthorizationDetailsOutput) error {
+		details.users = append(details.users, page.UserDetailList...)
+		details.groups = append(details.groups, page.GroupDetailList...)
+		details.policies = append(details.policies, page.Policies...)
+		details.roles = append(details.roles, page.RoleDetailList...)
+		return nil
+	})
+	return details, err
+}
+
+// addUsers records every user by its user name, which Terraform imports
+// it by, each followed by its inline policies (as <user>:<policy>), its
+// policy attachments (as <user>/<policy ARN>), its group memberships (as
+// <user>/<group>) and its access keys, the one list read user by user. A
+// user deleted before its access keys are listed is logged and its keys
+// left out.
+func (g *IamLister) addUsers(client *iam.Client, users []iamtypes.UserDetail) error {
+	for _, user := range users {
+		name := aws.ToString(user.UserName)
+		g.add(name, name, "aws_iam_user", withIamTags(map[string]string{"force_destroy": "false"}, user.Tags))
+		for _, policy := range user.UserPolicyList {
+			inline := aws.ToString(policy.PolicyName)
 			// A user name may hold an @, as an email address does; the
 			// name leaves it out.
-			g.add(user+":"+policy, strings.ReplaceAll(user+"_"+policy, "@", ""), "aws_iam_user_policy", nil)
+			g.add(name+":"+inline, strings.ReplaceAll(name+"_"+inline, "@", ""), "aws_iam_user_policy", nil)
 		}
-		return nil
-	})
-}
-
-// listUserAttachments records the managed policies attached to user as
-// <user>/<policy ARN>.
-func (g *IamLister) listUserAttachments(client *iam.Client, user string) error {
-	pages := iam.NewListAttachedUserPoliciesPaginator(client, &iam.ListAttachedUserPoliciesInput{UserName: aws.String(user)}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListAttachedUserPoliciesOutput) error {
-		for _, policy := range page.AttachedPolicies {
+		for _, policy := range user.AttachedManagedPolicies {
 			arn := aws.ToString(policy.PolicyArn)
-			g.add(user+"/"+arn, user+"_"+aws.ToString(policy.PolicyName), "aws_iam_user_policy_attachment",
-				map[string]string{"user": user, "policy_arn": arn})
+			g.add(name+"/"+arn, name+"_"+aws.ToString(policy.PolicyName), "aws_iam_user_policy_attachment",
+				map[string]string{"user": name, "policy_arn": arn})
 		}
-		return nil
-	})
-}
-
-// listUserGroupMemberships records one group membership per group user
-// belongs to, as <user>/<group>.
-func (g *IamLister) listUserGroupMemberships(client *iam.Client, user string) error {
-	pages := iam.NewListGroupsForUserPaginator(client, &iam.ListGroupsForUserInput{UserName: aws.String(user)}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListGroupsForUserOutput) error {
-		for _, group := range page.Groups {
-			name := aws.ToString(group.GroupName)
-			id := user + "/" + name
+		for _, group := range user.GroupList {
+			id := name + "/" + group
 			g.add(id, id, "aws_iam_user_group_membership", map[string]string{
-				"user":     user,
+				"user":     name,
 				"groups.#": "1",
-				"groups.0": name,
+				"groups.0": group,
 			})
 		}
-		return nil
-	})
+		if err := g.listUserAccessKeys(client, name); err != nil {
+			if !iamGone(err) {
+				return fmt.Errorf("access keys of user %s: %w", name, err)
+			}
+			log.Printf("aws: iam: access keys of user %s: it no longer exists; leaving them out: %v", name, err)
+		}
+	}
+	return nil
 }
 
 // listUserAccessKeys records the access keys of user by key ID.
@@ -196,104 +181,50 @@ func (g *IamLister) listUserAccessKeys(client *iam.Client, user string) error {
 	})
 }
 
-// getGroups records every group, each followed by its inline policies and
-// its policy attachments, AWS managed or not.
-func (g *IamLister) getGroups(client *iam.Client) error {
-	pages := iam.NewListGroupsPaginator(client, &iam.ListGroupsInput{}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListGroupsOutput) error {
-		for _, group := range page.Groups {
-			name := aws.ToString(group.GroupName)
-			if err := iamSubList("policies", "group", name, func() error { return g.addGroup(client, group) }); err != nil {
-				return err
-			}
+// addGroups records every group, each followed by its inline policies (as
+// <group>:<policy>) and its policy attachments (as <group>/<policy ARN>),
+// AWS managed or not.
+func (g *IamLister) addGroups(groups []iamtypes.GroupDetail) {
+	for _, group := range groups {
+		name := aws.ToString(group.GroupName)
+		g.add(name, name, "aws_iam_group", nil)
+		for _, policy := range group.GroupPolicyList {
+			inline := aws.ToString(policy.PolicyName)
+			g.add(name+":"+inline, name+"_"+inline, "aws_iam_group_policy", nil)
 		}
-		return nil
-	})
-}
-
-// addGroup records group, its inline policies (as <group>:<policy>) and
-// its policy attachments (as <group>/<policy ARN>).
-func (g *IamLister) addGroup(client *iam.Client, group iamtypes.Group) error {
-	name := aws.ToString(group.GroupName)
-	g.add(name, name, "aws_iam_group", nil)
-
-	inline := iam.NewListGroupPoliciesPaginator(client, &iam.ListGroupPoliciesInput{GroupName: group.GroupName}, stopOnDuplicateToken)
-	err := eachIamPage(g.Context(), inline, func(page *iam.ListGroupPoliciesOutput) error {
-		for _, policy := range page.PolicyNames {
-			g.add(name+":"+policy, name+"_"+policy, "aws_iam_group_policy", nil)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	attached := iam.NewListAttachedGroupPoliciesPaginator(client, &iam.ListAttachedGroupPoliciesInput{GroupName: group.GroupName}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), attached, func(page *iam.ListAttachedGroupPoliciesOutput) error {
-		for _, policy := range page.AttachedPolicies {
+		for _, policy := range group.AttachedManagedPolicies {
 			arn := aws.ToString(policy.PolicyArn)
 			g.add(name+"/"+arn, name+"_"+aws.ToString(policy.PolicyName), "aws_iam_group_policy_attachment",
 				map[string]string{"group": name, "policy_arn": arn})
 		}
-		return nil
-	})
-}
-
-// getPolicies records the customer-managed policies by ARN. AWS managed
-// policies exist in every account and are not imported.
-func (g *IamLister) getPolicies(client *iam.Client) error {
-	input := &iam.ListPoliciesInput{Scope: iamtypes.PolicyScopeTypeLocal}
-	pages := iam.NewListPoliciesPaginator(client, input, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListPoliciesOutput) error {
-		for _, policy := range page.Policies {
-			g.add(aws.ToString(policy.Arn), aws.ToString(policy.PolicyName), "aws_iam_policy", nil)
-		}
-		return nil
-	})
-}
-
-// getRoles records every role, each followed by its inline policies and
-// its policy attachments, AWS managed or not. Service-linked roles are
-// recorded too; the catalogue leaves them out of the default selection.
-func (g *IamLister) getRoles(client *iam.Client) error {
-	pages := iam.NewListRolesPaginator(client, &iam.ListRolesInput{}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), pages, func(page *iam.ListRolesOutput) error {
-		for _, role := range page.Roles {
-			name := aws.ToString(role.RoleName)
-			if err := iamSubList("policies", "role", name, func() error { return g.addRole(client, role) }); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// addRole records role, its inline policies (as <role>:<policy>) and its
-// policy attachments (as <role>/<policy ARN>).
-func (g *IamLister) addRole(client *iam.Client, role iamtypes.Role) error {
-	name := aws.ToString(role.RoleName)
-	g.add(name, name, "aws_iam_role", nil)
-
-	inline := iam.NewListRolePoliciesPaginator(client, &iam.ListRolePoliciesInput{RoleName: role.RoleName}, stopOnDuplicateToken)
-	err := eachIamPage(g.Context(), inline, func(page *iam.ListRolePoliciesOutput) error {
-		for _, policy := range page.PolicyNames {
-			g.add(name+":"+policy, name+"_"+policy, "aws_iam_role_policy", nil)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
 	}
+}
 
-	attached := iam.NewListAttachedRolePoliciesPaginator(client, &iam.ListAttachedRolePoliciesInput{RoleName: role.RoleName}, stopOnDuplicateToken)
-	return eachIamPage(g.Context(), attached, func(page *iam.ListAttachedRolePoliciesOutput) error {
-		for _, policy := range page.AttachedPolicies {
+// addPolicies records the customer-managed policies by ARN.
+func (g *IamLister) addPolicies(policies []iamtypes.ManagedPolicyDetail) {
+	for _, policy := range policies {
+		g.add(aws.ToString(policy.Arn), aws.ToString(policy.PolicyName), "aws_iam_policy", nil)
+	}
+}
+
+// addRoles records every role, each followed by its inline policies (as
+// <role>:<policy>) and its policy attachments (as <role>/<policy ARN>), AWS
+// managed or not. Service-linked roles are recorded too; the catalogue
+// leaves them out of the default selection.
+func (g *IamLister) addRoles(roles []iamtypes.RoleDetail) {
+	for _, role := range roles {
+		name := aws.ToString(role.RoleName)
+		g.add(name, name, "aws_iam_role", withIamTags(nil, role.Tags))
+		for _, policy := range role.RolePolicyList {
+			inline := aws.ToString(policy.PolicyName)
+			g.add(name+":"+inline, name+"_"+inline, "aws_iam_role_policy", nil)
+		}
+		for _, policy := range role.AttachedManagedPolicies {
 			arn := aws.ToString(policy.PolicyArn)
 			g.add(name+"/"+arn, name+"_"+aws.ToString(policy.PolicyName), "aws_iam_role_policy_attachment",
 				map[string]string{"role": name, "policy_arn": arn})
 		}
-		return nil
-	})
+	}
 }
 
 // getInstanceProfiles records every instance profile by name.
@@ -306,4 +237,19 @@ func (g *IamLister) getInstanceProfiles(client *iam.Client) error {
 		}
 		return nil
 	})
+}
+
+// withIamTags adds an IAM user's or role's tags to attributes as
+// tags.<key>, which the authorization details carry at no extra call, so
+// that the default selection sees them before generating anything, such
+// as a ManagedBy tag (see engine.OwnedBy). It returns attributes, or a
+// new map when that is nil.
+func withIamTags(attributes map[string]string, tags []iamtypes.Tag) map[string]string {
+	if attributes == nil {
+		attributes = map[string]string{}
+	}
+	for _, tag := range tags {
+		attributes["tags."+aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	return attributes
 }

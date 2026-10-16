@@ -97,9 +97,11 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 
 // addGrants records the grants of the key keyID as aws_kms_grant, imported
 // as <the grant's key ID>:<grant ID>, where the grant's key ID is the key's
-// ARN. A grant is named after its name, or else after the key, keyName. A
-// failure to list them is logged and ends the key's grants there: the key
-// itself stays listed.
+// ARN, with the principal the grant gives to as grantee_principal, by which
+// the default selection leaves out the grants AWS services make for
+// themselves (see awsServiceGrantee). A grant is named after its name, or
+// else after the key, keyName. A failure to list them is logged and ends
+// the key's grants there: the key itself stays listed.
 func (l *kmsLister) addGrants(keyID, keyName string) {
 	pages := kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
@@ -110,14 +112,21 @@ func (l *kmsLister) addGrants(keyID, keyName string) {
 		}
 		for _, grant := range page.Grants {
 			id := aws.ToString(grant.KeyId) + ":" + aws.ToString(grant.GrantId)
-			l.g.Resources = append(l.g.Resources, harvest.RecordBare(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws"))
+			attributes := map[string]string{}
+			if grantee := cmp.Or(aws.ToString(grant.GranteePrincipal), aws.ToString(grant.GranteeServicePrincipal)); grantee != "" {
+				attributes["grantee_principal"] = grantee
+			}
+			l.g.Resources = append(l.g.Resources, harvest.Record(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws", attributes))
 		}
 	}
 }
 
 // listAliases returns the aliases of listable keys, which List records as
 // aws_kms_alias, imported by their name. An alias that points at no key is
-// left out.
+// left out, and so is an AWS managed alias, alias/aws/<service>, without
+// describing its key: only AWS managed keys have those. Its key is
+// remembered as AWS managed, so that listing the keys doesn't describe it
+// either.
 func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 	var aliases []types.AliasListEntry
 	pages := kms.NewListAliasesPaginator(l.svc, &kms.ListAliasesInput{}, stopOnDuplicateToken)
@@ -127,7 +136,16 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 			return nil, err
 		}
 		for _, alias := range page.Aliases {
-			if alias.TargetKeyId == nil || !kmsKeyListable(l.describe(*alias.TargetKeyId)) {
+			if alias.TargetKeyId == nil {
+				continue
+			}
+			if strings.HasPrefix(aws.ToString(alias.AliasName), awsManagedAliasPrefix) {
+				if _, described := l.keys[*alias.TargetKeyId]; !described {
+					l.keys[*alias.TargetKeyId] = &types.KeyMetadata{KeyId: alias.TargetKeyId, KeyManager: types.KeyManagerTypeAws}
+				}
+				continue
+			}
+			if !kmsKeyListable(l.describe(*alias.TargetKeyId)) {
 				continue
 			}
 			aliases = append(aliases, alias)
@@ -135,6 +153,10 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 	}
 	return aliases, nil
 }
+
+// awsManagedAliasPrefix starts the aliases of the keys AWS manages for its
+// services, such as alias/aws/s3; no one else can create one.
+const awsManagedAliasPrefix = "alias/aws/"
 
 // describe returns the metadata of the key keyID, or nil when it can't be
 // described, which it logs. Successful answers are remembered.

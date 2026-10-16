@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -105,7 +107,7 @@ func TestExcludedByDefaultGlobal(t *testing.T) {
 }
 
 // What a CloudFormation stack manages is left out, by its ID or the ID
-// Terraform imports it with; what no stack manages isn't.
+// Terraform imports it with; what no stack manages, or one deleted, isn't.
 func TestExcludedByDefaultCloudFormation(t *testing.T) {
 	const ns = `xmlns="http://cloudformation.amazonaws.com/doc/2010-05-15/"`
 	var stacks []string
@@ -123,6 +125,8 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 			return `<ListStackResourcesResponse ` + ns + `><ListStackResourcesResult><StackResourceSummaries>` +
 				`<member><LogicalResourceId>Assets</LogicalResourceId><PhysicalResourceId>app-assets</PhysicalResourceId><ResourceType>AWS::S3::Bucket</ResourceType><ResourceStatus>CREATE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
 				`<member><LogicalResourceId>Cluster</LogicalResourceId><PhysicalResourceId>apps</PhysicalResourceId><ResourceType>AWS::ECS::Cluster</ResourceType><ResourceStatus>CREATE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
+				// A rolled-back stack lists what it deleted, which it no longer manages.
+				`<member><LogicalResourceId>Old</LogicalResourceId><PhysicalResourceId>own-bucket</PhysicalResourceId><ResourceType>AWS::S3::Bucket</ResourceType><ResourceStatus>DELETE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
 				`</StackResourceSummaries></ListStackResourcesResult></ListStackResourcesResponse>`
 		}
 		t.Errorf("unexpected call %s", call.Op)
@@ -148,5 +152,87 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 	}
 	if len(stacks) != 1 || !strings.Contains(stacks[0], "StackName=arn") {
 		t.Errorf("ListStackResources: %q, want one call by stack ID", stacks)
+	}
+}
+
+// What another account shares with this one through AWS RAM is left out:
+// that account manages it. What this account owns, or what records no
+// owner, stays.
+func TestExcludeShared(t *testing.T) {
+	calls := 0
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op != "GetCallerIdentity" {
+			t.Errorf("unexpected call %s", call.Op)
+			return ""
+		}
+		calls++
+		return recordBudgetsCallerIdentity(call)
+	})
+	p := &Provider{region: "eu-west-2"}
+	resources := []harvest.Resource{
+		harvest.Record("subnet-shared", "shared", "aws_subnet", "aws", ownerAttributes(aws.String("210987654321"))),
+		harvest.Record("subnet-own", "own", "aws_subnet", "aws", ownerAttributes(aws.String("123456789012"))),
+		harvest.Record("vpc-1", "vpc", "aws_vpc", "aws", ownerAttributes(nil)),
+	}
+	config, err := p.config(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded := map[string]string{}
+	if err := p.excludeShared(t.Context(), config, resources, excluded); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"aws_subnet subnet-shared": reasonShared("210987654321")}; !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+	if calls != 1 {
+		t.Errorf("GetCallerIdentity called %d times, want once", calls)
+	}
+
+	// Without an owner recorded, it asks nothing.
+	calls = 0
+	if err := p.excludeShared(t.Context(), config, resources[2:], map[string]string{}); err != nil || calls != 0 {
+		t.Errorf("without owners: %d calls, %v", calls, err)
+	}
+}
+
+// The KMS grants AWS services make for themselves, to a service principal
+// or a service-linked role, are left out, naming the grantee, without
+// asking AWS more than for the stacks; grants to other principals, or that
+// record none, stay.
+func TestExcludedByDefaultServiceGrants(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListStacks" {
+			return noStacks
+		}
+		return recordUnexpected(t, call)
+	})
+	p := &Provider{region: "eu-west-2"}
+	const key = "arn:aws:kms:eu-west-2:123456789012:key/k-1:"
+	grant := func(id, grantee string) harvest.Resource {
+		attributes := map[string]string{}
+		if grantee != "" {
+			attributes["grantee_principal"] = grantee
+		}
+		return harvest.Record(key+id, id, "aws_kms_grant", "aws", attributes)
+	}
+	const linkedRole = "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+
+	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+		grant("rds", "rds.eu-west-2.amazonaws.com"),
+		grant("linked", linkedRole),
+		grant("app", "arn:aws:iam::123456789012:role/app"),
+		grant("none", ""),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"aws_kms_grant " + key + "rds":    reasonServiceGrant("rds.eu-west-2.amazonaws.com"),
+		"aws_kms_grant " + key + "linked": reasonServiceGrant(linkedRole),
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
 	}
 }

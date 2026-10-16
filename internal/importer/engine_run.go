@@ -76,7 +76,8 @@ func (r *Run) finish(err error) error {
 		return err
 	}
 	if r.options.Discover {
-		if writeErr := r.writeSelection(); writeErr != nil {
+		// After a failure, what didn't list may be only what failed.
+		if writeErr := r.writeSelection(err != nil || len(r.failures) > 0); writeErr != nil {
 			return couldNotRun(err, writeErr)
 		}
 		if err != nil {
@@ -92,7 +93,15 @@ func (r *Run) finish(err error) error {
 	for typ, n := range r.skipped {
 		r.report.Skipped = append(r.report.Skipped, report.Skipped{Type: typ, Count: n, Reason: "Terraform can't import this resource type"})
 	}
+	if err != nil {
+		// What ended the run, such as an interrupt, is a failure too.
+		r.report.Failures = append(r.report.Failures, err.Error())
+	}
 	r.report.Finish(r.discovered, r.failed, r.options.AllowPartial)
+	if err != nil {
+		// The report says what the process exits with.
+		r.report.ExitCode = ExitCode(err)
+	}
 	if writeErr := r.report.WriteFiles(r.options.Out); writeErr != nil {
 		return couldNotRun(err, writeErr)
 	}

@@ -21,9 +21,10 @@ type S3Lister struct {
 // List records every bucket of the region as an aws_s3_bucket,
 // imported by its name, with force_destroy "false", acl "private" and its
 // policy when it has one. A bucket with a policy is preceded by an
-// aws_s3_bucket_policy for it. ListBuckets answers with the buckets of
-// every region, so each bucket's location decides whether it belongs here;
-// without a region (ProfileRegion), the region is the one the SDK resolved from
+// aws_s3_bucket_policy for it. ListBuckets is asked for the region's
+// buckets only, and gives each one's region, so no bucket needs a call of
+// its own; GetBucketLocation is only for an answer without regions, as an
+// emulator's may be, that has every region's buckets. Without a region (ProfileRegion), the region is the one the SDK resolved from
 // the profile or the environment. A listing error fails the service; a
 // bucket whose location can't be read is logged and left out, and one
 // whose policy can't be read is logged and listed without it.
@@ -37,19 +38,27 @@ func (g *S3Lister) List() error {
 		region = config.Region
 	}
 	svc := s3.NewFromConfig(config)
-	pages := s3.NewListBucketsPaginator(svc, &s3.ListBucketsInput{}, stopOnDuplicateToken)
+	input := &s3.ListBucketsInput{}
+	if region != "" {
+		input.BucketRegion = aws.String(region)
+	}
+	pages := s3.NewListBucketsPaginator(svc, input, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
 		for _, bucket := range page.Buckets {
-			location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
-			if err != nil {
-				log.Printf("aws: s3: can't read the location of bucket %s; leaving it out: %v", aws.ToString(bucket.Name), err)
-				continue
+			bucketRegion := aws.ToString(bucket.BucketRegion)
+			if bucketRegion == "" {
+				location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
+				if err != nil {
+					log.Printf("aws: s3: can't read the location of bucket %s; leaving it out: %v", aws.ToString(bucket.Name), err)
+					continue
+				}
+				bucketRegion = s3BucketRegion(string(location.LocationConstraint))
 			}
-			if s3BucketRegion(string(location.LocationConstraint)) != region {
+			if bucketRegion != region {
 				continue
 			}
 			g.addBucket(svc, aws.ToString(bucket.Name))

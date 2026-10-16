@@ -116,7 +116,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err != nil {
 		return err
 	}
-	defaults, err := excludedByDefault(ctx, provider, cat, listed.resources)
+	defaults, err := excludedByDefault(ctx, provider, cat, listed)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
 	}

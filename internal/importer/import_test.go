@@ -142,3 +142,38 @@ func (s *fakeService) List() error {
 	}
 	return nil
 }
+
+// servicesProvider is fakeProvider with the services vpc and s3.
+type servicesProvider struct {
+	fakeProvider
+}
+
+func (*servicesProvider) Services() map[string]harvest.Lister {
+	return map[string]harvest.Lister{"vpc": nil, "s3": nil}
+}
+
+// What no Import call could do fails the command once, before any scope:
+// an unknown service or engine, or an import that says neither
+// --selection nor --all.
+func TestCheckOptions(t *testing.T) {
+	p := &servicesProvider{}
+	for _, tc := range []struct {
+		options Options
+		want    string
+	}{
+		{Options{All: true, Services: []string{"vpc", "*"}}, ""},
+		{Options{Discover: true, Services: []string{"vpc"}, Skip: []string{"s3"}}, ""},
+		{Options{All: true, Services: []string{"vpc", "vcp"}}, "--services: fake has no service vcp"},
+		{Options{All: true, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
+		{Options{All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
+		{Options{Services: []string{"vpc"}}, "selection"},
+	} {
+		err := CheckOptions(p, tc.options)
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%+v: %v", tc.options, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%+v: got %v, want %q", tc.options, err, tc.want)
+		}
+	}
+}

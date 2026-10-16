@@ -166,6 +166,54 @@ resource "aws_ecs_task_definition" "legacy" {
 	assertNotWritten(t, dir, password, token)
 }
 
+// The condition keys of an IAM policy are AWS's, such as GitHub's OIDC
+// token.actions.githubusercontent.com:sub, so they don't make the values
+// secrets; a credential under a condition still is one.
+func TestLiteralSecretsLeaveOutPolicyConditions(t *testing.T) {
+	key := "github_pat_" + fakeSecret("pat")[:40]
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_role" "ci" {
+  name = "ci"
+  assume_role_policy = jsonencode({
+    Statement = [{
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:octo/app:environment:prod" }
+      }
+      Effect    = "Allow"
+      Principal = { Federated = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com" }
+    }]
+    Version = "2012-10-17"
+  })
+}
+
+resource "aws_iam_role" "legacy" {
+  name               = "legacy"
+  assume_role_policy = "{\"Statement\":[{\"Condition\":{\"StringEquals\":{\"token.actions.githubusercontent.com:sub\":\"repo:octo/app:ref:refs/heads/main\",\"aws:RequestTag/api\":\"`+key+`\"}}}]}"
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range secrets {
+		got = append(got, s.Attribute)
+	}
+	if want := []string{`jsondecode(assume_role_policy).Statement[0].Condition.StringEquals["aws:RequestTag/api"]`}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	generated := readFile(t, dir, GeneratedFileName)
+	for _, want := range []string{`= "sts.amazonaws.com"`, `= "repo:octo/app:environment:prod"`, `repo:octo/app:ref:refs/heads/main`} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("missing %q in:\n%s", want, generated)
+		}
+	}
+	assertNotWritten(t, dir, key)
+}
+
 func TestLiteralSecretsInAppSettingsAndEnv(t *testing.T) {
 	apiKey := fakeSecret("api")
 	password := fakeSecret("sql")[:20]

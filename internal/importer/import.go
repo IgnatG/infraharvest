@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/discovery"
@@ -147,6 +148,44 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 	default:
 		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
 	}
+}
+
+// CheckOptions rejects what a provider command was told that no Import
+// call could do, before any account, region or project is planned: an
+// unknown --engine, --format or --modules, a filter that doesn't parse,
+// an import that says neither --selection nor --all, and --services or
+// --skip names provider has no service of. Checked once, they fail the
+// command the same way however many scopes it covers, instead of failing
+// each scope and reading as a partial import.
+func CheckOptions(provider harvest.Provider, options Options) error {
+	switch options.Engine {
+	case "", EngineTerraform, EngineTofu:
+	default:
+		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	}
+	if err := checkImportOptions(options); err != nil {
+		return err
+	}
+	if err := checkSelectionOptions(options); err != nil {
+		return err
+	}
+	known := provider.Services()
+	for _, f := range []struct {
+		flag  string
+		names []string
+	}{{"--services", options.Services}, {"--skip", options.Skip}} {
+		flag, names := f.flag, f.names
+		var unknown []string
+		for _, name := range names {
+			if _, ok := known[name]; !ok && name != "*" {
+				unknown = append(unknown, name)
+			}
+		}
+		if len(unknown) > 0 {
+			return fmt.Errorf("%s: %s has no service %s (infraharvest services %s lists them)", flag, provider.Name(), strings.Join(unknown, ", "), provider.Name())
+		}
+	}
+	return nil
 }
 
 // ExitError is an error that sets the process's exit code (see the Exit

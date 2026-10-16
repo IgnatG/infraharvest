@@ -86,8 +86,20 @@ func requireMinimumVersion(dir string) error {
 	if err != nil {
 		return err
 	}
+	// Only the calls the root still has: Terraform installed those of
+	// trials the plan rejected too (see synthesize).
+	called := map[string]bool{}
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type == "module" && len(b.Labels) == 1 {
+				called[b.Labels[0]] = true
+			}
+		}
+	}
 	for _, m := range modules {
-		raise(requiredByModule(m.dir))
+		if top, _, _ := strings.Cut(m.key, "."); called[top] {
+			raise(requiredByModule(m.dir))
+		}
 	}
 	path := filepath.Join(dir, VersionsFileName)
 	versions, err := loadOptionalHCL(path)

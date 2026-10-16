@@ -523,3 +523,275 @@ func TestAddUndoesWhatItAddedToTheFilesOfTheTypes(t *testing.T) {
 		t.Errorf("root changed:\nbefore %v\nafter %v", before, after)
 	}
 }
+
+// googleStagingProviders writes into staging the providers.tf and
+// versions.tf Generate writes for a module call that creates resources
+// with google-beta (see writeModuleProviders), pinned as pinModuleProviders
+// pins it.
+func googleStagingProviders(t *testing.T, staging string) {
+	t.Helper()
+	writeConfig(t, staging, ProvidersFileName, `provider "google" {
+  project = "acme-prod"
+}
+
+provider "google-beta" {
+  project = "acme-prod"
+}
+`)
+	writeConfig(t, staging, VersionsFileName, `terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 7.2"
+    }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 7.2"
+    }
+  }
+}
+`)
+}
+
+// A module call that needs google-beta brings its provider block and its
+// pinned requirement into a root that has neither; the root's own stay as
+// they were. Before, the call ran on an unconfigured, unpinned provider.
+func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
+	root := t.TempDir()
+	rootProviders := "provider \"google\" {\n  project = \"acme-prod\"\n  region  = \"us-central1\"\n}\n"
+	writeConfig(t, root, ProvidersFileName, rootProviders)
+	writeConfig(t, root, VersionsFileName, `terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 7.1"
+    }
+  }
+}
+`)
+	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, `module "main" {
+  source       = "terraform-google-modules/network/google"
+  version      = "13.0.0"
+  network_name = "main"
+  project_id   = "acme-prod"
+}
+`)
+	googleStagingProviders(t, staging)
+
+	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	providers := squashed(readFile(t, root, ProvidersFileName))
+	if !strings.HasPrefix(providers, squashed(rootProviders)) || !strings.Contains(providers, `provider "google-beta" { project = "acme-prod" }`) || strings.Count(providers, "provider ") != 2 {
+		t.Errorf("providers.tf: want the root's provider and google-beta:\n%s", providers)
+	}
+	versions := squashed(readFile(t, root, VersionsFileName))
+	for _, want := range []string{
+		`google = { source = "hashicorp/google" version = "~> 7.1" }`,
+		`google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" }`,
+	} {
+		if !strings.Contains(versions, want) {
+			t.Errorf("versions.tf misses %q:\n%s", want, versions)
+		}
+	}
+
+	// A root that has them gets nothing more.
+	before := dirFiles(t, root)
+	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	after := dirFiles(t, root)
+	for _, name := range []string{ProvidersFileName, VersionsFileName} {
+		if after[name] != before[name] {
+			t.Errorf("%s changed:\n%s", name, after[name])
+		}
+	}
+}
+
+// A root that requires none of its providers, as one written by hand may,
+// gets a required_providers block with only the provider it lacks.
+func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
+	root := t.TempDir()
+	writeConfig(t, root, "main.tf", "provider \"google\" {\n  project = \"acme-prod\"\n}\n")
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, "module \"main\" {\n  source = \"terraform-google-modules/network/google\"\n}\n")
+	googleStagingProviders(t, staging)
+
+	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	versions := squashed(readFile(t, root, VersionsFileName))
+	if !strings.Contains(versions, `terraform { required_providers { google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" } } }`) || strings.Contains(versions, "hashicorp/google\"") {
+		t.Errorf("versions.tf:\n%s", versions)
+	}
+	if providers := squashed(readFile(t, root, ProvidersFileName)); providers != `provider "google-beta" { project = "acme-prod" }` {
+		t.Errorf("providers.tf:\n%s", providers)
+	}
+}
+
+// A root that doesn't initialize gets its versions.tf back, without the
+// provider the added resources required.
+func TestAddUndoesTheProvidersItAdded(t *testing.T) {
+	root := existingRoot(t)
+	writeConfig(t, root, VersionsFileName, "terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n  }\n}\n")
+	before := dirFiles(t, root)
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
+	opts := Options{Config: map[string][]byte{
+		VersionsFileName:  []byte("terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n    awscc = {\n      source  = \"hashicorp/awscc\"\n      version = \"~> 1.0\"\n    }\n  }\n}\n"),
+		ProvidersFileName: []byte("provider \"aws\" {\n  region = \"us-east-1\"\n}\n\nprovider \"awscc\" {\n  region = \"us-east-1\"\n}\n"),
+	}}
+
+	if _, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err == nil {
+		t.Fatal("want the init error")
+	}
+	if after := dirFiles(t, root); !reflect.DeepEqual(after, before) {
+		t.Errorf("root changed:\nbefore %v\nafter %v", before, after)
+	}
+
+	// Initialized, it keeps them.
+	staging = filepath.Join(t.TempDir(), "staging")
+	tf = &fakeTerraform{dir: staging, generated: queueGenerated}
+	if _, err := Add(context.Background(), tf, &fakeTerraform{dir: root}, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	if versions := squashed(readFile(t, root, VersionsFileName)); !strings.Contains(versions, `awscc = { source = "hashicorp/awscc" version = "~> 1.0" }`) {
+		t.Errorf("versions.tf:\n%s", versions)
+	}
+	if providers := readFile(t, root, ProvidersFileName); strings.Count(providers, "provider ") != 2 || !strings.Contains(providers, `provider "awscc"`) {
+		t.Errorf("providers.tf:\n%s", providers)
+	}
+}
+
+// What an incremental import adds reads the data sources and takes the
+// variables with a default that the root declares the same, under the
+// root's names, rather than declaring them again under others; a secret's
+// variable, without a default, stays a variable of its own. Before, the
+// root declared the network lookup twice, as main and main_2.
+func TestMergeReusesTheRootsLookupsAndVariables(t *testing.T) {
+	root := t.TempDir()
+	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	writeConfig(t, root, DataFileName, `data "google_compute_network" "main" {
+  name    = "main"
+  project = "acme-prod"
+}
+`)
+	subnetwork := `description = "The self link of google_compute_subnetwork.app, which the root google/acme-prod/us-central1 manages. The default is its value when this root was imported."
+  type        = string
+  default     = "https://www.googleapis.com/compute/v1/projects/acme-prod/regions/us-central1/subnetworks/app"`
+	writeConfig(t, root, VariablesFileName, `variable "app_subnetwork_self_link" {
+  `+subnetwork+`
+}
+
+variable "token" {
+  type      = string
+  sensitive = true
+}
+`)
+	staging := t.TempDir()
+	writeConfig(t, staging, GeneratedFileName, `resource "google_compute_router" "edge" {
+  name       = "edge"
+  network    = data.google_compute_network.main_2.self_link
+  subnetwork = var.app_subnetwork_self_link_2
+  token      = var.token_2
+  other      = data.google_compute_network.other.self_link
+}
+`)
+	writeConfig(t, staging, DataFileName, `data "google_compute_network" "main_2" {
+  name    = "main"
+  project = "acme-prod"
+}
+
+data "google_compute_network" "other" {
+  name    = "other"
+  project = "acme-prod"
+}
+`)
+	writeConfig(t, staging, VariablesFileName, `variable "app_subnetwork_self_link_2" {
+  `+subnetwork+`
+}
+
+variable "token_2" {
+  type      = string
+  sensitive = true
+}
+`)
+
+	written, err := merge(staging, root, nil, nil, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := squashed(readFile(t, root, written[0]))
+	for _, want := range []string{
+		"network = data.google_compute_network.main.self_link",
+		"subnetwork = var.app_subnetwork_self_link",
+		"token = var.token_2",
+		"other = data.google_compute_network.other.self_link",
+	} {
+		if !strings.Contains(added, want+" ") {
+			t.Errorf("%s misses %q:\n%s", written[0], want, added)
+		}
+	}
+	data := readFile(t, root, DataFileName)
+	if strings.Count(data, "data ") != 2 || strings.Contains(data, "main_2") || !strings.Contains(data, `data "google_compute_network" "other"`) {
+		t.Errorf("data.tf: want the root's lookup and the new one:\n%s", data)
+	}
+	variables := readFile(t, root, VariablesFileName)
+	if strings.Count(variables, "variable ") != 3 || strings.Contains(variables, "app_subnetwork_self_link_2") || !strings.Contains(variables, `variable "token_2"`) {
+		t.Errorf("variables.tf: want the root's variables and the secret's:\n%s", variables)
+	}
+}
+
+// A data source or variable declared otherwise, as with another default,
+// is one of its own.
+func TestDeclarationKey(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), "main.tf", `data "google_compute_network" "a" {
+  project = "acme-prod"
+  name    = "main"
+}
+
+data "google_compute_network" "b" {
+  name = "main"
+  project = "acme-prod"
+}
+
+data "google_compute_network" "c" {
+  name    = "main"
+  project = "acme-test"
+}
+
+data "google_compute_subnetwork" "d" {
+  name    = "main"
+  project = "acme-prod"
+}
+
+variable "e" {
+  default = "main"
+}
+
+data "aws_ami" "f" {
+  filter {
+    name   = "name"
+    values = ["al2023-*"]
+  }
+}
+`)
+	keys := map[string]string{}
+	for _, b := range f.syntax.Blocks {
+		keys[b.Labels[len(b.Labels)-1]] = declarationKey(b, f.src)
+	}
+	if keys["a"] != keys["b"] || keys["a"] == "" {
+		t.Errorf("the same lookup, in another order: %q, %q", keys["a"], keys["b"])
+	}
+	for _, other := range []string{"c", "d", "e"} {
+		if keys[other] == keys["a"] {
+			t.Errorf("%s: declared like a", other)
+		}
+	}
+	if keys["f"] != "" {
+		t.Errorf("a block with nested blocks: %q", keys["f"])
+	}
+}

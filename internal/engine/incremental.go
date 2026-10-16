@@ -240,7 +240,12 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	// The resources go into the files of their types, such as network.tf,
 	// after the root's own blocks: those files are backed up too.
 	fileOf := blockFiles(result.Imported, result.Modules)
-	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName}
+	// The providers that added module calls use go into providers.tf and
+	// the file of the root's required_providers (see mergeProviders).
+	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName, VersionsFileName}
+	if required := requiredProvidersFile(files); !slices.Contains(names, required) {
+		names = append(names, required)
+	}
 	for _, name := range fileOf {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
@@ -363,9 +368,12 @@ func AddedFileName(n int) string {
 // of their own (see AddedFileName); and the import blocks, variables,
 // locals, data sources and resources left out after root's own.
 // References to data sources that read a resource root has, existing, as
-// a resource block, or that root already has, use root's. The provider
-// configuration and the locals it uses stay root's. It returns the files
-// of resources it wrote to, sorted, also when it fails after writing them.
+// a resource block, or that root already has, use root's, as do references
+// to variables root declares the same (see stagedVariables). The provider
+// configuration and the locals it uses stay root's, but for the providers
+// root has none of, which it gets (see mergeProviders). It returns the
+// files of resources it wrote to, sorted, also when it fails after
+// writing them.
 func merge(staging, root string, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
 	generated, err := loadHCL(filepath.Join(staging, GeneratedFileName))
 	if err != nil {
@@ -393,6 +401,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			}
 		}
 	}
+	declared := rootDeclarations(rootFiles)
 	var data []*hclwrite.Block
 	staged, err := loadOptionalHCL(filepath.Join(staging, DataFileName))
 	if err != nil {
@@ -406,6 +415,11 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			}
 			replacement, ok := rootData[dataKey(b, sources)]
 			if !ok {
+				// A data source root declares the same, such as a lookup
+				// of the tenant: the staged one has another name.
+				replacement, ok = declared[declarationKey(b, staged.src)]
+			}
+			if !ok {
 				data = append(data, blocks[i])
 				continue
 			}
@@ -413,6 +427,10 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 				replaceTraversals(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
 			}
 		}
+	}
+	variables, err := stagedVariables(staging, declared, generated)
+	if err != nil {
+		return nil, err
 	}
 
 	// The blocks for each file, in the order they come; those without one
@@ -446,18 +464,22 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	if err := appendBlocks(filepath.Join(root, DataFileName), dataFileHeader, data); err != nil {
 		return added, err
 	}
-	for _, name := range []string{ImportsFileName, VariablesFileName} {
-		f, err := loadOptionalHCL(filepath.Join(staging, name))
-		if err != nil {
+	imports, err := loadOptionalHCL(filepath.Join(staging, ImportsFileName))
+	if err != nil {
+		return added, err
+	}
+	if imports != nil {
+		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.file.Body().Blocks()); err != nil {
 			return added, err
 		}
-		if f != nil {
-			if err := appendBlocks(filepath.Join(root, name), "", f.file.Body().Blocks()); err != nil {
-				return added, err
-			}
-		}
+	}
+	if err := appendBlocks(filepath.Join(root, VariablesFileName), "", variables); err != nil {
+		return added, err
 	}
 	if err := mergeLocals(staging, root); err != nil {
+		return added, err
+	}
+	if err := mergeProviders(staging, root, rootFiles); err != nil {
 		return added, err
 	}
 	if rejected, err := os.ReadFile(filepath.Join(staging, RejectedFileName)); err == nil {
@@ -543,6 +565,94 @@ func dataKey(b *hclsyntax.Block, sources map[string]DataSource) string {
 	return ""
 }
 
+// rootDeclarations returns, by declarationKey, the address of each data
+// source and each variable with a default that files declare, the first
+// of those that declare the same: data.<type>.<name> or var.<name>, as
+// steps of a reference.
+func rootDeclarations(files []*hclFile) map[string][]string {
+	declared := map[string][]string{}
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			var address []string
+			switch {
+			case b.Type == "data" && len(b.Labels) == 2:
+				address = []string{"data", b.Labels[0], b.Labels[1]}
+			case b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b):
+				address = []string{"var", b.Labels[0]}
+			default:
+				continue
+			}
+			key := declarationKey(b, f.src)
+			if _, ok := declared[key]; key != "" && !ok {
+				declared[key] = address
+			}
+		}
+	}
+	return declared
+}
+
+// hasDefault reports whether the variable block b has a default. One
+// without, such as a secret's, takes a value of its own: two of them
+// declared alike are still two values.
+func hasDefault(b *hclsyntax.Block) bool {
+	_, ok := b.Body.Attributes["default"]
+	return ok
+}
+
+// declarationKey identifies what the data or variable block b declares:
+// its type, its data source's type, and its arguments as src writes them,
+// whitespace aside. Two blocks with one key declare the same, such as two
+// lookups of the tenant Azure signs in to, or two variables for one
+// resource's ID with the same default. It is "" for a block with nested
+// blocks, which it doesn't compare.
+func declarationKey(b *hclsyntax.Block, src []byte) string {
+	if len(b.Labels) == 0 || len(b.Body.Blocks) > 0 {
+		return ""
+	}
+	key := b.Type + "\x00" + strings.Join(b.Labels[:len(b.Labels)-1], ".")
+	names := make([]string, 0, len(b.Body.Attributes))
+	for name := range b.Body.Attributes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		r := b.Body.Attributes[name].Expr.Range()
+		if r.Start.Byte < 0 || r.End.Byte > len(src) || r.Start.Byte > r.End.Byte {
+			return ""
+		}
+		key += "\x00" + name + "=" + strings.Join(strings.Fields(string(src[r.Start.Byte:r.End.Byte])), " ")
+	}
+	return key
+}
+
+// stagedVariables returns the blocks of staging's variables.tf to add to
+// root's, but for the variables with a default that root declares the
+// same (see rootDeclarations): references to those in generated's blocks
+// refer to root's instead, which has another name.
+func stagedVariables(staging string, declared map[string][]string, generated *hclFile) ([]*hclwrite.Block, error) {
+	staged, err := loadOptionalHCL(filepath.Join(staging, VariablesFileName))
+	if err != nil || staged == nil {
+		return nil, err
+	}
+	blocks := staged.file.Body().Blocks()
+	var kept []*hclwrite.Block
+	for i, b := range staged.syntax.Blocks {
+		if i >= len(blocks) {
+			break
+		}
+		if b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b) {
+			if replacement, ok := declared[declarationKey(b, staged.src)]; ok {
+				for _, block := range generated.file.Body().Blocks() {
+					replaceTraversals(block.Body(), []string{"var", b.Labels[0]}, replacement)
+				}
+				continue
+			}
+		}
+		kept = append(kept, blocks[i])
+	}
+	return kept, nil
+}
+
 // mergeLocals adds staging's locals to root's locals.tf, but for those its
 // provider configuration uses and those root has, such as the tags its
 // resources refer to: root has its own of them.
@@ -612,6 +722,141 @@ func mergeLocals(staging, root string) error {
 		body.SetAttributeRaw(l.name, l.tokens)
 	}
 	return f.save()
+}
+
+// mergeProviders adds to root the providers staging configures and
+// requires that root doesn't, such as google-beta, which a curated module
+// creates resources with (see writeModuleProviders): each block of
+// staging's providers.tf for a provider root has no block for goes to
+// root's providers.tf, and each provider staging's versions.tf requires
+// and root doesn't goes, with the version staging pinned it to, to root's
+// required_providers (see requiredProvidersFile). Without them, an added
+// module call would run on a provider root neither configures nor pins.
+// rootFiles are root's files before the merge.
+func mergeProviders(staging, root string, rootFiles []*hclFile) error {
+	configured := map[string]bool{}
+	required := map[string]bool{}
+	for _, f := range rootFiles {
+		for _, b := range f.syntax.Blocks {
+			switch b.Type {
+			case "provider":
+				if len(b.Labels) == 1 {
+					configured[b.Labels[0]] = true
+				}
+			case "terraform":
+				for _, nested := range b.Body.Blocks {
+					if nested.Type != "required_providers" {
+						continue
+					}
+					for name := range nested.Body.Attributes {
+						required[name] = true
+					}
+				}
+			}
+		}
+	}
+	providers, err := loadOptionalHCL(filepath.Join(staging, ProvidersFileName))
+	if err != nil {
+		return err
+	}
+	if providers != nil {
+		var blocks []*hclwrite.Block
+		for _, b := range providers.file.Body().Blocks() {
+			if b.Type() == "provider" && len(b.Labels()) == 1 && !configured[b.Labels()[0]] {
+				blocks = append(blocks, b)
+			}
+		}
+		if err := appendBlocks(filepath.Join(root, ProvidersFileName), "", blocks); err != nil {
+			return err
+		}
+	}
+	versions, err := loadOptionalHCL(filepath.Join(staging, VersionsFileName))
+	if err != nil || versions == nil {
+		return err
+	}
+	missing := map[string]hclwrite.Tokens{}
+	for _, b := range versions.file.Body().Blocks() {
+		if b.Type() != "terraform" {
+			continue
+		}
+		for _, nested := range b.Body().Blocks() {
+			if nested.Type() != "required_providers" {
+				continue
+			}
+			for name, attr := range nested.Body().Attributes() {
+				// A root that requires none of its providers, as one
+				// written by hand may, gets only the new ones.
+				if !required[name] && (len(required) > 0 || !configured[name]) {
+					missing[name] = attr.Expr().BuildTokens(nil)
+				}
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	path := filepath.Join(root, requiredProvidersFile(rootFiles))
+	f, err := loadOptionalHCL(path)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &hclFile{path: path, file: hclwrite.NewEmptyFile()}
+	}
+	body := requiredProvidersBody(f.file.Body())
+	names := make([]string, 0, len(missing))
+	for name := range missing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		body.SetAttributeRaw(name, missing[name])
+	}
+	return f.save()
+}
+
+// requiredProvidersFile returns the name of the file of files that has
+// the root's required_providers, or versions.tf, where Generate writes
+// them, if none has.
+func requiredProvidersFile(files []*hclFile) string {
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type != "terraform" {
+				continue
+			}
+			for _, nested := range b.Body.Blocks {
+				if nested.Type == "required_providers" {
+					return filepath.Base(f.path)
+				}
+			}
+		}
+	}
+	return VersionsFileName
+}
+
+// requiredProvidersBody returns the body of body's required_providers
+// block, adding the block, and a terraform block for it, where body has
+// none.
+func requiredProvidersBody(body *hclwrite.Body) *hclwrite.Body {
+	var terraform *hclwrite.Block
+	for _, b := range body.Blocks() {
+		if b.Type() != "terraform" {
+			continue
+		}
+		if required := b.Body().FirstMatchingBlock("required_providers", nil); required != nil {
+			return required.Body()
+		}
+		if terraform == nil {
+			terraform = b
+		}
+	}
+	if terraform == nil {
+		if len(body.Blocks()) > 0 {
+			body.AppendNewline()
+		}
+		terraform = body.AppendNewBlock("terraform", nil)
+	}
+	return terraform.Body().AppendNewBlock("required_providers", nil).Body()
 }
 
 // appendBlocks adds blocks to the end of the file at path, which starts

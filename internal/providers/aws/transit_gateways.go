@@ -74,7 +74,7 @@ func listTransitGateways(ctx context.Context, client *ec2.Client) ([]harvest.Res
 				continue
 			}
 			id := aws.ToString(gateway.TransitGatewayId)
-			resources = append(resources, harvest.RecordBare(id, id, "aws_ec2_transit_gateway", "aws"))
+			resources = append(resources, harvest.Record(id, id, "aws_ec2_transit_gateway", "aws", ownerAttributes(gateway.OwnerId)))
 		}
 	}
 	return resources, nil

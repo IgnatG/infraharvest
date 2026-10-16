@@ -34,6 +34,13 @@ concurrency:
   group: sandbox-aws
   cancel-in-progress: false
 
+# The Terraform and OpenTofu the jobs install, the ones the release image
+# copies: bump them with the Dockerfile's hashicorp/terraform and
+# opentofu/opentofu tags, which dependabot tracks.
+env:
+  TERRAFORM_VERSION: 1.16.6
+  TOFU_VERSION: 1.13.1
+
 jobs:
   round-trip:
     name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
@@ -41,8 +48,9 @@ jobs:
     environment: sandbox
     # go test gets the test's own deadline plus the 30 minutes its cleanup
     # destroy has, and a margin, so that it never stops a destroy halfway;
-    # the job, another half an hour for the destroy step below.
-    timeout-minutes: ${{ inputs.estate == 'data' && 130 || 160 }}
+    # the job, another half an hour for the destroy step below and one for
+    # the sweep.
+    timeout-minutes: ${{ inputs.estate == 'data' && 160 || 190 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -51,6 +59,8 @@ jobs:
       E2E_ENGINE: ${{ inputs.engine }}
       SANDBOX_AWS_FIXTURE_PROFILE: fixture
       SANDBOX_AWS_READONLY_PROFILE: readonly
+      # Tags every resource of the estate with this run, for the sweep.
+      TF_VAR_run_id: ${{ github.run_id }}
     steps:
     - name: Directories
       run: |
@@ -72,10 +82,12 @@ jobs:
       if: inputs.engine == 'terraform'
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       if: inputs.engine == 'tofu'
       with:
         tofu_wrapper: false
+        tofu_version: ${{ env.TOFU_VERSION }}
     # The gate runs the scanners it finds (G5), as in the e2e jobs.
     - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
       with:
@@ -112,9 +124,25 @@ jobs:
             echo "::warning::Resources tagged infraharvest-sandbox=$E2E_ENGINE in $region: $left"
           fi
         done
+    # Redshift creates a cluster through its service-linked role, which an
+    # account has only once a cluster was made; created with the cluster,
+    # it isn't ready in time and CreateCluster fails ("Unable to assume the
+    # SLR"). It is made here, once per account, and kept: it costs nothing,
+    # and the account's later clusters use it.
+    - name: Redshift's service-linked role
+      if: inputs.estate == 'data'
+      run: |
+        if ! aws iam get-role --profile fixture --role-name AWSServiceRoleForRedshift > /dev/null 2>&1; then
+          aws iam create-service-linked-role --profile fixture --aws-service-name redshift.amazonaws.com > /dev/null
+          # IAM is eventually consistent: give Redshift time to see it.
+          sleep 30
+        fi
     # One test, by its whole name: -run takes a pattern, and TestSandboxAWS
     # alone would match the clusters test too.
     - name: Round trip
+      env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
       run: |
         case "$SANDBOX_ESTATE" in
           main) test=TestSandboxAWS timeout=120m ;;
@@ -150,12 +178,29 @@ jobs:
           vars+=(-var "second_region=$SANDBOX_AWS_SECOND_REGION")
         fi
         "$E2E_ENGINE" init -input=false
-        "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}"
+        # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
+        # still deletes, is tried twice more before what is left counts.
+        for attempt in 1 2 3; do
+          "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}" && break
+          echo "::warning::destroy attempt $attempt failed"
+          sleep 60
+        done
         left=$("$E2E_ENGINE" state list)
         if [ -n "$left" ]; then
           echo "::error::Left in the estate: $left"
           exit 1
         fi
+    # The last resort, whatever the destroy did: deletes what still carries
+    # this run's tag (TF_VAR_run_id) and costs the most while it exists, and
+    # warns about the rest. It touches nothing without the tag.
+    - name: Sweep what the run left
+      if: always()
+      timeout-minutes: 30
+      env:
+        AWS_PROFILE: fixture
+        RUN_ID: ${{ github.run_id }}
+      # Both regions, and us-east-1, as for the leftovers.
+      run: .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1
     # Only the report: the generated configuration describes the estate, and
     # the artifacts of a public repository are public.
     - name: Upload the report

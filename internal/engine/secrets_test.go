@@ -225,3 +225,114 @@ func TestGenerateWritesStringParameterValues(t *testing.T) {
 		})
 	}
 }
+
+// importedChange is the change of a plan that imports the object before
+// at address, unchanged.
+func importedChange(address string, before map[string]any) *tfjson.ResourceChange {
+	return &tfjson.ResourceChange{
+		Address: address,
+		Mode:    tfjson.ManagedResourceMode,
+		Type:    strings.SplitN(address, ".", 2)[0],
+		Change:  &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}, Before: before},
+	}
+}
+
+// A secret argument the imported object holds no value for, as a
+// database's master password, which AWS never returns, is left out rather
+// than read from a variable: unset, it plans as imported, where a variable
+// would make the plan set it. One the object holds a value for keeps its
+// variable, as does one the schema requires.
+func TestGenerateLeavesOutUnsetSecrets(t *testing.T) {
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		generated: `resource "aws_redshift_cluster" "dw" {
+  cluster_identifier = "dw"
+  master_password    = null # sensitive
+}
+
+resource "aws_secretsmanager_secret_version" "app" {
+  secret_id     = "app"
+  secret_string = null # sensitive
+}
+
+resource "aws_lightsail_database" "db" {
+  master_password = null # sensitive
+  name            = "db"
+}
+`,
+		schemas: &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+			"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+				"aws_redshift_cluster": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"master_password": {AttributeType: cty.String, Optional: true, Sensitive: true},
+				}}},
+				"aws_secretsmanager_secret_version": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"secret_string": {AttributeType: cty.String, Optional: true, Sensitive: true},
+				}}},
+				"aws_lightsail_database": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"master_password": {AttributeType: cty.String, Required: true, Sensitive: true},
+				}}},
+			}},
+		}},
+		shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+			importedChange("aws_redshift_cluster.dw", map[string]any{"cluster_identifier": "dw", "master_password": nil}),
+			importedChange("aws_secretsmanager_secret_version.app", map[string]any{"secret_id": "app", "secret_string": "from the state"}),
+			importedChange("aws_lightsail_database.db", map[string]any{"name": "db", "master_password": nil}),
+		}},
+	}
+
+	result, err := Generate(context.Background(), tf, dir, []Import{
+		{Type: "aws_redshift_cluster", Name: "dw", ID: "dw"},
+		{Type: "aws_secretsmanager_secret_version", Name: "app", ID: "app"},
+		{Type: "aws_lightsail_database", Name: "db", ID: "db"},
+	}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var variables []string
+	for _, s := range result.Secrets {
+		variables = append(variables, s.Variable)
+	}
+	// In the order of the resources, which the configuration sorts by type.
+	if want := []string{"aws_lightsail_database_db_master_password", "aws_secretsmanager_secret_version_app_secret_string"}; !reflect.DeepEqual(variables, want) {
+		t.Errorf("variables: got %v, want %v", variables, want)
+	}
+	got := readFile(t, dir, GeneratedFileName)
+	start := strings.Index(got, `resource "aws_redshift_cluster"`)
+	if start < 0 {
+		t.Fatalf("the cluster is gone:\n%s", got)
+	}
+	cluster, _, _ := strings.Cut(got[start:], "\n}")
+	if strings.Contains(cluster, "master_password") {
+		t.Errorf("want the cluster's unset master_password left out:\n%s", got)
+	}
+	if !strings.Contains(got, "= var.aws_lightsail_database_db_master_password") {
+		t.Errorf("want the required master_password read from its variable:\n%s", got)
+	}
+}
+
+// valuesAt reads an attribute of an imported object, through every block
+// of a nested block type, whatever their order; allNull says whether all
+// of what it found is null.
+func TestValuesAt(t *testing.T) {
+	object := map[string]any{
+		"password": nil,
+		"replica":  []any{map[string]any{"secret": nil}, map[string]any{"secret": "s"}},
+		"restore":  []any{map[string]any{"token": nil}},
+	}
+	for _, tc := range []struct {
+		path []string
+		null bool
+	}{
+		{[]string{"password"}, true},
+		{[]string{"restore", "token"}, true},
+		{[]string{"replica", "secret"}, false},
+		{[]string{"missing"}, false},
+		{[]string{"restore", "missing"}, false},
+	} {
+		if got := allNull(valuesAt(object, tc.path)); got != tc.null {
+			t.Errorf("%v: allNull %v, want %v", tc.path, got, tc.null)
+		}
+	}
+}

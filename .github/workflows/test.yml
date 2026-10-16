@@ -15,6 +15,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The Terraform and OpenTofu the jobs install, the ones the release image
+# copies: bump them with the Dockerfile's hashicorp/terraform and
+# opentofu/opentofu tags, which dependabot tracks.
+env:
+  TERRAFORM_VERSION: 1.16.6
+  TOFU_VERSION: 1.13.1
+
 # A pull request that changes only documentation, linter configuration or
 # other workflows skips the Go and e2e jobs (see the changes job). The
 # required checks still report: test, e2e and checks gather the jobs below
@@ -217,10 +224,12 @@ jobs:
       if: matrix.engine == 'terraform'
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       if: matrix.engine == 'tofu'
       with:
         tofu_wrapper: false
+        tofu_version: ${{ env.TOFU_VERSION }}
     # The gate runs the scanners it finds (G5): tflint must find nothing in
     # the generated configuration; trivy only reports.
     - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
@@ -240,6 +249,8 @@ jobs:
       run: .github/scripts/free-disk-space.sh wait
     - name: Test
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         AWS_ENDPOINT_URL: http://localhost:4566
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
@@ -277,10 +288,12 @@ jobs:
       if: matrix.engine == 'terraform'
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       if: matrix.engine == 'tofu'
       with:
         tofu_wrapper: false
+        tofu_version: ${{ env.TOFU_VERSION }}
     - name: Start floci-gcp
       run: |
         docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
@@ -288,6 +301,8 @@ jobs:
         echo "floci-gcp didn't start"; exit 1
     - name: Test
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4588
         E2E_ENGINE: ${{ matrix.engine }}
       run: go test -tags e2e,minimal,google -timeout 20m -v -run TestGoogle ./e2e/
@@ -323,10 +338,12 @@ jobs:
       if: matrix.engine == 'terraform'
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       if: matrix.engine == 'tofu'
       with:
         tofu_wrapper: false
+        tofu_version: ${{ env.TOFU_VERSION }}
     # The azurerm provider and the listers reach floci-az over HTTPS: trust
     # the CA it generates at startup.
     - name: Start floci-az
@@ -343,6 +360,8 @@ jobs:
         echo "floci-az didn't start"; exit 1
     - name: Test
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         E2E_AZURE_METADATA_HOST: localhost:4577
         E2E_ENGINE: ${{ matrix.engine }}
       run: go test -tags e2e,minimal,azure -timeout 20m -v -run TestAzure ./e2e/
@@ -384,6 +403,7 @@ jobs:
     - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - name: Format
       run: terraform fmt -check -recursive -diff permissions e2e/testdata/sandbox
     - name: Validate
@@ -430,10 +450,44 @@ jobs:
           echo "::error::google should not be compiled into a minimal,aws build"; exit 1
         fi
 
+  # macOS builds and tests only after merges (macos.yml), so compile and
+  # vet every package for darwin/arm64 here: a break in a darwin-only file
+  # shows on the pull request, not at the release.
+  darwin:
+    name: darwin/arm64 build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Free disk space
+      run: .github/scripts/free-disk-space.sh start
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Wait for free disk space
+      run: .github/scripts/free-disk-space.sh wait
+    - name: Build
+      env:
+        GOOS: darwin
+        GOARCH: arm64
+        CGO_ENABLED: "0"
+      run: go build ./...
+    - name: Vet
+      env:
+        GOOS: darwin
+        GOARCH: arm64
+        CGO_ENABLED: "0"
+      run: go vet ./...
+
   # A required check: passes when the other Go and Terraform checks passed,
   # or were skipped.
   checks:
-    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags]
+    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

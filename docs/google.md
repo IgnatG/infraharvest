@@ -67,7 +67,7 @@ The default selection leaves out the grants Google Cloud makes itself: a service
 
 ## Cloud Asset Inventory
 
-The `cloud_asset` service lists a project through [Cloud Asset Inventory](https://cloud.google.com/asset-inventory/docs/overview) instead of each service's API: a search for the asset types the catalogue's `inventory` entries map to Terraform types (see [Inventory types](catalogue.md#inventory-types)). A region's import takes the resources in the region and its zones, and the import of `global` takes the rest: global resources, and those in a multi-region such as a bucket in `US`. A resource the catalogue maps to no type, or to several, is logged and left out, as is one being deleted.
+The `cloud_asset` service lists a project through [Cloud Asset Inventory](https://cloud.google.com/asset-inventory/docs/overview) instead of each service's API: a search for the asset types the catalogue's `inventory` entries map to Terraform types (see [Inventory types](catalogue.md#inventory-types)). The project is searched once per run: a region's import takes the resources in the region and its zones, and the import of `global` takes the rest: global resources, and those in a multi-region such as a bucket in `US`. A resource the catalogue maps to no type, or to several, is logged and left out, as is one being deleted.
 
 The search needs `cloudasset.assets.searchAllResources` on the project, which `roles/cloudasset.viewer` grants, and the Cloud Asset API enabled in the project your credentials' quota goes to. Search results can lag behind changes by a few minutes, and by hours for Cloud Functions, so something just created may not be listed yet.
 

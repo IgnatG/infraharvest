@@ -101,7 +101,7 @@ func newAzureSandbox(ctx context.Context, t *testing.T) *azureSandbox {
 		readonlyClientID: os.Getenv("SANDBOX_AZURE_READONLY_CLIENT_ID"),
 	}
 	if s.subscriptionID == "" || os.Getenv("ARM_TENANT_ID") == "" || s.fixtureClientID == "" || s.readonlyClientID == "" {
-		t.Skip("ARM_TENANT_ID, ARM_SUBSCRIPTION_ID, SANDBOX_AZURE_FIXTURE_CLIENT_ID and SANDBOX_AZURE_READONLY_CLIENT_ID name a sandbox subscription; see the sandbox-azure workflow")
+		skipUnconfigured(t, "ARM_TENANT_ID, ARM_SUBSCRIPTION_ID, SANDBOX_AZURE_FIXTURE_CLIENT_ID and SANDBOX_AZURE_READONLY_CLIENT_ID name a sandbox subscription; see the sandbox-azure workflow")
 	}
 	if os.Getenv(azureMetadataHostEnv) != "" || strings.EqualFold(strings.TrimSpace(os.Getenv("ARM_ENVIRONMENT")), "stack") {
 		t.Fatal("an emulator is set up (E2E_AZURE_METADATA_HOST or ARM_ENVIRONMENT=stack): the sandbox test runs against Azure")

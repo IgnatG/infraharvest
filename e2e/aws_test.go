@@ -71,7 +71,7 @@ func seedAWS(t *testing.T) awsEstate {
 	t.Helper()
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
-		t.Skip("AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
+		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
 	}
 	if !isLoopback(endpoint) {
 		t.Fatalf("AWS_ENDPOINT_URL=%s: the test creates resources, so it only runs against a local emulator", endpoint)

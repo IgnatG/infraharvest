@@ -5,7 +5,8 @@ package aws
 
 import (
 	"cmp"
-	"log"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -21,30 +22,29 @@ type Route53Lister struct {
 	Service
 }
 
-// List lists the zones with their records, then the health
-// checks. Listing errors are logged, not returned: what was listed before
-// one is kept, and the rest of the service is still listed.
+// List lists the zones with their records, then the health checks. A
+// zone whose records fail to list doesn't stop the other zones or the
+// health checks; the errors are returned together, so the listing reads
+// as incomplete rather than as a zone with no records.
 func (g *Route53Lister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	client := route53.NewFromConfig(config)
-	g.listHostedZones(client)
-	g.listHealthChecks(client)
-	return nil
+	return errors.Join(g.listHostedZones(client), g.listHealthChecks(client))
 }
 
 // listHostedZones records every hosted zone by its ID without the
 // "/hostedzone/" prefix, named after its domain, each followed by its
 // records. The zone's domain is recorded with its trailing dot.
-func (g *Route53Lister) listHostedZones(client *route53.Client) {
+func (g *Route53Lister) listHostedZones(client *route53.Client) error {
+	var errs []error
 	p := route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: route53: hosted zones: %v", err)
-			return
+			return errors.Join(append(errs, fmt.Errorf("route53: hosted zones: %w", err))...)
 		}
 		for _, zone := range page.HostedZones {
 			zoneID := strings.TrimPrefix(aws.ToString(zone.Id), "/hostedzone/")
@@ -53,9 +53,10 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) {
 				"name":          domain,
 				"force_destroy": "false",
 			}))
-			g.listRecords(client, zoneID, domain)
+			errs = append(errs, g.listRecords(client, zoneID, domain))
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // recordPosition is where a page of record sets starts: Route 53 pages
@@ -67,27 +68,24 @@ type recordPosition struct {
 // listRecords records every record set of the zone zoneID, whose domain
 // is domain, NS and SOA included. The pages are walked by hand, from the
 // name, type and set identifier that each truncated page gives for the
-// next, and stop should a page point at the position it was asked for. An
-// error is logged; the records read before it are kept.
-func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain string) {
+// next, and stop should a page point at the position it was asked for.
+func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain string) error {
 	input := &route53.ListResourceRecordSetsInput{HostedZoneId: aws.String(zoneID)}
 	for {
 		page, err := client.ListResourceRecordSets(g.Context(), input)
 		if err != nil {
-			log.Printf("aws: route53: records of zone %s: %v", zoneID, err)
-			return
+			return fmt.Errorf("route53: records of zone %s: %w", zoneID, err)
 		}
 		for _, recordSet := range page.ResourceRecordSets {
 			g.addRecord(zoneID, domain, recordSet)
 		}
 		if !page.IsTruncated {
-			return
+			return nil
 		}
 		asked := recordPosition{aws.ToString(input.StartRecordName), string(input.StartRecordType), aws.ToString(input.StartRecordIdentifier)}
 		next := recordPosition{aws.ToString(page.NextRecordName), string(page.NextRecordType), aws.ToString(page.NextRecordIdentifier)}
 		if next == asked {
-			log.Printf("aws: route53: records of zone %s: pagination did not advance past %q %s %q", zoneID, next.name, next.recordType, next.identifier)
-			return
+			return fmt.Errorf("route53: records of zone %s: pagination did not advance past %q %s %q", zoneID, next.name, next.recordType, next.identifier)
 		}
 		input.StartRecordName = page.NextRecordName
 		input.StartRecordType = page.NextRecordType
@@ -117,14 +115,13 @@ func (g *Route53Lister) addRecord(zoneID, domain string, recordSet types.Resourc
 
 // listHealthChecks records every health check by ID, named after what it
 // checks, its domain name or IP address, and its type: "example.com
-// HTTPS". An error is logged; the checks read before it are kept.
-func (g *Route53Lister) listHealthChecks(client *route53.Client) {
+// HTTPS".
+func (g *Route53Lister) listHealthChecks(client *route53.Client) error {
 	p := route53.NewListHealthChecksPaginator(client, &route53.ListHealthChecksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: route53: health checks: %v", err)
-			return
+			return fmt.Errorf("route53: health checks: %w", err)
 		}
 		for _, check := range page.HealthChecks {
 			id := aws.ToString(check.Id)
@@ -135,6 +132,7 @@ func (g *Route53Lister) listHealthChecks(client *route53.Client) {
 			g.Resources = append(g.Resources, harvest.RecordBare(id, cmp.Or(name, id), "aws_route53_health_check", "aws"))
 		}
 	}
+	return nil
 }
 
 // recordName names a record set: its name, name, with the zone's domain,

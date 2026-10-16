@@ -4,3 +4,13 @@ service: redshift
 types:
   aws_redshift_cluster:
     arn: { service: redshift, resource_type: "cluster" }
+    omit:
+      # As an RDS instance's: AWS never returns the master password, so an
+      # import leaves it unset and a plan without it changes nothing. As a
+      # variable, any value would make the plan set it, and turn off a
+      # password Redshift manages.
+      - master_password
+      # A cluster encrypted with a key AWS owns, as Redshift encrypts new
+      # clusters by default, reads its key as this name, which the provider
+      # rejects as a kms_key_id: left out, the plan stays the same.
+      - kms_key_id=AWS_OWNED_KMS_KEY

@@ -148,19 +148,34 @@ func stringLiteral(expr hclsyntax.Expression) string {
 // shape of a value make it a secret, while credential formats count
 // everywhere. Tags have only the credential formats looked for.
 func secretsInExpr(expr hclsyntax.Expression, path, key string, freeForm, tags bool) []foundSecret {
+	return secretsInPolicy(expr, path, key, freeForm, tags, false)
+}
+
+// secretsInPolicy is secretsInExpr below an IAM policy's Condition when
+// condition is set (see secretsInJSONString).
+func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags, condition bool) []foundSecret {
 	switch e := expr.(type) {
 	case *hclsyntax.TemplateExpr:
 		value := stringLiteral(e)
 		if value == "" {
 			return nil
 		}
-		if reason := secretReason(key, value, freeForm && !tags); reason != "" {
+		// A JSON document is looked into first, so that a secret in it
+		// becomes a variable of its own and the rest keeps its text; the
+		// whole value is judged only when nothing in it is a secret.
+		if !tags {
+			if found := secretsInJSONString(e, value, path, key); len(found) > 0 {
+				return found
+			}
+		}
+		keyName := key
+		if condition {
+			keyName = ""
+		}
+		if reason := secretReason(keyName, value, freeForm && !tags); reason != "" {
 			return []foundSecret{{attribute: path, key: key, value: value, reason: reason, literal: e, whole: true}}
 		}
-		if tags {
-			return nil
-		}
-		return secretsInJSONString(e, value, path, key)
+		return nil
 	case *hclsyntax.ObjectConsExpr:
 		values := map[string]string{}
 		for _, item := range e.Items {
@@ -183,21 +198,21 @@ func secretsInExpr(expr hclsyntax.Expression, path, key string, freeForm, tags b
 				}
 				itemKey = pairName
 			}
-			found = append(found, secretsInExpr(item.ValueExpr, path+pathSegment(k), itemKey, true, tags)...)
+			found = append(found, secretsInPolicy(item.ValueExpr, path+pathSegment(k), itemKey, true, tags, condition || k == "Condition")...)
 		}
 		return found
 	case *hclsyntax.TupleConsExpr:
 		var found []foundSecret
 		for i, item := range e.Exprs {
-			found = append(found, secretsInExpr(item, fmt.Sprintf("%s[%d]", path, i), key, freeForm, tags)...)
+			found = append(found, secretsInPolicy(item, fmt.Sprintf("%s[%d]", path, i), key, freeForm, tags, condition)...)
 		}
 		return found
 	case *hclsyntax.FunctionCallExpr:
 		if e.Name == "jsonencode" && len(e.Args) == 1 {
-			return secretsInExpr(e.Args[0], path, key, true, tags)
+			return secretsInPolicy(e.Args[0], path, key, true, tags, condition)
 		}
 	case *hclsyntax.ParenthesesExpr:
-		return secretsInExpr(e.Expression, path, key, freeForm, tags)
+		return secretsInPolicy(e.Expression, path, key, freeForm, tags, condition)
 	}
 	return nil
 }
@@ -244,11 +259,19 @@ func secretsInJSONString(e *hclsyntax.TemplateExpr, value, path, key string) []f
 		return nil
 	}
 	var found []foundSecret
-	var walk func(v any, at, name string)
-	walk = func(v any, at, name string) {
+	// condition is set below an IAM policy's Condition, whose keys are
+	// AWS's condition keys, such as token.actions.githubusercontent.com:sub,
+	// not names someone chose: they don't make a value a secret, though a
+	// credential or a random-looking value there still is one.
+	var walk func(v any, at, name string, condition bool)
+	walk = func(v any, at, name string, condition bool) {
 		switch v := v.(type) {
 		case string:
-			if reason := secretReason(name, v, true); reason != "" {
+			keyName := name
+			if condition {
+				keyName = ""
+			}
+			if reason := secretReason(keyName, v, true); reason != "" {
 				found = append(found, foundSecret{attribute: at, key: name, value: v, reason: reason, literal: e, outer: path, outerKey: key})
 			}
 		case map[string]any:
@@ -269,15 +292,15 @@ func secretsInJSONString(e *hclsyntax.TemplateExpr, value, path, key string) []f
 				if (k == "value" || k == "Value") && pairName != "" {
 					itemKey = pairName
 				}
-				walk(v[k], at+pathSegment(k), itemKey)
+				walk(v[k], at+pathSegment(k), itemKey, condition || k == "Condition")
 			}
 		case []any:
 			for i, item := range v {
-				walk(item, fmt.Sprintf("%s[%d]", at, i), name)
+				walk(item, fmt.Sprintf("%s[%d]", at, i), name, condition)
 			}
 		}
 	}
-	walk(doc, "jsondecode("+path+")", key)
+	walk(doc, "jsondecode("+path+")", key, false)
 	return found
 }
 

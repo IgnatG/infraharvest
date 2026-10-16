@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -90,5 +91,31 @@ func TestEngineRunCouldNotWriteReport(t *testing.T) {
 		if !errors.Is(err, partial) {
 			t.Errorf("%s: the import's own error is lost: %v", name, err)
 		}
+	}
+}
+
+// A run that ends on an error, such as an interrupt, says so in its
+// report, with the exit code the process exits with.
+func TestEngineRunReportsTheErrorItEndsOn(t *testing.T) {
+	out := t.TempDir()
+	run := NewRun()
+	run.used = true
+	run.options = Options{Out: out}
+
+	err := run.finish(context.Canceled)
+
+	if code := ExitCode(err); code != report.ExitCouldNotRun {
+		t.Fatalf("exit code %d, want %d (%v)", code, report.ExitCouldNotRun, err)
+	}
+	var coverage report.Report
+	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if err := json.Unmarshal(content, &coverage); err != nil {
+		t.Fatal(err)
+	}
+	if coverage.ExitCode != report.ExitCouldNotRun || len(coverage.Failures) != 1 {
+		t.Errorf("coverage.json: exit code %d, failures %q; want %d and the error", coverage.ExitCode, coverage.Failures, report.ExitCouldNotRun)
 	}
 }

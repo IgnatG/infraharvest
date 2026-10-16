@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 
 	"google.golang.org/api/cloudasset/v1"
@@ -44,7 +46,8 @@ type CloudAssetLister struct {
 	harvest.ListerBase
 }
 
-// List searches the project and keeps what is in the import's
+// List searches the project, or takes the search an import of another of
+// its regions made (see searchOnce), and keeps what is in the import's
 // region.
 func (g *CloudAssetLister) List() error {
 	cat := g.catalogue()
@@ -59,7 +62,7 @@ func (g *CloudAssetLister) List() error {
 		return err
 	}
 	project := g.Settings()["project"].(string)
-	results, err := searchAll(ctx, svc, project, assetTypes)
+	results, err := searchOnce(ctx, svc, project, assetTypes)
 	if err != nil {
 		return err
 	}
@@ -91,6 +94,57 @@ func inventoryTypes(cat *catalogue.Catalogue, types []string) []string {
 	}
 	slices.Sort(assetTypes)
 	return assetTypes
+}
+
+// searches are the searches the process has made, by searchKey: one
+// command imports a project region by region, each import taking from the
+// same project-wide search what is in its region, so the search runs once
+// for all of them rather than once for each.
+var searches = struct {
+	sync.Mutex
+	byKey map[string]*projectSearch
+}{byKey: map[string]*projectSearch{}}
+
+// projectSearch is one project's search for one set of asset types: its
+// results once it has succeeded. mu is held while it runs, so that an
+// import that wants it meanwhile waits for it rather than searching too.
+type projectSearch struct {
+	mu      sync.Mutex
+	done    bool
+	results []*cloudasset.ResourceSearchResult
+}
+
+// searchKey names a search: where it goes (an emulator, or Google), the
+// project and the asset types, which are sorted.
+func searchKey(project string, assetTypes []string) string {
+	return os.Getenv(EndpointEnv) + "\x00" + project + "\x00" + strings.Join(assetTypes, ",")
+}
+
+// searchOnce returns what searchAll finds in the project for assetTypes,
+// searching only the first time the process asks: the imports of a
+// project's regions and of global share the search, which they only read.
+// A search that fails isn't kept, so the next import searches again.
+func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
+	key := searchKey(project, assetTypes)
+	searches.Lock()
+	s, ok := searches.byKey[key]
+	if !ok {
+		s = &projectSearch{}
+		searches.byKey[key] = s
+	}
+	searches.Unlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		return s.results, nil
+	}
+	results, err := searchAll(ctx, svc, project, assetTypes)
+	if err != nil {
+		return nil, err
+	}
+	s.results, s.done = results, true
+	return results, nil
 }
 
 // searchAll searches the project for resources of assetTypes. If the

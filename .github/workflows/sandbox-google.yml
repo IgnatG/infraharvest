@@ -27,6 +27,13 @@ concurrency:
   group: sandbox-google
   cancel-in-progress: false
 
+# The Terraform and OpenTofu the jobs install, the ones the release image
+# copies: bump them with the Dockerfile's hashicorp/terraform and
+# opentofu/opentofu tags, which dependabot tracks.
+env:
+  TERRAFORM_VERSION: 1.16.6
+  TOFU_VERSION: 1.13.1
+
 jobs:
   round-trip:
     name: round-trip (${{ inputs.engine }})
@@ -59,10 +66,12 @@ jobs:
       if: inputs.engine == 'terraform'
       with:
         terraform_wrapper: false
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
     - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       if: inputs.engine == 'tofu'
       with:
         tofu_wrapper: false
+        tofu_version: ${{ env.TOFU_VERSION }}
     # The gate runs the scanners it finds (G5), as in the e2e jobs.
     - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
       with:
@@ -110,6 +119,8 @@ jobs:
         fi
     - name: Round trip
       env:
+        # Fail, rather than skip, if the test has nothing to run against.
+        INFRAHARVEST_E2E_REQUIRED: "1"
         SANDBOX_GOOGLE_FIXTURE_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
         SANDBOX_GOOGLE_READONLY_CREDENTIALS: ${{ steps.readonly.outputs.credentials_file_path }}
       run: go test -tags e2e,sandbox,minimal,google -run '^TestSandboxGoogle$' -timeout 90m -v ./e2e/
@@ -125,7 +136,13 @@ jobs:
         cd "$SANDBOX_FIXTURE_DIR"
         vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
         "$E2E_ENGINE" init -input=false
-        "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}"
+        # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
+        # still deletes, is tried twice more before what is left counts.
+        for attempt in 1 2 3; do
+          "$E2E_ENGINE" destroy -auto-approve -input=false -lock-timeout=5m "${vars[@]}" && break
+          echo "::warning::destroy attempt $attempt failed"
+          sleep 60
+        done
         left=$("$E2E_ENGINE" state list)
         if [ -n "$left" ]; then
           echo "::error::Left in the estate: $left"

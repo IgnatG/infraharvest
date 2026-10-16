@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -104,14 +105,14 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	for round := 0; round < maxDefaultRounds; round++ {
 		removed, err := removeValid(ctx, tf, dir, restore, schemas, rules, keep)
 		if err != nil {
-			return false, err
+			return false, errors.Join(err, restore())
 		}
 		if len(removed) == 0 {
 			return false, restore()
 		}
 		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
-			return false, err
+			return false, errors.Join(err, restore())
 		}
 		if len(diags) > 0 || p == nil {
 			// Leaving an argument out made the configuration invalid in a

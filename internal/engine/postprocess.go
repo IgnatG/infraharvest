@@ -8,15 +8,20 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 )
 
 // placeholderString stands in for secret values in the plans post-processing
-// runs. Those plans are only compared with each other, never applied.
-const placeholderString = "infraharvest-placeholder"
+// runs. Those plans are only compared with each other, never applied. It
+// meets the password rules providers check before planning (Redshift's,
+// RDS's, Azure's): upper and lower case letters, a digit and a symbol, 8
+// to 41 characters, and none of / @ " ' \ or a space.
+const placeholderString = "Infraharvest-Placeholder-0"
 
 // postProcess improves the configuration once it plans, in this order:
 // the tags an import leaves out (see fillEffectiveTags), arguments that
@@ -186,7 +191,7 @@ func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string, taken 
 	}
 	validation, err := tf.Validate(ctx)
 	if err != nil {
-		return fmt.Errorf("terraform validate: %w", err)
+		return errors.Join(fmt.Errorf("terraform validate: %w", err), backup.restore())
 	}
 	if !validation.Valid {
 		return backup.restore()
@@ -218,7 +223,7 @@ func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummar
 	}
 	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, backup.restore())
 	}
 	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
@@ -283,6 +288,31 @@ func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSu
 	return false, backup.restore()
 }
 
+// dataReaders returns the resources of generated that refer to the data
+// source at address, such as data.aws_kms_alias.ebs, or none if address
+// isn't a data source's.
+func dataReaders(generated *hclFile, address string) []string {
+	parts := strings.Split(address, ".")
+	if len(parts) != 3 || parts[0] != "data" {
+		return nil
+	}
+	var readers []string
+	for _, r := range generated.resources() {
+		for _, t := range allTraversals(r.syntax.Body) {
+			if len(t) < 3 || t.RootName() != "data" {
+				continue
+			}
+			typ, ok1 := t[1].(hcl.TraverseAttr)
+			name, ok2 := t[2].(hcl.TraverseAttr)
+			if ok1 && ok2 && typ.Name == parts[1] && name.Name == parts[2] {
+				readers = append(readers, r.address)
+				break
+			}
+		}
+	}
+	return readers
+}
+
 // blame returns the resources the plan's errors are about, or, without
 // errors, those of p that plan differently from changes. It returns none
 // if an error is about no resource.
@@ -298,8 +328,16 @@ func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[st
 			return nil, err
 		}
 		assigned, unassigned := byResource(diags, generated, imports)
-		if len(unassigned) > 0 {
-			return nil, nil
+		// An error about a data source, such as an alias the account
+		// lacks, is the resources' that read it.
+		for _, d := range unassigned {
+			readers := dataReaders(generated, trimInstanceKey(d.Address))
+			if len(readers) == 0 {
+				return nil, nil
+			}
+			for _, address := range readers {
+				blamed[address] = true
+			}
 		}
 		for address := range assigned {
 			blamed[address] = true

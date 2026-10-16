@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"net/url"
 	"sort"
 	"strings"
@@ -46,17 +47,20 @@ func checkSelectionOptions(options Options) error {
 // excludedByDefault returns the listed resources the default selection
 // leaves out, by "type lister-ID", with the reason: those the catalogue's
 // skip rules match, then those the provider finds, such as the parts of a
-// default network.
-func excludedByDefault(ctx context.Context, provider harvest.Provider, cat *catalogue.Catalogue, listed map[string][]harvest.Resource) (map[string]string, error) {
+// default network. The provider sees each resource's tags, as listed
+// already, among its attributes as tags.<key>, the way listers record the
+// tags they read themselves, so that a tag can tell what owns a resource
+// without another call.
+func excludedByDefault(ctx context.Context, provider harvest.Provider, cat *catalogue.Catalogue, listed listing) (map[string]string, error) {
 	excluded := map[string]string{}
 	var all []harvest.Resource
-	for _, resources := range listed {
+	for _, resources := range listed.resources {
 		for _, r := range resources {
 			if reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); reason != "" {
 				excluded[r.Address.Type+" "+r.Observed.ID] = reason
 			}
+			all = append(all, withTagAttributes(r, listed.tagsOf(r)))
 		}
-		all = append(all, resources...)
 	}
 	withDefaults, ok := provider.(harvest.ProviderWithSelectionDefaults)
 	if !ok {
@@ -69,6 +73,25 @@ func excludedByDefault(ctx context.Context, provider harvest.Provider, cat *cata
 		}
 	}
 	return excluded, err
+}
+
+// withTagAttributes returns r with tags among its attributes, as
+// tags.<key>, in a copy: what the lister recorded stays as it is, and a
+// tag the lister recorded itself wins over the listed one. Without tags,
+// r is returned as it is.
+func withTagAttributes(r harvest.Resource, tags map[string]string) harvest.Resource {
+	if len(tags) == 0 {
+		return r
+	}
+	attributes := make(map[string]string, len(r.Observed.Attributes)+len(tags))
+	for key, value := range tags {
+		attributes["tags."+key] = value
+	}
+	maps.Copy(attributes, r.Observed.Attributes)
+	observed := *r.Observed
+	observed.Attributes = attributes
+	r.Observed = &observed
+	return r
 }
 
 // selectionFile loads the selection file once per run; nil for --all.
@@ -177,15 +200,16 @@ func (r *Run) selectionPath() string {
 	return r.options.Selection
 }
 
-// writeSelection writes what discover listed.
-func (r *Run) writeSelection() error {
+// writeSelection writes what discover listed; with partial set, as after a
+// failed listing, it keeps the entries of the file it didn't list.
+func (r *Run) writeSelection(partial bool) error {
 	path := r.selectionPath()
 	f, err := selection.Load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		// Merge lists each resource once; nothing is new in a first file.
 		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
-		f.Merge(r.listed)
+		f.Merge(r.listed, false)
 		for i := range f.Resources {
 			f.Resources[i].New = false
 		}
@@ -193,8 +217,12 @@ func (r *Run) writeSelection() error {
 		return err
 	default:
 		// Running discover again: keep the decisions people made.
-		added, dropped := f.Merge(r.listed)
-		log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped", path, added, dropped)
+		added, dropped := f.Merge(r.listed, partial)
+		if partial {
+			log.Printf("updated %s: %d new resources marked new: true for review; the listing failed in part, so the entries it didn't find stay", path, added)
+		} else {
+			log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped", path, added, dropped)
+		}
 	}
 	if err := f.Save(path); err != nil {
 		return err

@@ -43,6 +43,8 @@ infraharvest never writes a secret value into its output: not into the configura
 
 ARNs, IDs and UUIDs, URLs without credentials, paths, numbers, booleans, text with spaces, short values, and references to secrets kept elsewhere (`@Microsoft.KeyVault(...)`, `{{resolve:...}}`, Secret Manager names) are left as they are, and so are tags and labels, but for credential formats. Each secret becomes a reference to a new `sensitive` variable without a default, named after the resource and the key (`var.aws_lambda_function_api_webhook_secret`), listed in `variables.tf`, the README and the report. A value inside a JSON string is replaced in place (`"${var.name}"`) where the JSON needs no escaping for it. infraharvest's own plans read the values from a private temporary file outside the output, deleted when the directory is done, so they stay clean. An AWS access key ID used as a tag key isn't a secret, but gets a warning in the README and the report.
 
+A sensitive argument the cloud never returns, such as a database's master password, is left out instead: the imported object holds no value for it, so the configuration plans clean without it, where a variable would make the plan set a password, and turn off one the service manages. Only an argument the provider's schema requires, or one the imported object holds a value for, becomes a variable.
+
 The AWS provider marks every SSM parameter's `value` sensitive, but only a `SecureString`'s is secret: a `String` or `StringList` parameter's value is written into the configuration as it is (as `value`, which plans clean after import, where `insecure_value` would plan an update), unless it looks like a secret all the same, such as a parameter named `/app/db_password`.
 
 ## Tidying

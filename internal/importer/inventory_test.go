@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -37,7 +38,7 @@ func TestInventory(t *testing.T) {
 	}
 
 	// import --reuse-inventory takes it from there, failures included.
-	listed, failures, err = listResources(t.Context(), &listingProvider{t: t}, Options{ReuseInventory: true, Out: out, Services: []string{"good", "bad"}}, args, "")
+	listed, failures, err = listResources(t.Context(), &listingProvider{t: t}, Options{ReuseInventory: true, Out: out, Services: []string{"good", "bad"}}, args, "fake/1/eu-west-2")
 	if err != nil || len(listed.resources["good"]) != 1 || listed.resources["good"][0].Observed.ID != "id-1" {
 		t.Fatalf("reuse: %v, %v", listed, err)
 	}
@@ -145,7 +146,7 @@ func TestInventoryKeepsTags(t *testing.T) {
 
 	// Reused, the resources are as listed, tags included.
 	options = Options{ReuseInventory: true, Out: out, Services: []string{"good"}}
-	reused, _, err := listResources(t.Context(), &listingProvider{t: t}, options, args, "")
+	reused, _, err := listResources(t.Context(), &listingProvider{t: t}, options, args, "fake/1/eu-west-2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,11 +171,61 @@ func TestInventoryKeepsTags(t *testing.T) {
 	}
 }
 
+// The tags listed for a resource reach the provider's default selection
+// as tags.<key> attributes, in a copy that leaves the lister's record as
+// it was; a tag the lister recorded itself wins over the listed one.
+func TestWithTagAttributes(t *testing.T) {
+	r := harvest.Record("id-1", "one", "fake_thing", "fake", map[string]string{"name": "one", "tags.team": "listed by the lister"})
+	tagged := withTagAttributes(r, map[string]string{"team": "data", "env": "dev"})
+	want := map[string]string{"name": "one", "tags.team": "listed by the lister", "tags.env": "dev"}
+	if !reflect.DeepEqual(tagged.Observed.Attributes, want) {
+		t.Errorf("got %v, want %v", tagged.Observed.Attributes, want)
+	}
+	if len(r.Observed.Attributes) != 2 {
+		t.Errorf("the lister's record changed: %v", r.Observed.Attributes)
+	}
+	if same := withTagAttributes(r, nil); same.Observed != r.Observed {
+		t.Error("without tags, want the resource as it is")
+	}
+}
+
 // Tags the listers record in their attributes count too.
 func TestReadTagsFromAttributes(t *testing.T) {
 	r := harvest.Record("id-1", "one", "fake_thing", "fake", map[string]string{"tags.%": "1", "tags.team": "data"})
 	tags := readTags(t.Context(), &taggingProvider{}, map[string][]harvest.Resource{"good": {r}})
 	if got := tags[tagKey(r)]; got["team"] != "data" || got["env"] != "dev" {
 		t.Errorf("tags: %v, want team from the attributes and env from the provider", got)
+	}
+}
+
+// countingProvider counts the services it lists in countingListed: the
+// registry lists each service with a provider of its own, the zero value
+// of this type, so the count can't be a field.
+type countingProvider struct {
+	fakeProvider
+}
+
+var countingListed atomic.Int32
+
+func (p *countingProvider) Select(name string, verbose bool) error {
+	countingListed.Add(1)
+	return p.fakeProvider.Select(name, verbose)
+}
+
+// The saved inventory of the same arguments is of another account or
+// region when the scope they resolve to differs, as with another region in
+// the environment: it is listed again.
+func TestInventoryOfAnotherScope(t *testing.T) {
+	out := t.TempDir()
+	args := []string{"", "default"}
+	if _, _, err := listResources(t.Context(), &fakeProvider{}, Options{Discover: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-1"); err != nil {
+		t.Fatal(err)
+	}
+	countingListed.Store(0)
+	if _, _, err := listResources(t.Context(), &countingProvider{}, Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-2"); err != nil {
+		t.Fatal(err)
+	}
+	if n := countingListed.Load(); n != 1 {
+		t.Errorf("listed %d services, want the inventory of eu-west-1 not reused for eu-west-2", n)
 	}
 }

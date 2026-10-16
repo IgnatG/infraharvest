@@ -41,6 +41,12 @@ func TestRequireMinimumVersion(t *testing.T) {
 			modules: map[string]string{"vpc": ">= 1.5.7", "vpc.sub": ">= 1.3"},
 			want:    `">= 1.5.7, < 2.0"`,
 		},
+		// Terraform still lists the module of a call the plan rejected.
+		"modules no longer called": {
+			files:   map[string]string{"main.tf": "module \"bucket\" {\n  source = \"terraform-aws-modules/s3-bucket/aws\"\n}\n"},
+			modules: map[string]string{"bucket": ">= 1.3", "vpc": ">= 1.5.7"},
+			want:    `">= 1.5, < 2.0"`,
+		},
 	} {
 		dir := t.TempDir()
 		writeConfig(t, dir, VersionsFileName, versions)

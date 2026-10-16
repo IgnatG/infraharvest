@@ -197,6 +197,13 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 		if err != nil {
 			return listing{}, nil, err
 		}
+		// The path names the call's arguments, not what they resolve to:
+		// another region from the environment, or other credentials, is
+		// another account or region.
+		if inv != nil && inv.Scope != scope {
+			log.Printf("%s: the saved inventory (%s) is of %s, not %s: listing again", provider.Name(), path, inv.Scope, scope)
+			inv = nil
+		}
 		if inv != nil {
 			log.Printf("%s: using the resources discover listed (%s)", provider.Name(), path)
 			var failures []error

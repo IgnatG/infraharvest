@@ -381,7 +381,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			kept = append(kept, s)
 		}
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, kept, &result.Rejected, &rejected); err != nil {
+	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, kept, &result.Rejected, &rejected, opts.secretValues.options()); err != nil {
 		return nil, err
 	}
 	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, opts); err != nil {
@@ -494,7 +494,10 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // variables already), named other than the variables in taken, and
 // validates the result. It leaves out resources that still don't validate,
 // adding them to rejections and out. It returns literal's variables first.
-func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer) ([]Secret, error) {
+// Secret attributes the imported objects hold no value for are left out of
+// the configuration instead (see withoutUnset); vars are the options the
+// plan that tells them apart needs.
+func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]Secret, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
@@ -506,6 +509,17 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, li
 			return nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
 		found = withoutWriteOnly(found, schemas)
+	}
+	if len(found) > 0 {
+		var unset bool
+		if found, unset, err = withoutUnset(ctx, tf, found, schemas, vars); err != nil {
+			return nil, err
+		}
+		if unset {
+			if err := generated.save(); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if len(found) == 0 {
 		// Written again, without the variables of resources left out since.

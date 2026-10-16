@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"hash/crc32"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -36,10 +38,14 @@ type EbsLister struct {
 // written with.
 const ebsFilterServiceName = "ebs_volume"
 
-// List lists the volumes, page by page, and their attachments.
-// Telling a root volume apart takes the attached instance's root device
-// name, from DescribeInstances. Any API error is returned and ends the
-// listing.
+// ebsInstanceBatch is how many instance IDs one DescribeInstances call
+// filters on. EC2 takes up to 200 values in one filter.
+const ebsInstanceBatch = 200
+
+// List lists the volumes, page by page, and then their attachments.
+// Telling a root volume apart takes the attached instances' root device
+// names, which one DescribeInstances call per batch of instances returns
+// (see rootDeviceNames). Any API error is returned and ends the listing.
 func (g *EbsLister) List() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
@@ -47,32 +53,79 @@ func (g *EbsLister) List() error {
 	}
 	client := ec2.NewFromConfig(cfg)
 	ctx := g.Context()
-	roots := rootDevices{client: client, names: map[string]string{}}
 
 	input := &ec2.DescribeVolumesInput{
 		Filters: ec2TagFilters(g.Filters(), ebsFilterServiceName),
 	}
+	var volumes []types.Volume
 	pages := ec2.NewDescribeVolumesPaginator(client, input, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
 			return err
 		}
-		for i := range page.Volumes {
-			resources, err := volumeResources(ctx, &roots, &page.Volumes[i])
-			if err != nil {
-				return err
-			}
-			g.Resources = append(g.Resources, resources...)
-		}
+		volumes = append(volumes, page.Volumes...)
+	}
+	roots, err := rootDeviceNames(ctx, client, attachedInstanceIDs(volumes))
+	if err != nil {
+		return err
+	}
+	for i := range volumes {
+		g.Resources = append(g.Resources, volumeResources(roots, &volumes[i])...)
 	}
 	return nil
 }
 
+// attachedInstanceIDs returns the IDs of the instances that volumes are
+// attached to, each once, in the order they are first met.
+func attachedInstanceIDs(volumes []types.Volume) []string {
+	var ids []string
+	seen := map[string]bool{}
+	for i := range volumes {
+		for _, attachment := range volumes[i].Attachments {
+			id := aws.ToString(attachment.InstanceId)
+			if id != "" && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+// rootDeviceNames returns the root device name of each of the instances
+// instanceIDs, by instance ID, asking DescribeInstances once per batch of
+// ebsInstanceBatch instances. The instances are named by an instance-id
+// filter rather than by InstanceIds, so an instance that is gone by the
+// time it is described is left out of the answer instead of failing the
+// call; an instance missing from the map has no root device to compare.
+func rootDeviceNames(ctx context.Context, client *ec2.Client, instanceIDs []string) (map[string]string, error) {
+	names := map[string]string{}
+	for batch := range slices.Chunk(instanceIDs, ebsInstanceBatch) {
+		input := &ec2.DescribeInstancesInput{
+			Filters: []types.Filter{{Name: aws.String("instance-id"), Values: batch}},
+		}
+		pages := ec2.NewDescribeInstancesPaginator(client, input, stopOnDuplicateToken)
+		for pages.HasMorePages() {
+			page, err := pages.NextPage(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("describe instances %s: %w", strings.Join(batch, ", "), err)
+			}
+			for _, reservation := range page.Reservations {
+				for _, instance := range reservation.Instances {
+					names[aws.ToString(instance.InstanceId)] = aws.ToString(instance.RootDeviceName)
+				}
+			}
+		}
+	}
+	return names, nil
+}
+
 // volumeResources returns the resources of one volume: the volume itself
 // followed by its attachments in state attached, or nothing when the volume
-// is the root device of an instance it is attached to.
-func volumeResources(ctx context.Context, roots *rootDevices, volume *types.Volume) ([]harvest.Resource, error) {
+// is the root device of an instance it is attached to. roots holds the
+// root device names of the attached instances, by instance ID.
+func volumeResources(roots map[string]string, volume *types.Volume) []harvest.Resource {
 	volumeID := aws.ToString(volume.VolumeId)
 	resources := []harvest.Resource{
 		harvest.RecordBare(volumeID, volumeID, "aws_ebs_volume", "aws"),
@@ -80,14 +133,8 @@ func volumeResources(ctx context.Context, roots *rootDevices, volume *types.Volu
 	for _, attachment := range volume.Attachments {
 		instanceID := aws.ToString(attachment.InstanceId)
 		device := aws.ToString(attachment.Device)
-		if instanceID != "" {
-			root, err := roots.name(ctx, instanceID)
-			if err != nil {
-				return nil, fmt.Errorf("describe instance %s of volume %s: %w", instanceID, volumeID, err)
-			}
-			if root == device {
-				return nil, nil
-			}
+		if root, ok := roots[instanceID]; ok && root != "" && root == device {
+			return nil
 		}
 		if attachment.State != types.VolumeAttachmentStateAttached {
 			continue
@@ -103,39 +150,7 @@ func volumeResources(ctx context.Context, roots *rootDevices, volume *types.Volu
 				"instance_id": instanceID,
 			}))
 	}
-	return resources, nil
-}
-
-// rootDevices looks up the root device names of instances, asking
-// DescribeInstances once per instance however many volumes are attached to
-// it.
-type rootDevices struct {
-	client *ec2.Client
-	names  map[string]string // instance ID -> root device name
-}
-
-// name returns the root device name of the instance instanceID, or "" when
-// AWS does not report one.
-func (r *rootDevices) name(ctx context.Context, instanceID string) (string, error) {
-	if name, ok := r.names[instanceID]; ok {
-		return name, nil
-	}
-	out, err := r.client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	})
-	if err != nil {
-		return "", err
-	}
-	// The request names one instance, so the answer holds at most that one.
-	name := ""
-	for _, reservation := range out.Reservations {
-		if len(reservation.Instances) > 0 {
-			name = aws.ToString(reservation.Instances[0].RootDeviceName)
-			break
-		}
-	}
-	r.names[instanceID] = name
-	return name, nil
+	return resources
 }
 
 // volumeAttachmentID returns the ID that Terraform's AWS provider gives an

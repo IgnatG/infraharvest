@@ -79,3 +79,24 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 		}
 	}
 }
+
+// A plan error about a data source is the resources' that read it, so a
+// step undoes only them.
+func TestDataReaders(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_ebs_volume" "data" {
+  kms_key_id = data.aws_kms_alias.ebs.target_key_arn
+}
+
+resource "aws_ebs_volume" "logs" {
+  size = 8
+}
+`)
+	if got := dataReaders(f, "data.aws_kms_alias.ebs"); len(got) != 1 || got[0] != "aws_ebs_volume.data" {
+		t.Errorf("got %v, want aws_ebs_volume.data", got)
+	}
+	for _, address := range []string{"", "aws_ebs_volume.logs", "data.aws_kms_alias.other"} {
+		if got := dataReaders(f, address); len(got) != 0 {
+			t.Errorf("%q: got %v, want none", address, got)
+		}
+	}
+}

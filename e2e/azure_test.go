@@ -39,7 +39,7 @@ var azureServices = []string{"managed_identity", "network_interface", "network_s
 func TestAzureRoundTrip(t *testing.T) {
 	host := os.Getenv(azureMetadataHostEnv)
 	if host == "" {
-		t.Skip(azureMetadataHostEnv + " is not set; start floci-az in e2e/compose.yaml")
+		skipUnconfigured(t, azureMetadataHostEnv+" is not set; start floci-az in e2e/compose.yaml")
 	}
 	if !isLoopback("https://" + host) {
 		t.Fatalf("%s=%s: the test creates resources, so it only runs against a local emulator", azureMetadataHostEnv, host)

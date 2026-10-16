@@ -130,7 +130,7 @@ func newGoogleSandbox(ctx context.Context, t *testing.T) *googleSandbox {
 		readonlyAccount:     os.Getenv("SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT"),
 	}
 	if s.project == "" || s.fixtureCredentials == "" || s.readonlyCredentials == "" || s.readonlyAccount == "" {
-		t.Skip("SANDBOX_GOOGLE_PROJECT, SANDBOX_GOOGLE_FIXTURE_CREDENTIALS, SANDBOX_GOOGLE_READONLY_CREDENTIALS and SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT name a sandbox project; see the sandbox-google workflow")
+		skipUnconfigured(t, "SANDBOX_GOOGLE_PROJECT, SANDBOX_GOOGLE_FIXTURE_CREDENTIALS, SANDBOX_GOOGLE_READONLY_CREDENTIALS and SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT name a sandbox project; see the sandbox-google workflow")
 	}
 	if os.Getenv(google.EndpointEnv) != "" {
 		t.Fatalf("%s is set: the sandbox test runs against Google Cloud, not an emulator", google.EndpointEnv)

@@ -19,9 +19,9 @@ import (
 // its instance ID and named "<instance ID>_<Name tag>".
 //
 // Instances that are terminated or shutting down are left out. Each
-// instance records its user data, which Terraform's aws_instance holds as
-// user_data_base64, and source_dest_check "true", the value Terraform
-// assumes when nothing says otherwise. One whose CPU options are its
+// instance records source_dest_check "true", the value Terraform assumes
+// when nothing says otherwise. Its user data isn't read: it would take a
+// call per instance, nothing uses it, and Terraform's import reads it. One whose CPU options are its
 // instance type's defaults, or of a type whose CPU options can't be set,
 // records cpu_options "default" (see recordDefaultCPUOptions).
 //
@@ -72,7 +72,6 @@ func (g *Ec2Lister) List() error {
 					"aws_instance",
 					"aws",
 					map[string]string{
-						"user_data_base64":  instanceUserData(ctx, client, id),
 						"source_dest_check": "true",
 					}))
 				if instance.CpuOptions != nil && instance.InstanceType != "" {
@@ -166,20 +165,4 @@ func instanceNameTag(tags []types.Tag) string {
 		}
 	}
 	return name
-}
-
-// instanceUserData returns an instance's user data, base64 encoded as the
-// API returns it. DescribeInstances does not include user data, so it takes
-// one more call per instance. When that call fails, or the instance has no
-// user data, it returns "": the user data is a convenience, not a reason to
-// fail the listing.
-func instanceUserData(ctx context.Context, client *ec2.Client, instanceID string) string {
-	out, err := client.DescribeInstanceAttribute(ctx, &ec2.DescribeInstanceAttributeInput{
-		InstanceId: aws.String(instanceID),
-		Attribute:  types.InstanceAttributeNameUserData,
-	})
-	if err != nil || out.UserData == nil {
-		return ""
-	}
-	return aws.ToString(out.UserData.Value)
 }

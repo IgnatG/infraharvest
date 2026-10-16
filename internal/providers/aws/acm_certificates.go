@@ -4,12 +4,13 @@
 package aws
 
 import (
-	"log"
+	"fmt"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
+	"github.com/aws/aws-sdk-go-v2/service/acm/types"
 )
 
 // ACMLister lists the service "acm": the ACM certificates.
@@ -20,21 +21,20 @@ type ACMLister struct {
 // List records every certificate by ARN, named
 // "<certificate UUID>_<domain>", the domain without a trailing dot, so
 // that two certificates for one domain get different names. The domain is
-// recorded as an attribute. ListCertificates is called without filters,
-// so it returns what AWS returns by default. A listing error is logged,
-// not returned: the certificates read before it are kept.
+// recorded as an attribute. ListCertificates asks for every key type:
+// without the filter it returns only RSA_1024 and RSA_2048 certificates,
+// so ECDSA and RSA_3072/4096 ones would be missing.
 func (g *ACMLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	client := acm.NewFromConfig(config)
-	p := acm.NewListCertificatesPaginator(client, &acm.ListCertificatesInput{}, stopOnDuplicateToken)
+	p := acm.NewListCertificatesPaginator(client, &acm.ListCertificatesInput{Includes: &types.Filters{KeyTypes: types.KeyAlgorithm("").Values()}}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: acm: certificates: %v", err)
-			return nil
+			return fmt.Errorf("acm: certificates: %w", err)
 		}
 		for _, certificate := range page.CertificateSummaryList {
 			arn := aws.ToString(certificate.CertificateArn)

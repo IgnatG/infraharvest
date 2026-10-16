@@ -326,9 +326,11 @@ func (f *File) index() {
 // so), marked New for review. Listed resources it lacks are added with New
 // set: decided by f's rules if one matches, else excluded with listed's
 // reason if listed excludes them (the provider's defaults), else by f's
-// defaults. Entries no longer listed are dropped. It returns how many were
-// added and dropped.
-func (f *File) Merge(listed []Resource) (added, dropped int) {
+// defaults. Entries no longer listed are dropped, unless keepUnlisted is
+// set, as it is when the listing failed in part: they may be only what
+// didn't list this time, and keep their decisions. It returns how many
+// were added and dropped.
+func (f *File) Merge(listed []Resource, keepUnlisted bool) (added, dropped int) {
 	f.index()
 	seen := map[string]bool{}
 	kept := map[string]bool{}
@@ -361,9 +363,14 @@ func (f *File) Merge(listed []Resource) (added, dropped int) {
 		added++
 	}
 	for _, r := range f.Resources {
-		if !kept[key(r.Scope, r.Type, r.ID)] {
-			dropped++
+		if kept[key(r.Scope, r.Type, r.ID)] {
+			continue
 		}
+		if keepUnlisted {
+			merged = append(merged, r)
+			continue
+		}
+		dropped++
 	}
 	f.Resources = merged
 	f.byKey, f.anyScope = nil, nil

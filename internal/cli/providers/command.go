@@ -130,6 +130,9 @@ func (d definition) command(options importer.Options) *cobra.Command {
 		if ctx == nil {
 			ctx = context.Background()
 		}
+		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
+			return err
+		}
 		p, err := planScopes(ctx, options)
 		if err != nil {
 			return err
