@@ -309,6 +309,7 @@ func (r *Result) With(added *Result) *Result {
 		Imported: append(slices.Clone(r.Imported), added.Imported...),
 		Secrets:  append(slices.Clone(r.Secrets), added.Secrets...),
 		Rejected: append(slices.Clone(r.Rejected), added.Rejected...),
+		Owned:    append(slices.Clone(r.Owned), added.Owned...),
 		Modules:  append(slices.Clone(r.Modules), added.Modules...),
 		Gate:     added.Gate,
 		Warnings: append(slices.Clone(r.Warnings), added.Warnings...),

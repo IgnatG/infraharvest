@@ -548,7 +548,7 @@ func (r *Report) Markdown() string {
 		}
 	}
 	if r.Totals.Managed > 0 || r.Totals.OtherTool > 0 {
-		b.WriteString("\n## Managed and unmanaged\n\nTerraform already manages some of what was discovered, according to the state read with --managed-state, and other tools, such as CloudFormation, manage some more: the import left those out. The rest isn't under infrastructure as code yet.\n\n")
+		b.WriteString("\n## Managed and unmanaged\n\nTerraform already manages some of what was discovered, according to the state read with --managed-state or to the resources' tags, and other tools, such as CloudFormation or Pulumi, manage some more: the import left those out (--include-owned imports those their tags say are managed). The rest isn't under infrastructure as code yet.\n\n")
 		if len(r.Scopes) > 1 {
 			b.WriteString("| Account and region | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
 			for _, s := range r.Scopes {

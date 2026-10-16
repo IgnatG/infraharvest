@@ -47,6 +47,10 @@ variable "region" {
 provider "google" {
   project = var.project
   region  = var.region
+
+  # Without the goog-terraform-provisioned label, which tells infraharvest
+  # another state owns a resource: the import is what is tested.
+  add_terraform_attribution_label = false
 }
 
 # Names no other run has used, as bucket names must be unique across

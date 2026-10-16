@@ -90,6 +90,9 @@ type Result struct {
 	Secrets []Secret
 	// Rejected are the resources left out of the configuration.
 	Rejected []Rejection
+	// Owned are the resources left out because their tags say another
+	// tool manages them (see OwnedBy).
+	Owned []OwnedResource `json:",omitempty"`
 	// Gate is the result of the verification gate (see runGate).
 	Gate Gate
 	// Warnings are about what the configuration holds that people should
@@ -161,6 +164,13 @@ type Options struct {
 	// Taken are names Generate leaves alone, such as those of the root an
 	// incremental import adds to (see Add).
 	Taken Names
+	// IncludeOwned keeps the resources whose tags say another tool
+	// manages them, which Generate leaves out otherwise (see OwnedBy).
+	IncludeOwned bool
+	// KeepOwned are resources, as "<type> <import ID>", to keep although
+	// their tags say another tool manages them, such as those a selection
+	// file includes.
+	KeepOwned map[string]bool
 
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
@@ -327,7 +337,22 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		}
 		result.Rejected = append(result.Rejected, rejections...)
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, withoutRejected(literal, result.Rejected), &result.Rejected, &rejected); err != nil {
+	leftOut := map[string]bool{}
+	if !opts.IncludeOwned {
+		if result.Owned, err = leaveOutOwned(dir, opts.KeepOwned); err != nil {
+			return nil, err
+		}
+		for _, o := range result.Owned {
+			leftOut[o.Address] = true
+		}
+	}
+	var kept []Secret
+	for _, s := range withoutRejected(literal, result.Rejected) {
+		if !leftOut[s.Address] {
+			kept = append(kept, s)
+		}
+	}
+	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, kept, &result.Rejected, &rejected); err != nil {
 		return nil, err
 	}
 	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, opts); err != nil {
@@ -370,7 +395,6 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	leftOut := map[string]bool{}
 	for _, r := range result.Rejected {
 		leftOut[r.Address] = true
 	}

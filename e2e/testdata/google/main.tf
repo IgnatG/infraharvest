@@ -14,6 +14,10 @@ terraform {
 provider "google" {
   project = "infraharvest-e2e"
   region  = "us-central1"
+
+  # Without the goog-terraform-provisioned label, which tells infraharvest
+  # another state owns a resource: the import is what is tested.
+  add_terraform_attribution_label = false
 }
 
 locals {

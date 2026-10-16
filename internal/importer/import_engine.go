@@ -123,6 +123,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if defaults, err = excludeManaged(ctx, run, options, listed.resources, defaults, importID); err != nil {
 		return err
 	}
+	if !options.IncludeOwned {
+		defaults = excludeOwned(listed, defaults)
+	}
 	if options.Discover {
 		run.used = true
 		run.options = options
@@ -168,6 +171,8 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	resourcesByService, parents, childFailures := withChildImports(ctx, provider, selected)
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, cat, root)
+	opts.IncludeOwned = options.IncludeOwned
+	opts.KeepOwned = keptOwned(selected, listed, importID)
 	opts.External = leftOut
 	switch options.Modules {
 	case "", ModulesRegistry, ModulesLatestUntested:
@@ -366,6 +371,9 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
 	}
 	reported.Warnings = result.Warnings
+	for _, o := range result.Owned {
+		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: resourceTypeOf(o.Address), ID: o.ID, Reason: ownedReason(o.Owner), Scope: r.scope})
+	}
 	for _, w := range result.Warnings {
 		log.Printf("%s: %s", dir, w)
 	}

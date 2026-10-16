@@ -89,6 +89,10 @@ type Options struct {
 	// ManagedState is state whose resources are left out, as already
 	// managed by Terraform.
 	ManagedState []string
+	// IncludeOwned imports the resources whose tags or labels say another
+	// Terraform state or tool manages them, which are left out otherwise
+	// (see engine.OwnedBy).
+	IncludeOwned bool
 	// AllowPartial accepts output some services or resources are missing
 	// from.
 	AllowPartial bool

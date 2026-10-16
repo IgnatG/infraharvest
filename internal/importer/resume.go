@@ -61,7 +61,9 @@ func fingerprint(engineVersion string, imports []engine.Import, opts engine.Opti
 		External        []engine.External
 		DataSources     map[string]engine.DataSource
 		Placeholders    map[string]engine.Placeholder
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders})
+		IncludeOwned    bool
+		KeepOwned       map[string]bool
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.IncludeOwned, opts.KeepOwned})
 	if err != nil {
 		return "", err
 	}
