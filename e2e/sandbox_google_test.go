@@ -14,12 +14,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"google.golang.org/api/cloudasset/v1"
 	"google.golang.org/api/googleapi"
@@ -96,7 +96,7 @@ func TestSandboxGoogle(t *testing.T) {
 	checkNoAuthorizationErrors(t, logged, coverage, googleAuthorizationErrors)
 	imported := s.checkGoogleImport(ctx, t, coverage, created)
 	s.checkGoogleFound(t, coverage, created)
-	checkGoogleLabels(t, s.out, coverage, created)
+	checkGoogleLabels(ctx, t, s, coverage, created)
 	if imported["google_project"] == 0 {
 		t.Errorf("the import doesn't import the project %s", s.project)
 	}
@@ -442,20 +442,23 @@ func (s *googleSandbox) checkGoogleFound(t *testing.T, coverage report.Report, c
 	}
 }
 
-// checkGoogleLabels checks that the generated configuration keeps the
-// labels of each resource the estate labelled: each label is in the root
-// that imports the resource, on the resource, in a module call's
-// arguments or in local.labels, which the provider's default_labels take.
-// The plans with no changes check they are the resource's.
-func checkGoogleLabels(t *testing.T, out string, coverage report.Report, created []*tfjson.StateResource) {
+// checkGoogleLabels checks that the generated configuration sets the
+// labels of each resource the estate labelled, wherever the output puts
+// them: on the resource, in a module call's arguments, or in local.labels,
+// which the provider's default_labels take. A root's plan has as each
+// resource's terraform_labels the labels its configuration and the
+// provider's default_labels set, so each label must be in those of the
+// resource's import, in the root that imports it. The plans with no
+// changes (checkGoogleImport) check they are the resource's.
+func checkGoogleLabels(ctx context.Context, t *testing.T, s *googleSandbox, coverage report.Report, created []*tfjson.StateResource) {
 	t.Helper()
 	roots := map[string]string{}
 	for _, d := range coverage.Directories {
 		for _, r := range d.Imported {
-			roots[r.ID] = filepath.Join(out, filepath.FromSlash(d.Path))
+			roots[r.ID] = filepath.Join(s.out, filepath.FromSlash(d.Path))
 		}
 	}
-	configurations := map[string]string{}
+	planned := map[string]map[string]map[string]any{}
 	labelled := 0
 	for _, r := range created {
 		labels, _ := r.AttributeValues["labels"].(map[string]any)
@@ -465,18 +468,47 @@ func checkGoogleLabels(t *testing.T, out string, coverage report.Report, created
 			continue // checkGoogleFound reports what isn't imported
 		}
 		labelled++
-		if _, ok := configurations[root]; !ok {
-			configurations[root] = configuration(t, root)
+		if _, ok := planned[root]; !ok {
+			planned[root] = plannedLabels(ctx, t, root, s.execPath, s.plugins)
 		}
+		got := planned[root][id]
 		for key, value := range labels {
-			v, _ := value.(string)
-			label := regexp.MustCompile(`"?` + regexp.QuoteMeta(key) + `"?\s*=\s*"` + regexp.QuoteMeta(v) + `"`)
-			if !label.MatchString(configurations[root]) {
-				t.Errorf("%s: the configuration doesn't have %s's label %s = %q", root, r.Address, key, v)
+			if got[key] != value {
+				t.Errorf("%s: the configuration doesn't set %s's label %s = %q: the plan's terraform_labels are %v", root, r.Address, key, value, got)
 			}
 		}
 	}
 	if labelled == 0 {
 		t.Error("the import imports none of the resources the estate labelled")
 	}
+}
+
+// plannedLabels plans the root in dir, which checkNoChanges initialised,
+// and returns by import ID the terraform_labels of each resource it
+// imports: the labels of the resource's configuration and the provider's
+// default_labels.
+func plannedLabels(ctx context.Context, t *testing.T, dir, execPath, plugins string) map[string]map[string]any {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planFile := filepath.Join(t.TempDir(), "labels.tfplan")
+	if _, err := tf.Plan(ctx, tfexec.Out(planFile), tfexec.Lock(false)); err != nil {
+		t.Errorf("%s: terraform plan: %v", dir, err)
+		return nil
+	}
+	plan, err := tf.ShowPlanFile(ctx, planFile)
+	if err != nil {
+		t.Fatalf("%s: terraform show: %v", dir, err)
+	}
+	labels := map[string]map[string]any{}
+	for _, rc := range plan.ResourceChanges {
+		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil || rc.Change.Importing == nil {
+			continue
+		}
+		after, _ := rc.Change.After.(map[string]any)
+		labels[rc.Change.Importing.ID], _ = after["terraform_labels"].(map[string]any)
+	}
+	return labels
 }

@@ -61,6 +61,12 @@
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(=.*)?$" },
           "uniqueItems": true
         },
+        "defaults": {
+          "description": "The values the provider or the cloud gives optional arguments it isn't told, as path=value, with a path into nested blocks: left out where the plan stays the same.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*=.*$" },
+          "uniqueItems": true
+        },
         "state_only": {
           "description": "Arguments the provider keeps only in state, which an import leaves unset.",
           "$ref": "#/$defs/names"
@@ -80,6 +86,10 @@
               "id_prefixes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
               "attributes": { "type": "object", "additionalProperties": { "type": "string" } },
               "attribute_prefixes": {
+                "type": "object",
+                "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+              },
+              "attribute_suffixes": {
                 "type": "object",
                 "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
               }

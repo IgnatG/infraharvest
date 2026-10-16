@@ -3,7 +3,10 @@
 
 package engine
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestReadmeFile(t *testing.T) {
 	result := &Result{
@@ -33,5 +36,16 @@ func TestReadmeFile(t *testing.T) {
 		"- `aws_sqs_queue.gone`\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// When the plan check passed with state-only updates, such as Google Cloud
+// labels, the README says to expect them, rather than a plan with no
+// changes.
+func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
+	gate := Gate{{Name: CheckPlan, Passed: true, Details: []string{"google_pubsub_topic.orders: " + stateOnlyChange + " (labels, terraform_labels)"}}}
+	got := string(readmeFile(&Result{Imported: []Import{{Type: "google_pubsub_topic", Name: "orders", ID: "projects/acme/topics/orders"}}, Gate: gate}))
+	if !strings.Contains(got, "with no changes but the updates the checks below list") || strings.Contains(got, "with no changes.\n") {
+		t.Errorf("got:\n%s", got)
 	}
 }

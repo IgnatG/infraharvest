@@ -37,16 +37,21 @@ func (c defaultCandidate) key() string {
 //
 //   - arguments set to null, which is the same as leaving them out;
 //   - optional, non-computed arguments set to a constant (false, 0, "",
-//     [] or {}) that is the provider's default.
+//     [] or {}) that is the provider's default;
+//   - optional arguments, computed or not, set to the value defaults
+//     names for their type, from the catalogue: what the provider or the
+//     cloud gives an argument it isn't told, such as a bucket's STANDARD
+//     storage class, by its path in nested blocks
+//     (soft_delete_policy.retention_duration_seconds=604800).
 //
 // Terraform writes every optional argument, so a resource lists dozens of
 // them. Whether a constant is the default only the plan can tell: the
 // candidates are left out, and where a resource then plans differently from
 // changes (see changeSignature), its arguments behind the difference are
-// put back, until the plan stays the same. Computed arguments set to a
-// constant stay: leaving one out never shows in the plan, so it could
+// put back, until the plan stays the same. Other computed arguments set to
+// a constant stay: leaving one out never shows in the plan, so it could
 // hide a real setting. It reports whether it changed generated.tf.
-func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
+func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, defaults map[string][]string) (bool, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
@@ -59,7 +64,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	// Only constants need the schema, to tell optional from computed, and
 	// empty blocks, which only a plan can tell from absent ones.
 	var schemas *tfjson.ProviderSchemas
-	if hasZeroConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
+	if len(defaults) > 0 || hasZeroConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
 			return false, fmt.Errorf("terraform providers schema: %w", err)
 		}
@@ -75,7 +80,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		if err != nil {
 			return false, err
 		}
-		if len(removeDefaults(f, nil, nil)) == 0 {
+		if len(removeDefaults(f, nil, nil, nil)) == 0 {
 			return false, nil
 		}
 		return true, f.save()
@@ -89,7 +94,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		if err != nil {
 			return false, err
 		}
-		removed := removeDefaults(generated, schemas, keep)
+		removed := removeDefaults(generated, schemas, keep, defaults)
 		if len(removed) == 0 {
 			return false, nil
 		}
@@ -204,16 +209,16 @@ func noWorse(now, before string) bool {
 
 // removeDefaults removes the candidates not in keep from every resource,
 // and returns them.
-func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, keep map[string]bool) []defaultCandidate {
+func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, keep map[string]bool, defaults map[string][]string) []defaultCandidate {
 	var removed []defaultCandidate
 	for _, r := range f.resources() {
 		typ := resourceTypeOf(r.address)
-		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, keep)...)
+		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, keep, defaultValues(defaults[typ]))...)
 	}
 	return removed
 }
 
-func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, keep map[string]bool) []defaultCandidate {
+func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, keep map[string]bool, defaults map[string]omission) []defaultCandidate {
 	var removed []defaultCandidate
 	for name, attr := range syntax.Attributes {
 		path := append(append([]string(nil), prefix...), name)
@@ -221,6 +226,11 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		switch {
 		case isNullLiteral(attr.Expr):
 			c.null = true
+		case isNamedDefault(defaults, path, attr.Expr):
+			s := schemaAttribute(schemas, typ, path)
+			if s == nil || !s.Optional || s.Required {
+				continue
+			}
 		case isZeroConstant(attr.Expr):
 			s := schemaAttribute(schemas, typ, path)
 			if s == nil || !s.Optional || s.Computed || s.Required {
@@ -241,7 +251,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			continue
 		}
 		blockPath := append(append([]string(nil), prefix...), b.Type)
-		removed = append(removed, removeIn(address, typ, blockPath, b.Body, blocks[i].Body(), schemas, keep)...)
+		removed = append(removed, removeIn(address, typ, blockPath, b.Body, blocks[i].Body(), schemas, keep, defaults)...)
 		// A block left with nothing set, such as ttl {}, only says it is
 		// there: it goes too, where the plan says that's the same.
 		c := defaultCandidate{address: address, path: blockPath}
@@ -251,6 +261,29 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		}
 	}
 	return removed
+}
+
+// defaultValues parses a type's defaults, path=value entries such as
+// storage_class=STANDARD or bgp.keepalive_interval=20, by path.
+func defaultValues(entries []string) map[string]omission {
+	if len(entries) == 0 {
+		return nil
+	}
+	values := make(map[string]omission, len(entries))
+	for _, entry := range entries {
+		path, value, ok := strings.Cut(entry, "=")
+		if ok && path != "" {
+			values[path] = omission{name: path, value: value}
+		}
+	}
+	return values
+}
+
+// isNamedDefault reports whether an attribute at path, set to expr, has the
+// value defaults names for that path.
+func isNamedDefault(defaults map[string]omission, path []string, expr hclsyntax.Expression) bool {
+	o, ok := defaults[strings.Join(path, ".")]
+	return ok && o.matches(expr)
 }
 
 // isEmpty reports whether body sets nothing.

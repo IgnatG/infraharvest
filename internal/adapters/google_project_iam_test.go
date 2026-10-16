@@ -53,6 +53,10 @@ func TestGoogleProjectIAMMapsTheGrants(t *testing.T) {
 	if !reflect.DeepEqual(call.Addresses, want) {
 		t.Errorf("addresses: %v", call.Addresses)
 	}
+	// Not after the anchor, viewer_alice, one grant of the three.
+	if call.Name != "project_iam" {
+		t.Errorf("call named %q, want project_iam", call.Name)
+	}
 }
 
 func TestGoogleProjectIAMDeclines(t *testing.T) {

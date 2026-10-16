@@ -188,7 +188,7 @@ func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjs
 					ok = false
 				}
 			case changeSignature(rc) != changes[member]:
-				updates, same := sameButStateOnly(changeSignature(rc), changes[member], stateOnly[rc.Type])
+				updates, same := sameButStateOnly(changeSignature(rc), changes[member], stateOnlyOf(stateOnly, rc.Type))
 				if !same {
 					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(changeSignature(rc)), describeSignature(changes[member]))
 					ok = false
@@ -393,7 +393,11 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names) ([]*trial, []
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
-			t.name = uniqueName(anchor.address[strings.IndexByte(anchor.address, '.')+1:], used)
+			name := anchor.address[strings.IndexByte(anchor.address, '.')+1:]
+			if call.Name != "" {
+				name = call.Name
+			}
+			t.name = uniqueName(name, used)
 			for _, m := range t.members() {
 				clustered[m] = true
 			}
@@ -516,6 +520,10 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 		}
 		block.Body().AppendNewline()
 		for _, arg := range t.call.Arguments {
+			// As a person would call the module: without its defaults.
+			if t.adapter.IsDefault(arg.Name, arg.Value) {
+				continue
+			}
 			block.Body().SetAttributeRaw(arg.Name, arg.Value)
 		}
 		for _, rn := range renames {

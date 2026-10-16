@@ -64,7 +64,9 @@ type grantCondition struct {
 }
 
 func mapGoogleProjectIAM(c Cluster) (*Call, error) {
-	call := &Call{Addresses: map[string]string{}}
+	// The call holds the project's grants: named after one, such as its
+	// owner's, it would read as if it held that grant alone.
+	call := &Call{Name: "project_iam", Addresses: map[string]string{}}
 	var project hclwrite.Tokens
 	bindings := map[string][]string{}
 	conditional := map[string]map[grantCondition][]string{}

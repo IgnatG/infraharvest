@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../schema.json
+provider: google
+types:
+  "*":
+    # Since the provider's version 5.0, labels holds only the labels of the
+    # configuration, and terraform_labels those and the provider's
+    # default_labels: an import leaves both empty, and the plan sets them
+    # from the configuration, in state alone. effective_labels, every
+    # label the resource has, still shows any change to the resource's.
+    state_only: [labels, terraform_labels]
+    # deletion_policy is the provider's, not Google Cloud's: what
+    # terraform destroy does. An import sets it to its default, DELETE for
+    # most types, which every resource then repeated.
+    omit: [deletion_policy=DELETE]

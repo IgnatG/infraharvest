@@ -12,6 +12,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 )
@@ -118,6 +119,23 @@ func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
 	if len(calls) != 2 || calls[0].Name != "logs" || calls[0].Source != "example/bucket/aws" || calls[0].Version != "1.0.0" ||
 		strings.Join(calls[0].Resources, ",") != "aws_s3_bucket.logs,aws_s3_bucket_versioning.logs" {
 		t.Errorf("calls: %+v", calls)
+	}
+}
+
+// A call leaves out the arguments set to the module's defaults, as a
+// person would call it; before, it set every one the resources had.
+func TestSynthesizeLeavesOutModuleDefaults(t *testing.T) {
+	dir, _ := moduleRoot(t, twoBuckets)
+	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(bothCalls...)}}
+	withDefaults := testAdapter
+	withDefaults.Defaults = map[string]cty.Value{"bucket": cty.StringVal("logs")}
+
+	if _, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{withDefaults}}, changeSummary{}, rootChanges(), nil); err != nil {
+		t.Fatal(err)
+	}
+	root := squashed(readFile(t, dir, GeneratedFileName))
+	if strings.Contains(root, `bucket = "logs"`) || !strings.Contains(root, `bucket = "state"`) {
+		t.Errorf("want the default left out of logs's call alone:\n%s", root)
 	}
 }
 
@@ -563,6 +581,38 @@ resource "google_project_iam_member" "f" {
 	}
 	if len(declined) != 1 || strings.Join(declined[0].Resources, ",") != "google_project_iam_member.e,google_project_iam_member.f" {
 		t.Errorf("declined: %+v", declined)
+	}
+}
+
+// A call the adapter names is named so, made unique, rather than after its
+// anchor, which is only the first resource of a group.
+func TestMapClustersNamesCallsAsTheAdapterSays(t *testing.T) {
+	dir, _ := moduleRoot(t, `resource "google_project_iam_member" "a" {
+  project = "acme"
+}
+
+resource "google_project_iam_member" "b" {
+  project = "other"
+}
+`)
+	named := grantsAdapter
+	named.Map = func(c adapters.Cluster) (*adapters.Call, error) {
+		call, err := grantsAdapter.Map(c)
+		if call != nil {
+			call.Name = "grants"
+		}
+		return call, err
+	}
+	trials, _, err := mapClusters(dir, []adapters.Adapter{named}, Names{"module.grants": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tr := range trials {
+		names = append(names, tr.name)
+	}
+	if got := strings.Join(names, " "); got != "grants_2 grants_3" {
+		t.Errorf("calls named %s, want grants_2 grants_3: grants is taken", got)
 	}
 }
 

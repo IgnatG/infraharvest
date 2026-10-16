@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // Adapter maps a cluster of resources onto a call of one module version.
@@ -55,6 +56,11 @@ type Adapter struct {
 	Providers []string
 	// Map returns the module call for a cluster, or a *Decline.
 	Map func(Cluster) (*Call, error)
+	// Defaults are inputs' defaults, as the module's variables declare
+	// them, or values the module passes on as a null the provider takes
+	// as that value: a call leaves out the arguments Map sets to them,
+	// as a person calling the module would (see IsDefault).
+	Defaults map[string]cty.Value
 }
 
 // Cluster is an anchor resource and the resources that refer to it.
@@ -76,6 +82,10 @@ func (r Resource) Address() string {
 
 // Call is what a module call needs besides its source and version.
 type Call struct {
+	// Name, if set, is what the call is named, rather than its anchor's
+	// name: the anchor of a group is only its first resource in address
+	// order, such as one of a project's IAM grants.
+	Name string
 	// Arguments are the call's arguments, in order.
 	Arguments []Argument
 	// Addresses has each resource's address inside the module, such as

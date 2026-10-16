@@ -127,3 +127,16 @@ func TestGoogleNetworkDeclines(t *testing.T) {
 		}
 	}
 }
+
+// A network whose subnetworks aren't in the root, as in the global root
+// of a Google Cloud import, whose regions' roots have them, stays a
+// resource: before, the call had subnets = [] and only the firewall rules.
+func TestGoogleNetworkDeclinesWithoutSubnetworks(t *testing.T) {
+	start := strings.Index(googleNetworkCluster, `resource "google_compute_subnetwork" "app"`)
+	end := strings.Index(googleNetworkCluster, `resource "google_compute_firewall" "https"`)
+	src := googleNetworkCluster[:start] + googleNetworkCluster[end:]
+	_, err := GoogleNetwork.Map(cluster(t, src))
+	if !IsDecline(err) || !strings.Contains(err.Error(), "no subnetworks") {
+		t.Errorf("got %v, want a decline for the missing subnetworks", err)
+	}
+}

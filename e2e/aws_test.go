@@ -367,7 +367,7 @@ func emulatorGapsOnly(details []string) bool {
 		}
 		typ, _, _ := strings.Cut(m[1], ".")
 		for _, a := range strings.Split(m[2], ", ") {
-			if !slices.Contains(emulatorGaps[typ], a) && !slices.Contains(stateOnlyArguments[typ], a) {
+			if !slices.Contains(emulatorGaps[typ], a) && !stateOnly(typ, map[string]string{a: ""}) {
 				return false
 			}
 		}

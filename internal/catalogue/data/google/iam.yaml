@@ -19,3 +19,19 @@ types:
     inventory:
       type: iam.googleapis.com/Role
       name: //iam.googleapis.com/projects/*/roles/*
+  google_project_iam_member:
+    # The iam service lists one grant per member of each role binding of
+    # the project's IAM policy, with its role and member. Google Cloud
+    # grants its service agents their roles when a service is enabled, and
+    # some default service accounts roles/editor when they are created.
+    service: iam
+    skip:
+      - reason: a service agent role, which Google Cloud grants a service's agent itself when the service is enabled; select it to import it
+        ignore_case: true
+        attribute_suffixes: { role: [serviceagent] }
+      - reason: the Google APIs service agent's roles/editor, which Google Cloud grants it when the project is created; select it to import it
+        attributes: { role: roles/editor }
+        attribute_suffixes: { member: ["@cloudservices.gserviceaccount.com"] }
+      - reason: the Compute Engine or App Engine default service account's roles/editor, which Google Cloud grants it when it creates the account; select it to import it
+        attributes: { role: roles/editor }
+        attribute_suffixes: { member: ["-compute@developer.gserviceaccount.com", "@appspot.gserviceaccount.com"] }

@@ -16,8 +16,10 @@ import (
 // network through the google-beta provider, keys subnetworks by region
 // and name and firewall rules by name, and passes its project to all of
 // them: it declines members in another project, names it can't key by
-// (not literals), auto mode networks, and firewall rules that set both
-// source and destination ranges. Routes stay in the root, referring to
+// (not literals), auto mode networks, networks with none of their
+// subnetworks in the root (a Google Cloud import's global root, whose
+// regions' roots have them), and firewall rules that set both source and
+// destination ranges. Routes stay in the root, referring to
 // the module's outputs.
 var GoogleNetwork = Adapter{
 	Source:   "terraform-google-modules/network/google",
@@ -34,6 +36,19 @@ var GoogleNetwork = Adapter{
 	Outputs:   []string{"network_id", "network_name", "network_self_link", "subnets"},
 	Providers: []string{"google-beta"},
 	Map:       mapGoogleNetwork,
+	// The module's variables' defaults, from its variables.tf; its
+	// network_firewall_policy_enforcement_order defaults to null, which
+	// the provider takes as AFTER_CLASSIC_FIREWALL. routing_mode defaults
+	// to GLOBAL, unlike Google's REGIONAL, so the call always sets it.
+	Defaults: map[string]cty.Value{
+		"auto_create_subnetworks":      cty.False,
+		"bgp_always_compare_med":       cty.False,
+		"bgp_best_path_selection_mode": cty.StringVal("LEGACY"),
+		"description":                  cty.StringVal(""),
+		"enable_ipv6_ula":              cty.False,
+		"mtu":                          cty.Zero,
+		"network_firewall_policy_enforcement_order": cty.StringVal("AFTER_CLASSIC_FIREWALL"),
+	},
 }
 
 func mapGoogleNetwork(c Cluster) (*Call, error) {
@@ -146,6 +161,12 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 		if err := r.Done(); err != nil {
 			return nil, err
 		}
+	}
+	if len(subnets) == 0 {
+		// Such as in the global root, when the subnetworks are in their
+		// regions': the call would read as a network without subnetworks,
+		// subnets = [], while they are managed elsewhere.
+		return nil, Declinef("%s has no subnetworks in this root, which the module's subnets would take", c.Anchor.Address())
 	}
 	call.Set("subnets", hclwrite.TokensForTuple(subnets))
 	if len(secondary) > 0 {

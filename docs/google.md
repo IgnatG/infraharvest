@@ -53,6 +53,8 @@ The last four list, each through its own API, what Cloud Asset Inventory doesn't
 
 `iam` lists only the IAM members, `dns` only the record sets and `cloudsql` only the databases. Service accounts, custom roles, DNS zones and Cloud SQL instances come from `cloud_asset`, so add `cloud_asset`, or use `*`, for those.
 
+The default selection leaves out the grants Google Cloud makes itself: a service agent role (`roles/pubsub.serviceAgent`, `roles/compute.instanceGroupManagerServiceAgent`, ...), which it grants a service's agent when the service is enabled, and `roles/editor` for the Google APIs service agent (`<number>@cloudservices.gserviceaccount.com`) and the Compute Engine and App Engine default service accounts. The selection file can include them.
+
 ### Types that aren't listed
 
 `cloud_asset` lists only what Cloud Asset Inventory finds and the catalogue can map, so these types aren't imported:
@@ -73,7 +75,11 @@ Each resource's ID is its full name without the API's host, such as `projects/my
 
 ## Labels
 
-Labels are recorded, where the listers read them (every resource `cloud_asset` lists), for the selection file's rules, the picker and the report. In the generated configuration, the labels all resources of a root share move to the provider's `default_labels`, as `local.labels`; `goog-` labels, which are Google's own, stay on the resources.
+Labels are recorded, where the listers read them (every resource `cloud_asset` lists), for the selection file's rules, the picker and the report.
+
+Since the google provider's version 5.0, a resource's `labels` holds only the labels of its configuration, which an import leaves empty, and `effective_labels` every label the resource has. So Terraform generates no labels, and infraharvest writes each resource's `labels` from its `effective_labels`, without the `goog-` labels, which Google and the provider set themselves (such as `goog-terraform-provisioned`): those stay on the resources, outside the configuration. The plan then updates `labels` and `terraform_labels` in place, in state alone: `effective_labels`, and the resource, stay as they are, and `terraform apply` changes nothing in the cloud. The verification gate accepts those updates, and the README of each root says to expect them.
+
+The labels all resources of a root share move to the provider's `default_labels`, as `local.labels`, if the plan stays the same: not when another resource that takes labels has none, as `default_labels` would label it.
 
 ## The google-beta provider
 

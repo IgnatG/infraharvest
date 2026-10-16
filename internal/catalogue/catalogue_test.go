@@ -79,6 +79,7 @@ func TestSchemaRejects(t *testing.T) {
 		"data source type": "provider: aws\ntypes:\n  aws_vpc:\n    data_source: { type: Vpc, argument: id }\n",
 		"inventory":        "provider: google\ntypes:\n  google_x:\n    inventory: { name: x }\n",
 		"attribute prefix": "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [] }\n",
+		"attribute suffix": "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_suffixes: { name: [] }\n",
 		"omitted value":    "provider: aws\ntypes:\n  aws_vpc:\n    omit: [\"=x\"]\n",
 	} {
 		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
@@ -240,8 +241,13 @@ func TestCheckRejects(t *testing.T) {
 		"inventory type":          "provider: google\ntypes:\n  google_x:\n    inventory: { type: Network }\n",
 		"inventory name":          "provider: google\ntypes:\n  google_x:\n    inventory: { type: compute.googleapis.com/Network, name: \"//x/[\" }\n",
 		"empty attribute prefix":  "provider: aws\ntypes:\n  aws_x:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [\"\"] }\n",
+		"empty attribute suffix":  "provider: aws\ntypes:\n  aws_x:\n    skip:\n      - reason: r\n        attribute_suffixes: { name: [\"\"] }\n",
 		"inventory types apart":   "provider: google\ntypes:\n  google_x:\n    inventory: { type: compute.googleapis.com/Disk, name: \"//compute.googleapis.com/projects/*/zones/*/disks/*\" }\n  google_y:\n    inventory: { type: compute.googleapis.com/disk }\n",
 		"repeated argument":       "provider: aws\ntypes:\n  aws_x:\n    omit: [a, a]\n",
+		"default without a value": "provider: google\ntypes:\n  google_x:\n    defaults: [storage_class]\n",
+		"default's path":          "provider: google\ntypes:\n  google_x:\n    defaults: [\"a..b=1\"]\n",
+		"repeated default":        "provider: google\ntypes:\n  google_x:\n    defaults: [\"a=1\", \"a=2\"]\n",
+		"every type's defaults":   "provider: google\ntypes:\n  \"*\":\n    defaults: [\"a=1\"]\n",
 		"omitted value's name":    "provider: aws\ntypes:\n  aws_x:\n    omit: [\"=x\"]\n",
 		"cloud control service":   "provider: aws\ntypes:\n  aws_x:\n    cloud_control: { type: \"AWS::X::Y\", identifier: Id }\n",
 		"unknown field":           "provider: aws\ntypes:\n  aws_x:\n    imports: x\n",
@@ -253,6 +259,12 @@ func TestCheckRejects(t *testing.T) {
 	}
 	if _, err := load(t, map[string]string{"a.yaml": "provider: aws\ntypes:\n  aws_x: {}\n", "b.yaml": "provider: aws\ntypes:\n  aws_x: {}\n"}); err == nil || !strings.Contains(err.Error(), "aws_x is in") {
 		t.Errorf("a type in two files: got %v", err)
+	}
+	// Defaults name nested arguments by their path.
+	if c, err := load(t, map[string]string{"x.yaml": "provider: google\ntypes:\n  google_x:\n    defaults: [\"storage_class=STANDARD\", \"soft_delete_policy.retention_duration_seconds=604800\"]\n"}); err != nil {
+		t.Errorf("defaults: %v", err)
+	} else if got := c["google"].Defaults()["google_x"]; len(got) != 2 {
+		t.Errorf("defaults: got %v", got)
 	}
 	// name=value omits an argument only when it is set to value.
 	if _, err := load(t, map[string]string{"x.yaml": "provider: aws\ntypes:\n  aws_x:\n    omit: [a, \"b=$c\", \"d=true\"]\n"}); err != nil {
@@ -380,6 +392,40 @@ types:
 	} {
 		if got := c.Skipped(tt.typ, tt.id, tt.attributes); got != tt.want {
 			t.Errorf("%s %s %v: got %q, want %q", tt.typ, tt.id, tt.attributes, got, tt.want)
+		}
+	}
+}
+
+// Rules by attribute suffix, whatever the case with ignore_case, with the
+// other conditions they set.
+func TestSkippedBySuffix(t *testing.T) {
+	c := parseCatalogue(t, `
+provider: google
+types:
+  google_project_iam_member:
+    skip:
+      - reason: service agent role
+        ignore_case: true
+        attribute_suffixes: { role: [serviceagent] }
+      - reason: default editor
+        attributes: { role: roles/editor }
+        attribute_suffixes: { member: ["-compute@developer.gserviceaccount.com", "@appspot.gserviceaccount.com"] }
+`)
+	for _, tt := range []struct {
+		attributes map[string]string
+		want       string
+	}{
+		{map[string]string{"role": "roles/pubsub.serviceAgent"}, "service agent role"},
+		{map[string]string{"role": "roles/compute.instanceGroupManagerServiceAgent"}, "service agent role"},
+		{map[string]string{"role": "roles/serviceAgentViewer"}, ""},
+		{map[string]string{"role": "roles/editor", "member": "serviceAccount:123-compute@developer.gserviceaccount.com"}, "default editor"},
+		{map[string]string{"role": "roles/editor", "member": "serviceAccount:acme@appspot.gserviceaccount.com"}, "default editor"},
+		{map[string]string{"role": "roles/viewer", "member": "serviceAccount:123-compute@developer.gserviceaccount.com"}, ""},
+		{map[string]string{"role": "roles/editor", "member": "serviceAccount:ci@acme.iam.gserviceaccount.com"}, ""},
+		{map[string]string{"role": "roles/editor"}, ""},
+	} {
+		if got := c.Skipped("google_project_iam_member", "id", tt.attributes); got != tt.want {
+			t.Errorf("%v: got %q, want %q", tt.attributes, got, tt.want)
 		}
 	}
 }

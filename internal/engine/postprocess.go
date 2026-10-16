@@ -18,7 +18,8 @@ import (
 const placeholderString = "infraharvest-placeholder"
 
 // postProcess improves the configuration once it plans, in this order:
-// arguments that only repeat a default (see stripDefaults),
+// the tags an import leaves out (see fillEffectiveTags), arguments that
+// only repeat a default (see stripDefaults),
 // references between resources (see addReferences) and to resources it
 // doesn't manage (see addDataSources), shared tags (see
 // applyTagLift) and repeated identifiers (see liftLiterals). Each step is
@@ -26,9 +27,10 @@ const placeholderString = "infraharvest-placeholder"
 // changes. Secret variables get placeholder values in these plans. If the
 // configuration doesn't plan even so, only the literal lift is made,
 // checked by validation. Last, clusters of resources move into modules:
-// curated ones first (see synthesize), then generated local ones (see
-// liftModules). It returns the clusters it didn't move into a curated
-// module, with why.
+// curated ones first (see synthesize), then, once the resources left in
+// the root no longer repeat what the provider sets (see omitInherited),
+// generated local ones (see liftModules). It returns the clusters it
+// didn't move into a curated module, with why.
 func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
 	vars := placeholders(secrets)
 	baseline, values, changes, err := planValues(ctx, tf, vars)
@@ -38,8 +40,24 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	if baseline == nil {
 		return nil, liftLiteralsValidated(ctx, tf, dir, opts.Taken)
 	}
+	// Tags an import leaves out of the configuration first: they are what
+	// the steps below compare with, and the shared ones go to a local.
+	if et := opts.EffectiveTags; et != nil {
+		filled, err := fillEffectiveTags(ctx, tf, dir, *et, values, changes, opts.StateOnly, vars)
+		if err != nil {
+			return nil, err
+		}
+		if filled {
+			if baseline, values, changes, err = planValues(ctx, tf, vars); err != nil {
+				return nil, err
+			}
+			if baseline == nil {
+				return nil, errors.New("the configuration stopped planning after writing its tags")
+			}
+		}
+	}
 	// First, so the steps below see only the arguments that matter.
-	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars)
+	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, opts.Defaults)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +96,14 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	if len(opts.Adapters) > 0 {
 		// Module calls may update arguments import can't set.
 		if declined, *baseline, err = synthesize(ctx, tf, dir, opts, *baseline, changes, vars); err != nil {
+			return nil, err
+		}
+	}
+	// After the curated modules, whose calls take the project from the
+	// resources; checked like the steps above.
+	if len(opts.Inherited) > 0 {
+		inherited := func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }
+		if _, err := verify(ctx, tf, dir, *baseline, vars, inherited, GeneratedFileName); err != nil {
 			return nil, err
 		}
 	}

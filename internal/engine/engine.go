@@ -109,9 +109,23 @@ type Options struct {
 	// an S3 bucket's versioning. They must be computed, so that leaving them
 	// out changes no plan.
 	Omit map[string][]string
+	// Defaults names, per resource type, the values the provider or the
+	// cloud gives arguments it isn't told, as path=value, such as a
+	// bucket's storage_class=STANDARD: Generate leaves out the arguments
+	// set to them where the plan stays the same (see stripDefaults).
+	Defaults map[string][]string
 	// DefaultTags, if set, lets Generate move the tags every resource shares
 	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags
+	// EffectiveTags, if set, lets Generate write each resource's tags,
+	// which an import leaves out of the provider's tags attribute, from
+	// the attribute that has them all (see fillEffectiveTags).
+	EffectiveTags *EffectiveTags
+	// Inherited names arguments of the provider block that resources take
+	// as theirs when they don't set them, such as Google's project and
+	// region: Generate leaves them out of the resources that repeat the
+	// provider's value (see omitInherited).
+	Inherited []string
 	// StateOnly names, per resource type, arguments the provider keeps only
 	// in state, which import can't set and the plan check (see runGate)
 	// lets change.

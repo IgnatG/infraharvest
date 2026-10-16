@@ -6,3 +6,12 @@ types:
     inventory: { type: pubsub.googleapis.com/Topic }
   google_pubsub_subscription:
     inventory: { type: pubsub.googleapis.com/Subscription }
+    # Ten seconds to acknowledge, seven days of retention, and expiry
+    # after 31 days without activity.
+    defaults:
+      - ack_deadline_seconds=10
+      - enable_exactly_once_delivery=false
+      - enable_message_ordering=false
+      - expiration_policy.ttl=2678400s
+      - message_retention_duration=604800s
+      - retain_acked_messages=false

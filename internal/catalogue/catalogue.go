@@ -62,6 +62,12 @@ type Entry struct {
 	// deprecated ones whose settings separate resources carry, and ones
 	// the provider computes.
 	Omit []string `yaml:"omit,omitempty"`
+	// Defaults names, as path=value, the values the provider or the cloud
+	// gives optional arguments it isn't told, such as a bucket's
+	// storage_class=STANDARD, by their path in nested blocks
+	// (soft_delete_policy.retention_duration_seconds=604800): the engine
+	// leaves out the arguments set to them where the plan stays the same.
+	Defaults []string `yaml:"defaults,omitempty"`
 	// StateOnly names arguments the provider keeps only in state, such as
 	// settings it uses when it deletes a resource: an import leaves them
 	// unset, so the verification gate accepts a plan that sets them.
@@ -122,6 +128,9 @@ type SkipRule struct {
 	// AttributePrefixes matches resources whose attributes start with one
 	// of these, such as a name the cloud gives what it creates.
 	AttributePrefixes map[string][]string `yaml:"attribute_prefixes,omitempty"`
+	// AttributeSuffixes matches resources whose attributes end with one of
+	// these, such as the domain of a service account the cloud manages.
+	AttributeSuffixes map[string][]string `yaml:"attribute_suffixes,omitempty"`
 	// IgnoreCase compares IDs and attributes whatever their case, as Azure
 	// names are.
 	IgnoreCase bool `yaml:"ignore_case,omitempty"`
@@ -333,6 +342,12 @@ func (c *Catalogue) Omit() map[string][]string {
 	return c.lists(func(e *Entry) []string { return e.Omit })
 }
 
+// Defaults returns the values optional arguments default to, as
+// path=value, per type.
+func (c *Catalogue) Defaults() map[string][]string {
+	return c.lists(func(e *Entry) []string { return e.Defaults })
+}
+
 // StateOnly returns the arguments the provider keeps only in state, per
 // type and under AllTypes for every type.
 func (c *Catalogue) StateOnly() map[string][]string {
@@ -451,10 +466,14 @@ func (i *Inventory) matches(assetType, name string) bool {
 func (r SkipRule) matches(id string, attributes map[string]string) bool {
 	equal := func(a, b string) bool { return a == b }
 	hasPrefix := strings.HasPrefix
+	hasSuffix := strings.HasSuffix
 	if r.IgnoreCase {
 		equal = strings.EqualFold
 		hasPrefix = func(s, prefix string) bool {
 			return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+		}
+		hasSuffix = func(s, suffix string) bool {
+			return len(s) >= len(suffix) && strings.EqualFold(s[len(s)-len(suffix):], suffix)
 		}
 	}
 	if len(r.IDs) > 0 && !slices.ContainsFunc(r.IDs, func(want string) bool { return equal(id, want) }) {
@@ -471,6 +490,12 @@ func (r SkipRule) matches(id string, attributes map[string]string) bool {
 	for k, prefixes := range r.AttributePrefixes {
 		value, ok := attributes[k]
 		if !ok || !slices.ContainsFunc(prefixes, func(p string) bool { return hasPrefix(value, p) }) {
+			return false
+		}
+	}
+	for k, suffixes := range r.AttributeSuffixes {
+		value, ok := attributes[k]
+		if !ok || !slices.ContainsFunc(suffixes, func(s string) bool { return hasSuffix(value, s) }) {
 			return false
 		}
 	}
@@ -505,6 +530,9 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	}
 	if overlay.Omit != nil {
 		merged.Omit = overlay.Omit
+	}
+	if overlay.Defaults != nil {
+		merged.Defaults = overlay.Defaults
 	}
 	if overlay.StateOnly != nil {
 		merged.StateOnly = overlay.StateOnly

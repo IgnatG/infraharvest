@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
 )
 
 // literal returns the value of an expression without references, such as
@@ -82,4 +83,24 @@ func stringList(values []string) cty.Value {
 		list = append(list, cty.StringVal(v))
 	}
 	return cty.ListVal(list)
+}
+
+// IsDefault reports whether value, an argument Map sets for input, is
+// the input's default (see Adapter.Defaults): a literal equal to it,
+// converted to its type, such as 0 for the network module's mtu.
+func (a *Adapter) IsDefault(input string, value hclwrite.Tokens) bool {
+	want, ok := a.Defaults[input]
+	if !ok {
+		return false
+	}
+	v, ok := literal(value)
+	if !ok {
+		return false
+	}
+	converted, err := convert.Convert(v, want.Type())
+	if err != nil {
+		return false
+	}
+	equal := converted.Equals(want)
+	return equal.IsKnown() && equal.True()
 }

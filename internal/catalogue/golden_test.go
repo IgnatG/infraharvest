@@ -116,7 +116,7 @@ func TestGoldenInputsHaveEntries(t *testing.T) {
 func needsGolden(c *Catalogue, typ string) bool {
 	e, _ := c.Entry(typ)
 	return len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Skip) > 0 || len(e.Children) > 0 ||
-		e.DataSource != nil || len(e.Omit) > 0 || len(e.StateOnly) > 0 || e.Placeholder != nil || slices.Contains(alwaysGolden, typ)
+		e.DataSource != nil || len(e.Omit) > 0 || len(e.Defaults) > 0 || len(e.StateOnly) > 0 || e.Placeholder != nil || slices.Contains(alwaysGolden, typ)
 }
 
 func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
@@ -189,6 +189,11 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 	omit := append(append([]string(nil), c.Omit()[AllTypes]...), e.Omit...)
 	if len(e.Omit) > 0 {
 		fmt.Fprintf(&out, "\n# Left out of generated configuration: %s\n", strings.Join(omit, ", "))
+	}
+	if len(e.Defaults) > 0 {
+		sorted := append([]string(nil), e.Defaults...)
+		sort.Strings(sorted)
+		fmt.Fprintf(&out, "\n# Left out where the plan stays the same, as the default: %s\n", strings.Join(sorted, ", "))
 	}
 	if stateOnly := c.StateOnly()[typ]; len(stateOnly) > 0 {
 		sorted := append([]string(nil), stateOnly...)

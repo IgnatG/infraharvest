@@ -72,11 +72,15 @@ func TestGoogleRoundTrip(t *testing.T) {
 	// and the key ring in us-central1's, and the project's IAM members,
 	// which iam lists, in global's with the service account.
 	coverage := checkGoogleImport(ctx, t, engineName, execPath, plugins, state, "--services=*", "--regions=global,us-central1")
+	// The network and its firewall rule stay resources: its subnetwork is
+	// in us-central1's root, out of the network module's reach.
 	checkGoogleModules(t, coverage, map[string][]string{
-		adapters.GoogleNetwork.Source:        {"google_compute_network", "google_compute_firewall"},
 		adapters.GoogleServiceAccount.Source: {"google_service_account", "google_project_iam_member"},
 		adapters.GoogleProjectIAM.Source:     {"google_project_iam_member"},
 	})
+	if got := moduleResources(coverage, adapters.GoogleNetwork.Source); len(got) != 0 {
+		t.Errorf("%s: %v, want the network left a resource, without its subnetwork", adapters.GoogleNetwork.Source, got)
+	}
 	// The grants to people and the group in one call; the service
 	// account's stays with the account.
 	if got := moduleResources(coverage, adapters.GoogleProjectIAM.Source); len(got) != 3 {
@@ -144,8 +148,14 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 		}
 	}
 
+	// Only a root with a call of the network module, which creates the
+	// network through google-beta, requires google-beta.
+	beta := len(moduleResources(coverage, adapters.GoogleNetwork.Source)) > 0
 	imported := map[string]int{}
 	for _, dir := range generatedDirs(t, out) {
+		if !beta && strings.Contains(readFile(t, filepath.Join(dir, "versions.tf")), "google-beta") {
+			t.Errorf("%s requires google-beta, which none of its resources uses", dir)
+		}
 		for typ, n := range checkNoChanges(ctx, t, dir, execPath, plugins, nil) {
 			imported[typ] += n
 		}

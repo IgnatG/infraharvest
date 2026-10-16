@@ -40,7 +40,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
-			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" {
+			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 {
 			fail("the entry for every type only takes omit, state_only and skip")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.Provider+"_") {
@@ -77,16 +77,32 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			seen[name] = true
 		}
 	}
+	seen := map[string]bool{}
+	for _, entry := range e.Defaults {
+		path, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			fail("defaults: %q: want path=value", entry)
+		}
+		for _, name := range strings.Split(path, ".") {
+			if !identifier.MatchString(name) {
+				fail("defaults: %q: %q isn't an argument or block name", entry, name)
+			}
+		}
+		if seen[path] {
+			fail("defaults: %s twice", path)
+		}
+		seen[path] = true
+	}
 	for i, rule := range e.Skip {
 		if strings.TrimSpace(rule.Reason) == "" {
 			fail("skip[%d]: missing a reason", i)
 		}
-		conditions := len(rule.IDs) > 0 || len(rule.IDPrefixes) > 0 || len(rule.Attributes) > 0 || len(rule.AttributePrefixes) > 0
+		conditions := len(rule.IDs) > 0 || len(rule.IDPrefixes) > 0 || len(rule.Attributes) > 0 || len(rule.AttributePrefixes) > 0 || len(rule.AttributeSuffixes) > 0
 		switch {
 		case rule.All && conditions:
-			fail("skip[%d]: all matches every resource, so it takes no ids, id_prefixes, attributes or attribute_prefixes", i)
+			fail("skip[%d]: all matches every resource, so it takes no ids, id_prefixes, attributes, attribute_prefixes or attribute_suffixes", i)
 		case !rule.All && !conditions:
-			fail("skip[%d]: set ids, id_prefixes, attributes or attribute_prefixes, or all: true for every resource", i)
+			fail("skip[%d]: set ids, id_prefixes, attributes, attribute_prefixes or attribute_suffixes, or all: true for every resource", i)
 		}
 		for _, p := range rule.IDPrefixes {
 			if p == "" {
@@ -96,6 +112,11 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 		for k, prefixes := range rule.AttributePrefixes {
 			if len(prefixes) == 0 || slices.Contains(prefixes, "") {
 				fail("skip[%d]: attribute_prefixes: %s: want prefixes, none empty", i, k)
+			}
+		}
+		for k, suffixes := range rule.AttributeSuffixes {
+			if len(suffixes) == 0 || slices.Contains(suffixes, "") {
+				fail("skip[%d]: attribute_suffixes: %s: want suffixes, none empty", i, k)
 			}
 		}
 	}

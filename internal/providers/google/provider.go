@@ -188,6 +188,24 @@ func (*Provider) DefaultTags() (attribute, block, reservedPrefix string) {
 	return "labels", "default_labels", "goog-"
 }
 
+// EffectiveTags describes Google's labels since the provider's version
+// 5.0: labels holds only those of the configuration, which an import
+// leaves empty, and effective_labels every label the resource has. Those
+// starting with goog- are Google's own, such as goog-terraform-provisioned,
+// which the provider adds unless add_terraform_attribution_label is false:
+// they stay on the resource, outside the configuration.
+func (*Provider) EffectiveTags() (attribute, effective, reservedPrefix string) {
+	return "labels", "effective_labels", "goog-"
+}
+
+// InheritedArguments are the provider block's arguments a resource takes
+// as its own when it doesn't set them: the project and the region (and a
+// zone, though the provider block sets none), which the provider block
+// sets to the import's.
+func (*Provider) InheritedArguments() []string {
+	return []string{"project", "region", "zone"}
+}
+
 // DefaultTagsArgument says default_labels is an argument of the provider
 // block, not a block.
 func (*Provider) DefaultTagsArgument() bool {
