@@ -391,6 +391,37 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 	}
 }
 
+// A node pool records its cluster's labels, from the same search, so
+// that the catalogue leaves out the pools of a cluster Cloud Composer
+// created, as it leaves out the cluster.
+func TestCloudAssetRecordsTheParentsLabels(t *testing.T) {
+	cluster := "//container.googleapis.com/projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke"
+	results := []*cloudasset.ResourceSearchResult{
+		{AssetType: "container.googleapis.com/Cluster", Name: cluster, Location: "us-central1", Labels: map[string]string{"goog-composer-version": "composer-2-9-7-airflow-2-9-3"}},
+		{AssetType: "container.googleapis.com/NodePool", Name: cluster + "/nodePools/default-pool", Location: "us-central1", ParentFullResourceName: cluster},
+		{AssetType: "container.googleapis.com/NodePool", Name: "//container.googleapis.com/projects/acme-prod/locations/us-central1/clusters/prod/nodePools/default-pool", Location: "us-central1", ParentFullResourceName: "//container.googleapis.com/projects/acme-prod/locations/us-central1/clusters/prod"},
+	}
+	cat := catalogue.MustBuiltin("google")
+	got := byID(assetResources(results, cat, "google", "acme-prod", "us-central1"))
+	composer, ok := got["projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke/nodePools/default-pool"]
+	prod, prodOK := got["projects/acme-prod/locations/us-central1/clusters/prod/nodePools/default-pool"]
+	if !ok || !prodOK {
+		t.Fatalf("got %v", got)
+	}
+	if a := composer.Observed.Attributes; a["asset.parent_labels.goog-composer-version"] != "composer-2-9-7-airflow-2-9-3" {
+		t.Errorf("the Composer cluster's pool: attributes %v", a)
+	}
+	if harvest.AttributeTags(composer.Observed.Attributes)["goog-composer-version"] != "" {
+		t.Error("the cluster's labels are the pool's")
+	}
+	if cat.Skipped(composer.Address.Type, composer.Observed.ID, composer.Observed.Attributes) == "" {
+		t.Error("the Composer cluster's pool isn't left out by default")
+	}
+	if prod.Address.Type != "google_container_node_pool" || cat.Skipped(prod.Address.Type, prod.Observed.ID, prod.Observed.Attributes) != "" {
+		t.Errorf("the prod cluster's pool: %+v, attributes %v", prod.Address, prod.Observed.Attributes)
+	}
+}
+
 func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
 	results := []*cloudasset.ResourceSearchResult{
 		{AssetType: "compute.googleapis.com/BackendBucket", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/backendBuckets/b", Location: "global"},

@@ -197,6 +197,15 @@ func isBadRequest(err error) bool {
 // catalogue maps to no type, or to several, is logged and left out, as is
 // one being deleted.
 func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.Catalogue, provider, projectID, region string) []harvest.Resource {
+	// The labels of every resource found, wherever it is, by its full
+	// name: a resource's parent, such as a node pool's cluster, is in the
+	// same location but may be another import's to take.
+	labels := map[string]map[string]string{}
+	for _, r := range results {
+		if len(r.Labels) > 0 {
+			labels[r.Name] = r.Labels
+		}
+	}
 	var resources []harvest.Resource
 	elsewhere := 0
 	for _, r := range results {
@@ -218,7 +227,7 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 			continue
 		}
 		id := assetID(r.Name, r.Project, projectID)
-		resources = append(resources, harvest.Record(id, assetName(r.DisplayName, id), types[0], provider, assetAttributes(r, id, projectID)))
+		resources = append(resources, harvest.Record(id, assetName(r.DisplayName, id), types[0], provider, assetAttributes(r, id, projectID, labels[r.ParentFullResourceName])))
 	}
 	if elsewhere > 0 {
 		where := "the global import"
@@ -287,8 +296,10 @@ func assetID(fullName, assetProject, projectID string) string {
 // location, its display name, the last segment of its ID (name), its
 // parent's ID and the searchable attributes the search returns with it,
 // such as a service account's email, in snake case. Its labels go in as
-// labels.<key>, for selection rules.
-func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string) map[string]string {
+// labels.<key>, for selection rules, and its parent's, which the search
+// found too, as asset.parent_labels.<key>: a node pool has none of its
+// own, and its cluster's tell what created it.
+func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string, parentLabels map[string]string) map[string]string {
 	attributes := map[string]string{
 		"asset.project": projectID,
 		"asset.name":    lastSegment(id),
@@ -313,6 +324,9 @@ func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string) m
 	}
 	for k, v := range r.Labels {
 		attributes["labels."+k] = v
+	}
+	for k, v := range parentLabels {
+		attributes["asset.parent_labels."+k] = v
 	}
 	return attributes
 }

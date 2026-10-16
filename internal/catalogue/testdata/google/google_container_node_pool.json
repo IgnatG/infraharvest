@@ -1,4 +1,6 @@
 {"resources": [
   {"id": "projects/acme-prod/locations/us-central1/clusters/prod/nodePools/default-pool", "name": "prod_default_pool", "attributes": {"asset.project": "acme-prod", "asset.name": "default-pool", "asset.location": "us-central1", "asset.parent": "projects/acme-prod/locations/us-central1/clusters/prod"}},
+  {"id": "projects/acme-prod/locations/us-central1/clusters/prod/nodePools/nap-e2-standard-4-1a2b3c4d", "name": "prod_nap", "attributes": {"asset.project": "acme-prod", "asset.name": "nap-e2-standard-4-1a2b3c4d", "asset.location": "us-central1", "asset.parent": "projects/acme-prod/locations/us-central1/clusters/prod"}},
+  {"id": "projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke/nodePools/default-pool", "name": "pipelines_default_pool", "attributes": {"asset.project": "acme-prod", "asset.name": "default-pool", "asset.location": "us-central1", "asset.parent": "projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke", "asset.parent_labels.goog-composer-environment": "pipelines", "asset.parent_labels.goog-composer-version": "composer-2-9-7-airflow-2-9-3"}},
   {"id": "acme-prod/europe-west1/legacy/pool", "name": "legacy_pool", "attributes": {"name": "pool", "cluster": "legacy"}}
 ]}

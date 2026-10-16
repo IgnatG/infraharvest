@@ -30,3 +30,12 @@ types:
     import_id:
       - "{asset.project}/{asset.location}/{asset.parent|after_last:/}/{asset.name}"
       - "{id}"
+    # A node pool has no labels of its own: the cloud_asset service
+    # records its cluster's as asset.parent_labels.<key>, when the search
+    # found the cluster too. The search doesn't say whether a cluster is
+    # Autopilot, whose pools GKE manages, but those it adds are nap-*.
+    skip:
+      - reason: GKE's node auto-provisioning creates it for the cluster's workloads and deletes it when they no longer need it
+        attribute_prefixes: { asset.name: [nap-] }
+      - reason: a node pool of a cluster Cloud Composer created, which it deletes with the environment; select it to import it
+        attribute_prefixes: { asset.parent_labels.goog-composer-version: [composer-] }
