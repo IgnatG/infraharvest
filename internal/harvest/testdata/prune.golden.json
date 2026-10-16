@@ -455,6 +455,11 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--same",
         "stateId": "vpc-a"
+      },
+      {
+        "type": "aws_vpc",
+        "address": "aws_vpc.r--same",
+        "stateId": "vpc-b"
       }
     ],
     "pruneMethod": [
@@ -462,6 +467,11 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--same",
         "stateId": "vpc-a"
+      },
+      {
+        "type": "aws_vpc",
+        "address": "aws_vpc.r--same",
+        "stateId": "vpc-b"
       }
     ]
   },
@@ -516,22 +526,12 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--a",
         "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--b",
-        "stateId": "vpc-1"
       }
     ],
     "pruneMethod": [
       {
         "type": "aws_vpc",
         "address": "aws_vpc.r--a",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--b",
         "stateId": "vpc-1"
       }
     ]
