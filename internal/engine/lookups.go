@@ -16,7 +16,8 @@ import (
 )
 
 // lookup is a data source that reads a value no root manages, which the
-// cloud or the provider defines, such as the tenant Azure signs in to.
+// cloud or the provider defines: the tenant Azure signs in to, a
+// CloudFront policy or KMS key AWS manages.
 type lookup struct {
 	// typ and name are the data source's type and name, name unless
 	// taken.
@@ -38,6 +39,50 @@ func (l lookup) key() string {
 // uuid matches a UUID, such as an Azure tenant's ID.
 var uuid = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// kmsKeyARN matches the ARN of a KMS key.
+var kmsKeyARN = regexp.MustCompile(`^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$`)
+
+// managedPolicy is a kind of CloudFront policy: the data source that reads
+// one by name, and the IDs and names of those AWS manages, which are the
+// same in every account.
+type managedPolicy struct {
+	dataType string
+	names    map[string]string
+}
+
+// managedPolicies are the policies AWS manages, by the argument that takes
+// their IDs. An ID missing here stays a literal; one that names another
+// policy than its data source reads would change the plan, which keeps
+// the literal.
+var managedPolicies = map[string]managedPolicy{
+	"cache_policy_id": {"aws_cloudfront_cache_policy", map[string]string{
+		"658327ea-f89d-4fab-a63d-7e88639e58f6": "Managed-CachingOptimized",
+		"4135ea2d-6df8-44a3-9df3-4b5a84be39ad": "Managed-CachingDisabled",
+		"b2884449-e4de-46a7-ac36-70bc7f1ddd6d": "Managed-CachingOptimizedForUncompressedObjects",
+		"08627262-05a9-4f76-9ded-b50ca2e3a84f": "Managed-Elemental-MediaPackage",
+		"2e54312d-136d-493c-8eb9-b001f22f67d2": "Managed-Amplify",
+	}},
+	"origin_request_policy_id": {"aws_cloudfront_origin_request_policy", map[string]string{
+		"216adef6-5c7f-47e4-b989-5492eafa07d3": "Managed-AllViewer",
+		"b689b0a8-53d0-40ab-baf2-68738e2966ac": "Managed-AllViewerExceptHostHeader",
+		"33f36d7e-f396-46d9-90e0-52428a34d9dc": "Managed-AllViewerAndCloudFrontHeaders-2022-06",
+		"59781a5b-3903-41f3-afcb-af62929ccde1": "Managed-CORS-CustomOrigin",
+		"88a5eaf4-2fd4-4709-b370-b4c650ea3fcf": "Managed-CORS-S3Origin",
+		"acba4595-bd28-49b8-b9fe-13317c0390fa": "Managed-UserAgentRefererHeaders",
+		"775133bc-15f2-49f9-abea-afb2e0bf67d2": "Managed-Elemental-MediaTailor-PersonalizedManifests",
+	}},
+	"response_headers_policy_id": {"aws_cloudfront_response_headers_policy", map[string]string{
+		"60669652-455b-4ae9-85a4-c4c02393f86c": "Managed-SimpleCORS",
+		"5cc3b908-e619-4b99-88e5-2cf7f45965bd": "Managed-CORS-With-Preflight",
+		"67f7725c-6f97-4210-82d7-5512b31e9d03": "Managed-SecurityHeadersPolicy",
+		"e61eb60c-9c35-4d20-a928-2b84e02af89c": "Managed-CORS-and-SecurityHeadersPolicy",
+		"eaab4381-ed33-4a86-88ca-d9558dc6cd63": "Managed-CORS-with-preflight-and-SecurityHeadersPolicy",
+	}},
+}
+
+// encryptedVolumes are the types whose kms_key_id encrypts EBS volumes.
+var encryptedVolumes = map[string]bool{"aws_instance": true, "aws_ebs_volume": true, "aws_launch_template": true}
+
 // lookupFor returns the data source that reads value, of the argument of
 // a resource of resourceType, if one does.
 func lookupFor(resourceType, argument, value string) (lookup, bool) {
@@ -45,6 +90,16 @@ func lookupFor(resourceType, argument, value string) (lookup, bool) {
 	// resource's.
 	if strings.HasPrefix(resourceType, "azurerm_") && argument == "tenant_id" && uuid.MatchString(value) {
 		return lookup{typ: "azurerm_client_config", name: "current", attribute: "tenant_id"}, true
+	}
+	if p, ok := managedPolicies[argument]; ok && strings.HasPrefix(resourceType, "aws_cloudfront_") {
+		if name, ok := p.names[value]; ok {
+			return lookup{typ: p.dataType, name: Label(snakeCase(strings.TrimPrefix(name, "Managed-"))), args: [][2]string{{"name", name}}, attribute: "id"}, true
+		}
+	}
+	// A key no root manages, as the AWS-managed key of EBS encryption:
+	// the plan checks it is that key.
+	if encryptedVolumes[resourceType] && argument == "kms_key_id" && kmsKeyARN.MatchString(value) {
+		return lookup{typ: "aws_kms_alias", name: "ebs", args: [][2]string{{"name", "alias/aws/ebs"}}, attribute: "target_key_arn"}, true
 	}
 	return lookup{}, false
 }

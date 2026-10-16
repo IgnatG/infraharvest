@@ -22,8 +22,9 @@ const placeholderString = "infraharvest-placeholder"
 // the tags an import leaves out (see fillEffectiveTags), arguments that
 // only repeat a default (see stripDefaults),
 // references between resources (see addReferences), to resources it
-// doesn't manage (see addDataSources) and to what the cloud or the
-// provider defines (see addLookups), shared tags (see applyTagLift) and
+// doesn't manage (see addDataSources), to what other roots manage (see
+// addRootVariables) and to what the cloud or the provider defines (see
+// addLookups), shared tags (see applyTagLift) and
 // repeated identifiers (see liftLiterals). Each step is checked against
 // the plan before it (see verify) and undone if the plan changes; the
 // references, by resource (see verifyEach). Secret variables get placeholder values in these plans. If the
@@ -84,6 +85,12 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	if len(opts.External) > 0 {
 		steps = append(steps, step{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 			return addDataSourcesSkipping(dir, opts.External, opts.DataSources, opts.Taken, skip)
+		}})
+	}
+	// After the data sources: variables are for what they can't read.
+	if len(opts.OtherRoots) > 0 {
+		steps = append(steps, step{files: []string{GeneratedFileName, VariablesFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return addRootVariables(dir, opts.OtherRoots, opts.ARNs, opts.Taken, skip)
 		}})
 	}
 	steps = append(steps, step{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {

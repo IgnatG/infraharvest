@@ -159,6 +159,12 @@ type Options struct {
 	// DataSources, by resource type (see addDataSources).
 	External    []External
 	DataSources map[string]DataSource
+	// OtherRoots are the resources the import's other roots manage: what
+	// no data source reads of them, the configuration refers to through
+	// variables (see addRootVariables). ARNs say, by resource type, how the
+	// ARNs of types whose IDs aren't ARNs name their resources.
+	OtherRoots []RootResource
+	ARNs       map[string]ARN
 	// Scanners run in the verification gate (see runScanners).
 	Scanners []Scanner
 	// Taken are names Generate leaves alone, such as those of the root an
