@@ -6,3 +6,4 @@ import {
 }
 
 # projects/acme-prod/regions/us-central1/forwardingRules/k8s2-fr-1a2b3c4d-default-api: left out by default, would import as "projects/acme-prod/regions/us-central1/forwardingRules/k8s2-fr-1a2b3c4d-default-api": a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
+# projects/acme-prod/regions/us-central1/forwardingRules/a0123456789abcdef0123456789abcdef: left out by default, would import as "projects/acme-prod/regions/us-central1/forwardingRules/a0123456789abcdef0123456789abcdef": GKE creates it for a LoadBalancer Service and deletes it with the Service

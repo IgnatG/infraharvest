@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/us-central1/targetPools/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "us-central1"}},
+  {"id": "projects/acme-prod/regions/us-central1/targetPools/a0123456789abcdef0123456789abcdef", "name": "a0123456789abcdef0123456789abcdef", "attributes": {"asset.project": "acme-prod", "asset.name": "a0123456789abcdef0123456789abcdef", "asset.location": "us-central1", "asset.description": "{\"kubernetes.io/service-name\":\"default/web\"}"}}
+]}

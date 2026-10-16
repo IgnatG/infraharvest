@@ -422,6 +422,26 @@ func TestCloudAssetRecordsTheParentsLabels(t *testing.T) {
 	}
 }
 
+// A resource records its description, which tells the load balancers GKE
+// creates for LoadBalancer Services, named a and a hash, from the user's.
+func TestCloudAssetRecordsTheDescription(t *testing.T) {
+	results := []*cloudasset.ResourceSearchResult{
+		{AssetType: "compute.googleapis.com/ForwardingRule", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/forwardingRules/a0123456789abcdef0123456789abcdef", Location: "us-central1", Description: `{"kubernetes.io/service-name":"default/web"}`},
+		{AssetType: "compute.googleapis.com/ForwardingRule", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/forwardingRules/web", Location: "us-central1"},
+	}
+	cat := catalogue.MustBuiltin("google")
+	got := assetResources(results, cat, "google", "acme-prod", "us-central1")
+	if len(got) != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	for _, r := range got {
+		skipped := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes) != ""
+		if gke := r.Observed.Attributes["asset.description"] != ""; skipped != gke {
+			t.Errorf("%s: attributes %v, left out %v", r.Observed.ID, r.Observed.Attributes, skipped)
+		}
+	}
+}
+
 func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
 	results := []*cloudasset.ResourceSearchResult{
 		{AssetType: "compute.googleapis.com/BackendBucket", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/backendBuckets/b", Location: "global"},

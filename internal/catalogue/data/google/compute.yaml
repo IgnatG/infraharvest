@@ -81,6 +81,11 @@ types:
     skip:
       - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
         attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+      # GKE names a LoadBalancer Service's legacy load balancer a and a
+      # hash, which a rule can't tell from a name of the user's, and
+      # describes it with the Service's name, which it can.
+      - reason: GKE creates it for a LoadBalancer Service and deletes it with the Service
+        attribute_prefixes: { asset.description: ['{"kubernetes.io/service-name":'] }
   google_compute_global_forwarding_rule:
     inventory:
       type: compute.googleapis.com/ForwardingRule
@@ -109,6 +114,8 @@ types:
     skip:
       - reason: a GKE ingress or gateway controller creates it and deletes it with the ingress or gateway
         attribute_prefixes: { asset.name: [k8s-, k8s1-, k8s2-] }
+      - reason: GKE creates it for a LoadBalancer Service and deletes it with the Service
+        attribute_prefixes: { asset.description: ['{"kubernetes.io/service-name":'] }
   google_compute_https_health_check:
     inventory:
       type: compute.googleapis.com/HttpsHealthCheck
@@ -131,6 +138,8 @@ types:
     skip:
       - reason: GKE creates it for a cluster's nodes and deletes it with them
         attribute_prefixes: { asset.name: [gke-] }
+      - reason: a GKE ingress controller creates it for a cluster's nodes and deletes it with the cluster's last ingress
+        attribute_prefixes: { asset.name: [k8s-] }
   google_compute_instance_group_manager:
     inventory:
       type: compute.googleapis.com/InstanceGroupManager
@@ -306,6 +315,9 @@ types:
     inventory:
       type: compute.googleapis.com/TargetPool
       name: //compute.googleapis.com/projects/*/regions/*/targetPools/*
+    skip:
+      - reason: GKE creates it for a LoadBalancer Service and deletes it with the Service
+        attribute_prefixes: { asset.description: ['{"kubernetes.io/service-name":'] }
   google_compute_target_ssl_proxy:
     inventory:
       type: compute.googleapis.com/TargetSslProxy
