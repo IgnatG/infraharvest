@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -126,6 +127,84 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 		}
 	}
 	return false
+}
+
+// withoutUnset leaves out of found, and removes from their resources, the
+// secret attributes the imported objects hold no value for, such as a
+// database's master password, which AWS never returns: unset, the
+// argument plans as the imported null, where a variable would make the
+// plan set it, and a placeholder could break the provider's rules for it.
+// An attribute the schema requires keeps its variable, as does one of a
+// nested block whose imported blocks don't all lack it. It plans once,
+// with the attributes still null as Terraform generated them; if that plan
+// doesn't succeed, found is returned as it is. It reports whether it
+// removed any attribute.
+func withoutUnset(ctx context.Context, tf Terraform, found map[string][]secretAttribute, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]secretAttribute, bool, error) {
+	p, _, _, err := showPlanWithSummary(ctx, tf, vars)
+	if err != nil || p == nil {
+		return found, false, err
+	}
+	imported := map[string]any{}
+	for _, rc := range p.ResourceChanges {
+		if rc.Change != nil && rc.Change.Before != nil {
+			imported[rc.Address] = rc.Change.Before
+		}
+	}
+	kept := map[string][]secretAttribute{}
+	removed := false
+	for address, secrets := range found {
+		resourceType := strings.SplitN(address, ".", 2)[0]
+		for _, s := range secrets {
+			before, ok := imported[address]
+			attr := schemaAttribute(schemas, resourceType, s.schemaPath)
+			if !ok || attr == nil || attr.Required || !allNull(valuesAt(before, s.schemaPath)) {
+				kept[address] = append(kept[address], s)
+				continue
+			}
+			s.body.RemoveAttribute(s.name())
+			removed = true
+		}
+	}
+	return kept, removed, nil
+}
+
+// valuesAt returns the values at path in v, an imported object as a plan
+// shows it: an attribute name at each step, through nested blocks, which
+// are lists of objects, whatever their index in the configuration. It
+// returns nothing where path leads nowhere.
+func valuesAt(v any, path []string) []any {
+	if len(path) == 0 {
+		return []any{v}
+	}
+	switch v := v.(type) {
+	case map[string]any:
+		next, ok := v[path[0]]
+		if !ok {
+			return nil
+		}
+		if len(path) == 1 {
+			return []any{next}
+		}
+		return valuesAt(next, path[1:])
+	case []any:
+		var values []any
+		for _, item := range v {
+			values = append(values, valuesAt(item, path)...)
+		}
+		return values
+	}
+	return nil
+}
+
+// allNull reports whether values holds at least one value, and every one is
+// null.
+func allNull(values []any) bool {
+	for _, v := range values {
+		if v != nil {
+			return false
+		}
+	}
+	return len(values) > 0
 }
 
 // aboutSecret reports whether d is about one of secrets: its range is on

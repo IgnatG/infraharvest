@@ -17,8 +17,11 @@ import (
 )
 
 // placeholderString stands in for secret values in the plans post-processing
-// runs. Those plans are only compared with each other, never applied.
-const placeholderString = "infraharvest-placeholder"
+// runs. Those plans are only compared with each other, never applied. It
+// meets the password rules providers check before planning (Redshift's,
+// RDS's, Azure's): upper and lower case letters, a digit and a symbol, 8
+// to 41 characters, and none of / @ " ' \ or a space.
+const placeholderString = "Infraharvest-Placeholder-0"
 
 // postProcess improves the configuration once it plans, in this order:
 // the tags an import leaves out (see fillEffectiveTags), arguments that
