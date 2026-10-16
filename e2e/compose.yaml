@@ -29,7 +29,7 @@ services:
   # endpoints over HTTPS only: TLS on, with a CA served at /_floci/tls-cert
   # for the host to trust.
   floci-az:
-    image: floci/floci-az:0.14.0@sha256:a35e74dfca9a5e811090d8ae98876044fc8990a8874ee525231f524ca56679db
+    image: floci/floci-az:0.15.0@sha256:530635d603223e120adbf9221a97560cffc6991d65fa0c72d0f79d1097974c89
     profiles: [azure]
     ports:
       - "127.0.0.1:4577:4577"
