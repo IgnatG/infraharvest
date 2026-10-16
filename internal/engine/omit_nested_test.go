@@ -186,3 +186,45 @@ func TestCheckOmittedNested(t *testing.T) {
 		t.Errorf("got %d findings, want 2: web's stickiness block and api's cookie_duration", len(findings))
 	}
 }
+
+const vaultsGenerated = `resource "azurerm_key_vault" "open" {
+  access_policy = []
+  name          = "open"
+  network_acls {
+    bypass                     = "AzureServices"
+    default_action             = "Allow"
+    ip_rules                   = []
+    virtual_network_subnet_ids = []
+  }
+}
+
+resource "azurerm_key_vault" "closed" {
+  access_policy = [{
+    object_id = "00000000-0000-0000-0000-000000000003"
+  }]
+  name = "closed"
+  network_acls {
+    bypass                     = "AzureServices"
+    default_action             = "Allow"
+    ip_rules                   = ["203.0.113.0/24"]
+    virtual_network_subnet_ids = []
+  }
+}
+`
+
+// An empty list compares as JSON, and a block whose required arguments
+// are at Azure's values and whose rules are empty goes: the open vault
+// loses both, the vault with a policy and an IP rule keeps them.
+func TestOmitEmptyValuesAndOpenNetworkRules(t *testing.T) {
+	got := omitResult(t, vaultsGenerated, map[string][]string{"azurerm_key_vault": {
+		"access_policy=[]",
+		"network_acls when network_acls.bypass=AzureServices and network_acls.default_action=Allow and network_acls.ip_rules=[] and network_acls.virtual_network_subnet_ids=[]",
+	}})
+	open, closed, _ := strings.Cut(got, `resource "azurerm_key_vault" "closed"`)
+	if strings.Contains(open, "access_policy") || strings.Contains(open, "network_acls") {
+		t.Errorf("open's empty policies or open network rules not left out:\n%s", got)
+	}
+	if !strings.Contains(closed, "access_policy = [{") || !strings.Contains(closed, `ip_rules                   = ["203.0.113.0/24"]`) {
+		t.Errorf("closed's policies or rules left out:\n%s", got)
+	}
+}

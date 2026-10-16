@@ -109,7 +109,7 @@ types:
     # required in the block, so defaults can't leave it out.
     omit:
       - "access_policy=[]"
-      - 'network_acls={bypass = "AzureServices", default_action = "Allow"}'
+      - network_acls when network_acls.bypass=AzureServices and network_acls.default_action=Allow and network_acls.ip_rules=[] and network_acls.virtual_network_subnet_ids=[]
     defaults:
       - public_network_access_enabled=true
       - soft_delete_retention_days=90
