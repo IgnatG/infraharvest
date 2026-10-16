@@ -22,9 +22,10 @@ type Route53Lister struct {
 	Service
 }
 
-// List lists the zones with their records, then the health
-// checks. Listing errors are logged, not returned: what was listed before
-// one is kept, and the rest of the service is still listed.
+// List lists the zones with their records, then the health checks. A
+// zone whose records fail to list doesn't stop the other zones or the
+// health checks; the errors are returned together, so the listing reads
+// as incomplete rather than as a zone with no records.
 func (g *Route53Lister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -38,11 +39,12 @@ func (g *Route53Lister) List() error {
 // "/hostedzone/" prefix, named after its domain, each followed by its
 // records. The zone's domain is recorded with its trailing dot.
 func (g *Route53Lister) listHostedZones(client *route53.Client) error {
+	var errs []error
 	p := route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			return fmt.Errorf("route53: hosted zones: %w", err)
+			return errors.Join(append(errs, fmt.Errorf("route53: hosted zones: %w", err))...)
 		}
 		for _, zone := range page.HostedZones {
 			zoneID := strings.TrimPrefix(aws.ToString(zone.Id), "/hostedzone/")
@@ -51,12 +53,10 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) error {
 				"name":          domain,
 				"force_destroy": "false",
 			}))
-			if err := g.listRecords(client, zoneID, domain); err != nil {
-				return err
-			}
+			errs = append(errs, g.listRecords(client, zoneID, domain))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // recordPosition is where a page of record sets starts: Route 53 pages
