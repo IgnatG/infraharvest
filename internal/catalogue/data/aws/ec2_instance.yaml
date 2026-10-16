@@ -4,7 +4,37 @@ service: ec2_instance
 types:
   aws_instance:
     arn: { service: ec2, resource_type: "instance" }
-    # The network interface the instance was launched with, which AWS
-    # reports and the provider computes; set, it conflicts with subnet_id,
-    # private_ip and the security groups the generated configuration has.
-    omit: [primary_network_interface]
+    omit:
+      # The network interface the instance was launched with, which AWS
+      # reports and the provider computes; set, it conflicts with subnet_id,
+      # private_ip and the security groups the generated configuration has.
+      - primary_network_interface
+      # Optional and computed, at what AWS gives an instance that doesn't
+      # set them: the subnet's zone, and the defaults of the launch API.
+      - availability_zone when subnet_id
+      - disable_api_stop=false
+      - disable_api_termination=false
+      - ebs_optimized=false
+      - enable_primary_ipv6=false
+      - instance_initiated_shutdown_behavior=stop
+      - ipv6_address_count=0
+      - monitoring=false
+      - placement_partition_number=0
+      - tenancy=default
+      - capacity_reservation_specification when capacity_reservation_specification.capacity_reservation_preference=open
+      - enclave_options when enclave_options.enabled=false
+      - maintenance_options when maintenance_options.auto_recovery=default
+      - metadata_options.instance_metadata_tags=disabled
+      - private_dns_name_options when private_dns_name_options.hostname_type=ip-name and private_dns_name_options.enable_resource_name_dns_a_record=false and private_dns_name_options.enable_resource_name_dns_aaaa_record=false
+      # gp3's baseline performance.
+      - root_block_device.iops=3000 when root_block_device.volume_type=gp3
+      - root_block_device.throughput=125 when root_block_device.volume_type=gp3
+      # The instance type's default cores and threads, or a type CPU
+      # options can't be set for: the lister compares them with
+      # DescribeInstanceTypes.
+      - cpu_options when @cpu_options=default
+      # The credit option each burstable family launches with.
+      - credit_specification when instance_type=t2.{*} and credit_specification.cpu_credits=standard
+      - credit_specification when instance_type=t3.{*} and credit_specification.cpu_credits=unlimited
+      - credit_specification when instance_type=t3a.{*} and credit_specification.cpu_credits=unlimited
+      - credit_specification when instance_type=t4g.{*} and credit_specification.cpu_credits=unlimited
