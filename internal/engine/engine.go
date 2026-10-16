@@ -109,6 +109,11 @@ type Options struct {
 	// an S3 bucket's versioning. They must be computed, so that leaving them
 	// out changes no plan.
 	Omit map[string][]string
+	// Defaults names, per resource type, the values the provider or the
+	// cloud gives arguments it isn't told, as path=value, such as a
+	// bucket's storage_class=STANDARD: Generate leaves out the arguments
+	// set to them where the plan stays the same (see stripDefaults).
+	Defaults map[string][]string
 	// DefaultTags, if set, lets Generate move the tags every resource shares
 	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags

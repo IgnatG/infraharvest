@@ -7,6 +7,16 @@ service: gcs
 types:
   google_storage_bucket:
     inventory: { type: storage.googleapis.com/Bucket }
+    defaults:
+      - default_event_based_hold=false
+      - enable_object_retention=false
+      - force_destroy=false
+      - hierarchical_namespace.enabled=false
+      - public_access_prevention=inherited
+      - requester_pays=false
+      - soft_delete_policy.retention_duration_seconds=604800
+      - storage_class=STANDARD
+      - uniform_bucket_level_access=false
     skip:
       - reason: Cloud Functions, Cloud Run or Dataproc creates it for its own use
         attribute_prefixes: { asset.name: [gcf-sources-, gcf-v2-sources-, gcf-v2-uploads-, run-sources-, dataproc-staging-, dataproc-temp-] }

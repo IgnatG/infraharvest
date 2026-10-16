@@ -40,7 +40,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
-			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" {
+			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 {
 			fail("the entry for every type only takes omit, state_only and skip")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.Provider+"_") {
@@ -76,6 +76,22 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			}
 			seen[name] = true
 		}
+	}
+	seen := map[string]bool{}
+	for _, entry := range e.Defaults {
+		path, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			fail("defaults: %q: want path=value", entry)
+		}
+		for _, name := range strings.Split(path, ".") {
+			if !identifier.MatchString(name) {
+				fail("defaults: %q: %q isn't an argument or block name", entry, name)
+			}
+		}
+		if seen[path] {
+			fail("defaults: %s twice", path)
+		}
+		seen[path] = true
 	}
 	for i, rule := range e.Skip {
 		if strings.TrimSpace(rule.Reason) == "" {

@@ -13,6 +13,7 @@ types:
     import_id:
       - "projects/{asset.project}/managedZones/{asset.display_name}"
       - "{id}"
+    defaults: [cloud_logging_config.enable_logging=false, force_destroy=false, visibility=public]
   google_dns_record_set:
     service: dns
     skip:

@@ -68,6 +68,7 @@ types:
     inventory:
       type: compute.googleapis.com/Firewall
       name: //compute.googleapis.com/projects/*/global/firewalls/*
+    defaults: [direction=INGRESS, disabled=false, priority=1000]
     skip:
       - reason: a rule of the default network, which Google Cloud creates with it; select it to import it
         attribute_prefixes: { asset.name: [default-allow-] }
@@ -172,6 +173,15 @@ types:
     # google-beta, through which the network module creates networks,
     # keeps it in state only: an import leaves it unset.
     state_only: [delete_bgp_always_compare_med]
+    # What Google Cloud gives a network it isn't told: regional routing,
+    # the 1460-byte MTU (0 here) and the legacy BGP path selection.
+    defaults:
+      - bgp_always_compare_med=false
+      - bgp_best_path_selection_mode=LEGACY
+      - enable_ula_internal_ipv6=false
+      - mtu=0
+      - network_firewall_policy_enforcement_order=AFTER_CLASSIC_FIREWALL
+      - routing_mode=REGIONAL
   google_compute_network_endpoint_group:
     inventory:
       type: compute.googleapis.com/NetworkEndpointGroup
@@ -226,6 +236,7 @@ types:
     inventory:
       type: compute.googleapis.com/Router
       name: //compute.googleapis.com/projects/*/regions/*/routers/*
+    defaults: [bgp.advertise_mode=DEFAULT, bgp.keepalive_interval=20, encrypted_interconnect_router=false]
   google_compute_security_policy:
     inventory:
       type: compute.googleapis.com/SecurityPolicy
@@ -250,6 +261,12 @@ types:
     inventory:
       type: compute.googleapis.com/Subnetwork
       name: //compute.googleapis.com/projects/*/regions/*/subnetworks/*
+    defaults:
+      - allow_subnet_cidr_routes_overlap=false
+      - private_ip_google_access=false
+      - private_ipv6_google_access=DISABLE_GOOGLE_ACCESS
+      - purpose=PRIVATE
+      - stack_type=IPV4_ONLY
     skip:
       - reason: a subnetwork of the default network, which Google Cloud creates in each region; select it to import it
         attributes: { asset.name: default }

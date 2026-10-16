@@ -57,7 +57,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		}
 	}
 	// First, so the steps below see only the arguments that matter.
-	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars)
+	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, opts.Defaults)
 	if err != nil {
 		return nil, err
 	}

@@ -301,7 +301,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 // engineOptions configures engine.Generate for provider's directories,
 // with what cat knows about its types.
 func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *rootFiles) engine.Options {
-	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners(), Omit: cat.Omit(), StateOnly: cat.StateOnly(), SplitFiles: true}
+	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners(), Omit: cat.Omit(), Defaults: cat.Defaults(), StateOnly: cat.StateOnly(), SplitFiles: true}
 	if sources := cat.DataSources(); len(sources) > 0 {
 		opts.DataSources = map[string]engine.DataSource{}
 		for typ, d := range sources {

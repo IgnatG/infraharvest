@@ -1,0 +1,3 @@
+{"resources": [
+  {"id": "projects/acme-prod/regions/europe-west2/routers/edge", "name": "edge", "attributes": {"asset.project": "acme-prod", "asset.name": "edge", "asset.location": "europe-west2", "asset.display_name": "edge"}}
+]}

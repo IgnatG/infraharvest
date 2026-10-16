@@ -62,6 +62,12 @@ type Entry struct {
 	// deprecated ones whose settings separate resources carry, and ones
 	// the provider computes.
 	Omit []string `yaml:"omit,omitempty"`
+	// Defaults names, as path=value, the values the provider or the cloud
+	// gives optional arguments it isn't told, such as a bucket's
+	// storage_class=STANDARD, by their path in nested blocks
+	// (soft_delete_policy.retention_duration_seconds=604800): the engine
+	// leaves out the arguments set to them where the plan stays the same.
+	Defaults []string `yaml:"defaults,omitempty"`
 	// StateOnly names arguments the provider keeps only in state, such as
 	// settings it uses when it deletes a resource: an import leaves them
 	// unset, so the verification gate accepts a plan that sets them.
@@ -336,6 +342,12 @@ func (c *Catalogue) Omit() map[string][]string {
 	return c.lists(func(e *Entry) []string { return e.Omit })
 }
 
+// Defaults returns the values optional arguments default to, as
+// path=value, per type.
+func (c *Catalogue) Defaults() map[string][]string {
+	return c.lists(func(e *Entry) []string { return e.Defaults })
+}
+
 // StateOnly returns the arguments the provider keeps only in state, per
 // type and under AllTypes for every type.
 func (c *Catalogue) StateOnly() map[string][]string {
@@ -518,6 +530,9 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	}
 	if overlay.Omit != nil {
 		merged.Omit = overlay.Omit
+	}
+	if overlay.Defaults != nil {
+		merged.Defaults = overlay.Defaults
 	}
 	if overlay.StateOnly != nil {
 		merged.StateOnly = overlay.StateOnly
