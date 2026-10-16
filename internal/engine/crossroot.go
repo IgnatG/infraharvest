@@ -128,9 +128,23 @@ func (v rootValues) byARN(value string) []rootValue {
 	return found
 }
 
-// byDNSName returns the load balancers whose DNS name value is: by the
-// name and region their ARNs have.
+// s3DomainName matches a bucket's regional domain name, as CloudFront
+// origins name buckets: assets.s3.eu-west-2.amazonaws.com.
+var s3DomainName = regexp.MustCompile(`^([a-z0-9][a-z0-9.-]*)\.s3\.[a-z0-9-]+\.amazonaws\.com$`)
+
+// byDNSName returns the load balancers whose DNS name value is, by the
+// name and region their ARNs have, or the bucket whose regional domain
+// name it is.
 func (v rootValues) byDNSName(value string) []rootValue {
+	if m := s3DomainName.FindStringSubmatch(value); m != nil {
+		var found []rootValue
+		for _, r := range v.byType["aws_s3_bucket"] {
+			if r.ID == m[1] {
+				found = append(found, rootValue{resource: r, attribute: "bucket_regional_domain_name"})
+			}
+		}
+		return found
+	}
 	m := lbDNSName.FindStringSubmatch(value)
 	if m == nil {
 		if m = nlbDNSName.FindStringSubmatch(value); m == nil {
@@ -183,7 +197,7 @@ func onlyValue(found []rootValue) (rootValue, bool) {
 
 // attributeWords say what an attribute of a resource of another root is,
 // for its variable's description.
-var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name": "The name", "dns_name": "The DNS name"}
+var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name": "The name", "dns_name": "The DNS name", "bucket_regional_domain_name": "The regional domain name"}
 
 // addRootVariables replaces literals in generated.tf that are the ID, ARN
 // or DNS name of a resource another root manages (see rootValues.match),
@@ -237,7 +251,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 			label = v.resource.ID
 		}
 		label = Label(label)
-		if word := v.resource.Type[strings.LastIndex(v.resource.Type, "_")+1:]; !slices.Contains(strings.Split(label, "_"), word) {
+		if word := v.resource.Type[strings.LastIndex(v.resource.Type, "_")+1:]; !slices.Contains(strings.Split(label, "_"), word) && !strings.HasPrefix(v.attribute, word+"_") {
 			label += "_" + word
 		}
 		base := label + "_" + v.attribute

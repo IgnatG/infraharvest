@@ -95,12 +95,13 @@ func (id identity) replacement() replacement {
 // computedIdentities are the attributes, besides the ones every resource
 // has, that identify the resource that has them where the provider
 // computes them: an API's root resource and execution ARN, a KMS key's
-// key ID, a hosted zone's ID, a load balancer's DNS name and zone, a
+// key ID, a hosted zone's ID, a load balancer's DNS name and zone, the
+// domain names and zones of a distribution and a bucket, a
 // managed identity's principal. Terraform writes every argument into the
 // configuration it generates, so an attribute it didn't write is computed
 // only, as the schema says; one it wrote names something else, such as a
 // role assignment's principal_id.
-var computedIdentities = []string{"execution_arn", "root_resource_id", "key_id", "zone_id", "dns_name", "fqdn", "arn_suffix", "principal_id", "client_id", "unique_id"}
+var computedIdentities = []string{"execution_arn", "root_resource_id", "key_id", "zone_id", "hosted_zone_id", "dns_name", "domain_name", "bucket_regional_domain_name", "bucket_domain_name", "fqdn", "arn_suffix", "principal_id", "client_id", "unique_id"}
 
 // identityAttributes are the attributes identityIndex indexes, in the
 // order a reference prefers them when a resource has the same value in
@@ -244,7 +245,8 @@ func (x *identities) resolve(address, argument string, top bool, value string, p
 // whole returns the resource value identifies, whole: of the resources
 // other than address's that have it, the one the argument is named after,
 // or, where the argument takes IDs and the value is distinctive, the one
-// whose ID it is; or, for a DNS name, the one with that name.
+// whose ID it is; or, for a DNS name or an ARN suffix (an alarm's
+// LoadBalancer dimension), the one with it.
 func (x *identities) whole(address, argument, value string, preferred map[string]bool) (replacement, bool) {
 	byAddress := map[string][]identity{}
 	var candidates []string
@@ -285,8 +287,8 @@ func (x *identities) whole(address, argument, value string, preferred map[string
 		return choose(named, func(identity) bool { return true })
 	case takesIDs(argument) && distinctive(value):
 		return choose(candidates, func(id identity) bool { return !id.named })
-	case strings.Contains(value, "."):
-		return choose(candidates, func(id identity) bool { return id.attribute == "dns_name" || id.attribute == "fqdn" })
+	case strings.ContainsAny(value, "./"):
+		return choose(candidates, func(id identity) bool { return dnsAttribute(id.attribute) || id.attribute == "arn_suffix" })
 	}
 	return nil, false
 }
@@ -441,6 +443,13 @@ func takesIDs(argument string) bool {
 		}
 	}
 	return false
+}
+
+// dnsAttribute reports whether attribute holds a DNS name, which only the
+// resource that has it has: a load balancer's dns_name, a bucket's
+// bucket_regional_domain_name.
+func dnsAttribute(attribute string) bool {
+	return attribute == "dns_name" || attribute == "fqdn" || strings.HasSuffix(attribute, "domain_name")
 }
 
 // idAttribute reports whether attribute holds an ID or ARN.

@@ -20,6 +20,7 @@ var otherRoots = []RootResource{
 	{Type: "aws_vpc", ID: "vpc-0abc1234", Name: "shop", Root: regionalRoot},
 	{Type: "aws_lb", ID: "arn:aws:elasticloadbalancing:eu-west-2:123456789012:loadbalancer/app/web/50dc6c495c0c9188", Name: "web", Root: regionalRoot},
 	{Type: "aws_kms_key", ID: keyID, Name: "ebs", Root: regionalRoot},
+	{Type: "aws_s3_bucket", ID: "assets-1", Name: "assets", Root: regionalRoot},
 }
 
 var awsARNs = map[string]ARN{
@@ -61,6 +62,10 @@ resource "aws_cloudfront_distribution" "web" {
     domain_name = "web-1234567890.eu-west-2.elb.amazonaws.com"
     origin_id   = "web"
   }
+  origin {
+    domain_name = "assets-1.s3.eu-west-2.amazonaws.com"
+    origin_id   = "assets"
+  }
 }
 `)
 	writeConfig(t, dir, VariablesFileName, `variable "ebs_key_arn" {
@@ -85,6 +90,8 @@ resource "aws_cloudfront_distribution" "web" {
 		"vpc_id = var.shop_vpc_id",
 		// A load balancer's DNS name, by its name and region.
 		"domain_name = var.web_lb_dns_name",
+		// A bucket's regional domain name, by the bucket's name.
+		"domain_name = var.assets_bucket_regional_domain_name",
 		// Names the arguments don't name the type of stay.
 		`function_name = "app"`,
 		`comment = "app"`,
@@ -107,8 +114,8 @@ resource "aws_cloudfront_distribution" "web" {
 			t.Errorf("variables.tf misses %q:\n%s", want, variables)
 		}
 	}
-	if n := strings.Count(variables, "variable "); n != 6 {
-		t.Errorf("want 6 variables, got %d:\n%s", n, variables)
+	if n := strings.Count(variables, "variable "); n != 7 {
+		t.Errorf("want 7 variables, got %d:\n%s", n, variables)
 	}
 }
 

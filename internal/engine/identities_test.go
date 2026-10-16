@@ -186,14 +186,15 @@ func TestAddReferencesLeavesAmbiguousIdentities(t *testing.T) {
 		"aws_sqs_queue.jobs": {"id": "https://sqs.eu-west-2.amazonaws.com/1/jobs", "name": "jobs"},
 		"aws_sns_topic.jobs": {"id": "arn:aws:sns:eu-west-2:1:jobs", "name": "jobs"},
 		"aws_lb.a":           {"id": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/a/1", "dns_name": "a-1.eu-west-2.elb.amazonaws.com", "zone_id": "Z35SXDOTRQ7X7K"},
-		"aws_lb.b":           {"id": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/b/2", "dns_name": "b-2.eu-west-2.elb.amazonaws.com", "zone_id": "Z35SXDOTRQ7X7K"},
+		"aws_lb.b":           {"id": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/b/2", "dns_name": "b-2.eu-west-2.elb.amazonaws.com", "zone_id": "Z35SXDOTRQ7X7K", "arn_suffix": "app/b/2"},
 		"aws_subnet.abcdef":  {"id": "abcdef"},
 	}
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_cloudwatch_metric_alarm" "jobs" {
   dimensions = {
-    TopicName = "jobs"
-    Other     = "jobs"
+    LoadBalancer = "app/b/2"
+    TopicName    = "jobs"
+    Other        = "jobs"
   }
 }
 
@@ -218,6 +219,8 @@ resource "aws_network_interface" "x" {
 	got := squashed(readFile(t, dir, GeneratedFileName))
 	for _, want := range []string{
 		"TopicName = aws_sns_topic.jobs.name",
+		// An ARN suffix is the one balancer's.
+		"LoadBalancer = aws_lb.b.arn_suffix",
 		`Other = "jobs"`,
 		// The DNS name says which load balancer; its zone follows.
 		"name = aws_lb.b.dns_name",
@@ -387,6 +390,45 @@ resource "aws_instance" "other" {
 	data := squashed(readFile(t, dir, DataFileName))
 	if !strings.Contains(data, `data "azurerm_client_config" "current_2" {`) || strings.Count(data, "data \"") != 1 {
 		t.Errorf("data.tf:\n%s", data)
+	}
+}
+
+// Domain names identify a distribution and a bucket; the distribution's
+// zone, which every distribution has, follows the alias's name.
+func TestAddReferencesByDomainNames(t *testing.T) {
+	values := map[string]map[string]any{
+		"aws_cloudfront_distribution.web": {"id": "E2QWRUHAPOMQZL", "arn": "arn:aws:cloudfront::1:distribution/E2QWRUHAPOMQZL", "domain_name": "d111111abcdef8.cloudfront.net", "hosted_zone_id": "Z2FDTNDATAQYW2"},
+		"aws_cloudfront_distribution.api": {"id": "E3ABCDEF123456", "arn": "arn:aws:cloudfront::1:distribution/E3ABCDEF123456", "domain_name": "d222222abcdef8.cloudfront.net", "hosted_zone_id": "Z2FDTNDATAQYW2"},
+		"aws_s3_bucket.assets":            {"id": "assets-1", "bucket": "assets-1", "bucket_regional_domain_name": "assets-1.s3.eu-west-2.amazonaws.com"},
+	}
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_cloudfront_distribution" "web" {
+  origin {
+    domain_name = "assets-1.s3.eu-west-2.amazonaws.com"
+    origin_id   = "assets"
+  }
+}
+
+resource "aws_route53_record" "www" {
+  alias {
+    name    = "d111111abcdef8.cloudfront.net"
+    zone_id = "Z2FDTNDATAQYW2"
+  }
+}
+`)
+	if changed, err := addReferences(dir, values); err != nil || !changed {
+		t.Fatalf("want references, got changed=%v err=%v", changed, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{
+		"domain_name = aws_s3_bucket.assets.bucket_regional_domain_name",
+		"name = aws_cloudfront_distribution.web.domain_name",
+		"zone_id = aws_cloudfront_distribution.web.hosted_zone_id",
+		`origin_id = "assets"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 }
 
