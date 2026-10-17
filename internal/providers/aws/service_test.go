@@ -7,11 +7,31 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
+
+// resetSDKConfigs forgets the configurations, credentials, failures and
+// accounts built so far, now and when the test ends.
+func resetSDKConfigs(t *testing.T) {
+	t.Helper()
+	reset := func() {
+		configMu.Lock()
+		configs = map[configKey]aws.Config{}
+		baseProviders = map[configKey]aws.CredentialsProvider{}
+		resolvedCredentials = map[credentialsKey]sharedCredentials{}
+		buildFailures = map[configKey]buildFailure{}
+		configMu.Unlock()
+		accountsMu.Lock()
+		callerAccounts = map[*aws.CredentialsCache]string{}
+		accountsMu.Unlock()
+	}
+	reset()
+	t.Cleanup(reset)
+}
 
 // One import covers global services (region aws-global) and then each
 // --regions region; each must list with its own region.
@@ -23,8 +43,7 @@ func TestGenerateConfigPerRegion(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_REGION", "")
-	configs = map[configKey]aws.Config{}
-	t.Cleanup(func() { configs = map[configKey]aws.Config{} })
+	resetSDKConfigs(t)
 
 	for _, region := range []string{GlobalPseudoRegion, "us-east-1", GlobalPseudoRegion} {
 		s := &Service{}
@@ -50,8 +69,7 @@ func TestGenerateConfigWithoutSharedConfig(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_REGION", "")
-	configs = map[configKey]aws.Config{}
-	t.Cleanup(func() { configs = map[configKey]aws.Config{} })
+	resetSDKConfigs(t)
 
 	s := &Service{}
 	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "us-east-1", "profile": "default"}})
@@ -78,8 +96,7 @@ func TestTerraformEnv(t *testing.T) {
 	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_REGION"} {
 		t.Setenv(k, "")
 	}
-	configs = map[configKey]aws.Config{}
-	t.Cleanup(func() { configs = map[configKey]aws.Config{} })
+	resetSDKConfigs(t)
 	p := &Provider{region: "eu-west-2", profile: "prod"}
 
 	env, err := p.TerraformEnv(t.Context())
@@ -110,5 +127,112 @@ func TestTerraformEnv(t *testing.T) {
 	}
 	if os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_REGION") != "" || os.Getenv("AWS_PROFILE") != "" {
 		t.Error("the process environment changed")
+	}
+}
+
+// useEnvironmentCredentials makes the SDK find only the credentials in the
+// environment, keys when keyID is set and none otherwise, and no shared
+// files or instance metadata.
+func useEnvironmentCredentials(t *testing.T, keyID string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "missing-config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "missing-credentials"))
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
+	t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+	t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+	t.Setenv("AWS_ACCESS_KEY_ID", keyID)
+	t.Setenv("AWS_SECRET_ACCESS_KEY", keyID)
+	t.Setenv("AWS_SESSION_TOKEN", "")
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_REGION", "")
+}
+
+// serviceIn returns a service of region, with the default profile.
+func serviceIn(region string) *Service {
+	s := &Service{}
+	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": region, "profile": ""}})
+	return s
+}
+
+// The regions of one profile and role share its credentials, resolved
+// once: a role that needs MFA asks for the code once, and a role is assumed
+// once, whatever the number of regions.
+func TestSDKConfigSharesCredentialsAcrossRegions(t *testing.T) {
+	useEnvironmentCredentials(t, "test")
+	resetSDKConfigs(t)
+
+	first, err := serviceIn("eu-west-1").sdkConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := serviceIn("us-east-1").sdkConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Region != "eu-west-1" || second.Region != "us-east-1" {
+		t.Errorf("regions %q and %q", first.Region, second.Region)
+	}
+	if first.Credentials != second.Credentials {
+		t.Error("each region resolved credentials of its own")
+	}
+}
+
+// A configuration that failed to build fails again at once, without
+// resolving the credentials again, until failureMemory has passed.
+func TestSDKConfigRemembersFailures(t *testing.T) {
+	useEnvironmentCredentials(t, "")
+	resetSDKConfigs(t)
+	s := serviceIn("eu-west-1")
+
+	_, first := s.sdkConfig()
+	if first == nil {
+		t.Fatal("want an error without credentials")
+	}
+	// Credentials appear, but the failure is remembered.
+	useEnvironmentCredentials(t, "test")
+	if _, err := s.sdkConfig(); err == nil || err.Error() != first.Error() {
+		t.Errorf("got %v, want the remembered %v", err, first)
+	}
+
+	configMu.Lock()
+	failed := buildFailures[s.cacheKey()]
+	failed.at = time.Now().Add(-2 * failureMemory)
+	buildFailures[s.cacheKey()] = failed
+	configMu.Unlock()
+	if _, err := s.sdkConfig(); err != nil {
+		t.Errorf("once the failure is old, want the configuration built again, got %v", err)
+	}
+}
+
+// callerAccount asks STS once for the credentials of a configuration, and
+// remembers the account for every region that shares them.
+func TestCallerAccountIsAskedOnce(t *testing.T) {
+	resetSDKConfigs(t)
+	calls := 0
+	api := &fakeAPI{handle: func(call apiCall) string {
+		if call.Op != "GetCallerIdentity" {
+			return recordUnexpected(t, call)
+		}
+		calls++
+		return recordQuery(call.Op, "https://sts.amazonaws.com/doc/2011-06-15/", `<Account>123456789012</Account><Arn>arn:aws:iam::123456789012:user/dev</Arn><UserId>AIDA</UserId>`)
+	}}
+	credentials := aws.NewCredentialsCache(aws.AnonymousCredentials{})
+	s := &Service{}
+
+	for _, region := range []string{"eu-west-1", "us-east-1", "eu-west-1"} {
+		cfg := aws.Config{Region: region, Credentials: credentials, HTTPClient: api, Retryer: func() aws.Retryer { return aws.NopRetryer{} }}
+		account, err := s.callerAccount(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if aws.ToString(account) != "123456789012" {
+			t.Errorf("%s: account %q", region, aws.ToString(account))
+		}
+	}
+	if calls != 1 {
+		t.Errorf("GetCallerIdentity called %d times, want once", calls)
 	}
 }
