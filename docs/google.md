@@ -35,7 +35,7 @@ infraharvest import google --organization 123456789012 --services='*' --regions=
 
 ## Regions
 
-`--regions` lists the regions to import, each in turn, into roots of its own: `<out>/google/<project>/<region>/`. The default, `global`, holds the resources that belong to no region, such as networks, firewall rules, global addresses and service accounts, and those in a multi-region, such as a bucket in `US`. A region's import covers the region and its zones, such as the region's subnetworks and the instances in its zones. Each resource goes into one root only, so import `global` with your regions: `--regions=global,europe-west2`. Each region is looked up through the Compute Engine API first, and one that doesn't exist fails the project's import.
+`--regions` lists the regions to import, each in turn, into roots of its own: `<out>/google/<project>/<region>/`. The default, `global`, holds the resources that belong to no region, such as networks, firewall rules, global addresses and service accounts, and those in a multi-region, such as a bucket in `US`. A region's import covers the region and its zones, such as the region's subnetworks and the instances in its zones. Each resource goes into one root only, so import `global` with your regions: `--regions=global,europe-west2`. Each region is looked up through the Compute Engine API first, and one that doesn't exist fails the project's import. A project that hasn't enabled the Compute Engine API, such as one with only serverless services, can't have its regions looked up: a region's name is then taken as given, which is logged.
 
 ## Services
 

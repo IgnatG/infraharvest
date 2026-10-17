@@ -89,6 +89,36 @@ func TestInit(t *testing.T) {
 	}
 }
 
+// A project that hasn't enabled the Compute Engine API has its region
+// taken as given, when it is shaped like a region's name; any other
+// denial still fails.
+func TestInitWithoutComputeEngine(t *testing.T) {
+	disabled := `{"error": {"code": 403, "message": "Compute Engine API has not been used in project acme before or it is disabled.", "errors": [{"message": "Compute Engine API has not been used in project acme before or it is disabled.", "domain": "usageLimits", "reason": "accessNotConfigured"}], "status": "PERMISSION_DENIED", "details": [{"": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "SERVICE_DISABLED", "domain": "googleapis.com"}]}}`
+	denied := `{"error": {"code": 403, "message": "Required 'compute.regions.get' permission for 'projects/acme/regions/europe-west1'", "errors": [{"message": "Required 'compute.regions.get' permission", "domain": "global", "reason": "forbidden"}], "status": "PERMISSION_DENIED"}}`
+	serve := func(body string) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(body))
+		}))
+		t.Cleanup(server.Close)
+		t.Setenv(EndpointEnv, server.URL)
+	}
+	serve(disabled)
+
+	p := &Provider{}
+	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err != nil || p.region.Name != "europe-west1" {
+		t.Errorf("Compute Engine disabled: %v, region %q", err, p.region.Name)
+	}
+	if err := p.Init(t.Context(), []string{"europe-west1-b", "acme", ""}); err == nil {
+		t.Error("a zone for a region: want an error")
+	}
+	serve(denied)
+	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err == nil || !strings.Contains(err.Error(), "compute.regions.get") {
+		t.Errorf("denied: %v", err)
+	}
+}
+
 // The region lookup takes the caller's context, so an interrupt stops it.
 // Before the fix it ran under a context of its own, which only its
 // one-minute timeout ended.
