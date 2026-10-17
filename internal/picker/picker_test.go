@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -202,5 +203,38 @@ func TestTagFilter(t *testing.T) {
 	m.search = "prod"
 	if !m.shown(f.Resources[0]) || m.shown(f.Resources[1]) {
 		t.Error("a search without = doesn't match tag values")
+	}
+}
+
+// Backspace removes the last character of the search, however many bytes
+// it takes.
+func TestBackspaceRemovesACharacter(t *testing.T) {
+	m := New("selection.yaml", testFile())
+	m.key("/", "/")
+	m.key("é", "é")
+	m.key("ü", "ü")
+	m.key("backspace", "")
+	if m.search != "é" || !utf8.ValidString(m.search) {
+		t.Errorf("search %q, want %q", m.search, "é")
+	}
+	m.key("backspace", "")
+	m.key("backspace", "")
+	if m.search != "" {
+		t.Errorf("search %q, want it empty", m.search)
+	}
+}
+
+// Moving the cursor reuses the tree; what changes the tree lays it out
+// again.
+func TestRowsAreCached(t *testing.T) {
+	m := New("selection.yaml", testFile())
+	first := m.rows()
+	press(m, "down", "down")
+	if again := m.rows(); &again[0] != &first[0] {
+		t.Error("moving the cursor laid the tree out again")
+	}
+	press(m, "up", "right")
+	if got := len(m.rows()); got != 7 {
+		t.Errorf("opening a group: %d rows, want 7: %q", got, labels(m))
 	}
 }
