@@ -377,7 +377,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 
 // generate generates the call's roots into its run, each referring to the
 // others of roots, the roots of every call of the scope by directory (see
-// withOtherRoots). It returns an error only if the import couldn't run;
+// otherRoots). It returns an error only if the import couldn't run;
 // what couldn't be imported goes into the run.
 func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Import) error {
 	run, provider, options, byDir, opts, root, binary := c.run, c.provider, c.options, c.byDir, c.opts, c.root, c.binary
@@ -389,8 +389,9 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
+	others := newOtherRoots(opts, roots, options.Out)
 	for _, dir := range dirs {
-		dirOpts := withOtherRoots(opts, roots, dir, options.Out)
+		dirOpts := others.of(dir)
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
 			return err
@@ -884,24 +885,52 @@ func withResourceOmissions(byDir map[string][]engine.Import, resourcesByService 
 	}
 }
 
-// withOtherRoots returns opts for the root in dir, with what the other
-// roots of the import, under the output directory out, manage as
-// external: references to it read it, as references between roots do,
-// or a variable says where it comes from.
-func withOtherRoots(opts engine.Options, byDir map[string][]engine.Import, dir, out string) engine.Options {
-	if len(byDir) < 2 {
-		return opts
+// otherRoots is what the roots of an import manage, sorted once for the
+// options of each of them (see of): with a {service} or {env} layout, a
+// call has tens of roots, and each would otherwise sort what all the
+// others manage again.
+type otherRoots struct {
+	opts engine.Options
+	// several is whether there is more than one root, without which there
+	// is no other root.
+	several bool
+	// external and resources are opts' own and what every root manages,
+	// each with the root's directory ("" for opts' own), in the order of
+	// the options of a root.
+	external  []ofRoot[engine.External]
+	resources []ofRoot[engine.RootResource]
+}
+
+// ofRoot is a value, of the root in dir.
+type ofRoot[T any] struct {
+	value T
+	dir   string
+}
+
+// newOtherRoots indexes the roots of byDir, under the output directory
+// out, for the options of each, which start from opts.
+func newOtherRoots(opts engine.Options, byDir map[string][]engine.Import, out string) otherRoots {
+	o := otherRoots{opts: opts, several: len(byDir) >= 2}
+	if !o.several {
+		return o
 	}
-	dirOpts := opts
-	dirOpts.External = slices.Clone(opts.External)
-	dirOpts.OtherRoots = slices.Clone(opts.OtherRoots)
-	for other, imports := range byDir {
-		if other == dir {
-			continue
-		}
+	for _, e := range opts.External {
+		o.external = append(o.external, ofRoot[engine.External]{value: e})
+	}
+	for _, r := range opts.OtherRoots {
+		o.resources = append(o.resources, ofRoot[engine.RootResource]{value: r})
+	}
+	for dir, imports := range byDir {
+		root := relativePath(out, dir)
 		for _, imp := range imports {
-			dirOpts.External = append(dirOpts.External, engine.External{Type: imp.Type, ID: imp.ID, Name: imp.Name})
-			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: relativePath(out, other)})
+			// External resources are only of use to the data sources that
+			// read them (see engine.Options.External): the others would
+			// only make the root's fingerprint change with resources it
+			// can't refer to.
+			if _, ok := opts.DataSources[imp.Type]; ok {
+				o.external = append(o.external, ofRoot[engine.External]{value: engine.External{Type: imp.Type, ID: imp.ID, Name: imp.Name}, dir: dir})
+			}
+			o.resources = append(o.resources, ofRoot[engine.RootResource]{value: engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: root}, dir: dir})
 		}
 	}
 	// A name before none: the data source that reads it is named by it.
@@ -911,18 +940,46 @@ func withOtherRoots(opts engine.Options, byDir map[string][]engine.Import, dir, 
 		}
 		return 0
 	}
-	slices.SortFunc(dirOpts.External, func(a, b engine.External) int {
+	slices.SortFunc(o.external, func(x, y ofRoot[engine.External]) int {
+		a, b := x.value, y.value
 		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID), cmp.Compare(unnamed(a), unnamed(b)), strings.Compare(a.Name, b.Name))
 	})
-	// Each resource once.
-	dirOpts.External = slices.CompactFunc(dirOpts.External, func(a, b engine.External) bool {
-		return a.Type == b.Type && a.ID == b.ID
-	})
-	slices.SortFunc(dirOpts.OtherRoots, func(a, b engine.RootResource) int {
+	slices.SortFunc(o.resources, func(x, y ofRoot[engine.RootResource]) int {
+		a, b := x.value, y.value
 		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID), strings.Compare(a.Root, b.Root), strings.Compare(a.Name, b.Name))
 	})
-	dirOpts.OtherRoots = slices.Compact(dirOpts.OtherRoots)
+	return o
+}
+
+// of returns the options for the root in dir, with what the other roots
+// manage as external: references to it read it, as references between
+// roots do, or a variable says where it comes from.
+func (o otherRoots) of(dir string) engine.Options {
+	if !o.several {
+		return o.opts
+	}
+	dirOpts := o.opts
+	dirOpts.External, dirOpts.OtherRoots = nil, nil
+	for _, e := range o.external {
+		// Each resource once, by its first entry.
+		if (e.dir != "" && e.dir == dir) || (len(dirOpts.External) > 0 && sameResource(dirOpts.External[len(dirOpts.External)-1], e.value)) {
+			continue
+		}
+		dirOpts.External = append(dirOpts.External, e.value)
+	}
+	for _, r := range o.resources {
+		if (r.dir != "" && r.dir == dir) || (len(dirOpts.OtherRoots) > 0 && dirOpts.OtherRoots[len(dirOpts.OtherRoots)-1] == r.value) {
+			continue
+		}
+		dirOpts.OtherRoots = append(dirOpts.OtherRoots, r.value)
+	}
 	return dirOpts
+}
+
+// sameResource reports whether a and b are the same resource, whatever
+// they are named.
+func sameResource(a, b engine.External) bool {
+	return a.Type == b.Type && a.ID == b.ID
 }
 
 // importProvider returns the provider an import block must name:

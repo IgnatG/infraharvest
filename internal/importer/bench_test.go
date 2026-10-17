@@ -37,8 +37,9 @@ func BenchmarkOtherRoots(b *testing.B) {
 	}}
 	b.ReportAllocs()
 	for b.Loop() {
+		others := newOtherRoots(opts, byDir, out)
 		for dir, imports := range byDir {
-			dirOpts := withOtherRoots(opts, byDir, dir, out)
+			dirOpts := others.of(dir)
 			if _, err := fingerprint("v1", imports, dirOpts); err != nil {
 				b.Fatal(err)
 			}
