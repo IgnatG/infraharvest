@@ -139,7 +139,7 @@ func (m Module) check(dir string) (Module, error) {
 			return m, err
 		}
 		m.Source = abs
-	case strings.Contains(m.Source, "::"), strings.HasPrefix(m.Source, "github.com/"), strings.HasPrefix(m.Source, "bitbucket.org/"):
+	case isGitSource(m.Source):
 		ref := gitRef(m.Source)
 		if ref == "" {
 			return m, fmt.Errorf("%s: pin a tag or commit with ?ref=", m.Source)
@@ -156,6 +156,40 @@ func (m Module) check(dir string) (Module, error) {
 		}
 	}
 	return m, nil
+}
+
+// isGitSource reports whether a module source is a git repository's.
+func isGitSource(source string) bool {
+	return strings.Contains(source, "::") || strings.HasPrefix(source, "github.com/") || strings.HasPrefix(source, "bitbucket.org/")
+}
+
+// RegistryProvider returns the provider a registry module's source ends
+// with, aws for example.com/platform/network/aws, or "" for a git
+// repository's or a directory's module.
+func (m Module) RegistryProvider() string {
+	if m.Source == "" || IsLocalModule(m.Source) || isGitSource(m.Source) {
+		return ""
+	}
+	address, _, _ := strings.Cut(m.Source, "//")
+	parts := strings.Split(address, "/")
+	if len(parts) != 3 && len(parts) != 4 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+// Immutable reports whether what m's source names can't change: a registry
+// module at its exact version (see check), or a git repository at a
+// commit. A tag or a branch can move, and a directory changes when it is
+// edited.
+func (m Module) Immutable() bool {
+	switch {
+	case m.Source == "" || IsLocalModule(m.Source):
+		return false
+	case isGitSource(m.Source):
+		return commitSHA.MatchString(gitRef(m.Source))
+	}
+	return m.Version != ""
 }
 
 // IsLocalModule reports whether a module source is a directory.
