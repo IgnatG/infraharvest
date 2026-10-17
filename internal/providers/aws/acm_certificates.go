@@ -21,7 +21,10 @@ type ACMLister struct {
 // List records every certificate by ARN, named
 // "<certificate UUID>_<domain>", the domain without a trailing dot, so
 // that two certificates for one domain get different names. The domain is
-// recorded as an attribute. ListCertificates asks for every key type:
+// recorded as an attribute, and so are the status and the type the list
+// answers already: the catalogue leaves out by status the certificates that
+// failed, timed out, expired or were revoked, and an imported certificate
+// is told by its type. ListCertificates asks for every key type:
 // without the filter it returns only RSA_1024 and RSA_2048 certificates,
 // so ECDSA and RSA_3072/4096 ones would be missing.
 func (g *ACMLister) List() error {
@@ -40,9 +43,14 @@ func (g *ACMLister) List() error {
 			arn := aws.ToString(certificate.CertificateArn)
 			domain := aws.ToString(certificate.DomainName)
 			name := certificateUUID(arn) + "_" + strings.TrimSuffix(domain, ".")
-			g.Resources = append(g.Resources, harvest.Record(arn, name, "aws_acm_certificate", "aws", map[string]string{
-				"domain_name": domain,
-			}))
+			attributes := map[string]string{"domain_name": domain}
+			if status := string(certificate.Status); status != "" {
+				attributes["status"] = status
+			}
+			if certificateType := string(certificate.Type); certificateType != "" {
+				attributes["type"] = certificateType
+			}
+			g.Resources = append(g.Resources, harvest.Record(arn, name, "aws_acm_certificate", "aws", attributes))
 		}
 	}
 	return nil
