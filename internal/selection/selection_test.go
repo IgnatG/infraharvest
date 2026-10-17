@@ -381,3 +381,28 @@ func TestMergeUpdatesTags(t *testing.T) {
 		t.Errorf("saved tags: %+v", saved.Resources)
 	}
 }
+
+// A pattern is compiled once, and one without * matches only itself.
+func TestPatternsMatch(t *testing.T) {
+	first, again := glob("/aws/lambda/*"), glob("/aws/lambda/*")
+	if first != again {
+		t.Error("the pattern was compiled twice")
+	}
+	for _, tc := range []struct {
+		patterns Patterns
+		value    string
+		want     bool
+	}{
+		{nil, "anything", true},
+		{Patterns{"aws_vpc"}, "aws_vpc", true},
+		{Patterns{"aws_vpc"}, "aws_vpc_endpoint", false},
+		{Patterns{"a.c"}, "abc", false},
+		{Patterns{"aws_*"}, "aws_vpc", true},
+		{Patterns{"*_vpc", "aws_s3_*"}, "aws_s3_bucket", true},
+		{Patterns{"/aws/lambda/*"}, "/aws/ecs/x", false},
+	} {
+		if got := tc.patterns.match(tc.value); got != tc.want {
+			t.Errorf("%q match %q = %v, want %v", tc.patterns, tc.value, got, tc.want)
+		}
+	}
+}

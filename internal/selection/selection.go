@@ -179,6 +179,12 @@ func (p Patterns) match(value string) bool {
 		return true
 	}
 	for _, pattern := range p {
+		if !strings.Contains(pattern, "*") {
+			if pattern == value {
+				return true
+			}
+			continue
+		}
 		if glob(pattern).MatchString(value) {
 			return true
 		}
@@ -186,12 +192,22 @@ func (p Patterns) match(value string) bool {
 	return false
 }
 
+// globs holds the compiled glob patterns, by pattern: rules are matched
+// against every listed resource, and a file has few patterns.
+var globs sync.Map
+
+// glob returns pattern compiled, once per pattern.
 func glob(pattern string) *regexp.Regexp {
+	if re, ok := globs.Load(pattern); ok {
+		return re.(*regexp.Regexp)
+	}
 	parts := strings.Split(pattern, "*")
 	for i, part := range parts {
 		parts[i] = regexp.QuoteMeta(part)
 	}
-	return regexp.MustCompile("^" + strings.Join(parts, ".*") + "$")
+	re := regexp.MustCompile("^" + strings.Join(parts, ".*") + "$")
+	globs.Store(pattern, re)
+	return re
 }
 
 // Load reads and checks a selection file.
