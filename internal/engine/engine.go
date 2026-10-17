@@ -138,7 +138,7 @@ func (t *freshEnvTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...t
 	if err != nil {
 		return false, err
 	}
-	if err := t.Runner.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
+	if err := t.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
 		return false, err
 	}
 	return t.Runner.PlanJSON(ctx, w, opts...)
