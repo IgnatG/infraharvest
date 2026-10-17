@@ -10,32 +10,29 @@ import (
 	"testing"
 )
 
-// recordCloud9Status is the status the fake Cloud9 API gives each
-// environment. An environment missing here is not described by the fake.
-var recordCloud9Status = map[string]string{
-	"env-ready":      `{"status":"ready","message":"recorded"}`,
-	"env-error":      `{"status":"error","message":"recorded"}`,
-	"env-creating":   `{"status":"creating","message":"recorded"}`,
-	"env-connecting": `{"status":"connecting","message":"recorded"}`,
-	"env-stopping":   `{"status":"stopping","message":"recorded"}`,
-	"env-stopped":    `{"status":"stopped","message":"recorded"}`,
-	"env-deleting":   `{"status":"deleting","message":"recorded"}`,
-	"env-unknown":    `{}`,
+// recordCloud9Lifecycle is the lifecycle status the fake Cloud9 API
+// describes each environment with. An environment missing here is
+// described without a lifecycle.
+var recordCloud9Lifecycle = map[string]string{
+	"env-created":       "CREATED",
+	"env-failed":        "CREATE_FAILED",
+	"env-creating":      "CREATING",
+	"env-deleting":      "DELETING",
+	"env-delete-failed": "DELETE_FAILED",
+	"env-ssh":           "CREATED",
 }
 
 // recordCloud9Types is the type the fake Cloud9 API describes each
 // environment with. An environment missing here is left out of the
 // description, as one deleted after it was listed would be.
 var recordCloud9Types = map[string]string{
-	"env-ready":      "ec2",
-	"env-error":      "ec2",
-	"env-creating":   "ec2",
-	"env-connecting": "ec2",
-	"env-stopping":   "ec2",
-	"env-stopped":    "ec2",
-	"env-deleting":   "ec2",
-	"env-unknown":    "ec2",
-	"env-ssh":        "ssh",
+	"env-created":       "ec2",
+	"env-failed":        "ec2",
+	"env-creating":      "ec2",
+	"env-deleting":      "ec2",
+	"env-delete-failed": "ec2",
+	"env-unknown":       "ec2",
+	"env-ssh":           "ssh",
 }
 
 // recordCloud9IDs returns the environment IDs a DescribeEnvironments call
@@ -52,8 +49,9 @@ func recordCloud9IDs(t *testing.T, call apiCall) []string {
 }
 
 // recordCloud9Describe answers a DescribeEnvironments call with the
-// environments of types it asks for, in the order asked. It fails the test
-// for a call asking for more than 25 environments, which AWS rejects.
+// environments of types it asks for, in the order asked, each with its
+// lifecycle in recordCloud9Lifecycle. It fails the test for a call asking
+// for more than 25 environments, which AWS rejects.
 func recordCloud9Describe(t *testing.T, call apiCall, types map[string]string) string {
 	t.Helper()
 	ids := recordCloud9IDs(t, call)
@@ -62,34 +60,36 @@ func recordCloud9Describe(t *testing.T, call apiCall, types map[string]string) s
 	}
 	var envs []string
 	for _, id := range ids {
-		if kind, ok := types[id]; ok {
-			envs = append(envs, fmt.Sprintf(`{"id":%q,"name":%q,"type":%q,"arn":"arn:aws:cloud9:us-east-1:123456789012:environment:%s","ownerArn":"arn:aws:iam::123456789012:user/dev"}`, id, "name of "+id, kind, id))
+		kind, ok := types[id]
+		if !ok {
+			continue
 		}
+		lifecycle := ""
+		if status, ok := recordCloud9Lifecycle[id]; ok {
+			lifecycle = fmt.Sprintf(`,"lifecycle":{"status":%q}`, status)
+		}
+		envs = append(envs, fmt.Sprintf(`{"id":%q,"name":%q,"type":%q,"arn":"arn:aws:cloud9:us-east-1:123456789012:environment:%s","ownerArn":"arn:aws:iam::123456789012:user/dev"%s}`,
+			id, "name of "+id, kind, id, lifecycle))
 	}
 	return `{"environments":[` + strings.Join(envs, ",") + `]}`
 }
 
 // The lister lists every Cloud9 EC2 environment by ID, across pages, after
-// describing each page's environments and asking each EC2 one's status. It
-// leaves out the environments in error and those being deleted; every
-// other status, and no status at all, is listed. An SSH environment, which
-// Terraform has no type for, and one the description leaves out are
-// skipped without asking their status: the fake API has none for them.
+// describing each page's environments, without a call per environment. It
+// leaves out by their lifecycle the environments that failed to be created
+// and those being deleted; every other lifecycle, a failed delete
+// included, and none at all is listed. An SSH environment, which Terraform
+// has no type for, and one the description leaves out are skipped.
 func TestRecordCloud9ListsEnvironments(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListEnvironments":
 			if recordSecondPage(call) {
-				return `{"environmentIds":["env-stopping","env-stopped","env-gone","env-deleting","env-unknown"]}`
+				return `{"environmentIds":["env-gone","env-deleting","env-delete-failed","env-unknown"]}`
 			}
-			return `{"environmentIds":["env-ready","env-error","env-ssh","env-creating","env-connecting"],"nextToken":"` + nextPageToken + `"}`
+			return `{"environmentIds":["env-created","env-failed","env-ssh","env-creating"],"nextToken":"` + nextPageToken + `"}`
 		case "DescribeEnvironments":
 			return recordCloud9Describe(t, call, recordCloud9Types)
-		case "DescribeEnvironmentStatus":
-			id := recordJSONField(call, "environmentId")
-			if status, ok := recordCloud9Status[id]; ok && recordCloud9Types[id] == "ec2" {
-				return status
-			}
 		}
 		return recordUnexpected(t, call)
 	})
@@ -103,11 +103,9 @@ func TestRecordCloud9ListsEnvironments(t *testing.T) {
 		return recordedResource{"aws_cloud9_environment_ec2", id, id, nil}
 	}
 	assertRecorded(t, g.Resources,
-		env("env-ready"),
+		env("env-created"),
 		env("env-creating"),
-		env("env-connecting"),
-		env("env-stopping"),
-		env("env-stopped"),
+		env("env-delete-failed"),
 		env("env-unknown"),
 	)
 }
@@ -134,8 +132,6 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 		case "DescribeEnvironments":
 			batches = append(batches, len(recordCloud9IDs(t, call)))
 			return recordCloud9Describe(t, call, types)
-		case "DescribeEnvironmentStatus":
-			return `{"status":"ready","message":"recorded"}`
 		}
 		return recordUnexpected(t, call)
 	})
@@ -155,17 +151,16 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 	assertRecorded(t, g.Resources, want...)
 }
 
-// An error listing the environments, describing them or asking one's
-// status is returned.
+// An error listing the environments or describing them is returned.
 func TestRecordCloud9ReturnsErrors(t *testing.T) {
-	for _, failing := range []string{"ListEnvironments", "DescribeEnvironments", "DescribeEnvironmentStatus"} {
+	for _, failing := range []string{"ListEnvironments", "DescribeEnvironments"} {
 		t.Run(failing, func(t *testing.T) {
 			useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
 				case "ListEnvironments":
-					return `{"environmentIds":["env-ready"]}`
+					return `{"environmentIds":["env-created"]}`
 				case "DescribeEnvironments":
 					return recordCloud9Describe(t, call, recordCloud9Types)
 				}
