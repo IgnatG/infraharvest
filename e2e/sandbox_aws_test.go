@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -55,9 +56,10 @@ var sandboxClusterServices = []string{"eks", "elasticache", "iam", "rds", "sg", 
 // the read-only profile SANDBOX_AWS_READONLY_PROFILE names, as a user
 // would, and checks the engine plans every generated resource as an
 // import with no changes. On the way it interrupts the import and resumes
-// it, and at the end it adds a resource to the estate and imports again
-// with --incremental. It destroys the estate when it is done. The
-// sandbox-aws workflow runs it, after approval; see e2e/README.md.
+// it with both regions at once (see checkResume), and at the end it adds
+// a resource to the estate and imports again with --incremental. It
+// destroys the estate when it is done. The sandbox-aws workflow runs it,
+// after approval; see e2e/README.md.
 func TestSandboxAWS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Minute)
 	defer cancel()
@@ -72,7 +74,7 @@ func TestSandboxAWS(t *testing.T) {
 
 	// Both regions, the second last.
 	importSandbox := s.importer(t, []string{s.region, secondRegion}, sandboxAWSServices)
-	checkResume(ctx, t, s.out, secondRegion, importSandbox)
+	checkResume(ctx, t, s.out, []string{s.region, secondRegion}, importSandbox)
 
 	coverage, imported := s.checkImport(ctx, t, state)
 	checkModuleCalls(t, coverage)
@@ -276,14 +278,17 @@ func (run sandboxImport) must(ctx context.Context, t *testing.T, args ...string)
 	}
 }
 
-// checkResume imports the sandbox into out, cancelling the import as
-// Ctrl-C would when it starts generating the root of lastRegion, the last,
-// then imports again with --resume: the roots generated before the
-// interrupt stay as they were, and the interrupted root is generated as an
-// import that wasn't interrupted generates it, which the test checks by
-// generating it once more, from nothing.
-func checkResume(ctx context.Context, t *testing.T, out, lastRegion string, run sandboxImport) {
+// checkResume imports the sandbox's regions into out, one at a time,
+// cancelling the import as Ctrl-C would when it starts generating the root
+// of the last of regions, then imports again with --resume and the
+// regions at once (--parallel): they list at the same time, the roots
+// generated before the interrupt stay as they were, and the interrupted
+// root is generated as an import that wasn't interrupted generates it,
+// which the test checks by generating it once more, from nothing, one
+// region at a time.
+func checkResume(ctx context.Context, t *testing.T, out string, regions []string, run sandboxImport) {
 	t.Helper()
+	lastRegion := regions[len(regions)-1]
 	interruptCtx, interruptRun := context.WithCancel(ctx)
 	defer interruptRun()
 	interrupt := &interrupter{region: lastRegion, cancel: interruptRun}
@@ -339,7 +344,25 @@ func checkResume(ctx context.Context, t *testing.T, out, lastRegion string, run 
 		}
 	}
 
-	run.must(ctx, t, "--resume")
+	// The regions at once: the roots they share with the import above, and
+	// the one generated again below, show the output doesn't depend on it.
+	resumeAtOnce := func() *stepLog {
+		logged := &stepLog{}
+		writer := log.Writer()
+		log.SetOutput(io.MultiWriter(writer, logged))
+		defer log.SetOutput(writer)
+		run.must(ctx, t, "--resume", "--parallel="+strconv.Itoa(len(regions)))
+		return logged
+	}
+	// Each region lists the whole of its services from AWS, which takes
+	// long enough for them to overlap; the roots that resume generate in
+	// no time, so they may not.
+	first, last := "region "+regions[0], "region "+lastRegion
+	if steps := resumeAtOnce().overlapping(t, first, last); len(steps) == 0 {
+		t.Errorf("with --parallel=%d, %s and %s ran one after the other", len(regions), first, last)
+	} else {
+		t.Logf("with --parallel=%d, %s and %s ran at the same time: %v", len(regions), first, last, steps)
+	}
 	checkKept("--resume after the interrupt")
 	resumed := rootFiles(t, out, rel)
 	if resumed[rel+"/"+engine.ImportsFileName] == "" {
