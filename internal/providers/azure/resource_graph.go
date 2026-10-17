@@ -594,7 +594,7 @@ func savedSearchSolution(workspace, name string) string {
 // catalogue is the catalogue of the import (see SetCatalogue), or the
 // built-in one.
 func (g *ResourceGraphLister) catalogue() *catalogue.Catalogue {
-	if cat, ok := g.Settings()["catalogue"].(*catalogue.Catalogue); ok && cat != nil {
+	if cat, ok := g.Settings()[catalogueKey].(*catalogue.Catalogue); ok && cat != nil {
 		return cat
 	}
 	return catalogue.MustBuiltin("azurerm")

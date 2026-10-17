@@ -22,6 +22,23 @@ import (
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
+// The keys of the settings each service gets (see Provider.serviceArgs),
+// read only through cacheKey and regionSetting, so that the two can't
+// drift apart.
+const (
+	regionKey               = "region"
+	profileKey              = "profile"
+	roleARNKey              = "role_arn"
+	skipRegionValidationKey = "skip_region_validation"
+)
+
+// regionSetting returns the region in a service's settings, "" when there
+// is none.
+func regionSetting(settings map[string]interface{}) string {
+	region, _ := settings[regionKey].(string)
+	return region
+}
+
 // roleSessionName names the sessions of the roles the provider assumes, as
 // CloudTrail shows them.
 const roleSessionName = "infraharvest"
@@ -105,7 +122,7 @@ func (s *Service) cacheKey() configKey {
 		v, _ := s.Settings()[name].(string)
 		return v
 	}
-	return configKey{region: arg("region"), profile: arg("profile"), roleARN: arg("role_arn")}
+	return configKey{region: arg(regionKey), profile: arg(profileKey), roleARN: arg(roleARNKey)}
 }
 
 // sdkConfig returns the SDK configuration of the service's account

@@ -279,11 +279,11 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Provider: providerName,
 		Verbose:  verbose,
 		Settings: map[string]interface{}{
-			"subscription_id": p.subscriptionID,
-			"credential":      p.credential,
-			"client_options":  p.clientOptions,
-			"resource_group":  p.resourceGroup,
-			"catalogue":       p.catalogue,
+			subscriptionIDKey: p.subscriptionID,
+			credentialKey:     p.credential,
+			clientOptionsKey:  p.clientOptions,
+			resourceGroupKey:  p.resourceGroup,
+			catalogueKey:      p.catalogue,
 		},
 	})
 	return nil

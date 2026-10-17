@@ -45,7 +45,7 @@ func (s *guardedLister) List() error {
 
 // where names the region the service lists, for a log.
 func (s *guardedLister) where() string {
-	region, _ := s.Settings()["region"].(string)
+	region := regionSetting(s.Settings())
 	if region == ProfileRegion {
 		return "the default region"
 	}

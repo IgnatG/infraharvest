@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/dns/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -38,7 +37,7 @@ type DNSRecordSetsLister struct {
 // project without the Cloud DNS API enabled has no zones: that is logged,
 // and lists nothing. Any other failure is an error.
 func (g *DNSRecordSetsLister) List() error {
-	region, _ := g.Settings()["region"].(compute.Region)
+	region := regionSetting(g.Settings())
 	if region.Name != "" {
 		return nil
 	}

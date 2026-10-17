@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"google.golang.org/api/cloudresourcemanager/v1"
-	"google.golang.org/api/compute/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -39,7 +38,7 @@ type IamLister struct {
 
 // List reads the policy. A failure to read it is an error.
 func (g *IamLister) List() error {
-	region, _ := g.Settings()["region"].(compute.Region)
+	region := regionSetting(g.Settings())
 	if region.Name != "" {
 		return nil
 	}

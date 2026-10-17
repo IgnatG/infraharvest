@@ -10,7 +10,6 @@ import (
 	"net/http"
 
 	"google.golang.org/api/cloudscheduler/v1"
-	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -37,7 +36,7 @@ type SchedulerJobsLister struct {
 // has no jobs to list: that is logged, and lists nothing. Any other
 // failure is an error.
 func (g *SchedulerJobsLister) List() error {
-	region, _ := g.Settings()["region"].(compute.Region)
+	region := regionSetting(g.Settings())
 	if region.Name == "" {
 		return nil
 	}

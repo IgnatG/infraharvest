@@ -20,7 +20,7 @@ import (
 // delegated administrator) has.
 func OrganizationAccounts(ctx context.Context, profile string) ([]string, error) {
 	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "", "profile": profile, "skip_region_validation": true}})
+	service.Configure(harvest.ListerConfig{Settings: map[string]interface{}{regionKey: "", profileKey: profile, skipRegionValidationKey: true}})
 	service.SetContext(ctx)
 	config, err := service.sdkConfig()
 	if err != nil {

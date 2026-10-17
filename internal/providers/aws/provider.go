@@ -162,9 +162,9 @@ func (p *Provider) Select(name string, verbose bool) error {
 // Service.sdkConfig).
 func (p *Provider) serviceArgs() map[string]interface{} {
 	return map[string]interface{}{
-		"region":                 p.region,
-		"profile":                p.profile,
-		"role_arn":               p.roleARN,
-		"skip_region_validation": true,
+		regionKey:               p.region,
+		profileKey:              p.profile,
+		roleARNKey:              p.roleARN,
+		skipRegionValidationKey: true,
 	}
 }

@@ -18,7 +18,6 @@ import (
 	"unicode"
 
 	"google.golang.org/api/cloudasset/v1"
-	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -75,7 +74,7 @@ func (g *CloudAssetLister) List() error {
 	if err != nil {
 		return err
 	}
-	region, _ := g.Settings()["region"].(compute.Region)
+	region := regionSetting(g.Settings())
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
 	var unmarked []error
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
@@ -417,7 +416,7 @@ func lastSegment(id string) string {
 // catalogue is the catalogue of the import (see SetCatalogue), or the
 // built-in one.
 func (g *CloudAssetLister) catalogue() *catalogue.Catalogue {
-	if cat, ok := g.Settings()["catalogue"].(*catalogue.Catalogue); ok && cat != nil {
+	if cat, ok := g.Settings()[catalogueKey].(*catalogue.Catalogue); ok && cat != nil {
 		return cat
 	}
 	return catalogue.MustBuiltin("google")
