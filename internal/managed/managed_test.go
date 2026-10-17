@@ -226,3 +226,35 @@ func TestLoadRejectsSourcesWithoutState(t *testing.T) {
 		t.Errorf("a workspace without state: %v", err)
 	}
 }
+
+// Azure IDs match whatever their case, the types another name of a type
+// manages match it, and ARNs keep their case.
+func TestLookupMatchesCaseAndAliases(t *testing.T) {
+	r := Resources{}
+	err := r.Parse([]byte(`{"version": 4, "resources": [
+	  {"mode": "managed", "type": "azurerm_log_analytics_workspace", "instances": [{"attributes": {"id": "/subscriptions/1/resourcegroups/App/providers/microsoft.operationalinsights/workspaces/w"}}]},
+	  {"mode": "managed", "type": "aws_alb", "instances": [{"attributes": {"id": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1", "arn": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1"}}]},
+	  {"mode": "managed", "type": "azurerm_virtual_machine", "instances": [{"attributes": {"id": "/subscriptions/1/resourceGroups/app/providers/Microsoft.Compute/virtualMachines/vm"}}]},
+	  {"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "Logs"}}]}
+	]}`), "prod.tfstate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		typ, id string
+		want    bool
+	}{
+		{"azurerm_log_analytics_workspace", "/subscriptions/1/resourceGroups/app/providers/Microsoft.OperationalInsights/workspaces/w", true},
+		{"aws_lb", "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1", true},
+		{"aws_alb", "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1", true},
+		{"aws_lb", "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/WEB/1", false},
+		{"azurerm_linux_virtual_machine", "/subscriptions/1/resourceGroups/APP/providers/Microsoft.Compute/virtualMachines/vm", true},
+		{"azurerm_windows_virtual_machine", "/subscriptions/1/resourceGroups/app/providers/Microsoft.Compute/virtualMachines/vm", true},
+		{"azurerm_linux_virtual_machine", "/subscriptions/1/resourceGroups/app/providers/Microsoft.Compute/virtualMachines/other", false},
+		{"aws_s3_bucket", "logs", false},
+	} {
+		if _, got := r.Lookup(tc.typ, tc.id); got != tc.want {
+			t.Errorf("Lookup(%s, %s) = %v, want %v", tc.typ, tc.id, got, tc.want)
+		}
+	}
+}

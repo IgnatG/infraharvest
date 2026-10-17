@@ -32,17 +32,67 @@ type ObjectStore interface {
 }
 
 // Resources are managed resources: where the state of each is, by
-// "type id" (and "type arn", where a resource has an ARN).
+// "type id" (and "type arn", where a resource has an ARN), as key makes
+// them.
 type Resources map[string]string
 
 // Lookup returns where the state of a resource of typ with any of ids is.
 func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
 	for _, id := range ids {
-		if where, ok := r[typ+" "+id]; ok && id != "" {
+		if id == "" {
+			continue
+		}
+		if where, ok := r[key(typ, id)]; ok {
 			return where, true
 		}
 	}
 	return "", false
+}
+
+// typeAliases maps resource types to the type another name of theirs is
+// matched as: a load balancer managed as aws_alb is the aws_lb listed, and
+// an Azure virtual machine managed as azurerm_virtual_machine is the
+// azurerm_linux_virtual_machine or azurerm_windows_virtual_machine listed.
+// The types of each group have the same IDs.
+var typeAliases = map[string]string{
+	"aws_alb":                                        "aws_lb",
+	"aws_alb_listener":                               "aws_lb_listener",
+	"aws_alb_listener_certificate":                   "aws_lb_listener_certificate",
+	"aws_alb_listener_rule":                          "aws_lb_listener_rule",
+	"aws_alb_target_group":                           "aws_lb_target_group",
+	"aws_alb_target_group_attachment":                "aws_lb_target_group_attachment",
+	"azurerm_linux_virtual_machine":                  "azurerm_virtual_machine",
+	"azurerm_windows_virtual_machine":                "azurerm_virtual_machine",
+	"azurerm_linux_virtual_machine_scale_set":        "azurerm_virtual_machine_scale_set",
+	"azurerm_windows_virtual_machine_scale_set":      "azurerm_virtual_machine_scale_set",
+	"azurerm_orchestrated_virtual_machine_scale_set": "azurerm_virtual_machine_scale_set",
+	"google_compute_instance_from_template":          "google_compute_instance",
+}
+
+// key is how Resources keys a resource of typ with id: by the type its
+// aliases share (see typeAliases), and an Azure resource ID in lower case,
+// since Azure doesn't keep one case for them: resourceGroups/App in
+// Resource Graph can be resourcegroups/app in state. ARNs and Google
+// self-links keep their case, which matters for them.
+func key(typ, id string) string {
+	if alias, ok := typeAliases[typ]; ok {
+		typ = alias
+	}
+	if isAzureID(id) {
+		id = strings.ToLower(id)
+	}
+	return typ + " " + id
+}
+
+// isAzureID reports whether id is an Azure Resource Manager ID, which
+// starts with /subscriptions/ or /providers/ in any case.
+func isAzureID(id string) bool {
+	for _, prefix := range []string{"/subscriptions/", "/providers/"} {
+		if len(id) >= len(prefix) && strings.EqualFold(id[:len(prefix)], prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Stores open the object stores state is read from: S3 in a region, with
@@ -346,7 +396,7 @@ func (r Resources) Parse(content []byte, where string) error {
 		for _, i := range res.Instances {
 			for _, id := range []string{i.Attributes.ID, i.Attributes.ARN} {
 				if id != "" {
-					r[res.Type+" "+id] = where
+					r[key(res.Type, id)] = where
 				}
 			}
 		}
