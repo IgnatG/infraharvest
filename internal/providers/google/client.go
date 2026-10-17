@@ -50,9 +50,12 @@ var (
 // limitedClient is a client, with the application default credentials for
 // every Google Cloud API, that sends each API's requests through
 // ratelimit.Default, and sends again those Google throttles or fails for
-// the time being (see retryTransport). It is nil
-// if there are no credentials; each API client then looks for them itself
-// and fails the same way. The first call finds the credentials with ctx.
+// the time being (see retryTransport). Every project shares it: Google
+// charges most quotas to the credentials' quota project, not to the
+// project a request reads, so a limit per project would only multiply
+// the rate against the same quota. It is nil if there are no
+// credentials; each API client then looks for them itself and fails the
+// same way. The first call finds the credentials with ctx.
 func limitedClient(ctx context.Context) *http.Client {
 	limitedOnce.Do(func() {
 		// Once for the process: it only finds the credentials, and each
