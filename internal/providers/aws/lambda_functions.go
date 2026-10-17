@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -33,29 +34,32 @@ type lambdaResourcePolicy struct {
 }
 
 // List records the functions, each followed by its permissions and
-// event invoke configs, then the event source mappings, then every version
-// of every layer. Any error fails the service, except that a function
-// without a resource policy simply has no permissions.
+// event invoke configs, then the event source mappings, then the layer
+// versions: each layer's latest, and those the functions use. Any error
+// fails the service, except that a function without a resource policy
+// simply has no permissions.
 func (g *LambdaLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	svc := lambda.NewFromConfig(config)
-	if err := g.addFunctions(svc); err != nil {
+	used := map[string]bool{}
+	if err := g.addFunctions(svc, used); err != nil {
 		return err
 	}
 	if err := g.addEventSourceMappings(svc); err != nil {
 		return err
 	}
-	return g.addLayerVersions(svc)
+	return g.addLayerVersions(svc, used)
 }
 
 // addFunctions records every function as an aws_lambda_function, imported
 // by its ARN, named after its name, which it also records as the
 // function_name attribute; each is followed by its permissions and event
-// invoke configs.
-func (g *LambdaLister) addFunctions(svc *lambda.Client) error {
+// invoke configs. The ARNs of the layer versions the functions use, which
+// the list answers already, are added to used.
+func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) error {
 	pages := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
@@ -64,6 +68,9 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client) error {
 		}
 		for _, function := range page.Functions {
 			arn, name := aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName)
+			for _, layer := range function.Layers {
+				used[aws.ToString(layer.Arn)] = true
+			}
 			g.Resources = append(g.Resources, harvest.Record(arn, name, "aws_lambda_function", "aws",
 				map[string]string{"function_name": name}))
 			if err := g.addPermissions(svc, arn); err != nil {
@@ -160,10 +167,15 @@ func (g *LambdaLister) addEventSourceMappings(svc *lambda.Client) error {
 	return nil
 }
 
-// addLayerVersions records every version of every layer as an
-// aws_lambda_layer_version, imported by its ARN and named after the layer
-// and the version: "deps 2".
-func (g *LambdaLister) addLayerVersions(svc *lambda.Client) error {
+// addLayerVersions records layer versions as aws_lambda_layer_version,
+// imported by their ARN and named after the layer and the version: "deps
+// 2". Of each layer, it records the latest version, which ListLayers
+// answers already, followed by the older versions in used, by version
+// number: a function can go on using a version after a newer one is
+// published. Older versions nothing uses are history, as Terraform manages
+// a layer's code by its latest version, so they are left out, and no layer
+// takes a call of its own.
+func (g *LambdaLister) addLayerVersions(svc *lambda.Client, used map[string]bool) error {
 	layers := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{}, stopOnDuplicateToken)
 	for layers.HasMorePages() {
 		page, err := layers.NextPage(g.Context())
@@ -171,18 +183,36 @@ func (g *LambdaLister) addLayerVersions(svc *lambda.Client) error {
 			return err
 		}
 		for _, layer := range page.Layers {
-			versions := lambda.NewListLayerVersionsPaginator(svc, &lambda.ListLayerVersionsInput{LayerName: layer.LayerName}, stopOnDuplicateToken)
-			for versions.HasMorePages() {
-				versionPage, err := versions.NextPage(g.Context())
-				if err != nil {
-					return err
-				}
-				for _, version := range versionPage.LayerVersions {
-					arn := aws.ToString(version.LayerVersionArn)
-					g.Resources = append(g.Resources, harvest.RecordBare(arn, aws.ToString(layer.LayerName)+" "+strconv.FormatInt(version.Version, 10), "aws_lambda_layer_version", "aws"))
-				}
+			latest := layer.LatestMatchingVersion
+			if latest == nil {
+				continue
+			}
+			layerName := aws.ToString(layer.LayerName)
+			g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(latest.LayerVersionArn),
+				layerName+" "+strconv.FormatInt(latest.Version, 10), "aws_lambda_layer_version", "aws"))
+			for _, version := range olderLayerVersions(aws.ToString(layer.LayerArn), latest.Version, used) {
+				g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(layer.LayerArn)+":"+strconv.FormatInt(version, 10),
+					layerName+" "+strconv.FormatInt(version, 10), "aws_lambda_layer_version", "aws"))
 			}
 		}
 	}
 	return nil
+}
+
+// olderLayerVersions returns the numbers of the versions of the layer
+// layerARN in used that are older than latest, sorted. A version ARN is
+// the layer's ARN, a colon and the version number.
+func olderLayerVersions(layerARN string, latest int64, used map[string]bool) []int64 {
+	var versions []int64
+	for arn := range used {
+		suffix, ok := strings.CutPrefix(arn, layerARN+":")
+		if !ok {
+			continue
+		}
+		if version, err := strconv.ParseInt(suffix, 10, 64); err == nil && version < latest {
+			versions = append(versions, version)
+		}
+	}
+	slices.Sort(versions)
+	return versions
 }

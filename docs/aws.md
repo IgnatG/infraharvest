@@ -74,6 +74,8 @@ Terraform writes every argument a resource has. infraharvest leaves out those at
 
 A Lambda function whose code was deployed outside Terraform gets a placeholder `filename` and ignores changes to it and to `code_sha256`, which in provider 6 is what makes the provider update the code: to deploy it with Terraform, put the package at `filename`, set `code_sha256 = filebase64sha256(...)` of it, and remove the `ignore_changes`.
 
+Of each Lambda layer, `lambda` imports the latest version and the older versions a listed function uses, not the history of every version published: they all come from the lists of layers and functions, with no call per layer. A layer version gets a placeholder `filename` too, and ignores changes to it and to `source_code_hash`.
+
 A KMS key is generated as the type Terraform has for it: `aws_kms_key` for a key whose material KMS made, `aws_kms_external_key` for one whose material was imported, and `aws_kms_replica_key` or `aws_kms_replica_external_key` for a multi-Region replica, which `aws_kms_key` refuses to read. The lister tells them apart from `kms:DescribeKey`, which it calls for every key already.
 
 An API Gateway deployment gets `create_before_destroy`, as the provider's documentation recommends, since a stage refers to it. It doesn't get the `triggers` the documentation also recommends: AWS doesn't keep them, so set on an imported deployment, they would replace it on the first plan. A comment says how to add them, at the cost of that one replacement.
