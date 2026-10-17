@@ -11,6 +11,7 @@ import (
 )
 
 func TestWriteFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
 
@@ -45,6 +46,7 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestWriteFileFailureKeepsTheFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	if err := os.WriteFile(path, []byte("whole"), 0o644); err != nil {

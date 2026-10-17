@@ -39,6 +39,7 @@ resource "google_kms_crypto_key" "data" {
 `
 
 func TestGoogleKMSMapsTheRingsKeys(t *testing.T) {
+	t.Parallel()
 	call, err := GoogleKMS.Map(cluster(t, googleKMSCluster))
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +70,7 @@ func TestGoogleKMSMapsTheRingsKeys(t *testing.T) {
 
 // A key without rotation: the module's default rotates every 90 days.
 func TestGoogleKMSKeepsKeysUnrotated(t *testing.T) {
+	t.Parallel()
 	src := strings.ReplaceAll(googleKMSCluster, `  rotation_period = "2592000s"`+"\n", "")
 	call, err := GoogleKMS.Map(cluster(t, src))
 	if err != nil {
@@ -80,6 +82,7 @@ func TestGoogleKMSKeepsKeysUnrotated(t *testing.T) {
 }
 
 func TestGoogleKMSDeclinesKeysThatDiffer(t *testing.T) {
+	t.Parallel()
 	src := strings.Replace(googleKMSCluster, `rotation_period = "2592000s"`, `rotation_period = "86400s"`, 1)
 	_, err := GoogleKMS.Map(cluster(t, src))
 	if !IsDecline(err) || !strings.Contains(err.Error(), "have different settings") {

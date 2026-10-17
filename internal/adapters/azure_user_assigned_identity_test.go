@@ -27,6 +27,7 @@ resource "azurerm_federated_identity_credential" "ci_github" {
 `
 
 func TestAzureUserAssignedIdentityMaps(t *testing.T) {
+	t.Parallel()
 	call, err := AzureUserAssignedIdentity.Map(cluster(t, identityCluster))
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +61,7 @@ func TestAzureUserAssignedIdentityMaps(t *testing.T) {
 }
 
 func TestAzureUserAssignedIdentityDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ from, to string }{
 		"no location":         {`location            = "westeurope"`, ""},
 		"a name not literal":  {`name                = "github"`, "name = local.credential"},
@@ -78,6 +80,7 @@ func TestAzureUserAssignedIdentityDeclines(t *testing.T) {
 
 // azurerm 4 names a credential's identity by user_assigned_identity_id.
 func TestAzureUserAssignedIdentityMapsTheNewParent(t *testing.T) {
+	t.Parallel()
 	src := strings.Replace(identityCluster, "parent_id           = azurerm_user_assigned_identity.ci.id", "user_assigned_identity_id = azurerm_user_assigned_identity.ci.id", 1)
 	src = strings.Replace(src, "  resource_group_name = azurerm_resource_group.app.name\n  subject", "  subject", 1)
 	if src == identityCluster {

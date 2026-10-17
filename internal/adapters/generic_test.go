@@ -73,6 +73,7 @@ func moduleDir(t *testing.T, files map[string]string) string {
 }
 
 func TestGenericMatchesAModulesSignature(t *testing.T) {
+	t.Parallel()
 	a, err := Generic("git::https://example.com/modules.git//bucket?ref=v1.0.0", "", moduleDir(t, map[string]string{"main.tf": bucketModule}))
 	if err != nil {
 		t.Fatal(err)
@@ -103,6 +104,7 @@ func TestGenericMatchesAModulesSignature(t *testing.T) {
 }
 
 func TestGenericDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ module, cluster, reason string }{
 		"a setting the module can't set": {
 			bucketModule, strings.Replace(bucketCluster, `force_destroy = false`, "force_destroy = false\n  object_lock_enabled = true", 1),
@@ -136,6 +138,7 @@ func TestGenericDeclines(t *testing.T) {
 }
 
 func TestGenericFailsForModulesItCantMatch(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ module, reason string }{
 		"count":           {strings.Replace(bucketModule, `  bucket        = var.name`, "  count         = 1\n  bucket        = var.name", 1), "aws_s3_bucket.this has count"},
 		"two of a type":   {bucketModule + "\nresource \"aws_s3_bucket\" \"other\" {\n  bucket = \"other\"\n}\n", "it has two aws_s3_bucket resources"},

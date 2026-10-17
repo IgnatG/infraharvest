@@ -10,6 +10,7 @@ import (
 )
 
 func TestSetFiltersWithNoFilters(t *testing.T) {
+	t.Parallel()
 	var s ListerBase
 	s.SetFilters(nil)
 	if !reflect.DeepEqual(s.filters, []Filter{}) {
@@ -20,6 +21,7 @@ func TestSetFiltersWithNoFilters(t *testing.T) {
 // SetFilters keeps a copy: changing the caller's slice afterwards doesn't
 // change the lister's filters.
 func TestSetFiltersCopies(t *testing.T) {
+	t.Parallel()
 	filters := []Filter{{Service: "vpc", Path: "id", Values: []string{"vpc-1"}}}
 	var s ListerBase
 	s.SetFilters(filters)
@@ -30,6 +32,7 @@ func TestSetFiltersCopies(t *testing.T) {
 }
 
 func TestParseFilters(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		parse func(string) (Filter, error)
@@ -56,6 +59,7 @@ func TestParseFilters(t *testing.T) {
 }
 
 func TestParseFiltersRejects(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		parse func(string) (Filter, error)
 		raw   string
@@ -77,6 +81,7 @@ func TestParseFiltersRejects(t *testing.T) {
 }
 
 func TestAttributeFilters(t *testing.T) {
+	t.Parallel()
 	some := Record("vpc-some", "some", "aws_vpc", "aws", map[string]string{"tags.Name": "some"})
 	def := Record("vpc-def", "def", "aws_vpc", "aws", map[string]string{"tags.Name": "default"})
 	abc := Record("vpc-abc", "abc", "aws_vpc", "aws", map[string]string{"tags.Abc": ""})
@@ -140,6 +145,7 @@ func resourceTypes(resources []Resource) []string {
 }
 
 func TestPrune(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		resources []Resource
@@ -219,6 +225,7 @@ func TestPrune(t *testing.T) {
 }
 
 func TestRecordBare(t *testing.T) {
+	t.Parallel()
 	r := RecordBare("https://sqs/1/my queue", "my queue", "aws_sqs_queue", "aws")
 
 	for _, field := range []struct{ name, got, want string }{

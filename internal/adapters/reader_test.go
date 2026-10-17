@@ -33,6 +33,7 @@ func argumentsOf(call *Call) []string {
 // Require sets each input from its argument, in order, and marks them
 // read.
 func TestRequireSetsTheInputs(t *testing.T) {
+	t.Parallel()
 	r := readerOf(t, `resource "google_storage_bucket" "logs" {
   name     = "logs"
   project  = "p"
@@ -54,6 +55,7 @@ func TestRequireSetsTheInputs(t *testing.T) {
 // Require declines an absent or null argument, naming the resource and
 // the argument.
 func TestRequireDeclinesWhatIsMissing(t *testing.T) {
+	t.Parallel()
 	r := readerOf(t, `resource "google_storage_bucket" "logs" {
   name    = "logs"
   project = null
@@ -71,6 +73,7 @@ func TestRequireDeclinesWhatIsMissing(t *testing.T) {
 // CopyAs sets the inputs of the arguments that are set, under the input's
 // name, on a call or an object, and leaves out the rest.
 func TestCopyAsSetsWhatIsSet(t *testing.T) {
+	t.Parallel()
 	r := readerOf(t, `resource "google_storage_bucket" "logs" {
   labels        = local.labels
   storage_class = "STANDARD"

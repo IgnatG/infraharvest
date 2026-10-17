@@ -55,6 +55,7 @@ func (*registryService) List() error { return nil }
 var _ Provider = (*registryProvider)(nil)
 
 func TestNewRegistryIsEmpty(t *testing.T) {
+	t.Parallel()
 	m := NewRegistry(&registryProvider{})
 	if m.Resources == nil || m.Services == nil || m.Providers == nil {
 		t.Fatalf("want non-nil sets, got Resources %v, Services %v, Providers %v", m.Resources, m.Services, m.Providers)
@@ -70,6 +71,7 @@ func TestNewRegistryIsEmpty(t *testing.T) {
 // Every service gets a new provider of the base's type, with nothing of the
 // base's state and not yet initialised.
 func TestRegisterMakesNewProviders(t *testing.T) {
+	t.Parallel()
 	base := &registryProvider{region: "eu-west-1", initialised: true}
 	m := NewRegistry(base)
 
@@ -103,6 +105,7 @@ func TestRegisterMakesNewProviders(t *testing.T) {
 // their service, in the lister's order. A removed service's provider is
 // never touched: here it has no current service, which would panic.
 func TestRegistryCollectsByService(t *testing.T) {
+	t.Parallel()
 	m := NewRegistry(&registryProvider{})
 	for _, service := range []string{"vpc", "none", "subnet", "bad"} {
 		provider := m.Register(service)
@@ -143,6 +146,7 @@ func TestRegistryCollectsByService(t *testing.T) {
 }
 
 func TestUnregisterIgnoresUnknownNames(t *testing.T) {
+	t.Parallel()
 	m := NewRegistry(&registryProvider{})
 	provider := m.Register("vpc")
 
@@ -161,6 +165,7 @@ func TestUnregisterIgnoresUnknownNames(t *testing.T) {
 // A service added twice has two providers, and removing it only drops the
 // newer: the older one's resources are still collected under its name.
 func TestRegistryServiceRegisteredTwice(t *testing.T) {
+	t.Parallel()
 	m := NewRegistry(&registryProvider{})
 	older := m.Register("vpc")
 	newer := m.Register("vpc")

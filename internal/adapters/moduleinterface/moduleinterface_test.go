@@ -43,6 +43,7 @@ func moduleArchive(t *testing.T, files map[string]string) []byte {
 }
 
 func TestClient(t *testing.T) {
+	t.Parallel()
 	archive := moduleArchive(t, map[string]string{
 		"terraform-aws-thing-abc123/variables.tf":             "variable \"name\" {\n  type = string\n}\n\nvariable \"tags\" {\n  type    = map(string)\n  default = {}\n}\n",
 		"terraform-aws-thing-abc123/outputs.tf":               "output \"id\" {\n  value = 1\n}\n",
@@ -103,6 +104,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestGithubSource(t *testing.T) {
+	t.Parallel()
 	owner, repo, ref, err := githubSource("git::https://github.com/terraform-aws-modules/terraform-aws-s3-bucket?ref=5dc2f1f8")
 	if err != nil || owner != "terraform-aws-modules" || repo != "terraform-aws-s3-bucket" || ref != "5dc2f1f8" {
 		t.Errorf("got %s %s %s %v", owner, repo, ref, err)
@@ -113,6 +115,7 @@ func TestGithubSource(t *testing.T) {
 }
 
 func TestReadRefusesAnOversizedFile(t *testing.T) {
+	t.Parallel()
 	archive := moduleArchive(t, map[string]string{
 		"terraform-aws-thing-abc123/variables.tf": "variable \"name\" {}\n" + strings.Repeat("#", maxRead),
 	})
@@ -126,6 +129,7 @@ func TestReadRefusesAnOversizedFile(t *testing.T) {
 // a plain value; a default with references or function calls, or null,
 // isn't recorded.
 func TestReadRecordsTypesAndDefaults(t *testing.T) {
+	t.Parallel()
 	archive := moduleArchive(t, map[string]string{
 		"terraform-aws-thing-abc123/variables.tf": `variable "mtu" {
   type    = number
@@ -170,6 +174,7 @@ variable "none" {
 // in the adapter's type, and leaves alone a variable whose default wasn't
 // recorded.
 func TestCheckDefaults(t *testing.T) {
+	t.Parallel()
 	iface := &Interface{Variables: map[string]Variable{
 		"mtu":    {Type: "number", Default: json.RawMessage(`0`)},
 		"mode":   {Type: "string", Default: json.RawMessage(`"LEGACY"`)},
@@ -196,6 +201,7 @@ func TestCheckDefaults(t *testing.T) {
 // TypeChanges names the inputs whose type changed, and leaves out those
 // without a recorded type and the variables the adapter doesn't set.
 func TestTypeChanges(t *testing.T) {
+	t.Parallel()
 	pinned := &Interface{Variables: map[string]Variable{
 		"tags":    {Type: "map(string)"},
 		"mtu":     {Type: "number"},

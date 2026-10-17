@@ -46,6 +46,7 @@ func flags() (*pflag.FlagSet, *string, *bool, *string, *[]string) {
 }
 
 func TestApply(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, sample))
 	if err != nil {
 		t.Fatal(err)
@@ -66,6 +67,7 @@ func TestApply(t *testing.T) {
 }
 
 func TestApplyRejectsUnknownSettings(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    region: eu-west-2\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +100,7 @@ func TestApplyRepeatedFlags(t *testing.T) {
 }
 
 func TestLoadRejectsMistakes(t *testing.T) {
+	t.Parallel()
 	for name, content := range map[string]string{
 		"other version":    "version: 2\n",
 		"unknown key":      "version: 1\nengine: terraform\n",
@@ -115,6 +118,7 @@ func TestLoadRejectsMistakes(t *testing.T) {
 // provider's azurerm for azure, would never apply: they fail, listing the
 // commands.
 func TestApplyRejectsUnknownProviders(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, "version: 1\nproviders:\n  google:\n    projects: [p]\n  azurerm:\n    subscription: x\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +138,7 @@ func TestApplyRejectsUnknownProviders(t *testing.T) {
 }
 
 func TestBackendFile(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		backend Backend
 		want    string
@@ -172,6 +177,7 @@ func TestBackendFile(t *testing.T) {
 }
 
 func TestLoadModules(t *testing.T) {
+	t.Parallel()
 	path := write(t, `version: 1
 modules:
   - source: git::https://github.com/acme/terraform-modules.git//bucket?ref=v1.4.0
@@ -192,6 +198,7 @@ modules:
 }
 
 func TestLoadRejectsUnpinnedModules(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ module, want string }{
 		"git without a ref":            {"source: git::https://github.com/acme/modules.git//bucket", "pin a tag or commit"},
 		"git with an empty ref":        {"source: git::https://github.com/acme/modules.git//bucket?ref=", "pin a tag or commit"},
@@ -210,6 +217,7 @@ func TestLoadRejectsUnpinnedModules(t *testing.T) {
 }
 
 func TestGitRef(t *testing.T) {
+	t.Parallel()
 	for source, want := range map[string]string{
 		"git::https://github.com/acme/modules.git//bucket?ref=v1.4.0":   "v1.4.0",
 		"git::https://github.com/acme/modules.git?depth=1&ref=main":     "main",

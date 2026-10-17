@@ -67,6 +67,7 @@ func called(t *testing.T, a Adapter, call *Call) string {
 }
 
 func TestS3BucketMapsEveryMember(t *testing.T) {
+	t.Parallel()
 	c := cluster(t, `resource "aws_s3_bucket" "artifacts" {
   bucket              = "artifacts"
   bucket_prefix       = null
@@ -183,6 +184,7 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 // Settings other than the module's defaults are passed: public access
 // allowed, another object ownership, MFA delete on.
 func TestS3BucketPassesOtherThanModuleDefaults(t *testing.T) {
+	t.Parallel()
 	call, err := S3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "site" {
   bucket              = "site"
   force_destroy       = true
@@ -223,6 +225,7 @@ resource "aws_s3_bucket_versioning" "site" {
 
 // Without a public access block, the module must not create one.
 func TestS3BucketTurnsOffThePublicAccessBlock(t *testing.T) {
+	t.Parallel()
 	call, err := S3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
 }
@@ -236,6 +239,7 @@ func TestS3BucketTurnsOffThePublicAccessBlock(t *testing.T) {
 }
 
 func TestS3BucketDeclines(t *testing.T) {
+	t.Parallel()
 	for name, src := range map[string]string{
 		"unmapped bucket argument": `resource "aws_s3_bucket" "b" {
   bucket       = "b"
@@ -304,6 +308,7 @@ func squash(s string) string {
 
 // A lifecycle filter's tag key is written as a person writes one.
 func TestObjectKey(t *testing.T) {
+	t.Parallel()
 	for src, want := range map[string]string{
 		`"Env"`:         "Env",
 		`"cost-center"`: `"cost-center"`,

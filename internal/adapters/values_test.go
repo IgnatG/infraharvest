@@ -16,6 +16,7 @@ import (
 // default, in its type; before, calls set every input the resources had,
 // such as the network module's mtu = 0.
 func TestIsDefault(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		input string
 		value hclwrite.Tokens
@@ -41,6 +42,7 @@ func TestIsDefault(t *testing.T) {
 
 // Every default is of an input the adapter sets.
 func TestDefaultsAreInputs(t *testing.T) {
+	t.Parallel()
 	for _, provider := range Providers() {
 		for _, a := range For(provider) {
 			for input := range a.Defaults {
@@ -56,6 +58,7 @@ func TestDefaultsAreInputs(t *testing.T) {
 // anyway, and keeps what differs, such as the VPC module's
 // enable_dns_hostnames = false, whose default is true.
 func TestAWSModuleDefaults(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		adapter *Adapter
 		input   string

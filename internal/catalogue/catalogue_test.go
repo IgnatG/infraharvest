@@ -19,6 +19,7 @@ import (
 )
 
 func TestBuiltinLoads(t *testing.T) {
+	t.Parallel()
 	providers, err := Providers()
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +48,7 @@ func TestBuiltinLoads(t *testing.T) {
 
 // Every built-in file follows schema.json, which editors validate with.
 func TestBuiltinFilesFollowTheSchema(t *testing.T) {
+	t.Parallel()
 	schema := loadSchema(t)
 	err := fs.WalkDir(builtin, "data", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -71,6 +73,7 @@ func TestBuiltinFilesFollowTheSchema(t *testing.T) {
 
 // The schema rejects what Parse and check reject.
 func TestSchemaRejects(t *testing.T) {
+	t.Parallel()
 	schema := loadSchema(t)
 	for name, file := range map[string]string{
 		"unknown field":    "provider: aws\ntypes:\n  aws_vpc:\n    imports: x\n",
@@ -127,6 +130,7 @@ func yamlToJSON(t *testing.T, content []byte) any {
 }
 
 func TestTemplates(t *testing.T) {
+	t.Parallel()
 	attributes := map[string]string{"subnet_id": "subnet-1", "route_table_id": "rtb-1", "arn": "arn:aws:ecs:us-east-1:1:cluster/apps"}
 	for source, want := range map[string]string{
 		"{subnet_id}/{route_table_id}":   "subnet-1/rtb-1",
@@ -160,6 +164,7 @@ func TestTemplates(t *testing.T) {
 }
 
 func TestImportID(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, `
 provider: aws
 types:
@@ -194,6 +199,7 @@ types:
 }
 
 func TestSkipped(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, `
 provider: aws
 types:
@@ -230,6 +236,7 @@ types:
 }
 
 func TestCheckRejects(t *testing.T) {
+	t.Parallel()
 	for name, file := range map[string]string{
 		"another provider's type": "provider: aws\ntypes:\n  google_x: {}\n",
 		"exclusive import fields": "provider: aws\ntypes:\n  aws_x:\n    import_id: \"{id}\"\n    not_importable: no\n",
@@ -292,6 +299,7 @@ func TestCheckRejects(t *testing.T) {
 
 // Overlay entries replace the fields they set, and add types.
 func TestLoadOverlay(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "aws.yaml", `
 provider: aws
@@ -364,6 +372,7 @@ types:
 // An overlay's remove clears built-in fields it can't clear by setting
 // them, and is checked.
 func TestLoadOverlayRemoves(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "aws.yaml", `
 provider: aws
@@ -434,6 +443,7 @@ func write(t *testing.T, dir, name, content string) {
 // Rules by attribute prefix, case-insensitive rules, and rules for every
 // type, after the type's own.
 func TestSkippedByPrefixCaseAndEveryType(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, `
 provider: azurerm
 types:
@@ -479,6 +489,7 @@ types:
 // Rules by attribute suffix, whatever the case with ignore_case, with the
 // other conditions they set.
 func TestSkippedBySuffix(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, `
 provider: google
 types:
@@ -511,6 +522,7 @@ types:
 }
 
 func TestFromInventory(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, `
 provider: google
 types:
@@ -546,6 +558,7 @@ types:
 // A resource named as each built-in inventory entry's pattern says maps to
 // that entry's type alone.
 func TestBuiltinInventoryPatternsTellTypesApart(t *testing.T) {
+	t.Parallel()
 	providers, err := Providers()
 	if err != nil {
 		t.Fatal(err)
@@ -569,6 +582,7 @@ func TestBuiltinInventoryPatternsTellTypesApart(t *testing.T) {
 // constraint accepts to what holds for every version; without a version,
 // it adds nothing.
 func TestProviderVersions(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, `
 provider: azurerm
 types:
@@ -626,6 +640,7 @@ types:
 // The checks reject version constraints that don't parse, constraints
 // that add nothing, and what every version has already.
 func TestCheckRejectsProviderVersions(t *testing.T) {
+	t.Parallel()
 	for name, file := range map[string]string{
 		"constraint":            "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      five:\n        omit: [a]\n",
 		"nothing added":         "provider: aws\ntypes:\n  aws_x:\n    provider_versions:\n      \">= 5.0\": {}\n",
@@ -661,6 +676,7 @@ func TestCheckRejectsProviderVersions(t *testing.T) {
 // keep_empty lists, per type, the arguments whose empty value is a
 // setting; overlays replace the list.
 func TestKeepEmpty(t *testing.T) {
+	t.Parallel()
 	c := parseCatalogue(t, "provider: aws\ntypes:\n  aws_default_route_table:\n    keep_empty: [route]\n  aws_vpc: {}\n")
 	if got := c.KeepEmpty(); !reflect.DeepEqual(got, map[string][]string{"aws_default_route_table": {"route"}}) {
 		t.Errorf("keep_empty: got %v", got)
@@ -673,6 +689,7 @@ func TestKeepEmpty(t *testing.T) {
 // An omit entry may name an argument of nested blocks, of any type for
 // *.name.
 func TestOmitInNestedBlocks(t *testing.T) {
+	t.Parallel()
 	ok := "provider: aws\ntypes:\n  aws_x:\n    omit: [root_block_device.tags_all, \"*.tags_all\", \"a.b.c=1\"]\n"
 	if _, err := load(t, map[string]string{"x.yaml": ok}); err != nil {
 		t.Errorf("nested omit entries: %v", err)

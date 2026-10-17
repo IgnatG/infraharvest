@@ -31,6 +31,7 @@ resource "google_project_iam_member" "viewer_ops" {
 `
 
 func TestGoogleProjectIAMMapsTheGrants(t *testing.T) {
+	t.Parallel()
 	call, err := GoogleProjectIAM.Map(cluster(t, googleProjectIAMCluster))
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +61,7 @@ func TestGoogleProjectIAMMapsTheGrants(t *testing.T) {
 }
 
 func TestGoogleProjectIAMDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ from, to, reason string }{
 		"a grant in another project": {
 			`member  = "group:ops@example.com"
@@ -100,6 +102,7 @@ resource "google_project_iam_member" "auditor_alice"`,
 // Grants are grouped by project, and only those with a literal role and
 // member: the module's keys spell them out.
 func TestGoogleProjectIAMGroups(t *testing.T) {
+	t.Parallel()
 	c := cluster(t, `resource "google_project_iam_member" "a" {
   member  = "user:alice@example.com"
   project = "acme"

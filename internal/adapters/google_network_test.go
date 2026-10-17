@@ -68,6 +68,7 @@ resource "google_compute_firewall" "egress" {
 `
 
 func TestGoogleNetworkMapsEveryMember(t *testing.T) {
+	t.Parallel()
 	c := cluster(t, googleNetworkCluster)
 	call, err := GoogleNetwork.Map(c)
 	if err != nil {
@@ -109,6 +110,7 @@ func TestGoogleNetworkMapsEveryMember(t *testing.T) {
 }
 
 func TestGoogleNetworkDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ from, to string }{
 		"auto mode":           {"auto_create_subnetworks                   = false", "auto_create_subnetworks = true"},
 		"auto mode, default":  {"auto_create_subnetworks                   = false", ""},
@@ -132,6 +134,7 @@ func TestGoogleNetworkDeclines(t *testing.T) {
 // of an earlier Google Cloud import, whose regions' roots have them,
 // stays a resource: before, the call had subnets = [] and only the firewall rules.
 func TestGoogleNetworkDeclinesWithoutSubnetworks(t *testing.T) {
+	t.Parallel()
 	start := strings.Index(googleNetworkCluster, `resource "google_compute_subnetwork" "app"`)
 	end := strings.Index(googleNetworkCluster, `resource "google_compute_firewall" "https"`)
 	src := googleNetworkCluster[:start] + googleNetworkCluster[end:]
@@ -146,6 +149,7 @@ func TestGoogleNetworkDeclinesWithoutSubnetworks(t *testing.T) {
 // by its region and name, so that two regions' subnetworks of one name
 // stay apart.
 func TestGoogleNetworkMapsSubnetworksOfEveryRegion(t *testing.T) {
+	t.Parallel()
 	src := googleNetworkCluster + `resource "google_compute_subnetwork" "app_eu" {
   ip_cidr_range = "10.30.0.0/24"
   name          = "app"

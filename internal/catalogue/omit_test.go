@@ -12,6 +12,7 @@ import (
 // ResourceOmit gives them for a resource whose attributes meet them,
 // without those conditions, keeping the others.
 func TestResourceOmit(t *testing.T) {
+	t.Parallel()
 	catalogues, err := load(t, map[string]string{"x.yaml": `provider: aws
 types:
   aws_x:

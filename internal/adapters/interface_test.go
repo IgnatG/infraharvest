@@ -18,6 +18,7 @@ import (
 // internal/adapters/cmd/adaptercheck -write). Pinning a new version needs that
 // version's interface.
 func TestAdaptersMatchModuleInterfaces(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob(filepath.Join("testdata", "interfaces", "*", "*.json"))
 	if err != nil {
 		t.Fatal(err)
