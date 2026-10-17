@@ -14,6 +14,7 @@ import (
 )
 
 func TestOptionalTypeString(t *testing.T) {
+	t.Parallel()
 	route := cty.Set(cty.Object(map[string]cty.Type{"cidr_block": cty.String, "nat_gateway_id": cty.String, "tags": cty.Map(cty.String)}))
 	for _, tc := range []struct {
 		ty   cty.Type
@@ -38,6 +39,7 @@ func TestOptionalTypeString(t *testing.T) {
 // Null attributes of objects go, wherever the objects are and whatever
 // separates their attributes; the other values stay.
 func TestWithoutNullAttributes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		in   string
 		want cty.Value

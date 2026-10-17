@@ -82,6 +82,7 @@ func moduleRoot(t *testing.T, generated string) (string, string) {
 }
 
 func TestModularize(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
 	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
@@ -153,6 +154,7 @@ func TestModularize(t *testing.T) {
 
 // A shape that occurs once gets no module: it would add nothing.
 func TestModularizeNeedsRepeatedShapes(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
 }
@@ -170,6 +172,7 @@ resource "aws_s3_bucket_versioning" "logs" {
 // A value that differs between clusters and refers inside them can't be a
 // variable: the clusters keep their resources.
 func TestModularizeDeclines(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, strings.Replace(strings.Replace(twoBuckets,
 		"bucket = aws_s3_bucket.logs.bucket", `bucket = "${aws_s3_bucket.logs.bucket}-a"`, 1),
 		"bucket = aws_s3_bucket.state.bucket", `bucket = "${aws_s3_bucket.state.bucket}-b"`, 1))
@@ -180,6 +183,7 @@ func TestModularizeDeclines(t *testing.T) {
 }
 
 func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: changeSummary{Change: 1}}}}
 
@@ -197,6 +201,7 @@ func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 }
 
 func TestLiftModulesKeeps(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas}
 
@@ -212,6 +217,7 @@ func TestLiftModulesKeeps(t *testing.T) {
 // A child that refers to two parents of the same type goes to the first by
 // address, whatever order its attributes come in.
 func TestFindClustersPicksTheFirstParentByAddress(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_security_group" "b" {
   name = "b"
 }
@@ -240,6 +246,7 @@ resource "aws_security_group_rule" "ab" {
 
 // An input fed by a secret variable is sensitive in the module too.
 func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, strings.Replace(strings.Replace(twoBuckets,
 		"bucket = \"logs\"\n", "bucket = \"logs\"\n  key    = var.aws_s3_bucket_logs_key\n", 1),
 		"bucket = \"state\"\n", "bucket = \"state\"\n  key    = var.aws_s3_bucket_state_key\n", 1))
@@ -265,6 +272,7 @@ func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
 }
 
 func TestLowerBound(t *testing.T) {
+	t.Parallel()
 	for constraint, want := range map[string]string{
 		"~> 6.14":        ">= 6.14",
 		">= 1.5, < 2.0":  ">= 1.5",
@@ -287,6 +295,7 @@ func TestLowerBound(t *testing.T) {
 // Roots imported in parallel share the modules directory: one root's undo
 // leaves a module another calls, and the last user's undo removes it.
 func TestReleaseModulesKeepsSharedModules(t *testing.T) {
+	t.Parallel()
 	modulesDir := t.TempDir()
 	path := filepath.Join(modulesDir, "bucket_1a2b3c4d")
 	write := func(at string) error { return os.WriteFile(filepath.Join(at, "main.tf"), []byte("# module\n"), 0o644) }
@@ -314,6 +323,7 @@ func TestReleaseModulesKeepsSharedModules(t *testing.T) {
 
 // A module is reused only when its variables and outputs match too.
 func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	created, _, err := modularize(dir, modulesDir, bucketSchemas)
 	if err != nil || len(created) != 1 {
@@ -339,6 +349,7 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 // A lift with the same totals is still undone when a resource left in the
 // root plans another change than it had, as verify undoes an edit.
 func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	shown := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"policy": "a"}, map[string]any{"policy": "b"}),
@@ -359,6 +370,7 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 // calls its modules by ./ paths: modules/<name> would be a registry
 // address.
 func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	modulesDir := filepath.Join(dir, ModulesDirName)
 
@@ -374,6 +386,7 @@ func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 }
 
 func TestLocalSource(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ rel, want string }{
 		{filepath.Join("..", "..", "..", ModulesDirName), "../../../modules/vpc"},
 		{ModulesDirName, "./modules/vpc"},
@@ -388,6 +401,7 @@ func TestLocalSource(t *testing.T) {
 // A generated module is laid out as it is written, before other roots can
 // see it.
 func TestModularizeLaysOutTheModule(t *testing.T) {
+	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
 	created, changed, err := modularize(dir, modulesDir, bucketSchemas)

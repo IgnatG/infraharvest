@@ -59,6 +59,7 @@ module "logs" {
 }
 
 func TestRootNames(t *testing.T) {
+	t.Parallel()
 	files, err := configFiles(existingRoot(t))
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +78,7 @@ func TestRootNames(t *testing.T) {
 }
 
 func TestHasConfiguration(t *testing.T) {
+	t.Parallel()
 	if has, err := HasConfiguration(existingRoot(t)); err != nil || !has {
 		t.Errorf("a generated root: got %v, %v", has, err)
 	}
@@ -91,6 +93,7 @@ func TestHasConfiguration(t *testing.T) {
 }
 
 func TestExisting(t *testing.T) {
+	t.Parallel()
 	dir := existingRoot(t)
 	previous := &Result{
 		Imported: []Import{
@@ -118,6 +121,7 @@ func TestExisting(t *testing.T) {
 }
 
 func TestAppliedTags(t *testing.T) {
+	t.Parallel()
 	files, err := configFiles(existingRoot(t))
 	if err != nil {
 		t.Fatal(err)
@@ -153,6 +157,7 @@ func TestAppliedTags(t *testing.T) {
 }
 
 func TestLabelledLeavesTakenLabels(t *testing.T) {
+	t.Parallel()
 	got := labelled([]Import{{Type: "aws_vpc", Name: "main", ID: "vpc-2"}, {Type: "aws_subnet", Name: "main", ID: "subnet-1"}}, Names{"aws_vpc.main": true}, false)
 	want := []Import{{Type: "aws_subnet", Name: "main", ID: "subnet-1"}, {Type: "aws_vpc", Name: "main_2", ID: "vpc-2"}}
 	if !reflect.DeepEqual(got, want) {
@@ -161,6 +166,7 @@ func TestLabelledLeavesTakenLabels(t *testing.T) {
 }
 
 func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, networkGenerated)
 	writeConfig(t, dir, ProvidersFileName, awsProviders)
@@ -219,6 +225,7 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	generatedBefore := readFile(t, root, GeneratedFileName)
 	staging := t.TempDir()
@@ -349,6 +356,7 @@ const queueGenerated = "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"jobs\"
 var addOptions = Options{Config: map[string][]byte{VersionsFileName: []byte("# versions\n"), ProvidersFileName: []byte("# providers\n")}}
 
 func TestAdd(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	staging := filepath.Join(t.TempDir(), "staging")
 	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
@@ -380,6 +388,7 @@ func TestAdd(t *testing.T) {
 // A root that doesn't initialize, or whose checks fail to run, stays as it
 // was: the next run adds the resources again.
 func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	before := dirFiles(t, root)
 	staging := filepath.Join(t.TempDir(), "staging")
@@ -397,6 +406,7 @@ func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {
 }
 
 func TestResultWith(t *testing.T) {
+	t.Parallel()
 	previous := &Result{Imported: []Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Gate: Gate{{Name: CheckFormat}}}
 	added := &Result{Imported: []Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Gate: Gate{{Name: CheckFormat, Passed: true}}}
 	got := previous.With(added)
@@ -412,6 +422,7 @@ func TestResultWith(t *testing.T) {
 // A root whose resources refer to local.tags: what is added refers to it
 // too, and the local stays root's own.
 func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeConfig(t, root, LocalsFileName, `locals {
   tags = { env = "prod" }
@@ -468,6 +479,7 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 // its type, which keeps the root's blocks as they were, or into a new
 // file of that name; only what names no file gets one of its own.
 func TestMergeIntoTheFilesOfTheTypes(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	network := "resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n"
 	writeConfig(t, root, "network.tf", network)
@@ -508,6 +520,7 @@ resource "aws_subnet" "a" {
 
 // A root that doesn't initialize keeps the files of the types as they were.
 func TestAddUndoesWhatItAddedToTheFilesOfTheTypes(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	writeConfig(t, root, "sqs.tf", "resource \"aws_sqs_queue\" \"old\" {\n  name = \"old\"\n}\n")
 	before := dirFiles(t, root)
@@ -557,6 +570,7 @@ provider "google-beta" {
 // pinned requirement into a root that has neither; the root's own stay as
 // they were. Before, the call ran on an unconfigured, unpinned provider.
 func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	rootProviders := "provider \"google\" {\n  project = \"acme-prod\"\n  region  = \"us-central1\"\n}\n"
 	writeConfig(t, root, ProvidersFileName, rootProviders)
@@ -613,6 +627,7 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
 // A root that requires none of its providers, as one written by hand may,
 // gets a required_providers block with only the provider it lacks.
 func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeConfig(t, root, "main.tf", "provider \"google\" {\n  project = \"acme-prod\"\n}\n")
 	staging := t.TempDir()
@@ -634,6 +649,7 @@ func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
 // A root that doesn't initialize gets its versions.tf back, without the
 // provider the added resources required.
 func TestAddUndoesTheProvidersItAdded(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	writeConfig(t, root, VersionsFileName, "terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n  }\n}\n")
 	before := dirFiles(t, root)
@@ -672,6 +688,7 @@ func TestAddUndoesTheProvidersItAdded(t *testing.T) {
 // variable, without a default, stays a variable of its own. Before, the
 // root declared the network lookup twice, as main and main_2.
 func TestMergeReusesTheRootsLookupsAndVariables(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
 	writeConfig(t, root, DataFileName, `data "google_compute_network" "main" {
@@ -748,6 +765,7 @@ variable "token_2" {
 // A data source or variable declared otherwise, as with another default,
 // is one of its own.
 func TestDeclarationKey(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), "main.tf", `data "google_compute_network" "a" {
   project = "acme-prod"
   name    = "main"
@@ -799,6 +817,7 @@ data "aws_ami" "f" {
 // The lock file staging holds, such as root's, is still there when the
 // additions are generated, and the providers staging requires accept it.
 func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
+	t.Parallel()
 	root := existingRoot(t)
 	staging := filepath.Join(t.TempDir(), "staging")
 	if err := os.MkdirAll(staging, 0o755); err != nil {

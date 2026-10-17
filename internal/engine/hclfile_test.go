@@ -6,6 +6,7 @@ package engine
 import "testing"
 
 func TestSortResources(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	f := writeConfig(t, dir, GeneratedFileName, `# __generated__ by Terraform
 # Please review these resources.

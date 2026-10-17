@@ -54,6 +54,7 @@ func labelledValues() map[string]map[string]any {
 // each resource gets those of effective_labels, without Google's own, but
 // one whose configuration has labels already, or that has only Google's.
 func TestFillTags(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, labelledTopics)
 
@@ -96,6 +97,7 @@ func labelsUpdate(address string, other bool) *tfjson.ResourceChange {
 // terraform_labels; a resource whose plan then changes anything else gets
 // none, and on a plan error no resource does.
 func TestFillEffectiveTags(t *testing.T) {
+	t.Parallel()
 	stateOnly := map[string][]string{"*": {"labels", "terraform_labels"}}
 	noChanges := map[string]string{}
 	for _, a := range []string{"google_pubsub_topic.orders", "google_pubsub_topic.events", "google_pubsub_topic.owned", "google_pubsub_topic.google", "google_dns_record_set.app"} {
@@ -170,6 +172,7 @@ func TestFillEffectiveTags(t *testing.T) {
 // The catalogue's state-only arguments for every type apply to each type,
 // with its own.
 func TestStateOnlyOf(t *testing.T) {
+	t.Parallel()
 	stateOnly := map[string][]string{"*": {"labels"}, "google_compute_network": {"delete_bgp_always_compare_med"}}
 	if got := strings.Join(stateOnlyOf(stateOnly, "google_compute_network"), ","); got != "labels,delete_bgp_always_compare_med" {
 		t.Errorf("google_compute_network: %s", got)
@@ -185,6 +188,7 @@ func TestStateOnlyOf(t *testing.T) {
 // The labels go with the other arguments, before the nested blocks, as
 // the style guide has them, not at the end of the resource.
 func TestFillTagsBeforeBlocks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "google_pubsub_subscription" "orders" {
   name = "orders"

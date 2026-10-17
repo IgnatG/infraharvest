@@ -18,6 +18,7 @@ type layoutCase struct {
 // between the two, in nested blocks too; comments move with what they are
 // above or after.
 func TestLayoutSeparatesArgumentsFromBlocks(t *testing.T) {
+	t.Parallel()
 	for name, tt := range map[string]layoutCase{
 		"arguments after a block": {
 			in: `resource "aws_lb" "a" {
@@ -158,6 +159,7 @@ module "net" {
 // its tags last; then each nested block, lifecycle and depends_on last,
 // each group apart.
 func TestLayoutOrdersArguments(t *testing.T) {
+	t.Parallel()
 	got, ok := layout([]byte(`resource "azurerm_subnet" "app" {
   address_prefixes     = ["10.0.1.0/24"]
   name                 = "app"
@@ -215,6 +217,7 @@ resource "aws_sqs_queue" "q" {
 // Blocks and objects that hold nothing go on one line; a heredoc's text
 // and a block with a comment stay as they are.
 func TestLayoutCollapsesEmptyBlocks(t *testing.T) {
+	t.Parallel()
 	got, ok := layout([]byte(`resource "aws_wafv2_web_acl" "a" {
   name = "a"
   policy = <<EOT

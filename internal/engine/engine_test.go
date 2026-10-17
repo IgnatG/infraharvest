@@ -24,6 +24,7 @@ import (
 )
 
 func TestImportsFile(t *testing.T) {
+	t.Parallel()
 	got, err := ImportsFile([]Import{
 		{Type: "aws_sqs_queue", Name: "r--orders", ID: "https://sqs.eu-west-1.amazonaws.com/123/orders"},
 		{Type: "aws_s3_bucket", Name: "r--logs", ID: `odd"id`},
@@ -48,6 +49,7 @@ import {
 }
 
 func TestImportsFileRejectsInvalidAddress(t *testing.T) {
+	t.Parallel()
 	if _, err := ImportsFile([]Import{{Type: "aws_sqs_queue", Name: "has space", ID: "x"}}); err == nil {
 		t.Error("want an error for an invalid resource name")
 	}
@@ -56,6 +58,7 @@ func TestImportsFileRejectsInvalidAddress(t *testing.T) {
 // A resource imported with a provider other than the one its type implies
 // says so, or Terraform would use the implied one.
 func TestImportsFileNamesTheProvider(t *testing.T) {
+	t.Parallel()
 	got, err := ImportsFile([]Import{{Type: "google_compute_network", Name: "main", ID: "projects/p/global/networks/main", Provider: "google-beta"}})
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +78,7 @@ func TestImportsFileNamesTheProvider(t *testing.T) {
 }
 
 func TestProvidersFile(t *testing.T) {
+	t.Parallel()
 	got, err := ProvidersFile(Provider{
 		Name:    "azurerm",
 		Source:  "hashicorp/azurerm",
@@ -102,6 +106,7 @@ func TestProvidersFile(t *testing.T) {
 }
 
 func TestVersionsFile(t *testing.T) {
+	t.Parallel()
 	got := VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
 
 	want := `terraform {
@@ -120,6 +125,7 @@ func TestVersionsFile(t *testing.T) {
 }
 
 func TestProvidersFileLeavesOutCredentials(t *testing.T) {
+	t.Parallel()
 	got, err := ProvidersFile(Provider{
 		Name:   "pagerduty",
 		Source: "PagerDuty/pagerduty",
@@ -158,6 +164,7 @@ func TestProvidersFileLeavesOutCredentials(t *testing.T) {
 }
 
 func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
+	t.Parallel()
 	_, err := ProvidersFile(Provider{Name: "aws", Source: "hashicorp/aws", Config: map[string]interface{}{"region": struct{}{}}})
 	if err == nil || !strings.Contains(err.Error(), "region") {
 		t.Errorf("want an error naming the argument, got %v", err)
@@ -368,6 +375,7 @@ func readFile(t *testing.T, dir, name string) string {
 }
 
 func TestGenerate(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "sqs")
 	tf := &fakeTerraform{dir: dir}
 
@@ -408,6 +416,7 @@ func TestGenerate(t *testing.T) {
 // since: here the plan after sorting, unless a resource another tool owns
 // is left out after it.
 func TestGeneratePlansAgainOnlyWhenTheConfigurationChanged(t *testing.T) {
+	t.Parallel()
 	// Out of order, so Generate sorts and plans again.
 	generated := `resource "aws_iam_role" "other" {
   name = "other"
@@ -446,6 +455,7 @@ resource "aws_iam_role" "app" {
 // sameFiles tells a directory's files from what they were, but not the
 // directories in it, such as .terraform.
 func TestSameFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "# a\n")
 	before, err := rootFileContents(dir)
@@ -491,6 +501,7 @@ func TestNewTerraformCreatesDirs(t *testing.T) {
 // holds secrets until Generate moves them into variables, and has its
 // mode back once they are.
 func TestGenerateKeepsTheDirectoryPrivateWhileSecretsAreInIt(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no permission bits for directories")
 	}
@@ -521,6 +532,7 @@ func TestGenerateKeepsTheDirectoryPrivateWhileSecretsAreInIt(t *testing.T) {
 }
 
 func TestGenerateRefusesToOverwrite(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, GeneratedFileName), []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
@@ -535,6 +547,7 @@ func TestGenerateRefusesToOverwrite(t *testing.T) {
 }
 
 func TestGenerateReportsTerraformFailures(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{err: errors.New("Failed to load plugin schemas")}}}
 
@@ -548,6 +561,7 @@ func TestGenerateReportsTerraformFailures(t *testing.T) {
 // Errors no resource explains, such as invalid provider configuration, fail
 // the whole directory.
 func TestGenerateFailsOnDirectoryErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{
 		{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration", Range: &tfjson.Range{Filename: ProvidersFileName, Start: tfjson.Pos{Line: 1}}},
@@ -570,6 +584,7 @@ func importErrorAt(line int, summary string) tfjson.Diagnostic {
 }
 
 func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{
 		dir: dir,
@@ -621,6 +636,7 @@ const invalidGenerated = `resource "aws_route53_record" "a" {
 `
 
 func TestGenerateRepairsAndReplans(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	rejected := errorAt(3, "Invalid combination of arguments", `"multivalue_answer_routing_policy": all of `+"`multivalue_answer_routing_policy,set_identifier`"+` must be specified`)
 	tf := &fakeTerraform{
@@ -647,6 +663,7 @@ func TestGenerateRepairsAndReplans(t *testing.T) {
 }
 
 func TestGenerateLeavesOutWhatRepairCannotFix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, generated: invalidGenerated, plans: []fakePlan{
 		{diags: []tfjson.Diagnostic{errorAt(2, "Invalid record name", "")}},
@@ -672,6 +689,7 @@ func TestGenerateLeavesOutWhatRepairCannotFix(t *testing.T) {
 }
 
 func TestGenerateGivesUpAfterMaxRounds(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	stuck := fakePlan{diags: []tfjson.Diagnostic{importErrorAt(2, "Cannot import")}}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{stuck, stuck, stuck, stuck, stuck}}
@@ -686,6 +704,7 @@ func TestGenerateGivesUpAfterMaxRounds(t *testing.T) {
 }
 
 func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	rejected := errorAt(3, "expected rotation_period_in_days to be in the range (90 - 2560), got 0", "")
 	tf := &fakeTerraform{
@@ -730,6 +749,7 @@ var ssmSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSch
 }}
 
 func TestGenerateMovesSecretsToVariables(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{
 		dir:       dir,
@@ -777,6 +797,7 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 }
 
 func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{
 		dir:       dir,
@@ -871,6 +892,7 @@ func TestBinaryFind(t *testing.T) {
 }
 
 func TestMergeEnv(t *testing.T) {
+	t.Parallel()
 	base := map[string]string{"Path": `C:\bin`, "TF_DATA_DIR": "/shared", "tf_log": "trace", "TF_VAR_name": "x", "HOME": "/home/me"}
 	over := map[string]string{"PATH": `C:\tools`, "AWS_REGION": "eu-west-1"}
 

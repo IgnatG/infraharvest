@@ -38,6 +38,7 @@ resource "aws_db_instance" "app-main" {
 `
 
 func TestFindSecrets(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, secretsConfig)
 
 	found := findSecrets(f)
@@ -61,6 +62,7 @@ func TestFindSecrets(t *testing.T) {
 }
 
 func TestSecretsToVariables(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, secretsConfig)
 
 	secrets := secretsToVariables(f, findSecrets(f), nil)
@@ -98,6 +100,7 @@ func TestSecretsToVariables(t *testing.T) {
 }
 
 func TestAttributeType(t *testing.T) {
+	t.Parallel()
 	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
 		"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
 			"aws_db_instance": {Block: &tfjson.SchemaBlock{
@@ -128,6 +131,7 @@ func TestAttributeType(t *testing.T) {
 }
 
 func TestVariablesFile(t *testing.T) {
+	t.Parallel()
 	secrets := []Secret{
 		{Variable: "a_secrets", Address: "aws_x.a", Attribute: "replica.secrets", schemaPath: []string{"replica", "secrets"}},
 		{Variable: "a_token", Address: "aws_x.a", Attribute: "token", schemaPath: []string{"token"}},
@@ -166,6 +170,7 @@ func TestVariablesFile(t *testing.T) {
 // gate doesn't take it for a leak although the provider marks it
 // sensitive.
 func TestGenerateWritesStringParameterValues(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		typ, name, value string
 		variable         bool
@@ -244,6 +249,7 @@ func importedChange(address string, before map[string]any) *tfjson.ResourceChang
 // would make the plan set it. One the object holds a value for keeps its
 // variable, as does one the schema requires.
 func TestGenerateLeavesOutUnsetSecrets(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{
 		dir: dir,
@@ -317,6 +323,7 @@ resource "aws_lightsail_database" "db" {
 // of a nested block type, whatever their order; allUnset says whether all
 // of what it found is null or empty.
 func TestValuesAt(t *testing.T) {
+	t.Parallel()
 	object := map[string]any{
 		"password": nil,
 		"key_raw":  "",
@@ -343,6 +350,7 @@ func TestValuesAt(t *testing.T) {
 }
 
 func TestAboutSecret(t *testing.T) {
+	t.Parallel()
 	secrets := []secretAttribute{{address: "aws_ssm_parameter.p", path: "value", schemaPath: []string{"value"}, rng: hcl.Range{Start: hcl.Pos{Line: 4}, End: hcl.Pos{Line: 4}}}}
 	for _, c := range []struct {
 		d    tfjson.Diagnostic

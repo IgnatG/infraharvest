@@ -14,6 +14,7 @@ import (
 // Resources go into their imports' files, module calls into their first
 // resource's; generated.tf goes once it is empty.
 func TestSplitFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_role" "app" {
   name = "app"
@@ -55,6 +56,7 @@ module "main" {
 
 // Without files to go to, and for reserved names, everything stays.
 func TestSplitFilesKeepsWhatNamesNoFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_iam_role\" \"app\" {\n}\n\nresource \"aws_sqs_queue\" \"jobs\" {\n}\n")
 	files, err := splitFiles(dir, []Import{{Type: "aws_iam_role", Name: "app", File: "iam.tf"}, {Type: "aws_sqs_queue", Name: "jobs", File: ImportsFileName}}, nil)

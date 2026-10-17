@@ -14,6 +14,7 @@ import (
 // blocks, a later release for a later feature, or what a module it calls
 // requires, not the version of the Terraform that generated it.
 func TestRequireMinimumVersion(t *testing.T) {
+	t.Parallel()
 	const versions = "terraform {\n  required_version = \">= 1.16, < 2.0\"\n}\n"
 	for name, tt := range map[string]struct {
 		files   map[string]string
@@ -79,6 +80,7 @@ func TestRequireMinimumVersion(t *testing.T) {
 }
 
 func TestRequireMinimumVersionWithoutVersionsFile(t *testing.T) {
+	t.Parallel()
 	if err := requireMinimumVersion(t.TempDir()); err != nil {
 		t.Error(err)
 	}

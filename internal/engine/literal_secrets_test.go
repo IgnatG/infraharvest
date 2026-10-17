@@ -125,6 +125,7 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 }
 
 func TestLiteralSecretsInContainerDefinitions(t *testing.T) {
+	t.Parallel()
 	password := fakeSecret("db")[:24]
 	token := fakeSecret("token")
 	dir := t.TempDir()
@@ -179,6 +180,7 @@ resource "aws_ecs_task_definition" "legacy" {
 // token.actions.githubusercontent.com:sub, so they don't make the values
 // secrets; a credential under a condition still is one.
 func TestLiteralSecretsLeaveOutPolicyConditions(t *testing.T) {
+	t.Parallel()
 	key := "github_pat_" + fakeSecret("pat")[:40]
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_role" "ci" {
@@ -224,6 +226,7 @@ resource "aws_iam_role" "legacy" {
 }
 
 func TestLiteralSecretsInAppSettingsAndEnv(t *testing.T) {
+	t.Parallel()
 	apiKey := fakeSecret("api")
 	password := fakeSecret("sql")[:20]
 	token := fakeSecret("run")
@@ -284,6 +287,7 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 func TestSecretReason(t *testing.T) {
+	t.Parallel()
 	secret := fakeSecret("x")
 	for _, tc := range []struct {
 		key, value string
@@ -342,6 +346,7 @@ func TestSecretReason(t *testing.T) {
 }
 
 func TestKeyWords(t *testing.T) {
+	t.Parallel()
 	for key, want := range map[string]string{
 		"DB_PASSWORD":   "DB PASSWORD",
 		"dbPassword":    "DB PASSWORD",
@@ -358,6 +363,7 @@ func TestKeyWords(t *testing.T) {
 // An access key ID used as a tag key isn't a secret, but is worth a
 // warning.
 func TestAccessKeyTagWarning(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "ci" {
   name = "ci"
@@ -383,6 +389,7 @@ func TestAccessKeyTagWarning(t *testing.T) {
 // The gate fails a root with a secret value left in it, such as one an
 // edit put back.
 func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "api" {
   function_name = "api"
@@ -412,6 +419,7 @@ func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
 // The secrets a run killed before it could remove them go once they are a
 // day old; those of a run still going, and other directories, stay.
 func TestRemoveStaleSecretValues(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	old := time.Now().Add(-48 * time.Hour)
 	mkdir := func(name string, modified time.Time) string {
@@ -447,6 +455,7 @@ func TestRemoveStaleSecretValues(t *testing.T) {
 // Scripts hide secrets the other checks can't see: in base64, as a launch
 // template keeps its user data, or on a line of their own.
 func TestLiteralSecretsInScripts(t *testing.T) {
+	t.Parallel()
 	password := fakeSecret("script-db")[:20]
 	token := fakeSecret("script-token")[:32]
 	userData := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nyum install -y mysql\nexport DB_PASSWORD='" + password + "'\n"))
@@ -493,6 +502,7 @@ resource "google_compute_instance" "web" {
 }
 
 func TestScriptSecret(t *testing.T) {
+	t.Parallel()
 	secret := fakeSecret("script")[:20]
 	for script, want := range map[string]bool{
 		"export DB_PASSWORD=" + secret:                                         true,
@@ -516,6 +526,7 @@ func TestScriptSecret(t *testing.T) {
 // A value a JSON string repeats becomes one variable, read wherever the
 // value was.
 func TestLiteralSecretsRepeatedInAJSONString(t *testing.T) {
+	t.Parallel()
 	token := fakeSecret("token")
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
@@ -541,6 +552,7 @@ func TestLiteralSecretsRepeatedInAJSONString(t *testing.T) {
 // A value jsonencode would write otherwise than the string has it can't
 // be read in place without changing the plan: the whole string moves.
 func TestLiteralSecretsJSONEncodedOtherwise(t *testing.T) {
+	t.Parallel()
 	token := fakeSecret("amp")[:32] + "&" + fakeSecret("amp")[32:]
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {

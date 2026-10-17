@@ -18,6 +18,7 @@ var lambdaPlaceholder = map[string]Placeholder{"aws_lambda_function": {
 // A zip function, which names no code, gets a placeholder that Terraform
 // ignores; an image function, which names its image, doesn't.
 func TestSetPlaceholders(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	f := writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "zip" {
   filename      = null

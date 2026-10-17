@@ -26,6 +26,7 @@ func change(address string, actions tfjson.Actions, before, after map[string]any
 var update = tfjson.Actions{tfjson.ActionUpdate}
 
 func TestPlanCheck(t *testing.T) {
+	t.Parallel()
 	stateOnly := map[string][]string{"aws_secretsmanager_secret": {"recovery_window_in_days"}}
 	secrets := []Secret{{Variable: "v", Address: "aws_ssm_parameter.p", Attribute: "value"}, {Variable: "w", Address: "aws_mq_broker.b", Attribute: "user[0].password"}}
 	for _, tc := range []struct {
@@ -83,6 +84,7 @@ func TestPlanCheck(t *testing.T) {
 }
 
 func TestChangedLeaves(t *testing.T) {
+	t.Parallel()
 	before := map[string]any{
 		"cidr_block": "10.0.0.0/16",
 		"tags":       nil,
@@ -118,6 +120,7 @@ func TestChangedLeaves(t *testing.T) {
 }
 
 func TestSensitiveValues(t *testing.T) {
+	t.Parallel()
 	p := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{{
 		Change: &tfjson.Change{
 			Before:          map[string]any{"name": "app-db", "password": "s3cr3t-value", "nested": []any{map[string]any{"token": "tok-123456"}}, "short": "abc"},
@@ -136,6 +139,7 @@ func TestSensitiveValues(t *testing.T) {
 // secret: the provider marks every SSM parameter's value sensitive, even
 // one holding the region the resource is in.
 func TestSensitiveValuesLeavesOutPublicOnes(t *testing.T) {
+	t.Parallel()
 	p := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		{Change: &tfjson.Change{
 			Before:          map[string]any{"name": "/app/region", "region": "eu-west-1", "value": "eu-west-1"},
@@ -164,6 +168,7 @@ func TestSensitiveValuesLeavesOutPublicOnes(t *testing.T) {
 }
 
 func TestScanSecrets(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_db_instance" "a" {
   password = "s3cr3t-value"
@@ -216,6 +221,7 @@ var (
 // An access key ID is an identifier: on its own, or beside a hex digest,
 // it is no credential; beside what looks like its secret, it is.
 func TestAWSKeyPair(t *testing.T) {
+	t.Parallel()
 	for content, want := range map[string]bool{
 		`tags = { ` + testKeyID + ` = "tool" }`:                                                false,
 		`id = "` + testKeyID + `"` + "\n" + `sha = "3f786850e387550fdab836ed7e6dc881de23001b"`: false,
@@ -230,6 +236,7 @@ func TestAWSKeyPair(t *testing.T) {
 }
 
 func TestScanNondeterminism(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_ssm_parameter" "a" {
   value = timestamp()
@@ -250,6 +257,7 @@ func TestScanNondeterminism(t *testing.T) {
 // calls, and those they call, outside the root's directory; modules it
 // doesn't call aren't its to check.
 func TestScansCoverCalledModules(t *testing.T) {
+	t.Parallel()
 	out := t.TempDir()
 	root, vpc, subnet, unused := filepath.Join(out, "aws", "eu-west-2"), filepath.Join(out, "modules", "vpc"), filepath.Join(out, "modules", "subnet"), filepath.Join(out, "modules", "unused")
 	for _, d := range []string{root, vpc, subnet, unused} {
@@ -299,6 +307,7 @@ resource "aws_ssm_parameter" "a" {
 }
 
 func TestRunGate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, ImportsFileName, `import {
   to = aws_vpc.main
@@ -340,6 +349,7 @@ func withUnknown(rc *tfjson.ResourceChange, attributes ...string) *tfjson.Resour
 }
 
 func TestScanNondeterminismIgnoresStringsAndComments(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `# set at timestamp() time
 resource "aws_ssm_parameter" "a" {
@@ -362,6 +372,7 @@ resource "aws_ssm_parameter" "a" {
 // External scanners are other people's code, and some upload what they
 // scan: they never see a directory that holds a secret value.
 func TestScannersDontSeeSecrets(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, ImportsFileName, `import {
   to = aws_vpc.main
@@ -399,6 +410,7 @@ func TestScannersDontSeeSecrets(t *testing.T) {
 // A gate interrupted part way fails as cancelled, not with the checks
 // that were cut short.
 func TestGateCancelled(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"

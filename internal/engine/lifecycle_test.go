@@ -29,6 +29,7 @@ resource "aws_api_gateway_stage" "prod" {
 // Every resource of the type gets create_before_destroy, with the reason
 // above it, but one that sets it already, and no other type.
 func TestSetLifecycles(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	if err := os.WriteFile(path, []byte(deploymentsGenerated), 0o644); err != nil {
 		t.Fatal(err)

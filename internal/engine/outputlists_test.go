@@ -15,6 +15,7 @@ import (
 )
 
 func TestOutputLists(t *testing.T) {
+	t.Parallel()
 	trials := []*trial{{name: "vpc", call: &adapters.Call{Outputs: map[string]map[string]string{
 		"aws_vpc.main":       {"id": "vpc_id"},
 		"aws_subnet.a":       {"id": "public_subnets[0]", "arn": "public_subnet_arns[0]"},
@@ -42,6 +43,7 @@ var listSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSc
 // A list of every element of a module's list output is the output: in any
 // order where the argument is a set, else only in the output's order.
 func TestCollapseOutputLists(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "web" {
   security_groups = [aws_security_group.web.id]

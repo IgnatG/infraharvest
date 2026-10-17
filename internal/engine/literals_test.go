@@ -37,6 +37,7 @@ var targetGroupSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.Pro
 // element by element in lists. References and what has the right type
 // already stay as they are.
 func TestTypeLiterals(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, "alb.tf", `resource "aws_lb_target_group" "a" {
   enabled = "true"

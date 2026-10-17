@@ -123,6 +123,7 @@ resource "aws_sns_topic_subscription" "orders" {
 // Short IDs, names and IDs inside longer strings become references where
 // the argument and the value leave no doubt which resource they name.
 func TestAddReferencesByIdentities(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, shopGenerated)
 
@@ -182,6 +183,7 @@ func TestAddReferencesByIdentities(t *testing.T) {
 // A value several resources have is no reference, unless the argument
 // names one's type or another argument of the block refers to one.
 func TestAddReferencesLeavesAmbiguousIdentities(t *testing.T) {
+	t.Parallel()
 	values := map[string]map[string]any{
 		"aws_sqs_queue.jobs": {"id": "https://sqs.eu-west-2.amazonaws.com/1/jobs", "name": "jobs"},
 		"aws_sns_topic.jobs": {"id": "arn:aws:sns:eu-west-2:1:jobs", "name": "jobs"},
@@ -239,6 +241,7 @@ resource "aws_network_interface" "x" {
 // An Azure resource's location is its resource group's when it is in the
 // group; elsewhere, or in a nested block, it stays.
 func TestAddReferencesToResourceGroupLocations(t *testing.T) {
+	t.Parallel()
 	const sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
 	values := map[string]map[string]any{
 		"azurerm_resource_group.app":   {"id": sub + "/resourceGroups/app", "name": "app", "location": "uksouth"},
@@ -291,6 +294,7 @@ resource "azurerm_resource_group" "other" {
 // A resource whose new references change the plan keeps only the
 // references of whole IDs; the others keep theirs.
 func TestVerifyEachUndoesOnlyTheResourcesThatChange(t *testing.T) {
+	t.Parallel()
 	values := map[string]map[string]any{
 		"aws_api_gateway_rest_api.shop":   {"id": "okoipb1lhk", "name": "shop"},
 		"aws_api_gateway_resource.orders": {"id": "a1b2c3"},
@@ -347,6 +351,7 @@ resource "aws_subnet" "a" {
 
 // When the plan's errors aren't about a resource, nothing is kept.
 func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
+	t.Parallel()
 	values := map[string]map[string]any{"aws_vpc.main": {"id": "vpc-0abc1234"}}
 	dir := t.TempDir()
 	const config = "resource \"aws_subnet\" \"a\" {\n  vpc_id = \"vpc-0abc1234\"\n}\n"
@@ -366,6 +371,7 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 
 // The tenant a Key Vault trusts is the one the provider signs in to.
 func TestAddLookupsOfTheTenant(t *testing.T) {
+	t.Parallel()
 	const tenant = "11111111-2222-3333-4444-555555555555"
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_key_vault" "main" {
@@ -396,6 +402,7 @@ resource "aws_instance" "other" {
 // Domain names identify a distribution and a bucket; the distribution's
 // zone, which every distribution has, follows the alias's name.
 func TestAddReferencesByDomainNames(t *testing.T) {
+	t.Parallel()
 	values := map[string]map[string]any{
 		"aws_cloudfront_distribution.web": {"id": "E2QWRUHAPOMQZL", "arn": "arn:aws:cloudfront::1:distribution/E2QWRUHAPOMQZL", "domain_name": "d111111abcdef8.cloudfront.net", "hosted_zone_id": "Z2FDTNDATAQYW2"},
 		"aws_cloudfront_distribution.api": {"id": "E3ABCDEF123456", "arn": "arn:aws:cloudfront::1:distribution/E3ABCDEF123456", "domain_name": "d222222abcdef8.cloudfront.net", "hosted_zone_id": "Z2FDTNDATAQYW2"},
@@ -433,6 +440,7 @@ resource "aws_route53_record" "www" {
 }
 
 func TestSnakeCase(t *testing.T) {
+	t.Parallel()
 	for key, want := range map[string]string{
 		"QueueName":            "queue_name",
 		"DBInstanceIdentifier": "db_instance_identifier",
@@ -448,6 +456,7 @@ func TestSnakeCase(t *testing.T) {
 }
 
 func TestNamesType(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		argument, address string
 		want              bool
@@ -472,6 +481,7 @@ func TestNamesType(t *testing.T) {
 
 // A private DNS zone names its network on the Compute API's own host.
 func TestAddReferencesBySelfLinkOnTheComputeHost(t *testing.T) {
+	t.Parallel()
 	values := map[string]map[string]any{
 		"google_compute_network.main": {"id": "projects/acme/global/networks/main", "name": "main", "self_link": "https://www.googleapis.com/compute/v1/projects/acme/global/networks/main"},
 	}

@@ -17,6 +17,7 @@ import (
 // values, required arguments, aliased providers and types the schema
 // doesn't describe keep theirs.
 func TestOmitInherited(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, ProvidersFileName, `provider "google" {
   add_terraform_attribution_label = false
@@ -97,6 +98,7 @@ resource "google_dns_record_set" "app" {
 
 // Without a value to repeat, the schema isn't read.
 func TestOmitInheritedWithoutProviderValues(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, ProvidersFileName, "provider \"google\" {\n  add_terraform_attribution_label = false\n}\n")
 	writeConfig(t, dir, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  project = \"acme\"\n}\n")

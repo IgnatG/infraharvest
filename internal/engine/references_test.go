@@ -27,6 +27,7 @@ var importedValues = map[string]map[string]any{
 }
 
 func TestReferenceIndex(t *testing.T) {
+	t.Parallel()
 	index := referenceIndex(importedValues)
 
 	for value, want := range map[string][]referenceTarget{
@@ -47,6 +48,7 @@ func TestReferenceIndex(t *testing.T) {
 }
 
 func TestUniqueTarget(t *testing.T) {
+	t.Parallel()
 	index := referenceIndex(importedValues)
 	for _, tc := range []struct {
 		argument, value, want string
@@ -109,6 +111,7 @@ resource "aws_sfn_state_machine" "flow" {
 `
 
 func TestAddReferences(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
 
@@ -154,6 +157,7 @@ func TestAddReferences(t *testing.T) {
 // A role and its instance profile share their name as id: the arguments
 // named role refer to the role, the names stay.
 func TestAddReferencesToTheOwnerNamedAfterTheArgument(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_instance_profile" "ci" {
   name = "ci"
@@ -196,6 +200,7 @@ resource "aws_iam_role_policy_attachment" "ci" {
 }
 
 func TestDependenciesRejectCycles(t *testing.T) {
+	t.Parallel()
 	g := dependencies{}
 	for _, edge := range [][2]string{{"a", "b"}, {"b", "c"}} {
 		if !g.add(edge[0], edge[1]) {
@@ -214,6 +219,7 @@ func TestDependenciesRejectCycles(t *testing.T) {
 // find defaults among the constants, then plans once for all the steps,
 // which keeps them (see verifySteps).
 func TestPostProcessAddsReferences(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues)}
@@ -231,6 +237,7 @@ func TestPostProcessAddsReferences(t *testing.T) {
 }
 
 func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
 	// The imported values, then the plan of every step at once, then that
@@ -248,6 +255,7 @@ func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 }
 
 func TestPlaceholders(t *testing.T) {
+	t.Parallel()
 	vars := placeholders([]Secret{{Variable: "a"}, {Variable: "b", ty: ssmSchemas.Schemas["registry.terraform.io/hashicorp/aws"].ResourceSchemas["aws_ssm_parameter"].Block.Attributes["value"].AttributeType}})
 	if len(vars) != 2 {
 		t.Errorf("want a value per secret, got %d", len(vars))
@@ -270,6 +278,7 @@ func plannedImports(values map[string]map[string]any) *tfjson.Plan {
 // the resource of that type with that name whose ID starts the resource's
 // own, not to one of the same name in another resource group.
 func TestAddReferencesToParentsByName(t *testing.T) {
+	t.Parallel()
 	const sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
 	values := map[string]map[string]any{
 		"azurerm_resource_group.app":         {"id": sub + "/resourceGroups/app", "name": "app"},
@@ -321,6 +330,7 @@ resource "azurerm_virtual_network" "other_main" {
 
 // Google resources refer to one another by self link.
 func TestAddReferencesBySelfLink(t *testing.T) {
+	t.Parallel()
 	const network = "https://www.googleapis.com/compute/v1/projects/acme/global/networks/main"
 	values := map[string]map[string]any{
 		"google_compute_network.main":   {"id": "projects/acme/global/networks/main", "name": "main", "self_link": network},
@@ -351,6 +361,7 @@ resource "google_compute_firewall" "https" {
 // Literals in the objects of a list, such as a route table's routes, are
 // references too; the other attributes stay as they were.
 func TestAddReferencesInListsOfObjects(t *testing.T) {
+	t.Parallel()
 	values := map[string]map[string]any{
 		"aws_internet_gateway.main": {"id": "igw-0abc12345", "arn": "arn:aws:ec2:us-east-1:123:internet-gateway/igw-0abc12345"},
 	}
@@ -376,6 +387,7 @@ func TestAddReferencesInListsOfObjects(t *testing.T) {
 // A service account's email and IAM member identify it: grants and
 // settings that name it refer to it.
 func TestAddReferencesToServiceAccounts(t *testing.T) {
+	t.Parallel()
 	const email = "ci@acme.iam.gserviceaccount.com"
 	values := map[string]map[string]any{
 		"google_service_account.ci": {"id": "projects/acme/serviceAccounts/" + email, "email": email, "member": "serviceAccount:" + email, "name": "projects/acme/serviceAccounts/" + email},
