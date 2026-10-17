@@ -183,6 +183,7 @@ type fakeTerraform struct {
 	shown       *tfjson.Plan   // returned by ShowPlanFile once showns is used up; empty if nil
 	showns      []*tfjson.Plan // returned by successive ShowPlanFile calls
 	initErr     error
+	onInit      func() // called by Init, if set
 	calls       []string
 	// varFiles has the content of the var files plans were given, by path.
 	varFiles map[string]string
@@ -193,6 +194,9 @@ type fakeTerraform struct {
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
 	f.calls = append(f.calls, "init")
+	if f.onInit != nil {
+		f.onInit()
+	}
 	return f.initErr
 }
 

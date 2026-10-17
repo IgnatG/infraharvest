@@ -795,3 +795,43 @@ data "aws_ami" "f" {
 		t.Errorf("a block with nested blocks: %q", keys["f"])
 	}
 }
+
+// The lock file staging holds, such as root's, is still there when the
+// additions are generated, and the providers staging requires accept it.
+func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
+	root := existingRoot(t)
+	staging := filepath.Join(t.TempDir(), "staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock := "provider \"registry.terraform.io/hashicorp/aws\" {\n  version = \"6.30.1\"\n}\n"
+	if err := os.WriteFile(filepath.Join(staging, LockFileName), []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := addOptions
+	opts.Config = map[string][]byte{
+		VersionsFileName:  VersionsFile("", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"}),
+		ProvidersFileName: []byte("# providers\n"),
+	}
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	var lockAtInit, versionsAtInit string
+	tf.onInit = func() {
+		lockAtInit = readFile(t, staging, LockFileName)
+		versionsAtInit = readFile(t, staging, VersionsFileName)
+	}
+	rootTF := &fakeTerraform{dir: root}
+
+	if _, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if lockAtInit != lock {
+		t.Errorf("lock at init:\n%s\nwant\n%s", lockAtInit, lock)
+	}
+	if !strings.Contains(versionsAtInit, `"~> 6.30"`) {
+		t.Errorf("versions.tf at init doesn't accept the lock:\n%s", versionsAtInit)
+	}
+	if got := string(opts.Config[VersionsFileName]); !strings.Contains(got, `"~> 6.67"`) {
+		t.Errorf("the caller's options changed:\n%s", got)
+	}
+}

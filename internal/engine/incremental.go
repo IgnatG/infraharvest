@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,9 +196,34 @@ func literalLocal(files []*hclFile, name string) (map[string]string, bool) {
 // Then it adds the result to root (see merge), where it runs the
 // verification gate with rootTF: the plan check is staging's, as root's
 // plan needs its state.
+//
+// Staging may hold the lock file to generate with, such as root's: Add
+// empties staging but for it, and pins the providers opts.Config requires
+// to its releases (see pinnedToLock), so that the additions are generated
+// with the provider releases root runs.
 func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
+	lock, err := os.ReadFile(filepath.Join(staging, LockFileName))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
 	if err := os.RemoveAll(staging); err != nil {
 		return nil, err
+	}
+	if lock != nil {
+		if err := os.MkdirAll(staging, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(staging, LockFileName), lock, 0o644); err != nil {
+			return nil, err
+		}
+		if versions, ok := opts.Config[VersionsFileName]; ok {
+			pinned, err := pinnedToLock(versions, lock)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", VersionsFileName, err)
+			}
+			opts.Config = maps.Clone(opts.Config)
+			opts.Config[VersionsFileName] = pinned
+		}
 	}
 	files, err := configFiles(root)
 	if err != nil {

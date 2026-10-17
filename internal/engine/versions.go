@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -296,6 +297,71 @@ func LockedVersion(lock []byte, source string) string {
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && !v.IsNull() {
 				return v.AsString()
 			}
+		}
+	}
+	return ""
+}
+
+// pinnedToLock returns versions, a file with a terraform block, with each
+// provider its required_providers names that lock records pinned to the
+// locked release's minor line (see ProviderConstraint): init then accepts
+// the lock, instead of failing on a constraint the locked release doesn't
+// meet. Requirements that aren't literal, and providers lock doesn't
+// record, stay as they are.
+func pinnedToLock(versions, lock []byte) ([]byte, error) {
+	f, diags := hclwrite.ParseConfig(versions, VersionsFileName, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	changed := false
+	for _, tb := range f.Body().Blocks() {
+		if tb.Type() != "terraform" {
+			continue
+		}
+		for _, rb := range tb.Body().Blocks() {
+			if rb.Type() != "required_providers" {
+				continue
+			}
+			for name, attr := range rb.Body().Attributes() {
+				expr, diags := hclsyntax.ParseExpression(attr.Expr().BuildTokens(nil).Bytes(), VersionsFileName, hcl.InitialPos)
+				if diags.HasErrors() {
+					continue
+				}
+				v, diags := expr.Value(nil)
+				if diags.HasErrors() || !v.Type().IsObjectType() || !v.Type().HasAttribute("source") {
+					continue
+				}
+				source := v.GetAttr("source")
+				if source.IsNull() || source.Type() != cty.String {
+					continue
+				}
+				locked, err := version.NewVersion(lockedVersionOf(lock, source.AsString()))
+				if err != nil {
+					continue
+				}
+				requirement := v.AsValueMap()
+				requirement["version"] = cty.StringVal(ProviderConstraint(locked))
+				rb.Body().SetAttributeValue(name, cty.ObjectVal(requirement))
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return versions, nil
+	}
+	return hclwrite.Format(f.Bytes()), nil
+}
+
+// lockedVersionOf is LockedVersion for a provider source as
+// required_providers names it: without a host, it is the provider of the
+// Terraform or the OpenTofu registry, whichever the lock records.
+func lockedVersionOf(lock []byte, source string) string {
+	if strings.Count(source, "/") >= 2 {
+		return LockedVersion(lock, source)
+	}
+	for _, registry := range []string{DefaultRegistry, TofuBinary.Registry} {
+		if v := LockedVersion(lock, registry+"/"+source); v != "" {
+			return v
 		}
 	}
 	return ""
