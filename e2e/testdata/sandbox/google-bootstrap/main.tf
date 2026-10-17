@@ -83,6 +83,9 @@ locals {
     "roles/compute.networkAdmin",
     # Firewall rules.
     "roles/compute.securityAdmin",
+    # Instances and disks; the instance has no service account, so the
+    # fixture needn't act as one.
+    "roles/compute.instanceAdmin.v1",
     # Managed zones and record sets, and binding a private zone to a
     # network.
     "roles/dns.admin",

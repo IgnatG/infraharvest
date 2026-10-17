@@ -112,6 +112,7 @@ func TestSandboxGoogle(t *testing.T) {
 	s.checkGoogleFound(t, coverage, created)
 	checkGoogleLabels(ctx, t, s, coverage, created)
 	checkGoogleFunction(t, coverage, created)
+	checkGoogleDisks(t, coverage, created)
 	if imported["google_project"] == 0 {
 		t.Errorf("the import doesn't import the project %s", s.project)
 	}
@@ -207,8 +208,9 @@ func estateName(ctx context.Context, t *testing.T, estate *sandboxEstate) string
 // at the end are logged, and the test goes on: one a failed run left is
 // there to import. It waits too for what Google creates for the estate's
 // function (see googleManagedFor), which the default selection must leave
-// out, but not for the function itself, whose search results lag by hours
-// (see sandboxGoogleLagging).
+// out, and for the instance's boot disk (see googleBootDisks), but not
+// for the function itself, whose search results lag by hours (see
+// sandboxGoogleLagging).
 func waitForInventory(ctx context.Context, t *testing.T, project string, created []*tfjson.StateResource, name string) {
 	t.Helper()
 	cat := catalogue.MustBuiltin("google")
@@ -228,7 +230,7 @@ func waitForInventory(ctx context.Context, t *testing.T, project string, created
 		t.Fatal("the estate creates nothing Cloud Asset Inventory lists")
 	}
 	estateTypes := slices.Clone(assetTypes)
-	managed := googleManagedFor(created)
+	managed := append(googleManagedFor(created), googleBootDisks(created)...)
 	for _, m := range managed {
 		if !slices.Contains(assetTypes, m.assetType) {
 			assetTypes = append(assetTypes, m.assetType)
@@ -661,5 +663,85 @@ func checkGoogleFunction(t *testing.T, coverage report.Report, created []*tfjson
 		default:
 			t.Logf("the import doesn't find %s: Cloud Asset Inventory syncs functions every 7 hours, and hasn't listed it yet", id)
 		}
+	}
+}
+
+// googleBootDisks returns the boot disk of each instance the estate
+// created, which Google creates with the instance and names after it: its
+// boot_disk block's source, or, without one, the disk of the instance's
+// name in its zone.
+func googleBootDisks(created []*tfjson.StateResource) []googleManaged {
+	var disks []googleManaged
+	for _, r := range created {
+		if r.Type != "google_compute_instance" {
+			continue
+		}
+		id, _ := r.AttributeValues["id"].(string)
+		boot := strings.Replace(id, "/instances/", "/disks/", 1)
+		if blocks, ok := r.AttributeValues["boot_disk"].([]any); ok && len(blocks) == 1 {
+			if block, ok := blocks[0].(map[string]any); ok {
+				if source, _ := block["source"].(string); strings.Contains(source, "/projects/") {
+					boot = source[strings.Index(source, "/projects/")+1:]
+				}
+			}
+		}
+		disks = append(disks, googleManaged{
+			what:      "the boot disk " + boot + " of " + r.Address,
+			typ:       "google_compute_disk",
+			assetType: "compute.googleapis.com/Disk",
+			match:     func(id string) bool { return id == boot },
+		})
+	}
+	return disks
+}
+
+// checkGoogleDisks checks what the import makes of the estate's instance
+// and its disks: the default selection leaves out the boot disk, named
+// after the instance, as the boot disk of an instance, which manages it
+// in its boot_disk block, and the import imports the data disk on its
+// own, as google_compute_disk, which the instance attaches by its
+// source. No disk is left out because the project's instances couldn't
+// be listed: the list's fields mask is one the Compute Engine API takes.
+func checkGoogleDisks(t *testing.T, coverage report.Report, created []*tfjson.StateResource) {
+	t.Helper()
+	boots := googleBootDisks(created)
+	if len(boots) == 0 {
+		t.Fatal("the estate creates no instance")
+	}
+	for _, b := range boots {
+		i := slices.IndexFunc(coverage.Excluded, func(e report.Excluded) bool { return e.Type == b.typ && b.match(e.ID) })
+		switch {
+		case i < 0:
+			t.Errorf("the import doesn't leave out %s", b.what)
+		case !strings.Contains(coverage.Excluded[i].Reason, "the boot disk of an instance"):
+			t.Errorf("the import leaves out %s, but as %q, not as an instance's boot disk", b.what, coverage.Excluded[i].Reason)
+		default:
+			t.Logf("%s left out: %s", coverage.Excluded[i].ID, coverage.Excluded[i].Reason)
+		}
+	}
+	for _, e := range coverage.Excluded {
+		if (e.Type == "google_compute_disk" || e.Type == "google_compute_region_disk") && strings.Contains(e.Reason, "couldn't be listed") {
+			t.Errorf("%s left out as the project's instances couldn't be listed: %s", e.ID, e.Reason)
+		}
+	}
+	imported := map[string]string{}
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			imported[r.ID] = r.Address
+		}
+	}
+	data := 0
+	for _, r := range created {
+		if r.Type != "google_compute_disk" {
+			continue
+		}
+		data++
+		id, _ := r.AttributeValues["id"].(string)
+		if address := imported[id]; !strings.HasPrefix(address, "google_compute_disk.") {
+			t.Errorf("the import doesn't import the data disk %s as a disk of its own: %q", id, address)
+		}
+	}
+	if data == 0 {
+		t.Error("the estate creates no data disk")
 	}
 }

@@ -1,12 +1,14 @@
 # Resources the Google Cloud sandbox test (sandbox_google_test.go) creates
 # in a real project before importing them: what floci-gcp can't cover,
 # such as real Cloud Asset Inventory search results, Cloud DNS zones and
-# record sets, a Cloud Router and a 2nd gen function, with what Google
-# creates for it, and whether the read-only template
+# record sets, a Cloud Router, a stopped instance with a boot disk and a
+# data disk, and a 2nd gen function, with what Google creates for it,
+# and whether the read-only template
 # (permissions/google) grants enough. The project and its APIs come from
 # the sandbox bootstrap (testdata/sandbox/google-bootstrap), which lets
 # the fixture service account manage these kinds of resources: nothing
-# bills by the hour, and it is destroyed after each run.
+# bills by the hour but two small disks, and it is destroyed after each
+# run.
 # The provider signs in with the credentials file the test names in
 # GOOGLE_APPLICATION_CREDENTIALS: the fixture service account's.
 
@@ -44,7 +46,7 @@ variable "project" {
 }
 
 variable "region" {
-  description = "Where the regional resources are: the subnetworks, the router, the bucket and the function."
+  description = "Where the regional resources are: the subnetworks, the router, the instance and its disks (in the region's zone a), the bucket and the function."
   type        = string
   default     = "europe-west2"
 }
@@ -123,6 +125,46 @@ resource "google_compute_router" "main" {
 
   bgp {
     asn = 64514
+  }
+}
+
+# A stopped e2-micro instance with a standard boot disk, which Google
+# names after the instance, and a standard data disk, each 10 GB, the
+# smallest a standard disk can be: a stopped instance bills only its
+# disks, a fraction of a cent for the minutes they exist. It has no
+# external address and no service account. The default selection must
+# leave out the boot disk, which the instance manages in its boot_disk
+# block, and the import must import the data disk, which the instance
+# attaches by its source.
+resource "google_compute_disk" "data" {
+  name   = "${local.name}-disk"
+  zone   = "${var.region}-a"
+  type   = "pd-standard"
+  size   = 10
+  labels = local.labels
+}
+
+resource "google_compute_instance" "app" {
+  name           = "${local.name}-vm"
+  zone           = "${var.region}-a"
+  machine_type   = "e2-micro"
+  desired_status = "TERMINATED"
+  labels         = local.labels
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      type  = "pd-standard"
+      size  = 10
+    }
+  }
+
+  attached_disk {
+    source = google_compute_disk.data.id
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.app.id
   }
 }
 
