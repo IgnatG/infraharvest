@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -70,6 +71,38 @@ type Manifest struct {
 	// only an older major release of the provider than its newest, so
 	// their resources stay in the root, on the newest provider.
 	Unused []UnusedModule `json:"unused_modules,omitempty"`
+}
+
+// Add adds the manifest of another Import call of the same run, which
+// may have selected other modules, to m: the first manifest added is
+// taken whole; after it, the newer and unused modules of either count,
+// once each, and the provider of a call that held it back wins, so that
+// the reason is shown.
+func (m *Manifest) Add(other Manifest) {
+	if m.Tool.Name == "" {
+		*m = other
+		return
+	}
+	if m.Provider.HeldBack == "" && other.Provider.HeldBack != "" {
+		version := m.Provider.Version
+		m.Provider = other.Provider
+		if m.Provider.Version == "" {
+			m.Provider.Version = version
+		}
+	}
+	if m.Provider.Version == "" {
+		m.Provider.Version = other.Provider.Version
+	}
+	for _, mv := range other.Modules {
+		if !slices.ContainsFunc(m.Modules, func(have ModuleVersion) bool { return have.Source == mv.Source && have.Version == mv.Version }) {
+			m.Modules = append(m.Modules, mv)
+		}
+	}
+	for _, u := range other.Unused {
+		if !slices.Contains(m.Unused, u) {
+			m.Unused = append(m.Unused, u)
+		}
+	}
 }
 
 // UnusedModule is a module version the import doesn't call: Accepts is
@@ -273,11 +306,7 @@ func (r *Report) AddListed(l Listed) {
 // directories, exclusions, failures and discovered counts by scope, and its
 // manifest if r has none yet. Finish then counts the whole.
 func (r *Report) Merge(other *Report) {
-	if r.Tool.Name == "" {
-		r.Manifest = other.Manifest
-	} else if r.Provider.Version == "" {
-		r.Provider.Version = other.Provider.Version
-	}
+	r.Manifest.Add(other.Manifest)
 	r.Directories = append(r.Directories, other.Directories...)
 	r.Excluded = append(r.Excluded, other.Excluded...)
 	r.Failures = append(r.Failures, other.Failures...)

@@ -244,13 +244,15 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	run.used = true
 	run.options = options
 	run.report.TagKeys = options.ReportTags
-	run.report.Manifest = report.Manifest{
+	// Each call adds what it selected: another region's may hold the
+	// provider back, or find other modules.
+	run.report.Manifest.Add(report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version.Version},
 		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
 		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version, HeldBack: root.heldBack},
 		Modules:  newerModules,
 		Unused:   unusedModules,
-	}
+	})
 	for _, f := range failures {
 		run.report.Failures = append(run.report.Failures, f.Error())
 	}
@@ -335,7 +337,15 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 				continue
 			}
 			log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
-			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, &run.lock)
+			// A root of another call may pin another provider release line
+			// (see rootConfig): its lock file seeds this root only if it
+			// meets this root's constraint.
+			lock := &run.lock
+			var own []byte
+			if !lockMeets(run.lock, qualifiedSource(binary.Registry, root.provider.Source), root.provider.Version) {
+				lock = &own
+			}
+			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -526,6 +536,27 @@ func generateDir(ctx context.Context, dir string, tr terraformRun, imports []eng
 		}
 	}
 	return result, err
+}
+
+// lockMeets reports whether the provider at source that lock records meets
+// constraint, so that lock can seed a root with that constraint: terraform
+// init fails on a locked version the configuration doesn't accept. A lock
+// that records no version of source, or a constraint or version that
+// doesn't parse, counts as meeting it, as before such a check.
+func lockMeets(lock []byte, source, constraint string) bool {
+	locked := engine.LockedVersion(lock, source)
+	if locked == "" || constraint == "" {
+		return true
+	}
+	v, err := goversion.NewVersion(locked)
+	if err != nil {
+		return true
+	}
+	c, err := goversion.NewConstraint(constraint)
+	if err != nil {
+		return true
+	}
+	return c.Check(v)
 }
 
 // rootFiles are the files every output directory starts with, and the
