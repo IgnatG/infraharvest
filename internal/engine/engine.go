@@ -246,12 +246,10 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// Terraform writes every value the provider doesn't mark sensitive
 	// into generated.tf, secrets among them, and with the mode it chooses.
 	// The directory stays private until those secrets are moved out of
-	// the file below; should Generate fail before that, it stays so.
-	info, err := os.Stat(dir)
+	// the file below; should Generate fail before that, it stays so. On
+	// Windows, where a mode restricts nothing, its access list does it.
+	restoreAccess, err := makePrivate(dir)
 	if err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
@@ -328,7 +326,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	if err := os.Chmod(dir, info.Mode()&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
+	if err := restoreAccess(); err != nil {
 		return nil, err
 	}
 	// last is the last of the plans below, if it had no errors, and planned
