@@ -11,12 +11,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// The keys of the settings Provider.Select passes each service, read only
-// through clientSettings and the catalogue accessor, so that the two can't
-// drift apart.
+// The keys of the settings Provider.Select passes each service, written
+// only by serviceSettings.args and read only by settingsOf, so that the
+// two can't drift apart.
 const (
 	subscriptionIDKey = "subscription_id"
 	resourceGroupKey  = "resource_group"
@@ -24,6 +25,46 @@ const (
 	clientOptionsKey  = "client_options"
 	catalogueKey      = "catalogue"
 )
+
+// serviceSettings are the settings Provider.Select passes each service,
+// typed: the service gets them as a map (see harvest.ListerConfig), which
+// args makes and settingsOf reads back.
+type serviceSettings struct {
+	// subscriptionID is the subscription to list.
+	subscriptionID string
+	// resourceGroup is --resource-group, "" for the whole subscription.
+	resourceGroup string
+	// credential signs every request in.
+	credential azcore.TokenCredential
+	// clientOptions are the options of every Resource Manager client.
+	clientOptions *arm.ClientOptions
+	// catalogue is the import's catalogue, nil for the built-in one.
+	catalogue *catalogue.Catalogue
+}
+
+// args returns the settings as a service's settings map.
+func (s serviceSettings) args() map[string]interface{} {
+	return map[string]interface{}{
+		subscriptionIDKey: s.subscriptionID,
+		credentialKey:     s.credential,
+		clientOptionsKey:  s.clientOptions,
+		resourceGroupKey:  s.resourceGroup,
+		catalogueKey:      s.catalogue,
+	}
+}
+
+// settingsOf returns the settings in a service's settings map, as args
+// makes it. A setting that is missing, or of another type, comes back as
+// its zero value.
+func settingsOf(settings map[string]interface{}) serviceSettings {
+	var s serviceSettings
+	s.subscriptionID, _ = settings[subscriptionIDKey].(string)
+	s.resourceGroup, _ = settings[resourceGroupKey].(string)
+	s.credential, _ = settings[credentialKey].(azcore.TokenCredential)
+	s.clientOptions, _ = settings[clientOptionsKey].(*arm.ClientOptions)
+	s.catalogue, _ = settings[catalogueKey].(*catalogue.Catalogue)
+	return s
+}
 
 // Service is what every Azure lister embeds: the service
 // state, and the settings Provider.Select passes it as
@@ -37,11 +78,8 @@ type Service struct {
 // credential and the client options. An argument that is missing, or of
 // another type, comes back as its zero value.
 func (az *Service) clientSettings() (subscriptionID, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
-	subscriptionID, _ = az.Settings()[subscriptionIDKey].(string)
-	resourceGroup, _ = az.Settings()[resourceGroupKey].(string)
-	credential, _ = az.Settings()[credentialKey].(azcore.TokenCredential)
-	options, _ = az.Settings()[clientOptionsKey].(*arm.ClientOptions)
-	return subscriptionID, resourceGroup, credential, options
+	s := settingsOf(az.Settings())
+	return s.subscriptionID, s.resourceGroup, s.credential, s.clientOptions
 }
 
 // recordBare adds a resource of resourceType, imported by id and
