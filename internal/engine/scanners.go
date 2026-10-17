@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +26,11 @@ const scanTimeout = 10 * time.Minute
 
 // maxReportedFindings bounds the findings a check lists per scanner.
 const maxReportedFindings = 20
+
+// scannerSlots bounds the scanner processes running at once, those of
+// every directory the gate checks at the same time, as with --parallel,
+// together.
+var scannerSlots = make(chan struct{}, max(2, runtime.NumCPU()))
 
 // Finding is one thing a scanner reports.
 type Finding struct {
@@ -106,9 +113,10 @@ func runTool(ctx context.Context, path string, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-// runScanners runs scanners on dir. Blocking scanners' findings at warning
-// level or above fail the check; the others' are listed. With no scanner
-// installed, the check is skipped.
+// runScanners runs scanners on dir, at the same time, as they only read
+// it (see scannerSlots), and reports them in their order. Blocking
+// scanners' findings at warning level or above fail the check; the
+// others' are listed. With no scanner installed, the check is skipped.
 func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 	check := Check{Name: CheckScanners, Passed: true}
 	if len(scanners) == 0 {
@@ -122,8 +130,27 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	for _, s := range scanners {
-		findings, err := s.Run(ctx, dir)
+	type result struct {
+		findings []Finding
+		err      error
+	}
+	results := make([]result, len(scanners))
+	var wg sync.WaitGroup
+	for i, s := range scanners {
+		wg.Go(func() {
+			select {
+			case scannerSlots <- struct{}{}:
+				defer func() { <-scannerSlots }()
+			case <-ctx.Done():
+				results[i].err = ctx.Err()
+				return
+			}
+			results[i].findings, results[i].err = s.Run(ctx, dir)
+		})
+	}
+	wg.Wait()
+	for i, s := range scanners {
+		findings, err := results[i].findings, results[i].err
 		if err != nil {
 			check.Passed = false
 			check.Details = append(check.Details, fmt.Sprintf("%s couldn't run: %v", s.Name, err))

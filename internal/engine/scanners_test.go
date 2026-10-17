@@ -5,8 +5,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func scanner(name string, blocking bool, findings ...Finding) Scanner {
@@ -40,6 +42,32 @@ func TestRunScanners(t *testing.T) {
 				t.Errorf("skipped=%v with %d scanners", check.Skipped, len(tc.scanners))
 			}
 		})
+	}
+}
+
+// The scanners of a directory run at the same time, and the check lists
+// them in their order, whichever finishes first.
+func TestRunScannersAtTheSameTime(t *testing.T) {
+	started := make(chan struct{})
+	// first waits for second to start, which it can only if they run at
+	// the same time, and finishes last.
+	first := Scanner{Name: "tflint", Blocking: true, Run: func(context.Context, string) ([]Finding, error) {
+		select {
+		case <-started:
+			return nil, nil
+		case <-time.After(30 * time.Second):
+			return nil, errors.New("ran after the others")
+		}
+	}}
+	second := Scanner{Name: "trivy", Run: func(context.Context, string) ([]Finding, error) {
+		close(started)
+		return []Finding{{Rule: "AVD-AWS-0089", Severity: "HIGH"}}, nil
+	}}
+
+	check := runScanners(context.Background(), t.TempDir(), []Scanner{first, second})
+
+	if !check.Passed || len(check.Details) != 3 || check.Details[0] != "tflint: no findings" || !strings.HasPrefix(check.Details[1], "trivy: 1 findings") || check.Details[2] != "trivy: AVD-AWS-0089 (high)" {
+		t.Errorf("got passed=%v %q", check.Passed, check.Details)
 	}
 }
 
