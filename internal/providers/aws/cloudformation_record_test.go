@@ -5,6 +5,7 @@ package aws
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -15,15 +16,22 @@ const (
 )
 
 // The lister lists stacks across pages but those deleted, nested stacks
-// included; then each stack set but the deleted ones, by name, followed by
-// its instances, each list across pages.
+// included, each with its name; it asks only for the live ones, and still
+// leaves out a deleted one the answer has. Then it lists each stack set but
+// the deleted ones, by name, followed by its instances, each list across
+// pages.
 func TestRecordCloudFormationListsStacksAndStackSets(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "ListStacks":
-			if form.Get("StackStatusFilter.member.1") != "" {
-				t.Errorf("stacks listed by status: %s", call.Body)
+			if form.Get("StackStatusFilter.member.1") == "" {
+				t.Errorf("stacks not listed by status: %s", call.Body)
+			}
+			for key, values := range form {
+				if strings.HasPrefix(key, "StackStatusFilter.member.") && values[0] == "DELETE_COMPLETE" {
+					t.Errorf("deleted stacks asked for: %s", call.Body)
+				}
 			}
 			if recordSecondPage(call) {
 				return recordQuery(call.Op, recordCfnNS, `<StackSummaries>
@@ -70,10 +78,10 @@ func TestRecordCloudFormationListsStacksAndStackSets(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_cloudformation_stack", recordCfnStack + "web/1", "web", nil},
-		recordedResource{"aws_cloudformation_stack", recordCfnStack + "broken/9", "broken", nil},
-		recordedResource{"aws_cloudformation_stack", recordCfnStack + "db/2", "db", nil},
-		recordedResource{"aws_cloudformation_stack", recordCfnStack + "web-Assets-1ABC/3", "web-Assets-1ABC", nil},
+		recordedResource{"aws_cloudformation_stack", recordCfnStack + "web/1", "web", map[string]string{"name": "web"}},
+		recordedResource{"aws_cloudformation_stack", recordCfnStack + "broken/9", "broken", map[string]string{"name": "broken"}},
+		recordedResource{"aws_cloudformation_stack", recordCfnStack + "db/2", "db", map[string]string{"name": "db"}},
+		recordedResource{"aws_cloudformation_stack", recordCfnStack + "web-Assets-1ABC/3", "web-Assets-1ABC", map[string]string{"name": "web-Assets-1ABC"}},
 		// Terraform imports a stack set, and its instances, by the set's
 		// name, not its ID.
 		recordedResource{"aws_cloudformation_stack_set", "baseline", "baseline", nil},

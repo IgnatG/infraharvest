@@ -33,10 +33,13 @@ func (g *CloudFormationLister) List() error {
 }
 
 // listStacks records every stack but the deleted ones, nested stacks
-// included, by stack ID. Deleted stacks are left out here rather than by a
-// status filter on the request.
+// included, by stack ID, with its name: the catalogue leaves out by name
+// the stacks AWS services deploy and manage (Elastic Beanstalk's, a stack
+// set's, Service Catalog's). The request asks only for the live stacks, so
+// that 90 days of deleted ones aren't paged through; a deleted stack in the
+// answer is still left out.
 func (g *CloudFormationLister) listStacks(client *cloudformation.Client) error {
-	pages := cloudformation.NewListStacksPaginator(client, &cloudformation.ListStacksInput{}, stopOnDuplicateToken)
+	pages := cloudformation.NewListStacksPaginator(client, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
@@ -46,8 +49,9 @@ func (g *CloudFormationLister) listStacks(client *cloudformation.Client) error {
 			if stack.StackStatus == cftypes.StackStatusDeleteComplete {
 				continue
 			}
-			g.Resources = append(g.Resources, harvest.RecordBare(
-				aws.ToString(stack.StackId), aws.ToString(stack.StackName), "aws_cloudformation_stack", "aws"))
+			name := aws.ToString(stack.StackName)
+			g.Resources = append(g.Resources, harvest.Record(
+				aws.ToString(stack.StackId), name, "aws_cloudformation_stack", "aws", map[string]string{"name": name}))
 		}
 	}
 	return nil
