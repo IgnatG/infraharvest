@@ -3,8 +3,14 @@
 
 name: tests
 
+# Every pull request, whatever its base: a pull request stacked on another
+# one gets the same signal as one against main. After each merge, main runs
+# everything too: two pull requests that each passed against an older main
+# can still break it together, and main's runs keep the caches pull
+# requests restore current.
 on:
   pull_request:
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -13,7 +19,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push makes a pull request's run moot; every merge to main
+  # gets a result of its own.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The Terraform and OpenTofu the jobs install, the ones the release image
 # copies: bump them with the Dockerfile's hashicorp/terraform and
@@ -26,7 +34,8 @@ env:
 # other workflows skips the Go and e2e jobs (see the changes job). The
 # required checks still report: test, e2e and checks gather the jobs below
 # them and pass when each passed or was skipped, and a skipped job such as
-# test-windows counts as passed. workflow_dispatch runs everything.
+# test-windows counts as passed. A push to main and workflow_dispatch run
+# everything.
 jobs:
   changes:
     runs-on: ubuntu-latest

@@ -5,8 +5,8 @@
 # Writes code=true to $GITHUB_OUTPUT when a pull request changes more than
 # documentation, linter configuration and workflows other than the tests
 # workflow, and code=false when it doesn't: the tests workflow then skips
-# its Go and e2e jobs. Without a base and a head (workflow_dispatch), or when
-# git can't tell what changed, code=true.
+# its Go and e2e jobs. Without a base and a head (a push or workflow_dispatch),
+# or when git can't tell what changed, code=true.
 #
 # Usage: BASE=<sha> HEAD=<sha> changes.sh
 set -euo pipefail
