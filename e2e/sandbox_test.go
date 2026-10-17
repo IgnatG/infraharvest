@@ -155,3 +155,124 @@ func (w *syncBuffer) String() string {
 	defer w.mu.Unlock()
 	return w.b.String()
 }
+
+// checkApplied does what a team does with the import's output, out: it
+// applies each generated root of dirs, with env on top of the process's
+// environment, then plans it again as the import's identity, with vars
+// for each root (see secretValues). The apply only imports, recording
+// every resource in a new local state and changing nothing in the cloud,
+// so where env is nil the read-only identity runs it: an import needs
+// only to read. Google's provider is the exception: after an import it
+// updates the labels of a labelled resource in place, to the same values,
+// which needs the right to update it, so Google applies as the fixture
+// identity, as a team applies with its deployment identity. The plan
+// after it must find nothing to import or change. It works on a copy of out, so that out stays as the
+// import left it, with no state, for the steps after it and the output
+// the workflow keeps.
+func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, execPath, plugins string, env map[string]string, vars func(dir string) []tfexec.PlanOption) {
+	t.Helper()
+	copied := t.TempDir()
+	if err := copyOutput(out, copied); err != nil {
+		t.Fatalf("copy %s: %v", out, err)
+	}
+	for _, dir := range dirs {
+		rel, err := filepath.Rel(out, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(copied, rel)
+		applier, err := engine.NewTerraform(root, execPath, plugins, env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applier.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+			t.Fatalf("%s: terraform init: %v", rel, err)
+		}
+		planFile := filepath.Join(t.TempDir(), "apply.tfplan")
+		if _, err := applier.Plan(ctx, append(vars(dir), tfexec.Out(planFile))...); err != nil {
+			t.Errorf("%s: terraform plan to apply: %v", rel, err)
+			continue
+		}
+		if err := applier.Apply(ctx, tfexec.DirOrPlan(planFile)); err != nil {
+			t.Errorf("%s: terraform apply of the imports: %v", rel, err)
+			continue
+		}
+		state, err := applier.Show(ctx)
+		if err != nil {
+			t.Fatalf("%s: terraform show: %v", rel, err)
+		}
+		managed := 0
+		if state.Values != nil && state.Values.RootModule != nil {
+			managed = countManaged(state.Values.RootModule)
+		}
+		if managed == 0 {
+			t.Errorf("%s: the apply left nothing in state", rel)
+		}
+		planner, err := engine.NewTerraform(root, execPath, plugins, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		afterFile := filepath.Join(t.TempDir(), "after.tfplan")
+		changed, err := planner.Plan(ctx, append(vars(dir), tfexec.Out(afterFile))...)
+		if err != nil {
+			t.Errorf("%s: terraform plan after the apply: %v", rel, err)
+			continue
+		}
+		if changed {
+			plan, err := planner.ShowPlanFile(ctx, afterFile)
+			if err != nil {
+				t.Fatalf("%s: terraform show: %v", rel, err)
+			}
+			for _, rc := range plan.ResourceChanges {
+				if rc.Mode == tfjson.ManagedResourceMode && (rc.Change.Importing != nil || !rc.Change.Actions.NoOp()) {
+					t.Errorf("%s: after the apply, %s is planned to %v", rel, rc.Address, rc.Change.Actions)
+				}
+			}
+		}
+		t.Logf("%s: applied, %d resources in state, nothing to change after", rel, managed)
+	}
+}
+
+// countManaged counts the managed resources of module and its child
+// modules in a state.
+func countManaged(module *tfjson.StateModule) int {
+	n := 0
+	for _, r := range module.Resources {
+		if r.Mode == tfjson.ManagedResourceMode {
+			n++
+		}
+	}
+	for _, child := range module.ChildModules {
+		n += countManaged(child)
+	}
+	return n
+}
+
+// copyOutput copies the output directory out to dst, without what init
+// and plans leave (.terraform directories, lock files stay) and without
+// any state.
+func copyOutput(out, dst string) error {
+	return filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(out, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		switch {
+		case d.IsDir() && d.Name() == ".terraform":
+			return filepath.SkipDir
+		case d.IsDir():
+			return os.MkdirAll(target, 0o755)
+		case strings.Contains(d.Name(), ".tfstate"):
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, content, 0o600)
+	})
+}

@@ -151,8 +151,36 @@ jobs:
           echo "::error::Left in $SANDBOX_AZURE_RESOURCE_GROUP: $left"
           exit 1
         fi
-    # Only the report: the generated configuration describes the estate, and
-    # the artifacts of a public repository are public.
+    # The generated configuration, encrypted to the OpenPGP key in the
+    # SANDBOX_OUTPUT_KEY variable, so that only its owner can read it: the
+    # artifacts of a public repository are public. Without the variable,
+    # nothing more is kept. Never any state, .terraform directory or
+    # variables file.
+    - name: Encrypt the output
+      if: always() && vars.SANDBOX_OUTPUT_KEY != ''
+      env:
+        OUTPUT_KEY: ${{ vars.SANDBOX_OUTPUT_KEY }}
+      run: |
+        if [ ! -d "$SANDBOX_OUTPUT_DIR" ]; then
+          echo "no output to keep"
+          exit 0
+        fi
+        printf '%s\n' "$OUTPUT_KEY" > "$RUNNER_TEMP/output-key.asc"
+        tar -C "$SANDBOX_OUTPUT_DIR" --exclude=.terraform --exclude='*.tfstate*' --exclude='*.tfvars*' -czf "$RUNNER_TEMP/output.tar.gz" .
+        gpg --batch --yes --trust-model always --recipient-file "$RUNNER_TEMP/output-key.asc" \
+          --output "$RUNNER_TEMP/output.tar.gz.gpg" --encrypt "$RUNNER_TEMP/output.tar.gz"
+        rm "$RUNNER_TEMP/output.tar.gz"
+    - name: Upload the encrypted output
+      if: always() && vars.SANDBOX_OUTPUT_KEY != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: sandbox-azure-${{ inputs.engine }}-output
+        path: ${{ runner.temp }}/output.tar.gz.gpg
+        if-no-files-found: ignore
+        retention-days: 7
+    # The report as it is. The configuration describes the estate and the
+    # artifacts of a public repository are public, so it is kept only
+    # encrypted (above).
     - name: Upload the report
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

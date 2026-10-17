@@ -438,6 +438,7 @@ func (s *googleSandbox) checkGoogleImport(ctx context.Context, t *testing.T, cov
 		}
 	}
 	t.Logf("imported: %v", imported)
+	checkApplied(ctx, t, s.out, dirs, s.execPath, s.plugins, map[string]string{"GOOGLE_APPLICATION_CREDENTIALS": s.fixtureCredentials}, func(string) []tfexec.PlanOption { return nil })
 
 	cat := catalogue.MustBuiltin("google")
 	seeded := map[string]int{}
