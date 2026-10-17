@@ -100,7 +100,20 @@ infraharvest import azure --services=virtual_network --all \
 
 An `--id` applies to its own type only: the first example keeps every subnet, and an S3 bucket's policy (`aws_s3_bucket_policy`) is a type of its own, which `--id=s3_bucket=my-logs` doesn't narrow. Give an `--id` for each type to narrow, as in `--id=s3_bucket=my-logs --id=s3_bucket_policy=my-logs`. Several `--id` on one type must all match, so to keep several IDs of one type, list them in one `--id`.
 
-**Tags and other attributes.** `--tag <key>=<value>[,<value>...]` keeps the resources whose tag has one of the values, and `--tag <key>` those that have the tag at all. `--where <path>=<value>[,<value>...]` does the same for the attribute at a dotted path, as the lister records it, such as `tags.Environment` (what `--tag Environment` filters on). They apply to every type. The listers that support them apply them as they list, and the others ignore them, so the import logs a warning for each. Only these AWS listers support them, on tags:
+**Tags.** To choose resources by tag on every service, use the selection file's rules. Rules decide each resource discover adds to the file, so write them before the first `discover`, into the file it will write:
+
+```yaml
+version: 1
+defaults:
+  include: false
+rules:
+  - include: { tags: { Environment: prod } }
+  - exclude: { type: aws_cloudwatch_log_group, tags: { owner: "" } }
+```
+
+The last rule that matches a resource decides it, else the defaults: here everything tagged `Environment=prod` is included, but for its log groups without an `owner` tag. In a file discover already wrote, each listed resource keeps its decision, and rules decide only the resources it doesn't list yet, such as ones created since. To change those decisions, set `include` on the entries, or find them by tag in the picker. Rules match the tags discover reads, so resources it reads no tags for, such as IAM roles and users on AWS, match only `""` (see [Choosing what to import](#choosing-what-to-import)).
+
+**Filtering while listing.** `--tag <key>=<value>[,<value>...]` keeps the resources whose tag has one of the values, and `--tag <key>` those that have the tag at all. `--where <path>=<value>[,<value>...]` does the same for the attribute at a dotted path, as the lister records it, such as `tags.Environment` (what `--tag Environment` filters on). They apply to every type, and save the requests of what they leave out, but only the listers that support them apply them, as they list; the others ignore them, so the import logs a warning for each. Only these AWS listers support them, on tags:
 
 | Service | Example |
 |---|---|
@@ -108,7 +121,7 @@ An `--id` applies to its own type only: the first example keeps every subnet, an
 | `ebs` | `--tag team=web,data` |
 | `api_gateway` | `--tag owner=payments` |
 
-A REST API left out by a filter takes its stages, resources, methods and the rest with it. To choose resources by tag on any service, use the selection file's rules instead (see [Choosing what to import](#choosing-what-to-import)), which match the tags discover reads.
+A REST API left out by a filter takes its stages, resources, methods and the rest with it. On every other service, filter by tag with the selection file's rules, as above.
 
 ## Day to day
 

@@ -40,6 +40,19 @@ Some resources need a decision first:
 - **Rejected resources.** `rejected.hcl` holds what Terraform couldn't import or generate valid configuration for, with its errors. Terraform doesn't load the file, so the root plans and applies without them. Fix a resource and move its blocks into `imports.tf` and the configuration before applying, or leave it out.
 - **New resources later.** Run the import again with `--incremental` to add them to the roots (see [Usage](usage.md#choosing-what-to-import)). Once you have deleted a root's `imports.tf`, also pass `--managed-state`, such as `backend`, so that the import knows what the root has.
 
+## What stays yours
+
+An import writes what the cloud says about each resource. What the cloud doesn't say can't be in the configuration, so it stays yours to manage, after the import as before it:
+
+| What | In the output | What to do |
+|---|---|---|
+| A Lambda function's or layer's code package | A placeholder `filename`, such as `lambda/<function>.zip`, that `lifecycle { ignore_changes }` ignores, with a comment | Keep deploying the code as you do, or follow the comment to deploy it with Terraform |
+| Secret values the cloud returns, such as a password in an environment variable or a token in user data | A `sensitive` variable without a default in `variables.tf` (see [Secrets](#secrets)) | Set it before each plan, from your secret store or with `TF_VAR_<name>`, and keep it out of version control |
+| Values the cloud never returns, such as a database's master password, and write-only arguments (`*_wo`) | Nothing | Nothing for the import: the resource keeps what it has. Set the argument only to change the value |
+| Arguments the provider keeps only in state, such as an Auto Scaling group's `force_delete` or a database's `apply_immediately` | Nothing; the first plan may set them in the state alone, and the README's checks list it | Set them in the configuration if you want other than the provider's default |
+| Resources Terraform couldn't import or generate valid configuration for | `rejected.hcl`, with Terraform's errors | Fix them and move them into the root, or leave them out (see [Applying the roots](#applying-the-roots)) |
+| Resources the import leaves out: what the cloud manages itself, what another state or tool manages, and types Terraform can't import, such as an AWS VPC's main route table or a Dataproc cluster | The report, with the reason for each | Manage them where they are managed; the selection file can include most of them (see [Choosing what to import](usage.md#choosing-what-to-import)) |
+
 ## Resource labels
 
 The label of each resource block (the `NAME` in `resource "TYPE" "NAME"`) follows the [HashiCorp style guide](https://developer.hashicorp.com/terraform/language/style): lower case words joined by underscores, made from what a person knows the resource by rather than from its ID.
@@ -111,7 +124,7 @@ S3 buckets are imported split, as the AWS provider recommends: each part of a bu
 
 Security group rules are imported as `aws_vpc_security_group_ingress_rule` and `aws_vpc_security_group_egress_rule` resources of their own, by their `sgr-` IDs, as the AWS provider recommends; the groups leave out their inline `ingress` and `egress`.
 
-Some configuration can't be read back from the cloud. A Lambda function deployed from a zip package gets `filename = "lambda/<function>.zip"` as a placeholder, which `lifecycle { ignore_changes = [filename, source_code_hash] }` tells Terraform to ignore: Terraform manages the function's settings, and the code stays deployed as it is. A comment in the block says how to have Terraform deploy the code instead. An import whose resource Terraform finds gone, such as a KMS key scheduled for deletion, is left out with that reason.
+Some configuration can't be read back from the cloud (see [What stays yours](#what-stays-yours)). A Lambda function deployed from a zip package gets `filename = "lambda/<function>.zip"` as a placeholder, which `lifecycle { ignore_changes = [filename, code_sha256] }` tells Terraform to ignore: Terraform manages the function's settings, and the code stays deployed as it is. A Lambda layer version gets `filename = "lambda/layers/<layer>.zip"`, ignored with its `source_code_hash`. A comment in the block says how to have Terraform deploy the code instead. An import whose resource Terraform finds gone, such as a KMS key scheduled for deletion, is left out with that reason.
 
 Generated local modules declare the attributes of their object variables `optional()`, so their calls set only the attributes that have values.
 
