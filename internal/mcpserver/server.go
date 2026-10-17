@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -218,9 +220,18 @@ type SelectionSummary struct {
 	Included  int         `json:"included"`
 	Excluded  int         `json:"excluded"`
 	Types     []TypeCount `json:"types"`
-	// Exclusions are the excluded resources with the reasons.
+	// Exclusions are the first excluded resources, up to maxExclusions,
+	// with the reasons.
 	Exclusions []string `json:"exclusions,omitempty"`
+	// MoreExclusions counts the excluded resources Exclusions leaves out:
+	// the selection file names every one.
+	MoreExclusions int `json:"more_exclusions,omitempty"`
 }
+
+// maxExclusions is how many excluded resources a summary names: an
+// organisation can have tens of thousands, too many for an agent's
+// context, and the selection file has them all.
+const maxExclusions = 50
 
 // TypeCount counts one type's resources in a selection.
 type TypeCount struct {
@@ -255,6 +266,9 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 		return nil, nil, fmt.Errorf("discover exited with %d: %w\n%s", code, err, tail(stderr))
 	}
 	text := fmt.Sprintf("%s lists %d resources: %d included, %d excluded.", in.Selection, summary.Included+summary.Excluded, summary.Included, summary.Excluded)
+	if summary.MoreExclusions > 0 {
+		text += fmt.Sprintf(" The summary names the first %d exclusions and leaves out %d more: %s has them all.", maxExclusions, summary.MoreExclusions, in.Selection)
+	}
 	if code != 0 {
 		text += fmt.Sprintf(" Some services couldn't be listed (exit code %d):\n%s", code, tail(stderr))
 	}
@@ -283,6 +297,10 @@ func summarize(path string) (*SelectionSummary, error) {
 		}
 		c.Excluded++
 		summary.Excluded++
+		if len(summary.Exclusions) == maxExclusions {
+			summary.MoreExclusions++
+			continue
+		}
 		summary.Exclusions = append(summary.Exclusions, fmt.Sprintf("%s %s: %s", r.Type, r.ID, d.Reason))
 	}
 	for _, c := range byType {
@@ -508,11 +526,58 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
 		return nil, nil, fmt.Errorf("report %q isn't a regular file", path)
 	}
-	content, err := os.ReadFile(path)
+	content, size, err := readHead(path, maxReport)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
 	}
-	return textResult(string(content)), nil, nil
+	text := string(content)
+	if left := size - int64(len(content)); left > 0 {
+		text += fmt.Sprintf("\n\n[%d of the report's %d bytes are left out here: the full report is %s]", left, size, path)
+	}
+	return textResult(text), nil, nil
+}
+
+// maxReport is the most bytes of a report the report tool returns: a
+// report is mostly counts by type, but one of a large import could still
+// fill an agent's context.
+const maxReport = 256 << 10
+
+// readHead reads at most limit bytes of the file at path, cut after the
+// last whole line that fits, or else the last whole character, and
+// returns them with the file's size.
+func readHead(path string, limit int) ([]byte, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	content, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, 0, err
+	}
+	size := max(info.Size(), int64(len(content)))
+	if len(content) <= limit {
+		return content, size, nil
+	}
+	return content[:cutAt(content, limit)], size, nil
+}
+
+// cutAt returns where to cut b, which is longer than limit, so that what
+// is kept fits in limit and ends with a whole line, or else a whole
+// character.
+func cutAt(b []byte, limit int) int {
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(b[cut]) {
+		cut--
+	}
+	if i := bytes.LastIndexByte(b[:cut], '\n'); i >= 0 {
+		cut = i + 1
+	}
+	return cut
 }
 
 // linksStayUnder checks that no symbolic link under dir, which an import
@@ -727,14 +792,24 @@ func errorResult(text string) *mcp.CallToolResult {
 	return r
 }
 
-// tail returns the last lines of a command's standard error.
+// tail returns the last lines of a command's standard error, each cut to
+// maxLine bytes.
 func tail(stderr []byte) string {
 	lines := strings.Split(strings.TrimSpace(string(bytes.TrimSpace(stderr))), "\n")
 	if len(lines) > 20 {
 		lines = lines[len(lines)-20:]
 	}
+	for i, line := range lines {
+		if len(line) > maxLine {
+			lines[i] = line[:cutAt([]byte(line), maxLine)] + " [cut]"
+		}
+	}
 	return strings.Join(lines, "\n")
 }
+
+// maxLine is the most bytes of one line of standard error a result
+// quotes.
+const maxLine = 2000
 
 // CheckDefaultRoot rejects dir as the root a server defaults to, the
 // working directory, when it is the root of a filesystem or home, the

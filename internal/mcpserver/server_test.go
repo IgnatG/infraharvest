@@ -770,3 +770,107 @@ func TestRelativePathsAreUnderRoot(t *testing.T) {
 		t.Errorf("report: got %v, want it read under the root", err)
 	}
 }
+
+// A summary names the first exclusions and counts the rest, which the
+// selection file has: an organisation can exclude tens of thousands.
+func TestSummarizeBoundsTheExclusions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	f := &selection.File{Version: selection.Version, Resources: []selection.Resource{{Type: "aws_vpc", ID: "vpc-kept", Include: true}}}
+	for i := range maxExclusions + 7 {
+		f.Resources = append(f.Resources, selection.Resource{Type: "aws_vpc", ID: fmt.Sprintf("vpc-%03d", i), Reason: "the default VPC"})
+	}
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := summarize(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Included != 1 || summary.Excluded != maxExclusions+7 {
+		t.Errorf("counts: %+v", summary)
+	}
+	if len(summary.Exclusions) != maxExclusions || summary.MoreExclusions != 7 {
+		t.Errorf("got %d exclusions and %d more, want %d and 7", len(summary.Exclusions), summary.MoreExclusions, maxExclusions)
+	}
+	if summary.Exclusions[0] != "aws_vpc vpc-000: the default VPC" {
+		t.Errorf("first exclusion: %q", summary.Exclusions[0])
+	}
+}
+
+// The report tool returns the start of a long report, cut after a whole
+// line, and says how much it left out and where the full report is.
+func TestReportBoundsALongReport(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "generated", report.Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := strings.Repeat("x", 99) + "\n"
+	content := strings.Repeat(line, maxReport/len(line)+10)
+	path := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+
+	res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	head, note, ok := strings.Cut(text, "\n\n[")
+	if !ok {
+		t.Fatalf("no note on the cut report: %q", text[len(text)-200:])
+	}
+	// The kept part ends with its last line's newline, which Cut leaves on
+	// head.
+	if len(head) > maxReport || maxReport-len(head) >= len(line) || !strings.HasPrefix(content, head) || len(head)%len(line) != 0 {
+		t.Errorf("want whole lines up to %d bytes, got %d bytes", maxReport, len(head))
+	}
+	left := len(content) - len(head)
+	if want := fmt.Sprintf("%d of the report's %d bytes are left out here: the full report is %s]", left, len(content), path); note != want {
+		t.Errorf("note: %q, want %q", note, want)
+	}
+}
+
+// A short report comes back whole.
+func TestReportReturnsAShortReportWhole(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "generated", report.Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+
+	res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := res.Content[0].(*mcp.TextContent).Text; text != "# Report\n" {
+		t.Errorf("got %q", text)
+	}
+}
+
+// Standard error comes back as its last lines, each cut to maxLine bytes
+// on a whole character.
+func TestTailBoundsLines(t *testing.T) {
+	var lines []string
+	for i := range 25 {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	lines = append(lines, strings.Repeat("é", maxLine))
+	got := strings.Split(tail([]byte(strings.Join(lines, "\n")+"\n")), "\n")
+	if len(got) != 20 || got[0] != "line 6" {
+		t.Fatalf("got %d lines starting %q, want 20 starting \"line 6\"", len(got), got[0])
+	}
+	long, ok := strings.CutSuffix(got[19], " [cut]")
+	if !ok || len(long) > maxLine || long != strings.Repeat("é", maxLine/2) {
+		t.Errorf("long line: %d bytes, cut %v", len(long), ok)
+	}
+}
