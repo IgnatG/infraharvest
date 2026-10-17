@@ -14,11 +14,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Reason starts the reason an import gives for leaving out a resource
@@ -264,24 +266,18 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	if err != nil {
 		return err
 	}
-	found := 0
+	var states []string
 	for _, key := range keys {
-		if !isStateObject(o.url.Scheme, key) {
-			continue
-		}
-		found++
-		content, err := store.Get(ctx, bucket, key)
-		if err != nil {
-			return err
-		}
-		if err := r.Parse(content, base+key); err != nil {
-			return err
+		if isStateObject(o.url.Scheme, key) {
+			states = append(states, key)
 		}
 	}
-	if found == 0 {
+	if len(states) == 0 {
 		return errors.New("no .tfstate object under the prefix")
 	}
-	return nil
+	return r.parseAll(ctx, states, func(ctx context.Context, key string) ([]byte, error) {
+		return store.Get(ctx, bucket, key)
+	}, base)
 }
 
 // isStateObject reports whether the object at key, in a store of scheme
@@ -318,18 +314,70 @@ func (r Resources) loadWorkspaces(ctx context.Context, source string, stores Sto
 	if host != DefaultHCPTerraformHost {
 		base = "tfc://" + host + "/" + organization + "/"
 	}
-	for _, name := range names {
-		content, err := store.Get(ctx, organization, name)
-		if err != nil {
-			return err
+	return r.parseAll(ctx, names, func(ctx context.Context, name string) ([]byte, error) {
+		return store.Get(ctx, organization, name)
+	}, base)
+}
+
+// fetchParallel is how many states parseAll reads at once.
+const fetchParallel = 8
+
+// parseAll reads the state at each of keys with get, fetchParallel at a
+// time, and adds what each manages to r, found at base+key. A key get
+// returns no state for, such as a workspace with none yet, manages
+// nothing. The first failure stops the rest and is returned. What the
+// states manage is added in the order of keys, as if read one by one.
+func (r Resources) parseAll(ctx context.Context, keys []string, get func(ctx context.Context, key string) ([]byte, error), base string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	parsed := make([]Resources, len(keys))
+	var (
+		mu       sync.Mutex
+		firstErr error
+		wg       sync.WaitGroup
+	)
+	fail := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if firstErr == nil {
+			firstErr = err
 		}
-		// A workspace with no state yet manages nothing.
-		if content == nil {
-			continue
+		cancel()
+	}
+	slots := make(chan struct{}, fetchParallel)
+	for i, key := range keys {
+		slots <- struct{}{}
+		if ctx.Err() != nil {
+			<-slots
+			break
 		}
-		if err := r.Parse(content, base+name); err != nil {
-			return err
-		}
+		wg.Go(func() {
+			defer func() { <-slots }()
+			content, err := get(ctx, key)
+			if err != nil {
+				fail(err)
+				return
+			}
+			if content == nil {
+				return
+			}
+			state := Resources{}
+			if err := state.Parse(content, base+key); err != nil {
+				fail(err)
+				return
+			}
+			parsed[i] = state
+		})
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for _, state := range parsed {
+		maps.Copy(r, state)
 	}
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,9 @@ type HCPTerraform struct {
 	// base is the API's URL, https://<host>/api/v2.
 	base  string
 	token string
+	// ids are the IDs of the workspaces List found, by organization and
+	// name, so that Get needn't look them up again.
+	ids sync.Map
 }
 
 // NewHCPTerraform opens the API of host with the token Terraform uses for
@@ -99,6 +103,7 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 		}
 		var resp struct {
 			Data []struct {
+				ID         string `json:"id"`
 				Attributes struct {
 					Name string `json:"name"`
 				} `json:"attributes"`
@@ -116,6 +121,9 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 			// The search matches anywhere in the name.
 			if strings.HasPrefix(w.Attributes.Name, prefix) {
 				names = append(names, w.Attributes.Name)
+				if w.ID != "" {
+					h.ids.Store(organization+"/"+w.Attributes.Name, w.ID)
+				}
 			}
 		}
 		page = resp.Meta.Pagination.NextPage
@@ -126,12 +134,8 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 // Get returns the current state of the organization's workspace, nil if it
 // has none yet.
 func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) ([]byte, error) {
-	var w struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := h.get(ctx, h.base+"/organizations/"+url.PathEscape(organization)+"/workspaces/"+url.PathEscape(workspace), &w); err != nil {
+	id, err := h.workspaceID(ctx, organization, workspace)
+	if err != nil {
 		return nil, err
 	}
 	var version struct {
@@ -141,7 +145,7 @@ func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) 
 			} `json:"attributes"`
 		} `json:"data"`
 	}
-	err := h.get(ctx, h.base+"/workspaces/"+url.PathEscape(w.Data.ID)+"/current-state-version", &version)
+	err = h.get(ctx, h.base+"/workspaces/"+url.PathEscape(id)+"/current-state-version", &version)
 	if errors.Is(err, errNotFound) {
 		return nil, nil
 	}
@@ -152,6 +156,23 @@ func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) 
 		return nil, nil
 	}
 	return h.download(ctx, version.Data.Attributes.DownloadURL, "downloading the state of workspace "+organization+"/"+workspace)
+}
+
+// workspaceID returns the ID of the organization's workspace: the one List
+// found, or else the API's.
+func (h *HCPTerraform) workspaceID(ctx context.Context, organization, workspace string) (string, error) {
+	if id, ok := h.ids.Load(organization + "/" + workspace); ok {
+		return id.(string), nil
+	}
+	var w struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := h.get(ctx, h.base+"/organizations/"+url.PathEscape(organization)+"/workspaces/"+url.PathEscape(workspace), &w); err != nil {
+		return "", err
+	}
+	return w.Data.ID, nil
 }
 
 var errNotFound = errors.New("not found")

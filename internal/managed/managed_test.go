@@ -306,3 +306,37 @@ func TestReadStateLimit(t *testing.T) {
 		t.Errorf("a local state over the limit: %v", err)
 	}
 }
+
+// States are read several at a time, and what they manage is added as if
+// read in order; the first failure is returned.
+func TestParseAll(t *testing.T) {
+	stateOf := func(id string) []byte {
+		return []byte(`{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "` + id + `"}}]}]}`)
+	}
+	var keys []string
+	content := map[string][]byte{}
+	for i := range 3 * fetchParallel {
+		key := fmt.Sprintf("roots/%02d.tfstate", i)
+		keys = append(keys, key)
+		content[key] = stateOf("shared")
+	}
+	content["roots/05.tfstate"] = nil // no state yet
+	get := func(_ context.Context, key string) ([]byte, error) { return content[key], nil }
+	r := Resources{}
+	if err := r.parseAll(context.Background(), keys, get, "s3://acme/"); err != nil {
+		t.Fatal(err)
+	}
+	if where, _ := r.Lookup("aws_s3_bucket", "shared"); where != "s3://acme/"+keys[len(keys)-1] {
+		t.Errorf("the last state should win, as read in order: %q", where)
+	}
+
+	failing := func(ctx context.Context, key string) ([]byte, error) {
+		if key == "roots/03.tfstate" {
+			return nil, fmt.Errorf("access denied to %s", key)
+		}
+		return get(ctx, key)
+	}
+	if err := (Resources{}).parseAll(context.Background(), keys, failing, "s3://acme/"); err == nil || !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("want the failure, got %v", err)
+	}
+}
