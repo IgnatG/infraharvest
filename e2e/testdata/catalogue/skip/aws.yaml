@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json
+# A --catalogue overlay for TestAWSOptionsReport (options_input_test.go): a skip
+# rule that leaves the legacy topic of testdata/aws-options out of the
+# default selection.
+provider: aws
+types:
+  aws_sns_topic:
+    skip:
+      - reason: retired, per the end-to-end tests' catalogue overlay
+        ids: ["arn:aws:sns:us-east-1:444444444444:infraharvest-e2e-options-legacy"]

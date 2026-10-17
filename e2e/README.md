@@ -16,6 +16,16 @@ Two more tests import the same resources: `TestAWSSelection` imports again from 
 
 Two tests create resources of their own, in accounts no other test uses, and share a runner in CI: [`TestAWSParallelAccounts`](accounts_test.go) imports two accounts at once (`--accounts`, `--parallel=2`), and [`TestAWSParallelRegions`](regions_test.go) imports the global services and two regions of an account ([`testdata/aws-regions`](testdata/aws-regions/main.tf): a role and a log group in each region) twice, with `--parallel=1` and `--parallel=2`. The log must show the two regions listing or generating at the same time only with `--parallel=2` (from `aws: importing resources in region …` to `aws: listed resources in region …`, and from `aws: generating the roots in region …` to `aws: generated the roots in region …`), both imports must write the same files, and every root must plan as imports with no changes.
 
+The options tests ([`options_test.go`](options_test.go) and [`options_input_test.go`](options_input_test.go)) run the command-line options on [`testdata/aws-options`](testdata/aws-options/main.tf), created in an account of its own (`444444444444`), and check each option's effect on the output, with every root planning as imports with no changes:
+
+- `TestAWSOptionsLayout`: `--layout={out}/{provider}/{account}/{region}/{service}/` puts each service's resources in a root of its own, the subnet and security group read the VPC of another root through a data source, and the default `--modules` (registry) makes the buckets calls of the curated s3-bucket module at its tested version, and the roles calls of one generated local module.
+- `TestAWSOptionsModules`: `--modules=none` writes no module call or module, `--modules=local` only generated local modules, and `--modules=latest-untested` calls the s3-bucket module's newest release. `infraharvest verify` passes on the `none` output, then exits with 1 once a generated file says another queue retention than the queue has.
+- `TestAWSOptionsReport`: `--format json` prints the report on stdout as one JSON document, which `infraharvest report --format json` prints again, as `infraharvest report` prints `report.md`; `--report-tags` counts by a tag; `--list-parallel=1` lists one service at a time; a `--catalogue` overlay ([`testdata/catalogue/skip`](testdata/catalogue/skip/aws.yaml)) leaves a topic out; and a queue tagged `ManagedBy=Terraform` is left out, unless `--include-owned`.
+- `TestAWSOptionsFilters`: `--services`, `--skip`, `--id`, `--tag` and `--where` keep exactly what they should: the EBS lister filters volumes by tag, and the SQS lister, which doesn't support tag filters, lists every queue.
+- `TestAWSOptionsExitCodes`: an overlay ([`testdata/catalogue/gone`](testdata/catalogue/gone/aws.yaml)) whose topic import ID names no topic makes the import partial, exiting with 1, or 3 with `--allow-partial`; `--engine-timeout=1ms` fails the root.
+
+CI runs them on two runners, `TestAWSOptionsLayout` and `TestAWSOptionsModules` on one, the others on the other; run in one process, they share the resources the first one creates.
+
 Run them locally (needs Docker and Terraform >= 1.5; compiling uses a few GB of RAM):
 
 ```sh

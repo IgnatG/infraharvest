@@ -322,9 +322,12 @@ jobs:
   # The same round trip with each engine: the output must work on both.
   # The tests that seed testdata/aws (TestAWSRoundTrip, TestAWSSelection,
   # TestAWSIncremental) take most of the time, so each runs on a runner of
-  # its own, with its own Floci; the other tests (TestAWSParallelAccounts
-  # and TestAWSParallelRegions, which create their resources in other
-  # accounts) share a fourth one.
+  # its own, with its own Floci. The options tests (TestAWSOptions*), which
+  # import testdata/aws-options in an account of their own many times
+  # over, run on two more: those of the output (layout, modules, verify)
+  # and those of what is imported (report, filters, exit codes). The
+  # other tests (TestAWSParallelAccounts and TestAWSParallelRegions, which
+  # create their resources in other accounts) share a last one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
@@ -335,7 +338,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, selection, incremental, others]
+        shard: [round-trip, selection, incremental, options-output, options-input, others]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
@@ -346,9 +349,15 @@ jobs:
         - shard: incremental
           run: ^TestAWSIncremental$
           skip: ""
+        - shard: options-output
+          run: ^TestAWSOptions(Layout|Modules)$
+          skip: ""
+        - shard: options-input
+          run: ^TestAWSOptions(Report|Filters|ExitCodes)$
+          skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental)$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
