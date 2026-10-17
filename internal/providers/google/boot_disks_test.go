@@ -102,7 +102,7 @@ var bootDiskAssets = []map[string]any{
 var bootDiskPages = []map[string]any{
 	{
 		"zones/us-central1-a": map[string]any{"instances": []map[string]any{{
-			"name": "web",
+			"selfLink": computeURL + "projects/acme-prod/zones/us-central1-a/instances/web",
 			"disks": []map[string]any{
 				{"source": computeURL + "projects/acme-prod/zones/us-central1-a/disks/web", "boot": true},
 				{"source": computeURL + "projects/acme-prod/zones/us-central1-a/disks/data"},
@@ -112,12 +112,12 @@ var bootDiskPages = []map[string]any{
 	},
 	{
 		"zones/us-central1-b": map[string]any{"instances": []map[string]any{{
-			"name":  "db",
-			"disks": []map[string]any{{"source": computeURL + "projects/acme-prod/regions/us-central1/disks/db-boot", "boot": true}},
+			"selfLink": computeURL + "projects/acme-prod/zones/us-central1-b/instances/db",
+			"disks":    []map[string]any{{"source": computeURL + "projects/acme-prod/regions/us-central1/disks/db-boot", "boot": true}},
 		}}},
 		"zones/us-central1-c": map[string]any{"instances": []map[string]any{{
-			"name":  "new",
-			"disks": []map[string]any{{"source": computeURL + "projects/acme-prod/zones/us-central1-c/disks/new", "boot": true}},
+			"selfLink": computeURL + "projects/acme-prod/zones/us-central1-c/instances/new",
+			"disks":    []map[string]any{{"source": computeURL + "projects/acme-prod/zones/us-central1-c/disks/new", "boot": true}},
 		}}},
 	},
 }
@@ -265,6 +265,32 @@ func TestCloudAssetBootDisksUnknown(t *testing.T) {
 				t.Errorf("got %d instance lists, want 1", instances.requests())
 			}
 		})
+	}
+}
+
+// An instance is named by its own URL, which has the project's ID, so a
+// project given by its number still finds the boot disks, which the disk
+// sources name by ID too.
+func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
+	instances := &fakeInstances{pages: bootDiskPages[:1]}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/compute/v1/projects/123456789012/aggregated/instances" {
+			http.Error(w, "unexpected "+r.URL.Path, http.StatusNotFound)
+			return
+		}
+		instances.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	t.Setenv(EndpointEnv, server.URL)
+	bootDiskLists.forget()
+	t.Cleanup(bootDiskLists.forget)
+
+	boot, err := bootDisksOnce(t.Context(), "123456789012")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := boot["projects/acme-prod/zones/us-central1-a/disks/web"], "projects/acme-prod/zones/us-central1-a/instances/web"; got != want || len(boot) != 1 {
+		t.Errorf("boot disks %v, want web's, booting %s", boot, want)
 	}
 }
 

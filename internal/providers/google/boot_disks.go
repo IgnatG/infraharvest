@@ -38,11 +38,12 @@ const (
 	bootDiskOfAttribute = "asset.boot_disk_of"
 )
 
-// bootDiskFields is what the instance list returns: each instance's name
-// and its disks' sources and whether each is the boot disk, the warning of
+// bootDiskFields is what the instance list returns: each instance's URL,
+// which names its project by ID however the import names it, and its
+// disks' sources and whether each is the boot disk, the warning of
 // each zone, which tells one that can't be reached, and the next page's
 // token, without which the list would stop at its first page.
-const bootDiskFields = "items/*/instances(name,disks(source,boot)),items/*/warning/code,nextPageToken"
+const bootDiskFields = "items/*/instances(selfLink,disks(source,boot)),items/*/warning/code,nextPageToken"
 
 // markBootDisks records on each disk of resources that is the boot disk
 // of an instance in results asset.boot_disk=true and the instance's ID as
@@ -122,9 +123,9 @@ func bootDisksOnce(ctx context.Context, project string) (map[string]string, erro
 					unreachable = append(unreachable, scope)
 				}
 				for _, instance := range list.Instances {
-					id := "projects/" + project + "/" + scope + "/instances/" + instance.Name
+					id := computeID(instance.SelfLink)
 					for _, disk := range instance.Disks {
-						if source := computeID(disk.Source); disk.Boot && source != "" {
+						if source := computeID(disk.Source); disk.Boot && source != "" && id != "" {
 							boot[source] = id
 						}
 					}
