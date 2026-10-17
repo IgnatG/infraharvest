@@ -103,6 +103,9 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 	// ImportEach); a call on its own finishes its own.
 	run := options.run
 	if run == nil {
+		run = activeRun
+	}
+	if run == nil {
 		run = NewRun()
 		ctx, stop := InterruptContext(ctx)
 		defer stop()

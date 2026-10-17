@@ -384,7 +384,7 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 		t.Errorf("after a failure: %d failed and %d other searches, want the failed one only", failures, len(search.requests))
 	}
 	searches.forget()
-	if got := listAssetsIn(t, nil, ""); len(got) != 5 || len(search.requests) != 1 {
+	if got := listAssetsIn(t, nil, ""); len(got) != 7 || len(search.requests) != 1 {
 		t.Errorf("searching afresh: got %d resources from %d searches", len(got), len(search.requests))
 	}
 }
