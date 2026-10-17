@@ -43,7 +43,10 @@ func (g *IamLister) List() error {
 	if region.Name != "" {
 		return nil
 	}
-	project, _ := g.Settings()["project"].(string)
+	project, err := projectSetting(g.Settings())
+	if err != nil {
+		return err
+	}
 	ctx := g.Context()
 	svc, err := cloudresourcemanager.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {

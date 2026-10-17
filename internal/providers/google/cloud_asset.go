@@ -67,7 +67,10 @@ func (g *CloudAssetLister) List() error {
 	if err != nil {
 		return err
 	}
-	project := g.Settings()["project"].(string)
+	project, err := projectSetting(g.Settings())
+	if err != nil {
+		return err
+	}
 	results, err := searchOnce(ctx, svc, project, assetTypes)
 	if err != nil {
 		return err

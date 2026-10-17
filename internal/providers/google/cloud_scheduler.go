@@ -41,7 +41,10 @@ func (g *SchedulerJobsLister) List() error {
 	if region.Name == "" {
 		return nil
 	}
-	project, _ := g.Settings()["project"].(string)
+	project, err := projectSetting(g.Settings())
+	if err != nil {
+		return err
+	}
 	ctx := g.Context()
 	svc, err := cloudscheduler.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
