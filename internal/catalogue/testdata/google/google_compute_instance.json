@@ -1,4 +1,5 @@
 {"resources": [
   {"id": "projects/acme-prod/zones/us-central1-a/instances/bastion", "name": "bastion", "attributes": {"asset.project": "acme-prod", "asset.name": "bastion", "asset.location": "us-central1-a"}},
-  {"id": "projects/acme-prod/zones/us-central1-a/instances/gke-prod-default-pool-1a2b3c4d-x9z8", "name": "gke_prod_default_pool_1a2b3c4d_x9z8", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d-x9z8", "asset.location": "us-central1-a"}}
+  {"id": "projects/acme-prod/zones/us-central1-a/instances/gke-prod-default-pool-1a2b3c4d-x9z8", "name": "gke_prod_default_pool_1a2b3c4d_x9z8", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d-x9z8", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/instances/web-x1b2", "name": "web_x1b2", "attributes": {"asset.project": "acme-prod", "asset.name": "web-x1b2", "asset.location": "us-central1-a", "asset.created_by_group": "true"}}
 ]}

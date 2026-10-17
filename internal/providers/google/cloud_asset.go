@@ -48,11 +48,12 @@ type CloudAssetLister struct {
 
 // List searches the project, or takes the search an import of another of
 // its regions made (see searchOnce), and keeps what is in the import's
-// region, with the disks that are instances' boot disks and the node pools
-// of Autopilot clusters marked (see markBootDisks and markAutopilotPools).
+// region, with the disks that are instances' boot disks, the instances
+// managed instance groups created and the node pools of Autopilot
+// clusters marked (see markInstances and markAutopilotPools).
 // When the instances or the clusters can't be listed to mark them, the
 // listing fails in part (see harvest.Partial): it keeps every resource,
-// and the disks or node pools it couldn't tell about are left out by
+// and the disks and node pools it couldn't tell about are left out by
 // default.
 func (g *CloudAssetLister) List() error {
 	cat := g.catalogue()
@@ -74,7 +75,7 @@ func (g *CloudAssetLister) List() error {
 	region, _ := g.Settings()["region"].(compute.Region)
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
 	var unmarked []error
-	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markBootDisks, markAutopilotPools} {
+	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
 		if err := mark(ctx, project, results, resources); err != nil {
 			if ctx.Err() != nil {
 				return err

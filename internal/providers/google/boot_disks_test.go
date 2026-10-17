@@ -79,8 +79,8 @@ func computeAndAssets(t *testing.T, search *fakeAssetSearch, instances *fakeInst
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
 	forgetSearches(t)
-	bootDiskLists.forget()
-	t.Cleanup(bootDiskLists.forget)
+	instanceLists.forget()
+	t.Cleanup(instanceLists.forget)
 }
 
 const computeURL = "https://www.googleapis.com/compute/v1/"
@@ -158,8 +158,8 @@ func TestCloudAssetMarksBootDisks(t *testing.T) {
 		t.Errorf("got %d requests, want the list's 2 pages", instances.requests())
 	}
 	for _, fields := range instances.fields {
-		if fields != bootDiskFields {
-			t.Errorf("fields %q, want %q", fields, bootDiskFields)
+		if fields != instanceFields {
+			t.Errorf("fields %q, want %q", fields, instanceFields)
 		}
 	}
 }
@@ -202,25 +202,83 @@ func TestCloudAssetListsNoInstancesForGlobal(t *testing.T) {
 	}
 }
 
-// A project whose search found disks but no instances, or instances but
-// no disks, has no boot disks to find, so its instances aren't listed.
-func TestCloudAssetListsNoInstancesWithoutBoth(t *testing.T) {
-	for name, results := range map[string][]map[string]any{
-		"disks":     bootDiskAssets[2:],
-		"instances": bootDiskAssets[:2],
+// A project whose search found disks but no instances has no boot disks
+// to find, so its instances aren't listed.
+func TestCloudAssetListsNoInstancesWithoutThem(t *testing.T) {
+	instances := &fakeInstances{pages: bootDiskPages}
+	computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets[2:], perPage: 500}, instances)
+	for _, r := range listAssetsIn(t, nil, "us-central1") {
+		if _, ok := r.Observed.Attributes[bootDiskAttribute]; ok {
+			t.Errorf("%s: attributes %v", r.Observed.ID, r.Observed.Attributes)
+		}
+	}
+	if instances.requests() != 0 {
+		t.Errorf("got %d instance lists, want none", instances.requests())
+	}
+}
+
+// An instance that a managed instance group created, which has the
+// created-by metadata key, records it, and the catalogue leaves it out by
+// default, as the group deletes and recreates it; the others stay in. The
+// instances are listed for an import that lists instances and no disks
+// too.
+func TestCloudAssetMarksInstancesGroupsCreated(t *testing.T) {
+	member := map[string]any{
+		"selfLink": computeURL + "projects/acme-prod/zones/us-central1-a/instances/web-x1b2",
+		"metadata": map[string]any{"items": []map[string]any{{"key": "created-by"}, {"key": "instance-template"}}},
+	}
+	alone := map[string]any{
+		"selfLink": computeURL + "projects/acme-prod/zones/us-central1-a/instances/bastion",
+		"metadata": map[string]any{"items": []map[string]any{{"key": "startup-script"}}},
+	}
+	instances := &fakeInstances{pages: []map[string]any{{"zones/us-central1-a": map[string]any{"instances": []map[string]any{member, alone}}}}}
+	computeAndAssets(t, &fakeAssetSearch{results: []map[string]any{
+		asset("compute.googleapis.com/Instance", "//compute.googleapis.com/projects/acme-prod/zones/us-central1-a/instances/web-x1b2", "us-central1-a", nil),
+		asset("compute.googleapis.com/Instance", "//compute.googleapis.com/projects/acme-prod/zones/us-central1-a/instances/bastion", "us-central1-a", nil),
+	}, perPage: 500}, instances)
+
+	got := byID(listAssetsIn(t, nil, "us-central1"))
+	cat := catalogue.MustBuiltin("google")
+	for id, want := range map[string]bool{
+		"projects/acme-prod/zones/us-central1-a/instances/web-x1b2": true,
+		"projects/acme-prod/zones/us-central1-a/instances/bastion":  false,
 	} {
-		t.Run(name, func(t *testing.T) {
-			instances := &fakeInstances{pages: bootDiskPages}
-			computeAndAssets(t, &fakeAssetSearch{results: results, perPage: 500}, instances)
-			for _, r := range listAssetsIn(t, nil, "us-central1") {
-				if _, ok := r.Observed.Attributes[bootDiskAttribute]; ok {
-					t.Errorf("%s: attributes %v", r.Observed.ID, r.Observed.Attributes)
-				}
-			}
-			if instances.requests() != 0 {
-				t.Errorf("got %d instance lists, want none", instances.requests())
-			}
-		})
+		r, ok := got[id]
+		if !ok {
+			t.Errorf("%s isn't listed: %v", id, got)
+			continue
+		}
+		a := r.Observed.Attributes
+		if (a[createdByGroupAttribute] == "true") != want {
+			t.Errorf("%s: attributes %v, want created by a group %v", id, a, want)
+		}
+		if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, a) != ""; skipped != want {
+			t.Errorf("%s (%s): left out by default %v", id, r.Address.Type, skipped)
+		}
+	}
+	if instances.requests() != 1 || instances.fields[0] != instanceFields {
+		t.Errorf("got %d instance lists, with fields %v; want one, with %q", instances.requests(), instances.fields, instanceFields)
+	}
+}
+
+// When the instances can't be listed for an import that lists no disks,
+// the instances are imported, and the listing fails in part.
+func TestCloudAssetInstancesUnknown(t *testing.T) {
+	instances := &fakeInstances{pages: bootDiskPages, fail: 1}
+	computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets[:2], perPage: 500}, instances)
+	g := assetLister(t, nil, "us-central1")
+	err := g.List()
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "managed instance groups") {
+		t.Fatalf("error %v, want a partial one about managed instance groups", err)
+	}
+	cat := catalogue.MustBuiltin("google")
+	if len(g.Resources) != 2 {
+		t.Fatalf("got %v", byID(g.Resources))
+	}
+	for _, r := range g.Resources {
+		if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); skipped != "" {
+			t.Errorf("%s: left out by default: %s", r.Observed.ID, skipped)
+		}
 	}
 }
 
@@ -282,13 +340,14 @@ func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv(EndpointEnv, server.URL)
-	bootDiskLists.forget()
-	t.Cleanup(bootDiskLists.forget)
+	instanceLists.forget()
+	t.Cleanup(instanceLists.forget)
 
-	boot, err := bootDisksOnce(t.Context(), "123456789012")
+	list, err := instancesOnce(t.Context(), "123456789012")
 	if err != nil {
 		t.Fatal(err)
 	}
+	boot := list.boot
 	if got, want := boot["projects/acme-prod/zones/us-central1-a/disks/web"], "projects/acme-prod/zones/us-central1-a/instances/web"; got != want || len(boot) != 1 {
 		t.Errorf("boot disks %v, want web's, booting %s", boot, want)
 	}

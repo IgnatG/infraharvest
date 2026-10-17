@@ -38,25 +38,39 @@ const (
 	bootDiskOfAttribute = "asset.boot_disk_of"
 )
 
-// bootDiskFields is what the instance list returns: each instance's URL,
-// which names its project by ID however the import names it, and its
-// disks' sources and whether each is the boot disk, the warning of
-// each zone, which tells one that can't be reached, and the next page's
-// token, without which the list would stop at its first page.
-const bootDiskFields = "items/*/instances(selfLink,disks(source,boot)),items/*/warning/code,nextPageToken"
+// createdByGroupAttribute is recorded, as true, on an instance that a
+// managed instance group created, which has the created-by metadata key
+// the group sets. The catalogue leaves it out by default: the group
+// deletes and recreates its instances as it scales and updates them, and
+// the group itself is imported.
+const createdByGroupAttribute = "asset.created_by_group"
 
-// markBootDisks records on each disk of resources that is the boot disk
+// createdByKey is the metadata key a managed instance group sets on each
+// instance it creates, to the group's URL.
+const createdByKey = "created-by"
+
+// instanceFields is what the instance list returns: each instance's URL,
+// which names its project by ID however the import names it, its disks'
+// sources and whether each is the boot disk, and its metadata's keys,
+// without their values, which hold startup scripts; the warning of each
+// zone, which tells one that can't be reached; and the next page's token,
+// without which the list would stop at its first page.
+const instanceFields = "items/*/instances(selfLink,disks(source,boot),metadata/items/key),items/*/warning/code,nextPageToken"
+
+// markInstances records on each disk of resources that is the boot disk
 // of an instance in results asset.boot_disk=true and the instance's ID as
-// asset.boot_disk_of. A disk attached as a data disk records nothing: it
-// imports as google_compute_disk, which the instance's attached_disk block
-// attaches by its source. Only a project whose search found instances has
-// its instances' disks listed, once (see bootDisksOnce), and only for an
-// import that lists disks: the import of global lists none. If they can't
-// be, each disk records asset.boot_disk=unknown, which the catalogue
-// leaves out by default too, as it may be a boot disk, and the error says
-// so, for the listing to fail in part (see harvest.Partial). The error is
-// the context's, when it ends.
-func markBootDisks(ctx context.Context, project string, results []*cloudasset.ResourceSearchResult, resources []harvest.Resource) error {
+// asset.boot_disk_of, and on each instance a managed instance group
+// created asset.created_by_group=true. A disk attached as a data disk
+// records nothing: it imports as google_compute_disk, which the
+// instance's attached_disk block attaches by its source. Only a project
+// whose search found instances has them listed, once (see instancesOnce),
+// and only for an import that lists its instances or disks: the import of
+// global lists neither. If they can't be, each disk records
+// asset.boot_disk=unknown, which the catalogue leaves out by default too,
+// as it may be a boot disk, the instances are imported, and the error
+// says so, for the listing to fail in part (see harvest.Partial). The
+// error is the context's, when it ends.
+func markInstances(ctx context.Context, project string, results []*cloudasset.ResourceSearchResult, resources []harvest.Resource) error {
 	instances, disks := map[string]bool{}, map[string]bool{}
 	for _, r := range results {
 		if strings.Contains(strings.ToUpper(r.State), "DELET") {
@@ -69,78 +83,96 @@ func markBootDisks(ctx context.Context, project string, results []*cloudasset.Re
 			disks[assetID(r.Name, r.Project, project)] = true
 		}
 	}
-	listed := slices.ContainsFunc(resources, func(r harvest.Resource) bool { return disks[r.Observed.ID] })
-	if len(instances) == 0 || !listed {
+	listsDisks := slices.ContainsFunc(resources, func(r harvest.Resource) bool { return disks[r.Observed.ID] })
+	listsInstances := slices.ContainsFunc(resources, func(r harvest.Resource) bool { return instances[r.Observed.ID] })
+	if len(instances) == 0 || (!listsDisks && !listsInstances) {
 		return nil
 	}
-	boot, err := bootDisksOnce(ctx, project)
+	list, err := instancesOnce(ctx, project)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
 	for _, r := range resources {
-		if !disks[r.Observed.ID] {
-			continue
-		}
-		if err != nil {
+		switch id := r.Observed.ID; {
+		case disks[id] && err != nil:
 			r.Observed.Attributes[bootDiskAttribute] = "unknown"
-			continue
-		}
-		if instance, ok := boot[r.Observed.ID]; ok && instances[instance] {
-			r.Observed.Attributes[bootDiskAttribute] = "true"
-			r.Observed.Attributes[bootDiskOfAttribute] = instance
+		case disks[id]:
+			if instance, ok := list.boot[id]; ok && instances[instance] {
+				r.Observed.Attributes[bootDiskAttribute] = "true"
+				r.Observed.Attributes[bootDiskOfAttribute] = instance
+			}
+		case instances[id] && err == nil && list.createdByGroup[id]:
+			r.Observed.Attributes[createdByGroupAttribute] = "true"
 		}
 	}
-	if err != nil {
-		return fmt.Errorf("the disks of project %s's instances can't be listed, so its disks, which may be their boot disks, are left out by default: %w", project, err)
+	switch {
+	case err == nil:
+		return nil
+	case listsDisks:
+		return fmt.Errorf("the instances of project %s can't be listed, so its disks, which may be their boot disks, are left out by default, and the instances managed instance groups created can't be told apart: %w", project, err)
+	default:
+		return fmt.Errorf("the instances of project %s can't be listed, so the instances managed instance groups created can't be told apart: %w", project, err)
 	}
-	return nil
 }
 
-// bootDiskLists are the boot disks the process has listed, by project:
-// one list has every zone's instances, and one command imports a project
+// instanceList is what the list of a project's instances tells: the boot
+// disks, by the disk's ID, with the ID of the instance each boots, such
+// as projects/p/zones/z/disks/web for projects/p/zones/z/instances/web,
+// and the instances a managed instance group created, by ID.
+type instanceList struct {
+	boot           map[string]string
+	createdByGroup map[string]bool
+}
+
+// instanceLists are the instances the process has listed, by project: one
+// list has every zone's instances, and one command imports a project
 // region by region, so it is listed once for all of them rather than
 // once for each, as searchOnce searches.
-var bootDiskLists projectLists[map[string]string]
+var instanceLists projectLists[instanceList]
 
-// bootDisksOnce returns the boot disks of the project's instances, by the
-// disk's ID, with the ID of the instance each boots, such as
-// projects/p/zones/z/disks/web for projects/p/zones/z/instances/web,
-// listing them only the first time the process asks (see projectLists).
-// The list is the project's instances in every zone, page by page, with
-// no more of each than bootDiskFields. A zone that can't be reached fails
-// the list: its instances' boot disks would be missing from it.
-func bootDisksOnce(ctx context.Context, project string) (map[string]string, error) {
-	return bootDiskLists.once(project, func() (map[string]string, error) {
+// instancesOnce lists the project's instances, only the first time the
+// process asks (see projectLists). The list is the project's instances in
+// every zone, page by page, with no more of each than instanceFields. A
+// zone that can't be reached fails the list: its instances would be
+// missing from it.
+func instancesOnce(ctx context.Context, project string) (instanceList, error) {
+	return instanceLists.once(project, func() (instanceList, error) {
 		svc, err := compute.NewService(ctx, clientOptions(ctx)...)
 		if err != nil {
-			return nil, err
+			return instanceList{}, err
 		}
-		boot := map[string]string{}
+		list := instanceList{boot: map[string]string{}, createdByGroup: map[string]bool{}}
 		var unreachable []string
-		err = svc.Instances.AggregatedList(project).Fields(googleapi.Field(bootDiskFields)).Pages(ctx, func(page *compute.InstanceAggregatedList) error {
-			for scope, list := range page.Items {
-				if list.Warning != nil && list.Warning.Code == "UNREACHABLE" {
+		err = svc.Instances.AggregatedList(project).Fields(googleapi.Field(instanceFields)).Pages(ctx, func(page *compute.InstanceAggregatedList) error {
+			for scope, scoped := range page.Items {
+				if scoped.Warning != nil && scoped.Warning.Code == "UNREACHABLE" {
 					unreachable = append(unreachable, scope)
 				}
-				for _, instance := range list.Instances {
+				for _, instance := range scoped.Instances {
 					id := computeID(instance.SelfLink)
+					if id == "" {
+						continue
+					}
 					for _, disk := range instance.Disks {
-						if source := computeID(disk.Source); disk.Boot && source != "" && id != "" {
-							boot[source] = id
+						if source := computeID(disk.Source); disk.Boot && source != "" {
+							list.boot[source] = id
 						}
+					}
+					if instance.Metadata != nil && slices.ContainsFunc(instance.Metadata.Items, func(item *compute.MetadataItems) bool { return item != nil && item.Key == createdByKey }) {
+						list.createdByGroup[id] = true
 					}
 				}
 			}
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("listing the instances of project %s: %w", project, err)
+			return instanceList{}, fmt.Errorf("listing the instances of project %s: %w", project, err)
 		}
 		if len(unreachable) > 0 {
 			slices.Sort(unreachable)
-			return nil, fmt.Errorf("listing the instances of project %s: %s can't be reached", project, strings.Join(unreachable, ", "))
+			return instanceList{}, fmt.Errorf("listing the instances of project %s: %s can't be reached", project, strings.Join(unreachable, ", "))
 		}
-		return boot, nil
+		return list, nil
 	})
 }
 
