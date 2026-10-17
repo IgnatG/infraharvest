@@ -141,7 +141,7 @@ func TestInventoryKeepsTags(t *testing.T) {
 	if inv.Scope != "fake/1/eu-west-2" || len(inv.Records) != 1 {
 		t.Fatalf("saved inventory: %+v", inv)
 	}
-	if r := inv.Records[0]; r.Service != "good" || r.Type != "fake_thing" || r.ID != "id-1" || r.Label != res.Label || r.Name != "one" || r.Tags["env"] != "dev" {
+	if r := inv.Records[0]; r.Service != "good" || r.Type != "fake_thing" || r.ID != "id-1" || r.Name != "one" || r.Tags["env"] != "dev" {
 		t.Errorf("record: %+v", r)
 	}
 

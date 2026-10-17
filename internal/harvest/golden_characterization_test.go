@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -153,7 +152,7 @@ var (
 	_ ProviderWithTerraformEnv        = goldenOptional{}
 
 	_ = ModuleProvider{Source: "", Config: map[string]interface{}{}}
-	_ = Resource{Address: &Address{Type: "", ID: ""}, Observed: &Observation{ID: "", Attributes: map[string]string{}}, Label: "", RawName: "", Provider: ""}
+	_ = Resource{Address: &Address{Type: ""}, Observed: &Observation{ID: "", Attributes: map[string]string{}}, RawName: "", Provider: ""}
 	_ = Filter{Service: "", Path: "", Values: []string{}}
 	_ = ListerBase{Resources: []Resource{}}
 	_ = ListerConfig{Service: "", Provider: "", Verbose: false, Settings: map[string]interface{}{}}
@@ -167,7 +166,6 @@ func goldenSignature[T any](T) {}
 func TestGoldenAPISignatures(t *testing.T) {
 	goldenSignature[func(string, string, string, string, map[string]string) Resource](Record)
 	goldenSignature[func(string, string, string, string) Resource](RecordBare)
-	goldenSignature[func(string) string](Label)
 	goldenSignature[func(map[string]string) map[string]string](AttributeTags)
 	goldenSignature[func(string) (Filter, error)](ParseIDFilter)
 	goldenSignature[func(string) (Filter, error)](ParseTagFilter)
@@ -190,30 +188,6 @@ func TestGoldenAPISignatures(t *testing.T) {
 	goldenSignature[func(*ListerBase) []Resource]((*ListerBase).Listed)
 	goldenSignature[func(*ListerBase, []Resource)]((*ListerBase).SetListed)
 	t.Log("the API has the signatures the golden tests expect")
-}
-
-func TestGoldenLabel(t *testing.T) {
-	names := []string{
-		"", "simple", "UPPER_lower-123", "-_-", "r--already",
-		"with space", "  two  spaces ", "dots.and/slashes", "a:b", "a=b", "a+b", "100%",
-		"@#$&*()[]{}<>", "quote'\"`", "back\\slash", "tab\tnew\nline",
-		"\x00", "\x01", "\x1f", "\x7f",
-		"é", "naïve café", "日本", "😀", "\u00a0", "\u2028", "Ω",
-		"\xff", "a\xffb", "\xc3", "\xe2\x82",
-		"arn:aws:iam::123456789012:role/admin",
-		"projects/p/zones/europe-west1-b/instances/vm-1",
-		"/subscriptions/0000/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet",
-		"https://sqs/1/my queue",
-	}
-	type result struct {
-		Name  string `json:"name"`
-		Label string `json:"label"`
-	}
-	got := make([]result, 0, len(names))
-	for _, name := range names {
-		got = append(got, result{Name: strconv.QuoteToASCII(name), Label: Label(name)})
-	}
-	goldenCheck(t, "label", got)
 }
 
 func TestGoldenRecord(t *testing.T) {
@@ -239,11 +213,9 @@ func TestGoldenRecord(t *testing.T) {
 		Case              string          `json:"case"`
 		Simple            bool            `json:"simple"`
 		JSON              json.RawMessage `json:"json"`
-		Label             string          `json:"label"`
 		RawName           string          `json:"rawName"`
 		Provider          string          `json:"provider"`
 		Type              string          `json:"type"`
-		Address           string          `json:"address"`
 		StateID           string          `json:"stateId"`
 		AttributesNil     bool            `json:"attributesNil"`
 		AttributesLen     int             `json:"attributesLen"`
@@ -266,11 +238,9 @@ func TestGoldenRecord(t *testing.T) {
 			Case:          c.name,
 			Simple:        c.simple,
 			JSON:          content,
-			Label:         r.Label,
 			RawName:       r.RawName,
 			Provider:      r.Provider,
 			Type:          r.Address.Type,
-			Address:       r.Address.ID,
 			StateID:       r.Observed.ID,
 			AttributesNil: r.Observed.Attributes == nil,
 			AttributesLen: len(r.Observed.Attributes),
@@ -383,7 +353,7 @@ func TestGoldenFilter(t *testing.T) {
 	underscore := RecordBare("u-1", "u", "_type1", "")
 	noPrefix := RecordBare("p-1", "p", "awsvpc", "aws")
 	noAddress := Resource{Observed: &Observation{ID: "vpc-1"}, Provider: "aws"}
-	noObservation := Resource{Address: &Address{Type: "aws_vpc", ID: "aws_vpc.r--x"}, Provider: "aws"}
+	noObservation := Resource{Address: &Address{Type: "aws_vpc"}, Provider: "aws"}
 
 	cases := []struct {
 		name     string
@@ -460,7 +430,7 @@ func TestGoldenFilter(t *testing.T) {
 
 type goldenResourceView struct {
 	Type    string `json:"type"`
-	Address string `json:"address"`
+	Name    string `json:"name"`
 	StateID string `json:"stateId"`
 }
 
@@ -470,19 +440,19 @@ func goldenResourceViews(resources []Resource) []goldenResourceView {
 	}
 	views := make([]goldenResourceView, 0, len(resources))
 	for _, r := range resources {
-		views = append(views, goldenResourceView{Type: r.Address.Type, Address: r.Address.ID, StateID: r.Observed.ID})
+		views = append(views, goldenResourceView{Type: r.Address.Type, Name: r.RawName, StateID: r.Observed.ID})
 	}
 	return views
 }
 
 func TestGoldenPrune(t *testing.T) {
-	r := func(typ, address, stateID string) Resource {
-		return Resource{Address: &Address{Type: typ, ID: address}, Observed: &Observation{ID: stateID}, Provider: "aws"}
+	r := func(typ, name, stateID string) Resource {
+		return Resource{Address: &Address{Type: typ}, Observed: &Observation{ID: stateID}, RawName: name, Provider: "aws"}
 	}
-	vpc1 := r("aws_vpc", "aws_vpc.r--vpc-1", "vpc-1")
-	vpc2 := r("aws_vpc", "aws_vpc.r--vpc-2", "vpc-2")
-	vpc3 := r("aws_vpc", "aws_vpc.r--vpc-3", "vpc-3")
-	subnet1 := r("aws_subnet", "aws_subnet.r--subnet-1", "subnet-1")
+	vpc1 := r("aws_vpc", "vpc-1", "vpc-1")
+	vpc2 := r("aws_vpc", "vpc-2", "vpc-2")
+	vpc3 := r("aws_vpc", "vpc-3", "vpc-3")
+	subnet1 := r("aws_subnet", "subnet-1", "subnet-1")
 	several := []Resource{vpc1, subnet1, vpc2, vpc3, vpc1}
 
 	id := func(service string, ids ...string) Filter { return Filter{Service: service, Path: "id", Values: ids} }
@@ -507,17 +477,17 @@ func TestGoldenPrune(t *testing.T) {
 		{name: "filter without ids drops the service", resources: several, filters: []Filter{id("vpc")}},
 		{name: "full type name is not applied", resources: several, filters: []Filter{id("aws_vpc", "vpc-1")}},
 		{name: "unscoped id filter", resources: several, filters: []Filter{id("", "vpc-1", "subnet-1")}},
-		{name: "same address, other state ID", resources: []Resource{
-			r("aws_vpc", "aws_vpc.r--same", "vpc-a"), r("aws_vpc", "aws_vpc.r--same", "vpc-b"),
+		{name: "same name, other state ID", resources: []Resource{
+			r("aws_vpc", "same", "vpc-a"), r("aws_vpc", "same", "vpc-b"),
 		}, filters: []Filter{id("subnet", "x")}},
 		{name: "first copy filtered out, second kept", resources: []Resource{
-			r("aws_vpc", "aws_vpc.r--same", "vpc-a"), r("aws_vpc", "aws_vpc.r--same", "vpc-b"),
+			r("aws_vpc", "same", "vpc-a"), r("aws_vpc", "same", "vpc-b"),
 		}, filters: []Filter{id("vpc", "vpc-b")}},
 		{name: "types sharing an ID", resources: []Resource{
 			r("aws_iam_role", "admins", "admins"), r("aws_iam_group", "admins", "admins"), r("aws_iam_group", "admins", "admins"),
 		}, filters: []Filter{id("iam_user", "other")}},
-		{name: "same state ID, other addresses", resources: []Resource{
-			r("aws_vpc", "aws_vpc.r--a", "vpc-1"), r("aws_vpc", "aws_vpc.r--b", "vpc-1"),
+		{name: "same state ID, other names", resources: []Resource{
+			r("aws_vpc", "a", "vpc-1"), r("aws_vpc", "b", "vpc-1"),
 		}, filters: []Filter{id("vpc", "vpc-1")}},
 		{name: "everything filtered out", resources: several, filters: []Filter{id("vpc", "none"), id("subnet", "none")}},
 	}

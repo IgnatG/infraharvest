@@ -54,9 +54,8 @@ type record struct {
 	Type     string `json:"type"`
 	// ID is the ID the lister found (see harvest.Observation).
 	ID string `json:"id"`
-	// Label and Name are its name as a Terraform label and as listed.
-	Label string `json:"label"`
-	Name  string `json:"name,omitempty"`
+	// Name is its name as listed.
+	Name string `json:"name,omitempty"`
 	// Tags are its tags (labels on Google Cloud), if they could be read.
 	Tags map[string]string `json:"tags,omitempty"`
 	// Attributes are what the lister recorded about it.
@@ -90,7 +89,6 @@ func (l listing) records() []record {
 				Provider:   r.Provider,
 				Type:       r.Address.Type,
 				ID:         r.Observed.ID,
-				Label:      r.Label,
 				Name:       r.RawName,
 				Tags:       l.tagsOf(r),
 				Attributes: r.Observed.Attributes,
@@ -98,7 +96,7 @@ func (l listing) records() []record {
 		}
 	}
 	slices.SortFunc(records, func(a, b record) int {
-		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Type, b.Type), cmp.Compare(a.ID, b.ID), cmp.Compare(a.Label, b.Label))
+		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Type, b.Type), cmp.Compare(a.ID, b.ID), cmp.Compare(a.Name, b.Name))
 	})
 	return records
 }
@@ -119,9 +117,8 @@ func listingOf(records []record, services []string) listing {
 			attributes = map[string]string{}
 		}
 		r := harvest.Resource{
-			Address:  &harvest.Address{Type: rec.Type, ID: rec.Type + "." + rec.Label},
+			Address:  &harvest.Address{Type: rec.Type},
 			Observed: &harvest.Observation{ID: rec.ID, Attributes: attributes},
-			Label:    rec.Label,
 			RawName:  rec.Name,
 			Provider: rec.Provider,
 		}

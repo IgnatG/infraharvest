@@ -186,7 +186,7 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("%s: %s doesn't pin Terraform and the provider:\n%s", dir, engine.VersionsFileName, versions)
 		}
 		if internalLabel.MatchString(readFile(t, filepath.Join(dir, engine.ImportsFileName))) {
-			t.Errorf("%s: an import address keeps the r-- label the listers give", dir)
+			t.Errorf("%s: an import address has an r-- label", dir)
 		}
 		readFile(t, filepath.Join(dir, engine.ReadmeFileName))
 		if strings.Contains(configuration(t, dir), "vpc_id = aws_vpc.") {
@@ -645,8 +645,9 @@ func listThroughRole(ctx context.Context, t *testing.T, created []*tfjson.StateR
 	}
 }
 
-// internalLabel matches an import address whose label still has the r--
-// prefix the listers give, which the engine replaces with a label of its own.
+// internalLabel matches an import address whose label has the r-- prefix
+// of the escaped labels the listers once made: the engine labels resources
+// from their names.
 var internalLabel = regexp.MustCompile(`\bto\s*=\s*\S*\.r--`)
 
 // referencesVPC matches an argument that refers to a VPC resource.

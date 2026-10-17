@@ -217,9 +217,8 @@ func TestImportRejectsUnknownEngine(t *testing.T) {
 	}
 }
 
-// The engine labels resources by the name the lister gave, not by undoing
-// harvest.Label: "-" is part of names like my-2024-backups, and
-// "-2024-" is not an escape.
+// The engine labels resources by the name the lister gave, as it is: "-"
+// is part of names like my-2024-backups, and "-2024-" is kept.
 func TestImportsByDirKeepRawNames(t *testing.T) {
 	resources := map[string][]harvest.Resource{
 		"s3": {
