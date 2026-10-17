@@ -65,6 +65,15 @@ floci-gcp doesn't serve Cloud Asset Inventory or Cloud DNS. A stand-in in front 
 2. `infraharvest import azure --all --resource-group=infraharvest-e2e` imports them. `--services` names the services that list through Resource Manager, since floci-az has no Resource Graph, which `--services=*` uses.
 3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
 
+Four more tests import the same resources, each through a flow the round trip doesn't take:
+
+- `TestAzureSelection` runs `infraharvest discover azure`, checks the selection file and the inventory it saves list what step 1 created, and leaves out a network security group whose tag says Pulumi manages it ([`testdata/azure-selection`](testdata/azure-selection/main.tf)). It then edits the file to exclude the public IP and include that group, and imports with `--selection`: the import must import what the file includes and nothing else, with no changes.
+- `TestAzureIncremental` imports, creates a network security group ([`testdata/azure-incremental`](testdata/azure-incremental/main.tf)) and imports again with `--incremental`: the group must be added to the root in a file of its own, with nothing else changed, and the root must still plan with no changes.
+- `TestAzureResume` imports again with `--resume` into a finished import's output, which must generate no root again.
+- `TestAzureReuseInventory` imports with `--reuse-inventory` after discover: the log must say the import took the resources from the inventory discover saved. The listers reach floci-az over HTTPS, so unlike the Google Cloud test it doesn't count their requests.
+
+CI runs the round trip and `TestAzureIncremental`, which adds to what the others import, on runners of their own, and the other three on a third; run in one process, they share the resources the first one creates.
+
 ```sh
 docker compose -f e2e/compose.yaml --profile azure up -d floci-az
 curl -sf http://localhost:4577/_floci/tls-cert -o floci-az.crt   # then trust it, as CI does

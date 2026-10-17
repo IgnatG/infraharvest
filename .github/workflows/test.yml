@@ -436,8 +436,11 @@ jobs:
       if: matrix.engine == 'terraform'
       run: go vet -tags e2e,sandbox,minimal,google ./e2e/
 
+  # TestAzureIncremental adds to the estate the other tests import, so it
+  # runs on a runner of its own, with its own floci-az, as does the round
+  # trip; the other tests share a third.
   e2e-azure:
-    name: e2e-azure (${{ matrix.engine }})
+    name: e2e-azure (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -446,6 +449,17 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
+        shard: [round-trip, incremental, others]
+        include:
+        - shard: round-trip
+          run: ^TestAzureRoundTrip$
+          skip: ""
+        - shard: incremental
+          run: ^TestAzureIncremental$
+          skip: ""
+        - shard: others
+          run: ^TestAzure
+          skip: ^TestAzure(RoundTrip|Incremental)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -478,14 +492,16 @@ jobs:
         INFRAHARVEST_E2E_REQUIRED: "1"
         E2E_AZURE_METADATA_HOST: localhost:4577
         E2E_ENGINE: ${{ matrix.engine }}
-      run: go test -tags e2e,minimal,azure -timeout 20m -v -run TestAzure ./e2e/
+        RUN: ${{ matrix.run }}
+        SKIP: ${{ matrix.skip }}
+      run: go test -tags e2e,minimal,azure -timeout 20m -v -run "$RUN" -skip "$SKIP" ./e2e/
     - name: floci-az logs
       if: failure()
       run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
     # The sandbox test runs only by hand (sandbox-azure), so check here
     # that it builds.
     - name: Vet the sandbox test
-      if: matrix.engine == 'terraform'
+      if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,azure ./e2e/
 
   # A required check, whatever the shards: passes when every e2e job passed,
