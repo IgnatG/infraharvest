@@ -195,10 +195,11 @@ func (g *APIGatewayLister) listResources(svc *apigateway.Client, api restAPIRef)
 }
 
 // listResourceMethods lists the methods of one resource, in the order of
-// their HTTP methods. The embedded methods only name the HTTP methods, so
-// each method is read with GetMethod for its integration, the integration's
-// responses and the method's responses, which are listed after it in that
-// order, each set ordered by status code.
+// their HTTP methods. GetResources embeds each whole method, with its
+// integration, the integration's responses and the method's responses,
+// which are listed after it in that order, each set ordered by status code.
+// Only a method embedded without its HTTP method, empty, is read with
+// GetMethod.
 func (g *APIGatewayLister) listResourceMethods(svc *apigateway.Client, api restAPIRef, resource types.Resource) error {
 	resourceID := aws.ToString(resource.Id)
 	path := aws.ToString(resource.Path)
@@ -215,13 +216,19 @@ func (g *APIGatewayLister) listResourceMethods(svc *apigateway.Client, api restA
 		}
 		g.Resources = append(g.Resources, harvest.Record(methodID, api.part(path, httpMethod), "aws_api_gateway_method", "aws", attributes()))
 
-		method, err := svc.GetMethod(g.Context(), &apigateway.GetMethodInput{
-			RestApiId:  aws.String(api.id),
-			ResourceId: aws.String(resourceID),
-			HttpMethod: aws.String(httpMethod),
-		})
-		if err != nil {
-			return err
+		method := resource.ResourceMethods[httpMethod]
+		if method.HttpMethod == nil {
+			// An answer that only names the method, as some emulators
+			// give.
+			read, err := svc.GetMethod(g.Context(), &apigateway.GetMethodInput{
+				RestApiId:  aws.String(api.id),
+				ResourceId: aws.String(resourceID),
+				HttpMethod: aws.String(httpMethod),
+			})
+			if err != nil {
+				return err
+			}
+			method = types.Method{HttpMethod: read.HttpMethod, MethodIntegration: read.MethodIntegration, MethodResponses: read.MethodResponses}
 		}
 
 		if integration := method.MethodIntegration; integration != nil {

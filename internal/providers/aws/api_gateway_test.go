@@ -7,7 +7,9 @@ import "testing"
 
 // The lister records the IDs Terraform imports each part of a REST API
 // with, lists the deployment a stage serves and not the API's root
-// resource, and names each part after the API.
+// resource, and names each part after the API. A method's integration and
+// responses come from GetResources, which embeds them; only a method
+// embedded empty is read with GetMethod.
 func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		switch call.Path {
@@ -19,16 +21,17 @@ func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 			if call.Query.Get("embed") != "methods" {
 				t.Errorf("resources listed without their methods: %s", call.Query.Encode())
 			}
+			// The methods of r1 are embedded whole, as AWS embeds them, so
+			// they take no GetMethod; the root's is embedded empty, as some
+			// emulators answer, and is read.
 			return `{"item":[
 				{"id":"root","path":"/","resourceMethods":{"GET":{}}},
-				{"id":"r1","parentId":"root","path":"/health","pathPart":"health","resourceMethods":{"POST":{},"GET":{}}}]}`
+				{"id":"r1","parentId":"root","path":"/health","pathPart":"health","resourceMethods":{
+					"POST":{"httpMethod":"POST"},
+					"GET":{"httpMethod":"GET","methodIntegration":{"type":"MOCK","integrationResponses":{"200":{"statusCode":"200"}}},
+						"methodResponses":{"500":{"statusCode":"500"},"200":{"statusCode":"200"}}}}}]}`
 		case "/restapis/a1/resources/root/methods/GET":
-			return `{"httpMethod":"GET"}`
-		case "/restapis/a1/resources/r1/methods/GET":
-			return `{"httpMethod":"GET","methodIntegration":{"type":"MOCK","integrationResponses":{"200":{"statusCode":"200"}}},
-				"methodResponses":{"500":{"statusCode":"500"},"200":{"statusCode":"200"}}}`
-		case "/restapis/a1/resources/r1/methods/POST":
-			return `{"httpMethod":"POST"}`
+			return `{"httpMethod":"GET","methodResponses":{"200":{"statusCode":"200"}}}`
 		case "/restapis/a1/models":
 			return `{"item":[{"id":"m1","name":"Order","contentType":"application/json"}]}`
 		case "/restapis/a1/gatewayresponses":
@@ -56,7 +59,7 @@ func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 	assertIDs(t, g.Resources, "aws_api_gateway_method", "a1/root/GET", "a1/r1/GET", "a1/r1/POST")
 	assertIDs(t, g.Resources, "aws_api_gateway_integration", "a1/r1/GET")
 	assertIDs(t, g.Resources, "aws_api_gateway_integration_response", "a1/r1/GET/200")
-	assertIDs(t, g.Resources, "aws_api_gateway_method_response", "a1/r1/GET/200", "a1/r1/GET/500")
+	assertIDs(t, g.Resources, "aws_api_gateway_method_response", "a1/root/GET/200", "a1/r1/GET/200", "a1/r1/GET/500")
 	assertIDs(t, g.Resources, "aws_api_gateway_model", "a1/Order")
 	assertIDs(t, g.Resources, "aws_api_gateway_gateway_response", "a1/UNAUTHORIZED")
 	assertIDs(t, g.Resources, "aws_api_gateway_documentation_part", "a1/p1")
