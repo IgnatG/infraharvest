@@ -80,6 +80,9 @@ type vpcPart struct {
 	r    *Reader
 	name string            // its Name tag
 	tags map[string]string // its other tags
+	// base is the local its tags are merged over, such as local.tags,
+	// or nil.
+	base hclwrite.Tokens
 }
 
 // vpcSubnet is a subnet of a VPC cluster, with its route table.
@@ -392,20 +395,25 @@ func mapVPC(c Cluster) (*Call, error) {
 }
 
 // readVPCPart reads a resource's tags: its Name tag, which the module sets
-// for every resource it makes, and the others.
+// for every resource it makes, and the others. Of tags a root has lifted
+// into a local, local.tags or merge(local.tags, {...}), it reads the local
+// and the literal tags merged over it.
 func readVPCPart(m Resource) (*vpcPart, error) {
 	p := &vpcPart{Resource: m, r: Read(m.Address(), m.Body), tags: map[string]string{}}
 	if tokens, ok := p.r.Attr("tags"); ok {
-		v, ok := literal(tokens)
-		if !ok || (!v.Type().IsMapType() && !v.Type().IsObjectType()) {
+		base, v, ok := splitLocalTags(tokens)
+		if !ok || (!v.IsNull() && !v.Type().IsMapType() && !v.Type().IsObjectType()) {
 			return nil, Declinef("%s's tags aren't literal", m.Address())
 		}
-		for it := v.ElementIterator(); it.Next(); {
-			k, val := it.Element()
-			if val.IsNull() || val.Type() != cty.String {
-				return nil, Declinef("%s's tag %s isn't a string", m.Address(), k.AsString())
+		p.base = base
+		if !v.IsNull() {
+			for it := v.ElementIterator(); it.Next(); {
+				k, val := it.Element()
+				if val.IsNull() || val.Type() != cty.String {
+					return nil, Declinef("%s's tag %s isn't a string", m.Address(), k.AsString())
+				}
+				p.tags[k.AsString()] = val.AsString()
 			}
-			p.tags[k.AsString()] = val.AsString()
 		}
 	}
 	p.name = p.tags["Name"]
@@ -414,6 +422,50 @@ func readVPCPart(m Resource) (*vpcPart, error) {
 		return nil, Declinef("%s has no Name tag, and the module names it", m.Address())
 	}
 	return p, nil
+}
+
+// splitLocalTags splits tags that refer to a local, local.<name> or
+// merge(local.<name>, {...}), into the local and the literal tags merged
+// over it, a null value for none; literal tags have no local. It reports
+// false for tags that refer to anything else.
+func splitLocalTags(tokens hclwrite.Tokens) (hclwrite.Tokens, cty.Value, bool) {
+	expr, diags := hclsyntax.ParseExpression(tokens.Bytes(), "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, cty.NilVal, false
+	}
+	switch e := expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		base, ok := localTraversal(e)
+		return base, cty.NilVal, ok
+	case *hclsyntax.FunctionCallExpr:
+		if e.Name != "merge" || len(e.Args) != 2 || len(e.Args[1].Variables()) > 0 {
+			return nil, cty.NilVal, false
+		}
+		traversal, isTraversal := e.Args[0].(*hclsyntax.ScopeTraversalExpr)
+		if !isTraversal {
+			return nil, cty.NilVal, false
+		}
+		base, ok := localTraversal(traversal)
+		if !ok {
+			return nil, cty.NilVal, false
+		}
+		v, diags := e.Args[1].Value(nil)
+		if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() {
+			return nil, cty.NilVal, false
+		}
+		return base, v, true
+	}
+	v, ok := literal(tokens)
+	return nil, v, ok
+}
+
+// localTraversal returns the tokens of a reference to a local, such as
+// local.tags.
+func localTraversal(e *hclsyntax.ScopeTraversalExpr) (hclwrite.Tokens, bool) {
+	if len(e.Traversal) != 2 || e.Traversal.RootName() != "local" {
+		return nil, false
+	}
+	return hclwrite.TokensForTraversal(e.Traversal), true
 }
 
 func readVPCSubnet(m, vpc Resource) (*vpcSubnet, error) {
@@ -681,19 +733,31 @@ func vpcNAT(call *Call, vpc Resource, i int, nat, eip *vpcPart, name string) err
 
 // vpcTags sets tags to the tags every resource has, and each input of
 // byInput to the other tags of its resources, which must be the same.
+// Resources whose tags are merged over a local must all be, over the same
+// one, which tags then refers to.
 func vpcTags(call *Call, parts []*vpcPart, byInput map[string][]*vpcPart) error {
 	var common map[string]string
+	var first *vpcPart
 	for _, p := range parts {
 		if p == nil {
 			continue
 		}
-		if common == nil {
+		if first == nil {
+			first = p
 			common = maps.Clone(p.tags)
 			continue
 		}
+		if !sameTokens(p.base, first.base) {
+			return Declinef("%s and %s don't merge their tags over the same local, and the module sets tags for both", first.Address(), p.Address())
+		}
 		maps.DeleteFunc(common, func(k, v string) bool { return p.tags[k] != v })
 	}
-	if len(common) > 0 {
+	switch {
+	case first != nil && first.base != nil && len(common) > 0:
+		call.Set("tags", hclwrite.TokensForFunctionCall("merge", first.base, hclwrite.TokensForValue(stringMap(common))))
+	case first != nil && first.base != nil:
+		call.Set("tags", first.base)
+	case len(common) > 0:
 		call.Set("tags", hclwrite.TokensForValue(stringMap(common)))
 	}
 	for _, input := range slices.Sorted(maps.Keys(byInput)) {

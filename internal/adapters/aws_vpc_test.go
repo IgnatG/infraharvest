@@ -5,6 +5,7 @@ package adapters
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -194,6 +195,73 @@ func TestVPCAlone(t *testing.T) {
 	}
 	if len(call.Imports) != 0 || strings.Contains(got, "public_subnets") {
 		t.Errorf("subnets in the call:\n%s", got)
+	}
+}
+
+// localTagged is vpcSource with its shared tag lifted into local.tags, as
+// a root whose provider can't apply them as default tags has it.
+func localTagged(t *testing.T) string {
+	t.Helper()
+	re := regexp.MustCompile(`= \{ (Name = "[^"]*"), Team = "net"([^}]*) \}`)
+	if n := len(re.FindAllString(vpcSource, -1)); n != 10 {
+		t.Fatalf("lifted the tags of %d resources, want 10", n)
+	}
+	return re.ReplaceAllString(vpcSource, `= merge(local.tags, { $1$2 })`)
+}
+
+// Tags merged over local.tags map onto a call that passes local.tags, with
+// the literal tags merged over it as the module's inputs.
+func TestVPCMapsTagsMergedOverALocal(t *testing.T) {
+	call, err := VPC.Map(cluster(t, localTagged(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := called(t, VPC, call)
+	for _, want := range []string{`name = "shop"`, "tags = local.tags", `private_subnet_tags = { Tier = "app" }`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("call misses %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Team") {
+		t.Errorf("the local's tags set again:\n%s", got)
+	}
+
+	// A tag every resource sets over the local is merged over it once.
+	call, err = VPC.Map(cluster(t, strings.ReplaceAll(localTagged(t), `{ Name = "`, `{ Owner = "ops", Name = "`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := called(t, VPC, call); !strings.Contains(got, `tags = merge(local.tags, { Owner = "ops" })`) {
+		t.Errorf("call misses the tag merged over the local:\n%s", got)
+	}
+}
+
+func TestVPCDeclinesTagsOverOtherLocals(t *testing.T) {
+	for name, tc := range map[string]struct{ from, to, reason string }{
+		"only the local": {
+			`merge(local.tags, { Name = "shop" })`, "local.tags",
+			"aws_vpc.main has no Name tag",
+		},
+		"a variable": {
+			`merge(local.tags, { Name = "shop" })`, `merge(var.tags, { Name = "shop" })`,
+			"aws_vpc.main's tags aren't literal",
+		},
+		"literal tags among merged ones": {
+			`merge(local.tags, { Name = "shop" })`, `{ Name = "shop", Team = "net" }`,
+			"don't merge their tags over the same local",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := localTagged(t)
+			changed := strings.Replace(src, tc.from, tc.to, 1)
+			if changed == src {
+				t.Fatal("the test doesn't change the source")
+			}
+			_, err := VPC.Map(cluster(t, changed))
+			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
+				t.Errorf("got %v, want a decline with %q", err, tc.reason)
+			}
+		})
 	}
 }
 
