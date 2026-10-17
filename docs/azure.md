@@ -74,7 +74,7 @@ Routes, subnets and network security rules are imported as resources of their ow
 infraharvest discover azure --services=resource_group,virtual_network,subnet,network_security_group
 ```
 
-`subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one that comes back without them, as some emulators answer, are they listed on their own.
+`subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one that comes back without them or with none, as some emulators answer, are they listed on their own.
 
 ## Tags
 

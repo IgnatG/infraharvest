@@ -67,9 +67,10 @@ func (az *NetworkSecurityGroupLister) List() error {
 // Resource Manager list returns in full. Only when group came back without
 // them are they listed with rulesClient, under the group's own resource
 // group, which is not --resource-group when the whole subscription is
-// listed. An empty list of rules is an answer and is not asked again.
+// listed. An empty list is asked again too, as some emulators answer it:
+// a group without rules costs a request, but a rule is never missed.
 func (az *NetworkSecurityGroupLister) rulesOf(rulesClient *armnetwork.SecurityRulesClient, group *armnetwork.SecurityGroup) ([]*armnetwork.SecurityRule, error) {
-	if group.Properties != nil && group.Properties.SecurityRules != nil {
+	if group.Properties != nil && len(group.Properties.SecurityRules) > 0 {
 		return group.Properties.SecurityRules, nil
 	}
 	groupResourceGroup, err := resourceGroupOf(*group.ID)
