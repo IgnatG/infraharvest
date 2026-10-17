@@ -503,3 +503,33 @@ func TestFilesStayUnderRoot(t *testing.T) {
 		t.Errorf("runs: %v", runner.runs)
 	}
 }
+
+// Clients auto-approve read-only tools and retry idempotent ones: discover
+// writes the selection file, and the same import again isn't the same.
+func TestToolAnnotations(t *testing.T) {
+	session := connect(t, &fakeRunner{}, t.TempDir(), nil)
+	res, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Tools) != 3 {
+		t.Fatalf("got %d tools, want 3", len(res.Tools))
+	}
+	for _, tool := range res.Tools {
+		a := tool.Annotations
+		if a == nil {
+			t.Errorf("%s has no annotations", tool.Name)
+			continue
+		}
+		switch tool.Name {
+		case "report":
+			if !a.ReadOnlyHint {
+				t.Errorf("report isn't read-only")
+			}
+		default:
+			if a.ReadOnlyHint || a.IdempotentHint || a.DestructiveHint == nil || *a.DestructiveHint {
+				t.Errorf("%s: annotations %+v, want neither read-only nor idempotent, and not destructive", tool.Name, a)
+			}
+		}
+	}
+}

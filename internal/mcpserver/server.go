@@ -48,18 +48,21 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 func New(version, root string, run Runner) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infraharvest", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	t := &tools{run: run, root: root}
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "discover",
 		Title:       "List resources into a selection file",
 		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + scopeHelp,
-		Annotations: readOnly,
+		// It writes the selection file, merging into one that is there, so
+		// it isn't read-only, though it destroys nothing.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.discover)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
 		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + scopeHelp,
-		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false), IdempotentHint: true},
+		// Not idempotent: the same import again is refused, or with
+		// incremental adds what is new since.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.importSelection)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "report",
