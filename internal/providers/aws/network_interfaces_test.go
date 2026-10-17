@@ -10,7 +10,9 @@ import (
 
 // The lister asks for the network interfaces AWS doesn't manage, of the
 // types people create, and leaves out an instance's primary interface and
-// any requester-managed one the answer still has.
+// any requester-managed one the answer still has, and those the VPC CNI
+// plugin or the VPC resource controller of an EKS cluster manage, by their
+// tags or their description.
 func TestRecordNetworkInterfaces(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeNetworkInterfaces" {
@@ -30,6 +32,15 @@ func TestRecordNetworkInterfaces(t *testing.T) {
 			<item><networkInterfaceId>eni-primary</networkInterfaceId><requesterManaged>false</requesterManaged>
 				<attachment><instanceId>i-1</instanceId><deviceIndex>0</deviceIndex></attachment></item>
 			<item><networkInterfaceId>eni-lambda</networkInterfaceId><requesterManaged>true</requesterManaged></item>
+			<item><networkInterfaceId>eni-cni</networkInterfaceId><requesterManaged>false</requesterManaged>
+				<tagSet><item><key>node.k8s.amazonaws.com/instance_id</key><value>i-2</value></item></tagSet>
+				<attachment><instanceId>i-2</instanceId><deviceIndex>1</deviceIndex></attachment></item>
+			<item><networkInterfaceId>eni-cluster</networkInterfaceId><requesterManaged>false</requesterManaged>
+				<tagSet><item><key>cluster.k8s.amazonaws.com/name</key><value>prod</value></item></tagSet></item>
+			<item><networkInterfaceId>eni-cni-untagged</networkInterfaceId><requesterManaged>false</requesterManaged><description>aws-K8S-i-2</description></item>
+			<item><networkInterfaceId>eni-trunk</networkInterfaceId><requesterManaged>false</requesterManaged><description>aws-k8s-trunk-eni</description></item>
+			<item><networkInterfaceId>eni-tagged</networkInterfaceId><requesterManaged>false</requesterManaged><description>app</description>
+				<tagSet><item><key>Name</key><value>app</value></item></tagSet></item>
 			</networkInterfaceSet>`)
 	})
 	g := &NetworkInterfaceLister{}
@@ -41,5 +52,6 @@ func TestRecordNetworkInterfaces(t *testing.T) {
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_network_interface", "eni-own", "eni-own", nil},
 		recordedResource{"aws_network_interface", "eni-secondary", "eni-secondary", nil},
+		recordedResource{"aws_network_interface", "eni-tagged", "eni-tagged", nil},
 	)
 }

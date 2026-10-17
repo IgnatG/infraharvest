@@ -4,6 +4,9 @@
 package aws
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -19,7 +22,10 @@ import (
 // instance's. DescribeNetworkInterfaces is asked for those AWS doesn't
 // manage, of the types people create (interface, efa, efa-only, trunk),
 // so the others aren't listed at all. An instance's primary interface,
-// which the instance creates and deletes, is the instance's too.
+// which the instance creates and deletes, is the instance's too. So are the
+// interfaces the Amazon VPC CNI plugin and the VPC resource controller of
+// an EKS cluster attach to its nodes (see managedByEKS): they create and
+// delete them as pods come and go.
 type NetworkInterfaceLister struct {
 	Service
 }
@@ -47,7 +53,7 @@ func (g *NetworkInterfaceLister) List() error {
 			return err
 		}
 		for _, eni := range page.NetworkInterfaces {
-			if primaryOfInstance(eni) || aws.ToBool(eni.RequesterManaged) {
+			if primaryOfInstance(eni) || aws.ToBool(eni.RequesterManaged) || managedByEKS(eni) {
 				continue
 			}
 			id := aws.ToString(eni.NetworkInterfaceId)
@@ -62,4 +68,21 @@ func (g *NetworkInterfaceLister) List() error {
 func primaryOfInstance(eni types.NetworkInterface) bool {
 	a := eni.Attachment
 	return a != nil && aws.ToString(a.InstanceId) != "" && aws.ToInt32(a.DeviceIndex) == 0
+}
+
+// eksInterfaceTags are the tags the Amazon VPC CNI plugin gives the network
+// interfaces it attaches to an EKS node.
+var eksInterfaceTags = []string{"node.k8s.amazonaws.com/instance_id", "cluster.k8s.amazonaws.com/name"}
+
+// managedByEKS reports whether eni is one the Amazon VPC CNI plugin or the
+// VPC resource controller of an EKS cluster manages: tagged by the plugin,
+// or described as theirs (aws-K8S-<instance>, aws-k8s-trunk-eni,
+// aws-k8s-branch-eni). Both are in the page already listed.
+func managedByEKS(eni types.NetworkInterface) bool {
+	for _, tag := range eni.TagSet {
+		if slices.Contains(eksInterfaceTags, aws.ToString(tag.Key)) {
+			return true
+		}
+	}
+	return strings.HasPrefix(strings.ToLower(aws.ToString(eni.Description)), "aws-k8s-")
 }
