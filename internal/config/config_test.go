@@ -193,10 +193,12 @@ modules:
 
 func TestLoadRejectsUnpinnedModules(t *testing.T) {
 	for name, tc := range map[string]struct{ module, want string }{
-		"git without a ref":           {"source: git::https://github.com/acme/modules.git//bucket", "pin a tag or commit"},
-		"a registry module unversion": {"source: app.terraform.io/acme/queue/aws", "needs an exact version"},
-		"a version range":             {"source: app.terraform.io/acme/queue/aws\n    version: \"~> 2.1\"", "needs an exact version"},
-		"a versioned directory":       {"source: ./modules/role\n    version: 1.0.0", "a directory has no version"},
+		"git without a ref":            {"source: git::https://github.com/acme/modules.git//bucket", "pin a tag or commit"},
+		"git with an empty ref":        {"source: git::https://github.com/acme/modules.git//bucket?ref=", "pin a tag or commit"},
+		"git with ref in another name": {"source: git::https://github.com/acme/modules.git//bucket?noref=v1.0.0", "pin a tag or commit"},
+		"a registry module unversion":  {"source: app.terraform.io/acme/queue/aws", "needs an exact version"},
+		"a version range":              {"source: app.terraform.io/acme/queue/aws\n    version: \"~> 2.1\"", "needs an exact version"},
+		"a versioned directory":        {"source: ./modules/role\n    version: 1.0.0", "a directory has no version"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, "version: 1\nmodules:\n  - "+tc.module+"\n"))
@@ -204,5 +206,25 @@ func TestLoadRejectsUnpinnedModules(t *testing.T) {
 				t.Errorf("got %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestGitRef(t *testing.T) {
+	for source, want := range map[string]string{
+		"git::https://github.com/acme/modules.git//bucket?ref=v1.4.0":   "v1.4.0",
+		"git::https://github.com/acme/modules.git?depth=1&ref=main":     "main",
+		"git::https://github.com/acme/modules.git?ref=v1.0.0//bucket":   "v1.0.0",
+		"git::https://github.com/acme/modules.git//bucket?noref=v1.0.0": "",
+		"github.com/acme/modules//bucket":                               "",
+	} {
+		if got := gitRef(source); got != want {
+			t.Errorf("gitRef(%s): got %q, want %q", source, got, want)
+		}
+	}
+	if !versionTag("v1.4.0") || !versionTag("2.1") || versionTag("main") || versionTag("release-2026-10") {
+		t.Error("versionTag")
+	}
+	if !commitSHA.MatchString("0123456789abcdef0123456789abcdef01234567") || commitSHA.MatchString("main") {
+		t.Error("commitSHA")
 	}
 }

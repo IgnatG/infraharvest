@@ -42,6 +42,8 @@ modules:
   - source: ./modules/role                    # relative to the configuration file
 ```
 
+A git module pins a `?ref=`: a release tag such as `v1.4.0`, or a full commit SHA, the one ref that can't move. Another ref, such as a branch, works but gets a warning, as the module it calls can change after infraharvest tested it.
+
 infraharvest fetches each module with Terraform, so git and private registry credentials work as they do for Terraform, and matches it by its signature: its resources, one of each type, form the cluster, around the one the others refer to. Where the module sets an argument to `var.<name>`, the call passes the imported value. Where it refers to another of its resources, the imported resource must refer to the matching one. Any other expression is the module's own, and the plan check judges it. A cluster with a setting the module doesn't take is declined, as with the curated modules. A module with `count`, `for_each`, `dynamic` blocks, nested modules or two resources of a type isn't matched yet: the log says so, and the curated modules and generated local modules apply.
 
 ## Generated local modules
