@@ -5,7 +5,10 @@ package aws
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // recordMediaLiveAPI answers each MediaLive list with one item per page on
@@ -54,18 +57,30 @@ func TestRecordMediaLiveListsChannelsInputsAndSecurityGroups(t *testing.T) {
 	)
 }
 
-// Errors are logged, not returned: a list that fails is left out and the
-// others are still listed.
-func TestRecordMediaLiveSwallowsErrors(t *testing.T) {
+// A list that fails is left out and the others are still listed, and the
+// listing reads as partial, naming the lists that failed.
+func TestRecordMediaLiveReturnsPartialErrors(t *testing.T) {
 	useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputSecurityGroups"))
 	g := &MediaLiveLister{}
 
-	if err := g.List(); err != nil {
-		t.Errorf("want errors swallowed, got %v", err)
+	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "channels") || !strings.Contains(err.Error(), "input security groups") {
+		t.Errorf("want a partial error naming the channels and the input security groups, got %v", err)
 	}
 
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_medialive_input", "input-1", "input-1", nil},
 		recordedResource{"aws_medialive_input", "input-2", "input-2", nil},
 	)
+}
+
+// When every list fails, so does the service.
+func TestRecordMediaLiveReturnsErrors(t *testing.T) {
+	useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputs", "/prod/inputSecurityGroups"))
+	g := &MediaLiveLister{}
+
+	err := g.List()
+	if err == nil || harvest.IsPartial(err) {
+		t.Errorf("want the service failed, got %v", err)
+	}
+	assertRecordedError(t, err, "ForbiddenException")
 }

@@ -5,7 +5,10 @@ package aws
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // recordEfsAPI answers EFS with two pages of file systems: fs-1 with two
@@ -55,14 +58,14 @@ func recordEfsAPI(t *testing.T, failing string) func(apiCall) string {
 // The lister lists file systems across pages, each followed by its mount
 // targets and its policy, then access points across pages, all by ID. A
 // file system whose mount targets cannot be read is listed without its
-// mount targets and without its policy, which is not asked for; one
-// without a policy is listed without.
+// mount targets and without its policy, which is not asked for, and the
+// listing reads as partial; one without a policy is listed without.
 func TestRecordEfsListsFileSystemsMountTargetsPoliciesAndAccessPoints(t *testing.T) {
 	useFakeAPI(t, recordEfsAPI(t, ""))
 	g := &EfsLister{}
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "mount targets of fs-2") {
+		t.Errorf("want a partial error for the mount targets of fs-2, got %v", err)
 	}
 
 	assertRecorded(t, g.Resources,

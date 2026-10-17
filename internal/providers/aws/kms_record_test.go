@@ -5,9 +5,12 @@ package aws
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordKmsKeyARN = "arn:aws:kms:us-east-1:123456789012:key/"
@@ -26,8 +29,9 @@ var recordKmsKeys = map[string]string{
 
 // The lister lists the customer managed keys not being deleted, each
 // followed by its grants, then the aliases of such keys. Keys and aliases it
-// can't describe are left out; a key whose grants it can't list is still
-// listed. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
+// can't describe are left out, each key described once; a key whose grants
+// it can't list is still listed; and both failures make the listing
+// partial. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
 // key ID is the key's ARN. A key is named after its alias, and a grant
 // after its name: before, they were labelled after their IDs. A grant
 // records its grantee principal, by which the default selection leaves out
@@ -72,8 +76,15 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 	})
 	g := &KmsLister{}
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	err := g.List()
+	if err == nil {
+		t.Fatal("want a partial error, got none")
+	}
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "key k-secret") || !strings.Contains(err.Error(), "grants of key k-off") {
+		t.Errorf("want a partial error for the key not described and the grants not listed, got %v", err)
+	}
+	if n := strings.Count(err.Error(), "key k-secret:"); n != 1 {
+		t.Errorf("k-secret's failure reported %d times, want once: %v", n, err)
 	}
 
 	assertRecorded(t, g.Resources,

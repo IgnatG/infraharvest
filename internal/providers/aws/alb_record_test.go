@@ -5,7 +5,10 @@ package aws
 
 import (
 	"net/url"
+	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -31,7 +34,8 @@ const (
 // Terraform's import ID. Load balancers, listeners, certificates and
 // target groups are read across pages. The rules' pagination is pinned by
 // TestAlbListenerRulesStopOnEmptyMarker. An error for one load balancer,
-// listener or target group leaves out only its part, and is logged. Only an
+// listener or target group leaves out only its part, and the failures are
+// returned together as a partial error naming each part. Only an
 // HTTPS or TLS listener, or one with certificates, is asked for its
 // certificates, and a TCP, TLS, UDP or GENEVE listener, which has no rules
 // but its default one, isn't asked for rules.
@@ -64,7 +68,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 					<Certificates><member><CertificateArn>`+recordAlbCert+`default</CertificateArn></member></Certificates>
 					</member></Listeners><NextMarker>`+nextPageToken+`</NextMarker>`)
 			case recordAlbAPI:
-				// Logged; the load balancer stays, without listeners.
+				// A part that fails; the load balancer stays, without listeners.
 				return recordQueryError(recordAlbNS, "AccessDenied")
 			}
 		case "DescribeRules":
@@ -78,7 +82,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 					<member><RuleArn>`+recordAlbRule+`</RuleArn><IsDefault>false</IsDefault><Priority>10</Priority></member>
 					</Rules>`)
 			case recordAlbHTTP:
-				// Logged; the listener stays.
+				// A part that fails; the listener stays.
 				return recordQueryError(recordAlbNS, "AccessDenied")
 			case recordAlbAdmin:
 				return recordQuery(call.Op, recordAlbNS, `<Rules/>`)
@@ -98,7 +102,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 					<member><CertificateArn>`+recordAlbCert+`extra</CertificateArn><IsDefault>false</IsDefault></member>
 					</Certificates><NextMarker>`+recordAlbCertsPage+`</NextMarker>`)
 			case recordAlbAdmin:
-				// Logged; the listener stays.
+				// A part that fails; the listener stays.
 				return recordQueryError(recordAlbNS, "AccessDenied")
 			}
 		case "DescribeTargetGroups":
@@ -119,7 +123,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 					<member><Target><Id>arn:aws:lambda:us-east-1:123456789012:function:hook</Id></Target><TargetHealth><State>unavailable</State></TargetHealth></member>
 					</TargetHealthDescriptions>`)
 			case recordAlbAPIGroup:
-				// Logged; the target group stays, without targets.
+				// A part that fails; the target group stays, without targets.
 				return recordQueryError(recordAlbNS, "AccessDenied")
 			}
 		}
@@ -127,8 +131,14 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 	})
 	g := &AlbLister{}
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	err := g.List()
+	if !harvest.IsPartial(err) {
+		t.Errorf("want a partial error, got %v", err)
+	}
+	for _, part := range []string{"listeners of " + recordAlbAPI, "rules of listener " + recordAlbHTTP, "certificates of listener " + recordAlbAdmin, "targets of target group " + recordAlbAPIGroup} {
+		if err == nil || !strings.Contains(err.Error(), part) {
+			t.Errorf("the error doesn't name the %s: %v", part, err)
+		}
 	}
 
 	assertRecorded(t, g.Resources,

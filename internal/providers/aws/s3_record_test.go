@@ -83,14 +83,15 @@ func useRecordS3API(t *testing.T, listError string) {
 // one, preceded by an aws_s3_bucket_policy for that policy. The legacy
 // location constraint EU is eu-west-1. A bucket whose location it can't
 // get is left out; one whose policy it can't get is listed without it.
-// Both failures are logged.
+// Both failures make the listing partial, naming the bucket.
 func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
 	useRecordS3API(t, "")
 	g := &S3Lister{}
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	err := g.List()
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") || !strings.Contains(err.Error(), "policy of bucket denied-policy") {
+		t.Errorf("want a partial error for the location of locked and the policy of denied-policy, got %v", err)
 	}
 
 	bucketAttrs := map[string]string{"force_destroy": "false", "acl": "private"}
@@ -104,14 +105,16 @@ func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
 	)
 }
 
-// A bucket without a location constraint is in us-east-1.
+// A bucket without a location constraint is in us-east-1. The bucket whose
+// location can't be read might be in any region, so it makes every
+// region's listing partial.
 func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
 	useRecordS3API(t, "")
 	g := &S3Lister{}
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "us-east-1"}})
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") {
+		t.Errorf("want a partial error for the location of locked, got %v", err)
 	}
 
 	assertRecorded(t, g.Resources,
@@ -156,8 +159,8 @@ func TestRecordS3WithoutRegion(t *testing.T) {
 	g := &S3Lister{}
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": ProfileRegion}})
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	if err := g.List(); !harvest.IsPartial(err) {
+		t.Errorf("want a partial error, got %v", err)
 	}
 
 	assertIDs(t, g.Resources, "aws_s3_bucket", "logs-eu", "assets-eu", "legacy-eu", "denied-policy")
