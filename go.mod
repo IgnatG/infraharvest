@@ -63,7 +63,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/webpubsub/armwebpubsub v1.3.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/workloads/armworkloads v1.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/internal v0.1.0 // indirect
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.8.0 // indirect
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.35.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect
@@ -166,7 +166,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	cloud.google.com/go/storage v1.69.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11 v11.0.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v3 v3.0.0
@@ -189,7 +189,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloud9 v1.42.4
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.82.1
-	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.74.3
+	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.75.0
 	github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.4
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.73.3
@@ -205,7 +205,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/directconnect v1.55.1
 	github.com/aws/aws-sdk-go-v2/service/docdb v1.57.4
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.70.3
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.4
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.339.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.47.4
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.100.3
@@ -222,10 +222,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/identitystore v1.49.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.56.4
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.112.2
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.0
 	github.com/aws/aws-sdk-go-v2/service/medialive v1.112.1
 	github.com/aws/aws-sdk-go-v2/service/mediastore v1.38.4
-	github.com/aws/aws-sdk-go-v2/service/organizations v1.61.3
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.62.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.130.3
 	github.com/aws/aws-sdk-go-v2/service/redshift v1.71.4
 	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.4
@@ -264,5 +264,5 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/term v0.47.0
 	golang.org/x/time v0.16.0
-	google.golang.org/api v0.303.0
+	google.golang.org/api v0.304.0
 )
