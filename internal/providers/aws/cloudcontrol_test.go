@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 func TestCloudControlLister(t *testing.T) {
@@ -55,9 +57,38 @@ func TestCloudControlListerFails(t *testing.T) {
 	g := newCloudControlLister("athena")
 
 	err := g.List()
-	if err == nil || !strings.Contains(err.Error(), "AWS::Athena::WorkGroup") {
-		t.Errorf("want an error naming the type, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "AWS::Athena::WorkGroup") || harvest.IsPartial(err) {
+		t.Errorf("want the service failed, with an error naming the type, got %v", err)
 	}
+}
+
+// A type that fails, as one an SCP denies, doesn't stop the service's other
+// types: what they list is kept, and the listing reads as partial, naming
+// the type. A type Cloud Control has no list handler for lists nothing.
+func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		var in struct{ TypeName string }
+		if err := json.Unmarshal([]byte(call.Body), &in); err != nil {
+			t.Fatal(err)
+		}
+		switch in.TypeName {
+		case "AWS::Events::ApiDestination":
+			return `{"__type":"AccessDeniedException","Message":"denied by an SCP"}`
+		case "AWS::Events::Archive":
+			return `{"__type":"UnsupportedActionException","Message":"no list handler"}`
+		case "AWS::Events::Connection":
+			return `{"ResourceDescriptions":[{"Identifier":"crm"}]}`
+		}
+		return `{"ResourceDescriptions":[]}`
+	})
+	g := newCloudControlLister("eventbridge")
+
+	err := g.List()
+
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "AWS::Events::ApiDestination") || strings.Contains(err.Error(), "AWS::Events::Archive") {
+		t.Errorf("want a partial error naming the denied type only, got %v", err)
+	}
+	assertIDs(t, g.Resources, "aws_cloudwatch_event_connection", "crm")
 }
 
 // Every service listed through Cloud Control is a service of the provider,
@@ -137,7 +168,8 @@ func TestCloudControlIdentifiersMatchSchemas(t *testing.T) {
 				continue
 			}
 			var schema struct {
-				PrimaryIdentifier []string `json:"primaryIdentifier"`
+				PrimaryIdentifier []string                   `json:"primaryIdentifier"`
+				Handlers          map[string]json.RawMessage `json:"handlers"`
 			}
 			if err := json.Unmarshal(content, &schema); err != nil {
 				t.Errorf("%s: %v", name, err)
@@ -146,6 +178,11 @@ func TestCloudControlIdentifiersMatchSchemas(t *testing.T) {
 			want := []string{"/properties/" + typ.Identifier}
 			if !reflect.DeepEqual(schema.PrimaryIdentifier, want) {
 				t.Errorf("%s: primary identifier %v, want %v: check the Terraform import ID", typ.CloudFormation, schema.PrimaryIdentifier, want)
+			}
+			// Without a list handler, Cloud Control can't list the type,
+			// and the service would list nothing of it in every region.
+			if _, ok := schema.Handlers["list"]; !ok {
+				t.Errorf("%s: no list handler, so Cloud Control can't list it", typ.CloudFormation)
 			}
 		}
 	}
