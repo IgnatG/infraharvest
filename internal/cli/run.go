@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 
 	"github.com/spf13/cobra"
@@ -30,6 +31,14 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 			if f := c.Flag("pick"); f != nil {
 				run.OpenPicker = f.Value.String() == "true"
 			}
+			// Signals are caught once for the command, not per Import call.
+			parent := c.Context()
+			if parent == nil {
+				parent = context.Background()
+			}
+			ctx, stop := importer.InterruptContext(parent)
+			defer stop()
+			c.SetContext(ctx)
 		}
 		return run.Do(func() error { return runE(c, args) })
 	}

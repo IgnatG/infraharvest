@@ -105,9 +105,25 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 	}
 	if run == nil {
 		run = NewRun()
+		ctx, stop := InterruptContext(ctx)
+		defer stop()
 		return run.finish(importInto(ctx, run, provider, options, args))
 	}
 	return importInto(ctx, run, provider, options, args)
+}
+
+// InterruptContext returns ctx, cancelled on the first interrupt or
+// SIGTERM, for a whole command: every Import call it makes stops, and the
+// run still writes its report. After that first signal the handler is
+// removed, so a second one stops the process at once, as when a lister or
+// a Terraform child doesn't stop. stop releases the handler.
+func InterruptContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, stop
 }
 
 // importInto imports into run. It returns an error only if the import
@@ -119,8 +135,6 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.options = options
 	}
 	binary := engineBinary(options.Engine)
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// Before the provider signs in: its clients take the rate.
 	ratelimit.SetDefault(options.RateLimit)
