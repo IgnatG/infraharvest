@@ -23,7 +23,7 @@ import (
 // maxDefaultRounds bounds how often stripDefaults plans, and
 // maxDefaultValidations how often it validates before each plan.
 const (
-	maxDefaultRounds      = 4
+	maxDefaultRounds      = 5
 	maxDefaultValidations = 3
 )
 
@@ -32,6 +32,10 @@ type defaultCandidate struct {
 	address string
 	path    []string // nested block types, then the argument
 	null    bool     // its value is null: leaving it out is always equal
+	// setting is a constant that isn't empty, zero or a value the
+	// catalogue names as a default, such as handler = "index.handler":
+	// what a provider's check that an argument is set is about.
+	setting bool
 }
 
 func (c defaultCandidate) key() string {
@@ -59,13 +63,17 @@ func (c defaultCandidate) key() string {
 // the plan can tell a default from a setting: the candidates of every
 // resource are left out at once, and where a resource then plans
 // differently from changes (see changeSignature), its arguments behind
-// the difference are put back, the next time all of its arguments, until
-// the plan stays the same. Before each plan, validation, which needs no
-// cloud, puts back what leaving out made invalid, such as one of two
-// required alternatives. Other computed arguments set to a constant
-// stay: leaving one out never shows in the plan, so it could hide a real
-// setting. It reports whether it changed generated.tf and, where a plan
-// showed generated.tf as it leaves it, that plan (see shownPlan).
+// the difference are put back and the rest left out again, until the plan
+// stays the same; all of its arguments only where none is behind the
+// difference, or in the last round but one. Before each plan, validation,
+// which needs no cloud, puts back what leaving out made invalid, such as
+// one of two required alternatives; errors of the plan itself, such as a
+// provider's own checks, put back the arguments they name, and the next
+// time the resource's settings too.
+// Other computed arguments set to a constant stay: leaving one out never
+// shows in the plan, so it could hide a real setting. It reports whether
+// it changed generated.tf and, where a plan showed generated.tf as it
+// leaves it, that plan (see shownPlan).
 func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
@@ -101,8 +109,8 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		return true, nil, f.save()
 	}
 	keep := map[string]bool{}
-	// blamed counts the rounds in which each resource planned differently.
-	blamed := map[string]int{}
+	// failed counts the rounds in which the plan failed on each resource.
+	failed := map[string]int{}
 	for round := 0; round < maxDefaultRounds; round++ {
 		removed, err := removeValid(ctx, tf, dir, restore, schemas, rules, keep)
 		if err != nil {
@@ -117,8 +125,14 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 		if len(diags) > 0 || p == nil {
 			// Leaving an argument out made the configuration invalid in a
-			// way validation didn't see: keep what the errors are about,
-			// or everything.
+			// way validation didn't see, such as a check the provider makes
+			// when it plans: a Lambda function's "handler and runtime must
+			// be set when PackageType is Zip". Keep the arguments the
+			// errors name and leave the rest of the resource's out again;
+			// the next time, or if they name none, its settings too (see
+			// defaultCandidate), as such checks come one at a time, as in
+			// a metric alarm's; then everything, as in the last round but
+			// one.
 			assigned, unassigned, err := assignErrors(dir, diags)
 			if err != nil {
 				return false, nil, err
@@ -127,8 +141,18 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, diagnosticsError(diags))
 				return nullsOnly()
 			}
-			for address := range assigned {
-				keepAll(removed, address, keep)
+			for address, ds := range assigned {
+				failed[address]++
+				kept := false
+				if failed[address] <= 2 && round < maxDefaultRounds-2 {
+					kept = keepNamed(removed, address, ds, keep)
+					if !kept || failed[address] == 2 {
+						kept = keepSettings(removed, address, keep) || kept
+					}
+				}
+				if !kept {
+					keepAll(removed, address, keep)
+				}
 			}
 			continue
 		}
@@ -147,11 +171,9 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 				continue
 			}
 			differs = true
-			blamed[rc.Address]++
-			if blamed[rc.Address] > 1 || round == maxDefaultRounds-2 {
-				// The arguments behind the first difference weren't all,
-				// or there is one round left: keep the resource's
-				// constants rather than plan again.
+			if round == maxDefaultRounds-2 {
+				// There is one round left: keep the resource's constants
+				// rather than plan again.
 				keepAll(removed, rc.Address, keep)
 				continue
 			}
@@ -211,7 +233,9 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 			return removed, nil
 		}
 		for address, ds := range assigned {
-			keepNamed(removed, address, ds, keep)
+			if !keepNamed(removed, address, ds, keep) {
+				keepAll(removed, address, keep)
+			}
 		}
 	}
 }
@@ -232,9 +256,9 @@ func assignErrors(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Di
 }
 
 // keepNamed keeps the constant candidates of address that diags name, such
-// as the alternatives of "one of `a,b` must be specified", or all of them
-// if they name none.
-func keepNamed(removed []defaultCandidate, address string, diags []tfjson.Diagnostic, keep map[string]bool) {
+// as the alternatives of "one of `a,b` must be specified", and reports
+// whether they name any.
+func keepNamed(removed []defaultCandidate, address string, diags []tfjson.Diagnostic, keep map[string]bool) bool {
 	var text strings.Builder
 	for _, d := range diags {
 		text.WriteString(d.Summary + " " + d.Detail + " ")
@@ -247,9 +271,20 @@ func keepNamed(removed []defaultCandidate, address string, diags []tfjson.Diagno
 			matched = true
 		}
 	}
-	if !matched {
-		keepAll(removed, address, keep)
+	return matched
+}
+
+// keepSettings keeps the candidates of address that are settings (see
+// defaultCandidate), and reports whether it found any.
+func keepSettings(removed []defaultCandidate, address string, keep map[string]bool) bool {
+	found := false
+	for _, c := range removed {
+		if c.setting && c.address == address {
+			keep[c.key()] = true
+			found = true
+		}
 	}
+	return found
 }
 
 // argumentNames returns the words of text that could name an argument.
@@ -377,6 +412,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			if s == nil || !s.Optional || s.Computed || s.Required || s.Sensitive || (rules.tags != "" && strings.Join(path, ".") == rules.tags) {
 				continue
 			}
+			c.setting = !isZeroConstant(attr.Expr)
 		default:
 			continue
 		}

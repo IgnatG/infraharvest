@@ -13,3 +13,6 @@ types:
       - ordered_cache_behavior.max_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=
       # Fixed by CloudFront for its default certificate.
       - viewer_certificate.minimum_protocol_version when viewer_certificate.cloudfront_default_certificate=true
+    # What CloudFront gives an origin that doesn't set it: no limit on
+    # the time a response takes.
+    defaults: [origin.response_completion_timeout=0]

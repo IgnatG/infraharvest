@@ -7,6 +7,8 @@ import {
 
 # Left out of generated configuration: region, tags_all, *.tags_all, default_cache_behavior.default_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=, default_cache_behavior.max_ttl when default_cache_behavior.cache_policy_id and !default_cache_behavior.cache_policy_id=, ordered_cache_behavior.default_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=, ordered_cache_behavior.max_ttl when ordered_cache_behavior.cache_policy_id and !ordered_cache_behavior.cache_policy_id=, viewer_certificate.minimum_protocol_version when viewer_certificate.cloudfront_default_certificate=true
 
+# Left out where the plan stays the same, as the default: origin.response_completion_timeout=0
+
 # Generated configuration, without the arguments the catalogue omits:
 resource "aws_cloudfront_distribution" "site" {
   enabled         = true

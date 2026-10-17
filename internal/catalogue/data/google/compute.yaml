@@ -46,6 +46,10 @@ types:
     inventory:
       type: compute.googleapis.com/Disk
       name: //compute.googleapis.com/projects/*/zones/*/disks/*
+    # What Google Cloud gives a disk it isn't told: no provisioned
+    # performance, which only Hyperdisk and Extreme disks take, and no
+    # confidential compute.
+    defaults: [enable_confidential_compute=false, provisioned_iops=0, provisioned_throughput=0]
     skip:
       - reason: GKE creates it for a cluster's nodes and deletes it with them
         attribute_prefixes: { asset.name: [gke-] }
@@ -142,6 +146,12 @@ types:
     inventory:
       type: compute.googleapis.com/Instance
       name: //compute.googleapis.com/projects/*/zones/*/instances/*
+    # What Google Cloud gives an instance it isn't told: a boot disk
+    # without provisioned performance, and no internal IPv6 range.
+    defaults:
+      - boot_disk.initialize_params.provisioned_iops=0
+      - boot_disk.initialize_params.provisioned_throughput=0
+      - network_interface.internal_ipv6_prefix_length=0
     # The cloud_asset service records asset.created_by_group=true on an
     # instance that has the created-by metadata key, which a managed
     # instance group sets on each instance it creates.
