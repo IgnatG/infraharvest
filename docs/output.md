@@ -111,7 +111,7 @@ S3 buckets are imported split, as the AWS provider recommends: each part of a bu
 
 Security group rules are imported as `aws_vpc_security_group_ingress_rule` and `aws_vpc_security_group_egress_rule` resources of their own, by their `sgr-` IDs, as the AWS provider recommends; the groups leave out their inline `ingress` and `egress`.
 
-Some configuration can't be read back from the cloud. A Lambda function deployed from a zip package gets `filename = "lambda/<function>.zip"` as a placeholder, which `lifecycle { ignore_changes = [filename, source_code_hash] }` tells Terraform to ignore: Terraform manages the function's settings, and the code stays deployed as it is. A comment in the block says how to have Terraform deploy the code instead. An import whose resource Terraform finds gone, such as a KMS key scheduled for deletion, is left out with that reason.
+Some configuration can't be read back from the cloud. A Lambda function deployed from a zip package gets `filename = "lambda/<function>.zip"` as a placeholder, which `lifecycle { ignore_changes = [filename, code_sha256] }` tells Terraform to ignore: Terraform manages the function's settings, and the code stays deployed as it is. A Lambda layer version gets `filename = "lambda/layers/<layer>.zip"`, ignored with its `source_code_hash`. A comment in the block says how to have Terraform deploy the code instead. An import whose resource Terraform finds gone, such as a KMS key scheduled for deletion, is left out with that reason.
 
 Generated local modules declare the attributes of their object variables `optional()`, so their calls set only the attributes that have values.
 
