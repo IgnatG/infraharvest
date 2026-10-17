@@ -53,7 +53,7 @@ infraharvest discover aws
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
-| `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
+| `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
 | `--list-timeout` | `30m0s` | longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit) |
@@ -99,7 +99,7 @@ infraharvest discover azure
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
-| `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
+| `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
 | `--list-timeout` | `30m0s` | longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit) |
@@ -146,7 +146,7 @@ infraharvest discover google
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
-| `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
+| `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
 | `--list-timeout` | `30m0s` | longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit) |
@@ -205,7 +205,7 @@ infraharvest import aws
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
-| `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
+| `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
 | `--list-timeout` | `30m0s` | longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit) |
@@ -250,7 +250,7 @@ infraharvest import azure
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
-| `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
+| `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
 | `--list-timeout` | `30m0s` | longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit) |
@@ -296,7 +296,7 @@ infraharvest import google
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
-| `--incremental` |  | add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have |
+| `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
 | `--list-parallel` | `4` | how many services of an account and region, a subscription or a project to list at once |
 | `--list-timeout` | `30m0s` | longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit) |
