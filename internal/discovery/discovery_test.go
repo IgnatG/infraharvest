@@ -11,6 +11,7 @@ import (
 	"runtime/pprof"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -75,33 +76,37 @@ func TestListKeepsTheOrderAndTheBound(t *testing.T) {
 
 // A discoverer that fails, or whose deadline passes, has what it found
 // left out; one that fails in part keeps it, unless its deadline passed.
+// The clock is virtual (synctest), so the good discoverers finish within
+// the deadline however loaded the runner.
 func TestListReportsFailuresAndDeadlines(t *testing.T) {
-	ds := []Discoverer{
-		&fake{name: "good"},
-		&fake{name: "bad", err: errors.New("access denied")},
-		&fake{name: "slow", hang: true},
-		&fake{name: "partial", err: harvest.Partial(errors.New("a part was refused"))},
-		&fake{name: "slow partial", hang: true, err: harvest.Partial(errors.New("a part was refused"))},
-	}
-	results, err := List(t.Context(), ds, Options{Timeout: 10 * time.Millisecond, Parallel: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if results[0].Err != nil || len(results[0].Resources) != 1 {
-		t.Errorf("good: %+v", results[0])
-	}
-	if results[1].Err == nil || results[1].Err.Error() != "access denied" || len(results[1].Resources) != 0 {
-		t.Errorf("bad: %+v", results[1])
-	}
-	if !errors.Is(results[2].Err, ErrDeadline) || len(results[2].Resources) != 0 {
-		t.Errorf("slow: %+v", results[2])
-	}
-	if !harvest.IsPartial(results[3].Err) || len(results[3].Resources) != 1 {
-		t.Errorf("partial: %+v", results[3])
-	}
-	if !errors.Is(results[4].Err, ErrDeadline) || len(results[4].Resources) != 0 {
-		t.Errorf("slow partial: %+v", results[4])
-	}
+	synctest.Test(t, func(t *testing.T) {
+		ds := []Discoverer{
+			&fake{name: "good"},
+			&fake{name: "bad", err: errors.New("access denied")},
+			&fake{name: "slow", hang: true},
+			&fake{name: "partial", err: harvest.Partial(errors.New("a part was refused"))},
+			&fake{name: "slow partial", hang: true, err: harvest.Partial(errors.New("a part was refused"))},
+		}
+		results, err := List(t.Context(), ds, Options{Timeout: 10 * time.Millisecond, Parallel: 5})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if results[0].Err != nil || len(results[0].Resources) != 1 {
+			t.Errorf("good: %+v", results[0])
+		}
+		if results[1].Err == nil || results[1].Err.Error() != "access denied" || len(results[1].Resources) != 0 {
+			t.Errorf("bad: %+v", results[1])
+		}
+		if !errors.Is(results[2].Err, ErrDeadline) || len(results[2].Resources) != 0 {
+			t.Errorf("slow: %+v", results[2])
+		}
+		if !harvest.IsPartial(results[3].Err) || len(results[3].Resources) != 1 {
+			t.Errorf("partial: %+v", results[3])
+		}
+		if !errors.Is(results[4].Err, ErrDeadline) || len(results[4].Resources) != 0 {
+			t.Errorf("slow partial: %+v", results[4])
+		}
+	})
 }
 
 func TestListStopsWhenTheContextIsDone(t *testing.T) {
