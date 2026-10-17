@@ -741,8 +741,10 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 
 // liftModules is post-processing's module step: it moves repeated clusters
 // into generated modules under modulesDir, installs them, and keeps the
-// change only if the plan, with vars, still has the baseline's changes.
-func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, baseline changeSummary, vars []tfexec.PlanOption) (bool, error) {
+// change only if the plan, with vars, still has the baseline's totals and
+// each resource left in the root plans the change it had (see
+// sameChanges), as verify checks an edit.
+func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
@@ -766,11 +768,11 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, base
 	if err := initTerraform(ctx, tf); err != nil {
 		return false, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
-	diags, summary, err := plan(ctx, tf, vars...)
+	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil {
-		return false, errors.Join(fmt.Errorf("terraform plan: %w", err), undo())
+		return false, errors.Join(err, undo())
 	}
-	if len(diags) == 0 && summary != nil && *summary == baseline {
+	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
 	}
 	return false, undo()

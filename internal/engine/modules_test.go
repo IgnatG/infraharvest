@@ -183,7 +183,7 @@ func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: changeSummary{Change: 1}}}}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil, nil)
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
@@ -200,12 +200,12 @@ func TestLiftModulesKeeps(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil, nil)
 	if err != nil || !kept {
 		t.Fatalf("want the modules kept, got kept=%v err=%v", kept, err)
 	}
-	if strings.Join(tf.calls, ",") != "schema,init,plan" {
-		t.Errorf("calls: got %v, want [schema init plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "schema,init,plan,show" {
+		t.Errorf("calls: got %v, want [schema init plan show]", tf.calls)
 	}
 }
 
@@ -333,5 +333,24 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	}
 	if filepath.Base(created[0]) == filepath.Base(createdLess[0]) {
 		t.Errorf("modules with other outputs share the name %s", filepath.Base(created[0]))
+	}
+}
+
+// A lift with the same totals is still undone when a resource left in the
+// root plans another change than it had, as verify undoes an edit.
+func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
+	dir, modulesDir := moduleRoot(t, twoBuckets)
+	shown := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"policy": "a"}, map[string]any{"policy": "b"}),
+	}}
+	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, shown: shown}
+	changes := map[string]string{"aws_iam_policy.read": changeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, changes, nil)
+	if err != nil || kept {
+		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
+	}
+	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 }

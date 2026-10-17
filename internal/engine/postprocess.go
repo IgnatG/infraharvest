@@ -153,7 +153,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		return nil, err
 	}
 	if opts.ModulesDir != "" {
-		if _, err := liftModules(ctx, tf, dir, opts.ModulesDir, *baseline, vars); err != nil {
+		if _, err := liftModules(ctx, tf, dir, opts.ModulesDir, *baseline, changes, vars); err != nil {
 			return nil, err
 		}
 	}
