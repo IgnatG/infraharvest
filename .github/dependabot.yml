@@ -25,9 +25,10 @@ updates:
     cooldown:
       default-days: 1
 
-  # The workflows and the actions action/action.yml pins.
+  # The workflows, the actions action/action.yml pins and the repository's
+  # own composite actions (.github/actions).
   - package-ecosystem: github-actions
-    directories: ["/", "/action"]
+    directories: ["/", "/action", "/.github/actions/*"]
     schedule:
       interval: weekly
     groups:
@@ -38,8 +39,8 @@ updates:
 
   # The images the Dockerfile pins by tag and digest: the base images, and
   # Terraform and OpenTofu, whose binaries the release image copies.
-  # The workflows' TERRAFORM_VERSION and TOFU_VERSION (test.yml,
-  # action-test.yml, sandbox-*.yml) aren't tracked: bump them in the same PR;
+  # The setup action's terraform_version and tofu_version
+  # (.github/actions/setup-engines) aren't tracked: bump them in the same PR;
   # the tests workflow fails until they match (check-versions.sh).
   - package-ecosystem: docker
     directory: /
@@ -48,7 +49,8 @@ updates:
     cooldown:
       default-days: 7
 
-  # The documentation site's build (docs/requirements.txt).
+  # The documentation site's build: docs/requirements.in, compiled with
+  # hashes into docs/requirements.txt.
   - package-ecosystem: pip
     directory: /docs
     schedule:

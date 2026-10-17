@@ -76,7 +76,9 @@ type kmsLister struct {
 // addKeys records every listable key, imported by its ID, which it also
 // records as the key_id attribute, followed by its grants. The key's type
 // comes from the metadata already described (see kmsKeyType).
-// A key is named after its alias, in names by key ID, or else its ID.
+// A key is named after its alias, in names by key ID, or else its ID. The
+// keys of a page are described, and their grants listed, resourceParallel
+// at a time, and recorded in the page's order.
 func (l *kmsLister) addKeys(names map[string]string) error {
 	pages := kms.NewListKeysPaginator(l.svc, &kms.ListKeysInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
@@ -84,35 +86,49 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 		if err != nil {
 			return err
 		}
-		for _, key := range page.Keys {
-			metadata := l.describe(aws.ToString(key.KeyId))
-			if !kmsKeyListable(metadata) {
-				continue
+		ids := make([]string, len(page.Keys))
+		for i, key := range page.Keys {
+			ids[i] = aws.ToString(key.KeyId)
+		}
+		l.describeAll(ids)
+		var listable []string
+		for _, id := range ids {
+			if kmsKeyListable(l.keys[id]) {
+				listable = append(listable, id)
 			}
-			id := aws.ToString(key.KeyId)
+		}
+		grants := make([][]harvest.Resource, len(listable))
+		grantErrs := make([]error, len(listable))
+		inParallel(len(listable), resourceParallel, func(i int) {
+			id := listable[i]
+			grants[i], grantErrs[i] = l.grants(id, cmp.Or(names[id], id))
+		})
+		for i, id := range listable {
 			name := cmp.Or(names[id], id)
-			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(metadata), "aws",
+			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(l.keys[id]), "aws",
 				map[string]string{"key_id": id}))
-			l.addGrants(id, name)
+			l.g.Resources = append(l.g.Resources, grants[i]...)
+			l.parts.add("grants of key "+id, grantErrs[i])
 		}
 	}
 	return nil
 }
 
-// addGrants records the grants of the key keyID as aws_kms_grant, imported
-// as <the grant's key ID>:<grant ID>, where the grant's key ID is the key's
+// grants returns the grants of the key keyID as aws_kms_grant, imported as
+// <the grant's key ID>:<grant ID>, where the grant's key ID is the key's
 // ARN, with the principal the grant gives to as grantee_principal, by which
 // the default selection leaves out the grants AWS services make for
 // themselves (see awsServiceGrantee). A grant is named after its name, or
-// else after the key, keyName. A failure to list them is gathered and ends
-// the key's grants there: the key itself stays listed.
-func (l *kmsLister) addGrants(keyID, keyName string) {
+// else after the key, keyName. A failure to list them ends the key's
+// grants there: it returns those listed so far, with the error, and the
+// key itself stays listed.
+func (l *kmsLister) grants(keyID, keyName string) ([]harvest.Resource, error) {
+	var resources []harvest.Resource
 	pages := kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(l.g.Context())
 		if err != nil {
-			l.parts.add("grants of key "+keyID, err)
-			return
+			return resources, err
 		}
 		for _, grant := range page.Grants {
 			id := aws.ToString(grant.KeyId) + ":" + aws.ToString(grant.GrantId)
@@ -120,9 +136,10 @@ func (l *kmsLister) addGrants(keyID, keyName string) {
 			if grantee := cmp.Or(aws.ToString(grant.GranteePrincipal), aws.ToString(grant.GranteeServicePrincipal)); grantee != "" {
 				attributes["grantee_principal"] = grantee
 			}
-			l.g.Resources = append(l.g.Resources, harvest.Record(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws", attributes))
+			resources = append(resources, harvest.Record(id, cmp.Or(aws.ToString(grant.Name), keyName), "aws_kms_grant", "aws", attributes))
 		}
 	}
+	return resources, nil
 }
 
 // listAliases returns the aliases of listable keys, which List records as
@@ -139,6 +156,8 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 		if err != nil {
 			return nil, err
 		}
+		var customer []types.AliasListEntry
+		var keyIDs []string
 		for _, alias := range page.Aliases {
 			if alias.TargetKeyId == nil {
 				continue
@@ -149,10 +168,14 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 				}
 				continue
 			}
-			if !kmsKeyListable(l.describe(*alias.TargetKeyId)) {
-				continue
+			customer = append(customer, alias)
+			keyIDs = append(keyIDs, *alias.TargetKeyId)
+		}
+		l.describeAll(keyIDs)
+		for _, alias := range customer {
+			if kmsKeyListable(l.keys[*alias.TargetKeyId]) {
+				aliases = append(aliases, alias)
 			}
-			aliases = append(aliases, alias)
 		}
 	}
 	return aliases, nil
@@ -162,22 +185,34 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 // services, such as alias/aws/s3; no one else can create one.
 const awsManagedAliasPrefix = "alias/aws/"
 
-// describe returns the metadata of the key keyID, or nil when it can't be
-// described, which it gathers, but for a key deleted since it was listed.
-// Answers are remembered, failures too, so that a key is described, and
-// its failure reported, once.
-func (l *kmsLister) describe(keyID string) *types.KeyMetadata {
-	if metadata, ok := l.keys[keyID]; ok {
-		return metadata
+// describeAll describes the keys of keyIDs not described yet,
+// resourceParallel at a time, each once, and remembers their metadata in
+// l.keys: nil for a key that can't be described, whose failure it gathers,
+// but for a key deleted since it was listed. Failures are remembered too,
+// so that a key's failure is reported once, and they are gathered in the
+// order of keyIDs.
+func (l *kmsLister) describeAll(keyIDs []string) {
+	var todo []string
+	seen := map[string]bool{}
+	for _, id := range keyIDs {
+		if _, described := l.keys[id]; !described && !seen[id] {
+			seen[id] = true
+			todo = append(todo, id)
+		}
 	}
-	key, err := l.svc.DescribeKey(l.g.Context(), &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
-	if err != nil {
-		l.parts.add("key "+keyID, err)
-		l.keys[keyID] = nil
-		return nil
+	metadata := make([]*types.KeyMetadata, len(todo))
+	errs := make([]error, len(todo))
+	inParallel(len(todo), resourceParallel, func(i int) {
+		var key *kms.DescribeKeyOutput
+		key, errs[i] = l.svc.DescribeKey(l.g.Context(), &kms.DescribeKeyInput{KeyId: aws.String(todo[i])})
+		if errs[i] == nil {
+			metadata[i] = key.KeyMetadata
+		}
+	})
+	for i, id := range todo {
+		l.keys[id] = metadata[i]
+		l.parts.add("key "+id, errs[i])
 	}
-	l.keys[keyID] = key.KeyMetadata
-	return key.KeyMetadata
 }
 
 // kmsKeyType returns the Terraform type of a key with metadata: Terraform

@@ -186,7 +186,7 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("%s: %s doesn't pin Terraform and the provider:\n%s", dir, engine.VersionsFileName, versions)
 		}
 		if internalLabel.MatchString(readFile(t, filepath.Join(dir, engine.ImportsFileName))) {
-			t.Errorf("%s: an import address keeps the r-- label the listers give", dir)
+			t.Errorf("%s: an import address has an r-- label", dir)
 		}
 		readFile(t, filepath.Join(dir, engine.ReadmeFileName))
 		if strings.Contains(configuration(t, dir), "vpc_id = aws_vpc.") {
@@ -300,7 +300,18 @@ func isolateAWSConfig(t *testing.T) {
 func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []tfexec.PlanOption {
 	t.Helper()
 	var vars []tfexec.PlanOption
-	for _, block := range configBlocks(t, dir) {
+	blocks := configBlocks(t, dir)
+	// Variables with a default, such as those for another root's
+	// resources, need no value: only secrets have none.
+	defaulted := map[string]bool{}
+	for _, block := range blocks {
+		if block.Type == "variable" && len(block.Labels) == 1 {
+			if _, ok := block.Body.Attributes["default"]; ok {
+				defaulted[block.Labels[0]] = true
+			}
+		}
+	}
+	for _, block := range blocks {
 		if block.Type != "resource" {
 			continue
 		}
@@ -316,6 +327,9 @@ func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []t
 				continue
 			}
 			variable := traversal.Traversal[1].(hcl.TraverseAttr).Name
+			if defaulted[variable] {
+				continue
+			}
 			value, ok := createdValue(created, block.Labels[0], name, attrName)
 			if !ok {
 				t.Errorf("%s: no created %s named %q with a %s for variable %s", dir, block.Labels[0], name, attrName, variable)
@@ -645,8 +659,9 @@ func listThroughRole(ctx context.Context, t *testing.T, created []*tfjson.StateR
 	}
 }
 
-// internalLabel matches an import address whose label still has the r--
-// prefix the listers give, which the engine replaces with a label of its own.
+// internalLabel matches an import address whose label has the r-- prefix
+// of the escaped labels the listers once made: the engine labels resources
+// from their names.
 var internalLabel = regexp.MustCompile(`\bto\s*=\s*\S*\.r--`)
 
 // referencesVPC matches an argument that refers to a VPC resource.

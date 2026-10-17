@@ -299,3 +299,39 @@ func (o *Object) Empty() bool {
 func (o *Object) Tokens() hclwrite.Tokens {
 	return hclwrite.TokensForObject(o.attrs)
 }
+
+// Setter is what Require and CopyAs set module inputs on: a *Call, or an
+// *Object for an input of an object type.
+type Setter interface {
+	Set(name string, value hclwrite.Tokens)
+}
+
+// Pair names a resource argument and the module input that takes its
+// value.
+type Pair struct {
+	Arg, Input string
+}
+
+// Require sets each pair's input on to to its argument's value, in order,
+// and returns a *Decline naming the first argument that is absent or null:
+// one the module can't do without.
+func (r *Reader) Require(to Setter, pairs ...Pair) error {
+	for _, p := range pairs {
+		value, ok := r.Attr(p.Arg)
+		if !ok {
+			return Declinef("%s has no %s", r.path, p.Arg)
+		}
+		to.Set(p.Input, value)
+	}
+	return nil
+}
+
+// CopyAs sets each pair's input on to to its argument's value, in order,
+// for the arguments that are set.
+func (r *Reader) CopyAs(to Setter, pairs ...Pair) {
+	for _, p := range pairs {
+		if value, ok := r.Attr(p.Arg); ok {
+			to.Set(p.Input, value)
+		}
+	}
+}

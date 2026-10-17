@@ -27,13 +27,6 @@ concurrency:
   group: sandbox-google
   cancel-in-progress: false
 
-# The Terraform and OpenTofu the jobs install, the ones the release image
-# copies: bump them with the Dockerfile's hashicorp/terraform and
-# opentofu/opentofu tags, which dependabot tracks.
-env:
-  TERRAFORM_VERSION: 1.16.6
-  TOFU_VERSION: 1.13.1
-
 jobs:
   round-trip:
     name: round-trip (${{ inputs.engine }})
@@ -62,23 +55,11 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-      if: inputs.engine == 'terraform'
-      with:
-        terraform_wrapper: false
-        terraform_version: ${{ env.TERRAFORM_VERSION }}
-    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
-      if: inputs.engine == 'tofu'
-      with:
-        tofu_wrapper: false
-        tofu_version: ${{ env.TOFU_VERSION }}
     # The gate runs the scanners it finds (G5), as in the e2e jobs.
-    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+    - uses: ./.github/actions/setup-engines
       with:
-        tflint_version: v0.64.0
-    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
-      with:
-        version: v0.75.0
+        engine: ${{ inputs.engine }}
+        scanners: "true"
     # A credentials file for each service account: a workload identity
     # federation configuration that trades the job's GitHub ID token, which
     # it fetches again when it needs to, for the account's tokens. No key,
@@ -112,6 +93,7 @@ jobs:
         types=compute.googleapis.com/Network,compute.googleapis.com/Subnetwork,compute.googleapis.com/Firewall
         types+=,compute.googleapis.com/Router,storage.googleapis.com/Bucket,pubsub.googleapis.com/Topic
         types+=,pubsub.googleapis.com/Subscription,dns.googleapis.com/ManagedZone,iam.googleapis.com/ServiceAccount
+        types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk
         left=$(gcloud asset search-all-resources --scope "projects/$SANDBOX_GOOGLE_PROJECT" --asset-types "$types" \
           --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
         if [ -n "$left" ]; then
@@ -155,9 +137,9 @@ jobs:
     # labels, so the sweep finds everything by name, ih-sbx-<engine>-,
     # which the estate gives every resource but its function, ih-sbx-function,
     # and deletes what uses others first: the function, the zones' record
-    # sets, the zones, the subscriptions and topics, the buckets, then the
-    # network's firewall rules, routers and subnetworks, the network, and
-    # the service account.
+    # sets, the zones, the subscriptions and topics, the buckets, the
+    # instances and their disks, then the network's firewall rules,
+    # routers and subnetworks, the network, and the service account.
     - name: Sweep the project
       if: failure() || cancelled()
       env:
@@ -200,6 +182,16 @@ jobs:
             gcloud storage rm --recursive "gs://$bucket" "${q[@]}" || true
           fi
         done <<< "$buckets"
+        # The instances, with their boot disks, before the data disks they
+        # attach and the subnetworks they use.
+        for kind in instances disks; do
+          found=$(gcloud compute "$kind" list --filter "$named" --format 'value(name,zone.basename())')
+          while read -r name zone; do
+            if [ -n "$name" ]; then
+              gcloud compute "$kind" delete "$name" --zone "$zone" "${q[@]}" || true
+            fi
+          done <<< "$found"
+        done
         rules=$(gcloud compute firewall-rules list --filter "$named" --format 'value(name)')
         while IFS= read -r rule; do
           if [ -n "$rule" ]; then
@@ -233,6 +225,8 @@ jobs:
           gcloud pubsub topics list --filter "name ~ '/$prefix'" --format 'value(name)'
           gcloud pubsub subscriptions list --filter "name ~ '/$prefix'" --format 'value(name)'
           gcloud storage buckets list --filter "$named" --format 'value(name)'
+          gcloud compute instances list --filter "$named" --format 'value(name)'
+          gcloud compute disks list --filter "$named" --format 'value(name)'
           gcloud compute firewall-rules list --filter "$named" --format 'value(name)'
           gcloud compute routers list --filter "$named" --format 'value(name)'
           gcloud compute networks subnets list --filter "$named" --format 'value(name)'

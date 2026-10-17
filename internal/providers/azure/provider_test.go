@@ -148,6 +148,31 @@ func TestSignInStopsWithItsContext(t *testing.T) {
 	}
 }
 
+// Sign-ins with the same configuration share one credential, and so its
+// tokens, whichever subscription they are for; another configuration gets
+// a credential of its own.
+func TestSignInSharesTheCredential(t *testing.T) {
+	sign := func(cfg authConfig) azcore.TokenCredential {
+		t.Helper()
+		_, credential, _, err := signIn(t.Context(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return credential
+	}
+	first := sign(authConfig{subscriptionID: "sub-shared-a", tenantID: "tenant-shared"})
+	again := sign(authConfig{subscriptionID: "sub-shared-a", tenantID: "tenant-shared"})
+	other := sign(authConfig{subscriptionID: "sub-shared-b", tenantID: "tenant-shared"})
+	elsewhere := sign(authConfig{subscriptionID: "sub-shared-a", tenantID: "tenant-elsewhere"})
+
+	if again != first || other != first {
+		t.Error("the same configuration got another credential")
+	}
+	if elsewhere == first {
+		t.Error("another tenant got the same credential")
+	}
+}
+
 // Every sign-in for a subscription shares its limiter; other subscriptions
 // have their own.
 func TestSubscriptionLimiterIsShared(t *testing.T) {

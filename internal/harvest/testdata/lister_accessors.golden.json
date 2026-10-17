@@ -67,7 +67,7 @@
     "value": [
       {
         "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
+        "name": "vpc-1",
         "stateId": "vpc-1"
       }
     ]

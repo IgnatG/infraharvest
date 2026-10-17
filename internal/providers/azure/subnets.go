@@ -35,19 +35,14 @@ func (az *SubnetLister) List() error {
 		if network.ID == nil || network.Name == nil {
 			continue
 		}
-		// Subnets are listed under the network's own resource group, which
-		// is not --resource-group when the whole subscription is listed.
-		networkResourceGroup, err := resourceGroupOf(*network.ID)
-		if err != nil {
-			return err
-		}
-		subnets, err := listAll(ctx, subnetsClient.NewListPager(networkResourceGroup, *network.Name, nil),
-			func(p armnetwork.SubnetsClientListResponse) []*armnetwork.Subnet { return p.Value })
+		subnets, err := az.subnetsOf(subnetsClient, network)
 		if err != nil {
 			return err
 		}
 		for _, subnet := range subnets {
-			az.appendSubnet(subnet)
+			if subnet != nil {
+				az.appendSubnet(subnet)
+			}
 		}
 	}
 
@@ -77,6 +72,26 @@ func (az *SubnetLister) List() error {
 		az.recordTagged(*policy.ID, *policy.Name, "azurerm_subnet_service_endpoint_storage_policy", policy.Tags)
 	}
 	return nil
+}
+
+// subnetsOf returns the subnets network carries in its properties, which a
+// Resource Manager list returns in full, with the IDs of the route table,
+// security group and NAT gateway each one is linked to. Only when network
+// came back without them, or with an empty list, as some emulators answer,
+// are they listed with subnetsClient, under the network's own resource
+// group, which is not --resource-group when the whole subscription is
+// listed: a network without subnets costs a request, but a subnet is never
+// missed.
+func (az *SubnetLister) subnetsOf(subnetsClient *armnetwork.SubnetsClient, network *armnetwork.VirtualNetwork) ([]*armnetwork.Subnet, error) {
+	if network.Properties != nil && len(network.Properties.Subnets) > 0 {
+		return network.Properties.Subnets, nil
+	}
+	networkResourceGroup, err := resourceGroupOf(*network.ID)
+	if err != nil {
+		return nil, err
+	}
+	return listAll(az.Context(), subnetsClient.NewListPager(networkResourceGroup, *network.Name, nil),
+		func(p armnetwork.SubnetsClientListResponse) []*armnetwork.Subnet { return p.Value })
 }
 
 // appendSubnet adds subnet as azurerm_subnet, then one association for each

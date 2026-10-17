@@ -26,7 +26,9 @@ type EksLister struct {
 
 // List lists every cluster, each after its parts. Any error stops
 // the listing and is returned: a cluster without some of its parts would
-// make a configuration that plans to delete them.
+// make a configuration that plans to delete them. The clusters of a page
+// are read resourceParallel at a time, as each takes several calls, and
+// recorded in the page's order.
 func (g *EksLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -39,28 +41,42 @@ func (g *EksLister) List() error {
 		if err != nil {
 			return err
 		}
-		for _, clusterName := range page.Clusters {
-			parts := []func(string, *eks.Client) error{
-				g.getNodeGroups,
-				g.getAddons,
-				g.getFargateProfiles,
-				g.getPodIdentityAssociations,
-				g.getAccessEntries,
+		resources := make([][]harvest.Resource, len(page.Clusters))
+		errs := make([]error, len(page.Clusters))
+		inParallel(len(page.Clusters), resourceParallel, func(i int) {
+			resources[i], errs[i] = g.cluster(page.Clusters[i], svc)
+		})
+		for i := range page.Clusters {
+			if errs[i] != nil {
+				return errs[i]
 			}
-			for _, list := range parts {
-				if err := list(clusterName, svc); err != nil {
-					return err
-				}
-			}
-			g.Resources = append(g.Resources, harvest.RecordBare(clusterName, clusterName, "aws_eks_cluster", "aws"))
+			g.Resources = append(g.Resources, resources[i]...)
 		}
 	}
 	return nil
 }
 
-// getNodeGroups adds the cluster's managed node groups, imported as
+// cluster returns the parts of the cluster clusterName, then the cluster.
+func (g *EksLister) cluster(clusterName string, svc *eks.Client) ([]harvest.Resource, error) {
+	var resources []harvest.Resource
+	parts := []func(string, *eks.Client, *[]harvest.Resource) error{
+		g.getNodeGroups,
+		g.getAddons,
+		g.getFargateProfiles,
+		g.getPodIdentityAssociations,
+		g.getAccessEntries,
+	}
+	for _, list := range parts {
+		if err := list(clusterName, svc, &resources); err != nil {
+			return nil, err
+		}
+	}
+	return append(resources, harvest.RecordBare(clusterName, clusterName, "aws_eks_cluster", "aws")), nil
+}
+
+// getNodeGroups adds to out the cluster's managed node groups, imported as
 // "<cluster>:<node group>".
-func (g *EksLister) getNodeGroups(clusterName string, svc *eks.Client) error {
+func (g *EksLister) getNodeGroups(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
 	p := eks.NewListNodegroupsPaginator(svc, &eks.ListNodegroupsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -68,14 +84,14 @@ func (g *EksLister) getNodeGroups(clusterName string, svc *eks.Client) error {
 			return err
 		}
 		for _, nodeGroup := range page.Nodegroups {
-			g.Resources = append(g.Resources, harvest.RecordBare(clusterName+":"+nodeGroup, nodeGroup, "aws_eks_node_group", "aws"))
+			*out = append(*out, harvest.RecordBare(clusterName+":"+nodeGroup, nodeGroup, "aws_eks_node_group", "aws"))
 		}
 	}
 	return nil
 }
 
-// getAddons adds the cluster's add-ons, imported as "<cluster>:<add-on>".
-func (g *EksLister) getAddons(clusterName string, svc *eks.Client) error {
+// getAddons adds to out the cluster's add-ons, imported as "<cluster>:<add-on>".
+func (g *EksLister) getAddons(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
 	p := eks.NewListAddonsPaginator(svc, &eks.ListAddonsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -83,15 +99,15 @@ func (g *EksLister) getAddons(clusterName string, svc *eks.Client) error {
 			return err
 		}
 		for _, addon := range page.Addons {
-			g.Resources = append(g.Resources, harvest.RecordBare(clusterName+":"+addon, addon, "aws_eks_addon", "aws"))
+			*out = append(*out, harvest.RecordBare(clusterName+":"+addon, addon, "aws_eks_addon", "aws"))
 		}
 	}
 	return nil
 }
 
-// getFargateProfiles adds the cluster's Fargate profiles, imported as
+// getFargateProfiles adds to out the cluster's Fargate profiles, imported as
 // "<cluster>:<profile>".
-func (g *EksLister) getFargateProfiles(clusterName string, svc *eks.Client) error {
+func (g *EksLister) getFargateProfiles(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
 	p := eks.NewListFargateProfilesPaginator(svc, &eks.ListFargateProfilesInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -99,17 +115,17 @@ func (g *EksLister) getFargateProfiles(clusterName string, svc *eks.Client) erro
 			return err
 		}
 		for _, profile := range page.FargateProfileNames {
-			g.Resources = append(g.Resources, harvest.RecordBare(clusterName+":"+profile, profile, "aws_eks_fargate_profile", "aws"))
+			*out = append(*out, harvest.RecordBare(clusterName+":"+profile, profile, "aws_eks_fargate_profile", "aws"))
 		}
 	}
 	return nil
 }
 
-// getPodIdentityAssociations adds the cluster's pod identity associations,
+// getPodIdentityAssociations adds to out the cluster's pod identity associations,
 // imported as "<cluster>,<association ID>" and named after the service
 // account they give a role to. An association with an owner belongs to
 // that owner, such as an add-on that created it, and is left out.
-func (g *EksLister) getPodIdentityAssociations(clusterName string, svc *eks.Client) error {
+func (g *EksLister) getPodIdentityAssociations(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
 	p := eks.NewListPodIdentityAssociationsPaginator(svc, &eks.ListPodIdentityAssociationsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -122,18 +138,18 @@ func (g *EksLister) getPodIdentityAssociations(clusterName string, svc *eks.Clie
 			}
 			id := clusterName + "," + aws.ToString(association.AssociationId)
 			name := aws.ToString(association.Namespace) + "_" + aws.ToString(association.ServiceAccount)
-			g.Resources = append(g.Resources, harvest.RecordBare(id, name, "aws_eks_pod_identity_association", "aws"))
+			*out = append(*out, harvest.RecordBare(id, name, "aws_eks_pod_identity_association", "aws"))
 		}
 	}
 	return nil
 }
 
-// getAccessEntries adds the cluster's access entries, imported as
+// getAccessEntries adds to out the cluster's access entries, imported as
 // "<cluster>:<principal ARN>", each followed by the access policies
 // associated with it. A cluster that authenticates through the aws-auth
 // ConfigMap alone has no access entries and rejects the call to list them,
 // so its authentication mode is looked up first.
-func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client) error {
+func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
 	described, err := svc.DescribeCluster(g.Context(), &eks.DescribeClusterInput{Name: aws.String(clusterName)})
 	if err != nil {
 		return err
@@ -149,8 +165,8 @@ func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client) error 
 			return err
 		}
 		for _, principal := range page.AccessEntries {
-			g.Resources = append(g.Resources, harvest.RecordBare(clusterName+":"+principal, arnName(principal), "aws_eks_access_entry", "aws"))
-			if err := g.getAccessPolicyAssociations(clusterName, principal, svc); err != nil {
+			*out = append(*out, harvest.RecordBare(clusterName+":"+principal, arnName(principal), "aws_eks_access_entry", "aws"))
+			if err := g.getAccessPolicyAssociations(clusterName, principal, svc, out); err != nil {
 				return err
 			}
 		}
@@ -158,10 +174,10 @@ func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client) error 
 	return nil
 }
 
-// getAccessPolicyAssociations adds the access policies associated with
+// getAccessPolicyAssociations adds to out the access policies associated with
 // one access entry, imported as "<cluster>#<principal ARN>#<policy ARN>"
 // and named after the principal and the policy.
-func (g *EksLister) getAccessPolicyAssociations(clusterName, principal string, svc *eks.Client) error {
+func (g *EksLister) getAccessPolicyAssociations(clusterName, principal string, svc *eks.Client, out *[]harvest.Resource) error {
 	p := eks.NewListAssociatedAccessPoliciesPaginator(svc, &eks.ListAssociatedAccessPoliciesInput{
 		ClusterName:  aws.String(clusterName),
 		PrincipalArn: aws.String(principal),
@@ -175,7 +191,7 @@ func (g *EksLister) getAccessPolicyAssociations(clusterName, principal string, s
 			policyARN := aws.ToString(policy.PolicyArn)
 			id := clusterName + "#" + principal + "#" + policyARN
 			name := arnName(principal) + "_" + arnName(policyARN)
-			g.Resources = append(g.Resources, harvest.RecordBare(id, name, "aws_eks_access_policy_association", "aws"))
+			*out = append(*out, harvest.RecordBare(id, name, "aws_eks_access_policy_association", "aws"))
 		}
 	}
 	return nil

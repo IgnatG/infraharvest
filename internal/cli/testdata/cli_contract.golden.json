@@ -118,6 +118,13 @@
         "persistent": true
       },
       {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "format",
         "type": "string",
         "default": "text",
@@ -330,6 +337,13 @@
         "name": "env-tags",
         "type": "stringSlice",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -551,6 +565,13 @@
         "name": "folders",
         "type": "stringSlice",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -790,6 +811,13 @@
         "persistent": true
       },
       {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "format",
         "type": "string",
         "default": "text",
@@ -1002,6 +1030,13 @@
         "name": "env-tags",
         "type": "stringSlice",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -1223,6 +1258,13 @@
         "name": "folders",
         "type": "stringSlice",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -1470,6 +1512,13 @@
         "name": "engine-timeout",
         "type": "duration",
         "default": "1h0m0s",
+        "persistent": false
+      },
+      {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": false
       },
       {

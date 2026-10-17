@@ -3,19 +3,27 @@
   "version": "5.1.0",
   "variables": {
     "description": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "display_name": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "Terraform-managed service account"
     },
     "name": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "project_id": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "project_roles": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     }
   },
   "outputs": [

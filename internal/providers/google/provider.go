@@ -196,9 +196,9 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Provider: p.Name(),
 		Verbose:  verbose,
 		Settings: map[string]interface{}{
-			"region":    p.region,
-			"project":   p.projectName,
-			"catalogue": p.catalogue,
+			regionKey:    p.region,
+			projectKey:   p.projectName,
+			catalogueKey: p.catalogue,
 		},
 	})
 	return nil

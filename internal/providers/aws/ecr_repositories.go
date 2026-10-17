@@ -19,10 +19,11 @@ type EcrLister struct {
 	Service
 }
 
-// List lists every repository, each followed by its policies. Failing to
-// list repositories fails the service. A policy that fails to read, other
-// than for having none, doesn't stop the other repositories: the errors
-// are returned together as a partial error (see harvest.Partial), so what
+// List lists every repository, each followed by its policies: the
+// repositories of a page are read resourceParallel at a time, and recorded
+// in the page's order. Failing to list repositories fails the service. A
+// policy that fails to read, other than for having none, doesn't stop the
+// other repositories: the errors are returned together as a partial error (see harvest.Partial), so what
 // was listed is imported and the listing reads as incomplete rather than
 // as repositories without policies.
 func (g *EcrLister) List() error {
@@ -38,21 +39,28 @@ func (g *EcrLister) List() error {
 		if err != nil {
 			return errors.Join(append(errs, err)...)
 		}
-		for _, repository := range page.Repositories {
-			errs = append(errs, g.addRepository(client, repository))
+		parts := make([][]harvest.Resource, len(page.Repositories))
+		partErrs := make([]error, len(page.Repositories))
+		inParallel(len(page.Repositories), resourceParallel, func(i int) {
+			parts[i], partErrs[i] = g.repository(client, page.Repositories[i])
+		})
+		for i := range page.Repositories {
+			g.Resources = append(g.Resources, parts[i]...)
+			errs = append(errs, partErrs[i])
 		}
 	}
 	return harvest.Partial(errors.Join(errs...))
 }
 
-// addRepository records repository by name, then its repository policy and
+// repository returns repository, by name, then its repository policy and
 // its lifecycle policy, each by the repository's name, which is how
 // Terraform imports them. The policies are read from the repository's own
 // registry. Only ECR's answer that there is no such policy, or no longer
-// such a repository, means there is none; any other error is returned.
-func (g *EcrLister) addRepository(client *ecr.Client, repository types.Repository) error {
+// such a repository, means there is none; any other error is returned,
+// with what was read.
+func (g *EcrLister) repository(client *ecr.Client, repository types.Repository) ([]harvest.Resource, error) {
 	name := aws.ToString(repository.RepositoryName)
-	g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_ecr_repository", "aws"))
+	resources := []harvest.Resource{harvest.RecordBare(name, name, "aws_ecr_repository", "aws")}
 
 	var errs []error
 	_, err := client.GetRepositoryPolicy(g.Context(), &ecr.GetRepositoryPolicyInput{
@@ -62,7 +70,7 @@ func (g *EcrLister) addRepository(client *ecr.Client, repository types.Repositor
 	var noPolicy *types.RepositoryPolicyNotFoundException
 	switch {
 	case err == nil:
-		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_ecr_repository_policy", "aws"))
+		resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_repository_policy", "aws"))
 	case !errors.As(err, &noPolicy) && !ecrRepositoryGone(err):
 		errs = append(errs, fmt.Errorf("the repository policy of %s: %w", name, err))
 	}
@@ -73,11 +81,11 @@ func (g *EcrLister) addRepository(client *ecr.Client, repository types.Repositor
 	var noLifecycle *types.LifecyclePolicyNotFoundException
 	switch {
 	case err == nil:
-		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_ecr_lifecycle_policy", "aws"))
+		resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_lifecycle_policy", "aws"))
 	case !errors.As(err, &noLifecycle) && !ecrRepositoryGone(err):
 		errs = append(errs, fmt.Errorf("the lifecycle policy of %s: %w", name, err))
 	}
-	return errors.Join(errs...)
+	return resources, errors.Join(errs...)
 }
 
 // ecrRepositoryGone reports whether err says the repository no longer

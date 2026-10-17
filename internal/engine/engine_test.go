@@ -885,3 +885,39 @@ func TestMergeEnv(t *testing.T) {
 		t.Error("base changed")
 	}
 }
+
+// A runner with a fresh environment asks for it before each plan, and a
+// plan fails, before Terraform runs, when it can't be had, as when the
+// credentials can't be refreshed.
+func TestFreshEnvTerraformAsksBeforeEachPlan(t *testing.T) {
+	base := t.TempDir()
+	refused := errors.New("the SSO session has expired")
+	asked := 0
+	tf, err := NewFreshEnvTerraform(filepath.Join(base, "root"), os.Args[0], filepath.Join(base, "plugins"), map[string]string{"AWS_ACCESS_KEY_ID": "AKIDFIRST"},
+		func(context.Context) (map[string]string, error) {
+			asked++
+			return nil, refused
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := tf.PlanJSON(t.Context(), io.Discard); !errors.Is(err, refused) {
+			t.Errorf("want the plan failed with the environment's error, got %v", err)
+		}
+	}
+	if asked != 2 {
+		t.Errorf("asked %d times for the environment, want once a plan", asked)
+	}
+}
+
+// Terraform's environment has the process's, with what the provider adds
+// on top, and the plugin cache.
+func TestTerraformEnviron(t *testing.T) {
+	t.Setenv("INFRAHARVEST_TEST_INHERITED", "kept")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDOLD")
+	env := terraformEnviron("plugins", map[string]string{"AWS_ACCESS_KEY_ID": "AKIDNEW"})
+	if env["INFRAHARVEST_TEST_INHERITED"] != "kept" || env["AWS_ACCESS_KEY_ID"] != "AKIDNEW" || env["TF_PLUGIN_CACHE_DIR"] != "plugins" {
+		t.Errorf("environment: inherited %q, key %q, cache %q", env["INFRAHARVEST_TEST_INHERITED"], env["AWS_ACCESS_KEY_ID"], env["TF_PLUGIN_CACHE_DIR"])
+	}
+}

@@ -236,3 +236,21 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 		t.Errorf("GetCallerIdentity called %d times, want once", calls)
 	}
 }
+
+// What the provider passes each service is what picks its SDK
+// configuration and region.
+func TestServiceReadsTheProviderArgs(t *testing.T) {
+	p := &Provider{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
+	s := &Service{}
+	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	want := configKey{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
+	if got := s.cacheKey(); got != want {
+		t.Errorf("cacheKey: got %+v, want %+v", got, want)
+	}
+	if got := regionSetting(s.Settings()); got != "eu-west-2" {
+		t.Errorf("regionSetting: got %q", got)
+	}
+	if got := regionSetting(map[string]interface{}{regionKey: 1}); got != "" {
+		t.Errorf("regionSetting of another type: got %q, want none", got)
+	}
+}

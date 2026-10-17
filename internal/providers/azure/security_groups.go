@@ -16,8 +16,10 @@ type NetworkSecurityGroupLister struct {
 	Service
 }
 
-// List lists the security groups and their rules. Any listing that
-// fails fails the service.
+// List lists the security groups and their rules. The rules come from
+// the group list, which carries them; only a group that came back without
+// them, as some emulators answer, has its rules listed on their own. Any
+// listing that fails fails the service.
 func (az *NetworkSecurityGroupLister) List() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	groupsClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, credential, options)
@@ -45,19 +47,12 @@ func (az *NetworkSecurityGroupLister) List() error {
 			continue
 		}
 		az.recordTagged(*group.ID, *group.Name, "azurerm_network_security_group", group.Tags)
-		// Rules are listed under the group's own resource group, which is
-		// not --resource-group when the whole subscription is listed.
-		groupResourceGroup, err := resourceGroupOf(*group.ID)
-		if err != nil {
-			return err
-		}
-		rules, err := listAll(ctx, rulesClient.NewListPager(groupResourceGroup, *group.Name, nil),
-			func(p armnetwork.SecurityRulesClientListResponse) []*armnetwork.SecurityRule { return p.Value })
+		rules, err := az.rulesOf(rulesClient, group)
 		if err != nil {
 			return err
 		}
 		for _, rule := range rules {
-			if rule.ID == nil || rule.Name == nil {
+			if rule == nil || rule.ID == nil || rule.Name == nil {
 				continue
 			}
 			// The same rule name often appears in many groups, so the
@@ -66,4 +61,22 @@ func (az *NetworkSecurityGroupLister) List() error {
 		}
 	}
 	return nil
+}
+
+// rulesOf returns the rules group carries in its properties, which a
+// Resource Manager list returns in full. Only when group came back without
+// them are they listed with rulesClient, under the group's own resource
+// group, which is not --resource-group when the whole subscription is
+// listed. An empty list is asked again too, as some emulators answer it:
+// a group without rules costs a request, but a rule is never missed.
+func (az *NetworkSecurityGroupLister) rulesOf(rulesClient *armnetwork.SecurityRulesClient, group *armnetwork.SecurityGroup) ([]*armnetwork.SecurityRule, error) {
+	if group.Properties != nil && len(group.Properties.SecurityRules) > 0 {
+		return group.Properties.SecurityRules, nil
+	}
+	groupResourceGroup, err := resourceGroupOf(*group.ID)
+	if err != nil {
+		return nil, err
+	}
+	return listAll(az.Context(), rulesClient.NewListPager(groupResourceGroup, *group.Name, nil),
+		func(p armnetwork.SecurityRulesClientListResponse) []*armnetwork.SecurityRule { return p.Value })
 }

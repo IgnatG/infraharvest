@@ -124,7 +124,7 @@ For Google, the catalogue is the whole mapping: what has no entry isn't imported
 
 ## Overriding entries
 
-`--catalogue <directory>` on `import`, `discover` and `verify` reads the `.yaml` and `.yml` files in the directory on top of the built-in catalogue. An entry for a type the catalogue already has replaces only the fields it sets, so `skip: []` drops the built-in skip rules and `import_id` replaces the templates. Fields that aren't lists, `data_source`, `arn`, `cloud_control`, `inventory`, `placeholder` and `lifecycle`, can't be cleared that way: list them under `remove`, such as `remove: [placeholder]` to drop the built-in Lambda code placeholder. Entries for new types add to it. On AWS, the overlay's `arn`, `import_id` and `children` entries also reach what the provider matches resources by, such as their tags and the CloudFormation stacks that manage them; a `cloud_control` entry doesn't add a service, as the services are known before the overlay is read. Files for the other providers (`aws`, `azurerm` and `google`) are ignored; a file with any other `provider:`, or a directory without catalogue files, is an error. Use this to fix an import ID or add a skip rule without waiting for a release; please also open an issue or a pull request, so everyone gets the fix.
+`--catalogue <directory>` on `import`, `discover` and `verify` reads the `.yaml` and `.yml` files in the directory on top of the built-in catalogue. An entry for a type the catalogue already has replaces only the fields it sets, so `skip: []` drops the built-in skip rules and `import_id` replaces the templates. Fields that aren't lists, `data_source`, `arn`, `cloud_control`, `inventory`, `placeholder` and `lifecycle`, can't be cleared that way: list them under `remove`, such as `remove: [placeholder]` to drop the built-in Lambda code placeholder. Entries for new types add to it. On AWS, the overlay's `arn`, `import_id` and `children` entries also reach what the provider matches resources by, such as their tags and the CloudFormation stacks that manage them; a `cloud_control` entry tells which Terraform type a stack's resource of its CloudFormation type is, and lists its type through the Cloud Control API, under the entry's `service`, which `--services` can name and `*` includes. Files for the other providers (`aws`, `azurerm` and `google`) are ignored; a file with any other `provider:`, or a directory without catalogue files, is an error. Use this to fix an import ID or add a skip rule without waiting for a release; please also open an issue or a pull request, so everyone gets the fix.
 
 ```yaml
 # my-catalogue/aws.yaml
@@ -151,3 +151,11 @@ go test ./internal/catalogue -run TestGolden -update
 ```
 
 Without a local Go toolchain, push the branch as `golden/<anything>` (or run `gh workflow run remote --ref <branch> -f task=golden`) and download what the run rewrote, from the repository's root, with `gh run download <run-id> -n golden`.
+
+The golden tests render what the catalogue says, so they can't tell a mistyped or renamed argument from a real one. The tests workflow's `catalogue-schemas` job does: it dumps the schemas of the newest aws, azurerm and google releases with `terraform providers schema -json` and checks that every type, child type and data source the built-in catalogue names exists, that every `omit`, `defaults`, `state_only`, `keep_empty` and placeholder path is an argument or nested block in it (`provider_versions` lists only where their constraint accepts that release), and that each default converts to its attribute's type. To run it locally, put the two files it reads in a directory and name it:
+
+```sh
+INFRAHARVEST_PROVIDER_SCHEMAS=<dir> go test ./internal/catalogue -run TestCatalogueMatchesProviderSchemas
+```
+
+where `<dir>` holds `schemas.json` (`terraform providers schema -json`) and `versions.json` (`terraform version -json`), both from an initialised root that requires the three providers.

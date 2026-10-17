@@ -4,8 +4,7 @@
     "simple": false,
     "json": {
       "Address": {
-        "Type": "aws_vpc",
-        "ID": "aws_vpc.r--main"
+        "Type": "aws_vpc"
       },
       "Observed": {
         "id": "vpc-1",
@@ -14,15 +13,12 @@
           "tags.Name": "main"
         }
       },
-      "Label": "r--main",
       "RawName": "main",
       "Provider": "aws"
     },
-    "label": "r--main",
     "rawName": "main",
     "provider": "aws",
     "type": "aws_vpc",
-    "address": "aws_vpc.r--main",
     "stateId": "vpc-1",
     "attributesNil": false,
     "attributesLen": 2,
@@ -34,22 +30,18 @@
     "simple": false,
     "json": {
       "Address": {
-        "Type": "aws_vpc",
-        "ID": "aws_vpc.r--other"
+        "Type": "aws_vpc"
       },
       "Observed": {
         "id": "vpc-2",
         "attributes": null
       },
-      "Label": "r--other",
       "RawName": "other",
       "Provider": "aws"
     },
-    "label": "r--other",
     "rawName": "other",
     "provider": "aws",
     "type": "aws_vpc",
-    "address": "aws_vpc.r--other",
     "stateId": "vpc-2",
     "attributesNil": true,
     "attributesLen": 0,
@@ -61,22 +53,18 @@
     "simple": false,
     "json": {
       "Address": {
-        "Type": "aws_vpc",
-        "ID": "aws_vpc.r--third"
+        "Type": "aws_vpc"
       },
       "Observed": {
         "id": "vpc-3",
         "attributes": {}
       },
-      "Label": "r--third",
       "RawName": "third",
       "Provider": "aws"
     },
-    "label": "r--third",
     "rawName": "third",
     "provider": "aws",
     "type": "aws_vpc",
-    "address": "aws_vpc.r--third",
     "stateId": "vpc-3",
     "attributesNil": false,
     "attributesLen": 0,
@@ -88,22 +76,18 @@
     "simple": true,
     "json": {
       "Address": {
-        "Type": "aws_sqs_queue",
-        "ID": "aws_sqs_queue.r--my-0020-queue"
+        "Type": "aws_sqs_queue"
       },
       "Observed": {
         "id": "https://sqs/1/my queue",
         "attributes": {}
       },
-      "Label": "r--my-0020-queue",
       "RawName": "my queue",
       "Provider": "aws"
     },
-    "label": "r--my-0020-queue",
     "rawName": "my queue",
     "provider": "aws",
     "type": "aws_sqs_queue",
-    "address": "aws_sqs_queue.r--my-0020-queue",
     "stateId": "https://sqs/1/my queue",
     "attributesNil": false,
     "attributesLen": 0,
@@ -115,21 +99,17 @@
     "simple": false,
     "json": {
       "Address": {
-        "Type": "",
-        "ID": ".r--"
+        "Type": ""
       },
       "Observed": {
         "id": "",
         "attributes": null
       },
-      "Label": "r--",
       "Provider": ""
     },
-    "label": "r--",
     "rawName": "",
     "provider": "",
     "type": "",
-    "address": ".r--",
     "stateId": "",
     "attributesNil": true,
     "attributesLen": 0,
@@ -141,21 +121,17 @@
     "simple": true,
     "json": {
       "Address": {
-        "Type": "",
-        "ID": ".r--"
+        "Type": ""
       },
       "Observed": {
         "id": "",
         "attributes": {}
       },
-      "Label": "r--",
       "Provider": ""
     },
-    "label": "r--",
     "rawName": "",
     "provider": "",
     "type": "",
-    "address": ".r--",
     "stateId": "",
     "attributesNil": false,
     "attributesLen": 0,
@@ -167,8 +143,7 @@
     "simple": false,
     "json": {
       "Address": {
-        "Type": "google_compute_network",
-        "ID": "google_compute_network.r--n-002E-with-002F-odd-003A-chars"
+        "Type": "google_compute_network"
       },
       "Observed": {
         "id": "projects/p/global/networks/n",
@@ -176,15 +151,12 @@
           "labels.env": "prod"
         }
       },
-      "Label": "r--n-002E-with-002F-odd-003A-chars",
       "RawName": "n.with/odd:chars",
       "Provider": "google"
     },
-    "label": "r--n-002E-with-002F-odd-003A-chars",
     "rawName": "n.with/odd:chars",
     "provider": "google",
     "type": "google_compute_network",
-    "address": "google_compute_network.r--n-002E-with-002F-odd-003A-chars",
     "stateId": "projects/p/global/networks/n",
     "attributesNil": false,
     "attributesLen": 1,
@@ -196,22 +168,18 @@
     "simple": true,
     "json": {
       "Address": {
-        "Type": "azurerm_resource_group",
-        "ID": "azurerm_resource_group.r--grup-C483-"
+        "Type": "azurerm_resource_group"
       },
       "Observed": {
         "id": "/subscriptions/s/resourceGroups/rg",
         "attributes": {}
       },
-      "Label": "r--grup-C483-",
       "RawName": "grupă",
       "Provider": "azurerm"
     },
-    "label": "r--grup-C483-",
     "rawName": "grupă",
     "provider": "azurerm",
     "type": "azurerm_resource_group",
-    "address": "azurerm_resource_group.r--grup-C483-",
     "stateId": "/subscriptions/s/resourceGroups/rg",
     "attributesNil": false,
     "attributesLen": 0,
@@ -223,8 +191,7 @@
     "simple": false,
     "json": {
       "Address": {
-        "Type": "aws_x",
-        "ID": "aws_x.r--a-003C-b-003E--0026-c"
+        "Type": "aws_x"
       },
       "Observed": {
         "id": "\u003cid\u003e",
@@ -232,15 +199,12 @@
           "k": "\u003cv\u003e"
         }
       },
-      "Label": "r--a-003C-b-003E--0026-c",
       "RawName": "a\u003cb\u003e\u0026c",
       "Provider": "aws"
     },
-    "label": "r--a-003C-b-003E--0026-c",
     "rawName": "a<b>&c",
     "provider": "aws",
     "type": "aws_x",
-    "address": "aws_x.r--a-003C-b-003E--0026-c",
     "stateId": "<id>",
     "attributesNil": false,
     "attributesLen": 1,
@@ -252,22 +216,18 @@
     "simple": true,
     "json": {
       "Address": {
-        "Type": "aws_x",
-        "ID": "aws_x.r--r--x"
+        "Type": "aws_x"
       },
       "Observed": {
         "id": "x",
         "attributes": {}
       },
-      "Label": "r--r--x",
       "RawName": "r--x",
       "Provider": "aws"
     },
-    "label": "r--r--x",
     "rawName": "r--x",
     "provider": "aws",
     "type": "aws_x",
-    "address": "aws_x.r--r--x",
     "stateId": "x",
     "attributesNil": false,
     "attributesLen": 0,
@@ -279,22 +239,18 @@
     "simple": true,
     "json": {
       "Address": {
-        "Type": "google_x",
-        "ID": "google_x.r--x"
+        "Type": "google_x"
       },
       "Observed": {
         "id": "x",
         "attributes": {}
       },
-      "Label": "r--x",
       "RawName": "x",
       "Provider": "aws"
     },
-    "label": "r--x",
     "rawName": "x",
     "provider": "aws",
     "type": "google_x",
-    "address": "google_x.r--x",
     "stateId": "x",
     "attributesNil": false,
     "attributesLen": 0,

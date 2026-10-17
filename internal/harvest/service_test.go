@@ -119,12 +119,13 @@ func TestAttributeFilters(t *testing.T) {
 	}
 }
 
-// cleanupResource returns a resource with exactly the given type, address,
+// cleanupResource returns a resource with exactly the given type, name,
 // state ID and provider, and no attributes.
-func cleanupResource(resourceType, address, stateID, provider string) Resource {
+func cleanupResource(resourceType, name, stateID, provider string) Resource {
 	return Resource{
-		Address:  &Address{Type: resourceType, ID: address},
+		Address:  &Address{Type: resourceType},
 		Observed: &Observation{ID: stateID},
+		RawName:  name,
 		Provider: provider,
 	}
 }
@@ -149,7 +150,7 @@ func TestPrune(t *testing.T) {
 		{
 			// Without a provider the type is the service's name. The
 			// filter drops type1 and leaves type2 be, and the two are not
-			// duplicates although they share an ID and an address.
+			// duplicates although they share an ID and a name.
 			name: "resources without a provider",
 			resources: []Resource{
 				cleanupResource("type1", "", "myid", ""),
@@ -161,8 +162,8 @@ func TestPrune(t *testing.T) {
 		},
 		{
 			// Only the exact duplicate goes: a role and a group sharing an
-			// address and an ID are different resources.
-			name: "types sharing an address and an id",
+			// name and an ID are different resources.
+			name: "types sharing a name and an id",
 			resources: []Resource{
 				cleanupResource("aws_iam_role", "admins", "admins", "aws"),
 				cleanupResource("aws_iam_group", "admins", "admins", "aws"),
@@ -173,7 +174,7 @@ func TestPrune(t *testing.T) {
 			wantIDs:   []string{"admins", "admins"},
 		},
 		{
-			// Two APIs' $default stages share a type and an address but not
+			// Two APIs' $default stages share a type and a name but not
 			// an ID. Before, the second was dropped as a duplicate.
 			name: "same name, other id",
 			resources: []Resource{
@@ -221,11 +222,9 @@ func TestRecordBare(t *testing.T) {
 	r := RecordBare("https://sqs/1/my queue", "my queue", "aws_sqs_queue", "aws")
 
 	for _, field := range []struct{ name, got, want string }{
-		{"Label", r.Label, "r--my-0020-queue"},
 		{"RawName", r.RawName, "my queue"},
 		{"Provider", r.Provider, "aws"},
 		{"Address.Type", r.Address.Type, "aws_sqs_queue"},
-		{"Address.ID", r.Address.ID, "aws_sqs_queue.r--my-0020-queue"},
 		{"Observed.ID", r.Observed.ID, "https://sqs/1/my queue"},
 	} {
 		if field.got != field.want {

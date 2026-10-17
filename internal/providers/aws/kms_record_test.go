@@ -5,8 +5,10 @@ package aws
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 
@@ -141,6 +143,51 @@ func TestKmsKeyType(t *testing.T) {
 	} {
 		if got := kmsKeyType(&c.metadata); got != c.want {
 			t.Errorf("origin %q, multi-Region %+v: got %s, want %s", c.metadata.Origin, c.metadata.MultiRegionConfiguration, got, c.want)
+		}
+	}
+}
+
+// The keys of a page are read several at a time, and recorded in the
+// page's order however their answers come back: here the first key's
+// answer comes last.
+func TestRecordKmsKeepsTheKeysOrder(t *testing.T) {
+	const n = 8
+	var keys []string
+	for i := range n {
+		keys = append(keys, fmt.Sprintf(`{"KeyId":"k-%d"}`, i))
+	}
+	useFakeAPI(t, func(call apiCall) string {
+		id := recordJSONField(call, "KeyId")
+		i, _ := strconv.Atoi(strings.TrimPrefix(id, "k-"))
+		switch call.Op {
+		case "ListKeys":
+			return `{"Keys":[` + strings.Join(keys, ",") + `],"Truncated":false}`
+		case "ListAliases":
+			return `{"Aliases":[],"Truncated":false}`
+		case "DescribeKey":
+			time.Sleep(time.Duration(n-i) * time.Millisecond)
+			return `{"KeyMetadata":{"KeyId":"` + id + `","KeyManager":"CUSTOMER","KeyState":"Enabled"}}`
+		case "ListGrants":
+			time.Sleep(time.Duration(n-i) * time.Millisecond)
+			return `{"Grants":[{"KeyId":"` + recordKmsKeyARN + id + `","GrantId":"g"}],"Truncated":false}`
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &KmsLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+	var want, wantGrants []string
+	for i := range n {
+		want = append(want, fmt.Sprintf("k-%d", i))
+		wantGrants = append(wantGrants, fmt.Sprintf("%sk-%d:g", recordKmsKeyARN, i))
+	}
+	assertIDs(t, g.Resources, "aws_kms_key", want...)
+	assertIDs(t, g.Resources, "aws_kms_grant", wantGrants...)
+	for i := 0; i+1 < len(g.Resources); i += 2 {
+		if key, grant := g.Resources[i], g.Resources[i+1]; key.Address.Type != "aws_kms_key" || grant.Observed.ID != recordKmsKeyARN+key.Observed.ID+":g" {
+			t.Errorf("resource %d: want key %s followed by its grant, got %s %s", i, key.Observed.ID, grant.Address.Type, grant.Observed.ID)
 		}
 	}
 }

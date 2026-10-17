@@ -14,6 +14,17 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
+// The keys of the settings Provider.Select passes each service, read only
+// through clientSettings and the catalogue accessor, so that the two can't
+// drift apart.
+const (
+	subscriptionIDKey = "subscription_id"
+	resourceGroupKey  = "resource_group"
+	credentialKey     = "credential"
+	clientOptionsKey  = "client_options"
+	catalogueKey      = "catalogue"
+)
+
 // Service is what every Azure lister embeds: the service
 // state, and the settings Provider.Select passes it as
 // arguments.
@@ -26,10 +37,10 @@ type Service struct {
 // credential and the client options. An argument that is missing, or of
 // another type, comes back as its zero value.
 func (az *Service) clientSettings() (subscriptionID, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
-	subscriptionID, _ = az.Settings()["subscription_id"].(string)
-	resourceGroup, _ = az.Settings()["resource_group"].(string)
-	credential, _ = az.Settings()["credential"].(azcore.TokenCredential)
-	options, _ = az.Settings()["client_options"].(*arm.ClientOptions)
+	subscriptionID, _ = az.Settings()[subscriptionIDKey].(string)
+	resourceGroup, _ = az.Settings()[resourceGroupKey].(string)
+	credential, _ = az.Settings()[credentialKey].(azcore.TokenCredential)
+	options, _ = az.Settings()[clientOptionsKey].(*arm.ClientOptions)
 	return subscriptionID, resourceGroup, credential, options
 }
 

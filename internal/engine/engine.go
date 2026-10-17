@@ -60,8 +60,9 @@ type Terraform interface {
 // NewTerraform returns a Terraform runner for dir that shares downloaded
 // providers through pluginCacheDir, with env on top of the process's
 // environment, such as the credentials the provider resolved. It creates
-// both directories.
-func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (*tfexec.Terraform, error) {
+// both directories. Its init holds the plugin cache's lock (see
+// Runner.Init).
+func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (*Runner, error) {
 	for _, d := range []string{dir, pluginCacheDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
@@ -71,14 +72,76 @@ func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (
 	if err != nil {
 		return nil, err
 	}
-	// SetEnv replaces the inherited environment and rejects variables that
-	// tfexec manages itself (TF_LOG, TF_CLI_ARGS, ...), so drop those.
-	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
-	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
-	if err := tf.SetEnv(all); err != nil {
+	if err := tf.SetEnv(terraformEnviron(pluginCacheDir, env)); err != nil {
 		return nil, err
 	}
-	return tf, nil
+	return &Runner{Terraform: tf, pluginCacheDir: pluginCacheDir}, nil
+}
+
+// Runner is the Terraform runner NewTerraform returns: tfexec's, whose
+// init holds the lock of the plugin cache it shares.
+type Runner struct {
+	*tfexec.Terraform
+	pluginCacheDir string
+}
+
+// Init runs terraform init holding the plugin cache's lock (see
+// lockPluginCache): other processes, such as another infraharvest run on
+// the machine, share the cache, and Terraform doesn't guarantee that
+// installs into it at the same time are safe.
+func (r *Runner) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	lock, err := lockPluginCache(ctx, r.pluginCacheDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+	return r.Terraform.Init(ctx, opts...)
+}
+
+// terraformEnviron is the environment Terraform runs with: the process's,
+// with env on top, and the plugin cache pluginCacheDir. SetEnv replaces
+// the inherited environment and rejects variables that tfexec manages
+// itself (TF_LOG, TF_CLI_ARGS, ...), so those are dropped.
+func terraformEnviron(pluginCacheDir string, env map[string]string) map[string]string {
+	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
+	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
+	return all
+}
+
+// NewFreshEnvTerraform returns a Terraform runner for dir like
+// NewTerraform, with env on top of the process's environment, which it
+// asks fresh for again before each plan: plans are the commands that call
+// the cloud, and a root may plan for longer than temporary credentials
+// last, such as an SSO session's, so each plan runs with credentials as
+// fresh as the first. An error of fresh fails that plan.
+func NewFreshEnvTerraform(dir, execPath, pluginCacheDir string, env map[string]string, fresh func(context.Context) (map[string]string, error)) (Terraform, error) {
+	tf, err := NewTerraform(dir, execPath, pluginCacheDir, env)
+	if err != nil {
+		return nil, err
+	}
+	return &freshEnvTerraform{Runner: tf, pluginCacheDir: pluginCacheDir, env: fresh}, nil
+}
+
+// freshEnvTerraform is a Terraform runner that sets its environment again,
+// from env, before each plan (see NewFreshEnvTerraform). The engine runs a
+// root's commands one at a time, so the environment never changes under a
+// running one.
+type freshEnvTerraform struct {
+	*Runner
+	pluginCacheDir string
+	env            func(context.Context) (map[string]string, error)
+}
+
+// PlanJSON plans with the environment env gives now.
+func (t *freshEnvTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	env, err := t.env(ctx)
+	if err != nil {
+		return false, err
+	}
+	if err := t.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
+		return false, err
+	}
+	return t.Runner.PlanJSON(ctx, w, opts...)
 }
 
 // Result is what Generate leaves for the user to finish.
@@ -246,12 +309,10 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// Terraform writes every value the provider doesn't mark sensitive
 	// into generated.tf, secrets among them, and with the mode it chooses.
 	// The directory stays private until those secrets are moved out of
-	// the file below; should Generate fail before that, it stays so.
-	info, err := os.Stat(dir)
+	// the file below; should Generate fail before that, it stays so. On
+	// Windows, where a mode restricts nothing, its access list does it.
+	restoreAccess, err := makePrivate(dir)
 	if err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
@@ -328,7 +389,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	if err := os.Chmod(dir, info.Mode()&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
+	if err := restoreAccess(); err != nil {
 		return nil, err
 	}
 	// last is the last of the plans below, if it had no errors, and planned

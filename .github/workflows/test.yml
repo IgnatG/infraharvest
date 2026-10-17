@@ -23,13 +23,6 @@ concurrency:
   # gets a result of its own.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The Terraform and OpenTofu the jobs install, the ones the release image
-# copies: bump them with the Dockerfile's hashicorp/terraform and
-# opentofu/opentofu tags, which dependabot tracks.
-env:
-  TERRAFORM_VERSION: 1.16.6
-  TOFU_VERSION: 1.13.1
-
 # A pull request that changes only documentation, linter configuration or
 # other workflows skips the Go and e2e jobs (see the changes job). The
 # required checks still report: test, e2e and checks gather the jobs below
@@ -366,24 +359,12 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-      if: matrix.engine == 'terraform'
-      with:
-        terraform_wrapper: false
-        terraform_version: ${{ env.TERRAFORM_VERSION }}
-    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
-      if: matrix.engine == 'tofu'
-      with:
-        tofu_wrapper: false
-        tofu_version: ${{ env.TOFU_VERSION }}
     # The gate runs the scanners it finds (G5): tflint must find nothing in
     # the generated configuration; trivy only reports.
-    - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+    - uses: ./.github/actions/setup-engines
       with:
-        tflint_version: v0.64.0
-    - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
-      with:
-        version: v0.75.0
+        engine: ${{ matrix.engine }}
+        scanners: "true"
     - name: Format
       env:
         ENGINE: ${{ matrix.engine }}
@@ -430,16 +411,9 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-      if: matrix.engine == 'terraform'
+    - uses: ./.github/actions/setup-engines
       with:
-        terraform_wrapper: false
-        terraform_version: ${{ env.TERRAFORM_VERSION }}
-    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
-      if: matrix.engine == 'tofu'
-      with:
-        tofu_wrapper: false
-        tofu_version: ${{ env.TOFU_VERSION }}
+        engine: ${{ matrix.engine }}
     - name: Start floci-gcp
       run: |
         docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
@@ -480,16 +454,9 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-      if: matrix.engine == 'terraform'
+    - uses: ./.github/actions/setup-engines
       with:
-        terraform_wrapper: false
-        terraform_version: ${{ env.TERRAFORM_VERSION }}
-    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
-      if: matrix.engine == 'tofu'
-      with:
-        tofu_wrapper: false
-        tofu_version: ${{ env.TOFU_VERSION }}
+        engine: ${{ matrix.engine }}
     # The azurerm provider and the listers reach floci-az over HTTPS: trust
     # the CA it generates at startup.
     - name: Start floci-az
@@ -547,10 +514,9 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+    - uses: ./.github/actions/setup-engines
       with:
-        terraform_wrapper: false
-        terraform_version: ${{ env.TERRAFORM_VERSION }}
+        engine: terraform
     - name: Format
       run: terraform fmt -check -recursive -diff permissions e2e/testdata/sandbox
     - name: Validate
@@ -564,6 +530,43 @@ jobs:
         done
     - name: Policy JSON
       run: jq empty permissions/aws/deny-data-reads.json
+
+  # The built-in catalogue's types, arguments, nested blocks and defaults
+  # must be in the schemas of the providers' newest releases, the ones
+  # generated roots pin: a rename in the provider would otherwise leave an
+  # omit or a default doing nothing.
+  catalogue-schemas:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: ./.github/actions/setup-engines
+      with:
+        engine: terraform
+    - name: Provider schemas
+      run: |
+        dir="$RUNNER_TEMP/schemas"
+        mkdir -p "$dir/root"
+        printf '%s\n' 'terraform {' '  required_providers {' \
+          '    aws     = { source = "hashicorp/aws" }' \
+          '    azurerm = { source = "hashicorp/azurerm" }' \
+          '    google  = { source = "hashicorp/google" }' '  }' '}' > "$dir/root/main.tf"
+        terraform -chdir="$dir/root" init -backend=false -input=false
+        terraform -chdir="$dir/root" providers schema -json > "$dir/schemas.json"
+        terraform -chdir="$dir/root" version -json > "$dir/versions.json"
+        jq -r '.provider_selections | to_entries[] | "\(.key) \(.value)"' "$dir/versions.json"
+        echo "INFRAHARVEST_PROVIDER_SCHEMAS=$dir" >> "$GITHUB_ENV"
+    - name: Check the catalogue against them
+      run: go test -run '^TestCatalogueMatchesProviderSchemas$' -v ./internal/catalogue/
 
   # `-tags minimal,<provider>` builds only the named providers; check the
   # registry works with none and with one.
@@ -658,7 +661,7 @@ jobs:
   # or were skipped. Not the fuzzing, which can find an input a pull request
   # didn't bring: it reports on its own.
   checks:
-    needs: [changes, test-windows, test-macos, govulncheck, engine-integration, permissions, build-tags, cross]
+    needs: [changes, test-windows, test-macos, govulncheck, engine-integration, permissions, catalogue-schemas, build-tags, cross]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

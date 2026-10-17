@@ -314,11 +314,13 @@ resource "aws_lightsail_database" "db" {
 }
 
 // valuesAt reads an attribute of an imported object, through every block
-// of a nested block type, whatever their order; allNull says whether all
-// of what it found is null.
+// of a nested block type, whatever their order; allUnset says whether all
+// of what it found is null or empty.
 func TestValuesAt(t *testing.T) {
 	object := map[string]any{
 		"password": nil,
+		"key_raw":  "",
+		"key_rsa":  []any{map[string]any{"value": ""}, map[string]any{"value": nil}},
 		"replica":  []any{map[string]any{"secret": nil}, map[string]any{"secret": "s"}},
 		"restore":  []any{map[string]any{"token": nil}},
 	}
@@ -327,13 +329,15 @@ func TestValuesAt(t *testing.T) {
 		null bool
 	}{
 		{[]string{"password"}, true},
+		{[]string{"key_raw"}, true},
+		{[]string{"key_rsa", "value"}, true},
 		{[]string{"restore", "token"}, true},
 		{[]string{"replica", "secret"}, false},
 		{[]string{"missing"}, false},
 		{[]string{"restore", "missing"}, false},
 	} {
-		if got := allNull(valuesAt(object, tc.path)); got != tc.null {
-			t.Errorf("%v: allNull %v, want %v", tc.path, got, tc.null)
+		if got := allUnset(valuesAt(object, tc.path)); got != tc.null {
+			t.Errorf("%v: allUnset %v, want %v", tc.path, got, tc.null)
 		}
 	}
 }

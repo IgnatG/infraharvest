@@ -74,6 +74,8 @@ Routes, subnets and network security rules are imported as resources of their ow
 infraharvest discover azure --services=resource_group,virtual_network,subnet,network_security_group
 ```
 
+`subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one that comes back without them or with none, as some emulators answer, are they listed on their own.
+
 ## Tags
 
 Tags come with the listing, for the selection file's rules, the picker and the report: `resource_graph` reads them from the rows Resource Graph returns, and the Resource Manager services from their list responses, so reading them takes no request of its own. Child resources such as subnets have no tags of their own. azurerm has no provider-wide tags, so tags all resources of a root share become `local.tags`, which each resource sets, merged with its own; `hidden-` tags, which Azure and the portal set, stay on the resources.

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -115,6 +116,44 @@ func TestCloudControlServices(t *testing.T) {
 				t.Errorf("%+v: not a CloudFormation and a Terraform type", typ)
 			}
 		}
+	}
+}
+
+// A --catalogue overlay's cloud_control entry adds its type, and its
+// service, once SetCatalogue gives the provider the overlay: Services has
+// the service, and Select makes its Cloud Control lister.
+func TestCloudControlServicesOfTheOverlay(t *testing.T) {
+	dir := t.TempDir()
+	overlay := "provider: aws\nservice: ivs\ntypes:\n  aws_ivs_channel:\n    cloud_control: { type: \"AWS::IVS::Channel\", identifier: Arn }\n"
+	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat, err := catalogue.Load("aws", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Provider{}
+	if _, ok := p.Services()["ivs"]; ok {
+		t.Fatal("before SetCatalogue, want only the built-in services")
+	}
+	p.SetCatalogue(cat)
+
+	if _, ok := p.Services()["ivs"]; !ok {
+		t.Error("the overlay's service isn't among the services")
+	}
+	if err := p.Select("ivs", false); err != nil {
+		t.Fatal(err)
+	}
+	guard, ok := p.Current.(*guardedLister)
+	if !ok {
+		t.Fatalf("got %T, want a guardedLister", p.Current)
+	}
+	want := []cloudControlType{{CloudFormation: "AWS::IVS::Channel", Identifier: "Arn", Terraform: "aws_ivs_channel"}}
+	if g, ok := guard.lister.(*CloudControlLister); !ok || !reflect.DeepEqual(g.types, want) {
+		t.Errorf("got %+v, want a Cloud Control lister of %+v", guard.lister, want)
+	}
+	if len(p.cloudControl()["eventbridge"]) != len(cloudControlServices()["eventbridge"]) {
+		t.Error("the built-in Cloud Control services aren't kept")
 	}
 }
 

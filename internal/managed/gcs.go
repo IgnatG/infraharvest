@@ -5,49 +5,76 @@ package managed
 
 import (
 	"context"
-	"errors"
+	"net/url"
+	"os"
+	"strings"
 
-	"cloud.google.com/go/storage"
-	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+	"google.golang.org/api/storage/v1"
 )
 
 // GCS reads state from Cloud Storage with Application Default Credentials,
-// as Terraform's gcs backend does.
+// as Terraform's gcs backend does, through the JSON API.
 type GCS struct {
-	client *storage.Client
+	service *storage.Service
 }
 
-// NewGCS opens Cloud Storage.
+// NewGCS opens Cloud Storage. When STORAGE_EMULATOR_HOST is set it reads
+// from that emulator, without credentials, as Cloud Storage's own client
+// libraries do; a host without a scheme is taken as http.
 func NewGCS(ctx context.Context) (ObjectStore, error) {
-	client, err := storage.NewClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &GCS{client: client}, nil
-}
-
-// List returns the names of the objects under prefix.
-func (g *GCS) List(ctx context.Context, bucket, prefix string) ([]string, error) {
-	var names []string
-	it := g.client.Bucket(bucket).Objects(ctx, &storage.Query{Prefix: prefix})
-	for {
-		o, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			return names, nil
-		}
+	opts := []option.ClientOption{option.WithScopes(storage.DevstorageReadOnlyScope)}
+	if host := os.Getenv("STORAGE_EMULATOR_HOST"); host != "" {
+		endpoint, err := emulatorEndpoint(host)
 		if err != nil {
 			return nil, err
 		}
-		names = append(names, o.Name)
+		opts = []option.ClientOption{option.WithEndpoint(endpoint), option.WithoutAuthentication()}
 	}
+	service, err := storage.NewService(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &GCS{service: service}, nil
+}
+
+// emulatorEndpoint returns the JSON API's base URL on the emulator at host,
+// a URL or a host[:port], which is taken as http.
+func emulatorEndpoint(host string) (string, error) {
+	hostURL := &url.URL{Scheme: "http", Host: host}
+	if strings.Contains(host, "://") {
+		parsed, err := url.Parse(host)
+		if err != nil {
+			return "", err
+		}
+		hostURL = parsed
+	}
+	hostURL.Path = "/storage/v1/"
+	return hostURL.String(), nil
+}
+
+// List returns the names of the objects under prefix, every page of them.
+func (g *GCS) List(ctx context.Context, bucket, prefix string) ([]string, error) {
+	var names []string
+	err := g.service.Objects.List(bucket).Prefix(prefix).Fields("items/name", "nextPageToken").
+		Pages(ctx, func(page *storage.Objects) error {
+			for _, o := range page.Items {
+				names = append(names, o.Name)
+			}
+			return nil
+		})
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
 }
 
 // Get returns an object's content.
 func (g *GCS) Get(ctx context.Context, bucket, name string) ([]byte, error) {
-	r, err := g.client.Bucket(bucket).Object(name).NewReader(ctx)
+	resp, err := g.service.Objects.Get(bucket, name).Context(ctx).Download()
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
-	return readState(r)
+	defer resp.Body.Close()
+	return readState(resp.Body)
 }

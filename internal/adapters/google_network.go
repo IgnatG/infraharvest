@@ -17,10 +17,11 @@ import (
 // and name and firewall rules by name, and passes its project to all of
 // them: it declines members in another project, names it can't key by
 // (not literals), auto mode networks, networks with none of their
-// subnetworks in the root (a Google Cloud import's global root, whose
-// regions' roots have them), and firewall rules that set both source and
-// destination ranges. Routes stay in the root, referring to
-// the module's outputs.
+// subnetworks in the root (a Google Cloud import puts a network's
+// subnetworks in its global root with it, but a root an earlier import
+// generated may have them in its regions' roots), and firewall rules that
+// set both source and destination ranges. Routes stay in the root,
+// referring to the module's outputs.
 var GoogleNetwork = Adapter{
 	Source:   "terraform-google-modules/network/google",
 	Version:  "18.3.1",
@@ -85,22 +86,17 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 	}
 	call.Set("routing_mode", routing)
 	// What the network sets, as the module calls it.
-	for _, p := range [][2]string{
-		{"bgp_always_compare_med", "bgp_always_compare_med"},
-		{"bgp_best_path_selection_mode", "bgp_best_path_selection_mode"},
-		{"bgp_inter_region_cost", "bgp_inter_region_cost"},
-		{"description", "description"},
-		{"enable_ula_internal_ipv6", "enable_ipv6_ula"},
-		{"internal_ipv6_range", "internal_ipv6_range"},
-		{"mtu", "mtu"},
-		{"network_firewall_policy_enforcement_order", "network_firewall_policy_enforcement_order"},
-		{"network_profile", "network_profile"},
-	} {
-		arg, input := p[0], p[1]
-		if value, ok := network.Attr(arg); ok {
-			call.Set(input, value)
-		}
-	}
+	network.CopyAs(call,
+		Pair{"bgp_always_compare_med", "bgp_always_compare_med"},
+		Pair{"bgp_best_path_selection_mode", "bgp_best_path_selection_mode"},
+		Pair{"bgp_inter_region_cost", "bgp_inter_region_cost"},
+		Pair{"description", "description"},
+		Pair{"enable_ula_internal_ipv6", "enable_ipv6_ula"},
+		Pair{"internal_ipv6_range", "internal_ipv6_range"},
+		Pair{"mtu", "mtu"},
+		Pair{"network_firewall_policy_enforcement_order", "network_firewall_policy_enforcement_order"},
+		Pair{"network_profile", "network_profile"},
+	)
 	// It only acts when the network is created, which an import doesn't.
 	network.Ignore("delete_default_routes_on_create")
 	// Terraform's own setting, which an import records at its default.
@@ -163,9 +159,10 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 		}
 	}
 	if len(subnets) == 0 {
-		// Such as in the global root, when the subnetworks are in their
-		// regions': the call would read as a network without subnetworks,
-		// subnets = [], while they are managed elsewhere.
+		// Such as in the global root, when an earlier import put the
+		// subnetworks in their regions' roots: the call would read as a
+		// network without subnetworks, subnets = [], while they are
+		// managed elsewhere.
 		return nil, Declinef("%s has no subnetworks in this root, which the module's subnets would take", c.Anchor.Address())
 	}
 	call.Set("subnets", hclwrite.TokensForTuple(subnets))
@@ -202,39 +199,29 @@ func googleSubnet(r *Reader, m Resource) (subnet hclwrite.Tokens, key string, ra
 	if access, ok := r.Attr("private_ip_google_access"); ok {
 		o.Set("subnet_private_access", access)
 	}
-	for _, p := range [][2]string{
-		{"description", "description"},
-		{"external_ipv6_prefix", "external_ipv6_prefix"},
-		{"ip_collection", "ip_collection"},
-		{"ipv6_access_type", "ipv6_access_type"},
-		{"private_ipv6_google_access", "subnet_private_ipv6_access"},
-		{"purpose", "purpose"},
-		{"role", "role"},
-		{"stack_type", "stack_type"},
-	} {
-		arg, input := p[0], p[1]
-		if value, ok := r.Attr(arg); ok {
-			o.Set(input, value)
-		}
-	}
+	r.CopyAs(&o,
+		Pair{"description", "description"},
+		Pair{"external_ipv6_prefix", "external_ipv6_prefix"},
+		Pair{"ip_collection", "ip_collection"},
+		Pair{"ipv6_access_type", "ipv6_access_type"},
+		Pair{"private_ipv6_google_access", "subnet_private_ipv6_access"},
+		Pair{"purpose", "purpose"},
+		Pair{"role", "role"},
+		Pair{"stack_type", "stack_type"},
+	)
 	logs, err := r.Block("log_config")
 	if err != nil {
 		return nil, "", nil, err
 	}
 	if logs != nil {
 		o.Set("subnet_flow_logs", hclwrite.TokensForValue(cty.StringVal("true")))
-		for _, p := range [][2]string{
-			{"aggregation_interval", "subnet_flow_logs_interval"},
-			{"filter_expr", "subnet_flow_logs_filter"},
-			{"flow_sampling", "subnet_flow_logs_sampling"},
-			{"metadata", "subnet_flow_logs_metadata"},
-			{"metadata_fields", "subnet_flow_logs_metadata_fields"},
-		} {
-			arg, input := p[0], p[1]
-			if value, ok := logs.Attr(arg); ok {
-				o.Set(input, value)
-			}
-		}
+		logs.CopyAs(&o,
+			Pair{"aggregation_interval", "subnet_flow_logs_interval"},
+			Pair{"filter_expr", "subnet_flow_logs_filter"},
+			Pair{"flow_sampling", "subnet_flow_logs_sampling"},
+			Pair{"metadata", "subnet_flow_logs_metadata"},
+			Pair{"metadata_fields", "subnet_flow_logs_metadata_fields"},
+		)
 	}
 	var secondary []hclwrite.Tokens
 	for _, b := range r.Blocks("secondary_ip_range") {

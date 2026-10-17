@@ -174,14 +174,11 @@ type explorerRegion struct {
 // region svc lists, read the first time a service asks. If it can't rule
 // anything out, it logs why, once.
 func explorerFor(svc *Service) *explorerRegion {
-	region, _ := svc.Settings()["region"].(string)
-	profile, _ := svc.Settings()["profile"].(string)
-	roleARN, _ := svc.Settings()["role_arn"].(string)
-	key := configKey{region: region, profile: profile, roleARN: roleARN}
+	key := svc.cacheKey()
 	explorerMu.Lock()
 	x, ok := explorerRegions[key]
 	if !ok {
-		x = &explorerRegion{region: region}
+		x = &explorerRegion{region: key.region}
 		explorerRegions[key] = x
 	}
 	explorerMu.Unlock()

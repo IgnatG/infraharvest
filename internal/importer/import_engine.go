@@ -6,8 +6,10 @@ package importer
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,10 +17,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 
 	goversion "github.com/hashicorp/go-version"
-	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -107,23 +109,83 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 		run = NewRun()
 		ctx, stop := InterruptContext(ctx)
 		defer stop()
-		return run.finish(importInto(ctx, run, provider, options, args))
+		if err := run.lockOut(options); err != nil {
+			return run.finish(err)
+		}
+		return run.finish(Interrupted(ctx, importInto(ctx, run, provider, options, args)))
+	}
+	// Before the call records anything: a run that can't take the lock
+	// writes nothing into the output (see Run.finish).
+	if err := run.lockOut(options); err != nil {
+		return err
 	}
 	return importInto(ctx, run, provider, options, args)
 }
 
 // InterruptContext returns ctx, cancelled on the first interrupt or
 // SIGTERM, for a whole command: every Import call it makes stops, and the
-// run still writes its report. After that first signal the handler is
-// removed, so a second one stops the process at once, as when a lister or
-// a Terraform child doesn't stop. stop releases the handler.
+// run still writes its report. The cause of the cancellation is an
+// *Interrupt naming the signal, which Interrupted turns into the exit
+// code. After that first signal the handler is removed, so a second one
+// stops the process at once, as when a lister or a Terraform child
+// doesn't stop. stop releases the handler.
 func InterruptContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	return interruptOn(ctx, signals, func() { signal.Stop(signals) })
+}
+
+// interruptOn returns ctx, cancelled with an *Interrupt by the first
+// signal on signals, and the function that releases it; release stops the
+// signals, after the first or when the context ends.
+func interruptOn(ctx context.Context, signals <-chan os.Signal, release func()) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	var once sync.Once
+	stop := func() {
+		once.Do(release)
+		cancel(context.Canceled)
+	}
 	go func() {
-		<-ctx.Done()
+		select {
+		case sig := <-signals:
+			cancel(&Interrupt{Signal: sig})
+		case <-ctx.Done():
+		}
 		stop()
 	}()
 	return ctx, stop
+}
+
+// Interrupt is the cause of a command's context cancelled by a signal
+// (see InterruptContext).
+type Interrupt struct {
+	Signal os.Signal
+}
+
+func (i *Interrupt) Error() string {
+	return "stopped: " + i.Signal.String()
+}
+
+// ExitCode returns the exit code of a run the signal stopped:
+// report.ExitTerminated for SIGTERM, report.ExitInterrupted for an
+// interrupt.
+func (i *Interrupt) ExitCode() int {
+	if i.Signal == syscall.SIGTERM {
+		return report.ExitTerminated
+	}
+	return report.ExitInterrupted
+}
+
+// Interrupted returns err, the error a command run under ctx ends on,
+// with the exit code of the signal that stopped it, if one cancelled ctx
+// (see InterruptContext). An interrupt shows as the context's
+// cancellation, or as what failed because of it, so any error counts.
+func Interrupted(ctx context.Context, err error) error {
+	var interrupt *Interrupt
+	if err == nil || !errors.As(context.Cause(ctx), &interrupt) {
+		return err
+	}
+	return &ExitError{Code: interrupt.ExitCode(), Err: fmt.Errorf("%w: %w", interrupt, err)}
 }
 
 // importInto imports into run. It returns an error only if the import
@@ -141,9 +203,8 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err := provider.Init(ctx, args); err != nil {
 		return err
 	}
-	options = ResolveServices(provider, options)
-	scope := discoveryScope(ctx, provider)
-	run.scope = scope
+	// The catalogue comes before the services: an overlay can add some,
+	// such as an AWS cloud_control entry of a new service.
 	cat, err := providerCatalogue(provider, options.Catalogue)
 	if err != nil {
 		return err
@@ -151,6 +212,10 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if p, ok := provider.(harvest.ProviderWithCatalogue); ok {
 		p.SetCatalogue(cat)
 	}
+	options.cat = cat
+	options = ResolveServices(provider, options)
+	scope := discoveryScope(ctx, provider)
+	run.scope = scope
 	importID := importIDFunc(cat)
 	listed, failures, err := listResources(ctx, provider, options, args, scope)
 	if err != nil {
@@ -217,7 +282,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	}
 
 	// Children follow their parent: only selected resources have them.
-	resourcesByService, parents, childFailures := withChildImports(ctx, provider, selected)
+	resourcesByService, parents, childFailures := withChildImports(ctx, provider, selected, childParallel(provider, options))
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, cat, root)
 	opts.IncludeOwned = options.IncludeOwned
@@ -270,13 +335,24 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.report.AddDiscovered(scope, counted)
 	}
 
+	if options.Incremental {
+		// What an earlier import put in another root stays there.
+		held, err := heldElsewhere(options.Out, byDir)
+		if err != nil {
+			return err
+		}
+		run.leaveOutHeld(byDir, held)
+	}
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
+	// The roots earlier calls of the account generated count as other
+	// roots too, as the global root does for the regional ones.
+	roots := withEarlierRoots(byDir, run.earlierRoots(scope))
 	for _, dir := range dirs {
-		dirOpts := withOtherRoots(opts, byDir, dir, options.Out)
+		dirOpts := withOtherRoots(opts, roots, dir, options.Out)
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
 			return err
@@ -292,6 +368,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			if tr.env, err = terraformEnv(ctx, provider); err != nil {
 				return err
 			}
+			tr.freshEnv = freshTerraformEnv(provider)
 		}
 		incremental := false
 		if result == nil && options.Incremental {
@@ -323,6 +400,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 				if err := saveCheckpoint(options.Out, dir, fp, holds); err != nil {
 					return err
 				}
+			}
+			if err == nil {
+				run.recordRoot(scope, dir, byDir[dir])
 			}
 			if err == nil && addedResult == nil {
 				continue // nothing new
@@ -356,6 +436,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			}
 		}
 		run.addDirectory(dir, byDir[dir], result, err)
+		if err == nil && result != nil {
+			run.recordRoot(scope, dir, result.Imported)
+		}
 		if err == nil && run.backend != nil {
 			// After the checks, which run on a local working directory: the
 			// import never needs access to the state backend.
@@ -491,19 +574,43 @@ func relativePath(outputDir, dir string) string {
 
 // terraformRun is how a root's Terraform runs: the binary, the plugin cache
 // every root shares, and what the provider adds to its environment, such
-// as fresh credentials (see terraformEnv).
+// as fresh credentials (see terraformEnv), and, when the provider adds
+// any, how to get them again before each plan.
 type terraformRun struct {
 	execPath, pluginCacheDir string
 	env                      map[string]string
+	freshEnv                 func(context.Context) (map[string]string, error)
 }
 
-func (t terraformRun) in(dir string) (*tfexec.Terraform, error) {
-	return engine.NewTerraform(dir, t.execPath, t.pluginCacheDir, t.env)
+// in returns the Terraform runner of dir: one that asks freshEnv for its
+// environment before each plan, when it is set (see
+// engine.NewFreshEnvTerraform).
+func (t terraformRun) in(dir string) (engine.Terraform, error) {
+	if t.freshEnv != nil {
+		return engine.NewFreshEnvTerraform(dir, t.execPath, t.pluginCacheDir, t.env, t.freshEnv)
+	}
+	tf, err := engine.NewTerraform(dir, t.execPath, t.pluginCacheDir, t.env)
+	if err != nil {
+		return nil, err
+	}
+	return tf, nil
+}
+
+// freshTerraformEnv returns how to get provider's Terraform environment
+// again (see terraformEnv), for each plan, or nil when the provider adds
+// nothing to it.
+func freshTerraformEnv(provider harvest.Provider) func(context.Context) (map[string]string, error) {
+	if _, ok := provider.(harvest.ProviderWithTerraformEnv); !ok {
+		return nil
+	}
+	return func(ctx context.Context) (map[string]string, error) {
+		return terraformEnv(ctx, provider)
+	}
 }
 
 // terraformEnv returns what Terraform needs in its environment to import
 // provider's resources, such as the credentials it lists with (see
-// harvest.ProviderWithTerraformEnv), fresh for each root.
+// harvest.ProviderWithTerraformEnv), fresh for each root and each plan.
 func terraformEnv(ctx context.Context, provider harvest.Provider) (map[string]string, error) {
 	withEnv, ok := provider.(harvest.ProviderWithTerraformEnv)
 	if !ok {
@@ -843,29 +950,66 @@ func qualifiedSource(registry, source string) string {
 // withChildImports adds to each service's resources the child resources
 // the provider lists for them (see harvest.ProviderWithChildImports),
 // and returns each child's parent, by tagKey, and the resources it
-// couldn't list children for as failures.
-func withChildImports(ctx context.Context, provider harvest.Provider, resourcesByService map[string][]harvest.Resource) (map[string][]harvest.Resource, map[string]string, []error) {
+// couldn't list children for as failures. Each resource takes calls of its
+// own, such as an S3 bucket's configuration probes, so up to parallel
+// resources are asked at once (one below 1); the children and the
+// failures keep the order of the services, by name, and of their
+// resources.
+func withChildImports(ctx context.Context, provider harvest.Provider, resourcesByService map[string][]harvest.Resource, parallel int) (map[string][]harvest.Resource, map[string]string, []error) {
 	parents := map[string]string{}
 	withChildren, ok := provider.(harvest.ProviderWithChildImports)
 	if !ok {
 		return resourcesByService, parents, nil
 	}
+	type ask struct {
+		service  string
+		r        harvest.Resource
+		children []harvest.Resource
+		err      error
+	}
+	var asks []ask
+	for _, service := range slices.Sorted(maps.Keys(resourcesByService)) {
+		for _, r := range resourcesByService[service] {
+			asks = append(asks, ask{service: service, r: r})
+		}
+	}
+	slots := make(chan struct{}, max(parallel, 1))
+	var wg sync.WaitGroup
+	for i := range asks {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			asks[i].children, asks[i].err = withChildren.ChildImports(ctx, asks[i].r)
+		}()
+	}
+	wg.Wait()
 	var failures []error
 	all := make(map[string][]harvest.Resource, len(resourcesByService))
 	for service, resources := range resourcesByService {
 		all[service] = append([]harvest.Resource(nil), resources...)
-		for _, r := range resources {
-			children, err := withChildren.ChildImports(ctx, r)
-			if err != nil {
-				failures = append(failures, fmt.Errorf("%s: %s %s: %w", service, r.Address.Type, r.Observed.ID, err))
-			}
-			for _, c := range children {
-				parents[tagKey(c)] = tagKey(r)
-			}
-			all[service] = append(all[service], children...)
+	}
+	for _, a := range asks {
+		if a.err != nil {
+			failures = append(failures, fmt.Errorf("%s: %s %s: %w", a.service, a.r.Address.Type, a.r.Observed.ID, a.err))
 		}
+		for _, c := range a.children {
+			parents[tagKey(c)] = tagKey(a.r)
+		}
+		all[a.service] = append(all[a.service], a.children...)
 	}
 	return all, parents, failures
+}
+
+// childParallel is how many resources withChildImports asks for their
+// children at once: as many as services list at once (--list-parallel),
+// where the provider lets them, else one.
+func childParallel(provider harvest.Provider, options Options) int {
+	if c, ok := provider.(harvest.ProviderWithConcurrentListing); !ok || !c.ConcurrentListing() {
+		return 1
+	}
+	return max(options.ListParallel, 1)
 }
 
 // BackendFileName holds a generated root's state backend.

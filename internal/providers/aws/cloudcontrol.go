@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cctypes "github.com/aws/aws-sdk-go-v2/service/cloudcontrol/types"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -34,15 +35,20 @@ type cloudControlType struct {
 	Terraform  string
 }
 
-// cloudControlServices are the services listed through Cloud Control, by
-// name, each a group of related types the service listers don't cover:
-// the catalogue's types with a cloud_control entry, by service, sorted by
-// Terraform type. What AWS creates for the account, such as the default
-// event bus, the catalogue's skip rules leave out. They are worked out once,
-// from the built-in catalogue, which doesn't change; callers must not
-// modify the answer.
+// cloudControlServices are the services the built-in catalogue lists
+// through Cloud Control (see cloudControlServicesOf). They are worked out
+// once, as the built-in catalogue doesn't change; callers must not modify
+// the answer.
 var cloudControlServices = sync.OnceValue(func() map[string][]cloudControlType {
-	cat := awsCatalogue()
+	return cloudControlServicesOf(awsCatalogue())
+})
+
+// cloudControlServicesOf returns the services cat lists through Cloud
+// Control, by name, each a group of related types the service listers
+// don't cover: the catalogue's types with a cloud_control entry, by
+// service, sorted by Terraform type. What AWS creates for the account,
+// such as the default event bus, the catalogue's skip rules leave out.
+func cloudControlServicesOf(cat *catalogue.Catalogue) map[string][]cloudControlType {
 	services := map[string][]cloudControlType{}
 	for _, typ := range cat.Types() {
 		e, _ := cat.Entry(typ)
@@ -56,7 +62,18 @@ var cloudControlServices = sync.OnceValue(func() map[string][]cloudControlType {
 		})
 	}
 	return services
-})
+}
+
+// cloudControl returns the services the catalogue of the import lists
+// through Cloud Control (see SetCatalogue): with a --catalogue overlay,
+// its cloud_control entries add types, and services, to the built-in
+// ones.
+func (p *Provider) cloudControl() map[string][]cloudControlType {
+	if p.cat == nil {
+		return cloudControlServices()
+	}
+	return cloudControlServicesOf(p.cat)
+}
 
 // CloudControlLister lists a service of cloudControlServices.
 type CloudControlLister struct {

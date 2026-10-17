@@ -19,6 +19,8 @@ import (
 func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		run := importer.NewRun()
+		// Without a command, nothing catches signals.
+		ctx := context.Background()
 		if c != nil {
 			if f := c.Flag("config"); f != nil && f.Value.String() != "" {
 				if err := run.ApplyConfig(f.Value.String(), c.Flags(), c.Name()); err != nil {
@@ -36,11 +38,13 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 			if parent == nil {
 				parent = context.Background()
 			}
-			ctx, stop := importer.InterruptContext(parent)
+			var stop context.CancelFunc
+			ctx, stop = importer.InterruptContext(parent)
 			defer stop()
 			c.SetContext(ctx)
 		}
-		return run.Do(func() error { return runE(c, args) })
+		// An interrupted run exits with the signal's code, in the report too.
+		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args)) })
 	}
 }
 

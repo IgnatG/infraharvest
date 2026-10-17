@@ -22,6 +22,23 @@ import (
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
+// The keys of the settings each service gets (see Provider.serviceArgs),
+// read only through cacheKey and regionSetting, so that the two can't
+// drift apart.
+const (
+	regionKey               = "region"
+	profileKey              = "profile"
+	roleARNKey              = "role_arn"
+	skipRegionValidationKey = "skip_region_validation"
+)
+
+// regionSetting returns the region in a service's settings, "" when there
+// is none.
+func regionSetting(settings map[string]interface{}) string {
+	region, _ := settings[regionKey].(string)
+	return region
+}
+
 // roleSessionName names the sessions of the roles the provider assumes, as
 // CloudTrail shows them.
 const roleSessionName = "infraharvest"
@@ -30,6 +47,12 @@ const roleSessionName = "infraharvest"
 // says otherwise: enough for the adaptive retry mode to ride out the
 // throttling of a large account.
 const defaultMaxAttempts = 10
+
+// credentialsExpiryWindow is how long before temporary credentials expire
+// they are refreshed: what TerraformEnv hands a plan has at least that long
+// left. It is short, as an assumed role's session may last only 15
+// minutes, and refreshing one that needs MFA asks for a code again.
+const credentialsExpiryWindow = 5 * time.Minute
 
 // Service is what every service of the provider embeds: the harvest
 // state, and the SDK configuration its arguments pick (region, profile
@@ -105,7 +128,7 @@ func (s *Service) cacheKey() configKey {
 		v, _ := s.Settings()[name].(string)
 		return v
 	}
-	return configKey{region: arg("region"), profile: arg("profile"), roleARN: arg("role_arn")}
+	return configKey{region: arg(regionKey), profile: arg(profileKey), roleARN: arg(roleARNKey)}
 }
 
 // sdkConfig returns the SDK configuration of the service's account
@@ -169,7 +192,9 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 	}
 	baseProvider := cfg.Credentials
 	if _, ok := baseProvider.(*aws.CredentialsCache); !ok {
-		baseProvider = aws.NewCredentialsCache(baseProvider)
+		baseProvider = aws.NewCredentialsCache(baseProvider, func(o *aws.CredentialsCacheOptions) {
+			o.ExpiryWindow = credentialsExpiryWindow
+		})
 	}
 	cfg.Credentials = baseProvider
 	if _, err := baseProvider.Retrieve(ctx); err != nil {
@@ -196,6 +221,11 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 		// terminal.
 		config.WithAssumeRoleCredentialOptions(func(o *stscreds.AssumeRoleOptions) {
 			o.TokenProvider = stscreds.StdinTokenProvider
+		}),
+		// Credentials that expire are refreshed credentialsExpiryWindow
+		// before they do, so that those Terraform gets have that long left.
+		config.WithCredentialsCacheOptions(func(o *aws.CredentialsCacheOptions) {
+			o.ExpiryWindow = credentialsExpiryWindow
 		}),
 	}
 	// The default profile is what the SDK uses anyway; naming it would

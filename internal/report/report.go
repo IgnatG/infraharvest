@@ -41,6 +41,12 @@ const (
 	// ExitPartial: something couldn't be imported and --allow-partial is
 	// set; the output has the rest.
 	ExitPartial = 3
+	// ExitInterrupted: the import was interrupted (SIGINT, as by Ctrl-C).
+	// Like the codes a shell gives a process a signal ends, it is 128
+	// plus the signal's number.
+	ExitInterrupted = 130
+	// ExitTerminated: the import was terminated (SIGTERM).
+	ExitTerminated = 143
 )
 
 // Dir is the directory of the output the report files go into.

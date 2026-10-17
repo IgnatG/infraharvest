@@ -59,12 +59,8 @@ func mapGoogleKMS(c Cluster) (*Call, error) {
 		}},
 	}
 	ring := Read(c.Anchor.Address(), c.Anchor.Body)
-	for _, required := range []struct{ arg, input string }{{"name", "keyring"}, {"project", "project_id"}, {"location", "location"}} {
-		value, ok := ring.Attr(required.arg)
-		if !ok {
-			return nil, Declinef("%s has no %s", c.Anchor.Address(), required.arg)
-		}
-		call.Set(required.input, value)
+	if err := ring.Require(call, Pair{"name", "keyring"}, Pair{"project", "project_id"}, Pair{"location", "location"}); err != nil {
+		return nil, err
 	}
 	if err := ring.Done(); err != nil {
 		return nil, err

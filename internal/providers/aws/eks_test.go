@@ -3,7 +3,12 @@
 
 package aws
 
-import "testing"
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
 
 // The lister lists each cluster's parts with the IDs Terraform imports
 // them with: its node groups, add-ons, Fargate profiles, pod identity
@@ -64,5 +69,51 @@ func TestEksListsClusterPartsWithImportIDs(t *testing.T) {
 		if r.Address.Type == "aws_eks_access_policy_association" && r.RawName != "admin_AmazonEKSClusterAdminPolicy" {
 			t.Errorf("policy association named %q, want admin_AmazonEKSClusterAdminPolicy", r.RawName)
 		}
+	}
+}
+
+// The clusters of a page are read several at a time, and recorded in the
+// page's order, each after its parts, however their answers come back:
+// here the first cluster's answers come last.
+func TestEksKeepsTheClustersOrder(t *testing.T) {
+	names := []string{"c0", "c1", "c2", "c3", "c4", "c5"}
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Path == "/clusters" {
+			return `{"clusters":["` + strings.Join(names, `","`) + `"]}`
+		}
+		cluster, part, _ := strings.Cut(strings.TrimPrefix(call.Path, "/clusters/"), "/")
+		i := slices.Index(names, cluster)
+		time.Sleep(time.Duration(len(names)-i) * time.Millisecond)
+		switch part {
+		case "":
+			return `{"cluster":{"name":"` + cluster + `","accessConfig":{"authenticationMode":"CONFIG_MAP"}}}`
+		case "node-groups":
+			return `{"nodegroups":["ng"]}`
+		case "addons":
+			return `{"addons":[]}`
+		case "fargate-profiles":
+			return `{"fargateProfileNames":[]}`
+		case "pod-identity-associations":
+			return `{"associations":[]}`
+		}
+		t.Errorf("unexpected call %s", call.Path)
+		return `{"__type":"ResourceNotFoundException"}`
+	})
+	g := &EksLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, r := range g.Resources {
+		got = append(got, r.Observed.ID)
+	}
+	var want []string
+	for _, name := range names {
+		want = append(want, name+":ng", name)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

@@ -4,10 +4,6 @@
 package cli
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
@@ -32,9 +28,9 @@ func newVerifyCmd() *cobra.Command {
 			if len(args) == 1 {
 				options.Out = args[0]
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := importer.InterruptContext(cmd.Context())
 			defer stop()
-			return importer.Verify(ctx, options, cmd.OutOrStdout())
+			return importer.Interrupted(ctx, importer.Verify(ctx, options, cmd.OutOrStdout()))
 		},
 	}
 	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
@@ -42,5 +38,6 @@ func newVerifyCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit)")
 	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a summary; json prints each root's checks as JSON")
 	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue (see "+providers.DocsURL+"catalogue/)")
+	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "verify even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }

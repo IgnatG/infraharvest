@@ -3,64 +3,99 @@
   "version": "4.2.1",
   "variables": {
     "crypto_key_backend": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "decrypters": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "encrypters": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "import_only": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "key_algorithm": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "GOOGLE_SYMMETRIC_ENCRYPTION"
     },
     "key_destroy_scheduled_duration": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "key_protection_level": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "SOFTWARE"
     },
     "key_rotation_period": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "7776000s"
     },
     "keyring": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "keys": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "labels": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "location": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "owners": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "prevent_destroy": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "project_id": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "purpose": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "ENCRYPT_DECRYPT"
     },
     "set_decrypters_for": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "set_encrypters_for": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "set_owners_for": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "skip_initial_version_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     }
   },
   "outputs": [

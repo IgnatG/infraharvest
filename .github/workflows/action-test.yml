@@ -17,6 +17,7 @@ on:
       - main.go
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
+      - .github/actions/setup-engines/**
   workflow_dispatch:
 
 permissions:
@@ -25,11 +26,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-# The Terraform the jobs install, the one the release image copies: bump
-# it with the Dockerfile's hashicorp/terraform tag, which dependabot tracks.
-env:
-  TERRAFORM_VERSION: 1.16.6
 
 jobs:
   action:
@@ -53,10 +49,9 @@ jobs:
         run: .github/scripts/free-disk-space.sh wait
       - name: Build
         run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - uses: ./.github/actions/setup-engines
         with:
-          terraform_wrapper: false
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          engine: terraform
       - name: Start Floci and create a queue
         run: |
           docker compose -f e2e/compose.yaml up -d --wait

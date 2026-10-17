@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 
-	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -42,7 +41,7 @@ type CloudSQLLister struct {
 // one instance's databases, as for an instance that is stopped or still
 // being created, is logged and that instance is left out.
 func (g *CloudSQLLister) List() error {
-	region, _ := g.Settings()["region"].(compute.Region)
+	region := regionSetting(g.Settings())
 	if region.Name == "" {
 		return nil
 	}

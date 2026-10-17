@@ -7,8 +7,9 @@ repo_name: IgnatG/infraharvest
 edit_uri: edit/main/docs/
 copyright: infraharvest is licensed under AGPL-3.0-only.
 strict: true
-# The build's own pins (docs/requirements.txt) aren't part of the site.
+# The build's own pins (docs/requirements.in and .txt) aren't part of the site.
 exclude_docs: |
+  /requirements.in
   /requirements.txt
 
 theme:

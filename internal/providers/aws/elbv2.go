@@ -50,8 +50,24 @@ func (g *AlbLister) List() error {
 	return g.parts.err()
 }
 
+// albRead is what reading one load balancer, or one target group, with its
+// parts found: its resources, in order, and the parts that failed.
+type albRead struct {
+	resources []harvest.Resource
+	parts     partFailures
+}
+
+// record records reads in order: their resources, and their failures.
+func (g *AlbLister) record(reads []albRead) {
+	for _, read := range reads {
+		g.Resources = append(g.Resources, read.resources...)
+		g.parts.errs = append(g.parts.errs, read.parts.errs...)
+	}
+}
+
 // listLoadBalancers records every load balancer by ARN, named after its
-// name, each followed by its listeners.
+// name, each followed by its listeners. The load balancers of a page are
+// read resourceParallel at a time, and recorded in the page's order.
 func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) error {
 	p := elasticloadbalancingv2.NewDescribeLoadBalancersPaginator(client, &elasticloadbalancingv2.DescribeLoadBalancersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -59,38 +75,41 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 		if err != nil {
 			return err
 		}
-		for _, lb := range page.LoadBalancers {
+		reads := make([]albRead, len(page.LoadBalancers))
+		inParallel(len(page.LoadBalancers), resourceParallel, func(i int) {
+			lb, out := page.LoadBalancers[i], &reads[i]
 			arn := aws.ToString(lb.LoadBalancerArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, aws.ToString(lb.LoadBalancerName), "aws_lb", "aws"))
-			g.listListeners(client, arn)
-		}
+			out.resources = append(out.resources, harvest.RecordBare(arn, aws.ToString(lb.LoadBalancerName), "aws_lb", "aws"))
+			g.listListeners(client, arn, out)
+		})
+		g.record(reads)
 	}
 	return nil
 }
 
-// listListeners records the listeners of the load balancer lbARN by ARN,
+// listListeners records in out the listeners of the load balancer lbARN by ARN,
 // named after their protocol and port (see listenerName), each followed by
 // its rules and its extra certificates, asked for only where the listener's
 // protocol can have them (see listenerHasRules and
 // listenerHasCertificates). An error is gathered; the load balancer stays,
 // without the listeners not yet read.
-func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string) {
+func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string, out *albRead) {
 	input := &elasticloadbalancingv2.DescribeListenersInput{LoadBalancerArn: aws.String(lbARN)}
 	p := elasticloadbalancingv2.NewDescribeListenersPaginator(client, input, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			g.parts.add("listeners of "+lbARN, err)
+			out.parts.add("listeners of "+lbARN, err)
 			return
 		}
 		for _, listener := range page.Listeners {
 			arn, name := aws.ToString(listener.ListenerArn), listenerName(listener)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
+			out.resources = append(out.resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
 			if listenerHasRules(listener) {
-				g.listListenerRules(client, arn, name)
+				g.listListenerRules(client, arn, name, out)
 			}
 			if listenerHasCertificates(listener) {
-				g.listListenerCertificates(client, listener, name)
+				g.listListenerCertificates(client, listener, name, out)
 			}
 		}
 	}
@@ -116,13 +135,13 @@ func listenerHasCertificates(listener types.Listener) bool {
 	return listener.Protocol == types.ProtocolEnumHttps || listener.Protocol == types.ProtocolEnumTls || len(listener.Certificates) > 0
 }
 
-// listListenerRules records the rules of the listener listenerARN by ARN,
+// listListenerRules records in out the rules of the listener listenerARN by ARN,
 // named after the listener's name and their priority, but its
 // default rule, which Terraform manages as part of the listener.
 // DescribeRules has a marker but pages are walked by hand, with the
 // largest page size. An error is gathered; the listener stays, with its
 // certificates.
-func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN, name string) {
+func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN, name string, out *albRead) {
 	err := paginateByMarker(func(marker *string) (*string, error) {
 		page, err := client.DescribeRules(g.Context(), &elasticloadbalancingv2.DescribeRulesInput{
 			ListenerArn: aws.String(listenerARN),
@@ -137,21 +156,21 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 				continue
 			}
 			arn := aws.ToString(rule.RuleArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, name+" "+aws.ToString(rule.Priority), "aws_lb_listener_rule", "aws"))
+			out.resources = append(out.resources, harvest.RecordBare(arn, name+" "+aws.ToString(rule.Priority), "aws_lb_listener_rule", "aws"))
 		}
 		return page.NextMarker, nil
 	})
-	g.parts.add("rules of listener "+listenerARN, err)
+	out.parts.add("rules of listener "+listenerARN, err)
 }
 
-// listListenerCertificates records, across pages, the certificates of
+// listListenerCertificates records in out, across pages, the certificates of
 // listener beyond its default one, which Terraform sets on the listener
 // itself: the one the answer marks as the default, or else the first
 // certificate the listener reports. Each is recorded as
 // "<listener ARN>_<certificate ARN>", Terraform's import ID, and named
 // after the listener's name. An error is gathered and ends the listener's
 // certificates there.
-func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener, name string) {
+func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener, name string, out *albRead) {
 	listenerARN := aws.ToString(listener.ListenerArn)
 	defaultARN := ""
 	if len(listener.Certificates) > 0 {
@@ -162,7 +181,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			g.parts.add("certificates of listener "+listenerARN, err)
+			out.parts.add("certificates of listener "+listenerARN, err)
 			return
 		}
 		for _, certificate := range page.Certificates {
@@ -171,7 +190,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 				continue
 			}
 			id := listenerARN + "_" + certificateARN
-			g.Resources = append(g.Resources, harvest.Record(id, name, "aws_lb_listener_certificate", "aws", map[string]string{
+			out.resources = append(out.resources, harvest.Record(id, name, "aws_lb_listener_certificate", "aws", map[string]string{
 				"listener_arn":    listenerARN,
 				"certificate_arn": certificateARN,
 			}))
@@ -180,7 +199,9 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 }
 
 // listTargetGroups records every target group by ARN, named after its
-// name, each followed by its registered targets.
+// name, each followed by its registered targets. The target groups of a
+// page are read resourceParallel at a time, and recorded in the page's
+// order.
 func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) error {
 	p := elasticloadbalancingv2.NewDescribeTargetGroupsPaginator(client, &elasticloadbalancingv2.DescribeTargetGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -188,16 +209,19 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 		if err != nil {
 			return err
 		}
-		for _, group := range page.TargetGroups {
+		reads := make([]albRead, len(page.TargetGroups))
+		inParallel(len(page.TargetGroups), resourceParallel, func(i int) {
+			group, out := page.TargetGroups[i], &reads[i]
 			arn, name := aws.ToString(group.TargetGroupArn), aws.ToString(group.TargetGroupName)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, name, "aws_lb_target_group", "aws"))
-			g.listTargetGroupAttachments(client, arn, name)
-		}
+			out.resources = append(out.resources, harvest.RecordBare(arn, name, "aws_lb_target_group", "aws"))
+			g.listTargetGroupAttachments(client, arn, name, out)
+		})
+		g.record(reads)
 	}
 	return nil
 }
 
-// listTargetGroupAttachments records each target registered in the target
+// listTargetGroupAttachments records in out each target registered in the target
 // group groupARN by Terraform's import ID: "<group ARN>,<target ID>", then
 // ",<port>" when the target has a port, then ",<zone>" when it names an
 // availability zone, after an empty port if it has none. The port and the
@@ -209,15 +233,15 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 // selection leaves out the targets Auto Scaling groups and ECS services
 // register (see excludeRegisteredTargets), which it finds by the
 // target_group_arn attribute.
-func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN, groupName string) {
-	out, err := client.DescribeTargetHealth(g.Context(), &elasticloadbalancingv2.DescribeTargetHealthInput{
+func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN, groupName string, out *albRead) {
+	health, err := client.DescribeTargetHealth(g.Context(), &elasticloadbalancingv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(groupARN),
 	})
 	if err != nil {
-		g.parts.add("targets of target group "+groupARN, err)
+		out.parts.add("targets of target group "+groupARN, err)
 		return
 	}
-	for _, description := range out.TargetHealthDescriptions {
+	for _, description := range health.TargetHealthDescriptions {
 		target := description.Target
 		if target == nil {
 			continue
@@ -242,7 +266,7 @@ func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Cl
 			parts = append(parts, zone)
 		}
 		id := strings.Join(parts, ",")
-		g.Resources = append(g.Resources, harvest.Record(id, groupName+" "+cloudControlName(targetID), "aws_lb_target_group_attachment", "aws", attributes))
+		out.resources = append(out.resources, harvest.Record(id, groupName+" "+cloudControlName(targetID), "aws_lb_target_group_attachment", "aws", attributes))
 	}
 }
 

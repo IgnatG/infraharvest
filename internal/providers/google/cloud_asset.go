@@ -18,7 +18,6 @@ import (
 	"unicode"
 
 	"google.golang.org/api/cloudasset/v1"
-	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -38,7 +37,9 @@ const searchReadMask = "name,assetType,project,displayName,description,location,
 // Inventory finds, of the asset types the catalogue's inventory entries
 // map to Terraform types, in one search. A region's import takes those in
 // the region and its zones; the import of global takes the rest: global
-// resources and those in a multi-region, such as a bucket in US. Search
+// resources, those in a multi-region, such as a bucket in US, and the
+// subnetworks of every region, with their networks (see rootLocation).
+// Search
 // needs cloudasset.assets.searchAllResources on the project, which
 // roles/cloudasset.viewer grants, and the Cloud Asset API enabled in the
 // project that the credentials' quota goes to.
@@ -75,7 +76,7 @@ func (g *CloudAssetLister) List() error {
 	if err != nil {
 		return err
 	}
-	region, _ := g.Settings()["region"].(compute.Region)
+	region := regionSetting(g.Settings())
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
 	var unmarked []error
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
@@ -250,9 +251,10 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 	// The regions of what is elsewhere, for the import of global to name.
 	var regions []string
 	for _, r := range results {
-		if !inRegion(r.Location, region) {
+		location := rootLocation(r)
+		if !inRegion(location, region) {
 			elsewhere++
-			if in := regionOf(r.Location); in != "" && !slices.Contains(regions, in) {
+			if in := regionOf(location); in != "" && !slices.Contains(regions, in) {
 				regions = append(regions, in)
 			}
 			continue
@@ -300,6 +302,21 @@ func assetName(displayName, id string) string {
 		return displayName
 	}
 	return lastSegment(id)
+}
+
+// withNetworkTypes are the asset types the import of global takes
+// wherever their resources are, as it takes their networks: a VPC network
+// and its subnetworks go into one root, where the network module, which
+// takes a network with its subnetworks, can call them together.
+var withNetworkTypes = []string{"compute.googleapis.com/Subnetwork"}
+
+// rootLocation is the location whose import takes a resource the search
+// found: global for one of withNetworkTypes, else its own.
+func rootLocation(r *cloudasset.ResourceSearchResult) string {
+	if slices.Contains(withNetworkTypes, r.AssetType) {
+		return globalRegion
+	}
+	return r.Location
 }
 
 // regional matches the location of a resource in a region or zone, such
@@ -417,7 +434,7 @@ func lastSegment(id string) string {
 // catalogue is the catalogue of the import (see SetCatalogue), or the
 // built-in one.
 func (g *CloudAssetLister) catalogue() *catalogue.Catalogue {
-	if cat, ok := g.Settings()["catalogue"].(*catalogue.Catalogue); ok && cat != nil {
+	if cat, ok := g.Settings()[catalogueKey].(*catalogue.Catalogue); ok && cat != nil {
 		return cat
 	}
 	return catalogue.MustBuiltin("google")

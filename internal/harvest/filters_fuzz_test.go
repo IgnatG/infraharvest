@@ -23,7 +23,7 @@ func FuzzParseFilters(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, raw string) {
 		resource := Resource{
-			Address:  &Address{Type: "aws_vpc", ID: "vpc-1"},
+			Address:  &Address{Type: "aws_vpc"},
 			Observed: &Observation{ID: "vpc-1", Attributes: map[string]string{"tags.env": "prod", "tags.%": "1", "cidr_block": "10.0.0.0/16"}},
 			Provider: "aws",
 		}

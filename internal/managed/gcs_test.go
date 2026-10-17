@@ -15,9 +15,9 @@ import (
 	"testing"
 )
 
-// fakeGCS serves one bucket's objects as Cloud Storage does to a client
-// pointed at an emulator: objects.list on the JSON API, an object a page,
-// and reads on the XML API.
+// fakeGCS serves one bucket's objects as Cloud Storage's JSON API does to a
+// client pointed at an emulator: objects.list, an object a page, and
+// objects.get with alt=media for their content.
 func fakeGCS(t *testing.T, bucket string, objects map[string]string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,9 +51,9 @@ func fakeGCS(t *testing.T, bucket string, objects map[string]string) *httptest.S
 			}
 			return
 		}
-		name, ok := strings.CutPrefix(r.URL.Path, "/"+bucket+"/")
+		name, ok := strings.CutPrefix(r.URL.Path, "/storage/v1/b/"+bucket+"/o/")
 		content, found := objects[name]
-		if !ok || !found {
+		if !ok || !found || r.URL.Query().Get("alt") != "media" {
 			http.NotFound(w, r)
 			return
 		}
@@ -74,8 +74,6 @@ func TestGCSListAndGet(t *testing.T) {
 	// NewGCS reads from an emulator, without credentials, as Terraform's
 	// gcs backend does.
 	t.Setenv("STORAGE_EMULATOR_HOST", server.URL)
-	// No background bucket lookups for tracing.
-	t.Setenv("GO_OTEL_BUCKETMETADATA_DISABLED", "true")
 	ctx := context.Background()
 	store, err := NewGCS(ctx)
 	if err != nil {
@@ -103,5 +101,24 @@ func TestGCSListAndGet(t *testing.T) {
 	}
 	if _, err := store.Get(ctx, "acme-state", "roots/missing.tfstate"); err == nil {
 		t.Error("want an error for an object that doesn't exist")
+	}
+}
+
+// STORAGE_EMULATOR_HOST is a URL or a host[:port], taken as http, as Cloud
+// Storage's client libraries take it.
+func TestGCSEmulatorEndpoint(t *testing.T) {
+	for host, want := range map[string]string{
+		"localhost:4443":        "http://localhost:4443/storage/v1/",
+		"http://127.0.0.1:9023": "http://127.0.0.1:9023/storage/v1/",
+		"https://gcs.example/":  "https://gcs.example/storage/v1/",
+	} {
+		got, err := emulatorEndpoint(host)
+		if err != nil {
+			t.Errorf("%s: %v", host, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: got %s, want %s", host, got, want)
+		}
 	}
 }

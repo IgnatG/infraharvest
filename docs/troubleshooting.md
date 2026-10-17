@@ -10,6 +10,8 @@ Find the message you see, or the exit code, below. infraharvest logs to stderr, 
 | 1 | Something couldn't be imported; the log ends with `output is incomplete; rerun with --allow-partial to accept partial output` | `coverage.json`, below |
 | 2 | The import couldn't run: no credentials, no Terraform, a registry out of reach, state that can't be read | The last line of the log |
 | 3 | Something couldn't be imported, `--allow-partial` is set (`output is incomplete (--allow-partial is set)`), and the output has the rest | `coverage.json`, below |
+| 130 | The import was interrupted with Ctrl-C (SIGINT) | `coverage.json` lists what was done before it stopped |
+| 143 | The import was terminated (SIGTERM), as by a CI runner cancelling the job or a timeout | `coverage.json`, as for 130 |
 
 See [Exit codes](output.md#exit-codes). A failed check of the [verification gate](output.md#verification-gate) counts as something that couldn't be imported.
 
@@ -92,7 +94,7 @@ An import also needs the registry: `look up registry.terraform.io/hashicorp/aws 
 
 ## Disk space for providers
 
-`terraform init` failing with `no space left on device` means the providers didn't fit: the AWS provider alone is about 700 MB unpacked. infraharvest gives every Terraform it runs one plugin cache, so each provider version is downloaded once, and Terraform links the roots' providers to it where it can. The cache is `infraharvest/plugins` under the user cache directory: `$XDG_CACHE_HOME`, or `~/.cache`, on Linux, `~/Library/Caches` on macOS and `%LocalAppData%` on Windows. It replaces any `TF_PLUGIN_CACHE_DIR` you set.
+`terraform init` failing with `no space left on device` means the providers didn't fit: the AWS provider alone is about 700 MB unpacked. infraharvest gives every Terraform it runs one plugin cache, so each provider version is downloaded once, and Terraform links the roots' providers to it where it can. The cache is `infraharvest/plugins` under the user cache directory: `$XDG_CACHE_HOME`, or `~/.cache`, on Linux, `~/Library/Caches` on macOS and `%LocalAppData%` on Windows. It replaces any `TF_PLUGIN_CACHE_DIR` you set. Runs on one machine share it: each `terraform init` holds the lock of `infraharvest/plugins.lock` next to it, so another run waits, logging that it does, rather than install the same provider at the same time. The system releases the lock of a run that is killed.
 
 - Leave a few GB free there, and more for both engines: Terraform's and OpenTofu's registries give the same provider separate copies.
 - Each new provider release adds a version; deleting `infraharvest/plugins` frees them all, and the next import downloads what it needs again.

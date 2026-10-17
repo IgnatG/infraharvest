@@ -179,6 +179,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.BoolVar(&options.Resume, "resume", false, "skip the roots a previous run generated from the same resources and options, such as after a run that failed part way")
 	flags.BoolVar(&options.Incremental, "incremental", false, "add what is new to the roots earlier imports generated in --out, in a file of its own, without changing what they have")
 	flags.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "import from the resources infraharvest discover listed into the same --out, instead of listing them again")
+	flags.BoolVar(&options.ForceUnlock, "force-unlock", false, "write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself")
 }
 
 // ParallelFlag adds --parallel to cmd, bound to options.Parallel: how many

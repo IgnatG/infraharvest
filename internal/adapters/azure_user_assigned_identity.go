@@ -55,18 +55,10 @@ func mapAzureUserAssignedIdentity(c Cluster) (*Call, error) {
 		}},
 	}
 	identity := Read(c.Anchor.Address(), c.Anchor.Body)
-	for _, required := range []string{"name", "location", "resource_group_name"} {
-		value, ok := identity.Attr(required)
-		if !ok {
-			return nil, Declinef("%s has no %s", c.Anchor.Address(), required)
-		}
-		call.Set(required, value)
+	if err := identity.Require(call, Pair{"name", "name"}, Pair{"location", "location"}, Pair{"resource_group_name", "resource_group_name"}); err != nil {
+		return nil, err
 	}
-	for _, arg := range []string{"isolation_scope", "tags"} {
-		if value, ok := identity.Attr(arg); ok {
-			call.Set(arg, value)
-		}
-	}
+	identity.CopyAs(call, Pair{"isolation_scope", "isolation_scope"}, Pair{"tags", "tags"})
 	if err := identity.Done(); err != nil {
 		return nil, err
 	}

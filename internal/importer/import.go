@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -113,6 +114,9 @@ type Options struct {
 	// ReuseInventory imports from what discover listed, instead of listing
 	// again.
 	ReuseInventory bool
+	// ForceUnlock writes to Out even when another run holds its lock, or
+	// the lock can't be taken (see lockOutput).
+	ForceUnlock bool
 
 	// Where the provider lists: read by the provider commands only.
 
@@ -145,6 +149,10 @@ type Options struct {
 	// own: one of several scopes imported at once has a run of its own
 	// (see ImportEach).
 	run *Run
+	// cat is the catalogue of the import, the built-in one with the
+	// --catalogue overlay merged in, once importInto has loaded it; the
+	// provider of each service listed is given it (see listServices).
+	cat *catalogue.Catalogue
 }
 
 // Import lists the resources of provider's services in options.Services,
@@ -165,8 +173,9 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // an import that says neither --selection nor --all, --services or --skip
 // names provider has no service of, a --layout checkLayout rejects, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
-// --engine-timeout, and the selection file, catalogue and managed state
-// sources it can tell are wrong (see checkSources).
+// --engine-timeout, a --catalogue directory that doesn't load, and the
+// selection file and managed state sources it can tell are wrong (see
+// checkSources).
 // Checked once, they fail the command the same way however many scopes
 // it covers, instead of failing each scope and reading as a partial
 // import.
@@ -181,6 +190,18 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	}
 	if err := checkSelectionOptions(options); err != nil {
 		return err
+	}
+	// An overlay can add services, such as an AWS cloud_control entry of
+	// a new service, so the provider knows of them before the names are
+	// checked.
+	if options.Catalogue != "" {
+		cat, err := providerCatalogue(provider, options.Catalogue)
+		if err != nil {
+			return fmt.Errorf("--catalogue: %w", err)
+		}
+		if p, ok := provider.(harvest.ProviderWithCatalogue); ok {
+			p.SetCatalogue(cat)
+		}
 	}
 	known := provider.Services()
 	for _, f := range []struct {
@@ -215,7 +236,7 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 			return fmt.Errorf("%s can't be negative", f.flag)
 		}
 	}
-	return checkSources(provider, options)
+	return checkSources(options)
 }
 
 // layoutPlaceholders are the placeholders a --layout may use.
@@ -253,18 +274,13 @@ func checkLayout(layout string, envTags []string) error {
 
 // checkSources rejects the files and sources the import reads that can be
 // checked before anything is listed: a --selection file that doesn't load
-// (discover writes it instead), a --catalogue directory that doesn't, and
-// a --managed-state source that doesn't parse or, for a local path,
-// doesn't exist. The state itself is read once the resources are listed.
-func checkSources(provider harvest.Provider, options Options) error {
+// (discover writes it instead), and a --managed-state source that doesn't
+// parse or, for a local path, doesn't exist. The state itself is read
+// once the resources are listed.
+func checkSources(options Options) error {
 	if options.Selection != "" && !options.Discover {
 		if _, err := selection.Load(options.Selection); err != nil {
 			return fmt.Errorf("--selection: %w", err)
-		}
-	}
-	if options.Catalogue != "" {
-		if _, err := providerCatalogue(provider, options.Catalogue); err != nil {
-			return fmt.Errorf("--catalogue: %w", err)
 		}
 	}
 	// The configured backend's state is resolved with the configuration
@@ -365,6 +381,11 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
 			return nil, err
+		}
+		// The service's provider is new, so it is given the catalogue the
+		// import's provider has, before it makes the service's lister.
+		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && options.cat != nil {
+			p.SetCatalogue(options.cat)
 		}
 		discoverers = append(discoverers, discovery.Service(service, serviceProvider, options.Verbose, filters))
 	}
