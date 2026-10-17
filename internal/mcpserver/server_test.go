@@ -719,3 +719,26 @@ func TestConfirmationQuotesPaths(t *testing.T) {
 		}
 	}
 }
+
+// A host that starts the server in / or the home directory doesn't give
+// the tools the whole machine without --root saying so.
+func TestCheckDefaultRoot(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	volumeRoot := filepath.VolumeName(home) + string(filepath.Separator)
+	for dir, ok := range map[string]bool{
+		project:    true,
+		home:       false,
+		volumeRoot: false,
+	} {
+		if err := CheckDefaultRoot(dir, home); (err == nil) != ok {
+			t.Errorf("CheckDefaultRoot(%s): got %v, want allowed %v", dir, err, ok)
+		}
+	}
+	if err := CheckDefaultRoot(home, ""); err != nil {
+		t.Errorf("without a home directory: %v", err)
+	}
+}

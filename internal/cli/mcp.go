@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -42,13 +43,20 @@ func newMCPCmd() *cobra.Command {
 				if root, err = os.Getwd(); err != nil {
 					return err
 				}
+				// Some hosts start servers in / or the home directory.
+				home, _ := os.UserHomeDir()
+				if err := mcpserver.CheckDefaultRoot(root, home); err != nil {
+					return err
+				}
 			}
+			// Standard output is the protocol's.
+			fmt.Fprintf(cmd.ErrOrStderr(), "infraharvest mcp: the tools read and write files under %s\n", root)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return mcpserver.New(version.Version, root, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories and reports (default: the current directory)")
+	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories and reports (default: the current directory, unless that is the root of a filesystem or the home directory)")
 	return cmd
 }
 

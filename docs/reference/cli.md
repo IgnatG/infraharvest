@@ -317,7 +317,7 @@ infraharvest mcp [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--root` |  | directory the tools may read and write files in: selection files, output directories and reports (default: the current directory) |
+| `--root` |  | directory the tools may read and write files in: selection files, output directories and reports (default: the current directory, unless that is the root of a filesystem or the home directory) |
 
 ## infraharvest pick
 

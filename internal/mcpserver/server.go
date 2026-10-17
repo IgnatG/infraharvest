@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -719,4 +720,40 @@ func tail(stderr []byte) string {
 		lines = lines[len(lines)-20:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// CheckDefaultRoot rejects dir as the root a server defaults to, the
+// working directory, when it is the root of a filesystem or home, the
+// user's home directory: some hosts start servers there, and the tools
+// could then read and write files anywhere on the machine, or anywhere in
+// the home directory. Naming it with --root still allows it.
+func CheckDefaultRoot(dir, home string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	if filepath.Dir(abs) == abs {
+		return fmt.Errorf("the working directory %s is the root of the filesystem: start the server in a project directory, or name the directory the tools may use with --root", abs)
+	}
+	if home != "" {
+		if h, err := filepath.EvalSymlinks(home); err == nil {
+			home = h
+		}
+		if h, err := filepath.Abs(home); err == nil && sameDir(abs, h) {
+			return fmt.Errorf("the working directory %s is the home directory: start the server in a project directory, or name the directory the tools may use with --root", abs)
+		}
+	}
+	return nil
+}
+
+// sameDir reports whether a and b, absolute and clean, are the same
+// directory: Windows paths are the same in any case.
+func sameDir(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
