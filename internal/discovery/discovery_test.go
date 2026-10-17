@@ -56,7 +56,6 @@ func (f *fake) Discover(ctx context.Context) ([]harvest.Resource, error) {
 }
 
 func TestListKeepsTheOrderAndTheBound(t *testing.T) {
-	t.Parallel()
 	var running, most atomic.Int32
 	var ds []Discoverer
 	for i := range 8 {

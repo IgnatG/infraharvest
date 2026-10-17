@@ -49,7 +49,6 @@ func TestRunScanners(t *testing.T) {
 // The scanners of a directory run at the same time, and the check lists
 // them in their order, whichever finishes first.
 func TestRunScannersAtTheSameTime(t *testing.T) {
-	t.Parallel()
 	started := make(chan struct{})
 	// first waits for second to start, which it can only if they run at
 	// the same time, and finishes last.
