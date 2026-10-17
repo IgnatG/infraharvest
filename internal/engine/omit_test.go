@@ -53,9 +53,10 @@ func TestGenerateOmitsArguments(t *testing.T) {
 			t.Errorf("%q missing:\n%s", kept, got)
 		}
 	}
-	// Leaving arguments out moves lines, so the errors are planned for again.
-	if strings.Join(tf.calls, ",") != "init,plan,plan,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan plan plan show schema fmt validate plan show]", tf.calls)
+	// Leaving arguments out moves lines, so the errors are planned for again;
+	// postProcess starts from that plan.
+	if strings.Join(tf.calls, ",") != "init,plan,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan plan show schema fmt validate plan show]", tf.calls)
 	}
 }
 

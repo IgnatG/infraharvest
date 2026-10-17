@@ -386,6 +386,71 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
+// Post-processing starts from Generate's last plan where nothing changed
+// since: here the plan after sorting, unless a resource another tool owns
+// is left out after it.
+func TestGeneratePlansAgainOnlyWhenTheConfigurationChanged(t *testing.T) {
+	// Out of order, so Generate sorts and plans again.
+	generated := `resource "aws_iam_role" "other" {
+  name = "other"
+  tags = {
+    ManagedBy = "Terraform"
+  }
+}
+
+resource "aws_iam_role" "app" {
+  name = "app"
+}
+`
+	imports := []Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "other", ID: "other"}}
+	for name, tt := range map[string]struct {
+		includeOwned bool
+		calls        string
+	}{
+		"unchanged":             {true, "init,plan,plan,show,schema,fmt,validate,plan,show"},
+		"an owned one left out": {false, "init,plan,plan,show,plan,show,schema,fmt,validate,plan,show"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			tf := &fakeTerraform{dir: dir, generated: generated}
+
+			if _, err := Generate(context.Background(), tf, dir, imports, Options{IncludeOwned: tt.includeOwned}); err != nil {
+				t.Fatal(err)
+			}
+
+			if got := strings.Join(tf.calls, ","); got != tt.calls {
+				t.Errorf("calls: got %s, want %s", got, tt.calls)
+			}
+		})
+	}
+}
+
+// sameFiles tells a directory's files from what they were, but not the
+// directories in it, such as .terraform.
+func TestSameFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, "# a\n")
+	before, err := dirFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".terraform"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if same, err := sameFiles(dir, before); err != nil || !same {
+		t.Errorf("unchanged: got %v, %v", same, err)
+	}
+	writeConfig(t, dir, GeneratedFileName, "# b\n")
+	if same, err := sameFiles(dir, before); err != nil || same {
+		t.Errorf("changed: got %v, %v", same, err)
+	}
+	writeConfig(t, dir, GeneratedFileName, "# a\n")
+	writeConfig(t, dir, VariablesFileName, "# variables\n")
+	if same, err := sameFiles(dir, before); err != nil || same {
+		t.Errorf("a file more: got %v, %v", same, err)
+	}
+}
+
 // Output directories such as generated/aws/sqs don't exist before the
 // first import into them.
 func TestNewTerraformCreatesDirs(t *testing.T) {
@@ -511,8 +576,8 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
 	}
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate plan plan show schema fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
@@ -552,8 +617,8 @@ func TestGenerateRepairsAndReplans(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate validate plan plan show schema fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "multivalue") || !strings.Contains(got, `name = "example.internal"`) {
 		t.Errorf("zero value not removed or file not formatted:\n%s", got)
@@ -574,8 +639,8 @@ func TestGenerateLeavesOutWhatRepairCannotFix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,plan,show,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate plan plan show fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,show,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate plan show fmt validate plan show]", tf.calls)
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Address != "aws_route53_record.a" {
 		t.Errorf("want aws_route53_record.a left out, got %+v", result.Rejected)
@@ -621,8 +686,8 @@ func TestGenerateRepairsWhatValidationRejects(t *testing.T) {
 		t.Fatalf("want the repaired configuration to plan, got %v", err)
 	}
 
-	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate validate plan plan show schema fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,validate,validate,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate validate plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "rotation_period_in_days") {
 		t.Errorf("rejected zero value not removed:\n%s", got)

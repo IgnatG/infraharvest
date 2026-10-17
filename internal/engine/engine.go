@@ -322,9 +322,28 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := os.Chmod(dir, info.Mode()&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
 		return nil, err
 	}
+	// last is the last of the plans below, if it had no errors, and planned
+	// the files it read: postProcess starts from it if they are still the
+	// same then.
+	var last *shownPlan
+	var planned map[string][]byte
+	replan := func() error {
+		p, summary, ds, err := showPlanWithSummary(ctx, tf, opts.secretValues.options())
+		if err != nil {
+			return err
+		}
+		diags, last, planned = ds, nil, nil
+		if len(ds) == 0 && p != nil {
+			if planned, err = dirFiles(dir); err != nil {
+				return err
+			}
+			last = &shownPlan{plan: p, summary: summary}
+		}
+		return nil
+	}
 	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
-		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
-			return nil, fmt.Errorf("terraform plan: %w", err)
+		if err := replan(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -364,8 +383,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			}
 			result.Rejected = append(result.Rejected, rejections...)
 		}
-		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
-			return nil, fmt.Errorf("terraform plan: %w", err)
+		if err := replan(); err != nil {
+			return nil, err
 		}
 	}
 	// Terraform generates nothing for a resource its import finds gone, such
@@ -413,7 +432,22 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	declined, err := postProcess(ctx, tf, dir, opts, result.Secrets)
+	// The last plan above is postProcess's first if nothing changed since:
+	// the same files, and no secret variables, whose values its plans get
+	// otherwise.
+	if last != nil && (opts.secretValues != nil || len(result.Secrets) > 0) {
+		last = nil
+	}
+	if last != nil {
+		same, err := sameFiles(dir, planned)
+		if err != nil {
+			return nil, err
+		}
+		if !same {
+			last = nil
+		}
+	}
+	declined, err := postProcess(ctx, tf, dir, opts, result.Secrets, last)
 	if err != nil {
 		return nil, err
 	}
@@ -630,4 +664,36 @@ func environ() map[string]string {
 		}
 	}
 	return env
+}
+
+// dirFiles returns the content of the regular files directly in dir, by
+// name: the configuration a plan of dir reads, but for the providers and
+// modules init installs.
+func dirFiles(dir string) (map[string][]byte, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		files[e.Name()] = content
+	}
+	return files, nil
+}
+
+// sameFiles reports whether the regular files directly in dir are those
+// of files, with the same content (see dirFiles).
+func sameFiles(dir string, files map[string][]byte) (bool, error) {
+	now, err := dirFiles(dir)
+	if err != nil {
+		return false, err
+	}
+	return maps.EqualFunc(now, files, bytes.Equal), nil
 }

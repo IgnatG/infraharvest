@@ -111,7 +111,7 @@ func TestPostProcessPlanCount(t *testing.T) {
 	dir, tf := liftTagsDir(t)
 	writeConfig(t, dir, GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
 
-	if _, err := postProcess(context.Background(), tf, dir, Options{DefaultTags: &awsDefaultTags}, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, Options{DefaultTags: &awsDefaultTags}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

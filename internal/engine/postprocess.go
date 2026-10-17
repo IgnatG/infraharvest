@@ -42,10 +42,12 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // the lists of all their elements (see collapseOutputLists), then, once
 // the resources left in the root no longer repeat what the provider sets
 // (see omitInherited), generated local ones (see liftModules). It returns
-// the clusters it didn't move into a curated module, with why.
-func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret) ([]ModuleCall, error) {
+// the clusters it didn't move into a curated module, with why. planned, if
+// set, is a plan of the configuration as it is, with the same variables,
+// which it starts from instead of planning.
+func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret, planned *shownPlan) ([]ModuleCall, error) {
 	vars := append(placeholders(secrets), opts.secretValues.options()...)
-	baseline, values, changes, err := planValues(ctx, tf, vars)
+	baseline, values, changes, err := replanValues(ctx, tf, vars, planned)
 	if err != nil {
 		return nil, err
 	}
@@ -482,10 +484,10 @@ type shownPlan struct {
 	summary *changeSummary
 }
 
-// replanValues is planValues for the configuration a step changed: from
-// last, the plan the step ended on, if it has one, as planning the same
-// configuration with the same vars again would only read every imported
-// resource again.
+// replanValues is planValues, from last if set: a plan of the
+// configuration as it is, with vars, such as the one a step ended on.
+// Planning the same configuration with the same vars again would only
+// read every imported resource again.
 func replanValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption, last *shownPlan) (*changeSummary, map[string]map[string]any, map[string]string, error) {
 	if last == nil || last.plan == nil || last.summary == nil {
 		return planValues(ctx, tf, vars)
