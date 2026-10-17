@@ -304,6 +304,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err := t.within("out", in.Out); err != nil {
 		return nil, nil, err
 	}
+	if err := t.linksStayUnder("out", in.Out); err != nil {
+		return nil, nil, err
+	}
 	engine := in.Engine
 	if engine == "" {
 		engine = "terraform"
@@ -408,11 +411,44 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 	if err := t.within("out", in.Out); err != nil {
 		return nil, nil, err
 	}
-	content, err := os.ReadFile(filepath.Join(in.Out, report.Dir, "report.md"))
+	// The report's own path too: .infraharvest or report.md could be a
+	// symbolic link that leads out of the root, such as one a cloned
+	// repository plants to a credentials file.
+	path := filepath.Join(in.Out, report.Dir, "report.md")
+	if err := t.within("report", path); err != nil {
+		return nil, nil, err
+	}
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("report %q isn't a regular file", path)
+	}
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
 	}
 	return textResult(string(content)), nil, nil
+}
+
+// linksStayUnder checks that no symbolic link under dir, which an import
+// writes into, leads out of the root, as one a cloned repository plants
+// could: the import would write there. Terraform's working directories
+// are skipped, where terraform init links providers from the plugin cache.
+func (t *tools) linksStayUnder(what, dir string) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".terraform" {
+			return filepath.SkipDir
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return t.within(what, path)
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // providers are the provider commands the tools run.

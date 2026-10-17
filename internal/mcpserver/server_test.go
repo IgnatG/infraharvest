@@ -533,3 +533,51 @@ func TestToolAnnotations(t *testing.T) {
 		}
 	}
 }
+
+// A symbolic link a cloned repository plants under the output directory
+// doesn't take the report tool, or an import, out of the root.
+func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "work")
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	for _, dir := range []string{filepath.Join(root, "linked-report", report.Dir), filepath.Join(root, "generated"), outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret := filepath.Join(outside, "credentials")
+	if err := os.WriteFile(secret, []byte("[default]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "linked-report", report.Dir, "report.md")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "linked-parent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked-parent", report.Dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "generated", "aws")); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+
+	for _, out := range []string{"linked-report", "linked-parent"} {
+		if res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, out)}); err == nil || !strings.Contains(err.Error(), "must be under") {
+			t.Errorf("report %s: got %+v, %v, want the link rejected", out, res, err)
+		}
+	}
+	selectionPath := filepath.Join(root, "selection.yaml")
+	if err := writeSelection(selectionPath); err != nil {
+		t.Fatal(err)
+	}
+	in := ImportInput{Scope: Scope{Provider: "aws", Services: []string{"vpc"}}, Selection: selectionPath, Out: filepath.Join(root, "generated")}
+	if _, _, err := tools.importSelection(t.Context(), req, in); err == nil || !strings.Contains(err.Error(), "must be under") {
+		t.Errorf("import: got %v, want the link under the output rejected", err)
+	}
+	if len(runner.runs) != 0 {
+		t.Errorf("ran with a link out of the root: %v", runner.runs)
+	}
+}
