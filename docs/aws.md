@@ -88,7 +88,7 @@ Cloud9 (`cloud9`) and Data Pipeline (`datapipeline`) are closed to new customers
 
 ## Tags
 
-Tags come from the Resource Groups Tagging API of each region listed, and of `us-east-1` for the global services, for the selection file's rules, the picker and the report. That API lists tags by ARN, so resources whose ID isn't an ARN are matched through the ARN of their type where the catalogue knows it; IAM roles and users have no tags there. In the generated configuration, the tags all resources of a root share move to the provider's `default_tags`; `aws:` tags stay on the resources.
+Tags come from the Resource Groups Tagging API of each region listed, and of `us-east-1` for the global services, for the selection file's rules, the picker and the report. That API lists tags by ARN, so resources whose ID isn't an ARN are matched through the ARN of their type where the catalogue knows it; IAM roles and users have no tags there. Only the services of the listed resources are asked for, so a run of a few services doesn't read every tagged resource of the region. In the generated configuration, the tags all resources of a root share move to the provider's `default_tags`; `aws:` tags stay on the resources.
 
 ## Filtering
 

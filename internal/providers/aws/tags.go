@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 	"strings"
 
@@ -119,11 +120,45 @@ func (x *tagIndex) lookup(r harvest.Resource, importID string) (map[string]strin
 	return nil, false
 }
 
+// tagFilterLimit is the most resource type filters one GetResources call
+// takes.
+const tagFilterLimit = 100
+
+// tagServices returns the ARN services, sorted, of the resources the tag
+// index can find: those whose ID, import ID or arn attribute is an ARN, by
+// the ARN's service, and those whose type cat gives an arn entry, by its
+// service. The tags of other resources can't be found, so they need none,
+// and neither do IAM's, which the Tagging API doesn't list.
+func tagServices(cat *catalogue.Catalogue, resources []harvest.Resource) []string {
+	seen := map[string]bool{}
+	for _, r := range resources {
+		id, _ := importID(cat, r)
+		for _, c := range []string{r.Observed.ID, id, r.Observed.Attributes["arn"]} {
+			if parts := strings.SplitN(c, ":", 6); len(parts) == 6 && parts[0] == "arn" && parts[2] != "" {
+				seen[parts[2]] = true
+			}
+		}
+		if key, ok := arnResourceOf(cat, r.Address.Type); ok {
+			seen[key.service] = true
+		}
+	}
+	delete(seen, "iam")
+	return slices.Sorted(maps.Keys(seen))
+}
+
 // Tags reads the tags of the listed resources from the Resource Groups
 // Tagging API of the region they were listed in: us-east-1 for the global
 // services, where it lists CloudFront distributions and Route 53 zones.
-// It returns them by "type id".
+// It asks only for the services of the listed resources whose tags it can
+// find (see tagServices), at most tagFilterLimit to a call, and not at all
+// when there are none; should that fail, as when the API refuses a filter,
+// it asks for every tagged resource instead. It returns them by "type id".
 func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[string]map[string]string, error) {
+	cat := p.catalogue()
+	services := tagServices(cat, resources)
+	if len(services) == 0 {
+		return map[string]map[string]string{}, nil
+	}
 	config, err := p.config(ctx)
 	if err != nil {
 		return nil, err
@@ -132,23 +167,23 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 		config = config.Copy()
 		config.Region = "us-east-1"
 	}
-	cat := p.catalogue()
+	client := resourcegroupstaggingapi.NewFromConfig(config)
 	index := newTagIndex(cat)
-	pages := resourcegroupstaggingapi.NewGetResourcesPaginator(resourcegroupstaggingapi.NewFromConfig(config), &resourcegroupstaggingapi.GetResourcesInput{
-		ResourcesPerPage: aws.Int32(100),
-	}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("tags in %s: %w", config.Region, err)
+	var readErr error
+	for batch := range slices.Chunk(services, tagFilterLimit) {
+		if readErr = readTagPages(ctx, client, batch, index); readErr != nil {
+			break
 		}
-		for _, m := range page.ResourceTagMappingList {
-			tags := make(map[string]string, len(m.Tags))
-			for _, t := range m.Tags {
-				tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
-			}
-			index.add(aws.ToString(m.ResourceARN), tags)
-		}
+	}
+	if readErr != nil {
+		// An API, or an emulator, that refuses a filter answers with an
+		// error of its own choosing, so any error is worth one more try.
+		log.Printf("aws: tags in %s: reading by service filters failed, so every tagged resource is read: %v", config.Region, readErr)
+		index = newTagIndex(cat)
+		readErr = readTagPages(ctx, client, nil, index)
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("tags in %s: %w", config.Region, readErr)
 	}
 	found := map[string]map[string]string{}
 	for _, r := range resources {
@@ -159,4 +194,28 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 	}
 	log.Printf("aws: tags in %s: the Tagging API lists %d tagged resources, %d of the %d listed matched", config.Region, len(index.byARN), len(found), len(resources))
 	return found, nil
+}
+
+// readTagPages adds to index the tagged resources of the services in
+// filters, every page of them, or of every service when filters is empty.
+func readTagPages(ctx context.Context, client *resourcegroupstaggingapi.Client, filters []string, index *tagIndex) error {
+	input := &resourcegroupstaggingapi.GetResourcesInput{ResourcesPerPage: aws.Int32(100)}
+	if len(filters) > 0 {
+		input.ResourceTypeFilters = filters
+	}
+	pages := resourcegroupstaggingapi.NewGetResourcesPaginator(client, input, stopOnDuplicateToken)
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, m := range page.ResourceTagMappingList {
+			tags := make(map[string]string, len(m.Tags))
+			for _, t := range m.Tags {
+				tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
+			}
+			index.add(aws.ToString(m.ResourceARN), tags)
+		}
+	}
+	return nil
 }
