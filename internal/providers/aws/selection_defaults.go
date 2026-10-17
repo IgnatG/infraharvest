@@ -34,7 +34,8 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 // security groups and the security groups EKS creates for clusters, with
 // their rules, the KMS grants AWS services make for themselves, and the
 // Auto Scaling groups and launch templates of EKS managed node groups,
-// which AWS creates itself; what CloudFormation stacks manage, which would
+// which AWS creates itself; the replicas of a DynamoDB global table in
+// every region but the one that imports the table with its replicas; what CloudFormation stacks manage, which would
 // otherwise have two owners; what other accounts share;
 // and the targets Auto Scaling groups and ECS services register in their
 // target groups, which they register and deregister themselves. The
@@ -71,6 +72,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 	}
 	excludeServiceGrants(resources, excluded)
 	excludeEKSNodeGroups(resources, excluded)
+	excludeGlobalTableReplicas(resources, config.Region, excluded)
 	sharedErr := p.excludeShared(ctx, config, resources, excluded)
 	targetsErr := p.excludeRegisteredTargets(ctx, config, resources, excluded)
 	stacksErr = errors.Join(stacksErr, sharedErr, targetsErr)
@@ -310,4 +312,26 @@ func ownerAttributes(owner *string) map[string]string {
 		attributes["owner_id"] = id
 	}
 	return attributes
+}
+
+// reasonGlobalTableReplica is why the default selection leaves out a
+// DynamoDB table that is a replica of a global table imported in another
+// region: there the aws_dynamodb_table manages the replica through a
+// replica block, and importing it here too would give it two owners.
+func reasonGlobalTableReplica(home string) string {
+	return "a replica of the global table in " + home
+}
+
+// excludeGlobalTableReplicas adds to excluded the DynamoDB tables of
+// resources, listed in region, that are replicas of a global table whose
+// home is another region (see globalTableHome).
+func excludeGlobalTableReplicas(resources []harvest.Resource, region string, excluded map[string]string) {
+	for _, r := range resources {
+		if r.Address.Type != "aws_dynamodb_table" {
+			continue
+		}
+		if home := globalTableHome(r, region); home != region {
+			excluded[r.Address.Type+" "+r.Observed.ID] = reasonGlobalTableReplica(home)
+		}
+	}
 }
