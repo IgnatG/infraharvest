@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 
@@ -41,9 +43,11 @@ func reasonRegisteredTarget(owner string) string {
 // of resources whose target group an Auto Scaling group, an ECS service or
 // the AWS Load Balancer Controller of an EKS cluster registers its targets
 // in. The controller's target groups are told by their tag, from the
-// listed target groups, without a call. Auto Scaling and ECS are asked
-// only when an attachment of some other target group was listed, and ECS
-// only for target groups no Auto Scaling group claims. An error of either
+// listed target groups, without a call, and so are those of the listed
+// Auto Scaling groups and ECS services (see targetGroupsAttribute). Auto
+// Scaling and ECS are asked only when an attachment of some other target
+// group was listed, and ECS only for target groups no Auto Scaling group
+// claims. An error of either
 // is returned, joined, and what the other found is still excluded.
 func (p *Provider) excludeRegisteredTargets(ctx context.Context, config aws.Config, resources []harvest.Resource, excluded map[string]string) error {
 	groups := map[string]bool{}
@@ -63,6 +67,19 @@ func (p *Provider) excludeRegisteredTargets(ctx context.Context, config aws.Conf
 			if cluster := r.Observed.Attributes[loadBalancerControllerTag]; cluster != "" {
 				claimTargetGroup(groups, owners, r.Observed.ID, "the AWS Load Balancer Controller of EKS cluster "+cluster)
 			}
+		}
+	}
+	// Then those of the Auto Scaling groups and ECS services listed, as
+	// their listers recorded them, without a call: the API is asked only
+	// for target groups none of them claims, which a group or a service
+	// the listing left out may.
+	for _, r := range resources {
+		switch r.Address.Type {
+		case "aws_autoscaling_group":
+			claimTargetGroups(groups, owners, recordedTargetGroups(r.Observed.Attributes), "Auto Scaling group "+r.Observed.ID)
+		case "aws_ecs_service":
+			attributes := r.Observed.Attributes
+			claimTargetGroups(groups, owners, recordedTargetGroups(attributes), "ECS service "+attributes["cluster"]+"/"+attributes["name"])
 		}
 	}
 	var err error
@@ -91,6 +108,79 @@ func claimTargetGroup(groups map[string]bool, owners map[string]string, arn, own
 	}
 }
 
+// claimTargetGroups claims each of arns for owner (see claimTargetGroup).
+func claimTargetGroups(groups map[string]bool, owners map[string]string, arns []string, owner string) {
+	for _, arn := range arns {
+		claimTargetGroup(groups, owners, arn, owner)
+	}
+}
+
+// targetGroupsAttribute is the attribute the auto_scaling and ecs listers
+// record the target groups an Auto Scaling group or an ECS service
+// registers its targets in under, as target_group_arns.<n>, so that
+// excludeRegisteredTargets reads them without asking again.
+const targetGroupsAttribute = "target_group_arns"
+
+// recordTargetGroups records arns in attributes (see
+// targetGroupsAttribute), leaving out empty ones.
+func recordTargetGroups(attributes map[string]string, arns []string) {
+	n := 0
+	for _, arn := range arns {
+		if arn != "" {
+			attributes[targetGroupsAttribute+"."+strconv.Itoa(n)] = arn
+			n++
+		}
+	}
+}
+
+// recordedTargetGroups returns the target groups recordTargetGroups
+// recorded in attributes, in order.
+func recordedTargetGroups(attributes map[string]string) []string {
+	var arns []string
+	for n := 0; ; n++ {
+		arn, ok := attributes[targetGroupsAttribute+"."+strconv.Itoa(n)]
+		if !ok {
+			return arns
+		}
+		arns = append(arns, arn)
+	}
+}
+
+// autoScalingGroupTargetGroups returns the target groups group registers
+// its instances in: its target groups and its traffic sources.
+func autoScalingGroupTargetGroups(group autoscalingtypes.AutoScalingGroup) []string {
+	arns := slices.Clone(group.TargetGroupARNs)
+	for _, source := range group.TrafficSources {
+		arns = append(arns, aws.ToString(source.Identifier))
+	}
+	return arns
+}
+
+// ecsServiceTargetGroups returns the target groups service registers its
+// tasks in: those of its load balancers and of its task sets' (see
+// loadBalancerTargetGroups).
+func ecsServiceTargetGroups(service ecstypes.Service) []string {
+	arns := loadBalancerTargetGroups(service.LoadBalancers)
+	for _, set := range service.TaskSets {
+		arns = append(arns, loadBalancerTargetGroups(set.LoadBalancers)...)
+	}
+	return arns
+}
+
+// loadBalancerTargetGroups returns the target groups the ECS load
+// balancers loadBalancers name, their alternate target groups for
+// blue/green deployments included.
+func loadBalancerTargetGroups(loadBalancers []ecstypes.LoadBalancer) []string {
+	var arns []string
+	for _, lb := range loadBalancers {
+		arns = append(arns, aws.ToString(lb.TargetGroupArn))
+		if lb.AdvancedConfiguration != nil {
+			arns = append(arns, aws.ToString(lb.AdvancedConfiguration.AlternateTargetGroupArn))
+		}
+	}
+	return arns
+}
+
 // autoScalingTargetGroups adds to owners each of groups that an Auto
 // Scaling group of the region registers its instances in, through its
 // target groups or its traffic sources, which DescribeAutoScalingGroups
@@ -103,13 +193,7 @@ func autoScalingTargetGroups(ctx context.Context, client *autoscaling.Client, gr
 			return fmt.Errorf("find the target groups of Auto Scaling groups: %w", err)
 		}
 		for _, group := range page.AutoScalingGroups {
-			owner := "Auto Scaling group " + aws.ToString(group.AutoScalingGroupName)
-			for _, arn := range group.TargetGroupARNs {
-				claimTargetGroup(groups, owners, arn, owner)
-			}
-			for _, source := range group.TrafficSources {
-				claimTargetGroup(groups, owners, aws.ToString(source.Identifier), owner)
-			}
+			claimTargetGroups(groups, owners, autoScalingGroupTargetGroups(group), "Auto Scaling group "+aws.ToString(group.AutoScalingGroupName))
 		}
 	}
 	return nil
@@ -159,25 +243,9 @@ func ecsClusterTargetGroups(ctx context.Context, client *ecs.Client, clusterARN 
 				return err
 			}
 			for _, service := range out.Services {
-				owner := "ECS service " + clusterName + "/" + aws.ToString(service.ServiceName)
-				claimLoadBalancers(groups, owners, service.LoadBalancers, owner)
-				for _, set := range service.TaskSets {
-					claimLoadBalancers(groups, owners, set.LoadBalancers, owner)
-				}
+				claimTargetGroups(groups, owners, ecsServiceTargetGroups(service), "ECS service "+clusterName+"/"+aws.ToString(service.ServiceName))
 			}
 		}
 	}
 	return nil
-}
-
-// claimLoadBalancers records owner as the owner of the target groups, of
-// groups, that the ECS load balancers loadBalancers name, their alternate
-// target groups included.
-func claimLoadBalancers(groups map[string]bool, owners map[string]string, loadBalancers []ecstypes.LoadBalancer, owner string) {
-	for _, lb := range loadBalancers {
-		claimTargetGroup(groups, owners, aws.ToString(lb.TargetGroupArn), owner)
-		if lb.AdvancedConfiguration != nil {
-			claimTargetGroup(groups, owners, aws.ToString(lb.AdvancedConfiguration.AlternateTargetGroupArn), owner)
-		}
-	}
 }

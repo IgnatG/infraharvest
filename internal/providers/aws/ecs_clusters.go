@@ -115,12 +115,14 @@ func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName stri
 			log.Printf("aws: ecs: service %s: not found", serviceARN)
 			continue
 		}
-		g.Resources = append(g.Resources, harvest.Record(serviceARN, clusterName+"_"+serviceName, "aws_ecs_service", "aws", map[string]string{
+		attributes := map[string]string{
 			"task_definition": aws.ToString(service.TaskDefinition),
 			"cluster":         clusterName,
 			"name":            serviceName,
 			"id":              serviceARN,
-		}))
+		}
+		recordTargetGroups(attributes, ecsServiceTargetGroups(service))
+		g.Resources = append(g.Resources, harvest.Record(serviceARN, clusterName+"_"+serviceName, "aws_ecs_service", "aws", attributes))
 	}
 }
 
