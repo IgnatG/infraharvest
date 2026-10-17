@@ -300,7 +300,18 @@ func isolateAWSConfig(t *testing.T) {
 func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []tfexec.PlanOption {
 	t.Helper()
 	var vars []tfexec.PlanOption
-	for _, block := range configBlocks(t, dir) {
+	blocks := configBlocks(t, dir)
+	// Variables with a default, such as those for another root's
+	// resources, need no value: only secrets have none.
+	defaulted := map[string]bool{}
+	for _, block := range blocks {
+		if block.Type == "variable" && len(block.Labels) == 1 {
+			if _, ok := block.Body.Attributes["default"]; ok {
+				defaulted[block.Labels[0]] = true
+			}
+		}
+	}
+	for _, block := range blocks {
 		if block.Type != "resource" {
 			continue
 		}
@@ -316,6 +327,9 @@ func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []t
 				continue
 			}
 			variable := traversal.Traversal[1].(hcl.TraverseAttr).Name
+			if defaulted[variable] {
+				continue
+			}
 			value, ok := createdValue(created, block.Labels[0], name, attrName)
 			if !ok {
 				t.Errorf("%s: no created %s named %q with a %s for variable %s", dir, block.Labels[0], name, attrName, variable)
