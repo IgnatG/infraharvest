@@ -71,14 +71,56 @@ func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (
 	if err != nil {
 		return nil, err
 	}
-	// SetEnv replaces the inherited environment and rejects variables that
-	// tfexec manages itself (TF_LOG, TF_CLI_ARGS, ...), so drop those.
-	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
-	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
-	if err := tf.SetEnv(all); err != nil {
+	if err := tf.SetEnv(terraformEnviron(pluginCacheDir, env)); err != nil {
 		return nil, err
 	}
 	return tf, nil
+}
+
+// terraformEnviron is the environment Terraform runs with: the process's,
+// with env on top, and the plugin cache pluginCacheDir. SetEnv replaces
+// the inherited environment and rejects variables that tfexec manages
+// itself (TF_LOG, TF_CLI_ARGS, ...), so those are dropped.
+func terraformEnviron(pluginCacheDir string, env map[string]string) map[string]string {
+	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
+	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
+	return all
+}
+
+// NewFreshEnvTerraform returns a Terraform runner for dir like
+// NewTerraform, with env on top of the process's environment, which it
+// asks fresh for again before each plan: plans are the commands that call
+// the cloud, and a root may plan for longer than temporary credentials
+// last, such as an SSO session's, so each plan runs with credentials as
+// fresh as the first. An error of fresh fails that plan.
+func NewFreshEnvTerraform(dir, execPath, pluginCacheDir string, env map[string]string, fresh func(context.Context) (map[string]string, error)) (Terraform, error) {
+	tf, err := NewTerraform(dir, execPath, pluginCacheDir, env)
+	if err != nil {
+		return nil, err
+	}
+	return &freshEnvTerraform{Terraform: tf, pluginCacheDir: pluginCacheDir, env: fresh}, nil
+}
+
+// freshEnvTerraform is a Terraform runner that sets its environment again,
+// from env, before each plan (see NewFreshEnvTerraform). The engine runs a
+// root's commands one at a time, so the environment never changes under a
+// running one.
+type freshEnvTerraform struct {
+	*tfexec.Terraform
+	pluginCacheDir string
+	env            func(context.Context) (map[string]string, error)
+}
+
+// PlanJSON plans with the environment env gives now.
+func (t *freshEnvTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	env, err := t.env(ctx)
+	if err != nil {
+		return false, err
+	}
+	if err := t.Terraform.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
+		return false, err
+	}
+	return t.Terraform.PlanJSON(ctx, w, opts...)
 }
 
 // Result is what Generate leaves for the user to finish.

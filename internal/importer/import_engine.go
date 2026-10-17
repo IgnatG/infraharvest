@@ -21,7 +21,6 @@ import (
 	"syscall"
 
 	goversion "github.com/hashicorp/go-version"
-	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -355,6 +354,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			if tr.env, err = terraformEnv(ctx, provider); err != nil {
 				return err
 			}
+			tr.freshEnv = freshTerraformEnv(provider)
 		}
 		incremental := false
 		if result == nil && options.Incremental {
@@ -554,19 +554,43 @@ func relativePath(outputDir, dir string) string {
 
 // terraformRun is how a root's Terraform runs: the binary, the plugin cache
 // every root shares, and what the provider adds to its environment, such
-// as fresh credentials (see terraformEnv).
+// as fresh credentials (see terraformEnv), and, when the provider adds
+// any, how to get them again before each plan.
 type terraformRun struct {
 	execPath, pluginCacheDir string
 	env                      map[string]string
+	freshEnv                 func(context.Context) (map[string]string, error)
 }
 
-func (t terraformRun) in(dir string) (*tfexec.Terraform, error) {
-	return engine.NewTerraform(dir, t.execPath, t.pluginCacheDir, t.env)
+// in returns the Terraform runner of dir: one that asks freshEnv for its
+// environment before each plan, when it is set (see
+// engine.NewFreshEnvTerraform).
+func (t terraformRun) in(dir string) (engine.Terraform, error) {
+	if t.freshEnv != nil {
+		return engine.NewFreshEnvTerraform(dir, t.execPath, t.pluginCacheDir, t.env, t.freshEnv)
+	}
+	tf, err := engine.NewTerraform(dir, t.execPath, t.pluginCacheDir, t.env)
+	if err != nil {
+		return nil, err
+	}
+	return tf, nil
+}
+
+// freshTerraformEnv returns how to get provider's Terraform environment
+// again (see terraformEnv), for each plan, or nil when the provider adds
+// nothing to it.
+func freshTerraformEnv(provider harvest.Provider) func(context.Context) (map[string]string, error) {
+	if _, ok := provider.(harvest.ProviderWithTerraformEnv); !ok {
+		return nil
+	}
+	return func(ctx context.Context) (map[string]string, error) {
+		return terraformEnv(ctx, provider)
+	}
 }
 
 // terraformEnv returns what Terraform needs in its environment to import
 // provider's resources, such as the credentials it lists with (see
-// harvest.ProviderWithTerraformEnv), fresh for each root.
+// harvest.ProviderWithTerraformEnv), fresh for each root and each plan.
 func terraformEnv(ctx context.Context, provider harvest.Provider) (map[string]string, error) {
 	withEnv, ok := provider.(harvest.ProviderWithTerraformEnv)
 	if !ok {

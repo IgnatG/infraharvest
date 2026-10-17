@@ -5,6 +5,8 @@ package importer
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -455,5 +457,46 @@ func TestLockMeets(t *testing.T) {
 		if got := lockMeets(tc.lock, source, tc.constraint); got != tc.want {
 			t.Errorf("lock %q, constraint %q: got %v, want %v", tc.lock, tc.constraint, got, tc.want)
 		}
+	}
+}
+
+// envProvider is fakeProvider with Terraform credentials that can't be
+// refreshed once the import started.
+type envProvider struct {
+	fakeProvider
+	asked int
+}
+
+func (p *envProvider) TerraformEnv(context.Context) (map[string]string, error) {
+	p.asked++
+	if p.asked > 1 {
+		return nil, errors.New("the SSO session has expired")
+	}
+	return map[string]string{"AWS_ACCESS_KEY_ID": "AKIDFIRST"}, nil
+}
+
+// A provider that gives Terraform credentials gives them again before each
+// plan of a root, not only once for the root; one that gives none has a
+// runner of its own.
+func TestTerraformRunAsksTheProviderBeforeEachPlan(t *testing.T) {
+	p := &envProvider{}
+	env, err := terraformEnv(t.Context(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	tr := terraformRun{execPath: os.Args[0], pluginCacheDir: filepath.Join(base, "plugins"), env: env, freshEnv: freshTerraformEnv(p)}
+	tf, err := tr.in(filepath.Join(base, "root"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tf.PlanJSON(t.Context(), io.Discard); err == nil || !strings.Contains(err.Error(), "credentials for Terraform: the SSO session has expired") {
+		t.Errorf("want the plan failed with the refresh's error, got %v", err)
+	}
+	if p.asked != 2 {
+		t.Errorf("asked %d times, want once for the root and once for the plan", p.asked)
+	}
+	if freshTerraformEnv(&fakeProvider{}) != nil {
+		t.Error("a provider without Terraform credentials has none to refresh")
 	}
 }

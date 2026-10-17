@@ -48,6 +48,12 @@ const roleSessionName = "infraharvest"
 // throttling of a large account.
 const defaultMaxAttempts = 10
 
+// credentialsExpiryWindow is how long before temporary credentials expire
+// they are refreshed: what TerraformEnv hands a plan has at least that long
+// left. It is short, as an assumed role's session may last only 15
+// minutes, and refreshing one that needs MFA asks for a code again.
+const credentialsExpiryWindow = 5 * time.Minute
+
 // Service is what every service of the provider embeds: the harvest
 // state, and the SDK configuration its arguments pick (region, profile
 // and role_arn, see Provider.serviceArgs).
@@ -186,7 +192,9 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 	}
 	baseProvider := cfg.Credentials
 	if _, ok := baseProvider.(*aws.CredentialsCache); !ok {
-		baseProvider = aws.NewCredentialsCache(baseProvider)
+		baseProvider = aws.NewCredentialsCache(baseProvider, func(o *aws.CredentialsCacheOptions) {
+			o.ExpiryWindow = credentialsExpiryWindow
+		})
 	}
 	cfg.Credentials = baseProvider
 	if _, err := baseProvider.Retrieve(ctx); err != nil {
@@ -213,6 +221,11 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 		// terminal.
 		config.WithAssumeRoleCredentialOptions(func(o *stscreds.AssumeRoleOptions) {
 			o.TokenProvider = stscreds.StdinTokenProvider
+		}),
+		// Credentials that expire are refreshed credentialsExpiryWindow
+		// before they do, so that those Terraform gets have that long left.
+		config.WithCredentialsCacheOptions(func(o *aws.CredentialsCacheOptions) {
+			o.ExpiryWindow = credentialsExpiryWindow
 		}),
 	}
 	// The default profile is what the SDK uses anyway; naming it would

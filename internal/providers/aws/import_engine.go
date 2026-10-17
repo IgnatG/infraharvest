@@ -51,7 +51,9 @@ func (p *Provider) Scope(ctx context.Context) (account, region string, err error
 // role's assumed with an MFA code, which Terraform couldn't resolve
 // without asking. They are the base credentials: with --assume-role, the
 // provider block assumes the role itself (see ProviderBlock). Each call
-// returns them fresh, so a long import never hands Terraform expired ones.
+// returns them fresh, with at least credentialsExpiryWindow left, and the
+// importer asks before each plan, so a long root never hands Terraform
+// expired ones.
 // Without --regions, it also gives the region the profile or environment
 // resolves to, which the provider block names too once Scope has run.
 func (p *Provider) TerraformEnv(ctx context.Context) (map[string]string, error) {
