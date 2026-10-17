@@ -437,8 +437,8 @@ func TestResourceManagerListersRecordTags(t *testing.T) {
 }
 
 // Rules and subnets that come inline in the parent's list are used as they
-// are: no list is asked for per security group or per network, and an
-// inline empty list is an answer too. Only a parent without them is asked.
+// are: no list is asked for per security group or per network. Only a parent
+// without them, or with an empty list, as some emulators answer, is asked.
 func TestNetworkListersUseInlineChildren(t *testing.T) {
 	const (
 		rg      = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/"
@@ -455,14 +455,15 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 			armItem(empty, "empty", `{"securityRules":[]}`),
 			armItem(bare, "bare", ""),
 		),
-		bare + "/securityRules": armList(armItem(bare+"/securityRules/ssh", "ssh", "")),
+		empty + "/securityRules": armList(),
+		bare + "/securityRules":  armList(armItem(bare+"/securityRules/ssh", "ssh", "")),
 	}}
 	g := &NetworkSecurityGroupLister{}
 	g.Configure(harvest.ListerConfig{Settings: routedArgs(groups, "rg1")})
 	if err := g.List(); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "networkSecurityGroups", bare + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
+	if want := []string{rg + "networkSecurityGroups", empty + "/securityRules", bare + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
 		t.Errorf("security groups: requested %v, want %v", groups.paths, want)
 	}
 	wantGroups := []listedResource{
