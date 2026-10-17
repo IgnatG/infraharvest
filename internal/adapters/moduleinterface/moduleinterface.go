@@ -31,6 +31,10 @@ import (
 // RegistryURL is the public Terraform registry.
 const RegistryURL = "https://registry.terraform.io"
 
+// maxRead bounds what is read of a registry answer and of each .tf file
+// of a module archive, well above any real one.
+const maxRead = 16 << 20
+
 // Interface is a module version's variables and outputs.
 type Interface struct {
 	Source    string              `json:"source"`
@@ -88,7 +92,7 @@ func (c *Client) Latest(ctx context.Context, source string) (string, error) {
 			} `json:"versions"`
 		} `json:"modules"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxRead)).Decode(&body); err != nil {
 		return "", fmt.Errorf("%s versions: %w", source, err)
 	}
 	var newest *version.Version
@@ -187,9 +191,12 @@ func Read(r io.Reader, subdir string) (*Interface, error) {
 		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(name, ".tf") || top == "" || rest != subdir {
 			continue
 		}
-		src, err := io.ReadAll(tr)
+		src, err := io.ReadAll(io.LimitReader(tr, maxRead+1))
 		if err != nil {
 			return nil, err
+		}
+		if len(src) > maxRead {
+			return nil, fmt.Errorf("%s: larger than %d bytes", h.Name, maxRead)
 		}
 		f, diags := hclsyntax.ParseConfig(src, h.Name, hcl.InitialPos)
 		if diags.HasErrors() {

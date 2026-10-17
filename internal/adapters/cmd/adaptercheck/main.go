@@ -43,33 +43,53 @@ func run(write bool) error {
 	defer cancel()
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
 
+	var failed []string
 	for _, provider := range adapters.Providers() {
 		for _, a := range adapters.For(provider) {
+			var err error
 			if write {
-				if err := writeSnapshot(ctx, client, a); err != nil {
-					return err
-				}
-				continue
-			}
-			latest, err := client.Latest(ctx, a.Source)
-			if err != nil {
-				return err
-			}
-			if latest == a.Version {
-				continue
-			}
-			iface, err := client.Fetch(ctx, a.Source, latest)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("- `%s`: the adapter pins %s, the newest release is %s.", a.Source, a.Version, latest)
-			if problems := moduleinterface.Check(a, iface); len(problems) > 0 {
-				fmt.Printf(" The adapter doesn't fit it: %s.\n", strings.Join(problems, "; "))
+				err = writeSnapshot(ctx, client, a)
 			} else {
-				fmt.Printf(" The adapter fits its interface: pin it, refresh the snapshot with `go run ./internal/adapters/cmd/adaptercheck -write` (or the adapters workflow with write on the branch), and let the e2e test confirm the plans.\n")
+				err = check(ctx, client, a)
+			}
+			// One module's registry or GitHub error mustn't hide what
+			// the others found: report it and go on.
+			if err != nil {
+				failed = append(failed, a.Source)
+				if !write {
+					fmt.Printf("- `%s`: couldn't be checked: %v.\n", a.Source, err)
+				}
+				log.Printf("%s: %v", a.Source, err)
 			}
 		}
 	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d of the adapters' modules couldn't be read: %s", len(failed), strings.Join(failed, ", "))
+	}
+	return nil
+}
+
+// check prints a line when the module an adapter pins has a newer
+// release, saying whether the adapter fits that release's interface.
+func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapter) error {
+	latest, err := client.Latest(ctx, a.Source)
+	if err != nil {
+		return err
+	}
+	if latest == a.Version {
+		return nil
+	}
+	iface, err := client.Fetch(ctx, a.Source, latest)
+	if err != nil {
+		return err
+	}
+	line := fmt.Sprintf("- `%s`: the adapter pins %s, the newest release is %s.", a.Source, a.Version, latest)
+	if problems := moduleinterface.Check(a, iface); len(problems) > 0 {
+		line += fmt.Sprintf(" The adapter doesn't fit it: %s.", strings.Join(problems, "; "))
+	} else {
+		line += " The adapter fits its interface's names: pin it, refresh the snapshot with `go run ./internal/adapters/cmd/adaptercheck -write` (or the adapters workflow with write on the branch), check the adapter's Defaults against the new variables.tf, and let the e2e test confirm the plans."
+	}
+	fmt.Println(line)
 	return nil
 }
 
