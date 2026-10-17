@@ -56,6 +56,9 @@ inputs:
   pull-request-branch:
     description: Branch for the pull request.
     default: infraharvest/import
+  pull-request-token:
+    description: Token to push the branch and open the pull request with. GitHub starts no workflows for a pull request the default github.token opens, so checks never run on it; pass a GitHub App token (actions/create-github-app-token) or a fine-grained personal access token for them to run.
+    default: ${{ github.token }}
 
 outputs:
   exit-code:
@@ -161,6 +164,7 @@ runs:
       id: pull-request
       if: inputs.pull-request == 'true'
       with:
+        token: ${{ inputs.pull-request-token }}
         add-paths: ${{ inputs.out }}
         branch: ${{ inputs.pull-request-branch }}
         commit-message: "feat: import existing resources with infraharvest"
