@@ -4,3 +4,14 @@ service: acm
 types:
   aws_acm_certificate:
     arn: { service: acm, resource_type: "certificate" }
+    # By the status the lister records: certificates that will never be in
+    # use again.
+    skip:
+      - reason: a certificate ACM failed to issue
+        attributes: { status: FAILED }
+      - reason: a certificate whose validation timed out, which ACM can't issue
+        attributes: { status: VALIDATION_TIMED_OUT }
+      - reason: an expired certificate
+        attributes: { status: EXPIRED }
+      - reason: a revoked certificate
+        attributes: { status: REVOKED }

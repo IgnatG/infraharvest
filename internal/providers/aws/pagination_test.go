@@ -158,10 +158,7 @@ func TestBudgetsPaginates(t *testing.T) {
 
 func TestCloud9Paginates(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
-		switch call.Op {
-		case "DescribeEnvironmentStatus":
-			return `{"status":"ready","message":"ok"}`
-		case "DescribeEnvironments":
+		if call.Op == "DescribeEnvironments" {
 			return recordCloud9Describe(t, call, map[string]string{"env-1": "ec2", "env-2": "ec2"})
 		}
 		id, token := pageOf(call, "env")
@@ -174,24 +171,6 @@ func TestCloud9Paginates(t *testing.T) {
 	}
 
 	assertIDs(t, g.Resources, "aws_cloud9_environment_ec2", "env-1", "env-2")
-}
-
-func TestCloud9ReturnsStatusError(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
-		switch call.Op {
-		case "DescribeEnvironmentStatus":
-			return `{"__type":"AccessDeniedException","message":"denied"}`
-		case "DescribeEnvironments":
-			return recordCloud9Describe(t, call, map[string]string{"env-1": "ec2"})
-		}
-		return `{"environmentIds":["env-1"]}`
-	})
-	g := &Cloud9Lister{}
-
-	// Before the fix, the ignored error left details nil and this panicked.
-	if err := g.List(); err == nil {
-		t.Error("want the DescribeEnvironmentStatus error")
-	}
 }
 
 // wafListOps maps each WAF Classic list operation to the JSON keys of its

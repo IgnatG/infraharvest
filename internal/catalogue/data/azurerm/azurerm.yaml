@@ -94,6 +94,16 @@ types:
       - reason: a Microsoft Defender for Cloud plan left on the Free tier, as every subscription has each plan; select it to import it
         ignore_case: true
         attributes: { tier: Free }
+  azurerm_management_lock:
+    service: management_lock
+    # The lister records each lock's name and the resource group of what
+    # it locks, so the rules for every type leave out the locks in the
+    # groups they leave out. Azure Backup adds a delete lock to each storage
+    # account whose file shares it protects.
+    skip:
+      - reason: the delete lock Azure Backup adds to a storage account whose file shares it protects, and expects to stay; select it to import it
+        ignore_case: true
+        attributes: { name: AzureBackupProtectionLock }
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource

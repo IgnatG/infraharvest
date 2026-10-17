@@ -492,9 +492,9 @@ func TestGoldenPrune(t *testing.T) {
 		filters   []Filter
 		set       bool
 	}{
-		{name: "no filters keeps duplicates", resources: several},
-		{name: "empty filter slice keeps duplicates", resources: several, filters: []Filter{}},
-		{name: "no filters set keeps duplicates", resources: several, set: true},
+		{name: "no filters drops duplicates", resources: several},
+		{name: "empty filter slice drops duplicates", resources: several, filters: []Filter{}},
+		{name: "no filters set drops duplicates", resources: several, set: true},
 		{name: "nil resources, no filters", resources: nil},
 		{name: "nil resources, a filter", resources: nil, filters: []Filter{id("vpc", "vpc-1")}},
 		{name: "empty resources, a filter", resources: []Resource{}, filters: []Filter{id("vpc", "vpc-1")}},

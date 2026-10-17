@@ -5,8 +5,10 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -15,6 +17,8 @@ import (
 	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // workspaceType is the Resource Manager type of a Log Analytics workspace.
@@ -48,11 +52,17 @@ func withoutWorkspaceDataSources(tree azlist.ARMSchemaTree) {
 // that azurerm has a resource type for, with one filtered list per kind
 // and workspace. It returns them under the IDs azurerm imports them by,
 // with their azurerm types by upper-case ID, so they need no further call
-// to tell their kind. A list that fails is logged and the others go on, as
-// azlist's own failures are; only a cancelled context stops them.
+// to tell their kind. A list that fails leaves the others to go on, and
+// the failures come back joined as a partial error (see harvest.Partial)
+// together with what was listed: a workspace's data sources that a
+// refused or throttled list left out are missing from the import, which
+// must not read as complete. A workspace gone since it was listed (404)
+// is no failure, as nothing that exists is left out. Only a cancelled
+// context, or a client that can't be built, is a full failure.
 func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, listed []azlist.AzureResource) ([]azlist.AzureResource, map[string]string, error) {
 	clients := map[string]*armoperationalinsights.DataSourcesClient{}
 	var found []azlist.AzureResource
+	var failures []error
 	types := map[string]string{}
 	for _, res := range listed {
 		if !strings.EqualFold(res.Id.TypeString(), workspaceType) {
@@ -80,7 +90,12 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 				if ctx.Err() != nil {
 					return nil, nil, ctx.Err()
 				}
-				log.Printf("azurerm: resource_graph: listing the %s data sources of %s: %v", k.kind, res.Id, err)
+				var respErr *azcore.ResponseError
+				if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+					log.Printf("azurerm: resource_graph: workspace %s is gone: %v", res.Id, err)
+					continue
+				}
+				failures = append(failures, fmt.Errorf("azurerm: resource_graph: listing the %s data sources of %s: %w", k.kind, res.Id, err))
 				continue
 			}
 			for _, source := range sources {
@@ -117,7 +132,7 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 			}
 		}
 	}
-	return found, types, nil
+	return found, types, harvest.Partial(errors.Join(failures...))
 }
 
 // knownTypes is query, except for the resources whose azurerm type is

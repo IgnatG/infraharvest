@@ -143,7 +143,8 @@ func ecsTargetGroups(ctx context.Context, client *ecs.Client, groups map[string]
 // the ECS cluster clusterARN registers its tasks in (see ecsTargetGroups).
 func ecsClusterTargetGroups(ctx context.Context, client *ecs.Client, clusterARN string, groups map[string]bool, owners map[string]string) error {
 	clusterName := arnName(clusterARN)
-	services := ecs.NewListServicesPaginator(client, &ecs.ListServicesInput{Cluster: aws.String(clusterARN)}, stopOnDuplicateToken)
+	input := &ecs.ListServicesInput{Cluster: aws.String(clusterARN), MaxResults: aws.Int32(ecsListServicesPageSize)}
+	services := ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)
 	for services.HasMorePages() {
 		page, err := services.NextPage(ctx)
 		if err != nil {

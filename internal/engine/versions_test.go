@@ -200,3 +200,59 @@ func TestProviderVersionWithinConstraints(t *testing.T) {
 		t.Errorf("no release meets < 6.0: %v", err)
 	}
 }
+
+func TestPinnedToLock(t *testing.T) {
+	versions := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
+	lock := []byte(`provider "registry.terraform.io/hashicorp/aws" {
+  version     = "6.30.1"
+  constraints = "~> 6.30"
+}
+`)
+	got, err := pinnedToLock(versions, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := string(VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.30"})); string(got) != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+
+	// A provider the lock doesn't record stays as it is.
+	other := VersionsFile("", Provider{Name: "google", Source: "hashicorp/google", Version: "~> 7.1"})
+	if got, err := pinnedToLock(other, lock); err != nil || string(got) != string(other) {
+		t.Errorf("got %s, %v; want it unchanged", got, err)
+	}
+}
+
+func TestLockedVersionOfAnOpenTofuProvider(t *testing.T) {
+	lock := []byte(`provider "registry.opentofu.org/hashicorp/aws" {
+  version = "6.2.0"
+}
+`)
+	if got := lockedVersionOf(lock, "hashicorp/aws"); got != "6.2.0" {
+		t.Errorf("got %q, want 6.2.0", got)
+	}
+	if got := lockedVersionOf(lock, "registry.terraform.io/hashicorp/aws"); got != "" {
+		t.Errorf("another registry's provider: got %q, want none", got)
+	}
+}
+
+// An answer larger than the limit fails, saying so, rather than being cut
+// off into a JSON error; one at the limit is read whole.
+func TestFetchVersionsLimit(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := registryBodyLimit
+		if r.URL.Path == "/large" {
+			n++
+		}
+		_, _ = w.Write([]byte(strings.Repeat(" ", n)))
+	}))
+	defer registry.Close()
+	content, _, err := fetchVersions(context.Background(), registry.Client(), registry.URL+"/fits")
+	if err != nil || len(content) != registryBodyLimit {
+		t.Errorf("at the limit: %d bytes, %v", len(content), err)
+	}
+	_, retry, err := fetchVersions(context.Background(), registry.Client(), registry.URL+"/large")
+	if err == nil || retry || !strings.Contains(err.Error(), "more than 4 MiB") {
+		t.Errorf("over the limit: retry %v, %v", retry, err)
+	}
+}

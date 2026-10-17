@@ -31,6 +31,7 @@ func TestBootstrap(t *testing.T) {
 		"azurerm": {
 			Backend{AzureRM: &AzureRM{ResourceGroupName: "state-rg", StorageAccountName: "acmestate", ContainerName: "tfstate"}},
 			map[string][]string{
+				"versions.tf":  {`required_version = ">= 1.10, < 2.0"`, `source  = "hashicorp/azurerm"`, `version = "~> 5.0"`},
 				"main.tf":      {`name     = "state-rg"`, `min_tls_version                 = "TLS1_2"`, "versioning_enabled = true", `container_access_type = "private"`},
 				"variables.tf": {`variable "location"`},
 			},

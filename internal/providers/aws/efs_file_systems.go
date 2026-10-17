@@ -5,7 +5,6 @@ package aws
 
 import (
 	"errors"
-	"log"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,11 +16,14 @@ import (
 // mount targets and its file system policy, and the access points.
 type EfsLister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts partFailures
 }
 
 // List lists the file systems with their parts, then the access
 // points, all by ID. Failing to list file systems or access points fails
-// the service; a failure to read a file system's parts is logged.
+// the service; the failures to read a file system's parts are returned
+// together as a partial error (see partFailures).
 func (g *EfsLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -29,9 +31,12 @@ func (g *EfsLister) List() error {
 	}
 	client := efs.NewFromConfig(config)
 	if err := g.listFileSystems(client); err != nil {
-		return err
+		return errors.Join(err, g.parts.err())
 	}
-	return g.listAccessPoints(client)
+	if err := g.listAccessPoints(client); err != nil {
+		return errors.Join(err, g.parts.err())
+	}
+	return g.parts.err()
 }
 
 // listFileSystems records every file system, each followed by its mount
@@ -55,7 +60,7 @@ func (g *EfsLister) listFileSystems(client *efs.Client) error {
 }
 
 // listMountTargets records the mount targets of the file system
-// fileSystemID. It logs an error and reports false when they cannot be
+// fileSystemID. It gathers an error and reports false when they cannot be
 // read; the file system's policy is then not asked for either, as it
 // would most likely fail the same way.
 func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) bool {
@@ -64,7 +69,7 @@ func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) bo
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: efs: mount targets of %s: %v", fileSystemID, err)
+			g.parts.add("mount targets of "+fileSystemID, err)
 			return false
 		}
 		for _, target := range page.MountTargets {
@@ -77,13 +82,13 @@ func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) bo
 
 // addFileSystemPolicy records the policy of the file system fileSystemID
 // by the file system's ID, with the policy document. A file system without
-// a policy has none recorded; any other error is logged.
+// a policy has none recorded; any other error is gathered.
 func (g *EfsLister) addFileSystemPolicy(client *efs.Client, fileSystemID string) {
 	out, err := client.DescribeFileSystemPolicy(g.Context(), &efs.DescribeFileSystemPolicyInput{FileSystemId: aws.String(fileSystemID)})
 	if err != nil {
 		var none *types.PolicyNotFound
 		if !errors.As(err, &none) {
-			log.Printf("aws: efs: policy of %s: %v", fileSystemID, err)
+			g.parts.add("policy of "+fileSystemID, err)
 		}
 		return
 	}

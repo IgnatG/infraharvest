@@ -86,7 +86,7 @@ The code is read more than written, so comments carry the reasoning. Write them 
 ## Context
 
 - Anything that does I/O or may run long takes a `context.Context` as its first argument: `importer.Import(ctx, ...)`, every method of `engine.Terraform`.
-- The context starts at the command (`c.Context()` in `internal/cli/providers/command.go`) and is passed down, so an interrupt stops the whole import; the sandbox's resume test relies on it.
+- The context starts at the command (`c.Context()` in `internal/cli/providers/command.go`) and is passed down, so an interrupt stops the whole import; the sandbox's resume test relies on it. The command catches the interrupt or SIGTERM once (`importer.InterruptContext`, from `withEngineRun` in `internal/cli/run.go`), not each Import call, and lets go of it after the first, so a second one stops the process at once.
 - A lister makes every API call with `g.Context()` (`harvest.ListerBase.Context`): it is set for each service, carries the `--list-timeout` deadline, and is cancelled when the user interrupts. Code below the command never calls `context.Background()` or `context.TODO()`, except `harvest.ListerBase.Context` for a lister no context was set for. A provider's `Init` takes the import's context for what it checks before listing, such as a Google region or an Azure Stack cloud's endpoints. A client that outlives the call it is made for takes `context.WithoutCancel(ctx)`, which keeps the context's values without its cancellation (`limitedClient` in `internal/providers/google/client.go`).
 - Whoever owns a timeout sets it, where it applies (`internal/adapters/cmd/adaptercheck/main.go`).
 
@@ -183,7 +183,7 @@ A new page goes into `mkdocs.yml`'s navigation; the `docs` workflow builds stric
 
 ## Releases
 
-The `release` workflow publishes a release from `main`: it runs the tests, tags the commit, and has GoReleaser (`.goreleaser.yaml`) build the archives, the signed checksum file, the SBOMs, the provenance and the signed container image. The release notes are generated: GitHub lists the pull requests merged since the previous release, so their titles (the squashed Conventional Commits) are the changelog, and GoReleaser adds how to install and verify the release below them.
+The `release` workflow publishes a release from `main`: it runs the tests in a job with a read-only token, then tags the commit and has GoReleaser (`.goreleaser.yaml`) build the archives, the signed checksum file, the SBOMs and the signed container image into a draft release, attests the build provenance, and only then publishes the draft. If a step after the tag fails, it deletes the draft and the tag, so the same version can be released again. One release runs at a time. The release notes are generated: GitHub lists the pull requests merged since the previous release, so their titles (the squashed Conventional Commits) are the changelog, and GoReleaser adds how to install and verify the release below them.
 
 1. Run `gh workflow run release --ref main -f version=v0.2.0`. A version with a suffix, such as `v0.2.0-rc.1`, is published as a prerelease, which GitHub never counts as the latest: the install script and the image's `latest` tag skip it.
 2. After the release, open a pull request that sets `devVersion` in `internal/version/version.go` to the next version with `-dev` (`v0.3.0-dev`), so builds from `main` don't report the version just released or one before it.
@@ -195,14 +195,13 @@ The `release` workflow publishes a release from `main`: it runs the tests, tags 
 | `gofmt -s`, import grouping | pre-commit hook, `make fast` | `megalinter` (golangci-lint's formatters) |
 | Licence headers, names, `reuse lint`, a single root commit | pre-commit hook, `make fast` (not `reuse lint` or the root commit) | `tests` (`repository`) |
 | Shell scripts, workflows | pre-commit hook (shellcheck, actionlint) | `megalinter` (shellcheck, actionlint, zizmor) |
-| Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee), `docs` (strict MkDocs build) |
+| Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee on links within the repository), `links` (external links, not required), `docs` (strict MkDocs build) |
 | YAML, JSON, Dockerfile, Terraform, secrets, vulnerable dependencies | none | `megalinter` |
 | Commit message | `commit-msg` hook | the pull request title, at review |
 | golangci-lint | `make lint` (compiles) | `megalinter` on every pull request; `make ci-lint` on a branch |
 | `go vet`, `go test` | `make vet`, `make test` (compile) | `tests` on every pull request; `make ci-check PKG=...` on a branch |
 | Golden files | `make golden` (compiles) | `make ci-golden PKG=...` |
 | `go mod tidy` | none | `make ci-tidy`; `tests` checks it |
-| Emulator round trips, race detector, Windows | none | `tests` on every pull request |
-| macOS | none | `macos` after merges to `main`, weekly, and by hand |
+| Emulator round trips, race detector, Windows, macOS, arm64 builds | none | `tests` on every pull request and after each merge to `main` |
 
 The fast checks need only the tools they run (gofmt, goimports, shellcheck, actionlint, Node.js), each optional: the hook skips a check whose tool is missing and says how to install it, and CI runs it anyway. Run the compiling checks locally only if your machine can take it; otherwise push the branch and use the `ci-*` targets, which need the [GitHub CLI](https://cli.github.com/). `make help` lists every target.

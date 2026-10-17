@@ -63,6 +63,10 @@ docker_signs:
 
 release:
   prerelease: auto
+  # The release workflow publishes the draft once the build provenance is
+  # attested, and deletes it if a step fails.
+  draft: true
+  replace_existing_draft: true
   # Below the notes, which GitHub writes from the pull requests merged
   # since the previous release (changelog below): how to install and verify
   # this release.

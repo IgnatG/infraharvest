@@ -44,7 +44,7 @@ func (az *NetworkSecurityGroupLister) List() error {
 		if group.ID == nil || group.Name == nil {
 			continue
 		}
-		az.recordBare(*group.ID, *group.Name, "azurerm_network_security_group")
+		az.recordTagged(*group.ID, *group.Name, "azurerm_network_security_group", group.Tags)
 		// Rules are listed under the group's own resource group, which is
 		// not --resource-group when the whole subscription is listed.
 		groupResourceGroup, err := resourceGroupOf(*group.ID)

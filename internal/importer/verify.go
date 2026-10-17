@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	goversion "github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
@@ -40,6 +41,9 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if format != FormatText && format != FormatJSON {
 		return fmt.Errorf("--format must be %s or %s, not %q", FormatText, FormatJSON, format)
 	}
+	if options.EngineTimeout < 0 {
+		return errors.New("--engine-timeout can't be negative")
+	}
 	roots, err := generatedRoots(out)
 	if err != nil {
 		return err
@@ -60,7 +64,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	var results []verifiedRoot
 	var failed []string
 	for _, dir := range roots {
-		opts := engine.Options{Scanners: scanners}
+		opts := engine.Options{Scanners: scanners, CommandTimeout: options.EngineTimeout}
 		if provider := rootProvider(out, dir, options); provider != nil {
 			cat, err := providerCatalogue(provider, catalogueDir)
 			if err != nil {
@@ -157,11 +161,12 @@ func generatedRoots(out string) ([]string, error) {
 
 // VerifyOptions say what Verify checks and how.
 type VerifyOptions struct {
-	Out           string // the output directory of the import
-	Engine        string // EngineTerraform or EngineTofu
-	TerraformPath string // the binary, or "" to find or install one
-	Format        string // FormatText or FormatJSON
-	Catalogue     string // directory of catalogue files the import used, if any
+	Out           string        // the output directory of the import
+	Engine        string        // EngineTerraform or EngineTofu
+	TerraformPath string        // the binary, or "" to find or install one
+	EngineTimeout time.Duration // how long each engine command may run; 0 means no limit
+	Format        string        // FormatText or FormatJSON
+	Catalogue     string        // directory of catalogue files the import used, if any
 	// Provider returns a new provider of the given name, or nil when it
 	// isn't compiled in: each root's catalogue comes from its provider.
 	Provider func(name string) harvest.Provider

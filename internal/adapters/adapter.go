@@ -223,6 +223,12 @@ func (r *Reader) RefersTo(name string, resource Resource) bool {
 	if diags.HasErrors() {
 		return false
 	}
+	return refersTo(expr, resource)
+}
+
+// refersTo reports whether an expression is a reference to resource:
+// <type>.<name>, with or without more steps.
+func refersTo(expr hclsyntax.Expression, resource Resource) bool {
 	traversal, ok := expr.(*hclsyntax.ScopeTraversalExpr)
 	if !ok || len(traversal.Traversal) < 2 || traversal.Traversal.RootName() != resource.Type {
 		return false

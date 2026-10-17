@@ -135,11 +135,11 @@ func TestNewCredentialTypes(t *testing.T) {
 		"user-assigned managed identity": {func(c *authConfig) { c.useMSI = true }, "*azidentity.ManagedIdentityCredential"},
 		"managed identity through ARM_MSI_ENDPOINT": {func(c *authConfig) {
 			c.useMSI, c.msiEndpoint = true, "https://management.stack.example/metadata/identity/oauth2/token"
-		}, "*azure.msiEndpointCredential"},
-		"Azure CLI": {func(*authConfig) {}, "*azidentity.AzureCLICredential"},
+		}, "cached *azure.msiEndpointCredential"},
+		"Azure CLI": {func(*authConfig) {}, "cached *azidentity.AzureCLICredential"},
 		"Azure CLI without a tenant": {func(c *authConfig) {
 			c.tenantID, c.clientID = "", ""
-		}, "*azidentity.AzureCLICredential"},
+		}, "cached *azidentity.AzureCLICredential"},
 	} {
 		cfg := application
 		tc.edit(&cfg)
@@ -148,7 +148,11 @@ func TestNewCredentialTypes(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		if got := fmt.Sprintf("%T", credential); got != tc.want {
+		got := fmt.Sprintf("%T", credential)
+		if cached, ok := credential.(*cachedCredential); ok {
+			got = fmt.Sprintf("cached %T", cached.credential)
+		}
+		if got != tc.want {
 			t.Errorf("%s: got a %s, want a %s", name, got, tc.want)
 		}
 	}
@@ -160,7 +164,11 @@ func TestNewCredentialPassesTheClientIDToTheMSIEndpoint(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		msi, ok := credential.(*msiEndpointCredential)
+		cached, ok := credential.(*cachedCredential)
+		if !ok {
+			t.Fatalf("got a %T, want its tokens cached", credential)
+		}
+		msi, ok := cached.credential.(*msiEndpointCredential)
 		if !ok {
 			t.Fatalf("got a %T", credential)
 		}
@@ -178,6 +186,10 @@ func TestNewCredentialNeedsTenantAndClient(t *testing.T) {
 		"a client certificate": {certificatePath: "/certs/sp.pem"},
 		"a client secret":      {clientSecret: "secret"},
 		"OIDC":                 {useOIDC: true, oidcRequestURL: "https://oidc.example/token", oidcRequestToken: "request-token"},
+		"an OIDC token":        {useOIDC: true, oidcToken: "id-token"},
+		"Azure DevOps pipeline OIDC": {
+			useOIDC: true, oidcRequestURL: "https://dev.azure.example/oidc", oidcRequestToken: "request-token", adoServiceConnectionID: "connection",
+		},
 	}
 	for words, settings := range methods {
 		for _, ids := range [][2]string{{"", "client"}, {"tenant", ""}, {"", ""}} {

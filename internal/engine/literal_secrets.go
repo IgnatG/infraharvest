@@ -4,7 +4,7 @@
 package engine
 
 import (
-	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -161,6 +162,13 @@ func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags
 		value := stringLiteral(e)
 		if value == "" {
 			return nil
+		}
+		// A script, such as an instance's user data, is looked into
+		// line by line: a secret it sets moves the whole script.
+		if !tags && scriptKey(key) {
+			if reason := scriptSecret(value); reason != "" {
+				return []foundSecret{{attribute: path, key: key, value: value, reason: reason, literal: e, whole: true}}
+			}
 		}
 		// A JSON document is looked into first, so that a secret in it
 		// becomes a variable of its own and the rest keeps its text; the
@@ -306,21 +314,99 @@ func secretsInJSONString(e *hclsyntax.TemplateExpr, value, path, key string) []f
 	return found
 }
 
+// scriptKey reports whether key is an argument or metadata key that holds
+// a script an instance runs, such as an EC2 launch template's user_data,
+// kept in base64, or a Compute Engine instance's startup script.
+func scriptKey(key string) bool {
+	switch strings.ToLower(key) {
+	case "user_data", "user_data_base64", "custom_data", "metadata_startup_script", "startup_script",
+		"user-data", "startup-script", "shutdown-script", "windows-startup-script-ps1", "windows-startup-script-cmd",
+		"sysprep-specialize-script-ps1", "sysprep-specialize-script-cmd", "cloud-init", "cloud_init":
+		return true
+	}
+	return false
+}
+
+var (
+	// scriptAssignment finds what a line of a script sets: an environment
+	// variable (NAME=value, export NAME=value, $env:NAME = value), a YAML
+	// key (name: value), or a command-line option (--name value,
+	// --name=value).
+	scriptAssignment = []*regexp.Regexp{
+		regexp.MustCompile(`(?:^|[\s;&|(])(?:export\s+|set\s+|\$env:)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^\s;&|]+)`),
+		regexp.MustCompile(`^\s*-?\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:\s+("[^"]*"|'[^']*'|\S+)\s*$`),
+		regexp.MustCompile(`(?:^|\s)--([A-Za-z][A-Za-z0-9-]*)(?:=|\s+)("[^"]*"|'[^']*'|[^\s;&|-][^\s;&|]*)`),
+	}
+	// mysqlPassword finds the password a mysql command line gives as
+	// -p<password>.
+	mysqlPassword = regexp.MustCompile(`\bmysql(?:dump|admin)?\b.*\s-p("[^"]+"|'[^']+'|[^\s'"]+)`)
+	// base64Text is what a base64 script, such as a launch template's user
+	// data, looks like.
+	base64Text = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,2}$`)
+)
+
+// scriptSecret says why the script value holds a secret, or returns "": a
+// credential format anywhere in it, or a line that sets a key whose name
+// says it is a secret (see secretReason) to a value of its own, not one it
+// reads from elsewhere, as "$DB_PASSWORD" or "$(aws secretsmanager ...)"
+// does. A script in base64 is decoded first.
+func scriptSecret(value string) string {
+	text := value
+	if v := strings.TrimSpace(value); len(v)%4 == 0 && base64Text.MatchString(v) {
+		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil && utf8.Valid(decoded) {
+			text = string(decoded)
+		}
+	}
+	if name := credentialFormat(text); name != "" {
+		return "the script holds what looks like a " + name
+	}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if m := mysqlPassword.FindStringSubmatch(line); m != nil && scriptValue(m[1]) {
+			return "the script gives mysql a password"
+		}
+		for _, re := range scriptAssignment {
+			for _, m := range re.FindAllStringSubmatch(line, -1) {
+				key, v := m[1], strings.Trim(m[2], `"'`)
+				if secretKeyName(key) && scriptValue(v) && secretReason(key, v, true) != "" {
+					return "the script sets " + key + ", whose name says it is a secret"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// scriptValue reports whether a value a script sets is written in it, not
+// read from a variable, a command or a file.
+func scriptValue(v string) bool {
+	v = strings.Trim(v, `"'`)
+	return v != "" && !strings.ContainsAny(v[:1], "$`<@%") && !strings.Contains(v, "$(") && !strings.Contains(v, "${")
+}
+
 // secretReason says why value, going by key, is a secret, or returns "".
 // Credential formats (see credentialFormat) are secrets anywhere. A value
 // whose key names a secret (see secretKeyName), or that looks random
 // enough to be one (see highEntropy), is a secret only where freeForm says
-// the key is a name someone chose, and only if it isn't plainly something
-// else (see plainValue).
+// the key is a name someone chose. A value whose key names a secret is one
+// unless it holds no secret at all (see noSecret): spaces and digits don't
+// make it plain, as a passphrase or a PIN has them. Any other value must
+// also not be plainly something else (see plainValue).
 func secretReason(key, value string, freeForm bool) string {
 	if name := credentialFormat(value); name != "" {
 		return "looks like a " + name
 	}
-	if !freeForm || plainValue(value) {
+	if !freeForm {
 		return ""
 	}
 	if secretKeyName(key) {
+		if noSecret(value) {
+			return ""
+		}
 		return "its name says it is a secret"
+	}
+	if plainValue(value) {
+		return ""
 	}
 	if !hashLikeKey(key) && highEntropy(value) {
 		return "looks like a random key or token"
@@ -331,10 +417,13 @@ func secretReason(key, value string, freeForm bool) string {
 // literalSecretPatterns are credential formats looked for in single
 // values, besides secretPatterns. A webhook URL is the whole value.
 var literalSecretPatterns = map[string]*regexp.Regexp{
-	"password in a connection string": regexp.MustCompile(`(?i)(^|;)\s*(password|pwd)\s*=\s*[^;\s]+`),
+	"password in a connection string": regexp.MustCompile(`(?im)(^|;)\s*(password|pwd)\s*=\s*[^;\s]+`),
 	"Azure shared access key":         regexp.MustCompile(`SharedAccessKey=[A-Za-z0-9+/=]{20,}`),
 	"Azure SAS token":                 regexp.MustCompile(`[?&]sig=[A-Za-z0-9%+/=]{20,}`),
 	"Slack webhook":                   regexp.MustCompile(`^https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}`),
+	"Discord webhook":                 regexp.MustCompile(`^https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}`),
+	"Microsoft Teams webhook":         regexp.MustCompile(`^https://([A-Za-z0-9-]+\.webhook|outlook)\.office(365)?\.com/webhook(b2)?/\S{20,}`),
+	"Zapier webhook":                  regexp.MustCompile(`^https://hooks\.zapier\.com/hooks/catch/[0-9]+/[A-Za-z0-9]+`),
 	"GitHub fine-grained token":       regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`),
 	"GitLab token":                    regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}\b`),
 	"npm token":                       regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`),
@@ -345,9 +434,35 @@ var literalSecretPatterns = map[string]*regexp.Regexp{
 
 var literalSecretPatternNames = sortedKeys(literalSecretPatterns)
 
+// authorizationPattern matches the value of an Authorization header with
+// the Basic or Bearer scheme.
+var authorizationPattern = regexp.MustCompile(`^(?i)(basic|bearer)\s+([A-Za-z0-9._~+/-]+=*)$`)
+
+// authorizationHeader reports whether value is an Authorization header's
+// credentials, as a scheduler job or an uptime check sends them: Basic with
+// the base64 of user:password, or Bearer with a token of 16 or more
+// characters that has digits or mixes upper and lower case, which the
+// words of a description don't.
+func authorizationHeader(value string) bool {
+	m := authorizationPattern.FindStringSubmatch(strings.TrimSpace(value))
+	if m == nil {
+		return false
+	}
+	token := m[2]
+	if strings.EqualFold(m[1], "basic") {
+		decoded, err := base64.StdEncoding.DecodeString(token)
+		return err == nil && strings.Contains(string(decoded), ":")
+	}
+	return len(token) >= 16 && (strings.ContainsAny(token, "0123456789") ||
+		(strings.ContainsAny(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && strings.ContainsAny(token, "abcdefghijklmnopqrstuvwxyz")))
+}
+
 // credentialFormat returns the name of the credential format value has,
 // such as a private key, or "".
 func credentialFormat(value string) string {
+	if authorizationHeader(value) {
+		return "credential in an Authorization header"
+	}
 	for _, name := range secretPatternNames {
 		if secretPatterns[name].MatchString(value) {
 			return name
@@ -376,23 +491,31 @@ var plainWords = map[string]bool{
 	"none": true, "null": true, "nil": true, "undefined": true, "default": true, "required": true, "optional": true,
 }
 
-// plainValue reports whether value is plainly not a secret: too short to
-// be one, a number or a setting, an ARN, a reference to a secret kept
-// elsewhere (Key Vault, Secrets Manager, Secret Manager), a URL without
-// credentials, a path, or text with spaces.
+// plainValue reports whether value is plainly not a secret: one that holds
+// none (see noSecret), a number, or text with spaces.
 func plainValue(value string) bool {
 	v := strings.TrimSpace(value)
+	if noSecret(v) || strings.ContainsAny(v, " \t\r\n") {
+		return true
+	}
+	_, err := strconv.ParseFloat(v, 64)
+	return err == nil
+}
+
+// noSecret reports whether value holds no secret, whatever it goes by: too
+// short to be one, a setting, an ARN, a reference to a secret kept
+// elsewhere (Key Vault, Secrets Manager, Secret Manager), a path, or a URL
+// without credentials.
+func noSecret(value string) bool {
+	v := strings.TrimSpace(value)
 	switch {
-	case len(v) < minSecretLength, plainWords[strings.ToLower(v)], strings.ContainsAny(v, " \t\r\n"):
+	case len(v) < minSecretLength, plainWords[strings.ToLower(v)]:
 		return true
 	case strings.HasPrefix(v, "arn:"), strings.HasPrefix(v, "@Microsoft.KeyVault("), strings.HasPrefix(v, "{{resolve:"):
 		return true
 	case strings.HasPrefix(v, "projects/") && strings.Contains(v, "/secrets/"):
 		return true
 	case pathPattern.MatchString(v) && !strings.ContainsAny(v, "+="):
-		return true
-	}
-	if _, err := strconv.ParseFloat(v, 64); err == nil {
 		return true
 	}
 	if urlPattern.MatchString(v) {
@@ -449,7 +572,7 @@ func keyWords(key string) []string {
 var secretKeyParts = []string{
 	"SECRET", "TOKEN", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "APIKEY", "PRIVATEKEY", "ACCESSKEY",
 	"SIGNINGKEY", "ENCRYPTIONKEY", "MASTERKEY", "ACCOUNTKEY", "SHAREDKEY", "AUTHKEY", "HMACKEY", "LICENSEKEY",
-	"CONNECTIONSTRING", "CONNSTR",
+	"CONNECTIONSTRING", "CONNSTR", "AUTHORIZATION", "BEARER", "COOKIE",
 }
 
 // secretKeyWords are words that name a secret on their own: DB_PASS,
@@ -467,7 +590,8 @@ var identifierWords = map[string]bool{
 	"REF": true, "LOCATION": true, "DOMAIN": true, "DOMAINS": true, "FORMAT": true, "MODE": true, "USER": true,
 	"USERNAME": true, "ISSUER": true, "AUDIENCE": true, "SCOPE": true, "SCOPES": true, "UNITS": true, "VALIDITY": true,
 	"LIFETIME": true, "DURATION": true, "COUNT": true, "SIZE": true, "LIMIT": true, "POLICY": true, "ROTATION": true,
-	"PROVIDER": true, "STORE": true, "VAULT": true,
+	"PROVIDER": true, "STORE": true, "VAULT": true, "SECONDS": true, "MINUTES": true, "HOURS": true, "DAYS": true,
+	"INTERVAL": true, "AGE": true, "RETRIES": true, "BEHAVIOR": true, "BEHAVIOUR": true,
 }
 
 // secretKeyName reports whether key names a secret, such as API_SECRET,
@@ -567,8 +691,9 @@ func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 // resources of the file at path into a new sensitive variable, named after
 // the resource and the key the value goes by, other than the variables in
 // taken, and rewrites the file. A value inside the JSON document of a
-// string is replaced in the string (as "${var.name}") where the JSON needs
-// no escaping for it; otherwise the whole string moves into the variable.
+// string is replaced in the string (as ${jsonencode(var.name)}) where
+// jsonencode writes it as the string has it; otherwise the whole string
+// moves into the variable.
 // It returns the variables, with the values, which infraharvest's own plans
 // need (see secretValues), and warnings about tags named after AWS access
 // key IDs.
@@ -634,7 +759,11 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 				if !inPlace {
 					break
 				}
-				inPlace = !strings.ContainsAny(f.value, "\"\\$%") && !strings.ContainsFunc(f.value, unicode.IsControl) &&
+				// The value must be in the text as it is, and jsonencode
+				// must write it as the text has it, so that the plan
+				// stays the same: jsonencode escapes <, >, & and the
+				// Unicode line separators.
+				inPlace = !strings.ContainsAny(f.value, "\"\\$%<>&\u2028\u2029") && !strings.ContainsFunc(f.value, unicode.IsControl) &&
 					strings.Contains(text, `\"`+f.value+`\"`)
 			}
 			if !inPlace {
@@ -644,9 +773,18 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: whole.outer, key: whole.outerKey, value: stringLiteral(literal), ty: cty.String})
 				continue
 			}
+			// jsonencode writes the quotes and escapes what the variable
+			// is set to, which may need it where the value found doesn't.
+			// A value the string repeats is one variable: replacing it
+			// replaces every occurrence.
+			byValue := map[string]bool{}
 			for _, f := range inJSON[literal] {
+				if byValue[f.value] {
+					continue
+				}
+				byValue[f.value] = true
 				v := name(address, f.key)
-				text = strings.ReplaceAll(text, `\"`+f.value+`\"`, `\"${var.`+v+`}\"`)
+				text = strings.ReplaceAll(text, `\"`+f.value+`\"`, `${jsonencode(var.`+v+`)}`)
 				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: f.attribute, key: f.key, value: f.value, ty: cty.String})
 			}
 			edits = append(edits, edit{start, end, text})
@@ -770,24 +908,15 @@ func (s *secretValues) remove() {
 }
 
 // redact replaces the secret values in s, such as a diagnostic that quotes
-// the value it rejects, with "(sensitive value)".
+// the value it rejects, with "(sensitive value)", in the escaped forms text
+// quotes them in too (see textForms).
 func redact(s string, secrets []Secret) string {
-	for _, secret := range secrets {
-		if len(secret.value) >= minSecretLength {
-			s = strings.ReplaceAll(s, secret.value, "(sensitive value)")
-		}
-	}
-	return s
+	return redactText(s, textForms(knownValues(secrets)))
 }
 
 // redactBytes is redact for file content.
 func redactBytes(b []byte, secrets []Secret) []byte {
-	for _, secret := range secrets {
-		if len(secret.value) >= minSecretLength {
-			b = bytes.ReplaceAll(b, []byte(secret.value), []byte("(sensitive value)"))
-		}
-	}
-	return b
+	return []byte(redact(string(b), secrets))
 }
 
 // scanLiteralSecrets returns, for a .tf or .hcl file, a finding for each

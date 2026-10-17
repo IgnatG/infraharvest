@@ -65,6 +65,7 @@ var serviceTable = []serviceEntry{
 	{"devicefarm", scopeRegional, listerOf[DeviceFarmLister]()},
 	{"docdb", scopeRegional, listerOf[DocDBLister]()},
 	{"dx", scopeRegional, listerOf[DirectConnectLister]()},
+	{"dx_gateway", scopeEastOnly, listerOf[DirectConnectGatewayLister]()},
 	{"dynamodb", scopeRegional, listerOf[DynamoDbLister]()},
 	{"ebs", scopeRegional, listerOf[EbsLister]()},
 	{"ec2_instance", scopeRegional, listerOf[Ec2Lister]()},

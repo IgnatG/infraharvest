@@ -5,9 +5,11 @@ package google
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"google.golang.org/api/cloudresourcemanager/v3"
 )
@@ -25,6 +27,11 @@ func Projects(ctx context.Context, organization string, folders []string) ([]str
 	return projectsUnder(ctx, svc, organization, folders)
 }
 
+// folderParallel is how many folders' projects and subfolders are listed
+// at once: an organization's folders are listed level by level, each
+// level's folders at once.
+const folderParallel = 8
+
 func projectsUnder(ctx context.Context, svc *cloudresourcemanager.Service, organization string, folders []string) ([]string, error) {
 	var parents []string
 	if organization != "" {
@@ -33,38 +40,73 @@ func projectsUnder(ctx context.Context, svc *cloudresourcemanager.Service, organ
 	for _, f := range folders {
 		parents = append(parents, "folders/"+strings.TrimPrefix(f, "folders/"))
 	}
-	seen := map[string]bool{}
+	seen, found := map[string]bool{}, map[string]bool{}
 	var projects []string
 	for len(parents) > 0 {
-		parent := parents[0]
-		parents = parents[1:]
-		if seen[parent] {
-			continue
+		var level []string
+		for _, parent := range parents {
+			if !seen[parent] {
+				seen[parent] = true
+				level = append(level, parent)
+			}
 		}
-		seen[parent] = true
-		err := svc.Projects.List().Parent(parent).Pages(ctx, func(page *cloudresourcemanager.ListProjectsResponse) error {
-			for _, p := range page.Projects {
-				if p.State == "ACTIVE" && !slices.Contains(projects, p.ProjectId) {
-					projects = append(projects, p.ProjectId)
+		ids := make([][]string, len(level))
+		subfolders := make([][]string, len(level))
+		errs := make([]error, len(level))
+		var wg sync.WaitGroup
+		slots := make(chan struct{}, folderParallel)
+		for i, parent := range level {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				ids[i], subfolders[i], errs[i] = listParent(ctx, svc, parent)
+			}()
+		}
+		wg.Wait()
+		if err := errors.Join(errs...); err != nil {
+			return nil, err
+		}
+		parents = nil
+		for i := range level {
+			for _, id := range ids[i] {
+				if !found[id] {
+					found[id] = true
+					projects = append(projects, id)
 				}
 			}
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("projects of %s: %w", parent, err)
-		}
-		err = svc.Folders.List().Parent(parent).Pages(ctx, func(page *cloudresourcemanager.ListFoldersResponse) error {
-			for _, f := range page.Folders {
-				if f.State == "ACTIVE" {
-					parents = append(parents, f.Name)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("folders of %s: %w", parent, err)
+			parents = append(parents, subfolders[i]...)
 		}
 	}
 	slices.Sort(projects)
 	return projects, nil
+}
+
+// listParent returns the IDs of the active projects right under parent,
+// an organization or a folder, and the names of its active folders.
+func listParent(ctx context.Context, svc *cloudresourcemanager.Service, parent string) (projects, folders []string, err error) {
+	err = svc.Projects.List().Parent(parent).Pages(ctx, func(page *cloudresourcemanager.ListProjectsResponse) error {
+		for _, p := range page.Projects {
+			if p.State == "ACTIVE" {
+				projects = append(projects, p.ProjectId)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("projects of %s: %w", parent, err)
+	}
+	err = svc.Folders.List().Parent(parent).Pages(ctx, func(page *cloudresourcemanager.ListFoldersResponse) error {
+		for _, f := range page.Folders {
+			if f.State == "ACTIVE" {
+				folders = append(folders, f.Name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("folders of %s: %w", parent, err)
+	}
+	return projects, folders, nil
 }

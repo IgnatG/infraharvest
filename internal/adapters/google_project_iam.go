@@ -48,13 +48,7 @@ func grantProject(r Resource) (string, bool) {
 	if project == nil {
 		return "", false
 	}
-	return string(bytesWithoutSpace(project.Expr().BuildTokens(nil))), true
-}
-
-// bytesWithoutSpace returns an expression without its white space, as
-// sameTokens compares it.
-func bytesWithoutSpace(tokens hclwrite.Tokens) []byte {
-	return []byte(strings.Join(strings.Fields(string(tokens.Bytes())), ""))
+	return string(tokensKey(project.Expr().BuildTokens(nil))), true
 }
 
 // grantCondition is a conditional grant's condition. The module writes an

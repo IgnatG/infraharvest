@@ -60,7 +60,7 @@ func mapGoogleServiceAccount(c Cluster) (*Call, error) {
 	sa.IgnoreDefault("disabled", cty.False)
 	// Terraform's own settings, which an import records at their defaults.
 	sa.IgnoreDefault("create_ignore_already_exists", cty.False)
-	sa.IgnoreDefault("deletion_policy", cty.StringVal("DELETE"))
+	sa.IgnoreDeletionPolicy()
 	if err := sa.Done(); err != nil {
 		return nil, err
 	}

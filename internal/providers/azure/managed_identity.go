@@ -47,7 +47,7 @@ func (az *ManagedIdentityLister) List() error {
 		if identity.ID == nil || identity.Name == nil {
 			continue
 		}
-		az.recordBare(*identity.ID, *identity.Name, "azurerm_user_assigned_identity")
+		az.recordTagged(*identity.ID, *identity.Name, "azurerm_user_assigned_identity", identity.Tags)
 		// Federated credentials are listed under the identity's own resource
 		// group, which is not --resource-group when the whole subscription is
 		// listed.

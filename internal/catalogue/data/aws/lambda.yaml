@@ -29,5 +29,13 @@ types:
       set: { filename: "lambda/{function_name}.zip" }
       ignore: [filename, code_sha256]
       reason: "the function's code is deployed outside Terraform; filename is a placeholder. To deploy it with Terraform, put the package there, set code_sha256 to its filebase64sha256, which is what makes the provider update the code when the package changes, and remove this"
+  aws_lambda_layer_version:
+    # AWS doesn't say where a layer's package came from, and Terraform can't
+    # read it back.
+    placeholder:
+      one_of: [filename, s3_bucket]
+      set: { filename: "lambda/layers/{layer_name}.zip" }
+      ignore: [filename, source_code_hash]
+      reason: "the layer's code was published outside Terraform; filename is a placeholder. To publish a new version with Terraform, put the package there, set source_code_hash to its filebase64sha256, and remove this"
   aws_lambda_permission:
     import_id: "{function_name}/{statement_id}"

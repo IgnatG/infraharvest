@@ -47,6 +47,7 @@ infraharvest discover aws
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
@@ -91,6 +92,7 @@ infraharvest discover azure
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
@@ -135,6 +137,7 @@ infraharvest discover google
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
@@ -193,6 +196,7 @@ infraharvest import aws
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
@@ -236,6 +240,7 @@ infraharvest import azure
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
@@ -279,6 +284,7 @@ infraharvest import google
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
@@ -317,7 +323,7 @@ infraharvest mcp [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--root` |  | directory the tools may read and write files in: selection files, output directories and reports (default: the current directory) |
+| `--root` |  | directory the tools may read and write files in: selection files, output directories and reports (default: the current directory, unless that is the root of a filesystem or the home directory) |
 
 ## infraharvest pick
 
@@ -363,6 +369,7 @@ infraharvest verify [output-directory] [flags]
 |---|---|---|
 | `--catalogue` |  | directory of catalogue files the import used to add to or override the built-in catalogue (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--engine` | `terraform` | terraform or tofu |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit) |
 | `--format` | `text` | text prints a summary; json prints each root's checks as JSON |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
 

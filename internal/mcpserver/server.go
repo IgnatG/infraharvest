@@ -20,9 +20,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -48,18 +52,21 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 func New(version, root string, run Runner) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infraharvest", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	t := &tools{run: run, root: root}
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "discover",
 		Title:       "List resources into a selection file",
 		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + scopeHelp,
-		Annotations: readOnly,
+		// It writes the selection file, merging into one that is there, so
+		// it isn't read-only, though it destroys nothing.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.discover)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
 		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + scopeHelp,
-		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false), IdempotentHint: true},
+		// Not idempotent: the same import again is refused, or with
+		// incremental adds what is new since.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.importSelection)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "report",
@@ -76,17 +83,38 @@ type tools struct {
 	run Runner
 	// root is the directory the tools' files must be under.
 	root string
+
+	mu sync.Mutex
+	// issued are the states of the imports the server asked the user to
+	// confirm, and hasn't run yet (see confirmationState).
+	issued map[string]bool
 }
 
 // within checks that path, which the agent chose, is under the root: an
 // agent may not read or write files anywhere else on the machine. The path
 // has to be under it as written and where it leads, so a symbolic link
-// under the root to somewhere else doesn't take it out.
-func (t *tools) within(what, path string) error {
+// under the root to somewhere else doesn't take it out. A relative path is
+// relative to the root, not to the directory the server runs in; within
+// returns the path to use, joined onto the root if it was relative.
+func (t *tools) within(what, path string) (string, error) {
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		// Such as a newline, which could make the confirmation the user is
+		// shown say something else.
+		return "", fmt.Errorf("%s %q has a control character", what, path)
+	}
 	root, err := filepath.Abs(t.root)
 	if err != nil {
-		return err
+		return "", err
 	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	return path, checkWithin(what, root, path)
+}
+
+// checkWithin checks that path, which is absolute, is under root (see
+// within).
+func checkWithin(what, root, path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -209,7 +237,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection == "" {
 		return nil, nil, errors.New("selection is required")
 	}
-	if err := t.within("selection", in.Selection); err != nil {
+	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
 	// Never the picker: the client talks to this process over stdio.
@@ -295,10 +323,13 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Selection == "" || in.Out == "" {
 		return nil, nil, errors.New("selection and out are required")
 	}
-	if err := t.within("selection", in.Selection); err != nil {
+	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	if err := t.within("out", in.Out); err != nil {
+	if in.Out, err = t.within("out", in.Out); err != nil {
+		return nil, nil, err
+	}
+	if err := t.linksStayUnder("out", in.Out); err != nil {
 		return nil, nil, err
 	}
 	engine := in.Engine
@@ -312,30 +343,40 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Incremental {
 		args = append(args, "--incremental")
 	}
+	// The selection file is read once: the user confirms these bytes, and the
+	// import reads them from a private copy, so a file the agent changes in
+	// between, such as with a discover running at the same time, isn't what
+	// is imported.
 	content, err := os.ReadFile(in.Selection)
 	if err != nil {
 		return nil, nil, err
 	}
-	summary, err := summarize(in.Selection)
+	snapshot, err := newSnapshot(content)
 	if err != nil {
 		return nil, nil, err
+	}
+	defer snapshot.remove()
+	summary, err := summarize(snapshot.path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", in.Selection, err)
 	}
 
 	// A person confirms the selection: an agent may not import on its own.
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	message := fmt.Sprintf("Import the %d resources that %s includes (%d excluded) into Terraform configuration in %s? infraharvest reads %s and writes files; it never applies anything.",
+	message := fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never applies anything.",
 		summary.Included, in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	if in.Incremental {
-		message = fmt.Sprintf("Add the resources that %s includes (%d excluded) and that the roots in %s don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
+		message = fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	}
 	state := confirmationState(args, content)
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {
-			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", strings.Join(args, " "))), nil, nil
+			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", shellJoin(args))), nil, nil
 		}
+		t.issue(state)
 		return &mcp.CallToolResult{
 			InputRequests: mcp.InputRequestMap{confirmation: &mcp.ElicitParams{
 				Message:         message,
@@ -345,11 +386,18 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		}, nil, nil
 	}
 	answer, ok := req.Params.InputResponses[confirmation].(*mcp.ElicitResult)
-	if !ok || answer.Action != "accept" || req.Params.RequestState != state {
+	// Only an answer to a request this server made counts, and only once.
+	if !ok || answer.Action != "accept" || req.Params.RequestState != state || !t.redeem(state) {
 		return errorResult("The user didn't confirm the import, so nothing was imported."), nil, nil
 	}
 
-	stdout, stderr, code, err := t.run(ctx, args)
+	childArgs := slices.Clone(args)
+	for i, a := range childArgs {
+		if a == "--selection="+in.Selection {
+			childArgs[i] = "--selection=" + snapshot.path
+		}
+	}
+	stdout, stderr, code, err := t.run(ctx, childArgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -387,6 +435,49 @@ func confirmationState(args []string, content []byte) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
+// issue records that the server asked the user to confirm the import
+// state identifies.
+func (t *tools) issue(state string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.issued == nil {
+		t.issued = map[string]bool{}
+	}
+	t.issued[state] = true
+}
+
+// redeem reports whether the server asked the user to confirm the import
+// state identifies, and forgets it: one confirmation runs one import.
+func (t *tools) redeem(state string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.issued[state] {
+		return false
+	}
+	delete(t.issued, state)
+	return true
+}
+
+// snapshot is a private copy of a selection file's content.
+type snapshot struct {
+	dir, path string
+}
+
+func newSnapshot(content []byte) (*snapshot, error) {
+	dir, err := os.MkdirTemp("", "infraharvest-mcp-")
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, "selection.yaml")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	return &snapshot{dir: dir, path: path}, nil
+}
+
+func (s *snapshot) remove() { _ = os.RemoveAll(s.dir) }
+
 // canAsk reports whether the client can ask its user to confirm.
 func canAsk(session *mcp.ServerSession) bool {
 	params := session.InitializeParams()
@@ -402,14 +493,50 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 	if in.Out == "" {
 		return nil, nil, errors.New("out is required")
 	}
-	if err := t.within("out", in.Out); err != nil {
+	out, err := t.within("out", in.Out)
+	if err != nil {
 		return nil, nil, err
 	}
-	content, err := os.ReadFile(filepath.Join(in.Out, report.Dir, "report.md"))
+	in.Out = out
+	// The report's own path too: .infraharvest or report.md could be a
+	// symbolic link that leads out of the root, such as one a cloned
+	// repository plants to a credentials file.
+	path := filepath.Join(in.Out, report.Dir, "report.md")
+	if _, err := t.within("report", path); err != nil {
+		return nil, nil, err
+	}
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("report %q isn't a regular file", path)
+	}
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
 	}
 	return textResult(string(content)), nil, nil
+}
+
+// linksStayUnder checks that no symbolic link under dir, which an import
+// writes into, leads out of the root, as one a cloned repository plants
+// could: the import would write there. Terraform's working directories
+// are skipped, where terraform init links providers from the plugin cache.
+func (t *tools) linksStayUnder(what, dir string) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".terraform" {
+			return filepath.SkipDir
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			_, err := t.within(what, path)
+			return err
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // providers are the provider commands the tools run.
@@ -464,6 +591,9 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 	if len(s.Services) == 0 {
 		return nil, errors.New("services is required")
 	}
+	if err := checkScopeValues(s); err != nil {
+		return nil, err
+	}
 	args := []string{command, s.Provider, "--services=" + strings.Join(s.Services, ",")}
 	var errs []error
 	for _, f := range scopeFields {
@@ -484,6 +614,51 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 		return nil, err
 	}
 	return args, nil
+}
+
+// namePattern is what a service or a region is named like: vpc, s3,
+// resource_graph, eu-west-2, global, or * for all.
+var namePattern = regexp.MustCompile(`^[A-Za-z0-9_*.-]+$`)
+
+// checkScopeValues rejects a service or region that isn't named like one,
+// and any value with a control character, such as a newline, which could
+// make the confirmation the user is shown say something else.
+func checkScopeValues(s Scope) error {
+	for _, v := range append(slices.Clone(s.Services), s.Regions...) {
+		if !namePattern.MatchString(v) {
+			return fmt.Errorf("%q isn't a service or a region", v)
+		}
+	}
+	values := []string{s.Profile, s.Organization, s.ManagementGroup, s.ResourceGroup}
+	for _, list := range [][]string{s.Accounts, s.Projects, s.Folders, s.Subscriptions} {
+		values = append(values, list...)
+	}
+	for _, v := range values {
+		if strings.ContainsFunc(v, unicode.IsControl) {
+			return fmt.Errorf("%q has a control character", v)
+		}
+	}
+	return nil
+}
+
+// shellJoin joins args into a command line a POSIX shell reads back as
+// args: each argument with anything but letters, digits and -_.,:/=@+ in
+// it is single-quoted, so a path with a space or a ; stays one argument.
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = shellQuote(a)
+	}
+	return strings.Join(quoted, " ")
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_.,:/=@+-]+$`)
+
+func shellQuote(s string) string {
+	if shellSafe.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // scopeText says what an import reads, for the user to confirm: the
@@ -559,4 +734,40 @@ func tail(stderr []byte) string {
 		lines = lines[len(lines)-20:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// CheckDefaultRoot rejects dir as the root a server defaults to, the
+// working directory, when it is the root of a filesystem or home, the
+// user's home directory: some hosts start servers there, and the tools
+// could then read and write files anywhere on the machine, or anywhere in
+// the home directory. Naming it with --root still allows it.
+func CheckDefaultRoot(dir, home string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	if filepath.Dir(abs) == abs {
+		return fmt.Errorf("the working directory %s is the root of the filesystem: start the server in a project directory, or name the directory the tools may use with --root", abs)
+	}
+	if home != "" {
+		if h, err := filepath.EvalSymlinks(home); err == nil {
+			home = h
+		}
+		if h, err := filepath.Abs(home); err == nil && sameDir(abs, h) {
+			return fmt.Errorf("the working directory %s is the home directory: start the server in a project directory, or name the directory the tools may use with --root", abs)
+		}
+	}
+	return nil
+}
+
+// sameDir reports whether a and b, absolute and clean, are the same
+// directory: Windows paths are the same in any case.
+func sameDir(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }

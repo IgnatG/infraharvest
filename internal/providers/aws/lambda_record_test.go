@@ -23,7 +23,9 @@ func recordLambdaPolicy(policy string) string {
 
 // recordLambdaAPI answers the Lambda lister: functions resize and report on
 // two pages, resize with a resource policy and two event invoke configs,
-// two event source mappings, and layers deps (two versions) and tools.
+// two event source mappings, and layers deps (at version 3, resize using
+// version 1) and tools (at version 1, which report uses, as it does a layer
+// of another account).
 // Answers in override win.
 func recordLambdaAPI(t *testing.T, override map[string]string) func(apiCall) string {
 	return func(call apiCall) string {
@@ -34,9 +36,11 @@ func recordLambdaAPI(t *testing.T, override map[string]string) func(apiCall) str
 		switch path {
 		case "/2015-03-31/functions":
 			if recordSecondPage(call) {
-				return `{"Functions":[{"FunctionName":"report","FunctionArn":"` + recordLambdaARN + `function:report","Runtime":"python3.13"}]}`
+				return `{"Functions":[{"FunctionName":"report","FunctionArn":"` + recordLambdaARN + `function:report","Runtime":"python3.13",
+					"Layers":[{"Arn":"` + recordLambdaARN + `layer:tools:1"},{"Arn":"arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsPythonV3:5"}]}]}`
 			}
-			return `{"Functions":[{"FunctionName":"resize","FunctionArn":"` + recordLambdaARN + `function:resize","Runtime":"nodejs22.x"}],"NextMarker":"` + nextPageToken + `"}`
+			return `{"Functions":[{"FunctionName":"resize","FunctionArn":"` + recordLambdaARN + `function:resize","Runtime":"nodejs22.x",
+				"Layers":[{"Arn":"` + recordLambdaARN + `layer:deps:1"}]}],"NextMarker":"` + nextPageToken + `"}`
 		case "/2015-03-31/functions/" + recordLambdaARN + "function:resize/policy":
 			return recordLambdaPolicy(`{"Version":"2012-10-17","Id":"default","Statement":[
 				{"Sid":"AllowS3","Effect":"Allow","Principal":{"Service":"s3.amazonaws.com"},"Action":"lambda:InvokeFunction"},
@@ -57,16 +61,11 @@ func recordLambdaAPI(t *testing.T, override map[string]string) func(apiCall) str
 				id, id, recordLambdaARN, token)
 		case "/2018-10-31/layers":
 			if recordSecondPage(call) {
-				return `{"Layers":[{"LayerName":"tools","LayerArn":"` + recordLambdaARN + `layer:tools"}]}`
+				return `{"Layers":[{"LayerName":"tools","LayerArn":"` + recordLambdaARN + `layer:tools",
+					"LatestMatchingVersion":{"LayerVersionArn":"` + recordLambdaARN + `layer:tools:1","Version":1}}]}`
 			}
-			return `{"Layers":[{"LayerName":"deps","LayerArn":"` + recordLambdaARN + `layer:deps"}],"NextMarker":"` + nextPageToken + `"}`
-		case "/2018-10-31/layers/deps/versions":
-			if recordSecondPage(call) {
-				return `{"LayerVersions":[{"LayerVersionArn":"` + recordLambdaARN + `layer:deps:2","Version":2}]}`
-			}
-			return `{"LayerVersions":[{"LayerVersionArn":"` + recordLambdaARN + `layer:deps:1","Version":1}],"NextMarker":"` + nextPageToken + `"}`
-		case "/2018-10-31/layers/tools/versions":
-			return `{"LayerVersions":[{"LayerVersionArn":"` + recordLambdaARN + `layer:tools:1","Version":1}]}`
+			return `{"Layers":[{"LayerName":"deps","LayerArn":"` + recordLambdaARN + `layer:deps",
+				"LatestMatchingVersion":{"LayerVersionArn":"` + recordLambdaARN + `layer:deps:3","Version":3}}],"NextMarker":"` + nextPageToken + `"}`
 		}
 		return recordUnexpected(t, call)
 	}
@@ -75,7 +74,9 @@ func recordLambdaAPI(t *testing.T, override map[string]string) func(apiCall) str
 // The lister lists each function by ARN, followed by a permission per
 // statement of its resource policy, by <function ARN>/<statement ID>, and
 // its event invoke configs, by <function name>[:<qualifier>], then the
-// event source mappings, then every version of every layer.
+// event source mappings, then each layer's latest version followed by the
+// older versions the functions use, from the list of layers without a call
+// per layer; a layer of another account isn't listed.
 func TestRecordLambdaListsFunctionsMappingsAndLayers(t *testing.T) {
 	useFakeAPI(t, recordLambdaAPI(t, nil))
 	g := &LambdaLister{}
@@ -96,8 +97,8 @@ func TestRecordLambdaListsFunctionsMappingsAndLayers(t *testing.T) {
 			"event_source_arn": "arn:aws:sqs:us-east-1:123456789012:uuid-1", "function_name": resize}},
 		recordedResource{"aws_lambda_event_source_mapping", "uuid-2", "uuid-2", map[string]string{
 			"event_source_arn": "arn:aws:sqs:us-east-1:123456789012:uuid-2", "function_name": resize}},
+		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:3", "deps 3", nil},
 		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:1", "deps 1", nil},
-		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:2", "deps 2", nil},
 		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:tools:1", "tools 1", nil},
 	)
 }
@@ -114,7 +115,6 @@ func TestRecordLambdaReturnsErrors(t *testing.T) {
 		"ListFunctionEventInvokeConfigs": {"/2019-09-25/functions/resize/event-invoke-config/list", recordJSONError("AccessDeniedException"), "AccessDeniedException"},
 		"ListEventSourceMappings":        {"/2015-03-31/event-source-mappings", recordJSONError("AccessDeniedException"), "AccessDeniedException"},
 		"ListLayers":                     {"/2018-10-31/layers", recordJSONError("AccessDeniedException"), "AccessDeniedException"},
-		"ListLayerVersions":              {"/2018-10-31/layers/deps/versions", recordJSONError("AccessDeniedException"), "AccessDeniedException"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			useFakeAPI(t, recordLambdaAPI(t, map[string]string{tc.path: tc.answer}))

@@ -148,16 +148,26 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	if err != nil {
 		return nil, err
 	}
-	gate = append(gate, standards, runScanners(ctx, dir, opts.Scanners))
-
+	// Secrets first: external scanners are other people's code, and some
+	// send what they scan elsewhere, so they never see a directory that
+	// holds a secret value.
 	secretCheck, err := scanSecrets(dir, sensitive)
 	if err != nil {
 		return nil, err
 	}
-	gate = append(gate, secretCheck)
+	scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
+	if secretCheck.Passed {
+		scanners = runScanners(ctx, dir, opts.Scanners)
+	}
+	gate = append(gate, standards, scanners, secretCheck)
 
 	determinism, err := scanNondeterminism(dir)
 	if err != nil {
+		return nil, err
+	}
+	// Checks cut short, such as a scanner that couldn't run, say nothing
+	// of dir: a cancelled gate fails as cancelled, not as failed checks.
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return append(gate, determinism), nil
@@ -361,32 +371,48 @@ func changedAttributes(before, after, afterUnknown any) []string {
 
 // sensitiveValues returns the string values the plan marks sensitive in
 // the imported objects: what must never be written into a file. A value
-// that is also the whole of an attribute the plan doesn't mark sensitive is
-// left out: it is public already, such as an SSM parameter (whose value
-// the provider always marks sensitive) holding a region name, and so is a
-// value publicSensitive says isn't secret, such as a String parameter's.
+// publicSensitive says isn't secret, such as a String parameter's, is left
+// out, and so is one that is also the whole of an attribute the plan
+// doesn't mark sensitive, where it plainly isn't a secret (see
+// structural), such as an SSM parameter (whose value the provider always
+// marks sensitive) holding a region name.
 func sensitiveValues(p *tfjson.Plan) []string {
 	if p == nil {
 		return nil
 	}
-	seen, public := map[string]bool{}, map[string]bool{}
+	seen, public, notSecret := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, rc := range p.ResourceChanges {
 		if rc.Change != nil {
 			collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
 			collectPublic(rc.Change.Before, rc.Change.BeforeSensitive, public)
 			if v, ok := publicValue(rc); ok {
-				public[v] = true
+				notSecret[v] = true
 			}
 		}
 	}
 	values := make([]string, 0, len(seen))
 	for v := range seen {
-		if !public[v] {
+		if !notSecret[v] && (!public[v] || !structural(v)) {
 			values = append(values, v)
 		}
 	}
 	sort.Strings(values)
 	return values
+}
+
+// identifierLike is what names and IDs look like: lower-case words and
+// digits joined by dashes, such as eu-west-2, vpc-0abc1234 or app-prod.
+var identifierLike = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)+$`)
+
+// structural reports whether a value the plan marks sensitive somewhere
+// is plainly not a secret where another attribute holds it in the open:
+// it holds none (see noSecret), it is a number or text with spaces, or it
+// looks like a region, a name or an ID. A value that could be a password
+// or a token, with upper case, punctuation or the randomness of a key,
+// stays a secret even then, as a copy of a secret in an attribute the
+// provider doesn't mark is the leak G6 is for.
+func structural(v string) bool {
+	return plainValue(v) || identifierLike.MatchString(v)
 }
 
 // collectPublic adds the strings in value that mask doesn't mark sensitive.
@@ -493,35 +519,64 @@ func sortedKeys[V any](m map[string]V) []string {
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
 	err := walkOutputAndModules(dir, func(rel string, content string) {
-		for _, v := range sensitive {
-			if strings.Contains(content, v) {
-				check.Passed = false
-				check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
-				break
-			}
-		}
-		for _, name := range secretPatternNames {
-			if secretPatterns[name].MatchString(content) {
-				check.Passed = false
-				check.Details = append(check.Details, rel+": looks like it contains a "+name)
-			}
-		}
-		if awsKeyPair(content) {
-			check.Passed = false
-			check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
-		}
-		for _, name := range providerCredentials(rel, content) {
-			check.Passed = false
-			check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
-		}
-		// What Generate moves into variables, should any remain or come
-		// back with an edit.
-		if findings := scanLiteralSecrets(rel, content); len(findings) > 0 {
-			check.Passed = false
-			check.Details = append(check.Details, findings...)
-		}
+		scanFile(&check, sensitive, rel, content)
 	})
 	return check, err
+}
+
+// scanFile runs scanSecrets' checks on one file, rel, adding what it finds
+// to check.
+func scanFile(check *Check, sensitive []string, rel, content string) {
+	for _, v := range sensitive {
+		if strings.Contains(content, v) {
+			check.Passed = false
+			check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
+			break
+		}
+	}
+	for _, name := range secretPatternNames {
+		if secretPatterns[name].MatchString(content) {
+			check.Passed = false
+			check.Details = append(check.Details, rel+": looks like it contains a "+name)
+		}
+	}
+	if awsKeyPair(content) {
+		check.Passed = false
+		check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
+	}
+	for _, name := range providerCredentials(rel, content) {
+		check.Passed = false
+		check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
+	}
+	// What Generate moves into variables, should any remain or come
+	// back with an edit.
+	if findings := scanLiteralSecrets(rel, content); len(findings) > 0 {
+		check.Passed = false
+		check.Details = append(check.Details, findings...)
+	}
+}
+
+// checkReadme runs scanSecrets' checks on the README Generate wrote after
+// the gate ran, which the gate couldn't see, with values the secret values
+// no file may contain. Should the README hold one, G6 fails and the README
+// is written again to say so.
+func checkReadme(dir string, result *Result, values []string) error {
+	content, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	if err != nil {
+		return err
+	}
+	found := Check{Passed: true}
+	scanFile(&found, values, ReadmeFileName, string(content))
+	if found.Passed {
+		return nil
+	}
+	for i, c := range result.Gate {
+		if c.Name == CheckSecrets {
+			result.Gate[i].Passed = false
+			result.Gate[i].Details = append(result.Gate[i].Details, found.Details...)
+		}
+	}
+	return WriteReadme(dir, result)
 }
 
 // providerCredentials returns the credential arguments the provider blocks
@@ -760,6 +815,7 @@ func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOp
 // Secret variables need values, from TF_VAR_ environment variables or a
 // .auto.tfvars file; opts.Omit and opts.StateOnly are the provider's.
 func Verify(ctx context.Context, tf Terraform, dir string, opts Options) (Gate, error) {
+	tf = withTimeout(tf, opts.CommandTimeout)
 	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}

@@ -4,7 +4,8 @@
 package aws
 
 import (
-	"log"
+	"errors"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,8 @@ import (
 // groups, each with the targets registered in it.
 type AlbLister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts partFailures
 }
 
 // albRulesPageSize is how many listener rules one DescribeRules call asks
@@ -29,8 +32,9 @@ const albRulesPageSize = 400
 // List lists the load balancers with their parts, then the target
 // groups with their targets. Failing to list load balancers or target
 // groups fails the service. A failure further down, for one load balancer,
-// listener or target group, such as a permission the role lacks on it, is
-// logged and leaves out only that part, so that the rest is still listed.
+// listener or target group, such as a permission the role lacks on it,
+// leaves out only that part, so that the rest is still listed, and the
+// failures are returned together as a partial error (see partFailures).
 func (g *AlbLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -38,9 +42,12 @@ func (g *AlbLister) List() error {
 	}
 	client := elasticloadbalancingv2.NewFromConfig(config)
 	if err := g.listLoadBalancers(client); err != nil {
-		return err
+		return errors.Join(err, g.parts.err())
 	}
-	return g.listTargetGroups(client)
+	if err := g.listTargetGroups(client); err != nil {
+		return errors.Join(err, g.parts.err())
+	}
+	return g.parts.err()
 }
 
 // listLoadBalancers records every load balancer by ARN, named after its
@@ -63,31 +70,57 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 
 // listListeners records the listeners of the load balancer lbARN by ARN,
 // named after their protocol and port (see listenerName), each followed by
-// its rules and its extra certificates. An error is
-// logged; the load balancer stays, without the listeners not yet read.
+// its rules and its extra certificates, asked for only where the listener's
+// protocol can have them (see listenerHasRules and
+// listenerHasCertificates). An error is gathered; the load balancer stays,
+// without the listeners not yet read.
 func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string) {
 	input := &elasticloadbalancingv2.DescribeListenersInput{LoadBalancerArn: aws.String(lbARN)}
 	p := elasticloadbalancingv2.NewDescribeListenersPaginator(client, input, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: alb: listeners of %s: %v", lbARN, err)
+			g.parts.add("listeners of "+lbARN, err)
 			return
 		}
 		for _, listener := range page.Listeners {
 			arn, name := aws.ToString(listener.ListenerArn), listenerName(listener)
 			g.Resources = append(g.Resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
-			g.listListenerRules(client, arn, name)
-			g.listListenerCertificates(client, listener, name)
+			if listenerHasRules(listener) {
+				g.listListenerRules(client, arn, name)
+			}
+			if listenerHasCertificates(listener) {
+				g.listListenerCertificates(client, listener, name)
+			}
 		}
 	}
+}
+
+// layer4Protocols are the protocols of the listeners of network and
+// gateway load balancers, which have no rules but their default one.
+var layer4Protocols = []types.ProtocolEnum{
+	types.ProtocolEnumTcp, types.ProtocolEnumTls, types.ProtocolEnumUdp, types.ProtocolEnumTcpUdp, types.ProtocolEnumGeneve,
+}
+
+// listenerHasRules reports whether listener can have rules beyond its
+// default one, so that they are worth asking for: any listener but one of
+// layer4Protocols. A listener without a protocol is asked.
+func listenerHasRules(listener types.Listener) bool {
+	return !slices.Contains(layer4Protocols, listener.Protocol)
+}
+
+// listenerHasCertificates reports whether listener can have certificates,
+// so that they are worth asking for: an HTTPS or TLS listener, which always
+// has a default one, or any listener the answer gives certificates.
+func listenerHasCertificates(listener types.Listener) bool {
+	return listener.Protocol == types.ProtocolEnumHttps || listener.Protocol == types.ProtocolEnumTls || len(listener.Certificates) > 0
 }
 
 // listListenerRules records the rules of the listener listenerARN by ARN,
 // named after the listener's name and their priority, but its
 // default rule, which Terraform manages as part of the listener.
 // DescribeRules has a marker but pages are walked by hand, with the
-// largest page size. An error is logged; the listener stays, with its
+// largest page size. An error is gathered; the listener stays, with its
 // certificates.
 func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN, name string) {
 	err := paginateByMarker(func(marker *string) (*string, error) {
@@ -108,9 +141,7 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 		}
 		return page.NextMarker, nil
 	})
-	if err != nil {
-		log.Printf("aws: alb: rules of listener %s: %v", listenerARN, err)
-	}
+	g.parts.add("rules of listener "+listenerARN, err)
 }
 
 // listListenerCertificates records, across pages, the certificates of
@@ -118,8 +149,8 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 // itself: the one the answer marks as the default, or else the first
 // certificate the listener reports. Each is recorded as
 // "<listener ARN>_<certificate ARN>", Terraform's import ID, and named
-// after the listener's name. An error is
-// logged and ends the listener's certificates there.
+// after the listener's name. An error is gathered and ends the listener's
+// certificates there.
 func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener, name string) {
 	listenerARN := aws.ToString(listener.ListenerArn)
 	defaultARN := ""
@@ -131,7 +162,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: alb: certificates of listener %s: %v", listenerARN, err)
+			g.parts.add("certificates of listener "+listenerARN, err)
 			return
 		}
 		for _, certificate := range page.Certificates {
@@ -171,7 +202,7 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 // ",<port>" when the target has a port, then ",<zone>" when it names an
 // availability zone, after an empty port if it has none. The port and the
 // zone are recorded as attributes too. DescribeTargetHealth answers with
-// every target at once; an error is logged and leaves the group without
+// every target at once; an error is gathered and leaves the group without
 // its targets. Each target is named after the group, groupName, and the
 // target: an instance by its ID, which the import names after the
 // instance, an IP address, or the name of a Lambda function. The default
@@ -183,7 +214,7 @@ func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Cl
 		TargetGroupArn: aws.String(groupARN),
 	})
 	if err != nil {
-		log.Printf("aws: alb: targets of target group %s: %v", groupARN, err)
+		g.parts.add("targets of target group "+groupARN, err)
 		return
 	}
 	for _, description := range out.TargetHealthDescriptions {

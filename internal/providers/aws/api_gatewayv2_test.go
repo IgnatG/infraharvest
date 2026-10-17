@@ -9,7 +9,8 @@ import (
 
 // The lister pages every list by NextToken, keeps the API ID on later pages,
 // records the IDs Terraform imports each resource type with, and leaves out
-// the routes and integrations API Gateway manages.
+// the routes and integrations API Gateway manages. An HTTP API isn't asked
+// for models or route responses, which only WebSocket APIs have.
 func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		token := call.Query.Get("nextToken")
@@ -18,7 +19,7 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 			if token == "" {
 				return `{"items":[{"apiId":"a1","name":"orders"}],"nextToken":"t1"}`
 			}
-			return `{"items":[{"apiId":"a2","name":"users"}]}`
+			return `{"items":[{"apiId":"a2","name":"users"},{"apiId":"a3","name":"shop","protocolType":"HTTP"}]}`
 		case "/v2/apis/a1/stages":
 			if token == "" {
 				return `{"items":[{"stageName":"$default"}],"nextToken":"s1"}`
@@ -36,6 +37,12 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 			return `{"items":[{"authorizerId":"au1","name":"jwt","authorizerType":"JWT"}]}`
 		case "/v2/apis/a2/stages", "/v2/apis/a2/models", "/v2/apis/a2/integrations", "/v2/apis/a2/routes", "/v2/apis/a2/authorizers":
 			return `{"items":[]}`
+		case "/v2/apis/a3/routes":
+			return `{"items":[{"routeId":"r9","routeKey":"GET /cart"}]}`
+		case "/v2/apis/a3/stages", "/v2/apis/a3/integrations", "/v2/apis/a3/authorizers":
+			// An HTTP API has no models or route responses, so they
+			// aren't asked for.
+			return `{"items":[]}`
 		case "/v2/vpclinks":
 			return `{"items":[{"vpcLinkId":"v1","name":"link"}]}`
 		}
@@ -48,11 +55,11 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_apigatewayv2_api", "a1", "a2")
+	assertIDs(t, g.Resources, "aws_apigatewayv2_api", "a1", "a2", "a3")
 	assertIDs(t, g.Resources, "aws_apigatewayv2_stage", "a1/$default", "a1/prod")
 	assertIDs(t, g.Resources, "aws_apigatewayv2_model", "a1/m1")
 	assertIDs(t, g.Resources, "aws_apigatewayv2_integration", "a1/i1")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_route", "a1/r1")
+	assertIDs(t, g.Resources, "aws_apigatewayv2_route", "a1/r1", "a3/r9")
 	assertIDs(t, g.Resources, "aws_apigatewayv2_route_response", "a1/r1/rr1")
 	assertIDs(t, g.Resources, "aws_apigatewayv2_authorizer", "a1/au1")
 	assertIDs(t, g.Resources, "aws_apigatewayv2_vpc_link", "v1")

@@ -301,3 +301,20 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "b" {
 func squash(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
+
+// A lifecycle filter's tag key is written as a person writes one.
+func TestObjectKey(t *testing.T) {
+	for src, want := range map[string]string{
+		`"Env"`:         "Env",
+		`"cost-center"`: `"cost-center"`,
+		`"a b"`:         `"a b"`,
+	} {
+		f, diags := hclwrite.ParseConfig([]byte("x = "+src+"\n"), "", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatal(diags)
+		}
+		if got := strings.TrimSpace(string(objectKey(f.Body().GetAttribute("x").Expr().BuildTokens(nil)).Bytes())); got != want {
+			t.Errorf("objectKey(%s): got %s, want %s", src, got, want)
+		}
+	}
+}

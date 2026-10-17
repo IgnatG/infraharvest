@@ -48,7 +48,7 @@ func (az *PublicIPLister) appendAddresses() error {
 		if address.ID == nil || address.Name == nil {
 			continue
 		}
-		az.recordBare(*address.ID, *address.Name, "azurerm_public_ip")
+		az.recordTagged(*address.ID, *address.Name, "azurerm_public_ip", address.Tags)
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func (az *PublicIPLister) appendPrefixes() error {
 		if prefix.ID == nil || prefix.Name == nil {
 			continue
 		}
-		az.recordBare(*prefix.ID, *prefix.Name, "azurerm_public_ip_prefix")
+		az.recordTagged(*prefix.ID, *prefix.Name, "azurerm_public_ip_prefix", prefix.Tags)
 	}
 	return nil
 }

@@ -622,7 +622,7 @@ func moduleOutputsFile(g *moduleGroup) []byte {
 }
 
 // writeModule writes a group's module: main.tf, variables.tf, outputs.tf,
-// versions.tf and a README.
+// versions.tf and a README, with main.tf laid out (see layout).
 func writeModule(path string, g *moduleGroup, versions []byte) error {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
@@ -643,9 +643,15 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 	for _, o := range g.outputs {
 		fmt.Fprintf(&readme, "- `%s`\n", o)
 	}
+	// Laid out here, before holdModule moves it into place, where other
+	// roots may be reading or removing modules (see layoutDir).
+	main := g.main
+	if out, ok := layout(main); ok {
+		main = out
+	}
 
 	for name, content := range map[string][]byte{
-		"main.tf":        g.main,
+		"main.tf":        main,
 		"variables.tf":   g.variables,
 		"outputs.tf":     g.outputsFile,
 		"README.md":      []byte(readme.String()),
@@ -693,7 +699,7 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 				}
 			}
 			callBlock := hclwrite.NewBlock("module", []string{call})
-			callBlock.Body().SetAttributeValue("source", cty.StringVal(filepath.ToSlash(filepath.Join(source, g.name))))
+			callBlock.Body().SetAttributeValue("source", cty.StringVal(localSource(source, g.name)))
 			for _, in := range g.inputs {
 				value := in.values[ci]
 				if hasObjects(in.ty) {
@@ -741,8 +747,10 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 
 // liftModules is post-processing's module step: it moves repeated clusters
 // into generated modules under modulesDir, installs them, and keeps the
-// change only if the plan, with vars, still has the baseline's changes.
-func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, baseline changeSummary, vars []tfexec.PlanOption) (bool, error) {
+// change only if the plan, with vars, still has the baseline's totals and
+// each resource left in the root plans the change it had (see
+// sameChanges), as verify checks an edit.
+func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
@@ -766,11 +774,11 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, base
 	if err := initTerraform(ctx, tf); err != nil {
 		return false, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
-	diags, summary, err := plan(ctx, tf, vars...)
+	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil {
-		return false, errors.Join(fmt.Errorf("terraform plan: %w", err), undo())
+		return false, errors.Join(err, undo())
 	}
-	if len(diags) == 0 && summary != nil && *summary == baseline {
+	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
 	}
 	return false, undo()
@@ -877,4 +885,16 @@ func aliasedProvider(r resourceBlock) bool {
 	}
 	traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
 	return diags.HasErrors() || len(traversal) > 1
+}
+
+// localSource is the source of the module name in modulesDir, the path
+// rel says modulesDir is at from the root that calls it. It starts with
+// ./ or ../, as Terraform needs to read it as a local path, not a
+// registry address: modules/name would be one.
+func localSource(rel, name string) string {
+	source := filepath.ToSlash(filepath.Join(rel, name))
+	if !strings.HasPrefix(source, "../") {
+		source = "./" + source
+	}
+	return source
 }

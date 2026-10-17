@@ -4,14 +4,18 @@
 package adapters
 
 import (
+	"strings"
+
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
 
 // S3Bucket maps a bucket and its configuration resources onto
-// terraform-aws-modules/s3-bucket/aws. It declines buckets with
-// configuration it doesn't map yet, such as logging, CORS or replication.
+// terraform-aws-modules/s3-bucket/aws. Its other configuration resources,
+// such as logging, CORS, website or replication configuration, aren't
+// members: they stay in the root as resources, referring to the call's
+// s3_bucket_id output.
 var S3Bucket = Adapter{
 	Source:  "terraform-aws-modules/s3-bucket/aws",
 	Version: "5.17.0",
@@ -311,7 +315,7 @@ func s3LifecycleFilter(rule *Reader) (hclwrite.Tokens, error) {
 		if !hasKey || !hasValue {
 			return nil, Declinef("a lifecycle filter tag has no key or value")
 		}
-		o.Set("tags", hclwrite.TokensForObject([]hclwrite.ObjectAttrTokens{{Name: parenthesized(key), Value: value}}))
+		o.Set("tags", hclwrite.TokensForObject([]hclwrite.ObjectAttrTokens{{Name: objectKey(key), Value: value}}))
 	}
 	and, err := filter.Block("and")
 	if err != nil {
@@ -324,6 +328,22 @@ func s3LifecycleFilter(rule *Reader) (hclwrite.Tokens, error) {
 		o.Copy(and, append(conditions, "tags")...)
 	}
 	return o.Tokens(), nil
+}
+
+// objectKey makes an expression an object key as a person writes one: a
+// literal string as a name, such as Env, or quoted where it isn't one,
+// as "cost-center" (which HCL would take as a name too); anything else in
+// parentheses (see parenthesized).
+func objectKey(tokens hclwrite.Tokens) hclwrite.Tokens {
+	key, ok := literalString(tokens)
+	switch {
+	case !ok:
+		return parenthesized(tokens)
+	case hclsyntax.ValidIdentifier(key) && !strings.Contains(key, "-"):
+		return hclwrite.TokensForIdentifier(key)
+	default:
+		return hclwrite.TokensForValue(cty.StringVal(key))
+	}
 }
 
 // parenthesized makes an expression usable as an object key: (key).

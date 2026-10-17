@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"errors"
 	"log"
 	"slices"
 	"strconv"
@@ -19,12 +20,15 @@ import (
 // services, and the latest active revision of each task definition family.
 type EcsLister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts partFailures
 }
 
 // List lists the clusters with their services, then the task
 // definitions. Failing to list clusters or task definitions fails the
-// service; failing to list or describe a cluster's services is logged and
-// leaves out only those services.
+// service; failing to list or describe a cluster's services leaves out
+// only those services, and the failures are returned together as a partial
+// error (see partFailures).
 func (g *EcsLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -32,9 +36,12 @@ func (g *EcsLister) List() error {
 	}
 	client := ecs.NewFromConfig(config)
 	if err := g.listClusters(client); err != nil {
-		return err
+		return errors.Join(err, g.parts.err())
 	}
-	return g.listTaskDefinitions(client)
+	if err := g.listTaskDefinitions(client); err != nil {
+		return errors.Join(err, g.parts.err())
+	}
+	return g.parts.err()
 }
 
 // listClusters records every cluster by ARN, named after its name (the
@@ -59,15 +66,20 @@ func (g *EcsLister) listClusters(client *ecs.Client) error {
 // describes.
 const ecsDescribeServicesLimit = 10
 
-// listServices records the services of the cluster clusterARN, describing
-// them ten at a time. An error is logged and ends the cluster's services:
-// the cluster stays.
+// ecsListServicesPageSize is the most services one ListServices call
+// answers with; without it, ECS answers ten at a time.
+const ecsListServicesPageSize = 100
+
+// listServices records the services of the cluster clusterARN, listing
+// them ecsListServicesPageSize to a page and describing them ten at a time.
+// An error is gathered and ends the cluster's services: the cluster stays.
 func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName string) {
-	p := ecs.NewListServicesPaginator(client, &ecs.ListServicesInput{Cluster: aws.String(clusterARN)}, stopOnDuplicateToken)
+	input := &ecs.ListServicesInput{Cluster: aws.String(clusterARN), MaxResults: aws.Int32(ecsListServicesPageSize)}
+	p := ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			log.Printf("aws: ecs: services of cluster %s: %v", clusterARN, err)
+			g.parts.add("services of cluster "+clusterARN, err)
 			return
 		}
 		for batch := range slices.Chunk(page.ServiceArns, ecsDescribeServicesLimit) {
@@ -80,7 +92,7 @@ func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName str
 // for their task definitions, and records each by ARN, named
 // "<cluster>_<service>", in the order given. The cluster and service names
 // are recorded too, for Terraform's import ID "<cluster>/<service>". When
-// the description fails, it is logged and the services are left out; a
+// the description fails, it is gathered and the services are left out; a
 // service the answer doesn't describe, one deleted since it was listed, is
 // logged and left out.
 func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName string, serviceARNs []string) {
@@ -89,7 +101,7 @@ func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName stri
 		Services: serviceARNs,
 	})
 	if err != nil {
-		log.Printf("aws: ecs: services %s: %v", strings.Join(serviceARNs, ", "), err)
+		g.parts.add("services "+strings.Join(serviceARNs, ", "), err)
 		return
 	}
 	described := map[string]types.Service{}

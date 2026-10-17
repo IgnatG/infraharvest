@@ -4,7 +4,7 @@
 package aws
 
 import (
-	"log"
+	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -16,6 +16,8 @@ import (
 // bucket policies (the `s3` service).
 type S3Lister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts partFailures
 }
 
 // List records every bucket of the region as an aws_s3_bucket,
@@ -24,10 +26,12 @@ type S3Lister struct {
 // aws_s3_bucket_policy for it. ListBuckets is asked for the region's
 // buckets only, and gives each one's region, so no bucket needs a call of
 // its own; GetBucketLocation is only for an answer without regions, as an
-// emulator's may be, that has every region's buckets. Without a region (ProfileRegion), the region is the one the SDK resolved from
-// the profile or the environment. A listing error fails the service; a
-// bucket whose location can't be read is logged and left out, and one
-// whose policy can't be read is logged and listed without it.
+// emulator's may be, that has every region's buckets. Without a region
+// (ProfileRegion), the region is the one the SDK resolved from the profile
+// or the environment. A listing error fails the service; a bucket whose
+// location can't be read is left out, and one whose policy can't be read is
+// listed without it, and those failures are returned together as a partial
+// error (see partFailures).
 func (g *S3Lister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -46,14 +50,14 @@ func (g *S3Lister) List() error {
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
-			return err
+			return errors.Join(err, g.parts.err())
 		}
 		for _, bucket := range page.Buckets {
 			bucketRegion := aws.ToString(bucket.BucketRegion)
 			if bucketRegion == "" {
 				location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
 				if err != nil {
-					log.Printf("aws: s3: can't read the location of bucket %s; leaving it out: %v", aws.ToString(bucket.Name), err)
+					g.parts.add("location of bucket "+aws.ToString(bucket.Name), err)
 					continue
 				}
 				bucketRegion = s3BucketRegion(string(location.LocationConstraint))
@@ -64,12 +68,12 @@ func (g *S3Lister) List() error {
 			g.addBucket(svc, aws.ToString(bucket.Name))
 		}
 	}
-	return nil
+	return g.parts.err()
 }
 
 // addBucket records the bucket name and, first, its policy when it has one
 // that can be read. A bucket without a policy answers NoSuchBucketPolicy;
-// any other error, AccessDenied included, is logged and leaves the policy
+// any other error, AccessDenied included, is gathered and leaves the policy
 // out.
 func (g *S3Lister) addBucket(svc *s3.Client, name string) {
 	attributes := map[string]string{"force_destroy": "false", "acl": "private"}
@@ -79,7 +83,7 @@ func (g *S3Lister) addBucket(svc *s3.Client, name string) {
 		attributes["policy"] = *policy.Policy
 		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_s3_bucket_policy", "aws"))
 	case err != nil && apiErrorCode(err) != "NoSuchBucketPolicy":
-		log.Printf("aws: s3: can't read the policy of bucket %s; listing it without one: %v", name, err)
+		g.parts.add("policy of bucket "+name, err)
 	}
 	g.Resources = append(g.Resources, harvest.Record(name, name, "aws_s3_bucket", "aws", attributes))
 }

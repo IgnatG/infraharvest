@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"maps"
@@ -208,6 +209,11 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 			log.Printf("%s: using the resources discover listed (%s)", provider.Name(), path)
 			var failures []error
 			for _, f := range inv.Failures {
+				// Tags it missed are missing from the records too.
+				if strings.HasPrefix(f, tagsFailure) {
+					failures = append(failures, errors.New(f))
+					continue
+				}
 				for _, s := range options.Services {
 					if strings.HasPrefix(f, "service "+s+":") {
 						failures = append(failures, errors.New(f))
@@ -228,7 +234,11 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 		return listing{}, nil, err
 	}
 	listed := listing{resources: registry.ByService()}
-	listed.tags = readTags(ctx, provider, listed.resources)
+	var tagsErr error
+	listed.tags, tagsErr = readTags(ctx, provider, listed.resources)
+	if tagsErr != nil {
+		failures = append(failures, tagsErr)
+	}
 	if options.Discover {
 		inv := inventory{Version: inventoryVersion, Provider: provider.Name(), Scope: scope, Services: options.Services, Filter: options.filterArgs(), Records: listed.records()}
 		for _, f := range failures {
@@ -243,10 +253,12 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 
 // readTags returns the tags of the listed resources by "type id": those
 // their listers recorded (see harvest.AttributeTags), and those the
-// provider reads (see harvest.ProviderWithTags). Tags only inform
-// selection and the report, so a provider that can't read them is logged,
-// not failed.
-func readTags(ctx context.Context, provider harvest.Provider, resources map[string][]harvest.Resource) map[string]map[string]string {
+// provider reads (see harvest.ProviderWithTags). If the provider can't
+// read them, it returns what it has with the error: the import goes on, but
+// fails as partial (see checkFailures), since selection rules, owner
+// detection, layouts by environment and the report's counts by tag don't
+// see the tags it missed.
+func readTags(ctx context.Context, provider harvest.Provider, resources map[string][]harvest.Resource) (map[string]map[string]string, error) {
 	tags := map[string]map[string]string{}
 	var all []harvest.Resource
 	for _, rs := range resources {
@@ -259,11 +271,11 @@ func readTags(ctx context.Context, provider harvest.Provider, resources map[stri
 	}
 	withTags, ok := provider.(harvest.ProviderWithTags)
 	if !ok || len(all) == 0 {
-		return tags
+		return tags, nil
 	}
 	read, err := withTags.Tags(ctx, all)
 	if err != nil {
-		log.Printf("%s: couldn't read tags, so rules and reports by tag won't see them: %v", provider.Name(), err)
+		err = fmt.Errorf("%s couldn't read them, so selection rules, owner detection and counts by tag miss them: %w", tagsFailure, err)
 	}
 	for k, t := range read {
 		if tags[k] == nil {
@@ -271,5 +283,9 @@ func readTags(ctx context.Context, provider harvest.Provider, resources map[stri
 		}
 		maps.Copy(tags[k], t)
 	}
-	return tags
+	return tags, err
 }
+
+// tagsFailure starts the failure of a provider call whose tags couldn't
+// be read; an inventory keeps it, for an import that reuses it.
+const tagsFailure = "tags:"

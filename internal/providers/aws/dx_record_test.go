@@ -5,6 +5,7 @@ package aws
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 )
 
@@ -41,12 +42,37 @@ func recordDirectConnectAPI(t *testing.T, failing ...string) func(apiCall) strin
 	}
 }
 
-// The lister lists, in order, gateways across pages, then private, public
-// and transit virtual interfaces, then connections, leaving out those
-// deleted or rejected.
-func TestRecordDirectConnectListsGatewaysInterfacesAndConnections(t *testing.T) {
-	useFakeAPI(t, recordDirectConnectAPI(t))
+// The dx lister lists, in order, private, public and transit virtual
+// interfaces, then connections, leaving out those deleted or rejected. It
+// doesn't ask for the gateways, which are global: dx_gateway lists them
+// once.
+func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
+	api := recordDirectConnectAPI(t)
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "DescribeDirectConnectGateways" {
+			return recordUnexpected(t, call)
+		}
+		return api(call)
+	})
 	g := &DirectConnectLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_dx_private_virtual_interface", "dxvif-1", "app-private", nil},
+		recordedResource{"aws_dx_public_virtual_interface", "dxvif-2", "app-public", nil},
+		recordedResource{"aws_dx_transit_virtual_interface", "dxvif-3", "app-transit", nil},
+		recordedResource{"aws_dx_connection", "dxcon-1", "primary", nil},
+	)
+}
+
+// The dx_gateway lister lists the gateways across pages, leaving out a
+// deleted one.
+func TestRecordDirectConnectGatewayListsGateways(t *testing.T) {
+	useFakeAPI(t, recordDirectConnectAPI(t))
+	g := &DirectConnectGatewayLister{}
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -55,16 +81,19 @@ func TestRecordDirectConnectListsGatewaysInterfacesAndConnections(t *testing.T) 
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_dx_gateway", "dxgw-1", "dxgw-1", nil},
 		recordedResource{"aws_dx_gateway", "dxgw-2", "dxgw-2", nil},
-		recordedResource{"aws_dx_private_virtual_interface", "dxvif-1", "app-private", nil},
-		recordedResource{"aws_dx_public_virtual_interface", "dxvif-2", "app-public", nil},
-		recordedResource{"aws_dx_transit_virtual_interface", "dxvif-3", "app-transit", nil},
-		recordedResource{"aws_dx_connection", "dxcon-1", "primary", nil},
 	)
 }
 
-// Each list fails the service.
+// Dx_gateway is listed once, in us-east-1, not in every region.
+func TestDirectConnectGatewaysAreListedOnce(t *testing.T) {
+	if !slices.Contains(EastOnlyServices, "dx_gateway") {
+		t.Errorf("dx_gateway isn't among the services listed once in %s: %v", GlobalHomeRegion, EastOnlyServices)
+	}
+}
+
+// Each list fails its service.
 func TestRecordDirectConnectReturnsErrors(t *testing.T) {
-	for _, failing := range []string{"DescribeDirectConnectGateways", "DescribeVirtualInterfaces", "DescribeConnections"} {
+	for _, failing := range []string{"DescribeVirtualInterfaces", "DescribeConnections"} {
 		t.Run(failing, func(t *testing.T) {
 			useFakeAPI(t, recordDirectConnectAPI(t, failing))
 			g := &DirectConnectLister{}
@@ -72,4 +101,8 @@ func TestRecordDirectConnectReturnsErrors(t *testing.T) {
 			assertRecordedError(t, g.List(), "DirectConnectClientException")
 		})
 	}
+	useFakeAPI(t, recordDirectConnectAPI(t, "DescribeDirectConnectGateways"))
+	g := &DirectConnectGatewayLister{}
+
+	assertRecordedError(t, g.List(), "DirectConnectClientException")
 }

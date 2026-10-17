@@ -45,7 +45,9 @@ func (g *AutoScalingLister) List() error {
 	return g.listLaunchTemplates(ec2.NewFromConfig(config))
 }
 
-// listGroups records every Auto Scaling group by name.
+// listGroups records every Auto Scaling group by name, with its tags as
+// tags.<key>, which the answer has already: those of an EKS managed node
+// group tell that EKS manages it (see excludeEKSNodeGroups).
 func (g *AutoScalingLister) listGroups(client *autoscaling.Client) error {
 	p := autoscaling.NewDescribeAutoScalingGroupsPaginator(client, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -55,7 +57,11 @@ func (g *AutoScalingLister) listGroups(client *autoscaling.Client) error {
 		}
 		for _, group := range page.AutoScalingGroups {
 			name := aws.ToString(group.AutoScalingGroupName)
-			g.Resources = append(g.Resources, harvest.Record(name, name, "aws_autoscaling_group", "aws", autoScalingGroupAttributes()))
+			attributes := autoScalingGroupAttributes()
+			for _, tag := range group.Tags {
+				attributes["tags."+aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+			}
+			g.Resources = append(g.Resources, harvest.Record(name, name, "aws_autoscaling_group", "aws", attributes))
 		}
 	}
 	return nil
@@ -84,7 +90,7 @@ func (g *AutoScalingLister) listLaunchConfigurations(client *autoscaling.Client)
 }
 
 // listLaunchTemplates records every EC2 launch template by ID, named after
-// its name.
+// its name, with its tags as tags.<key>, which the answer has already.
 func (g *AutoScalingLister) listLaunchTemplates(client *ec2.Client) error {
 	p := ec2.NewDescribeLaunchTemplatesPaginator(client, &ec2.DescribeLaunchTemplatesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -93,11 +99,16 @@ func (g *AutoScalingLister) listLaunchTemplates(client *ec2.Client) error {
 			return err
 		}
 		for _, template := range page.LaunchTemplates {
-			g.Resources = append(g.Resources, harvest.RecordBare(
+			attributes := map[string]string{}
+			for _, tag := range template.Tags {
+				attributes["tags."+aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+			}
+			g.Resources = append(g.Resources, harvest.Record(
 				aws.ToString(template.LaunchTemplateId),
 				aws.ToString(template.LaunchTemplateName),
 				"aws_launch_template",
-				"aws"))
+				"aws",
+				attributes))
 		}
 	}
 	return nil

@@ -39,6 +39,25 @@ jobs:
 
 The role only needs read access: see [permissions/aws](../permissions/aws).
 
+## Checks on the pull request
+
+GitHub starts no workflows for a pull request opened with the default `github.token`, so your checks (a `terraform plan`, tflint, policy checks) never run on the import pull request, and required checks leave it unmergeable. For them to run, pass a GitHub App token, or a fine-grained personal access token with contents and pull requests write, as `pull-request-token`, for example from [actions/create-github-app-token](https://github.com/actions/create-github-app-token):
+
+```yaml
+      - uses: actions/create-github-app-token@<sha>
+        id: app-token
+        with:
+          app-id: ${{ vars.IMPORT_APP_ID }}
+          private-key: ${{ secrets.IMPORT_APP_PRIVATE_KEY }}
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          # the inputs above, and:
+          pull-request: "true"
+          pull-request-token: ${{ steps.app-token.outputs.token }}
+```
+
+With the default `github.token`, the repository's (or organisation's) setting **Allow GitHub Actions to create and approve pull requests**, under Settings, Actions, General, must be on, or opening the pull request fails; new repositories have it off.
+
 Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go after the blocks of the files of their types, such as `network.tf`, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
 
 ## Inputs
@@ -60,6 +79,7 @@ Run again on a schedule, the action adds what is new to the roots the repository
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `pull-request` | `false` | Open or update a pull request with the output |
 | `pull-request-branch` | `infraharvest/import` | The pull request's branch |
+| `pull-request-token` | `github.token` | Token to push the branch and open the pull request with: see [Checks on the pull request](#checks-on-the-pull-request) |
 
 ## Outputs
 

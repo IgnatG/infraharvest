@@ -42,7 +42,10 @@ func (g *DNSRecordSetsLister) List() error {
 	if region.Name != "" {
 		return nil
 	}
-	project, _ := g.Settings()["project"].(string)
+	project, err := projectSetting(g.Settings())
+	if err != nil {
+		return err
+	}
 	ctx := g.Context()
 	svc, err := dns.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {

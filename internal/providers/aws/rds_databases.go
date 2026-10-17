@@ -20,6 +20,12 @@ import (
 // leave them out.
 var otherEngines = []string{"docdb", "neptune"}
 
+// otherEngineFamily reports whether a parameter group family, such as
+// neptune1.3, is one of otherEngines'.
+func otherEngineFamily(family string) bool {
+	return slices.ContainsFunc(otherEngines, func(engine string) bool { return strings.HasPrefix(family, engine) })
+}
+
 // manualSnapshots is the snapshot type of the snapshots people take. The
 // automated ones belong to their database and expire with its retention
 // period, so only manual snapshots are listed.
@@ -31,6 +37,10 @@ const manualSnapshots = "manual"
 // name Terraform imports it with.
 type RDSLister struct {
 	Service
+	// docdbSubnetGroups are the subnet groups DocumentDB clusters use, which
+	// listDBClusters finds: the docdb service lists them as
+	// aws_docdb_subnet_group, so listDBSubnetGroups leaves them out.
+	docdbSubnetGroups map[string]bool
 }
 
 // List lists each kind in turn and returns the first error.
@@ -40,6 +50,7 @@ func (g *RDSLister) List() error {
 		return err
 	}
 	svc := rds.NewFromConfig(config)
+	g.docdbSubnetGroups = map[string]bool{}
 	for _, list := range []func(*rds.Client) error{
 		g.listDBClusters,
 		g.listDBClusterSnapshots,
@@ -64,7 +75,8 @@ func (g *RDSLister) add(id, resourceType string) {
 	g.Resources = append(g.Resources, harvest.RecordBare(id, id, resourceType, "aws"))
 }
 
-// listDBClusters adds the Aurora and Multi-AZ DB clusters.
+// listDBClusters adds the Aurora and Multi-AZ DB clusters, and remembers
+// the subnet groups of the DocumentDB clusters it leaves out.
 func (g *RDSLister) listDBClusters(svc *rds.Client) error {
 	p := rds.NewDescribeDBClustersPaginator(svc, &rds.DescribeDBClustersInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -73,6 +85,9 @@ func (g *RDSLister) listDBClusters(svc *rds.Client) error {
 			return err
 		}
 		for _, cluster := range page.DBClusters {
+			if aws.ToString(cluster.Engine) == docdbEngine && aws.ToString(cluster.DBSubnetGroup) != "" {
+				g.docdbSubnetGroups[aws.ToString(cluster.DBSubnetGroup)] = true
+			}
 			if slices.Contains(otherEngines, aws.ToString(cluster.Engine)) {
 				continue
 			}
@@ -82,7 +97,8 @@ func (g *RDSLister) listDBClusters(svc *rds.Client) error {
 	return nil
 }
 
-// listDBClusterSnapshots adds the manual cluster snapshots.
+// listDBClusterSnapshots adds the manual cluster snapshots, but those of
+// DocumentDB and Neptune clusters, which the RDS API lists too.
 func (g *RDSLister) listDBClusterSnapshots(svc *rds.Client) error {
 	p := rds.NewDescribeDBClusterSnapshotsPaginator(svc, &rds.DescribeDBClusterSnapshotsInput{
 		SnapshotType: aws.String(manualSnapshots),
@@ -93,6 +109,9 @@ func (g *RDSLister) listDBClusterSnapshots(svc *rds.Client) error {
 			return err
 		}
 		for _, snapshot := range page.DBClusterSnapshots {
+			if slices.Contains(otherEngines, aws.ToString(snapshot.Engine)) {
+				continue
+			}
 			g.add(aws.ToString(snapshot.DBClusterSnapshotIdentifier), "aws_db_cluster_snapshot")
 		}
 	}
@@ -160,9 +179,10 @@ func (g *RDSLister) listDBInstanceSnapshots(svc *rds.Client) error {
 	return nil
 }
 
-// listDBParameterGroups adds every parameter group. The default ones,
-// which RDS provides and can't be changed, are listed too; the catalogue's
-// skip rule leaves them out.
+// listDBParameterGroups adds every parameter group but those of a
+// DocumentDB or Neptune family, which the RDS API lists too. The default
+// ones, which RDS provides and can't be changed, are listed too; the
+// catalogue's skip rule leaves them out.
 func (g *RDSLister) listDBParameterGroups(svc *rds.Client) error {
 	p := rds.NewDescribeDBParameterGroupsPaginator(svc, &rds.DescribeDBParameterGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -171,14 +191,18 @@ func (g *RDSLister) listDBParameterGroups(svc *rds.Client) error {
 			return err
 		}
 		for _, group := range page.DBParameterGroups {
+			if otherEngineFamily(aws.ToString(group.DBParameterGroupFamily)) {
+				continue
+			}
 			g.add(aws.ToString(group.DBParameterGroupName), "aws_db_parameter_group")
 		}
 	}
 	return nil
 }
 
-// listDBSubnetGroups adds every subnet group. The default one is listed
-// too; the catalogue's skip rule leaves it out.
+// listDBSubnetGroups adds every subnet group but those DocumentDB clusters
+// use (see docdbSubnetGroups), so that a group isn't imported twice. The
+// default one is listed too; the catalogue's skip rule leaves it out.
 func (g *RDSLister) listDBSubnetGroups(svc *rds.Client) error {
 	p := rds.NewDescribeDBSubnetGroupsPaginator(svc, &rds.DescribeDBSubnetGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -187,6 +211,9 @@ func (g *RDSLister) listDBSubnetGroups(svc *rds.Client) error {
 			return err
 		}
 		for _, group := range page.DBSubnetGroups {
+			if g.docdbSubnetGroups[aws.ToString(group.DBSubnetGroupName)] {
+				continue
+			}
 			g.add(aws.ToString(group.DBSubnetGroupName), "aws_db_subnet_group")
 		}
 	}

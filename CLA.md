@@ -59,15 +59,16 @@ expected to provide support for Your Contributions.
 
 ## How to sign
 
-Signing is automated by the **CLA Assistant** workflow
+Signing is automated by the `cla` workflow
 ([`.github/workflows/cla.yml`](.github/workflows/cla.yml)). When you open a pull
-request, the `CLA Assistant` status check goes red and the bot comments asking
-you to sign. Sign **once**, which covers all your future pull requests, by
+request, the `CLA` status check goes red and the bot comments asking you to
+sign. Sign **once**, which covers all your future pull requests, by
 posting this exact comment on the pull request:
 
 > I have read the CLA Document and I hereby sign the CLA
 
 Your signature is recorded in `signatures/version1/cla.json` on the
-`cla-signatures` branch, and the check turns green. Pull requests can't be
-merged until it passes. Bots are allow-listed. See
+`cla-signatures` branch, and the check turns green. Comment `recheck` to set
+the check again. Pull requests can't be merged until it passes. Bots are
+allow-listed. See
 [CONTRIBUTING.md](CONTRIBUTING.md).

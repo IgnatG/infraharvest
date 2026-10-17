@@ -146,3 +146,32 @@ func waitOrFail(t *testing.T, wg *sync.WaitGroup) {
 		t.Error("the scopes didn't run at the same time")
 	}
 }
+
+// A scope that panics fails, and the others go on, one at a time or in
+// parallel.
+func TestImportEachRecoversAPanic(t *testing.T) {
+	for _, parallel := range []int{1, 2} {
+		activeRun = NewRun()
+		options := Options{Out: t.TempDir(), Parallel: parallel}
+		err := ImportEach(options, "account", []string{"a", "b", "c"}, func(o Options, scope string) error {
+			if scope == "b" {
+				panic("unexpected response")
+			}
+			if o.run == nil {
+				o.run = activeRun
+			}
+			recordScope(o, scope)
+			return nil
+		})
+		if err != nil {
+			t.Errorf("parallel %d: %v", parallel, err)
+		}
+		if len(activeRun.failures) != 1 || !strings.Contains(activeRun.failures[0].Error(), "account b: panic: unexpected response") {
+			t.Errorf("parallel %d: failures %v", parallel, activeRun.failures)
+		}
+		if activeRun.discovered["aws_vpc"] != 2 {
+			t.Errorf("parallel %d: discovered %v", parallel, activeRun.discovered)
+		}
+	}
+	activeRun = nil
+}

@@ -244,6 +244,7 @@ func TestCheckOptions(t *testing.T) {
 		{Options{All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
 		{Options{All: true, ListParallel: -1}, "--list-parallel can't be negative"},
 		{Options{All: true, Parallel: -2}, "--parallel can't be negative"},
+		{Options{All: true, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
 	} {
 		err := CheckOptions(p, tc.options)
 		switch {

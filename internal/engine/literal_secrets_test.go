@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -50,8 +51,14 @@ func assertNotWritten(t *testing.T, dir string, values ...string) {
 // provider doesn't mark map values sensitive, so Terraform generated them.
 func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 	dir := t.TempDir()
+	// The engine writes the secrets' var file under the temporary
+	// directory, which the fake then reads it from.
+	secretsTemp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, secretsTemp)
+	}
 	secret := fakeSecret("webhook")
-	tf := &fakeTerraform{dir: dir, generated: `resource "aws_lambda_function" "api" {
+	tf := &fakeTerraform{dir: dir, secretsTemp: secretsTemp, generated: `resource "aws_lambda_function" "api" {
   function_name = "api"
   role          = "arn:aws:iam::123456789012:role/api"
   environment {
@@ -157,8 +164,9 @@ resource "aws_ecs_task_definition" "legacy" {
 	for _, want := range []string{
 		`value = var.aws_ecs_task_definition_app_db_password`,
 		`value = "8080"`,
-		// A JSON string keeps its text, with the value read in place.
-		`\"value\":\"${var.aws_ecs_task_definition_legacy_api_token}\"`,
+		// A JSON string keeps its text, with the value read in place,
+		// JSON-encoded.
+		`\"value\":${jsonencode(var.aws_ecs_task_definition_legacy_api_token)}`,
 	} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("missing %q in:\n%s", want, generated)
@@ -290,7 +298,28 @@ func TestSecretReason(t *testing.T) {
 		{"SIGNING", secret, true, true},                                                        // random enough to be a key
 		{"X", "ghp_" + strings.Repeat("a1", 18), false, true},                                  // a token format, anywhere
 		{"DATABASE_URL", "postgres://app:" + "pw123456@db:5432/app", true, true},
+		// A key that names a secret: spaces and digits don't make the
+		// value plain.
+		{"DB_PASSWORD", "correct horse battery staple", true, true},
+		{"DB_PASSWORD", "12345678", true, true},
+		{"PIN_SECRET", "84629137", true, true},
+		{"Authorization", "Bearer " + secret[:24], true, true},
+		{"Cookie", "session=" + secret[:24], true, true},
+		// Authorization headers and webhook URLs that carry a token, under
+		// any key.
+		{"headers", "Bearer " + secret[:24], false, true},
+		{"X", "Basic " + base64.StdEncoding.EncodeToString([]byte("user:pa55word")), true, true},
+		{"WEBHOOK_URL", "https://discord.com/api/webhooks/123456789012345678/" + secret[:40], true, true},
+		{"WEBHOOK_URL", "https://contoso.webhook.office.com/webhookb2/" + secret[:36] + "/IncomingWebhook/" + secret[:32], true, true},
+		{"WEBHOOK_URL", "https://hooks.zapier.com/hooks/catch/123456/" + secret[:8], true, true},
 		// Not secrets.
+		{"DB_PASSWORD", "{{resolve:secretsmanager:prod/db:SecretString:password}}", true, false},
+		{"TOKEN_TTL_SECONDS", "86400000", true, false},
+		{"DB_PASSWORD", "disabled", true, false},
+		{"API_TOKEN", "https://vault.example.com/v1/secret/api", true, false},
+		{"description", "Basic authentication for the admin pages", true, false},
+		{"X", "Bearer authentication", true, false},
+		{"WEBHOOK_URL", "https://discord.com/channels/1234", true, false},
 		{"API_SECRET_ARN", "arn:aws:secretsmanager:eu-west-2:123456789012:secret:api", true, false},
 		{"TOKEN_URL", "https://login.example.com/oauth2/token", true, false},
 		{"AWS_ACCESS_KEY_ID", "AKIA" + "EXAMPLE" + "EXAMPLE12", true, false},
@@ -413,4 +442,123 @@ func TestRemoveStaleSecretValues(t *testing.T) {
 			t.Errorf("%s: exists=%v, want %v", filepath.Base(dir), err == nil, want)
 		}
 	}
+}
+
+// Scripts hide secrets the other checks can't see: in base64, as a launch
+// template keeps its user data, or on a line of their own.
+func TestLiteralSecretsInScripts(t *testing.T) {
+	password := fakeSecret("script-db")[:20]
+	token := fakeSecret("script-token")[:32]
+	userData := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nyum install -y mysql\nexport DB_PASSWORD='" + password + "'\n"))
+	clean := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nmkdir -p /opt/app\nexport DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id db --query SecretString --output text)\n"))
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_launch_template" "app" {
+  name      = "app"
+  user_data = "`+userData+`"
+}
+
+resource "aws_launch_template" "clean" {
+  name      = "clean"
+  user_data = "`+clean+`"
+}
+
+resource "google_compute_instance" "web" {
+  name = "web"
+  metadata = {
+    enable-oslogin = "TRUE"
+    startup-script = "#!/bin/bash\ncd /opt/app\nAPI_TOKEN=`+token+` ./run.sh --port 8080\n"
+  }
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range secrets {
+		got = append(got, s.Address+" "+s.Attribute)
+	}
+	want := []string{"aws_launch_template.app user_data", "google_compute_instance.web metadata.startup-script"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	generated := readFile(t, dir, GeneratedFileName)
+	for _, want := range []string{clean, `enable-oslogin = "TRUE"`} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("missing %q in:\n%s", want, generated)
+		}
+	}
+	assertNotWritten(t, dir, userData, token)
+}
+
+func TestScriptSecret(t *testing.T) {
+	secret := fakeSecret("script")[:20]
+	for script, want := range map[string]bool{
+		"export DB_PASSWORD=" + secret:                                         true,
+		"#!/bin/sh\nmysql -u root -p'" + secret + "' app < x.sql":              true,
+		"run --api-token " + secret:                                            true,
+		"#cloud-config\nchpasswd:\n  list: x\npassword: " + secret:             true,
+		"$env:CLIENT_SECRET = '" + secret + "'":                                true,
+		base64.StdEncoding.EncodeToString([]byte("API_KEY=" + secret)):         true,
+		"export DB_PASSWORD=$DB_PASSWORD_FROM_SSM":                             false,
+		"export DB_PASSWORD_FILE=/run/secrets/db":                              false,
+		"mkdir -p /opt/app && echo ECS_CLUSTER=prod >> /etc/ecs/ecs.config":    false,
+		"/etc/eks/bootstrap.sh prod --b64-cluster-ca " + secret:                false,
+		base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\necho hello\n")): false,
+	} {
+		if got := scriptSecret(script) != ""; got != want {
+			t.Errorf("scriptSecret(%q): got secret %v, want %v", script, got, want)
+		}
+	}
+}
+
+// A value a JSON string repeats becomes one variable, read wherever the
+// value was.
+func TestLiteralSecretsRepeatedInAJSONString(t *testing.T) {
+	token := fakeSecret("token")
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
+  family                = "legacy"
+  container_definitions = "[{\"environment\":[{\"name\":\"API_TOKEN\",\"value\":\"`+token+`\"},{\"name\":\"OLD_API_TOKEN\",\"value\":\"`+token+`\"}],\"name\":\"web\"}]"
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(secrets) != 1 || secrets[0].Variable != "aws_ecs_task_definition_legacy_api_token" {
+		t.Errorf("want one variable, got %+v", secrets)
+	}
+	if n := strings.Count(readFile(t, dir, GeneratedFileName), "${jsonencode(var.aws_ecs_task_definition_legacy_api_token)}"); n != 2 {
+		t.Errorf("the variable is read %d times, want 2", n)
+	}
+	assertNotWritten(t, dir, token)
+}
+
+// A value jsonencode would write otherwise than the string has it can't
+// be read in place without changing the plan: the whole string moves.
+func TestLiteralSecretsJSONEncodedOtherwise(t *testing.T) {
+	token := fakeSecret("amp")[:32] + "&" + fakeSecret("amp")[32:]
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
+  family                = "legacy"
+  container_definitions = "[{\"environment\":[{\"name\":\"API_TOKEN\",\"value\":\"`+token+`\"}],\"name\":\"web\"}]"
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(secrets) != 1 {
+		t.Fatalf("want one variable, got %+v", secrets)
+	}
+	if generated := readFile(t, dir, GeneratedFileName); strings.Contains(generated, "jsonencode(") {
+		t.Errorf("the value is read in place:\n%s", generated)
+	}
+	assertNotWritten(t, dir, token)
 }

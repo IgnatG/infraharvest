@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -48,6 +49,14 @@ type Model struct {
 	search    string
 	searching bool
 	onlyNew   bool
+	// withScopes is whether the file lists more than one scope; the tree
+	// then starts with them. The resources never change, only their
+	// decisions.
+	withScopes bool
+	// shownRows caches rows until what it depends on changes (see
+	// invalidate).
+	shownRows  []row
+	rowsCached bool
 
 	changed     bool
 	confirmQuit bool
@@ -65,9 +74,11 @@ func New(path string, f *selection.File) *Model {
 			}
 		}
 	}
-	for _, scope := range m.scopes() {
+	scopes := m.scopes()
+	for _, scope := range scopes {
 		m.expanded[scopeKey(scope)] = true
 	}
+	m.withScopes = len(scopes) > 1
 	return m
 }
 
@@ -160,8 +171,22 @@ func matchesTag(tags map[string]string, key, value string) bool {
 
 // rows lays out the tree: scopes, if there is more than one, then types,
 // then resources, as far as their groups are expanded. A search expands
-// every group with a match.
+// every group with a match. The rows are worked out again only after
+// the search, the new filter, a group or a resource's new mark changes.
 func (m *Model) rows() []row {
+	if !m.rowsCached {
+		m.shownRows, m.rowsCached = m.layout(), true
+	}
+	return m.shownRows
+}
+
+// invalidate makes rows lay out the tree again.
+func (m *Model) invalidate() {
+	m.rowsCached = false
+}
+
+// layout lays out the tree for rows.
+func (m *Model) layout() []row {
 	byScope := map[string]map[string][]int{}
 	for i, r := range m.file.Resources {
 		if !m.shown(r) {
@@ -177,7 +202,6 @@ func (m *Model) rows() []row {
 		scopes = append(scopes, s)
 	}
 	sort.Strings(scopes)
-	withScopes := len(m.scopes()) > 1
 	open := func(key string) bool { return m.expanded[key] || m.search != "" }
 
 	var rows []row
@@ -190,7 +214,7 @@ func (m *Model) rows() []row {
 		}
 		sort.Strings(types)
 		depth := 0
-		if withScopes {
+		if m.withScopes {
 			rows = append(rows, row{key: scopeKey(scope), label: scopeLabel(scope), resources: all})
 			if !open(scopeKey(scope)) {
 				continue
@@ -250,15 +274,16 @@ func (m *Model) key(name, text string) bool {
 		case "esc":
 			m.searching, m.search = false, ""
 		case "backspace":
-			if m.search != "" {
-				m.search = m.search[:len(m.search)-1]
-			}
+			// One character, which may take more than a byte.
+			_, size := utf8.DecodeLastRuneInString(m.search)
+			m.search = m.search[:len(m.search)-size]
 		default:
 			if text != "" {
 				m.search += text
 			}
 		}
 		m.cursor = 0
+		m.invalidate()
 		m.scroll()
 		return false
 	}
@@ -285,6 +310,7 @@ func (m *Model) key(name, text string) bool {
 	case "enter":
 		if m.cursor < len(rows) && rows[m.cursor].group() {
 			m.expanded[rows[m.cursor].key] = !m.expanded[rows[m.cursor].key]
+			m.invalidate()
 		} else {
 			m.toggle(rows)
 		}
@@ -302,9 +328,11 @@ func (m *Model) key(name, text string) bool {
 		m.searching = true
 	case "esc":
 		m.search = ""
+		m.invalidate()
 	case "u":
 		m.onlyNew = !m.onlyNew
 		m.cursor = 0
+		m.invalidate()
 	case "s":
 		if err := m.file.Save(m.path); err != nil {
 			m.err = err
@@ -331,6 +359,7 @@ func (m *Model) setExpanded(rows []row, open bool) {
 	r := rows[m.cursor]
 	if r.group() {
 		m.expanded[r.key] = open
+		m.invalidate()
 		return
 	}
 	if open {
@@ -339,6 +368,7 @@ func (m *Model) setExpanded(rows []row, open bool) {
 	for i := m.cursor - 1; i >= 0; i-- {
 		if rows[i].group() && rows[i].depth < r.depth {
 			m.expanded[rows[i].key] = false
+			m.invalidate()
 			m.cursor = i
 			return
 		}
@@ -365,6 +395,8 @@ func (m *Model) include(indexes []int, include bool) {
 		}
 		r.Include, r.New = include, false
 	}
+	// Losing the new mark can hide a resource from the new filter.
+	m.invalidate()
 }
 
 // scroll keeps the cursor on a row, and in view.

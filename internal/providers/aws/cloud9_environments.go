@@ -26,8 +26,9 @@ type Cloud9Lister struct {
 }
 
 // List lists the environments page by page. As each page arrives
-// it describes the page's environments, at most 25 to a call, and asks the
-// status of each EC2 environment, leaving out those that can't be imported.
+// it describes the page's environments, at most 25 to a call, and leaves
+// out those that can't be imported by the lifecycle the description has
+// (see importableLifecycle), with no call per environment.
 // Only EC2 environments are listed, as aws_cloud9_environment_ec2: an SSH
 // environment has no Terraform type, so it is logged and skipped, and so is
 // one the description leaves out, which was deleted in between. An error
@@ -44,25 +45,21 @@ func (g *Cloud9Lister) List() error {
 		if err != nil {
 			return err
 		}
-		kinds, err := g.environmentTypes(svc, page.EnvironmentIds)
+		described, err := g.describe(svc, page.EnvironmentIds)
 		if err != nil {
 			return err
 		}
 		for _, id := range page.EnvironmentIds {
-			kind, described := kinds[id]
-			if !described {
+			env, ok := described[id]
+			if !ok {
 				log.Printf("aws: cloud9: skipping environment %s, which was not described", id)
 				continue
 			}
-			if kind != types.EnvironmentTypeEc2 {
-				log.Printf("aws: cloud9: skipping environment %s of type %q, which Terraform has no resource for", id, kind)
+			if env.Type != types.EnvironmentTypeEc2 {
+				log.Printf("aws: cloud9: skipping environment %s of type %q, which Terraform has no resource for", id, env.Type)
 				continue
 			}
-			importable, err := g.importable(svc, id)
-			if err != nil {
-				return err
-			}
-			if importable {
+			if importableLifecycle(env.Lifecycle) {
 				g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_cloud9_environment_ec2", "aws"))
 			}
 		}
@@ -70,30 +67,28 @@ func (g *Cloud9Lister) List() error {
 	return nil
 }
 
-// environmentTypes describes the environments with these IDs, in batches
-// of cloud9DescribeBatch, and returns the type of each one described.
-func (g *Cloud9Lister) environmentTypes(svc *cloud9.Client, ids []string) (map[string]types.EnvironmentType, error) {
-	kinds := make(map[string]types.EnvironmentType, len(ids))
+// describe describes the environments with these IDs, in batches of
+// cloud9DescribeBatch, and returns each one described by its ID.
+func (g *Cloud9Lister) describe(svc *cloud9.Client, ids []string) (map[string]types.Environment, error) {
+	described := make(map[string]types.Environment, len(ids))
 	for batch := range slices.Chunk(ids, cloud9DescribeBatch) {
 		out, err := svc.DescribeEnvironments(g.Context(), &cloud9.DescribeEnvironmentsInput{EnvironmentIds: batch})
 		if err != nil {
 			return nil, err
 		}
 		for _, env := range out.Environments {
-			kinds[aws.ToString(env.Id)] = env.Type
+			described[aws.ToString(env.Id)] = env
 		}
 	}
-	return kinds, nil
+	return described, nil
 }
 
-// importable reports whether the environment with this ID can be imported:
-// any status but error, which never became a working environment, and
-// deleting, which will be gone before Terraform could import it. An answer
-// without a status counts as importable.
-func (g *Cloud9Lister) importable(svc *cloud9.Client, id string) (bool, error) {
-	out, err := svc.DescribeEnvironmentStatus(g.Context(), &cloud9.DescribeEnvironmentStatusInput{EnvironmentId: aws.String(id)})
-	if err != nil {
-		return false, err
-	}
-	return out.Status != types.EnvironmentStatusError && out.Status != types.EnvironmentStatusDeleting, nil
+// importableLifecycle reports whether an environment in this lifecycle
+// can be imported: any status but CREATE_FAILED, which never became a
+// working environment, and DELETING, which will be gone before Terraform
+// could import it. One whose delete failed still exists, and a description
+// without a lifecycle counts as importable.
+func importableLifecycle(lifecycle *types.EnvironmentLifecycle) bool {
+	return lifecycle == nil || (lifecycle.Status != types.EnvironmentLifecycleStatusCreateFailed &&
+		lifecycle.Status != types.EnvironmentLifecycleStatusDeleting)
 }

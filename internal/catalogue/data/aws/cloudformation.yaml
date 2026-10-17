@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+service: cloudformation
+types:
+  aws_cloudformation_stack:
+    # The lister records each stack's name: its ID is the stack's ARN.
+    skip:
+      - reason: a stack Elastic Beanstalk creates and manages for an environment
+        attribute_prefixes: { name: [awseb-e-] }
+      - reason: a stack a stack set deploys and manages
+        attribute_prefixes: { name: [StackSet-] }
+      - reason: a stack Service Catalog creates and manages for a provisioned product
+        attribute_prefixes: { name: [SC-] }

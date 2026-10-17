@@ -37,9 +37,10 @@ func (g *SecurityhubLister) List() error {
 	}
 	client := securityhub.NewFromConfig(config)
 
-	// Security Hub has no call that only says whether it is enabled; one
-	// page of enabled standards tells.
-	if _, err := client.GetEnabledStandards(g.Context(), &securityhub.GetEnabledStandardsInput{}); err != nil {
+	// Security Hub has no call that only says whether it is enabled; the
+	// enabled standards tell, so they are read first, and once.
+	subscriptions, err := g.enabledStandards(client)
+	if err != nil {
 		if strings.Contains(err.Error(), securityHubNotEnabled) {
 			return nil
 		}
@@ -51,7 +52,8 @@ func (g *SecurityhubLister) List() error {
 	if err := g.listMembers(client); err != nil {
 		return err
 	}
-	return g.listStandardsSubscriptions(client)
+	g.Resources = append(g.Resources, subscriptions...)
+	return nil
 }
 
 // listMembers records the member accounts by account ID, with their email
@@ -75,24 +77,25 @@ func (g *SecurityhubLister) listMembers(client *securityhub.Client) error {
 	return nil
 }
 
-// listStandardsSubscriptions records the enabled standards by the
-// subscription's ARN, which Terraform imports them by, with the
-// standard's own ARN as standards_arn, named after the standard and its
-// version (see standardName).
-func (g *SecurityhubLister) listStandardsSubscriptions(client *securityhub.Client) error {
+// enabledStandards returns the enabled standards, across pages, as
+// aws_securityhub_standards_subscription, by the subscription's ARN, which
+// Terraform imports them by, with the standard's own ARN as standards_arn,
+// named after the standard and its version (see standardName).
+func (g *SecurityhubLister) enabledStandards(client *securityhub.Client) ([]harvest.Resource, error) {
+	var subscriptions []harvest.Resource
 	pages := securityhub.NewGetEnabledStandardsPaginator(client, &securityhub.GetEnabledStandardsInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, subscription := range page.StandardsSubscriptions {
 			arn := aws.ToString(subscription.StandardsSubscriptionArn)
-			g.Resources = append(g.Resources, harvest.Record(arn, standardName(arn), "aws_securityhub_standards_subscription", "aws",
+			subscriptions = append(subscriptions, harvest.Record(arn, standardName(arn), "aws_securityhub_standards_subscription", "aws",
 				map[string]string{"standards_arn": aws.ToString(subscription.StandardsArn)}))
 		}
 	}
-	return nil
+	return subscriptions, nil
 }
 
 // standardName returns the standard and version a standards subscription's

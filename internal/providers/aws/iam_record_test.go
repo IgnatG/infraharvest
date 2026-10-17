@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"slices"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 )
 
 const (
@@ -235,5 +237,39 @@ func TestRecordIamReturnsErrors(t *testing.T) {
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})
+	}
+}
+
+// The authorization details and the instance profiles are asked for 1000
+// to a page, the most IAM answers, not its default of 100.
+func TestRecordIamAsksForFullPages(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		form, _ := url.ParseQuery(call.Body)
+		switch call.Op {
+		case "GetAccountAuthorizationDetails":
+			if form.Get("MaxItems") != "1000" {
+				t.Errorf("%s pages of %q items", call.Op, form.Get("MaxItems"))
+			}
+			return recordIamDetails(call, "", "")
+		case "ListInstanceProfiles":
+			if form.Get("MaxItems") != "1000" {
+				t.Errorf("%s pages of %q items", call.Op, form.Get("MaxItems"))
+			}
+			return recordIamList(call, "InstanceProfiles", "", "")
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &IamLister{}
+	cfg, err := g.sdkConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := iam.NewFromConfig(cfg)
+
+	if _, err := g.getAuthorizationDetails(client); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.getInstanceProfiles(client); err != nil {
+		t.Fatal(err)
 	}
 }

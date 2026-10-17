@@ -298,3 +298,113 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 		t.Errorf("resources: %+v", updated.Resources)
 	}
 }
+
+// Running discover again over one region, or one service, keeps the
+// decisions of the entries elsewhere: it drops only what it no longer
+// finds where it listed.
+func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
+	const a, b = "aws/123456789012/eu-west-1", "aws/123456789012/eu-west-2"
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	importID := func(r harvest.Resource) (string, bool) { return r.Observed.ID, true }
+	services := Options{Discover: true, Selection: path, Services: []string{"s3", "vpc"}}
+
+	first := NewRun()
+	first.options = services
+	for _, scope := range []string{a, b} {
+		listed := map[string][]harvest.Resource{
+			"vpc": {harvest.RecordBare("vpc-"+scope[len(scope)-1:], "vpc", "aws_vpc", "aws")},
+			"s3":  {harvest.RecordBare("bucket-"+scope[len(scope)-1:], "bucket", "aws_s3_bucket", "aws")},
+		}
+		first.addDiscovered(listing{resources: listed}, nil, scope, importID)
+		first.cover(scope, services)
+	}
+	if err := first.writeSelection(false); err != nil {
+		t.Fatal(err)
+	}
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range f.Resources {
+		f.Resources[i].Include, f.Resources[i].Note = false, "reviewed"
+	}
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// Region b again, with its VPC only: its bucket is gone, and the rest
+	// wasn't listed.
+	again := NewRun()
+	vpcOnly := Options{Discover: true, Selection: path, Services: []string{"vpc"}}
+	again.options = vpcOnly
+	again.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil}}, nil, b, importID)
+	again.cover(b, vpcOnly)
+	if err := again.writeSelection(false); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.HasIn(b, "aws_vpc", "vpc-2") {
+		t.Errorf("region %s's VPC, no longer found, is still listed", b)
+	}
+	for _, kept := range []struct{ scope, typ, id string }{
+		{a, "aws_vpc", "vpc-1"},
+		{a, "aws_s3_bucket", "bucket-1"},
+		{b, "aws_s3_bucket", "bucket-2"},
+	} {
+		if !updated.HasIn(kept.scope, kept.typ, kept.id) {
+			t.Errorf("%s %s %s was dropped", kept.scope, kept.typ, kept.id)
+			continue
+		}
+		if d := updated.DecideIn(kept.scope, kept.typ, kept.id, "", nil); d.Include {
+			t.Errorf("%s %s %s lost its decision: %+v", kept.scope, kept.typ, kept.id, d)
+		}
+	}
+
+	// With a filter, discover can't tell what it didn't match from what is
+	// gone, so nothing is dropped.
+	filtered := NewRun()
+	withTag := Options{Discover: true, Selection: path, Services: []string{"s3", "vpc"}, TagFilters: []string{"env=prod"}}
+	filtered.options = withTag
+	filtered.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, nil, a, importID)
+	filtered.cover(a, withTag)
+	if err := filtered.writeSelection(false); err != nil {
+		t.Fatal(err)
+	}
+	if updated, err = selection.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Resources) != 3 {
+		t.Errorf("a filtered discover dropped entries: %+v", updated.Resources)
+	}
+}
+
+// The state --managed-state names is read once per command: the other
+// Import calls, and the accounts imported alongside, reuse it.
+func TestExcludeManagedReadsStateOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terraform.tfstate")
+	content := `{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "old-archive"}}]}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := NewRun()
+	options := Options{ManagedState: []string{path}}
+	if _, err := excludeManaged(t.Context(), run, options, listedForSelection, nil, importIDForSelection); err != nil {
+		t.Fatal(err)
+	}
+	// Gone now: a second read would fail.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []*Run{run, run.child()} {
+		defaults, err := excludeManaged(t.Context(), r, options, listedForSelection, nil, importIDForSelection)
+		if err != nil {
+			t.Fatalf("the state was read again: %v", err)
+		}
+		if _, ok := defaults["aws_s3_bucket old-archive"]; !ok {
+			t.Errorf("defaults: %v", defaults)
+		}
+	}
+}

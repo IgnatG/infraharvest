@@ -111,6 +111,23 @@ type Entry struct {
 	// such as create_before_destroy for what others refer to while it is
 	// replaced.
 	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty"`
+	// Remove, in an overlay of a built-in entry, clears these of its
+	// fields, which an overlay can't clear by setting them: data_source,
+	// arn, cloud_control, inventory, placeholder and lifecycle.
+	Remove []string `yaml:"remove,omitempty"`
+}
+
+// removable are the fields an overlay's remove clears, by name.
+var removable = map[string]struct {
+	set   func(*Entry) bool
+	clear func(*Entry)
+}{
+	"data_source":   {func(e *Entry) bool { return e.DataSource != nil }, func(e *Entry) { e.DataSource = nil }},
+	"arn":           {func(e *Entry) bool { return e.ARN != nil }, func(e *Entry) { e.ARN = nil }},
+	"cloud_control": {func(e *Entry) bool { return e.CloudControl != nil }, func(e *Entry) { e.CloudControl = nil }},
+	"inventory":     {func(e *Entry) bool { return e.Inventory != nil }, func(e *Entry) { e.Inventory = nil }},
+	"placeholder":   {func(e *Entry) bool { return e.Placeholder != nil }, func(e *Entry) { e.Placeholder = nil }},
+	"lifecycle":     {func(e *Entry) bool { return e.Lifecycle != nil }, func(e *Entry) { e.Lifecycle = nil }},
 }
 
 // Lifecycle is lifecycle settings for every resource of a type, with the
@@ -207,6 +224,18 @@ type Catalogue struct {
 	entries  map[string]*Entry
 	// sources records where each entry came from, for errors.
 	sources map[string]string
+
+	// byInventory has the entries with an inventory type, by that type in
+	// lower case, in the order of their Terraform types, built on the first
+	// FromInventory: a catalogue doesn't change once loaded.
+	inventoryOnce sync.Once
+	byInventory   map[string][]inventoryEntry
+}
+
+// inventoryEntry is an entry FromInventory matches: its Terraform type
+// and its inventory name pattern in lower case, "" for any name.
+type inventoryEntry struct {
+	typ, name string
 }
 
 var (
@@ -271,14 +300,18 @@ func Load(provider, dir string) (*Catalogue, error) {
 		return base, nil
 	}
 	merged := base.clone()
+	var errs []error
 	for typ, e := range overlay.entries {
 		merged.sources[typ] = filepath.Join(dir, overlay.sources[typ])
 		if existing, ok := merged.entries[typ]; ok {
+			for _, err := range checkRemove(e) {
+				errs = append(errs, fmt.Errorf("%s: %s: %w", merged.sources[typ], typ, err))
+			}
 			e = existing.merge(e)
 		}
 		merged.entries[typ] = e
 	}
-	if err := merged.check(); err != nil {
+	if err := errors.Join(append(errs, merged.check())...); err != nil {
 		return nil, fmt.Errorf("catalogue %s: %w", dir, err)
 	}
 	return merged, nil
@@ -529,13 +562,6 @@ func (c *Catalogue) DataSources() map[string]DataSource {
 	return sources
 }
 
-// HasImportRules reports whether the catalogue decides how typ imports:
-// with templates, or not at all.
-func (c *Catalogue) HasImportRules(typ string) bool {
-	e, ok := c.entries[typ]
-	return ok && (len(e.ImportID) > 0 || e.NotImportable != "")
-}
-
 // ImportID returns the ID Terraform imports a resource of typ with, from
 // the ID its lister recorded and its attributes. It returns false, with
 // the reason, when Terraform can't import it: the type isn't importable,
@@ -596,25 +622,35 @@ func (c *Catalogue) InventoryTypes() []string {
 // entry has that type and a name pattern that matches, if it has one,
 // sorted. More than one means the catalogue can't tell them apart.
 func (c *Catalogue) FromInventory(assetType, name string) []string {
+	c.inventoryOnce.Do(c.indexInventory)
 	var types []string
-	for typ, e := range c.entries {
-		if e.Inventory != nil && e.Inventory.matches(assetType, name) {
-			types = append(types, typ)
+	lowerName := ""
+	for _, e := range c.byInventory[strings.ToLower(assetType)] {
+		if e.name != "" {
+			if lowerName == "" {
+				lowerName = strings.ToLower(name)
+			}
+			if ok, _ := path.Match(e.name, lowerName); !ok {
+				continue
+			}
 		}
+		types = append(types, e.typ)
 	}
-	sort.Strings(types)
 	return types
 }
 
-func (i *Inventory) matches(assetType, name string) bool {
-	if !strings.EqualFold(i.Type, assetType) {
-		return false
+// indexInventory builds byInventory (see FromInventory).
+func (c *Catalogue) indexInventory() {
+	c.byInventory = map[string][]inventoryEntry{}
+	for typ, e := range c.entries {
+		if e.Inventory != nil {
+			key := strings.ToLower(e.Inventory.Type)
+			c.byInventory[key] = append(c.byInventory[key], inventoryEntry{typ: typ, name: strings.ToLower(e.Inventory.Name)})
+		}
 	}
-	if i.Name == "" {
-		return true
+	for _, list := range c.byInventory {
+		sort.Slice(list, func(i, j int) bool { return list[i].typ < list[j].typ })
 	}
-	ok, _ := path.Match(strings.ToLower(i.Name), strings.ToLower(name))
-	return ok
 }
 
 func (r SkipRule) matches(id string, attributes map[string]string) bool {
@@ -721,7 +757,34 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	if overlay.Lifecycle != nil {
 		merged.Lifecycle = overlay.Lifecycle
 	}
+	for _, name := range overlay.Remove {
+		if field, ok := removable[name]; ok {
+			field.clear(&merged)
+		}
+	}
+	merged.Remove = nil
 	return &merged
+}
+
+// checkRemove reports what's wrong with an overlay entry's remove: a name
+// that isn't a removable field, one named twice, or one the entry sets
+// too.
+func checkRemove(overlay *Entry) []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, name := range overlay.Remove {
+		field, ok := removable[name]
+		switch {
+		case !ok:
+			errs = append(errs, fmt.Errorf("remove: %q: want %s", name, strings.Join(slices.Sorted(maps.Keys(removable)), ", ")))
+		case seen[name]:
+			errs = append(errs, fmt.Errorf("remove: %s twice", name))
+		case field.set(overlay):
+			errs = append(errs, fmt.Errorf("remove: %s is set too", name))
+		}
+		seen[name] = true
+	}
+	return errs
 }
 
 // MustBuiltin returns the provider's built-in catalogue, and panics if it

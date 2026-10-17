@@ -51,13 +51,24 @@ func recordSecurityHubAPI(t *testing.T, override map[string]string) func(apiCall
 
 // The lister lists the account (by ID, from STS) when Security Hub is
 // enabled, its members by account ID, and its standards subscriptions by
-// ARN, across pages.
+// ARN, across pages. The standards, which tell whether Security Hub is
+// enabled, are read once: one call per page.
 func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
-	useFakeAPI(t, recordSecurityHubAPI(t, nil))
+	api := recordSecurityHubAPI(t, nil)
+	standardsCalls := 0
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Path == "/standards/get" {
+			standardsCalls++
+		}
+		return api(call)
+	})
 	g := &SecurityhubLister{}
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
+	}
+	if standardsCalls != 2 {
+		t.Errorf("GetEnabledStandards called %d times, want 2, one per page", standardsCalls)
 	}
 
 	fsbp := recordSecurityHubSubARN + "aws-foundational-security-best-practices/v/1.0.0"

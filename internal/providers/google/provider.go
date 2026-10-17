@@ -7,10 +7,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
+	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -52,7 +58,9 @@ type Provider struct {
 // name), the project (args[1], else GOOGLE_CLOUD_PROJECT) and the provider
 // type (args[2]). A region other than global is looked up through the
 // Compute Engine API, with ctx, so that a misspelt --regions fails rather
-// than finding nothing.
+// than finding nothing. A project that hasn't enabled the Compute Engine
+// API, such as one with only serverless services, can't have it looked
+// up: a name shaped like a region's is then taken as given, and logged.
 func (p *Provider) Init(ctx context.Context, args []string) error {
 	arg := func(i int) string {
 		if i < len(args) {
@@ -75,16 +83,64 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 		return nil
 	}
 	name, err := lookUpRegion(ctx, project, region)
-	if err != nil {
+	switch {
+	case err == nil:
+	case computeDisabled(err) && regionName.MatchString(region):
+		log.Printf("google: region %s of project %s can't be checked, as the project hasn't enabled the Compute Engine API; importing it as given", region, project)
+		name = region
+	default:
 		return fmt.Errorf("google: region %s of project %s: %w", region, project, err)
 	}
 	p.region = compute.Region{Name: name}
 	return nil
 }
 
+// regionName matches the name of a region, such as us-central1, and not
+// a zone's or a multi-region's.
+var regionName = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+$`)
+
+// computeDisabled reports whether err says the project hasn't enabled the
+// Compute Engine API: a 403 whose reason is accessNotConfigured, or whose
+// details say SERVICE_DISABLED.
+func computeDisabled(err error) bool {
+	var apiErr *googleapi.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != http.StatusForbidden {
+		return false
+	}
+	for _, item := range apiErr.Errors {
+		if item.Reason == "accessNotConfigured" {
+			return true
+		}
+	}
+	return strings.Contains(fmt.Sprint(apiErr.Details...), "SERVICE_DISABLED")
+}
+
+// regionNames holds the regions lookUpRegion found, by project and region:
+// every service of an Import call initialises a provider of its own, and
+// they all ask about the same region.
+var regionNames sync.Map
+
 // lookUpRegion returns the name of region as the Compute Engine API knows
-// it in project, asking with ctx.
+// it in project, asking with ctx the first time only; a failure isn't
+// kept.
 func lookUpRegion(ctx context.Context, project, region string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	key := project + "/" + region
+	if name, ok := regionNames.Load(key); ok {
+		return name.(string), nil
+	}
+	name, err := askRegion(ctx, project, region)
+	if err != nil {
+		return "", err
+	}
+	regionNames.Store(key, name)
+	return name, nil
+}
+
+// askRegion asks the Compute Engine API for region in project.
+func askRegion(ctx context.Context, project, region string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, regionLookupTimeout)
 	defer cancel()
 	svc, err := compute.NewService(ctx, clientOptions(ctx)...)

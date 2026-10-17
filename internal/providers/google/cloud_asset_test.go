@@ -5,6 +5,8 @@ package google
 
 import (
 	"encoding/json"
+	"log"
+	"math/bits"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,15 +185,16 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 	return listAssetsIn(t, cat, region)
 }
 
-// forgetSearches drops the searches the process has kept, now and when
-// the test ends, so that a test's search doesn't reach another's, which
+// forgetSearches drops the searches and the rejected asset types the process
+// has kept, now and when the test ends, so that a test's search doesn't reach another's, which
 // a server on the same port would otherwise give it.
 func forgetSearches(t *testing.T) {
 	t.Helper()
 	forget := func() {
-		searches.Lock()
-		searches.byKey = map[string]*projectSearch{}
-		searches.Unlock()
+		searches.forget()
+		rejectedTypes.Lock()
+		rejectedTypes.byKey = map[string]bool{}
+		rejectedTypes.Unlock()
 	}
 	forget()
 	t.Cleanup(forget)
@@ -340,15 +343,21 @@ func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 	}
 }
 
-// A search that fails isn't kept: the next import searches again.
-func TestCloudAssetSearchesAgainAfterAFailure(t *testing.T) {
+// A search that fails is kept, so that the imports of the project's other
+// regions don't search again: they fail too. A process that searches
+// afresh searches again.
+func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	search := &fakeAssetSearch{results: searchResults, perPage: 500}
 	var fail sync.Mutex
 	failing := true
+	failed := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fail.Lock()
 		f := failing
 		failing = false
+		if f {
+			failed++
+		}
 		fail.Unlock()
 		if f {
 			http.Error(w, "unavailable", http.StatusForbidden)
@@ -360,16 +369,26 @@ func TestCloudAssetSearchesAgainAfterAFailure(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 	forgetSearches(t)
 
-	if err := assetLister(t, nil, "").List(); err == nil {
-		t.Fatal("the failed search succeeded")
+	for range 2 {
+		if err := assetLister(t, nil, "").List(); err == nil {
+			t.Fatal("the failed search succeeded")
+		}
 	}
+	fail.Lock()
+	failures := failed
+	fail.Unlock()
+	if failures != 1 || len(search.requests) != 0 {
+		t.Errorf("after a failure: %d failed and %d other searches, want the failed one only", failures, len(search.requests))
+	}
+	searches.forget()
 	if got := listAssetsIn(t, nil, ""); len(got) != 5 || len(search.requests) != 1 {
-		t.Errorf("after a failure: got %d resources from %d searches", len(got), len(search.requests))
+		t.Errorf("searching afresh: got %d resources from %d searches", len(got), len(search.requests))
 	}
 }
 
 // When the search rejects the asset types, as it does for one it can't
-// search, it searches them one by one and leaves out what it rejects;
+// search, it searches them in halves, and halves of those, and leaves out
+// what it rejects alone, which the next project's search doesn't ask for;
 // --catalogue entries map types the built-in catalogue doesn't.
 func TestCloudAssetSearchesTypeByType(t *testing.T) {
 	dir := t.TempDir()
@@ -386,8 +405,32 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 	if _, ok := got["projects/acme-prod/global/networks/main"]; !ok || len(got) != 5 {
 		t.Errorf("got %v", got)
 	}
-	if n := len(cat.InventoryTypes()); len(search.requests) != n+1 {
-		t.Errorf("got %d requests, want the rejected one and one per type, %d", len(search.requests), n+1)
+	// The rejected search, then two for each halving down to the type.
+	if n, most := len(cat.InventoryTypes()), 1+2*bits.Len(uint(len(cat.InventoryTypes()))); len(search.requests) > most {
+		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
+	}
+
+	searches.forget()
+	before := len(search.requests)
+	if got := listAssetsIn(t, cat, ""); len(got) != 5 {
+		t.Errorf("searching again: got %v", byID(got))
+	}
+	if again := search.requests[before:]; len(again) != 1 || slices.Contains(again[0], "example.googleapis.com/Widget") {
+		t.Errorf("searching again: requests %v, want one without the rejected type", again)
+	}
+}
+
+// A search that rejects every type, each on its own too, isn't rejecting
+// a type, and fails.
+func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
+	cat := catalogue.MustBuiltin("google")
+	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: cat.InventoryTypes()}
+	server := httptest.NewServer(search)
+	t.Cleanup(server.Close)
+	t.Setenv(EndpointEnv, server.URL)
+	forgetSearches(t)
+	if err := assetLister(t, nil, "").List(); err == nil || !strings.Contains(err.Error(), "every asset type") {
+		t.Errorf("error %v, want one saying every type is rejected", err)
 	}
 }
 
@@ -469,5 +512,32 @@ func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	}
 	if p.Selected().Settings()["catalogue"] != cat {
 		t.Error("the service doesn't get the import's catalogue")
+	}
+}
+
+func TestRegionOf(t *testing.T) {
+	for location, want := range map[string]string{
+		"us-central1":    "us-central1",
+		"us-central1-a":  "us-central1",
+		"EUROPE-WEST2-B": "europe-west2",
+		"global":         "",
+		"us":             "",
+		"nam4":           "",
+	} {
+		if got := regionOf(location); got != want {
+			t.Errorf("%q: got %q, want %q", location, got, want)
+		}
+	}
+}
+
+// The import of global names the regions of what it leaves to the
+// imports of regions, as --regions defaults to global alone.
+func TestGlobalNamesTheOtherRegions(t *testing.T) {
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	listAssets(t, &fakeAssetSearch{results: searchResults, perPage: 500}, nil, "")
+	if want := "for the imports of their regions, which --regions names: europe-west1, us-central1"; !strings.Contains(logged.String(), want) {
+		t.Errorf("log %q, want %q", logged.String(), want)
 	}
 }

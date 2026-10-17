@@ -3,8 +3,14 @@
 
 name: tests
 
+# Every pull request, whatever its base: a pull request stacked on another
+# one gets the same signal as one against main. After each merge, main runs
+# everything too: two pull requests that each passed against an older main
+# can still break it together, and main's runs keep the caches pull
+# requests restore current.
 on:
   pull_request:
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -13,7 +19,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push makes a pull request's run moot; every merge to main
+  # gets a result of its own.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The Terraform and OpenTofu the jobs install, the ones the release image
 # copies: bump them with the Dockerfile's hashicorp/terraform and
@@ -26,7 +34,8 @@ env:
 # other workflows skips the Go and e2e jobs (see the changes job). The
 # required checks still report: test, e2e and checks gather the jobs below
 # them and pass when each passed or was skipped, and a skipped job such as
-# test-windows counts as passed. workflow_dispatch runs everything.
+# test-windows counts as passed. A push to main and workflow_dispatch run
+# everything.
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -47,7 +56,6 @@ jobs:
         HEAD: ${{ github.event.pull_request.head.sha }}
       run: .github/scripts/changes.sh
 
-  # macOS runs in macos.yml, after merges: its build takes about 40 minutes.
   unit:
     name: go test
     needs: changes
@@ -75,8 +83,30 @@ jobs:
     # anyway.
     - name: Build
       run: go build -o infraharvest .
+    # Each package's statements its own tests run, for visibility: no
+    # threshold. The total goes to the run's summary, the profile is
+    # uploaded (go tool cover -html=coverage.out shows it). The tests run in
+    # a random order: packages swap test hooks and keep process-wide caches,
+    # and a test that passes only after another shows here. A failure prints
+    # the seed; -shuffle=<seed> repeats the order.
     - name: Test
-      run: go test ./...
+      run: go test -shuffle=on -coverprofile=coverage.out ./...
+    - name: Coverage
+      if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+      run: |
+        go tool cover -func=coverage.out > "$RUNNER_TEMP/coverage.txt"
+        {
+          echo "### Coverage"
+          echo
+          echo "Statements covered by each package's own tests: $(tail -n 1 "$RUNNER_TEMP/coverage.txt" | awk '{print $NF}')"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload the coverage profile
+      if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: coverage
+        path: coverage.out
+        retention-days: 14
 
   # Accounts and projects import in parallel (--parallel), and listers,
   # discovery and the engine run concurrent work of their own: the state
@@ -93,11 +123,17 @@ jobs:
         persist-credentials: false
     - name: Free disk space
       run: .github/scripts/free-disk-space.sh start
+    # -race builds objects no other job shares: a cache of their own.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: race
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Race
@@ -105,6 +141,12 @@ jobs:
         go test -race -tags minimal,aws,google
         ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
         ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # A required check: passes when go test and race passed, or were skipped.
   test:
@@ -133,11 +175,18 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    # Restore only, from main: a Windows cache is about 900 MB, and pull
+    # requests saving one each filled the repository's cache.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: test
     - name: Test
       run: >-
         go test
@@ -145,6 +194,46 @@ jobs:
         ./internal/importer/... ./internal/config/... ./internal/selection/... ./internal/mcpserver/...
     - name: Test the CLI
       run: go test -tags minimal,aws,google ./internal/cli/...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
+
+  # The whole module on macOS, which the release builds for but no other
+  # job runs on. With main's cache it takes about five minutes; a pull
+  # request that changes go.sum builds from an older cache.
+  test-macos:
+    name: macos test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: test
+    - name: Build
+      run: go build -o infraharvest .
+    - name: Test
+      run: go test ./...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   govulncheck:
     needs: changes
@@ -509,15 +598,25 @@ jobs:
           echo "::error::google should not be compiled into a minimal,aws build"; exit 1
         fi
 
-  # macOS builds and tests only after merges (macos.yml), so compile and
-  # vet every package for darwin/arm64 here: a break in a darwin-only file
-  # shows on the pull request, not at the release.
-  darwin:
-    name: darwin/arm64 build
+  # The release's other targets, which no job above compiles: the full
+  # module for linux/arm64 and windows/arm64 (test-windows builds only some
+  # packages, and test-macos covers darwin/arm64), built and vetted, so that
+  # a dependency bump that breaks one shows on the pull request, not at the
+  # release.
+  cross:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }} build
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - goos: linux
+          goarch: arm64
+        - goos: windows
+          goarch: arm64
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -528,27 +627,38 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: ${{ matrix.goos }}-${{ matrix.goarch }}
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Build
       env:
-        GOOS: darwin
-        GOARCH: arm64
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: "0"
       run: go build ./...
     - name: Vet
       env:
-        GOOS: darwin
-        GOARCH: arm64
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: "0"
       run: go vet ./...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # A required check: passes when the other Go and Terraform checks passed,
   # or were skipped. Not the fuzzing, which can find an input a pull request
   # didn't bring: it reports on its own.
   checks:
-    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
+    needs: [changes, test-windows, test-macos, govulncheck, engine-integration, permissions, build-tags, cross]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -597,6 +707,10 @@ jobs:
     - name: Names
       if: ${{ !cancelled() }}
       run: scripts/check-names.sh
+    # The workflows test with the engines the release image ships.
+    - name: Engine and scanner versions
+      if: ${{ !cancelled() }}
+      run: .github/scripts/check-versions.sh
     - name: reuse lint
       if: ${{ !cancelled() }}
       uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0

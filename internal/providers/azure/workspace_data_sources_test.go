@@ -17,12 +17,17 @@ import (
 	"github.com/magodo/aztft/aztft"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
+
+// workspaceGone, registered as a filter's body in a kindTransport, makes
+// it answer 404, as for a workspace deleted since it was listed.
+const workspaceGone = "404"
 
 // kindTransport answers a list of a workspace's data sources by its
 // $filter, as Resource Manager does: 400 KindNotSpecified without one,
-// and the body registered for the filter, or a 403, otherwise. It records
-// each request as its path and filter.
+// and the body registered for the filter (404 for workspaceGone), or a
+// 403, otherwise. It records each request as its path and filter.
 type kindTransport struct {
 	bodies   map[string]string
 	requests []string
@@ -35,6 +40,8 @@ func (f *kindTransport) Do(r *http.Request) (*http.Response, error) {
 	switch {
 	case filter == "":
 		status, body = http.StatusBadRequest, `{"error":{"code":"KindNotSpecified","message":"kind is required"}}`
+	case body == workspaceGone:
+		status, body = http.StatusNotFound, `{"error":{"code":"ResourceNotFound","message":"gone"}}`
 	case body == "":
 		status, body = http.StatusForbidden, `{"error":{"code":"AuthorizationFailed","message":"no"}}`
 	}
@@ -49,9 +56,10 @@ func (f *kindTransport) Do(r *http.Request) (*http.Response, error) {
 // Data sources are asked for one supported kind at a time, once per
 // workspace, and for nothing else: before the fix, azlist listed them
 // without a kind, which Resource Manager refuses with KindNotSpecified, so
-// none was ever imported. A kind that fails to list leaves the others.
-// The IDs are in the form azurerm parses, whatever the case of the ones
-// listed, and the types come from the kind asked for.
+// none was ever imported. A kind that fails to list leaves the others,
+// and makes the listing partial; a workspace gone since it was listed
+// does not. The IDs are in the form azurerm parses, whatever the case of
+// the ones listed, and the types come from the kind asked for.
 func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 	const (
 		group     = "/subscriptions/sub/resourceGroups/rg1"
@@ -63,6 +71,9 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 		name   string
 		bodies map[string]string
 		want   map[string]string
+		// partial is whether the listing must fail in part, naming the
+		// kind whose list failed.
+		partial bool
 	}{
 		{
 			name: "both kinds",
@@ -80,7 +91,16 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 			bodies: map[string]string{
 				"kind eq 'WindowsPerformanceCounter'": `{"value":[{"id":"` + lower + `cpu","name":"cpu","kind":"WindowsPerformanceCounter","properties":{}}]}`,
 			},
-			want: map[string]string{path + "/cpu": "azurerm_log_analytics_datasource_windows_performance_counter"},
+			want:    map[string]string{path + "/cpu": "azurerm_log_analytics_datasource_windows_performance_counter"},
+			partial: true,
+		},
+		{
+			name: "the workspace is gone",
+			bodies: map[string]string{
+				"kind eq 'WindowsEvent'":              workspaceGone,
+				"kind eq 'WindowsPerformanceCounter'": workspaceGone,
+			},
+			want: map[string]string{},
 		},
 	} {
 		transport := &kindTransport{bodies: tc.bodies}
@@ -92,7 +112,12 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 		}
 
 		found, types, err := workspaceDataSources(context.Background(), fakeCredential{}, options, inputs)
-		if err != nil {
+		switch {
+		case tc.partial:
+			if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "WindowsEvent data sources of "+workspace) {
+				t.Errorf("%s: got %v, want a partial error naming the kind and the workspace", tc.name, err)
+			}
+		case err != nil:
 			t.Fatalf("%s: %v", tc.name, err)
 		}
 

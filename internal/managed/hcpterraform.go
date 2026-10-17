@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -17,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,6 +32,9 @@ type HCPTerraform struct {
 	// base is the API's URL, https://<host>/api/v2.
 	base  string
 	token string
+	// ids are the IDs of the workspaces List found, by organization and
+	// name, so that Get needn't look them up again.
+	ids sync.Map
 }
 
 // NewHCPTerraform opens the API of host with the token Terraform uses for
@@ -100,6 +103,7 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 		}
 		var resp struct {
 			Data []struct {
+				ID         string `json:"id"`
 				Attributes struct {
 					Name string `json:"name"`
 				} `json:"attributes"`
@@ -117,6 +121,9 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 			// The search matches anywhere in the name.
 			if strings.HasPrefix(w.Attributes.Name, prefix) {
 				names = append(names, w.Attributes.Name)
+				if w.ID != "" {
+					h.ids.Store(organization+"/"+w.Attributes.Name, w.ID)
+				}
 			}
 		}
 		page = resp.Meta.Pagination.NextPage
@@ -127,12 +134,8 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 // Get returns the current state of the organization's workspace, nil if it
 // has none yet.
 func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) ([]byte, error) {
-	var w struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := h.get(ctx, h.base+"/organizations/"+url.PathEscape(organization)+"/workspaces/"+url.PathEscape(workspace), &w); err != nil {
+	id, err := h.workspaceID(ctx, organization, workspace)
+	if err != nil {
 		return nil, err
 	}
 	var version struct {
@@ -142,7 +145,7 @@ func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) 
 			} `json:"attributes"`
 		} `json:"data"`
 	}
-	err := h.get(ctx, h.base+"/workspaces/"+url.PathEscape(w.Data.ID)+"/current-state-version", &version)
+	err = h.get(ctx, h.base+"/workspaces/"+url.PathEscape(id)+"/current-state-version", &version)
 	if errors.Is(err, errNotFound) {
 		return nil, nil
 	}
@@ -152,31 +155,51 @@ func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) 
 	if version.Data.Attributes.DownloadURL == "" {
 		return nil, nil
 	}
-	return h.download(ctx, version.Data.Attributes.DownloadURL)
+	return h.download(ctx, version.Data.Attributes.DownloadURL, "downloading the state of workspace "+organization+"/"+workspace)
+}
+
+// workspaceID returns the ID of the organization's workspace: the one List
+// found, or else the API's.
+func (h *HCPTerraform) workspaceID(ctx context.Context, organization, workspace string) (string, error) {
+	if id, ok := h.ids.Load(organization + "/" + workspace); ok {
+		return id.(string), nil
+	}
+	var w struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := h.get(ctx, h.base+"/organizations/"+url.PathEscape(organization)+"/workspaces/"+url.PathEscape(workspace), &w); err != nil {
+		return "", err
+	}
+	return w.Data.ID, nil
 }
 
 var errNotFound = errors.New("not found")
 
 // get decodes the JSON:API document at u into v.
 func (h *HCPTerraform) get(ctx context.Context, u string, v any) error {
-	body, err := h.fetch(ctx, u, "application/vnd.api+json")
+	body, err := h.fetch(ctx, u, u, "application/vnd.api+json")
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(body, v)
 }
 
-// download returns the state at u.
-func (h *HCPTerraform) download(ctx context.Context, u string) ([]byte, error) {
-	return h.fetch(ctx, u, "application/json")
+// download returns the state at u, a signed URL that grants access to the
+// state, which what describes in errors instead.
+func (h *HCPTerraform) download(ctx context.Context, u, what string) ([]byte, error) {
+	return h.fetch(ctx, u, what, "application/json")
 }
 
-// fetch returns the content at u. Only the API's host gets the token: state
-// downloads are signed URLs, which can be on another host.
-func (h *HCPTerraform) fetch(ctx context.Context, u, accept string) ([]byte, error) {
+// fetch returns the content at u, which errors name as what. Only the API's
+// host gets the token: state downloads are signed URLs, which can be on
+// another host, and which errors, logs and an MCP client must never see,
+// so no error quotes u unless what is u.
+func (h *HCPTerraform) fetch(ctx context.Context, u, what, accept string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
 	}
 	if api, err := url.Parse(h.base); err == nil && req.URL.Host == api.Host {
 		req.Header.Set("Authorization", "Bearer "+h.token)
@@ -184,14 +207,28 @@ func (h *HCPTerraform) fetch(ctx context.Context, u, accept string) ([]byte, err
 	req.Header.Set("Accept", accept)
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", u, errNotFound)
+		return nil, fmt.Errorf("%s: %w", what, errNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", u, resp.Status)
+		return nil, fmt.Errorf("%s: %s", what, resp.Status)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+	body, err := readState(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
+	}
+	return body, nil
+}
+
+// withoutURL returns the error a *url.Error wraps, whose message quotes
+// the URL, or err.
+func withoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
 }

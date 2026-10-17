@@ -27,9 +27,10 @@ func recordEcsTaskDefinition(family, arn string) recordedResource {
 }
 
 // The lister lists clusters across pages, each by ARN and named after its
-// name, followed by its services across pages, each page described ten at a
+// name, followed by its services across pages of 100, each page described ten at a
 // time for their task definitions; services whose description fails, or
-// that the description leaves out, are left out. Then the latest revision
+// that the description leaves out, are left out, the failures returned as a
+// partial error. Then the latest revision
 // of each task definition family, across pages, in no particular order.
 // (Errors of ListServices are not recorded: the lister retries the failed
 // page for ever.)
@@ -43,6 +44,9 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 			}
 			return fmt.Sprintf(`{"clusterArns":["%scluster/apps"],"nextToken":%q}`, recordEcsARN, nextPageToken)
 		case "ListServices":
+			if !strings.Contains(call.Body, `"maxResults":100`) {
+				t.Errorf("services listed without pages of 100: %s", call.Body)
+			}
 			switch {
 			case cluster == recordEcsARN+"cluster/apps" && recordSecondPage(call):
 				return `{"serviceArns":["` + recordEcsARN + `service/apps/api"]}`
@@ -95,8 +99,9 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 	})
 	g := &EcsLister{}
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	// The descriptions that fail are returned as a partial error.
+	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "service/apps/batch-8") || !strings.Contains(err.Error(), "service/jobs/worker") {
+		t.Errorf("want a partial error naming the services not described, got %v", err)
 	}
 
 	// Task definitions come last, in no particular order: sort them.

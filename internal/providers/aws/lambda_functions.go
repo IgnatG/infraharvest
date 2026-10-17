@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -33,97 +35,133 @@ type lambdaResourcePolicy struct {
 }
 
 // List records the functions, each followed by its permissions and
-// event invoke configs, then the event source mappings, then every version
-// of every layer. Any error fails the service, except that a function
-// without a resource policy simply has no permissions.
+// event invoke configs, then the event source mappings, then the layer
+// versions: each layer's latest, and those the functions use. Any error
+// fails the service, except that a function without a resource policy
+// simply has no permissions.
 func (g *LambdaLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	svc := lambda.NewFromConfig(config)
-	if err := g.addFunctions(svc); err != nil {
+	used := map[string]bool{}
+	if err := g.addFunctions(svc, used); err != nil {
 		return err
 	}
 	if err := g.addEventSourceMappings(svc); err != nil {
 		return err
 	}
-	return g.addLayerVersions(svc)
+	return g.addLayerVersions(svc, used)
 }
 
 // addFunctions records every function as an aws_lambda_function, imported
 // by its ARN, named after its name, which it also records as the
 // function_name attribute; each is followed by its permissions and event
-// invoke configs.
-func (g *LambdaLister) addFunctions(svc *lambda.Client) error {
+// invoke configs. The ARNs of the layer versions the functions use, which
+// the list answers already, are added to used. The functions of a page are
+// read lambdaFunctionParallel at a time, as each takes two calls of its
+// own, and recorded in the page's order.
+func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) error {
 	pages := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
-		for _, function := range page.Functions {
+		parts := make([][]harvest.Resource, len(page.Functions))
+		errs := make([]error, len(page.Functions))
+		slots := make(chan struct{}, lambdaFunctionParallel)
+		var wg sync.WaitGroup
+		for i, function := range page.Functions {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				parts[i], errs[i] = g.functionParts(svc, aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName))
+			}()
+		}
+		wg.Wait()
+		for i, function := range page.Functions {
 			arn, name := aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName)
+			for _, layer := range function.Layers {
+				used[aws.ToString(layer.Arn)] = true
+			}
 			g.Resources = append(g.Resources, harvest.Record(arn, name, "aws_lambda_function", "aws",
 				map[string]string{"function_name": name}))
-			if err := g.addPermissions(svc, arn); err != nil {
-				return err
+			if errs[i] != nil {
+				return errs[i]
 			}
-			if err := g.addEventInvokeConfigs(svc, arn, name); err != nil {
-				return err
-			}
+			g.Resources = append(g.Resources, parts[i]...)
 		}
 	}
 	return nil
 }
 
-// addPermissions records a statement of the resource policy of the function
+// lambdaFunctionParallel is how many functions addFunctions reads at once.
+const lambdaFunctionParallel = 4
+
+// functionParts returns the permissions, then the event invoke configs, of
+// the function functionName, whose ARN is functionARN.
+func (g *LambdaLister) functionParts(svc *lambda.Client, functionARN, functionName string) ([]harvest.Resource, error) {
+	permissions, err := g.permissions(svc, functionARN)
+	if err != nil {
+		return nil, err
+	}
+	configs, err := g.eventInvokeConfigs(svc, functionARN, functionName)
+	return append(permissions, configs...), err
+}
+
+// permissions returns a statement of the resource policy of the function
 // functionARN as an aws_lambda_permission, by Terraform's import ID
 // "<function ARN>/<statement ID>" and named after its statement ID, with
 // the function's ARN as the function_name attribute and the statement ID
 // as statement_id. Statement IDs are only unique within a function, so the
 // ID holds the function too.
-func (g *LambdaLister) addPermissions(svc *lambda.Client, functionARN string) error {
+func (g *LambdaLister) permissions(svc *lambda.Client, functionARN string) ([]harvest.Resource, error) {
 	answer, err := svc.GetPolicy(g.Context(), &lambda.GetPolicyInput{FunctionName: aws.String(functionARN)})
 	var noPolicy *types.ResourceNotFoundException
 	if errors.As(err, &noPolicy) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var policy lambdaResourcePolicy
 	if err := json.Unmarshal([]byte(aws.ToString(answer.Policy)), &policy); err != nil {
-		return fmt.Errorf("the resource policy of %s: %w", functionARN, err)
+		return nil, fmt.Errorf("the resource policy of %s: %w", functionARN, err)
 	}
+	var resources []harvest.Resource
 	for _, statement := range policy.Statement {
-		g.Resources = append(g.Resources, harvest.Record(functionARN+"/"+statement.Sid, statement.Sid, "aws_lambda_permission", "aws",
+		resources = append(resources, harvest.Record(functionARN+"/"+statement.Sid, statement.Sid, "aws_lambda_permission", "aws",
 			map[string]string{"statement_id": statement.Sid, "function_name": functionARN}))
 	}
-	return nil
+	return resources, nil
 }
 
-// addEventInvokeConfigs records the event invoke configs of the function
+// eventInvokeConfigs returns the event invoke configs of the function
 // functionName, whose ARN is functionARN, as
 // aws_lambda_function_event_invoke_config, named feic_<the config's
 // qualified ARN>, by Terraform's import ID: the function's name for the
 // config of its unpublished version, $LATEST, or <name>:<qualifier> for
 // that of a version or an alias.
-func (g *LambdaLister) addEventInvokeConfigs(svc *lambda.Client, functionARN, functionName string) error {
+func (g *LambdaLister) eventInvokeConfigs(svc *lambda.Client, functionARN, functionName string) ([]harvest.Resource, error) {
+	var resources []harvest.Resource
 	input := &lambda.ListFunctionEventInvokeConfigsInput{FunctionName: aws.String(functionName)}
 	pages := lambda.NewListFunctionEventInvokeConfigsPaginator(svc, input, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, invokeConfig := range page.FunctionEventInvokeConfigs {
 			configARN := aws.ToString(invokeConfig.FunctionArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(eventInvokeConfigID(functionARN, functionName, configARN),
+			resources = append(resources, harvest.RecordBare(eventInvokeConfigID(functionARN, functionName, configARN),
 				"feic_"+configARN, "aws_lambda_function_event_invoke_config", "aws"))
 		}
 	}
-	return nil
+	return resources, nil
 }
 
 // eventInvokeConfigID returns the import ID of the event invoke config
@@ -160,10 +198,15 @@ func (g *LambdaLister) addEventSourceMappings(svc *lambda.Client) error {
 	return nil
 }
 
-// addLayerVersions records every version of every layer as an
-// aws_lambda_layer_version, imported by its ARN and named after the layer
-// and the version: "deps 2".
-func (g *LambdaLister) addLayerVersions(svc *lambda.Client) error {
+// addLayerVersions records layer versions as aws_lambda_layer_version,
+// imported by their ARN and named after the layer and the version: "deps
+// 2". Of each layer, it records the latest version, which ListLayers
+// answers already, followed by the older versions in used, by version
+// number: a function can go on using a version after a newer one is
+// published. Older versions nothing uses are history, as Terraform manages
+// a layer's code by its latest version, so they are left out, and no layer
+// takes a call of its own.
+func (g *LambdaLister) addLayerVersions(svc *lambda.Client, used map[string]bool) error {
 	layers := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{}, stopOnDuplicateToken)
 	for layers.HasMorePages() {
 		page, err := layers.NextPage(g.Context())
@@ -171,18 +214,36 @@ func (g *LambdaLister) addLayerVersions(svc *lambda.Client) error {
 			return err
 		}
 		for _, layer := range page.Layers {
-			versions := lambda.NewListLayerVersionsPaginator(svc, &lambda.ListLayerVersionsInput{LayerName: layer.LayerName}, stopOnDuplicateToken)
-			for versions.HasMorePages() {
-				versionPage, err := versions.NextPage(g.Context())
-				if err != nil {
-					return err
-				}
-				for _, version := range versionPage.LayerVersions {
-					arn := aws.ToString(version.LayerVersionArn)
-					g.Resources = append(g.Resources, harvest.RecordBare(arn, aws.ToString(layer.LayerName)+" "+strconv.FormatInt(version.Version, 10), "aws_lambda_layer_version", "aws"))
-				}
+			latest := layer.LatestMatchingVersion
+			if latest == nil {
+				continue
+			}
+			layerName := aws.ToString(layer.LayerName)
+			g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(latest.LayerVersionArn),
+				layerName+" "+strconv.FormatInt(latest.Version, 10), "aws_lambda_layer_version", "aws"))
+			for _, version := range olderLayerVersions(aws.ToString(layer.LayerArn), latest.Version, used) {
+				g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(layer.LayerArn)+":"+strconv.FormatInt(version, 10),
+					layerName+" "+strconv.FormatInt(version, 10), "aws_lambda_layer_version", "aws"))
 			}
 		}
 	}
 	return nil
+}
+
+// olderLayerVersions returns the numbers of the versions of the layer
+// layerARN in used that are older than latest, sorted. A version ARN is
+// the layer's ARN, a colon and the version number.
+func olderLayerVersions(layerARN string, latest int64, used map[string]bool) []int64 {
+	var versions []int64
+	for arn := range used {
+		suffix, ok := strings.CutPrefix(arn, layerARN+":")
+		if !ok {
+			continue
+		}
+		if version, err := strconv.ParseInt(suffix, 10, 64); err == nil && version < latest {
+			versions = append(versions, version)
+		}
+	}
+	slices.Sort(versions)
+	return versions
 }

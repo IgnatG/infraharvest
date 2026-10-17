@@ -6,7 +6,9 @@ package aws
 import (
 	"context"
 	"errors"
+	"slices"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -25,6 +27,12 @@ type Provider struct {
 	profile string
 	// roleARN is the role to assume before listing, "" for none.
 	roleARN string
+	// account and resolvedRegion are the account the import covers and,
+	// for ProfileRegion, the region the SDK resolved, once Scope has found
+	// them; the provider block pins both.
+	account, resolvedRegion string
+	// cat is the catalogue of the import, nil until SetCatalogue sets it.
+	cat *catalogue.Catalogue
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
@@ -56,18 +64,28 @@ func (*Provider) ConcurrentListing() bool {
 }
 
 // ProviderBlock returns the provider "aws" block: the region, us-east-1
-// for the global services and none for ProfileRegion, where Terraform resolves
-// the same default region as the listing did; and the role to assume, if
-// any.
+// for the global services and, for ProfileRegion, the region the listing
+// resolved; the account the import covers, as the only one of
+// allowed_account_ids, so that a later plan with other credentials fails
+// rather than reading another account's resources; and the role to assume,
+// if any. The account and the resolved region are known once Scope has run,
+// as it does before the configuration is generated; before that, they are
+// left out, and for ProfileRegion Terraform resolves the same default
+// region as the listing did.
 func (p Provider) ProviderBlock() map[string]interface{} {
 	config := map[string]interface{}{}
 	switch p.region {
 	case ProfileRegion:
-		// Terraform resolves the same default region as the listing.
+		if p.resolvedRegion != "" {
+			config["region"] = p.resolvedRegion
+		}
 	case GlobalPseudoRegion:
 		config["region"] = GlobalHomeRegion
 	default:
 		config["region"] = p.region
+	}
+	if p.account != "" {
+		config["allowed_account_ids"] = []string{p.account}
 	}
 	if p.roleARN != "" {
 		config["assume_role"] = map[string]interface{}{"role_arn": p.roleARN}
@@ -94,11 +112,39 @@ func (*Provider) Services() map[string]harvest.Lister {
 	return supported
 }
 
+// newServiceLister returns a new lister, wrapped in a guardedLister, for
+// the service called name, as Services has it, or nil when there is no
+// such service: a Cloud Control service takes the place of a lister of the
+// same name.
+func newServiceLister(name string) harvest.Lister {
+	if types, ok := cloudControlServices()[name]; ok {
+		return &guardedLister{lister: &CloudControlLister{types: types}}
+	}
+	for _, s := range serviceTable {
+		if s.name == name {
+			return &guardedLister{lister: s.newLister()}
+		}
+	}
+	return nil
+}
+
+// endOfSupportServices are the services of AWS services at end of support,
+// WAF Classic and MediaStore, which only old estates still hold. They are
+// listed only when --services names them, so that every import of * doesn't
+// ask their retired APIs in every region.
+var endOfSupportServices = []string{"media_store", "waf", "waf_regional"}
+
+// OptInServices are the services * leaves out (see endOfSupportServices).
+func (*Provider) OptInServices() []string {
+	return slices.Clone(endOfSupportServices)
+}
+
 // Select makes the service called name the provider's current one,
-// with a new lister, and passes it the provider's settings.
+// with a new lister, and passes it the provider's settings. Only that
+// service's lister is made (see newServiceLister).
 func (p *Provider) Select(name string, verbose bool) error {
-	service, ok := p.Services()[name]
-	if !ok {
+	service := newServiceLister(name)
+	if service == nil {
 		return errors.New("not a service of aws; \"infraharvest services aws\" lists them")
 	}
 	p.Current = service

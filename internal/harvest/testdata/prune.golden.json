@@ -1,6 +1,6 @@
 [
   {
-    "case": "no filters keeps duplicates",
+    "case": "no filters drops duplicates",
     "prune": [
       {
         "type": "aws_vpc",
@@ -21,11 +21,6 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--vpc-3",
         "stateId": "vpc-3"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
-        "stateId": "vpc-1"
       }
     ],
     "pruneMethod": [
@@ -48,16 +43,11 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--vpc-3",
         "stateId": "vpc-3"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
-        "stateId": "vpc-1"
       }
     ]
   },
   {
-    "case": "empty filter slice keeps duplicates",
+    "case": "empty filter slice drops duplicates",
     "prune": [
       {
         "type": "aws_vpc",
@@ -78,11 +68,6 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--vpc-3",
         "stateId": "vpc-3"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
-        "stateId": "vpc-1"
       }
     ],
     "pruneMethod": [
@@ -105,16 +90,11 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--vpc-3",
         "stateId": "vpc-3"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
-        "stateId": "vpc-1"
       }
     ]
   },
   {
-    "case": "no filters set keeps duplicates",
+    "case": "no filters set drops duplicates",
     "prune": [
       {
         "type": "aws_vpc",
@@ -135,11 +115,6 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--vpc-3",
         "stateId": "vpc-3"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
-        "stateId": "vpc-1"
       }
     ],
     "pruneMethod": [
@@ -162,11 +137,6 @@
         "type": "aws_vpc",
         "address": "aws_vpc.r--vpc-3",
         "stateId": "vpc-3"
-      },
-      {
-        "type": "aws_vpc",
-        "address": "aws_vpc.r--vpc-1",
-        "stateId": "vpc-1"
       }
     ]
   },

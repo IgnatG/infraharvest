@@ -68,7 +68,8 @@ type ProviderWithModuleProviders interface {
 
 // ProviderWithOptInServices is a provider with services that the wildcard
 // --services=* leaves out, because they list another way what other
-// services already list. They are listed only when named.
+// services already list, as Azure's do, or because the cloud's service has
+// reached end of support, as AWS's have. They are listed only when named.
 type ProviderWithOptInServices interface {
 	OptInServices() []string
 }

@@ -21,8 +21,9 @@ func newServicesCmd() *cobra.Command {
 		Short: "List the services of a provider that --services takes",
 		Long: "Print the services of a provider that import and discover take in --services,\n" +
 			"one per line, on standard output. --services=* imports all of them. A few\n" +
-			"services list again what others already cover; they aren't printed, and are\n" +
-			"imported only when --services names them.",
+			"services list again what others already cover, or a cloud service that has\n" +
+			"reached end of support; they aren't printed, and are imported only when\n" +
+			"--services names them.",
 		Args:         cobra.ExactArgs(1),
 		ValidArgs:    providers.Names(),
 		SilenceUsage: true,

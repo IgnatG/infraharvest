@@ -15,7 +15,9 @@ func rdsResponse(op, result string) string {
 }
 
 // The lister lists what the RDS types manage: not DocumentDB's or
-// Neptune's clusters and instances, which the RDS API lists too, nor the
+// Neptune's clusters, instances and cluster snapshots, which the RDS API
+// lists too, nor Neptune's parameter groups, nor the subnet groups of
+// DocumentDB clusters, which the docdb service lists, nor the
 // instances of a Multi-AZ DB cluster, which it manages; an Aurora
 // cluster's instances as aws_rds_cluster_instance; manual snapshots only;
 // every parameter, subnet and option group, the default ones included,
@@ -27,8 +29,8 @@ func TestRDSListsWhatTerraformManages(t *testing.T) {
 			return rdsResponse(call.Op, `<DBClusters>
 				<DBCluster><DBClusterIdentifier>orders</DBClusterIdentifier><Engine>aurora-postgresql</Engine></DBCluster>
 				<DBCluster><DBClusterIdentifier>reports</DBClusterIdentifier><Engine>postgres</Engine></DBCluster>
-				<DBCluster><DBClusterIdentifier>docs</DBClusterIdentifier><Engine>docdb</Engine></DBCluster>
-				<DBCluster><DBClusterIdentifier>graph</DBClusterIdentifier><Engine>neptune</Engine></DBCluster>
+				<DBCluster><DBClusterIdentifier>docs</DBClusterIdentifier><Engine>docdb</Engine><DBSubnetGroup>docs-subnets</DBSubnetGroup></DBCluster>
+				<DBCluster><DBClusterIdentifier>graph</DBClusterIdentifier><Engine>neptune</Engine><DBSubnetGroup>graph-subnets</DBSubnetGroup></DBCluster>
 				</DBClusters>`)
 		case "DescribeDBInstances":
 			return rdsResponse(call.Op, `<DBInstances>
@@ -45,19 +47,26 @@ func TestRDSListsWhatTerraformManages(t *testing.T) {
 			if call.Op == "DescribeDBSnapshots" {
 				return rdsResponse(call.Op, `<DBSnapshots><DBSnapshot><DBSnapshotIdentifier>app-before-upgrade</DBSnapshotIdentifier></DBSnapshot></DBSnapshots>`)
 			}
-			return rdsResponse(call.Op, `<DBClusterSnapshots><DBClusterSnapshot><DBClusterSnapshotIdentifier>orders-final</DBClusterSnapshotIdentifier></DBClusterSnapshot></DBClusterSnapshots>`)
+			return rdsResponse(call.Op, `<DBClusterSnapshots>
+				<DBClusterSnapshot><DBClusterSnapshotIdentifier>orders-final</DBClusterSnapshotIdentifier><Engine>aurora-postgresql</Engine></DBClusterSnapshot>
+				<DBClusterSnapshot><DBClusterSnapshotIdentifier>docs-final</DBClusterSnapshotIdentifier><Engine>docdb</Engine></DBClusterSnapshot>
+				<DBClusterSnapshot><DBClusterSnapshotIdentifier>graph-final</DBClusterSnapshotIdentifier><Engine>neptune</Engine></DBClusterSnapshot>
+				</DBClusterSnapshots>`)
 		case "DescribeDBProxies":
 			return rdsResponse(call.Op, `<DBProxies><member><DBProxyName>pool</DBProxyName></member></DBProxies>`)
 		case "DescribeDBParameterGroups":
 			return rdsResponse(call.Op, `<DBParameterGroups>
 				<DBParameterGroup><DBParameterGroupName>default.postgres17</DBParameterGroupName></DBParameterGroup>
-				<DBParameterGroup><DBParameterGroupName>app-postgres17</DBParameterGroupName></DBParameterGroup>
+				<DBParameterGroup><DBParameterGroupName>app-postgres17</DBParameterGroupName><DBParameterGroupFamily>postgres17</DBParameterGroupFamily></DBParameterGroup>
+				<DBParameterGroup><DBParameterGroupName>graph-params</DBParameterGroupName><DBParameterGroupFamily>neptune1.3</DBParameterGroupFamily></DBParameterGroup>
 				</DBParameterGroups>`)
 		case "DescribeDBSubnetGroups":
 			// The catalogue leaves out the default one.
 			return rdsResponse(call.Op, `<DBSubnetGroups>
 				<DBSubnetGroup><DBSubnetGroupName>default</DBSubnetGroupName></DBSubnetGroup>
 				<DBSubnetGroup><DBSubnetGroupName>app</DBSubnetGroupName></DBSubnetGroup>
+				<DBSubnetGroup><DBSubnetGroupName>docs-subnets</DBSubnetGroupName></DBSubnetGroup>
+				<DBSubnetGroup><DBSubnetGroupName>graph-subnets</DBSubnetGroupName></DBSubnetGroup>
 				</DBSubnetGroups>`)
 		case "DescribeOptionGroups":
 			return rdsResponse(call.Op, `<OptionGroupsList>
@@ -87,7 +96,7 @@ func TestRDSListsWhatTerraformManages(t *testing.T) {
 	assertIDs(t, g.Resources, "aws_db_cluster_snapshot", "orders-final")
 	assertIDs(t, g.Resources, "aws_db_proxy", "pool")
 	assertIDs(t, g.Resources, "aws_db_parameter_group", "default.postgres17", "app-postgres17")
-	assertIDs(t, g.Resources, "aws_db_subnet_group", "default", "app")
+	assertIDs(t, g.Resources, "aws_db_subnet_group", "default", "app", "graph-subnets")
 	assertIDs(t, g.Resources, "aws_db_option_group", "default:postgres-17", "app-options")
 	assertIDs(t, g.Resources, "aws_db_event_subscription", "alerts")
 }

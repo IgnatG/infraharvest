@@ -6,7 +6,6 @@ package google
 import (
 	"context"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 
@@ -38,11 +37,11 @@ const autopilotFields = "clusters(name,location,autopilot/enabled),missingZones"
 // is an Autopilot cluster asset.parent_autopilot=true. Only an import
 // that lists node pools has the project's clusters listed, once (see
 // autopilotClustersOnce): the import of global lists none. If they can't
-// be, that is logged, and each node pool records
-// asset.parent_autopilot=unknown, which the catalogue leaves out by
-// default too, as GKE may manage it. The error is the context's, when it
-// ends.
-func markAutopilotPools(ctx context.Context, provider, project string, results []*cloudasset.ResourceSearchResult, resources []harvest.Resource) error {
+// be, each node pool records asset.parent_autopilot=unknown, which the
+// catalogue leaves out by default too, as GKE may manage it, and the
+// error says so, for the listing to fail in part (see harvest.Partial).
+// The error is the context's, when it ends.
+func markAutopilotPools(ctx context.Context, project string, results []*cloudasset.ResourceSearchResult, resources []harvest.Resource) error {
 	// The cluster of each node pool, by the pool's ID.
 	pools := map[string]string{}
 	for _, r := range results {
@@ -65,11 +64,8 @@ func markAutopilotPools(ctx context.Context, provider, project string, results [
 		return nil
 	}
 	autopilot, err := autopilotClustersOnce(ctx, project)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		log.Printf("%s: cloud_asset: the GKE clusters of project %s can't be listed, so its node pools, which GKE may manage, are left out by default: %v", provider, project, err)
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	for _, r := range resources {
 		cluster, ok := pools[r.Observed.ID]
@@ -83,6 +79,9 @@ func markAutopilotPools(ctx context.Context, provider, project string, results [
 		if autopilot[cluster] {
 			r.Observed.Attributes[parentAutopilotAttribute] = "true"
 		}
+	}
+	if err != nil {
+		return fmt.Errorf("the GKE clusters of project %s can't be listed, so its node pools, which GKE may manage, are left out by default: %w", project, err)
 	}
 	return nil
 }

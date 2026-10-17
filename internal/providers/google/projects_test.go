@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/api/cloudresourcemanager/v3"
@@ -75,5 +76,30 @@ func TestProjectsUnder(t *testing.T) {
 		if !slices.Equal(got, tc.want) {
 			t.Errorf("%q %v: got %v, want %v", tc.organization, tc.folders, got, tc.want)
 		}
+	}
+}
+
+// A folder whose projects can't be listed fails the discovery, naming the
+// folder, rather than leaving its projects out.
+func TestProjectsUnderFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch parent := r.URL.Query().Get("parent"); {
+		case parent == "folders/2":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error": {"code": 403, "message": "denied"}}`))
+		case r.URL.Path == "/v3/folders" && parent == "organizations/9":
+			_ = json.NewEncoder(w).Encode(cloudresourcemanager.ListFoldersResponse{Folders: []*cloudresourcemanager.Folder{{Name: "folders/1", State: "ACTIVE"}, {Name: "folders/2", State: "ACTIVE"}}})
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	svc, err := cloudresourcemanager.NewService(t.Context(), option.WithEndpoint(srv.URL+"/"), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectsUnder(t.Context(), svc, "9", nil); err == nil || !strings.Contains(err.Error(), "folders/2") {
+		t.Errorf("error %v, want one naming folders/2", err)
 	}
 }

@@ -48,8 +48,13 @@ type CloudAssetLister struct {
 
 // List searches the project, or takes the search an import of another of
 // its regions made (see searchOnce), and keeps what is in the import's
-// region, with the disks that are instances' boot disks and the node pools
-// of Autopilot clusters marked (see markBootDisks and markAutopilotPools).
+// region, with the disks that are instances' boot disks, the instances
+// managed instance groups created and the node pools of Autopilot
+// clusters marked (see markInstances and markAutopilotPools).
+// When the instances or the clusters can't be listed to mark them, the
+// listing fails in part (see harvest.Partial): it keeps every resource,
+// and the disks and node pools it couldn't tell about are left out by
+// default.
 func (g *CloudAssetLister) List() error {
 	cat := g.catalogue()
 	types := g.Types(cat)
@@ -62,21 +67,27 @@ func (g *CloudAssetLister) List() error {
 	if err != nil {
 		return err
 	}
-	project := g.Settings()["project"].(string)
+	project, err := projectSetting(g.Settings())
+	if err != nil {
+		return err
+	}
 	results, err := searchOnce(ctx, svc, project, assetTypes)
 	if err != nil {
 		return err
 	}
 	region, _ := g.Settings()["region"].(compute.Region)
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
-	if err := markBootDisks(ctx, g.Provider(), project, results, resources); err != nil {
-		return err
-	}
-	if err := markAutopilotPools(ctx, g.Provider(), project, results, resources); err != nil {
-		return err
+	var unmarked []error
+	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
+		if err := mark(ctx, project, results, resources); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			unmarked = append(unmarked, err)
+		}
 	}
 	g.Resources = resources
-	return nil
+	return harvest.Partial(errors.Join(unmarked...))
 }
 
 // Types returns the Terraform types the lister lists, sorted: those of
@@ -108,75 +119,95 @@ func inventoryTypes(cat *catalogue.Catalogue, types []string) []string {
 // command imports a project region by region, each import taking from the
 // same project-wide search what is in its region, so the search runs once
 // for all of them rather than once for each.
-var searches = struct {
-	sync.Mutex
-	byKey map[string]*projectSearch
-}{byKey: map[string]*projectSearch{}}
-
-// projectSearch is one project's search for one set of asset types: its
-// results once it has succeeded. mu is held while it runs, so that an
-// import that wants it meanwhile waits for it rather than searching too.
-type projectSearch struct {
-	mu      sync.Mutex
-	done    bool
-	results []*cloudasset.ResourceSearchResult
-}
-
-// searchKey names a search: where it goes (an emulator, or Google), the
-// project and the asset types, which are sorted.
-func searchKey(project string, assetTypes []string) string {
-	return os.Getenv(EndpointEnv) + "\x00" + project + "\x00" + strings.Join(assetTypes, ",")
-}
+var searches projectLists[[]*cloudasset.ResourceSearchResult]
 
 // searchOnce returns what searchAll finds in the project for assetTypes,
-// searching only the first time the process asks: the imports of a
-// project's regions and of global share the search, which they only read.
-// A search that fails isn't kept, so the next import searches again.
+// which are sorted, searching only the first time the process asks (see
+// projectLists): the imports of a project's regions and of global share
+// the search, which they only read. A search that fails isn't kept, so
+// the next import searches again.
 func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
-	key := searchKey(project, assetTypes)
-	searches.Lock()
-	s, ok := searches.byKey[key]
-	if !ok {
-		s = &projectSearch{}
-		searches.byKey[key] = s
-	}
-	searches.Unlock()
+	return searches.once(project+"\x00"+strings.Join(assetTypes, ","), func() ([]*cloudasset.ResourceSearchResult, error) {
+		return searchAll(ctx, svc, project, assetTypes)
+	})
+}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.done {
-		return s.results, nil
+// rejectedTypes are the asset types the search has rejected in the
+// process, by where it went (an emulator, or Google) and the type: the
+// searches of other projects leave them out rather than find them again.
+var rejectedTypes = struct {
+	sync.Mutex
+	byKey map[string]bool
+}{byKey: map[string]bool{}}
+
+// rejectedKey names an asset type the search rejected, where it went.
+func rejectedKey(assetType string) string {
+	return os.Getenv(EndpointEnv) + "\x00" + assetType
+}
+
+// searchAll searches the project for resources of assetTypes, but for
+// those the search has rejected before (see rejectedTypes). If the search
+// rejects them, as it does when one can't be searched, it searches each
+// half on its own, and so on, so that a few types it rejects cost a few
+// searches each, not one search per type; it logs and remembers those it
+// rejects. If it rejects every type, the rejection isn't about a type,
+// and it fails.
+func searchAll(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
+	rejectedTypes.Lock()
+	searchable := slices.DeleteFunc(slices.Clone(assetTypes), func(t string) bool { return rejectedTypes.byKey[rejectedKey(t)] })
+	rejectedTypes.Unlock()
+	if len(searchable) == 0 {
+		return nil, nil
 	}
-	results, err := searchAll(ctx, svc, project, assetTypes)
+	results, err := search(ctx, svc, project, searchable)
+	if !isBadRequest(err) || len(searchable) == 1 {
+		return results, err
+	}
+	log.Printf("google: cloud_asset: the search rejects the catalogue's asset types (%v); searching them in parts", err)
+	var rejected []string
+	half := len(searchable) / 2
+	first, err := searchParts(ctx, svc, project, searchable[:half], &rejected)
 	if err != nil {
 		return nil, err
 	}
-	s.results, s.done = results, true
-	return results, nil
+	second, err := searchParts(ctx, svc, project, searchable[half:], &rejected)
+	if err != nil {
+		return nil, err
+	}
+	if len(rejected) == len(searchable) {
+		return nil, fmt.Errorf("searching project %s: the search rejects every asset type, each on its own too", project)
+	}
+	rejectedTypes.Lock()
+	for _, t := range rejected {
+		rejectedTypes.byKey[rejectedKey(t)] = true
+	}
+	rejectedTypes.Unlock()
+	return append(first, second...), nil
 }
 
-// searchAll searches the project for resources of assetTypes. If the
-// search rejects them, as it does when one can't be searched, it searches
-// them one by one and logs those it rejects.
-func searchAll(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
+// searchParts searches the project for resources of assetTypes, and, if
+// the search rejects them, for each half of them on its own, adding to
+// rejected the types it rejects alone, which it logs.
+func searchParts(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string, rejected *[]string) ([]*cloudasset.ResourceSearchResult, error) {
 	results, err := search(ctx, svc, project, assetTypes)
-	if !isBadRequest(err) || len(assetTypes) == 1 {
+	switch {
+	case !isBadRequest(err):
 		return results, err
+	case len(assetTypes) == 1:
+		log.Printf("google: cloud_asset: %s can't be searched: %v", assetTypes[0], err)
+		*rejected = append(*rejected, assetTypes[0])
+		return nil, nil
 	}
-	log.Printf("google: cloud_asset: the search rejects the catalogue's asset types (%v); searching them one by one", err)
-	results = nil
-	for _, t := range assetTypes {
-		found, err := search(ctx, svc, project, []string{t})
-		if isBadRequest(err) {
-			log.Printf("google: cloud_asset: %s can't be searched: %v", t, err)
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, found...)
+	half := len(assetTypes) / 2
+	first, err := searchParts(ctx, svc, project, assetTypes[:half], rejected)
+	if err != nil {
+		return nil, err
 	}
-	return results, nil
+	second, err := searchParts(ctx, svc, project, assetTypes[half:], rejected)
+	if err != nil {
+		return nil, err
+	}
+	return append(first, second...), nil
 }
 
 func search(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
@@ -216,9 +247,14 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 	}
 	var resources []harvest.Resource
 	elsewhere := 0
+	// The regions of what is elsewhere, for the import of global to name.
+	var regions []string
 	for _, r := range results {
 		if !inRegion(r.Location, region) {
 			elsewhere++
+			if in := regionOf(r.Location); in != "" && !slices.Contains(regions, in) {
+				regions = append(regions, in)
+			}
 			continue
 		}
 		if strings.Contains(strings.ToUpper(r.State), "DELET") {
@@ -240,7 +276,10 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 	if elsewhere > 0 {
 		where := "the global import"
 		if region == "" {
-			where = "the imports of their regions"
+			// --regions defaults to global alone, which leaves them out:
+			// name the regions to add.
+			slices.Sort(regions)
+			where = "the imports of their regions, which --regions names: " + strings.Join(regions, ", ")
 		}
 		log.Printf("%s: cloud_asset: %d resources of project %s are in other locations, for %s", provider, elsewhere, projectID, where)
 	}
@@ -267,6 +306,19 @@ func assetName(displayName, id string) string {
 // as us-central1 or us-central1-a, rather than global or a multi-region
 // such as us or nam4.
 var regional = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+(-[a-z])?$`)
+
+// regionOf is the region of a location in a region or a zone, such as
+// us-central1 for us-central1-a, or "" for global or a multi-region.
+func regionOf(location string) string {
+	location = strings.ToLower(location)
+	if !regional.MatchString(location) {
+		return ""
+	}
+	if dash := strings.LastIndexByte(location, '-'); len(location)-dash == 2 {
+		return location[:dash]
+	}
+	return location
+}
 
 // inRegion reports whether a resource at location belongs to the import of
 // region: the region and its zones, or, for global (""), what isn't in a

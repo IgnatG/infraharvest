@@ -5,7 +5,8 @@ package aws
 
 import (
 	"context"
-	"log"
+	"errors"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/medialive"
@@ -20,9 +21,10 @@ type MediaLiveLister struct {
 }
 
 // List lists the channels, the inputs and the input security
-// groups, all by ID. A list that fails is logged and ends there, and the
-// lister goes on with the next: the service itself never fails once its
-// client is built.
+// groups, all by ID. A list that fails ends there, and the lister goes on
+// with the next. When some lists fail, their errors are returned together
+// as a partial error (see harvest.Partial); when every one fails, as the
+// service's failure.
 func (g *MediaLiveLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -37,12 +39,16 @@ func (g *MediaLiveLister) List() error {
 		{"inputs", g.listInputs},
 		{"input security groups", g.listInputSecurityGroups},
 	}
+	var errs []error
 	for _, l := range lists {
 		if err := l.list(g.Context(), client); err != nil {
-			log.Printf("aws: medialive: listing %s: %v", l.what, err)
+			errs = append(errs, fmt.Errorf("%s: %w", l.what, err))
 		}
 	}
-	return nil
+	if len(errs) == len(lists) {
+		return errors.Join(errs...)
+	}
+	return harvest.Partial(errors.Join(errs...))
 }
 
 // listChannels adds each channel as an aws_medialive_channel.

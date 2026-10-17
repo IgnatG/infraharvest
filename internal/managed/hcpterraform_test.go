@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -89,6 +90,7 @@ func TestHCPTerraform(t *testing.T) {
 	defer archivist.Close()
 
 	names := []string{"network-prod", "network-stage", "app-network-x"}
+	var lookups atomic.Int32
 	api := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -102,7 +104,7 @@ func TestHCPTerraform(t *testing.T) {
 			page, _ := strconv.Atoi(r.URL.Query().Get("page[number]"))
 			var data []any
 			if page <= len(names) && strings.Contains(names[page-1], r.URL.Query().Get("search[name]")) {
-				data = append(data, map[string]any{"attributes": map[string]any{"name": names[page-1]}})
+				data = append(data, map[string]any{"id": "ws-" + names[page-1], "attributes": map[string]any{"name": names[page-1]}})
 			}
 			next := page + 1
 			if next > len(names) {
@@ -110,6 +112,7 @@ func TestHCPTerraform(t *testing.T) {
 			}
 			body = map[string]any{"data": data, "meta": map[string]any{"pagination": map[string]any{"next-page": next}}}
 		case strings.HasPrefix(path, "/api/v2/organizations/acme/workspaces/"):
+			lookups.Add(1)
 			body = map[string]any{"data": map[string]any{"id": "ws-" + strings.TrimPrefix(path, "/api/v2/organizations/acme/workspaces/")}}
 		case path == "/api/v2/workspaces/ws-network-prod/current-state-version":
 			body = map[string]any{"data": map[string]any{"attributes": map[string]any{"hosted-state-download-url": archivist.URL + "/v1/object/signed"}}}
@@ -139,6 +142,14 @@ func TestHCPTerraform(t *testing.T) {
 	// No current state version yet.
 	if content, err := h.Get(t.Context(), "acme", "network-stage"); err != nil || content != nil {
 		t.Errorf("Get without state: %q, %v", content, err)
+	}
+	// List found their IDs; a workspace it didn't list is looked up.
+	if lookups.Load() != 0 {
+		t.Errorf("Get looked up %d workspaces List found", lookups.Load())
+	}
+	fresh := &HCPTerraform{client: api.Client(), base: api.URL + "/api/v2", token: token}
+	if content, err := fresh.Get(t.Context(), "acme", "network-prod"); err != nil || string(content) != state || lookups.Load() != 1 {
+		t.Errorf("Get of a workspace not listed: %q, %v, %d lookups", content, err, lookups.Load())
 	}
 	h.token = "wrong"
 	if _, err := h.List(t.Context(), "acme", ""); err == nil {
@@ -178,5 +189,47 @@ func TestHCPTerraformToken(t *testing.T) {
 	}
 	if _, err := hcpTerraformToken("tfe.other.example", getenv); err == nil || !strings.Contains(err.Error(), "TF_TOKEN_tfe_other_example") {
 		t.Errorf("want an error naming TF_TOKEN_tfe_other_example, got %v", err)
+	}
+}
+
+// A state download URL is signed: it grants access to the state, secrets
+// included, so no error may quote it, whether the download fails with a
+// status or before any.
+func TestHCPTerraformDownloadErrorsHideTheURL(t *testing.T) {
+	const signed = "/v1/object/signed-dG9rZW4"
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer failing.Close()
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close() // nothing listens: the request fails before a status
+
+	for name, download := range map[string]string{"status": failing.URL + signed, "transport": closed.URL + signed} {
+		api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body any
+			switch r.URL.Path {
+			case "/api/v2/organizations/acme/workspaces/prod":
+				body = map[string]any{"data": map[string]any{"id": "ws-prod"}}
+			case "/api/v2/workspaces/ws-prod/current-state-version":
+				body = map[string]any{"data": map[string]any{"attributes": map[string]any{"hosted-state-download-url": download}}}
+			default:
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(body)
+		}))
+		h := &HCPTerraform{client: api.Client(), base: api.URL + "/api/v2", token: "api-token"}
+		_, err := h.Get(t.Context(), "acme", "prod")
+		api.Close()
+		if err == nil {
+			t.Errorf("%s: want an error", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "signed-") {
+			t.Errorf("%s: the error quotes the signed URL: %v", name, err)
+		}
+		if !strings.Contains(err.Error(), "acme/prod") {
+			t.Errorf("%s: the error doesn't name the workspace: %v", name, err)
+		}
 	}
 }

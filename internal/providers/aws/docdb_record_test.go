@@ -3,7 +3,10 @@
 
 package aws
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 const recordDocDBNS = "http://rds.amazonaws.com/doc/2014-10-31/"
 
@@ -17,6 +20,10 @@ func recordDocDBAPI(t *testing.T, failing string) func(apiCall) string {
 		}
 		switch call.Op {
 		case "DescribeDBClusters":
+			if form, _ := url.ParseQuery(call.Body); form.Get("Filters.Filter.1.Name") != "engine" || form.Get("Filters.Filter.1.Values.Value.1") != "docdb" {
+				t.Errorf("clusters not asked for by the docdb engine: %s", call.Body)
+			}
+			// An answer that holds other engines' clusters all the same.
 			if recordSecondPage(call) {
 				return recordQuery(call.Op, recordDocDBNS, `<DBClusters><DBCluster>
 					<DBClusterIdentifier>orders</DBClusterIdentifier><Engine>aurora-postgresql</Engine><DBSubnetGroup>orders</DBSubnetGroup>

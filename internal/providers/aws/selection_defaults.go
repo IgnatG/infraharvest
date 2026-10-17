@@ -32,8 +32,9 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 // by "type id", with the reason, that it takes asking AWS to find: the
 // default VPC and its subnets, route tables and internet gateways, default
 // security groups and the security groups EKS creates for clusters, with
-// their rules, and the KMS grants AWS services make for themselves, which
-// AWS creates itself; what CloudFormation stacks manage, which would
+// their rules, the KMS grants AWS services make for themselves, and the
+// Auto Scaling groups and launch templates of EKS managed node groups,
+// which AWS creates itself; what CloudFormation stacks manage, which would
 // otherwise have two owners; what other accounts share;
 // and the targets Auto Scaling groups and ECS services register in their
 // target groups, which they register and deregister themselves. The
@@ -60,7 +61,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		key := r.Address.Type + " " + r.Observed.ID
 		stack, ok := stacks[r.Observed.ID]
 		if !ok {
-			if id, importable := importID(r); importable {
+			if id, importable := importID(p.catalogue(), r); importable {
 				stack, ok = stacks[id]
 			}
 		}
@@ -69,6 +70,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		}
 	}
 	excludeServiceGrants(resources, excluded)
+	excludeEKSNodeGroups(resources, excluded)
 	sharedErr := p.excludeShared(ctx, config, resources, excluded)
 	targetsErr := p.excludeRegisteredTargets(ctx, config, resources, excluded)
 	stacksErr = errors.Join(stacksErr, sharedErr, targetsErr)
@@ -152,6 +154,32 @@ func (p *Provider) excludeShared(ctx context.Context, config aws.Config, resourc
 		}
 	}
 	return nil
+}
+
+// eksNodeGroupTag is the tag EKS gives the Auto Scaling group and the
+// launch template it creates for a managed node group, naming the group.
+const eksNodeGroupTag = "tags.eks:nodegroup-name"
+
+// reasonEKSNodeGroup is why the default selection leaves out the Auto
+// Scaling group and the launch template EKS creates for a managed node
+// group: the aws_eks_node_group manages them, and Terraform would fight EKS
+// over the group's size and the template's versions.
+func reasonEKSNodeGroup(nodeGroup string) string {
+	return "created by EKS for managed node group " + nodeGroup + ", which manages it"
+}
+
+// excludeEKSNodeGroups adds to excluded the Auto Scaling groups and launch
+// templates of resources that EKS created for a managed node group, told
+// by the tags the auto_scaling lister records.
+func excludeEKSNodeGroups(resources []harvest.Resource, excluded map[string]string) {
+	for _, r := range resources {
+		if r.Address.Type != "aws_autoscaling_group" && r.Address.Type != "aws_launch_template" {
+			continue
+		}
+		if nodeGroup := r.Observed.Attributes[eksNodeGroupTag]; nodeGroup != "" {
+			excluded[r.Address.Type+" "+r.Observed.ID] = reasonEKSNodeGroup(nodeGroup)
+		}
+	}
 }
 
 // reasonServiceGrant is why the default selection leaves out a KMS grant

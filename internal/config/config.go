@@ -10,10 +10,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -137,8 +140,12 @@ func (m Module) check(dir string) (Module, error) {
 		}
 		m.Source = abs
 	case strings.Contains(m.Source, "::"), strings.HasPrefix(m.Source, "github.com/"), strings.HasPrefix(m.Source, "bitbucket.org/"):
-		if !strings.Contains(m.Source, "ref=") {
+		ref := gitRef(m.Source)
+		if ref == "" {
 			return m, fmt.Errorf("%s: pin a tag or commit with ?ref=", m.Source)
+		}
+		if !commitSHA.MatchString(ref) && !versionTag(ref) {
+			log.Printf("%s: ref %s may be a branch, which moves: pin a release tag or a commit, so that roots call what was tested", m.Source, ref)
 		}
 		if m.Version != "" {
 			return m, fmt.Errorf("%s: a git source takes its version from ref", m.Source)
@@ -306,4 +313,30 @@ func (b *Backend) File(rootPath string) []byte {
 		backend.SetAttributeValue("prefix", cty.StringVal(path.Join(b.GCS.Prefix, rootPath)))
 	}
 	return hclwrite.Format(f.Bytes())
+}
+
+// gitRef returns the ref a git module source pins, from its query, as in
+// git::https://example.com/modules.git//bucket?ref=v1.4.0, or "".
+func gitRef(source string) string {
+	_, query, ok := strings.Cut(source, "?")
+	if !ok {
+		return ""
+	}
+	// A subdirectory may follow the query.
+	query, _, _ = strings.Cut(query, "//")
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return ""
+	}
+	return values.Get("ref")
+}
+
+// commitSHA matches a full commit SHA, the one ref that can't move.
+var commitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// versionTag reports whether a ref reads as a release tag, such as v1.4.0
+// or 2.1.
+func versionTag(ref string) bool {
+	_, err := version.NewVersion(strings.TrimPrefix(ref, "v"))
+	return err == nil
 }

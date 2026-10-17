@@ -315,6 +315,9 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 		return nil, nil, err
 	}
 	resources := generated.resources()
+	// Every anchor and every trial asks about the same references: read
+	// them once.
+	refs := indexReferences(resources)
 	clustered := map[string]bool{}
 	used := map[string]bool{}
 	for _, b := range generated.syntax.Blocks {
@@ -341,7 +344,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			// by referring to the anchor, or, for the anchor's type in a
 			// group, by having its key.
 			refers := func(r resourceBlock) bool {
-				return slices.Contains(referencedAddresses(r.syntax.Body), anchor.address)
+				return refs.refers[r.address][anchor.address]
 			}
 			if a.Group != nil {
 				key, ok := a.Group(c.Anchor)
@@ -353,7 +356,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				grouped[key] = true
 				refers = func(r resourceBlock) bool {
 					if resourceTypeOf(r.address) != a.Anchor {
-						return slices.Contains(referencedAddresses(r.syntax.Body), anchor.address)
+						return refs.refers[r.address][anchor.address]
 					}
 					k, ok := a.Group(resourceOf(r))
 					return ok && k == key
@@ -374,14 +377,19 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				c.Members = append(c.Members, resourceOf(r))
 				return true
 			}
-			for _, r := range resources {
+			// Without a group, only what refers to the anchor can join.
+			candidates := resources
+			if a.Group == nil {
+				candidates = refs.referrers(anchor.address, resources)
+			}
+			for _, r := range candidates {
 				join(r, a.Members, refers)
 			}
 			// Then the members that join through the others, until none does.
 			for joined := len(a.Through) > 0; joined; {
 				joined = false
 				for _, r := range resources {
-					if join(r, a.Through, func(r resourceBlock) bool { return linkedTo(r, in) }) {
+					if join(r, a.Through, func(r resourceBlock) bool { return refs.linked(r.address, in) }) {
 						joined = true
 					}
 				}
@@ -406,7 +414,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			t.cluster.Members = slices.DeleteFunc(slices.Clone(c.Members), func(m adapters.Resource) bool { return slices.Contains(call.Left, m.Address()) })
 			// What the call leaves in the root keeps its configuration.
 			setProvider(slices.DeleteFunc(slices.Clone(setting), func(r adapters.Resource) bool { return !slices.Contains(call.Left, r.Address()) }), provider)
-			if reason := unfollowable(t, resources, values); reason != "" {
+			if reason := unfollowable(t, refs, values); reason != "" {
 				setProvider(setting, provider)
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
@@ -425,12 +433,65 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 	return trials, declined, nil
 }
 
-// linkedTo reports whether r refers to one of cluster, or one of cluster
-// refers to r.
-func linkedTo(r resourceBlock, cluster []resourceBlock) bool {
-	refs := referencedAddresses(r.syntax.Body)
+// clusterReferences has the references between the resources of a root,
+// read once: mapClusters asks about them for every anchor and every
+// trial, and walking every resource's body each time made building
+// clusters quadratic in the resources of a root.
+type clusterReferences struct {
+	// refers has, by address, the resources each resource refers to.
+	refers map[string]map[string]bool
+	// incoming has, by address, the references to each resource, in the
+	// order of the resources they are in.
+	incoming map[string][]reference
+	// position has each resource's place in the root, by address.
+	position map[string]int
+}
+
+// reference is a traversal in the resource at from.
+type reference struct {
+	from      string
+	traversal hcl.Traversal
+}
+
+// indexReferences reads the references of resources (see
+// referencedAddresses and allTraversals).
+func indexReferences(resources []resourceBlock) clusterReferences {
+	idx := clusterReferences{refers: map[string]map[string]bool{}, incoming: map[string][]reference{}, position: map[string]int{}}
+	for i, r := range resources {
+		idx.position[r.address] = i
+		refers := map[string]bool{}
+		for _, tr := range allTraversals(r.syntax.Body) {
+			target := resourceAddress(tr)
+			if target == "" {
+				continue
+			}
+			refers[target] = true
+			idx.incoming[target] = append(idx.incoming[target], reference{from: r.address, traversal: tr})
+		}
+		idx.refers[r.address] = refers
+	}
+	return idx
+}
+
+// referrers returns the resources of resources, those of the root in
+// their order, that refer to the resource at address, in that order.
+func (idx clusterReferences) referrers(address string, resources []resourceBlock) []resourceBlock {
+	var referring []resourceBlock
+	// incoming has the references of each resource next to each other.
+	for _, ref := range idx.incoming[address] {
+		r := resources[idx.position[ref.from]]
+		if len(referring) == 0 || referring[len(referring)-1].address != r.address {
+			referring = append(referring, r)
+		}
+	}
+	return referring
+}
+
+// linked reports whether the resource at address refers to one of
+// cluster, or one of cluster refers to it.
+func (idx clusterReferences) linked(address string, cluster []resourceBlock) bool {
 	for _, b := range cluster {
-		if slices.Contains(refs, b.address) || slices.Contains(referencedAddresses(b.syntax.Body), r.address) {
+		if idx.refers[address][b.address] || idx.refers[b.address][address] {
 			return true
 		}
 	}
@@ -455,13 +516,23 @@ func uniqueName(base string, used map[string]bool) string {
 // resources that stay and from the call's own arguments, can't all become
 // references to the module's outputs or, for a string the module has no
 // output for, its imported value in values (see trial.literals), or "".
-func unfollowable(t *trial, resources []resourceBlock, values map[string]map[string]any) string {
+// refs has the references of the root's resources.
+func unfollowable(t *trial, refs clusterReferences, values map[string]map[string]any) string {
 	members := t.members()
 	var traversals []hcl.Traversal
-	for _, r := range resources {
-		if !slices.Contains(members, r.address) {
-			traversals = append(traversals, allTraversals(r.syntax.Body)...)
+	// Only the references to members matter: those from the resources
+	// that stay, in the order of the resources.
+	var incoming []reference
+	for _, m := range members {
+		for _, ref := range refs.incoming[m] {
+			if !slices.Contains(members, ref.from) {
+				incoming = append(incoming, ref)
+			}
 		}
+	}
+	slices.SortStableFunc(incoming, func(x, y reference) int { return refs.position[x.from] - refs.position[y.from] })
+	for _, ref := range incoming {
+		traversals = append(traversals, ref.traversal)
 	}
 	for _, arg := range t.call.Arguments {
 		expr, diags := hclsyntax.ParseExpression(arg.Value.Bytes(), "", hcl.InitialPos)

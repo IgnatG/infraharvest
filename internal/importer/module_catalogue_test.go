@@ -44,8 +44,44 @@ func TestCatalogueAdapters(t *testing.T) {
 	google := t.TempDir()
 	writeTF(google, "resource \"google_storage_bucket\" \"this\" {\n  name     = \"b\"\n  location = \"EU\"\n}\n")
 
-	list := catalogueAdapters(t.Context(), "", []config.Module{{Source: bucket}, {Source: counted}, {Source: google}}, "aws")
+	list := catalogueAdapters(fetchAdapters(t.Context(), "", []config.Module{{Source: bucket}, {Source: counted}, {Source: google}}), "aws")
 	if len(list) != 1 || list[0].Source != bucket || list[0].Anchor != "aws_s3_bucket" {
 		t.Errorf("adapters: %+v", list)
+	}
+}
+
+// The organisation's modules are fetched once per command, for every
+// Import call and account, and kept in their order.
+func TestOwnAdaptersFetchOnce(t *testing.T) {
+	var modules []config.Module
+	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
+		dir := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := "resource \"aws_s3_bucket\" \"this\" {\n  bucket = \"" + name + "\"\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		modules = append(modules, config.Module{Source: dir})
+	}
+	run := NewRun()
+	first := run.shared.ownAdapters(t.Context(), "", modules)
+	if len(first) != len(modules) {
+		t.Fatalf("adapters: %+v", first)
+	}
+	for i, a := range first {
+		if a.Source != modules[i].Source {
+			t.Errorf("adapter %d is of %s, want %s", i, a.Source, modules[i].Source)
+		}
+	}
+	// Gone now: fetching again would leave them out.
+	for _, m := range modules {
+		if err := os.RemoveAll(m.Source); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if again := run.child().shared.ownAdapters(t.Context(), "", modules); len(again) != len(modules) {
+		t.Errorf("fetched again: %+v", again)
 	}
 }

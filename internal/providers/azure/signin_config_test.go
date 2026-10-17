@@ -122,7 +122,7 @@ func TestLoadAuthConfigFlags(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"ARM_USE_OIDC", "ARM_USE_MSI"} {
+	for _, name := range []string{"ARM_USE_OIDC", "ARM_USE_MSI", "ARM_USE_CLI", "ARM_USE_AKS_WORKLOAD_IDENTITY"} {
 		for _, value := range []string{"yes", "no", "garbage"} {
 			_, err := loadAuthConfig(envOf(map[string]string{name: value}))
 			if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), strconv.Quote(value)) {

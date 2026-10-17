@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
@@ -105,5 +106,15 @@ func TestGithubSource(t *testing.T) {
 	}
 	if _, _, _, err := githubSource("git::https://gitlab.com/a/b?ref=x"); err == nil {
 		t.Error("want an error for a source outside GitHub")
+	}
+}
+
+func TestReadRefusesAnOversizedFile(t *testing.T) {
+	archive := moduleArchive(t, map[string]string{
+		"terraform-aws-thing-abc123/variables.tf": "variable \"name\" {}\n" + strings.Repeat("#", maxRead),
+	})
+	_, err := Read(bytes.NewReader(archive), "")
+	if err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("Read() error = %v, want one saying the file is too large", err)
 	}
 }

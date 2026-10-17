@@ -39,6 +39,14 @@ func (az *Service) recordBare(id, name, resourceType string) {
 	az.Resources = append(az.Resources, harvest.RecordBare(id, name, resourceType, az.Provider()))
 }
 
+// recordTagged adds a resource of resourceType, imported by id and
+// labelled name, with the tags its list response carried as its
+// attributes (see armTagAttributes), an empty map of its own without
+// tags, as recordBare's.
+func (az *Service) recordTagged(id, name, resourceType string, tags map[string]*string) {
+	az.Resources = append(az.Resources, harvest.Record(id, name, resourceType, az.Provider(), armTagAttributes(tags)))
+}
+
 // listAll returns the non-nil items of every page of pager, in order, as
 // items picks them out of each page. On the first page that fails it stops
 // and returns the items of the pages before it with the error.

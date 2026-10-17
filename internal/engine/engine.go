@@ -17,8 +17,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -71,9 +73,7 @@ func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (
 	}
 	// SetEnv replaces the inherited environment and rejects variables that
 	// tfexec manages itself (TF_LOG, TF_CLI_ARGS, ...), so drop those.
-	all := environ()
-	maps.Copy(all, env)
-	all = tfexec.CleanEnv(all)
+	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
 	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
 	if err := tf.SetEnv(all); err != nil {
 		return nil, err
@@ -189,6 +189,11 @@ type Options struct {
 	// a prefix most of their names share, and main for the only resource of
 	// a type. Without it, labels are the names as Label writes them.
 	TidyLabels bool
+	// CommandTimeout bounds each Terraform command Generate, Add and
+	// Verify run, such as a plan whose provider retries an unreachable
+	// endpoint: a command still running then is stopped, and fails the
+	// root. 0 means no limit.
+	CommandTimeout time.Duration
 
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
@@ -226,7 +231,10 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		}
 	}
 	// Several steps need the providers' schemas: read them once per init.
-	tf = &schemaCache{Terraform: tf}
+	// No plan shows the secret values Generate finds (see
+	// redactingTerraform).
+	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
+	tf = &schemaCache{Terraform: redacting}
 	imports = labelled(imports, opts.Taken, opts.TidyLabels)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
@@ -308,6 +316,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	if len(literal) > 0 {
+		redacting.hide(literal)
 		if opts.secretValues, err = newSecretValues(); err != nil {
 			return nil, err
 		}
@@ -322,9 +331,28 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := os.Chmod(dir, info.Mode()&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
 		return nil, err
 	}
+	// last is the last of the plans below, if it had no errors, and planned
+	// the files it read: postProcess starts from it if they are still the
+	// same then.
+	var last *shownPlan
+	var planned map[string][]byte
+	replan := func() error {
+		p, summary, ds, err := showPlanWithSummary(ctx, tf, opts.secretValues.options())
+		if err != nil {
+			return err
+		}
+		diags, last, planned = ds, nil, nil
+		if len(ds) == 0 && p != nil {
+			if planned, err = rootFileContents(dir); err != nil {
+				return err
+			}
+			last = &shownPlan{plan: p, summary: summary}
+		}
+		return nil
+	}
 	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
-		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
-			return nil, fmt.Errorf("terraform plan: %w", err)
+		if err := replan(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -364,8 +392,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			}
 			result.Rejected = append(result.Rejected, rejections...)
 		}
-		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
-			return nil, fmt.Errorf("terraform plan: %w", err)
+		if err := replan(); err != nil {
+			return nil, err
 		}
 	}
 	// Terraform generates nothing for a resource its import finds gone, such
@@ -413,7 +441,22 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	declined, err := postProcess(ctx, tf, dir, opts, result.Secrets)
+	// The last plan above is postProcess's first if nothing changed since:
+	// the same files, and no secret variables, whose values its plans get
+	// otherwise.
+	if last != nil && (opts.secretValues != nil || len(result.Secrets) > 0) {
+		last = nil
+	}
+	if last != nil {
+		same, err := sameFiles(dir, planned)
+		if err != nil {
+			return nil, err
+		}
+		if !same {
+			last = nil
+		}
+	}
+	declined, err := postProcess(ctx, tf, dir, opts, result.Secrets, last)
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +499,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := typeLiteralsOf(ctx, tf, dir); err != nil {
 		return nil, err
 	}
-	if err := layoutDir(dir, opts.ModulesDir); err != nil {
+	if err := layoutDir(dir); err != nil {
 		return nil, err
 	}
 	if err := requireMinimumVersion(dir); err != nil {
@@ -465,7 +508,13 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
 	}
-	return result, WriteReadme(dir, result)
+	// The README shows the gate's details, which come from plans that had
+	// the secret values: the gate couldn't scan it, so it is scanned here.
+	redactResult(result, literal)
+	if err := WriteReadme(dir, result); err != nil {
+		return result, err
+	}
+	return result, checkReadme(dir, result, knownValues(literal))
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors
@@ -630,4 +679,79 @@ func environ() map[string]string {
 		}
 	}
 	return env
+}
+
+// rootFileContents returns the content of the regular files directly in dir, by
+// name: the configuration a plan of dir reads, but for the providers and
+// modules init installs.
+func rootFileContents(dir string) (map[string][]byte, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		files[e.Name()] = content
+	}
+	return files, nil
+}
+
+// sameFiles reports whether the regular files directly in dir are those
+// of files, with the same content (see rootFileContents).
+func sameFiles(dir string, files map[string][]byte) (bool, error) {
+	now, err := rootFileContents(dir)
+	if err != nil {
+		return false, err
+	}
+	return maps.EqualFunc(now, files, bytes.Equal), nil
+}
+
+// mergeEnv returns the environment base with over on top, for Terraform.
+// Without TF_DATA_DIR: Terraform then keeps its working data in each
+// root's .terraform, where the engine reads it, such as the modules init
+// installed, and roots generating in parallel don't share one. Where
+// variable names are case-insensitive (foldCase), as on Windows, a
+// variable of over replaces base's of any case, so that Terraform doesn't
+// get both, and the names of TF_ variables but input variables are upper
+// case, so that tfexec.CleanEnv, which matches names exactly, finds those
+// it manages.
+func mergeEnv(base, over map[string]string, foldCase bool) map[string]string {
+	key := func(name string) string { return name }
+	if foldCase {
+		key = strings.ToUpper
+	}
+	all := make(map[string]string, len(base)+len(over))
+	names := map[string]string{} // by key, the name all has the variable under
+	set := func(name, value string) {
+		if old, ok := names[key(name)]; ok {
+			delete(all, old)
+		}
+		names[key(name)] = name
+		all[name] = value
+	}
+	for name, value := range base {
+		set(name, value)
+	}
+	for name, value := range over {
+		set(name, value)
+	}
+	if name, ok := names[key("TF_DATA_DIR")]; ok {
+		delete(all, name)
+	}
+	if foldCase {
+		for name, value := range maps.Clone(all) {
+			if upper := strings.ToUpper(name); upper != name && strings.HasPrefix(upper, "TF_") && !strings.HasPrefix(upper, "TF_VAR_") {
+				delete(all, name)
+				all[upper] = value
+			}
+		}
+	}
+	return all
 }

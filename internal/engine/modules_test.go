@@ -183,7 +183,7 @@ func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: changeSummary{Change: 1}}}}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil, nil)
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
@@ -200,12 +200,12 @@ func TestLiftModulesKeeps(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil, nil)
 	if err != nil || !kept {
 		t.Fatalf("want the modules kept, got kept=%v err=%v", kept, err)
 	}
-	if strings.Join(tf.calls, ",") != "schema,init,plan" {
-		t.Errorf("calls: got %v, want [schema init plan]", tf.calls)
+	if strings.Join(tf.calls, ",") != "schema,init,plan,show" {
+		t.Errorf("calls: got %v, want [schema init plan show]", tf.calls)
 	}
 }
 
@@ -333,5 +333,70 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	}
 	if filepath.Base(created[0]) == filepath.Base(createdLess[0]) {
 		t.Errorf("modules with other outputs share the name %s", filepath.Base(created[0]))
+	}
+}
+
+// A lift with the same totals is still undone when a resource left in the
+// root plans another change than it had, as verify undoes an edit.
+func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
+	dir, modulesDir := moduleRoot(t, twoBuckets)
+	shown := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"policy": "a"}, map[string]any{"policy": "b"}),
+	}}
+	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, shown: shown}
+	changes := map[string]string{"aws_iam_policy.read": changeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, changes, nil)
+	if err != nil || kept {
+		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
+	}
+	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+		t.Errorf("generated.tf not restored:\n%s", got)
+	}
+}
+
+// A root whose modules directory is inside it, as with --layout {out},
+// calls its modules by ./ paths: modules/<name> would be a registry
+// address.
+func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
+	dir, _ := moduleRoot(t, twoBuckets)
+	modulesDir := filepath.Join(dir, ModulesDirName)
+
+	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	if err != nil || !changed || len(created) != 1 {
+		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
+	}
+
+	want := `source = "./` + ModulesDirName + "/" + filepath.Base(created[0]) + `"`
+	if root := readFile(t, dir, GeneratedFileName); !strings.Contains(root, want) {
+		t.Errorf("generated.tf misses %q:\n%s", want, root)
+	}
+}
+
+func TestLocalSource(t *testing.T) {
+	for _, c := range []struct{ rel, want string }{
+		{filepath.Join("..", "..", "..", ModulesDirName), "../../../modules/vpc"},
+		{ModulesDirName, "./modules/vpc"},
+		{".", "./vpc"},
+	} {
+		if got := localSource(c.rel, "vpc"); got != c.want {
+			t.Errorf("localSource(%q): got %q, want %q", c.rel, got, c.want)
+		}
+	}
+}
+
+// A generated module is laid out as it is written, before other roots can
+// see it.
+func TestModularizeLaysOutTheModule(t *testing.T) {
+	dir, modulesDir := moduleRoot(t, twoBuckets)
+
+	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	if err != nil || !changed || len(created) != 1 {
+		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
+	}
+
+	main := readFile(t, created[0], "main.tf")
+	if out, ok := layout([]byte(main)); !ok || string(out) != main {
+		t.Errorf("main.tf isn't laid out:\n%s", main)
 	}
 }

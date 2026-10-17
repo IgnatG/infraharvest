@@ -417,3 +417,44 @@ func TestModuleOptions(t *testing.T) {
 		}
 	}
 }
+
+// The command's context ends with its parent's, and stop releases it.
+func TestInterruptContext(t *testing.T) {
+	parent, cancel := context.WithCancel(t.Context())
+	ctx, stop := InterruptContext(parent)
+	defer stop()
+	cancel()
+	<-ctx.Done()
+
+	ctx, stop = InterruptContext(t.Context())
+	stop()
+	if ctx.Err() == nil {
+		t.Error("stop left the context running")
+	}
+}
+
+// A lock file seeds a root only if its provider release meets the root's
+// constraint.
+func TestLockMeets(t *testing.T) {
+	lock := []byte(`provider "registry.terraform.io/hashicorp/aws" {
+  version     = "6.67.0"
+  constraints = "~> 6.67"
+}
+`)
+	const source = "registry.terraform.io/hashicorp/aws"
+	for _, tc := range []struct {
+		lock       []byte
+		constraint string
+		want       bool
+	}{
+		{lock, "~> 6.67", true},
+		{lock, "~> 6.50", true},
+		{lock, ">= 6.50, < 6.51", false},
+		{nil, "~> 6.50", true},
+		{lock, "", true},
+	} {
+		if got := lockMeets(tc.lock, source, tc.constraint); got != tc.want {
+			t.Errorf("lock %q, constraint %q: got %v, want %v", tc.lock, tc.constraint, got, tc.want)
+		}
+	}
+}

@@ -381,3 +381,57 @@ func TestNetworkSecurityGroupFailsWhenRulesFail(t *testing.T) {
 		t.Errorf("listed %v, want an error", g.Resources)
 	}
 }
+
+// The Resource Manager listers record the tags their list responses carry,
+// tags.<key>, as resource_graph records Resource Graph's, so that the
+// provider needs no second read of them; a tag without a value is left
+// out, and an untagged resource has no attributes.
+func TestResourceManagerListersRecordTags(t *testing.T) {
+	const (
+		group   = "/subscriptions/sub/resourceGroups/rg1"
+		network = group + "/providers/Microsoft.Network/"
+	)
+	for _, tc := range []struct {
+		name   string
+		lister harvest.Lister
+		body   string
+		want   []listedResource
+	}{
+		{
+			name:   "resource group",
+			lister: &ResourceGroupLister{},
+			body:   `{"id":"` + group + `","name":"rg1","tags":{"env":"prod","empty":null}}`,
+			want:   []listedResource{{Type: "azurerm_resource_group", ID: group, Name: "rg1", Attributes: map[string]string{"tags.env": "prod"}}},
+		},
+		{
+			name:   "virtual networks",
+			lister: &VirtualNetworkLister{},
+			body: armList(
+				`{"id":"`+network+`virtualNetworks/net1","name":"net1","tags":{"team":"net","cost centre":"42"}}`,
+				armItem(network+"virtualNetworks/net2", "net2", ""),
+			),
+			want: []listedResource{
+				{Type: "azurerm_virtual_network", ID: network + "virtualNetworks/net1", Name: "net1", Attributes: map[string]string{"tags.team": "net", "tags.cost centre": "42"}},
+				{Type: "azurerm_virtual_network", ID: network + "virtualNetworks/net2", Name: "net2"},
+			},
+		},
+		{
+			name:   "a network interface with its endpoint",
+			lister: &NetworkInterfaceLister{},
+			body:   armList(`{"id":"` + network + `networkInterfaces/pe.nic","name":"pe.nic","tags":{"team":"net"},"properties":{"privateEndpoint":{"id":"` + network + `privateEndpoints/pe"}}}`),
+			want: []listedResource{{Type: "azurerm_network_interface", ID: network + "networkInterfaces/pe.nic", Name: "pe.nic", Attributes: map[string]string{
+				"private_endpoint": network + "privateEndpoints/pe",
+				"tags.team":        "net",
+			}}},
+		},
+	} {
+		transport := &fakeTransport{body: tc.body}
+		tc.lister.Configure(harvest.ListerConfig{Settings: fakeArgs(transport, "rg1")})
+		if err := tc.lister.List(); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := listedResources(tc.lister.Listed()); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -6,7 +6,6 @@ package managed
 import (
 	"context"
 	"errors"
-	"io"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
@@ -50,5 +49,5 @@ func (g *GCS) Get(ctx context.Context, bucket, name string) ([]byte, error) {
 		return nil, err
 	}
 	defer r.Close()
-	return io.ReadAll(r)
+	return readState(r)
 }

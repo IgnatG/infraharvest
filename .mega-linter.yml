@@ -152,19 +152,14 @@ REPOSITORY_CHECKOV_ARGUMENTS:
   - --skip-path
   - testdata
 
-# Links in the documentation. Workflows and the action name local
-# emulators, release download URLs built from variables and the OIDC
-# issuer, none of which resolve from here. A site that doesn't answer at
-# once gets more time and retries before it fails a pull request.
+# Links in the documentation, within the repository only (--offline): a
+# site that is down or rate-limits the runner would otherwise fail this
+# required check on pull requests that didn't touch the link. The links
+# workflow (.github/workflows/links.yml) checks the external ones, as a
+# check that isn't required.
 SPELL_LYCHEE_FILTER_REGEX_INCLUDE: '\.md$'
 SPELL_LYCHEE_ARGUMENTS:
-  - --exclude-loopback
-  - --max-retries
-  - "5"
-  - --retry-wait-time
-  - "5"
-  - --timeout
-  - "30"
+  - --offline
   - --exclude
   - '(\$\{|\$%7B|\{\{)'
 

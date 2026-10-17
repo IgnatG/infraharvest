@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
@@ -36,8 +38,10 @@ type cloudControlType struct {
 // name, each a group of related types the service listers don't cover:
 // the catalogue's types with a cloud_control entry, by service, sorted by
 // Terraform type. What AWS creates for the account, such as the default
-// event bus, the catalogue's skip rules leave out.
-func cloudControlServices() map[string][]cloudControlType {
+// event bus, the catalogue's skip rules leave out. They are worked out once,
+// from the built-in catalogue, which doesn't change; callers must not
+// modify the answer.
+var cloudControlServices = sync.OnceValue(func() map[string][]cloudControlType {
 	cat := awsCatalogue()
 	services := map[string][]cloudControlType{}
 	for _, typ := range cat.Types() {
@@ -52,7 +56,7 @@ func cloudControlServices() map[string][]cloudControlType {
 		})
 	}
 	return services
-}
+})
 
 // CloudControlLister lists a service of cloudControlServices.
 type CloudControlLister struct {
@@ -64,29 +68,44 @@ func newCloudControlLister(service string) *CloudControlLister {
 	return &CloudControlLister{types: cloudControlServices()[service]}
 }
 
+// List lists every type of the service, each on its own: a type that fails,
+// such as one an SCP denies, doesn't stop the others. When some types fail,
+// their errors, each naming its type, are returned together as a partial
+// error (see harvest.Partial), so what the others listed is imported; when
+// every type fails, as the service's failure.
 func (g *CloudControlLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	client := cloudcontrol.NewFromConfig(config)
+	var errs []error
 	for _, t := range g.types {
 		if err := g.list(g.Context(), client, t); err != nil {
-			return fmt.Errorf("%s: %w", t.CloudFormation, err)
+			errs = append(errs, fmt.Errorf("%s: %w", t.CloudFormation, err))
 		}
 	}
-	return nil
+	if len(errs) > 0 && len(errs) == len(g.types) {
+		return errors.Join(errs...)
+	}
+	return harvest.Partial(errors.Join(errs...))
 }
 
-// list adds the resources of one type, if the region has the type.
+// list adds the resources of one type, if the region has the type. A type
+// Cloud Control can't list there, which has no list handler, is logged and
+// lists nothing.
 func (g *CloudControlLister) list(ctx context.Context, client cloudcontrol.ListResourcesAPIClient, t cloudControlType) error {
 	p := cloudcontrol.NewListResourcesPaginator(client, &cloudcontrol.ListResourcesInput{TypeName: aws.String(t.CloudFormation)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		var notFound *cctypes.TypeNotFoundException
-		var unsupported *cctypes.UnsupportedActionException
-		if errors.As(err, &notFound) || errors.As(err, &unsupported) {
+		if errors.As(err, &notFound) {
 			// Not every region offers every type.
+			return nil
+		}
+		var unsupported *cctypes.UnsupportedActionException
+		if errors.As(err, &unsupported) {
+			log.Printf("aws: cloud control can't list %s here; not listing it: %v", t.CloudFormation, err)
 			return nil
 		}
 		if err != nil {

@@ -22,19 +22,17 @@ var virtualInterfaceTypes = map[string]string{
 	"transit": "aws_dx_transit_virtual_interface",
 }
 
-// DirectConnectLister lists Direct Connect gateways, virtual interfaces
-// and connections.
-//
-// Direct Connect gateways are global, but the lister runs per region, so a
-// gateway is listed once for every region listed.
+// DirectConnectLister lists the service "dx": the Direct Connect virtual
+// interfaces and connections of a region. The gateways, which are global,
+// are the service "dx_gateway" (see DirectConnectGatewayLister).
 type DirectConnectLister struct {
 	Service
 }
 
-// List lists the gateways, then the virtual interfaces, then the
-// connections, each by its ID, leaving out those being deleted, deleted or
-// rejected: Direct Connect keeps reporting them for a while, and Terraform
-// reads them as gone. Any error fails the service.
+// List lists the virtual interfaces, then the connections, each by its ID,
+// leaving out those being deleted, deleted or rejected: Direct Connect
+// keeps reporting them for a while, and Terraform reads them as gone. Any
+// error fails the service.
 func (g *DirectConnectLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -42,18 +40,33 @@ func (g *DirectConnectLister) List() error {
 	}
 	client := directconnect.NewFromConfig(config)
 	ctx := g.Context()
-	if err := g.listGateways(ctx, client); err != nil {
-		return err
-	}
 	if err := g.listVirtualInterfaces(ctx, client); err != nil {
 		return err
 	}
 	return g.listConnections(ctx, client)
 }
 
+// DirectConnectGatewayLister lists the service "dx_gateway": the Direct
+// Connect gateways. A gateway is global, and every region's API answers
+// with all of them, so the service is listed once, in GlobalHomeRegion,
+// not in each region, which would put the same gateway in several roots.
+type DirectConnectGatewayLister struct {
+	Service
+}
+
+// List lists the gateways by ID, leaving out those being deleted or
+// deleted. Any error fails the service.
+func (g *DirectConnectGatewayLister) List() error {
+	config, err := g.sdkConfig()
+	if err != nil {
+		return err
+	}
+	return g.listGateways(g.Context(), directconnect.NewFromConfig(config))
+}
+
 // listGateways adds each Direct Connect gateway as an aws_dx_gateway,
 // imported and named by its ID. The SDK has no paginator for it.
-func (g *DirectConnectLister) listGateways(ctx context.Context, client *directconnect.Client) error {
+func (g *DirectConnectGatewayLister) listGateways(ctx context.Context, client *directconnect.Client) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		out, err := client.DescribeDirectConnectGateways(ctx, &directconnect.DescribeDirectConnectGatewaysInput{NextToken: token})
 		if err != nil {

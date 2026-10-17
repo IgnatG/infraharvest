@@ -6,6 +6,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,6 +26,8 @@ type fakeRunner struct {
 	runs           [][]string
 	discoverExit   int
 	discoverStderr string
+	// selections are the contents of the selection files imports read.
+	selections []string
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -37,6 +40,15 @@ func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int,
 		path := strings.TrimPrefix(args[len(args)-1], "--selection=")
 		return nil, nil, 0, writeSelection(path)
 	case "import":
+		for _, a := range args {
+			if path, ok := strings.CutPrefix(a, "--selection="); ok {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return nil, nil, 2, err
+				}
+				f.selections = append(f.selections, string(content))
+			}
+		}
 		r := report.Report{Totals: report.CoverageTotal{Discovered: 3, Imported: 2, Excluded: 1}}
 		out, err := json.Marshal(r)
 		return out, []byte("imported 2 of 3 resources\n"), 0, err
@@ -154,9 +166,30 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
 	}
-	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=" + path, "--out=" + out, "--format=json"}
-	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
+	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=", "--out=" + out, "--format=json"}
+	if len(runner.runs) != 1 {
+		t.Fatalf("runs: %v, want one", runner.runs)
+	}
+	// The import reads the confirmed content from a private copy, removed
+	// once it is done.
+	got := slices.Clone(runner.runs[0])
+	copied := ""
+	for i, a := range got {
+		if p, ok := strings.CutPrefix(a, "--selection="); ok {
+			copied, got[i] = p, "--selection="
+		}
+	}
+	if !slices.Equal(got, want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+	if copied == path || copied == "" {
+		t.Errorf("the import read %q, not a private copy of %s", copied, path)
+	}
+	if _, err := os.Stat(copied); err == nil {
+		t.Errorf("the copy %s is left behind", copied)
+	}
+	if original, err := os.ReadFile(path); err != nil || len(runner.selections) != 1 || runner.selections[0] != string(original) {
+		t.Errorf("the import read %q, want the confirmed content %q (%v)", runner.selections, original, err)
 	}
 }
 
@@ -501,5 +534,239 @@ func TestFilesStayUnderRoot(t *testing.T) {
 	}
 	if len(runner.runs) != 1 {
 		t.Errorf("runs: %v", runner.runs)
+	}
+}
+
+// Clients auto-approve read-only tools and retry idempotent ones: discover
+// writes the selection file, and the same import again isn't the same.
+func TestToolAnnotations(t *testing.T) {
+	session := connect(t, &fakeRunner{}, t.TempDir(), nil)
+	res, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Tools) != 3 {
+		t.Fatalf("got %d tools, want 3", len(res.Tools))
+	}
+	for _, tool := range res.Tools {
+		a := tool.Annotations
+		if a == nil {
+			t.Errorf("%s has no annotations", tool.Name)
+			continue
+		}
+		switch tool.Name {
+		case "report":
+			if !a.ReadOnlyHint {
+				t.Errorf("report isn't read-only")
+			}
+		default:
+			if a.ReadOnlyHint || a.IdempotentHint || a.DestructiveHint == nil || *a.DestructiveHint {
+				t.Errorf("%s: annotations %+v, want neither read-only nor idempotent, and not destructive", tool.Name, a)
+			}
+		}
+	}
+}
+
+// A symbolic link a cloned repository plants under the output directory
+// doesn't take the report tool, or an import, out of the root.
+func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "work")
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	for _, dir := range []string{filepath.Join(root, "linked-report", report.Dir), filepath.Join(root, "generated"), outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret := filepath.Join(outside, "credentials")
+	if err := os.WriteFile(secret, []byte("[default]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "linked-report", report.Dir, "report.md")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "linked-parent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked-parent", report.Dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "generated", "aws")); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+
+	for _, out := range []string{"linked-report", "linked-parent"} {
+		if res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, out)}); err == nil || !strings.Contains(err.Error(), "must be under") {
+			t.Errorf("report %s: got %+v, %v, want the link rejected", out, res, err)
+		}
+	}
+	selectionPath := filepath.Join(root, "selection.yaml")
+	if err := writeSelection(selectionPath); err != nil {
+		t.Fatal(err)
+	}
+	in := ImportInput{Scope: Scope{Provider: "aws", Services: []string{"vpc"}}, Selection: selectionPath, Out: filepath.Join(root, "generated")}
+	if _, _, err := tools.importSelection(t.Context(), req, in); err == nil || !strings.Contains(err.Error(), "must be under") {
+		t.Errorf("import: got %v, want the link under the output rejected", err)
+	}
+	if len(runner.runs) != 0 {
+		t.Errorf("ran with a link out of the root: %v", runner.runs)
+	}
+}
+
+// An answer counts only to a confirmation request the server made, and
+// only once: a client can't skip asking by computing the state, nor run
+// one confirmed import twice.
+func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "generated")
+	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
+	args, err := scopeArgs("import", scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args = append(args, "--engine=terraform", "--selection="+path, "--out="+out, "--format=json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := confirmationState(args, content)
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run, root: dir}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
+		RequestState:   state,
+	}}
+	in := ImportInput{Scope: scope, Selection: path, Out: out}
+
+	if res, _, err := tools.importSelection(t.Context(), req, in); err != nil || res == nil || !res.IsError {
+		t.Errorf("an answer never asked for: got %+v, %v, want the import refused", res, err)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("imported without asking: %v", runner.runs)
+	}
+
+	tools.issue(state)
+	if res, _, err := tools.importSelection(t.Context(), req, in); err != nil || res == nil || res.IsError {
+		t.Errorf("a confirmed import: got %+v, %v", res, err)
+	}
+	if res, _, err := tools.importSelection(t.Context(), req, in); err != nil || res == nil || !res.IsError {
+		t.Errorf("the same answer again: got %+v, %v, want the import refused", res, err)
+	}
+	if len(runner.runs) != 1 {
+		t.Errorf("runs: %v, want one", runner.runs)
+	}
+}
+
+// The command a user is told to run reads back as the same arguments, and
+// what the agent sends can't make the confirmation say something else.
+func TestValuesShownToTheUser(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"import", "aws", "--services=vpc,s3", "--out=gen"}, "import aws --services=vpc,s3 --out=gen"},
+		{[]string{"--selection=my dir/sel.yaml"}, "'--selection=my dir/sel.yaml'"},
+		{[]string{"--out=gen;curl x|sh"}, "'--out=gen;curl x|sh'"},
+		{[]string{"--profile=it's"}, `'--profile=it'"'"'s'`},
+	} {
+		if got := shellJoin(tc.args); got != tc.want {
+			t.Errorf("shellJoin(%q): got %s, want %s", tc.args, got, tc.want)
+		}
+	}
+
+	for name, scope := range map[string]Scope{
+		"a service with a space":    {Provider: "aws", Services: []string{"vpc; rm"}},
+		"a region with a newline":   {Provider: "aws", Services: []string{"vpc"}, Regions: []string{"eu-west-2\nand nothing else"}},
+		"a profile with a newline":  {Provider: "aws", Services: []string{"vpc"}, Profile: "prod\nImport nothing"},
+		"a project with a carriage": {Provider: "google", Services: []string{"iam"}, Projects: []string{"one\r"}},
+	} {
+		if _, err := scopeArgs("import", scope); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	dir := t.TempDir()
+	tools := &tools{run: (&fakeRunner{}).run, root: dir}
+	if _, err := tools.within("out", filepath.Join(dir, "gen\nInto nothing")); err == nil || !strings.Contains(err.Error(), "control character") {
+		t.Errorf("a path with a newline: got %v", err)
+	}
+}
+
+// The confirmation quotes the paths the agent chose.
+func TestConfirmationQuotesPaths(t *testing.T) {
+	runner := &fakeRunner{}
+	var asked string
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = req.Params.Message
+		return &mcp.ElicitResult{Action: "decline"}, nil
+	})
+	path := filepath.Join(dir, "my selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "gen")
+	call(t, session, "import", importArgs(path, out))
+	for _, want := range []string{fmt.Sprintf("%q includes", path), fmt.Sprintf("in %q?", out)} {
+		if !strings.Contains(asked, want) {
+			t.Errorf("confirmation %q misses %s", asked, want)
+		}
+	}
+}
+
+// A host that starts the server in / or the home directory doesn't give
+// the tools the whole machine without --root saying so.
+func TestCheckDefaultRoot(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	volumeRoot := filepath.VolumeName(home) + string(filepath.Separator)
+	for dir, ok := range map[string]bool{
+		project:    true,
+		home:       false,
+		volumeRoot: false,
+	} {
+		if err := CheckDefaultRoot(dir, home); (err == nil) != ok {
+			t.Errorf("CheckDefaultRoot(%s): got %v, want allowed %v", dir, err, ok)
+		}
+	}
+	if err := CheckDefaultRoot(home, ""); err != nil {
+		t.Errorf("without a home directory: %v", err)
+	}
+}
+
+// A relative path is relative to the root, wherever the server runs: the
+// child gets it, and the report is read from it, joined onto the root.
+func TestRelativePathsAreUnderRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(t.TempDir())
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
+
+	if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: "selection.yaml"}); err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	want := "--selection=" + filepath.Join(root, "selection.yaml")
+	if len(runner.runs) != 1 || runner.runs[0][len(runner.runs[0])-1] != want {
+		t.Errorf("runs: %v, want the last argument %s", runner.runs, want)
+	}
+	if _, err := os.Stat(filepath.Join(root, "selection.yaml")); err != nil {
+		t.Errorf("the selection file isn't under the root: %v", err)
+	}
+	if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: filepath.Join("..", "selection.yaml")}); err == nil || !strings.Contains(err.Error(), "must be under") {
+		t.Errorf("a relative path up from the root: got %v, want it rejected", err)
+	}
+	if _, _, err := tools.report(t.Context(), req, ReportInput{Out: "generated"}); err == nil || !strings.Contains(err.Error(), filepath.Join(root, "generated")) {
+		t.Errorf("report: got %v, want it read under the root", err)
 	}
 }

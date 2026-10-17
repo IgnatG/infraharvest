@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -144,10 +145,20 @@ func TestSensitiveValuesLeavesOutPublicOnes(t *testing.T) {
 			Before:          map[string]any{"name": "/app/key", "value": "k3y-value-1", "tags": map[string]any{"Note": "k3y-value"}},
 			BeforeSensitive: map[string]any{"value": true},
 		}},
+		// A secret's value copied into a function's environment, where the
+		// provider doesn't mark it: the copy is the leak, so the value
+		// stays in.
+		{Change: &tfjson.Change{
+			Before:          map[string]any{"secret_string": "Pa55-W0rd!db"},
+			BeforeSensitive: map[string]any{"secret_string": true},
+		}},
+		{Change: &tfjson.Change{
+			Before: map[string]any{"environment": []any{map[string]any{"variables": map[string]any{"DB_PW": "Pa55-W0rd!db"}}}},
+		}},
 	}}
 
 	// k3y-value is only part of the secret: still left in.
-	if got, want := sensitiveValues(p), []string{"k3y-value-1"}; !reflect.DeepEqual(got, want) {
+	if got, want := sensitiveValues(p), []string{"Pa55-W0rd!db", "k3y-value-1"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -345,5 +356,64 @@ resource "aws_ssm_parameter" "a" {
 
 	if check.Passed || len(check.Details) != 1 || check.Details[0] != "generated.tf: calls uuid(" {
 		t.Errorf("got %+v", check)
+	}
+}
+
+// External scanners are other people's code, and some upload what they
+// scan: they never see a directory that holds a secret value.
+func TestScannersDontSeeSecrets(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, ImportsFileName, `import {
+  to = aws_vpc.main
+  id = "vpc-1"
+}
+`)
+	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags = { token = "ghp_`+strings.Repeat("a1", 18)+`" }
+}
+`)
+	tf := &fakeTerraform{dir: dir, shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}}
+	ran := false
+	spy := Scanner{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+		ran = true
+		return nil, nil
+	}}
+
+	gate, err := runGate(context.Background(), tf, dir, nil, Options{Scanners: []Scanner{spy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Error("a scanner ran on a directory holding a secret")
+	}
+	if c := gate.check(CheckSecrets); c.Passed {
+		t.Errorf("G6 passed: %+v", c)
+	}
+	if c := gate.check(CheckScanners); !c.Skipped {
+		t.Errorf("scanners not skipped: %+v", c)
+	}
+}
+
+// A gate interrupted part way fails as cancelled, not with the checks
+// that were cut short.
+func TestGateCancelled(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tf := &fakeTerraform{dir: dir}
+
+	_, err := gateWith(ctx, tf, dir, Options{}, func() (Check, []string, error) {
+		cancel() // as an interrupt while the plan runs
+		return Check{Name: CheckPlan, Passed: true}, nil, nil
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("want the cancellation, got %v", err)
 	}
 }

@@ -207,40 +207,6 @@ func TestResourceGroupsQueryHonoursTheResourceGroup(t *testing.T) {
 	}
 }
 
-func TestTagsFromResourceGraph(t *testing.T) {
-	const sub = "00000000-0000-0000-0000-000000000001"
-	transport := &fakeTransport{body: `{"totalRecords":2,"count":2,"resultTruncated":"false","data":[
-		{"id":"/subscriptions/` + sub + `/resourceGroups/RG1/providers/Microsoft.Network/virtualNetworks/net1","tags":{"team":"net","n":1}},
-		{"id":"/subscriptions/` + sub + `/resourceGroups/rg1","tags":{"env":"prod"}},
-		{"id":"/subscriptions/` + sub + `/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/sa","tags":{}}
-	]}`}
-	p := &Provider{
-		subscriptionID: sub,
-		resourceGroup:  "rg1",
-		credential:     fakeCredential{},
-		clientOptions:  &arm.ClientOptions{Transport: transport},
-	}
-	vnet := harvest.RecordBare("/subscriptions/"+sub+"/resourceGroups/rg1/providers/Microsoft.Network/virtualNetworks/net1", "net1", "azurerm_virtual_network", "azurerm")
-	rg := harvest.RecordBare("/subscriptions/"+sub+"/resourceGroups/rg1", "rg1", "azurerm_resource_group", "azurerm")
-	sa := harvest.RecordBare("/subscriptions/"+sub+"/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/sa", "sa", "azurerm_storage_account", "azurerm")
-	tags, err := p.Tags(t.Context(), []harvest.Resource{vnet, rg, sa})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := tags["azurerm_virtual_network "+vnet.Observed.ID]; len(got) != 1 || got["team"] != "net" {
-		t.Errorf("network tags, matched whatever the case: %v", got)
-	}
-	if got := tags["azurerm_resource_group "+rg.Observed.ID]; got["env"] != "prod" {
-		t.Errorf("resource group tags: %v", got)
-	}
-	if _, ok := tags["azurerm_storage_account "+sa.Observed.ID]; ok {
-		t.Error("an untagged account has tags")
-	}
-	if len(transport.paths) != 1 || !strings.HasSuffix(transport.paths[0], "/providers/Microsoft.ResourceGraph/resources") {
-		t.Errorf("requests: %v", transport.paths)
-	}
-}
-
 // The catalogue's inventory entries, built in or from --catalogue, map a
 // resource before aztft: a type aztft doesn't know, or one it maps
 // otherwise.
@@ -689,5 +655,14 @@ func TestGraphNameOfAssociations(t *testing.T) {
 	}
 	if got := graphName(rid); got != "app" {
 		t.Errorf("subnet: got %q, want app", got)
+	}
+}
+
+// azlist lists child resources childListParallel at a time, not one per
+// CPU, recursively and with managed resources.
+func TestListerOption(t *testing.T) {
+	opt := listerOption("00000000-0000-0000-0000-000000000001", nil, arm.ClientOptions{})
+	if opt.Parallelism != childListParallel || !opt.Recursive || !opt.IncludeManaged || opt.SubscriptionId != "00000000-0000-0000-0000-000000000001" {
+		t.Errorf("option %+v", opt)
 	}
 }

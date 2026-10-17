@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -43,16 +44,55 @@ type configKey struct {
 	region, profile, roleARN string
 }
 
+// credentialsKey picks the credentials of a configuration: every region of
+// one profile and role shares them.
+type credentialsKey struct {
+	profile, roleARN string
+}
+
+// sharedCredentials are the credentials of one profile and role, resolved
+// once: base from before any role is assumed, and the credentials the
+// services use, the assumed role's when there is one.
+type sharedCredentials struct {
+	base, credentials aws.CredentialsProvider
+}
+
+// buildFailure is a configuration that failed to build, and when.
+type buildFailure struct {
+	err error
+	at  time.Time
+}
+
+// failureMemory is how long a configuration that failed to build fails
+// again at once, instead of resolving the credentials again: long enough
+// for every service of an import to fail fast, short enough for a server
+// that outlives the import to try again once the credentials are fixed.
+const failureMemory = time.Minute
+
 var (
-	// configMu guards configs and baseProviders, and is held while a
-	// configuration is built, so that the first service to need one builds
-	// it and the others wait for it: building may prompt for an MFA code.
+	// configMu guards configs, baseProviders, resolvedCredentials and
+	// buildFailures, and is held while a configuration is built, so that the
+	// first service to need one builds it and the others wait for it:
+	// building may prompt for an MFA code.
 	configMu sync.Mutex
 	// configs are the configurations built so far.
 	configs = map[configKey]aws.Config{}
 	// baseProviders are the credentials of each configuration before any
 	// role is assumed, which Terraform gets (see baseCredentials).
 	baseProviders = map[configKey]aws.CredentialsProvider{}
+	// resolvedCredentials are the credentials resolved so far, by profile
+	// and role, which the configuration of every region of them shares: a
+	// profile's role that needs MFA asks for the code once, not once per
+	// region, and a role is assumed once.
+	resolvedCredentials = map[credentialsKey]sharedCredentials{}
+	// buildFailures are the configurations that failed to build lately (see
+	// failureMemory).
+	buildFailures = map[configKey]buildFailure{}
+	// accountsMu guards callerAccounts.
+	accountsMu sync.Mutex
+	// callerAccounts are the account IDs callerAccount found, by the
+	// credentials they are of.
+	callerAccounts = map[*aws.CredentialsCache]string{}
 	// testConfig, when set, is the configuration of every service, and its
 	// credentials the base credentials. Tests set it to fake the API.
 	testConfig *aws.Config
@@ -71,7 +111,9 @@ func (s *Service) cacheKey() configKey {
 // sdkConfig returns the SDK configuration of the service's account
 // and region, built the first time it is asked for and shared after that.
 // The credentials are resolved, and the role assumed, while it is built,
-// so that a configuration it returns works.
+// so that a configuration it returns works. A configuration that failed to
+// build fails again at once for a while (see failureMemory), so that the
+// other services of an import don't each resolve the credentials again.
 func (s *Service) sdkConfig() (aws.Config, error) {
 	if testConfig != nil {
 		return *testConfig, nil
@@ -82,19 +124,26 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 	if cfg, ok := configs[key]; ok {
 		return cfg, nil
 	}
+	if failed, ok := buildFailures[key]; ok && time.Since(failed.at) < failureMemory {
+		return aws.Config{}, failed.err
+	}
 	cfg, base, err := s.buildConfig(key)
 	if err != nil {
+		buildFailures[key] = buildFailure{err: err, at: time.Now()}
 		return aws.Config{}, err
 	}
+	delete(buildFailures, key)
 	configs[key] = cfg
 	baseProviders[key] = base
 	return cfg, nil
 }
 
-// buildConfig loads the configuration of key, resolves its credentials and,
-// with a role, assumes it. It returns the configuration and its credentials
-// from before any role. It never sets an environment variable: the region
-// and the profile are given to the SDK directly.
+// buildConfig loads the configuration of key and gives it the credentials
+// of its profile and role: those another region resolved already, or else
+// it resolves them and, with a role, assumes it, and keeps them for the
+// other regions. It returns the configuration and its credentials from
+// before any role. It never sets an environment variable: the region and
+// the profile are given to the SDK directly.
 func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvider, error) {
 	ctx := s.Context()
 	cfg, err := config.LoadDefaultConfig(ctx, s.configOptions(key)...)
@@ -110,6 +159,11 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 	}
 	cfg.HTTPClient = ratelimit.Like(ratelimit.Default()).Client(base)
 
+	shared := credentialsKey{profile: key.profile, roleARN: key.roleARN}
+	if resolved, ok := resolvedCredentials[shared]; ok {
+		cfg.Credentials = resolved.credentials
+		return cfg, resolved.base, nil
+	}
 	if cfg.Credentials == nil {
 		return aws.Config{}, nil, errors.New("no AWS credentials found")
 	}
@@ -131,6 +185,7 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 			return aws.Config{}, nil, fmt.Errorf("assume %s: %w", key.roleARN, err)
 		}
 	}
+	resolvedCredentials[shared] = sharedCredentials{base: baseProvider, credentials: cfg.Credentials}
 	return cfg, baseProvider, nil
 }
 
@@ -171,11 +226,30 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 	return options
 }
 
-// callerAccount returns the ID of the account cfg's credentials are of.
+// callerAccount returns the ID of the account cfg's credentials are of. It
+// asks STS once for the credentials of a configuration sdkConfig built,
+// which every region of one profile and role shares, and remembers the
+// answer: the scope of an import, the default selection and the listers
+// that need the account then don't each ask again.
 func (s *Service) callerAccount(cfg aws.Config) (*string, error) {
+	cache, cached := cfg.Credentials.(*aws.CredentialsCache)
+	cached = cached && testConfig == nil
+	if cached {
+		accountsMu.Lock()
+		account, ok := callerAccounts[cache]
+		accountsMu.Unlock()
+		if ok {
+			return aws.String(account), nil
+		}
+	}
 	identity, err := sts.NewFromConfig(cfg).GetCallerIdentity(s.Context(), &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return nil, err
+	}
+	if cached && identity.Account != nil {
+		accountsMu.Lock()
+		callerAccounts[cache] = *identity.Account
+		accountsMu.Unlock()
 	}
 	return identity.Account, nil
 }

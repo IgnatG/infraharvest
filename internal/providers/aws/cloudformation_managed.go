@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -33,12 +35,45 @@ var liveStackStatuses = func() []cftypes.StackStatus {
 	return live
 }()
 
+// stackScanParallel is how many regions cloudFormationManaged scans at
+// once. CloudFormation throttles each region on its own.
+const stackScanParallel = 4
+
+// stackScanMemory is how long a region's scan is reused (see regionStacks):
+// long enough for the regional calls of an import to reuse what its global
+// call scanned, short enough for a server that outlives the import to see
+// the stacks change.
+const stackScanMemory = 15 * time.Minute
+
+// stackScanKey picks a region's scan: of the credentials of a
+// configuration sdkConfig built, which every region of one profile and role
+// shares, so of one account, and of the region.
+type stackScanKey struct {
+	credentials *aws.CredentialsCache
+	region      string
+}
+
+// stackScan is what stackResources found in a region, and when.
+type stackScan struct {
+	managed map[string]string
+	at      time.Time
+}
+
+var (
+	// stackScansMu guards stackScans.
+	stackScansMu sync.Mutex
+	// stackScans are the regions scanned lately (see stackScanMemory).
+	stackScans = map[stackScanKey]stackScan{}
+)
+
 // cloudFormationManaged returns the physical IDs of the resources the
 // CloudFormation stacks of the region config names manage, with the
 // stack's name. For the global services, such as IAM, it asks every
-// region the account has enabled: a stack in any of them can create a
-// role. A region whose stacks can't be read, as one an SCP denies, is
-// reported, and the other regions are still asked.
+// region the account has enabled, stackScanParallel at a time: a stack in
+// any of them can create a role. A region whose stacks can't be read, as
+// one an SCP denies, is reported, and the other regions are still asked.
+// Where two regions' stacks name the same physical ID, the first region,
+// in DescribeRegions' order, names the stack.
 func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config) (map[string]string, error) {
 	regions := []string{config.Region}
 	if p.region == GlobalPseudoRegion {
@@ -53,16 +88,65 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 			regions = append(regions, aws.ToString(r.RegionName))
 		}
 	}
+	found := make([]map[string]string, len(regions))
+	errs := make([]error, len(regions))
+	slots := make(chan struct{}, stackScanParallel)
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			found[i], errs[i] = regionStacks(ctx, config, region)
+		}()
+	}
+	wg.Wait()
 	managed := map[string]string{}
 	var failed []error
-	for _, region := range regions {
-		regional := config.Copy()
-		regional.Region = region
-		if err := stackResources(ctx, cloudformation.NewFromConfig(regional), managed); err != nil {
-			failed = append(failed, fmt.Errorf("CloudFormation stacks in %s: %w", region, err))
+	for i, region := range regions {
+		for id, stack := range found[i] {
+			if _, ok := managed[id]; !ok {
+				managed[id] = stack
+			}
+		}
+		if errs[i] != nil {
+			failed = append(failed, fmt.Errorf("CloudFormation stacks in %s: %w", region, errs[i]))
 		}
 	}
 	return managed, errors.Join(failed...)
+}
+
+// regionStacks returns what the stacks of region manage (see
+// stackResources), from config's credentials. A region scanned in full
+// lately with the same credentials isn't scanned again: an import's
+// regional calls reuse what its global call scanned, as the global call
+// comes first. What a scan that failed found is returned with its error,
+// and not remembered.
+func regionStacks(ctx context.Context, config aws.Config, region string) (map[string]string, error) {
+	credentials, remember := config.Credentials.(*aws.CredentialsCache)
+	remember = remember && testConfig == nil
+	key := stackScanKey{credentials: credentials, region: region}
+	if remember {
+		stackScansMu.Lock()
+		scan, ok := stackScans[key]
+		stackScansMu.Unlock()
+		if ok && time.Since(scan.at) < stackScanMemory {
+			return scan.managed, nil
+		}
+	}
+	regional := config.Copy()
+	regional.Region = region
+	managed := map[string]string{}
+	if err := stackResources(ctx, cloudformation.NewFromConfig(regional), managed); err != nil {
+		return managed, err
+	}
+	if remember {
+		stackScansMu.Lock()
+		stackScans[key] = stackScan{managed: managed, at: time.Now()}
+		stackScansMu.Unlock()
+	}
+	return managed, nil
 }
 
 // stackResources adds the physical IDs of the resources of every live

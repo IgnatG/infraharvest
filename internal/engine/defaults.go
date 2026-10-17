@@ -64,40 +64,41 @@ func (c defaultCandidate) key() string {
 // cloud, puts back what leaving out made invalid, such as one of two
 // required alternatives. Other computed arguments set to a constant
 // stay: leaving one out never shows in the plan, so it could hide a real
-// setting. It reports whether it changed generated.tf.
-func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, error) {
+// setting. It reports whether it changed generated.tf and, where a plan
+// showed generated.tf as it leaves it, that plan (see shownPlan).
+func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	current, err := loadHCL(path)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	// Only constants need the schema, to tell optional from computed, and
 	// empty blocks, which only a plan can tell from absent ones.
 	var schemas *tfjson.ProviderSchemas
 	if len(rules.defaults) > 0 || hasConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
-			return false, fmt.Errorf("terraform providers schema: %w", err)
+			return false, nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
 	}
 	restore := func() error { return os.WriteFile(path, original, 0o644) }
 	// What the plan can't settle keeps its constants; nulls still go, as
 	// Terraform treats null as an omitted argument.
-	nullsOnly := func() (bool, error) {
+	nullsOnly := func() (bool, *shownPlan, error) {
 		if err := restore(); err != nil {
-			return false, err
+			return false, nil, err
 		}
 		f, err := loadHCL(path)
 		if err != nil {
-			return false, err
+			return false, nil, err
 		}
 		if len(removeDefaults(f, nil, defaultRules{}, nil)) == 0 {
-			return false, nil
+			return false, nil, nil
 		}
-		return true, f.save()
+		return true, nil, f.save()
 	}
 	keep := map[string]bool{}
 	// blamed counts the rounds in which each resource planned differently.
@@ -105,14 +106,14 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	for round := 0; round < maxDefaultRounds; round++ {
 		removed, err := removeValid(ctx, tf, dir, restore, schemas, rules, keep)
 		if err != nil {
-			return false, errors.Join(err, restore())
+			return false, nil, errors.Join(err, restore())
 		}
 		if len(removed) == 0 {
-			return false, restore()
+			return false, nil, restore()
 		}
 		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
-			return false, errors.Join(err, restore())
+			return false, nil, errors.Join(err, restore())
 		}
 		if len(diags) > 0 || p == nil {
 			// Leaving an argument out made the configuration invalid in a
@@ -120,7 +121,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			// or everything.
 			assigned, unassigned, err := assignErrors(dir, diags)
 			if err != nil {
-				return false, err
+				return false, nil, err
 			}
 			if len(unassigned) > 0 || len(assigned) == 0 {
 				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, diagnosticsError(diags))
@@ -157,7 +158,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), keep)
 		}
 		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
-			return true, nil
+			return true, &shownPlan{plan: p, summary: summary}, nil
 		}
 		if !differs {
 			log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, summary, baseline)

@@ -135,7 +135,7 @@ func TestMerge(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "new-bucket", Include: true},
 		{Type: "aws_cloudwatch_log_group", ID: "/aws/lambda/f", Include: true},
 		{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"},
-	}, false)
+	}, nil)
 
 	if added != 3 || dropped != 1 {
 		t.Errorf("added %d, dropped %d", added, dropped)
@@ -166,12 +166,34 @@ func TestMergeKeepsUnlisted(t *testing.T) {
 		{Type: "aws_iam_role", ID: "admin", Scope: "aws/222233334444/global", Include: false, Note: "break-glass role"},
 		{Type: "aws_vpc", ID: "vpc-1", Scope: "aws/111122223333/eu-west-2", Include: true},
 	}}
-	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: "aws/111122223333/eu-west-2", Include: true}}, true)
+	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: "aws/111122223333/eu-west-2", Include: true}}, func(Resource) bool { return false })
 	if added != 0 || dropped != 0 || len(f.Resources) != 2 {
 		t.Fatalf("added %d, dropped %d, resources %+v", added, dropped, f.Resources)
 	}
 	if d := f.DecideIn("aws/222233334444/global", "aws_iam_role", "admin", "", nil); d.Include {
 		t.Errorf("the unlisted role's exclusion was lost: %+v", d)
+	}
+}
+
+// A discover of one region drops only that region's entries it no longer
+// finds: the other region's keep their decisions and notes.
+func TestMergeKeepsWhatItDidNotCover(t *testing.T) {
+	const a, b = "aws/111122223333/eu-west-1", "aws/111122223333/eu-west-2"
+	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
+		{Type: "aws_vpc", ID: "vpc-a", Scope: a, Service: "vpc", Include: false, Note: "the network team's"},
+		{Type: "aws_vpc", ID: "vpc-b", Scope: b, Service: "vpc", Include: true},
+		{Type: "aws_vpc", ID: "vpc-gone", Scope: b, Service: "vpc", Include: true},
+	}}
+	covered := func(r Resource) bool { return r.Scope == b && r.Service == "vpc" }
+	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-b", Scope: b, Service: "vpc", Include: true}}, covered)
+	if added != 0 || dropped != 1 || len(f.Resources) != 2 {
+		t.Fatalf("added %d, dropped %d, resources %+v", added, dropped, f.Resources)
+	}
+	if !f.HasIn(a, "aws_vpc", "vpc-a") || f.HasIn(b, "aws_vpc", "vpc-gone") {
+		t.Errorf("resources %+v", f.Resources)
+	}
+	if d := f.DecideIn(a, "aws_vpc", "vpc-a", "", nil); d.Include {
+		t.Errorf("region %s lost its decision: %+v", a, d)
 	}
 }
 
@@ -201,7 +223,7 @@ func TestScopes(t *testing.T) {
 	added, dropped := f.Merge([]Resource{
 		{Type: "aws_iam_role", ID: "admin", Scope: b, Include: true},
 		{Type: "aws_iam_role", ID: "admin", Scope: a, Include: true},
-	}, false)
+	}, nil)
 	if added != 0 || dropped != 0 || len(f.Resources) != 2 {
 		t.Errorf("merge: added %d, dropped %d, resources %+v", added, dropped, f.Resources)
 	}
@@ -233,7 +255,7 @@ func TestScopelessEntryApplies(t *testing.T) {
 	if !f.HasIn(scope, "aws_vpc", "vpc-1") || f.DecideIn(scope, "aws_vpc", "vpc-1", "", nil).Include {
 		t.Error("the scope-less entry must decide")
 	}
-	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: scope, Include: true}}, false)
+	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: scope, Include: true}}, nil)
 	if added != 0 || dropped != 0 || len(f.Resources) != 1 || f.Resources[0].Include || f.Resources[0].Scope != scope {
 		t.Errorf("merge: added %d, dropped %d, resources %+v", added, dropped, f.Resources)
 	}
@@ -253,7 +275,7 @@ func TestMergeExcludesManaged(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "logs", Reason: reason},
 		{Type: "aws_s3_bucket", ID: "assets", Reason: reason},
 		{Type: "aws_s3_bucket", ID: "old", Reason: reason},
-	}, false)
+	}, nil)
 
 	want := map[string]Resource{
 		"logs":   {Type: "aws_s3_bucket", ID: "logs", Include: false, Reason: reason, New: true},
@@ -275,7 +297,7 @@ func TestMergeRulesBeforeDefaults(t *testing.T) {
 		Rules:    []Rule{{Include: &Match{Type: Patterns{"aws_vpc"}}}},
 	}
 
-	f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}}, false)
+	f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}}, nil)
 
 	if r := f.Resources[0]; !r.Include || r.Reason != "" || !r.New {
 		t.Errorf("got %+v, want included by the rule", r)
@@ -328,12 +350,12 @@ func TestMergeUpdatesTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Include: true, Tags: map[string]string{"env": "prod"}}}, false)
+	f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Include: true, Tags: map[string]string{"env": "prod"}}}, nil)
 	f.Resources[0].Note = "reviewed"
 	f.Merge([]Resource{
 		{Type: "aws_vpc", ID: "vpc-1", Include: true, Tags: map[string]string{"env": "prod", "team": "net"}},
 		{Type: "aws_vpc", ID: "vpc-2", Include: true, Tags: map[string]string{"env": "dev"}},
-	}, false)
+	}, nil)
 	for _, r := range f.Resources {
 		switch r.ID {
 		case "vpc-1":
@@ -357,5 +379,30 @@ func TestMergeUpdatesTags(t *testing.T) {
 	}
 	if !saved.HasIn("", "aws_vpc", "vpc-1") || saved.Resources[0].Tags["env"] != "prod" {
 		t.Errorf("saved tags: %+v", saved.Resources)
+	}
+}
+
+// A pattern is compiled once, and one without * matches only itself.
+func TestPatternsMatch(t *testing.T) {
+	first, again := glob("/aws/lambda/*"), glob("/aws/lambda/*")
+	if first != again {
+		t.Error("the pattern was compiled twice")
+	}
+	for _, tc := range []struct {
+		patterns Patterns
+		value    string
+		want     bool
+	}{
+		{nil, "anything", true},
+		{Patterns{"aws_vpc"}, "aws_vpc", true},
+		{Patterns{"aws_vpc"}, "aws_vpc_endpoint", false},
+		{Patterns{"a.c"}, "abc", false},
+		{Patterns{"aws_*"}, "aws_vpc", true},
+		{Patterns{"*_vpc", "aws_s3_*"}, "aws_s3_bucket", true},
+		{Patterns{"/aws/lambda/*"}, "/aws/ecs/x", false},
+	} {
+		if got := tc.patterns.match(tc.value); got != tc.want {
+			t.Errorf("%q match %q = %v, want %v", tc.patterns, tc.value, got, tc.want)
+		}
 	}
 }

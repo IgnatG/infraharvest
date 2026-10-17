@@ -7,16 +7,19 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -42,14 +45,38 @@ func newMCPCmd() *cobra.Command {
 				if root, err = os.Getwd(); err != nil {
 					return err
 				}
+				// Some hosts start servers in / or the home directory.
+				home, _ := os.UserHomeDir()
+				if err := mcpserver.CheckDefaultRoot(root, home); err != nil {
+					return err
+				}
 			}
+			// Standard output is the protocol's.
+			fmt.Fprintf(cmd.ErrOrStderr(), "infraharvest mcp: the tools read and write files under %s\n", root)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return mcpserver.New(version.Version, root, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories and reports (default: the current directory)")
+	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories and reports (default: the current directory, unless that is the root of a filesystem or the home directory)")
 	return cmd
+}
+
+// childEnv returns env, the server's environment, without the variables
+// that profile a run (see importer.StartProfiles): a tool's child would
+// write its profiles over the server's, at the same paths, and over those
+// of the other children running at the same time.
+func childEnv(env []string) []string {
+	kept := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case importer.CPUProfileEnv, importer.MemProfileEnv, importer.GoroutineLeakProfileEnv:
+			continue
+		}
+		kept = append(kept, kv)
+	}
+	return kept
 }
 
 // childWaitDelay is how long a tool's child process has to stop once
@@ -62,6 +89,7 @@ func execRunner(binary string) mcpserver.Runner {
 	return func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
 		var stdout, stderr bytes.Buffer
 		c := exec.CommandContext(ctx, binary, args...)
+		c.Env = childEnv(os.Environ())
 		// An interrupt lets the child stop as on Ctrl+C, removing the
 		// secrets it holds outside the output; Windows can't send one, so
 		// the child is killed there, as it is after childWaitDelay.

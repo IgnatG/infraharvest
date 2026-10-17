@@ -137,6 +137,11 @@ func TestIsAzureBlob(t *testing.T) {
 	for source, want := range map[string]bool{
 		"https://acmestate.blob.core.windows.net/tfstate/":      true,
 		"https://acmestate.blob.core.usgovcloudapi.net/tfstate": true,
+		"https://acmestate.blob.core.chinacloudapi.cn/tfstate":  true,
+		"https://acmestate.blob.evil.example/tfstate":           false,
+		"https://acmestate.blob.core.windows.net.evil.example/": false,
+		"https://blob.core.windows.net/tfstate/":                false,
+		"https://acmestate.blob.core.windows.net:8443/tfstate/": false,
 		"https://acmestate.file.core.windows.net/share/":        false,
 		"http://acmestate.blob.core.windows.net/tfstate/":       false,
 		"s3://acme-state/blob.json":                             false,
@@ -148,6 +153,15 @@ func TestIsAzureBlob(t *testing.T) {
 	}
 	if _, err := Load(context.Background(), []string{"https://acmestate.blob.core.windows.net/"}, Stores{}); err == nil {
 		t.Error("want an error for a source without a container")
+	}
+	// Another host would get the Azure credentials.
+	for _, source := range []string{"https://acmestate.blob.evil.example/tfstate/", "http://acmestate.blob.core.windows.net/tfstate/"} {
+		if err := CheckSources([]string{source}); err == nil || !strings.Contains(err.Error(), "not a Blob Storage URL") {
+			t.Errorf("CheckSources(%s): want an error naming Blob Storage, got %v", source, err)
+		}
+		if _, err := Load(context.Background(), []string{source}, Stores{}); err == nil || !strings.Contains(err.Error(), "not a Blob Storage URL") {
+			t.Errorf("Load(%s): want an error naming Blob Storage, got %v", source, err)
+		}
 	}
 }
 
@@ -210,5 +224,125 @@ func TestLoadRejectsSourcesWithoutState(t *testing.T) {
 	// A workspace with no state yet is there, and manages nothing.
 	if _, err := Load(context.Background(), []string{"tfc://acme/app-*"}, stores); err != nil {
 		t.Errorf("a workspace without state: %v", err)
+	}
+}
+
+// Azure IDs match whatever their case, the types another name of a type
+// manages match it, and ARNs keep their case.
+func TestLookupMatchesCaseAndAliases(t *testing.T) {
+	r := Resources{}
+	err := r.Parse([]byte(`{"version": 4, "resources": [
+	  {"mode": "managed", "type": "azurerm_log_analytics_workspace", "instances": [{"attributes": {"id": "/subscriptions/1/resourcegroups/App/providers/microsoft.operationalinsights/workspaces/w"}}]},
+	  {"mode": "managed", "type": "aws_alb", "instances": [{"attributes": {"id": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1", "arn": "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1"}}]},
+	  {"mode": "managed", "type": "azurerm_virtual_machine", "instances": [{"attributes": {"id": "/subscriptions/1/resourceGroups/app/providers/Microsoft.Compute/virtualMachines/vm"}}]},
+	  {"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "Logs"}}]}
+	]}`), "prod.tfstate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		typ, id string
+		want    bool
+	}{
+		{"azurerm_log_analytics_workspace", "/subscriptions/1/resourceGroups/app/providers/Microsoft.OperationalInsights/workspaces/w", true},
+		{"aws_lb", "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1", true},
+		{"aws_alb", "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/web/1", true},
+		{"aws_lb", "arn:aws:elasticloadbalancing:eu-west-2:1:loadbalancer/app/WEB/1", false},
+		{"azurerm_linux_virtual_machine", "/subscriptions/1/resourceGroups/APP/providers/Microsoft.Compute/virtualMachines/vm", true},
+		{"azurerm_windows_virtual_machine", "/subscriptions/1/resourceGroups/app/providers/Microsoft.Compute/virtualMachines/vm", true},
+		{"azurerm_linux_virtual_machine", "/subscriptions/1/resourceGroups/app/providers/Microsoft.Compute/virtualMachines/other", false},
+		{"aws_s3_bucket", "logs", false},
+	} {
+		if _, got := r.Lookup(tc.typ, tc.id); got != tc.want {
+			t.Errorf("Lookup(%s, %s) = %v, want %v", tc.typ, tc.id, got, tc.want)
+		}
+	}
+}
+
+// The azurerm backend keeps a workspace's state at <key>env:<workspace>,
+// which is read too; in a bucket, such a name isn't state.
+func TestLoadReadsAzureWorkspaces(t *testing.T) {
+	staging := `{"version": 4, "resources": [{"mode": "managed", "type": "azurerm_resource_group", "instances": [{"attributes": {"id": "/subscriptions/1/resourceGroups/staging"}}]}]}`
+	blobs := fakeStore{
+		"prod/terraform.tfstate":            `{"version": 4, "resources": []}`,
+		"prod/terraform.tfstateenv:staging": staging,
+		"prod/terraform.tfstate.backup":     "not state",
+	}
+	stores := Stores{
+		AzureBlob: func(context.Context, string) (ObjectStore, error) { return containerStore{"tfstate", blobs}, nil },
+	}
+	r, err := Load(context.Background(), []string{"https://acmestate.blob.core.windows.net/tfstate/prod/"}, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	where, ok := r.Lookup("azurerm_resource_group", "/subscriptions/1/resourceGroups/staging")
+	if !ok || where != "https://acmestate.blob.core.windows.net/tfstate/prod/terraform.tfstateenv:staging" {
+		t.Errorf("the staging workspace's state: %q, %v", where, ok)
+	}
+	if isStateObject("s3", "prod/terraform.tfstateenv:staging") {
+		t.Error("an S3 object named like an azurerm workspace isn't state")
+	}
+}
+
+// A state larger than the limit fails, saying so, rather than being cut
+// off into a JSON error.
+func TestReadStateLimit(t *testing.T) {
+	limit := stateSizeLimit
+	defer func() { stateSizeLimit = limit }()
+	stateSizeLimit = 4 << 20
+
+	content, err := readState(strings.NewReader(strings.Repeat("x", 4<<20)))
+	if err != nil || len(content) != 4<<20 {
+		t.Errorf("at the limit: %d bytes, %v", len(content), err)
+	}
+	if _, err := readState(strings.NewReader(strings.Repeat("x", 4<<20+1))); err == nil || !strings.Contains(err.Error(), "larger than 4 MiB") {
+		t.Errorf("over the limit: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "big.tfstate")
+	if err := os.WriteFile(path, []byte(strings.Repeat(" ", 4<<20+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(context.Background(), []string{path}, Stores{}); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("a local state over the limit: %v", err)
+	}
+}
+
+// States are read several at a time, and what they manage is added as if
+// read in order; the first failure is returned.
+func TestParseAll(t *testing.T) {
+	stateOf := func(id string) []byte {
+		return []byte(`{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "` + id + `"}}]}]}`)
+	}
+	var keys []string
+	content := map[string][]byte{}
+	for i := range 3 * fetchParallel {
+		key := fmt.Sprintf("roots/%02d.tfstate", i)
+		keys = append(keys, key)
+		content[key] = stateOf("shared")
+	}
+	content["roots/05.tfstate"] = nil // no state yet
+	get := func(_ context.Context, key string) ([]byte, error) {
+		body, ok := content[key]
+		if !ok {
+			return nil, fmt.Errorf("no such key %s", key)
+		}
+		return body, nil
+	}
+	r := Resources{}
+	if err := r.parseAll(context.Background(), keys, get, "s3://acme/"); err != nil {
+		t.Fatal(err)
+	}
+	if where, _ := r.Lookup("aws_s3_bucket", "shared"); where != "s3://acme/"+keys[len(keys)-1] {
+		t.Errorf("the last state should win, as read in order: %q", where)
+	}
+
+	failing := func(ctx context.Context, key string) ([]byte, error) {
+		if key == "roots/03.tfstate" {
+			return nil, fmt.Errorf("access denied to %s", key)
+		}
+		return get(ctx, key)
+	}
+	if err := (Resources{}).parseAll(context.Background(), keys, failing, "s3://acme/"); err == nil || !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("want the failure, got %v", err)
 	}
 }

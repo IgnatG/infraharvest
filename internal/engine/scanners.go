@@ -9,10 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +28,11 @@ const scanTimeout = 10 * time.Minute
 
 // maxReportedFindings bounds the findings a check lists per scanner.
 const maxReportedFindings = 20
+
+// scannerSlots bounds the scanner processes running at once, those of
+// every directory the gate checks at the same time, as with --parallel,
+// together.
+var scannerSlots = make(chan struct{}, max(2, runtime.NumCPU()))
 
 // Finding is one thing a scanner reports.
 type Finding struct {
@@ -61,7 +70,24 @@ func DefaultScanners() []Scanner {
 	var scanners []Scanner
 	if path, err := exec.LookPath("tflint"); err == nil {
 		scanners = append(scanners, Scanner{Name: "tflint", Blocking: true, Run: func(ctx context.Context, dir string) ([]Finding, error) {
-			out, err := runTool(ctx, path, "--chdir="+dir, "--format=json", "--force")
+			// A configuration of infraharvest's own, not the user's
+			// ~/.tflint.hcl, whose plugins would run and whose rules would
+			// change what fails the check: the bundled Terraform rules, at
+			// their recommended preset.
+			config, err := os.CreateTemp("", "infraharvest-tflint-*.hcl")
+			if err != nil {
+				return nil, err
+			}
+			_, werr := config.WriteString(tflintConfig)
+			if cerr := config.Close(); werr == nil {
+				werr = cerr
+			}
+			if werr != nil {
+				_ = os.Remove(config.Name())
+				return nil, werr
+			}
+			defer os.Remove(config.Name())
+			out, err := runTool(ctx, dir, path, "--chdir="+dir, "--config="+config.Name(), "--format=json", "--force")
 			if err != nil {
 				return nil, err
 			}
@@ -70,7 +96,7 @@ func DefaultScanners() []Scanner {
 	}
 	if path, err := exec.LookPath("trivy"); err == nil {
 		scanners = append(scanners, Scanner{Name: "trivy", Run: func(ctx context.Context, dir string) ([]Finding, error) {
-			out, err := runTool(ctx, path, "config", "--format=json", "--quiet", "--exit-code=0", "--skip-dirs=**/.terraform", dir)
+			out, err := runTool(ctx, dir, path, "config", "--format=json", "--quiet", "--exit-code=0", "--skip-dirs=**/.terraform", dir)
 			if err != nil {
 				return nil, err
 			}
@@ -79,7 +105,10 @@ func DefaultScanners() []Scanner {
 	}
 	if path, err := exec.LookPath("checkov"); err == nil {
 		scanners = append(scanners, Scanner{Name: "checkov", Run: func(ctx context.Context, dir string) ([]Finding, error) {
-			out, err := runTool(ctx, path, "--directory", dir, "--skip-path", ".terraform", "--output", "json", "--quiet", "--compact", "--soft-fail")
+			// --skip-download: nothing goes to or comes from the Prisma
+			// Cloud platform, which an API key in the environment would
+			// otherwise upload the configuration to.
+			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
 			if err != nil {
 				return nil, err
 			}
@@ -89,12 +118,25 @@ func DefaultScanners() []Scanner {
 	return scanners
 }
 
-// runTool runs a scanner and returns its standard output.
-func runTool(ctx context.Context, path string, args ...string) ([]byte, error) {
+// tflintConfig is the configuration tflint runs with: its bundled
+// Terraform rules only.
+const tflintConfig = `plugin "terraform" {
+  enabled = true
+  preset  = "recommended"
+}
+`
+
+// runTool runs a scanner in dir, the directory it scans, so that it reads
+// no configuration file of the directory infraharvest runs in, such as a
+// .checkov.yaml or trivy.yaml, and returns its standard output. The
+// scanner gets the environment without credentials (see scannerEnv).
+func runTool(ctx context.Context, dir, path string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = dir
+	cmd.Env = scannerEnv(os.Environ())
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
@@ -106,9 +148,33 @@ func runTool(ctx context.Context, path string, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-// runScanners runs scanners on dir. Blocking scanners' findings at warning
-// level or above fail the check; the others' are listed. With no scanner
-// installed, the check is skipped.
+// scannerCredentials are the prefixes of the environment variables that
+// hold credentials, which no scanner needs to read configuration: the
+// clouds', Terraform's, and checkov's platform key (BC_API_KEY), with which
+// it uploads what it scans.
+var scannerCredentials = []string{
+	"AWS_", "ARM_", "AZURE_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_", "TF_TOKEN_", "TF_VAR_",
+	"BC_", "PRISMA_", "GITHUB_TOKEN", "GH_TOKEN",
+}
+
+// scannerEnv returns environ without the variables scannerCredentials
+// name.
+func scannerEnv(environ []string) []string {
+	var env []string
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		upper := strings.ToUpper(name)
+		if !slices.ContainsFunc(scannerCredentials, func(prefix string) bool { return strings.HasPrefix(upper, prefix) }) {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+// runScanners runs scanners on dir, at the same time, as they only read
+// it (see scannerSlots), and reports them in their order. Blocking
+// scanners' findings at warning level or above fail the check; the
+// others' are listed. With no scanner installed, the check is skipped.
 func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 	check := Check{Name: CheckScanners, Passed: true}
 	if len(scanners) == 0 {
@@ -122,8 +188,27 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	for _, s := range scanners {
-		findings, err := s.Run(ctx, dir)
+	type result struct {
+		findings []Finding
+		err      error
+	}
+	results := make([]result, len(scanners))
+	var wg sync.WaitGroup
+	for i, s := range scanners {
+		wg.Go(func() {
+			select {
+			case scannerSlots <- struct{}{}:
+				defer func() { <-scannerSlots }()
+			case <-ctx.Done():
+				results[i].err = ctx.Err()
+				return
+			}
+			results[i].findings, results[i].err = s.Run(ctx, dir)
+		})
+	}
+	wg.Wait()
+	for i, s := range scanners {
+		findings, err := results[i].findings, results[i].err
 		if err != nil {
 			check.Passed = false
 			check.Details = append(check.Details, fmt.Sprintf("%s couldn't run: %v", s.Name, err))

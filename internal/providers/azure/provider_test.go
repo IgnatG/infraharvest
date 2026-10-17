@@ -29,7 +29,6 @@ var (
 	_ harvest.ProviderWithDefaultTags       = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
-	_ harvest.ProviderWithTags              = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
 )
 
@@ -44,6 +43,8 @@ func TestCapabilitiesNotImplemented(t *testing.T) {
 		"TerraformEnv":        implements[harvest.ProviderWithTerraformEnv](p),
 		"RegistrySource":      implements[harvest.ProviderWithRegistrySource](p),
 		"DefaultTagsArgument": implements[harvest.ProviderWithDefaultTagsArgument](p),
+		// The listers record the tags themselves, from their answers.
+		"Tags": implements[harvest.ProviderWithTags](p),
 	} {
 		if has {
 			t.Errorf("Provider has %s", name)
@@ -63,7 +64,10 @@ func clearARMEnvironment(t *testing.T) {
 	for _, name := range []string{
 		"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID", "ARM_CLIENT_ID", "ARM_CLIENT_SECRET",
 		"ARM_CLIENT_CERTIFICATE_PATH", "ARM_CLIENT_CERTIFICATE_PASSWORD",
-		"ARM_USE_OIDC", "ARM_USE_MSI", "ARM_MSI_ENDPOINT",
+		"ARM_CLIENT_ID_FILE_PATH", "ARM_CLIENT_SECRET_FILE_PATH", "ARM_CLIENT_CERTIFICATE",
+		"ARM_USE_OIDC", "ARM_OIDC_TOKEN", "ARM_OIDC_TOKEN_FILE_PATH", "ARM_USE_AKS_WORKLOAD_IDENTITY",
+		"ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID", "ARM_OIDC_AZURE_SERVICE_CONNECTION_ID",
+		"ARM_USE_MSI", "ARM_MSI_ENDPOINT", "ARM_MSI_API_VERSION", "ARM_USE_CLI",
 		"ARM_AUXILIARY_TENANT_IDS", "ARM_ENVIRONMENT", "ARM_METADATA_HOSTNAME",
 	} {
 		t.Setenv(name, "")

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,9 +196,35 @@ func literalLocal(files []*hclFile, name string) (map[string]string, bool) {
 // Then it adds the result to root (see merge), where it runs the
 // verification gate with rootTF: the plan check is staging's, as root's
 // plan needs its state.
+//
+// Staging may hold the lock file to generate with, such as root's: Add
+// empties staging but for it, and pins the providers opts.Config requires
+// to its releases (see pinnedToLock), so that the additions are generated
+// with the provider releases root runs.
 func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
+	rootTF = withTimeout(rootTF, opts.CommandTimeout)
+	lock, err := os.ReadFile(filepath.Join(staging, LockFileName))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
 	if err := os.RemoveAll(staging); err != nil {
 		return nil, err
+	}
+	if lock != nil {
+		if err := os.MkdirAll(staging, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(staging, LockFileName), lock, 0o644); err != nil {
+			return nil, err
+		}
+		if versions, ok := opts.Config[VersionsFileName]; ok {
+			pinned, err := pinnedToLock(versions, lock)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", VersionsFileName, err)
+			}
+			opts.Config = maps.Clone(opts.Config)
+			opts.Config[VersionsFileName] = pinned
+		}
 	}
 	files, err := configFiles(root)
 	if err != nil {
@@ -502,45 +529,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 // search, such as data.aws_vpc.main, with replacement, which may have
 // another length, such as aws_vpc.main, in body and its nested blocks.
 func replaceTraversals(body *hclwrite.Body, search, replacement []string) {
-	for name, attr := range body.Attributes() {
-		if tokens, ok := replacedTokens(attr.Expr().BuildTokens(nil), search, replacement); ok {
-			body.SetAttributeRaw(name, tokens)
-		}
-	}
-	for _, b := range body.Blocks() {
-		replaceTraversals(b.Body(), search, replacement)
-	}
-}
-
-// replacedTokens replaces each traversal start search in tokens, and
-// reports whether there was one: identifiers separated by dots, not
-// preceded by a dot.
-func replacedTokens(tokens hclwrite.Tokens, search, replacement []string) (hclwrite.Tokens, bool) {
-	n := 2*len(search) - 1
-	var out hclwrite.Tokens
-	replaced := false
-	for i := 0; i < len(tokens); i++ {
-		if i+n <= len(tokens) && (i == 0 || tokens[i-1].Type != hclsyntax.TokenDot) && matchesTraversal(tokens[i:i+n], search) {
-			out = append(out, hclwrite.TokensForTraversal(traversalOf(replacement))...)
-			i += n - 1
-			replaced = true
-			continue
-		}
-		out = append(out, tokens[i])
-	}
-	return out, replaced
-}
-
-func matchesTraversal(tokens hclwrite.Tokens, names []string) bool {
-	for i, name := range names {
-		if tokens[2*i].Type != hclsyntax.TokenIdent || string(tokens[2*i].Bytes) != name {
-			return false
-		}
-		if i > 0 && tokens[2*i-1].Type != hclsyntax.TokenDot {
-			return false
-		}
-	}
-	return true
+	replaceReferences(body, search, hclwrite.TokensForTraversal(traversalOf(replacement)))
 }
 
 func traversalOf(names []string) hcl.Traversal {

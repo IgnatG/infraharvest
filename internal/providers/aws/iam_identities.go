@@ -106,11 +106,15 @@ type iamAuthorizationDetails struct {
 	roles    []iamtypes.RoleDetail
 }
 
+// iamPageSize is the most items IAM answers a list with; without it, IAM
+// answers 100 at a time.
+const iamPageSize = 1000
+
 // getAuthorizationDetails reads the account's authorization details, all
 // pages of them, leaving out the AWS managed policies, which exist in every
 // account and are not imported. A page mixes users, groups, policies and
 // roles, so all pages are read before anything is recorded, to record them
-// kind by kind.
+// kind by kind. Each page holds the most IAM allows, iamPageSize.
 func (g *IamLister) getAuthorizationDetails(client *iam.Client) (iamAuthorizationDetails, error) {
 	var details iamAuthorizationDetails
 	input := &iam.GetAccountAuthorizationDetailsInput{Filter: []iamtypes.EntityType{
@@ -118,7 +122,7 @@ func (g *IamLister) getAuthorizationDetails(client *iam.Client) (iamAuthorizatio
 		iamtypes.EntityTypeGroup,
 		iamtypes.EntityTypeLocalManagedPolicy,
 		iamtypes.EntityTypeRole,
-	}}
+	}, MaxItems: aws.Int32(iamPageSize)}
 	pages := iam.NewGetAccountAuthorizationDetailsPaginator(client, input, stopOnDuplicateToken)
 	err := eachIamPage(g.Context(), pages, func(page *iam.GetAccountAuthorizationDetailsOutput) error {
 		details.users = append(details.users, page.UserDetailList...)
@@ -227,9 +231,10 @@ func (g *IamLister) addRoles(roles []iamtypes.RoleDetail) {
 	}
 }
 
-// getInstanceProfiles records every instance profile by name.
+// getInstanceProfiles records every instance profile by name, iamPageSize
+// to a page.
 func (g *IamLister) getInstanceProfiles(client *iam.Client) error {
-	pages := iam.NewListInstanceProfilesPaginator(client, &iam.ListInstanceProfilesInput{}, stopOnDuplicateToken)
+	pages := iam.NewListInstanceProfilesPaginator(client, &iam.ListInstanceProfilesInput{MaxItems: aws.Int32(iamPageSize)}, stopOnDuplicateToken)
 	return eachIamPage(g.Context(), pages, func(page *iam.ListInstanceProfilesOutput) error {
 		for _, profile := range page.InstanceProfiles {
 			name := aws.ToString(profile.InstanceProfileName)

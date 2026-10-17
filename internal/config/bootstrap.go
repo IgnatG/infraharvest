@@ -149,7 +149,7 @@ resource "aws_s3_bucket_policy" "state" {
 
 func azureRMBootstrap(a *AzureRM) map[string]string {
 	return map[string]string{
-		"versions.tf": versionsTF(">= 1.10, < 2.0", "azurerm", "hashicorp/azurerm", "~> 4.0"),
+		"versions.tf": versionsTF(">= 1.10, < 2.0", "azurerm", "hashicorp/azurerm", "~> 5.0"),
 		"variables.tf": `variable "location" {
   description = "Azure region of the state storage, such as uksouth."
   type        = string

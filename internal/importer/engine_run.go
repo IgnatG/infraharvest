@@ -4,15 +4,21 @@
 package importer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -35,10 +41,18 @@ type Run struct {
 	selection *selection.File
 	// listed are the resources discover lists into a selection file.
 	listed []selection.Resource
+	// covered are the services discover listed, by scope and service (see
+	// coverKey), and filtered is whether it listed with --id, --tag or
+	// --where: the selection file drops only the entries of what discover
+	// listed in full (see covers).
+	covered  map[string]bool
+	filtered bool
 	// backend is the state backend of the generated roots, if configured.
 	backend *config.Backend
 	// modules are the organisation's own modules, if configured.
 	modules []config.Module
+	// shared is what the run and its children work out once.
+	shared *shared
 	// OpenPicker opens the picker on the selection file discover writes,
 	// when run in a terminal (see pick).
 	OpenPicker bool
@@ -48,12 +62,61 @@ type Run struct {
 	used  bool
 }
 
+// shared is what a run and its children (see Run.child) work out once for
+// the whole command, whichever needs it first: the Import calls of every
+// account and region read the same input.
+type shared struct {
+	mu sync.Mutex
+	// managed is the state --managed-state names, by its sources as
+	// resolved (see managedState).
+	managed map[string]managed.Resources
+
+	// own are the adapters of the organisation's own modules, of every
+	// provider, once fetched (see ownAdapters).
+	ownMu      sync.Mutex
+	own        []adapters.Adapter
+	ownFetched bool
+}
+
+// ownAdapters returns the adapters of the organisation's modules (see
+// fetchAdapters), fetching them with the engine at execPath on first use
+// only: every Import call of the command, in every account, uses the same
+// modules.
+func (s *shared) ownAdapters(ctx context.Context, execPath string, modules []config.Module) []adapters.Adapter {
+	s.ownMu.Lock()
+	defer s.ownMu.Unlock()
+	if !s.ownFetched {
+		s.own, s.ownFetched = fetchAdapters(ctx, execPath, modules), true
+	}
+	return s.own
+}
+
+// managedState returns the managed resources of the state in sources,
+// resolved (see excludeManaged), loading them on first use only.
+func (s *shared) managedState(ctx context.Context, sources []string, stores managed.Stores) (managed.Resources, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := strings.Join(sources, "\n")
+	if state, ok := s.managed[key]; ok {
+		return state, nil
+	}
+	state, err := managed.Load(ctx, sources, stores)
+	if err != nil {
+		return nil, err
+	}
+	if s.managed == nil {
+		s.managed = map[string]managed.Resources{}
+	}
+	s.managed[key] = state
+	return state, nil
+}
+
 // activeRun is the run of the provider command being executed, if any.
 // A process runs one command at a time.
 var activeRun *Run
 
 func NewRun() *Run {
-	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}}
+	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}, shared: &shared{}}
 }
 
 // recordFailure records that part of the command couldn't run, such as one
@@ -133,7 +196,7 @@ func couldNotRun(err, writeErr error) error {
 // everything else to itself until r merges it.
 func (r *Run) child() *Run {
 	c := NewRun()
-	c.selection, c.backend, c.lock, c.modules = r.selection, r.backend, r.lock, r.modules
+	c.selection, c.backend, c.lock, c.modules, c.shared = r.selection, r.backend, r.lock, r.modules, r.shared
 	return c
 }
 
@@ -158,6 +221,8 @@ func (r *Run) merge(child *Run) {
 	}
 	r.failures = append(r.failures, child.failures...)
 	r.listed = append(r.listed, child.listed...)
+	maps.Copy(r.covered, child.covered)
+	r.filtered = r.filtered || child.filtered
 	if r.lock == nil {
 		r.lock = child.lock
 	}

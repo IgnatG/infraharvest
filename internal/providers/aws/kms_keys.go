@@ -5,7 +5,7 @@ package aws
 
 import (
 	"cmp"
-	"log"
+	"errors"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -26,8 +26,9 @@ type KmsLister struct {
 // listed, and only the aliases of such keys: AWS manages the rest, and a key
 // on its way out can't be imported for long. The aliases are listed first,
 // as a key is named after its alias. Failing to list keys or aliases fails
-// the service; a key or an alias whose key can't be described is logged and
-// left out.
+// the service; a key or an alias whose key can't be described, and a key
+// whose grants can't be listed, is left out, and the failures are returned
+// together as a partial error (see partFailures).
 func (g *KmsLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -36,16 +37,16 @@ func (g *KmsLister) List() error {
 	lister := &kmsLister{g: g, svc: kms.NewFromConfig(config), keys: map[string]*types.KeyMetadata{}}
 	aliases, err := lister.listAliases()
 	if err != nil {
-		return err
+		return errors.Join(err, lister.parts.err())
 	}
 	if err := lister.addKeys(keyNames(aliases)); err != nil {
-		return err
+		return errors.Join(err, lister.parts.err())
 	}
 	for _, alias := range aliases {
 		name := aws.ToString(alias.AliasName)
 		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_kms_alias", "aws"))
 	}
-	return nil
+	return lister.parts.err()
 }
 
 // keyNames names each key that has aliases after the first of them in
@@ -63,15 +64,18 @@ func keyNames(aliases []types.AliasListEntry) map[string]string {
 
 // kmsLister holds what one listing of the KMS service shares: the client,
 // and the keys described so far, so that an alias of a key listed earlier
-// doesn't describe that key again.
+// doesn't describe that key again; and the parts of the listing that
+// failed.
 type kmsLister struct {
-	g    *KmsLister
-	svc  *kms.Client
-	keys map[string]*types.KeyMetadata
+	g     *KmsLister
+	svc   *kms.Client
+	keys  map[string]*types.KeyMetadata
+	parts partFailures
 }
 
-// addKeys records every listable key as an aws_kms_key, imported by its ID,
-// which it also records as the key_id attribute, followed by its grants.
+// addKeys records every listable key, imported by its ID, which it also
+// records as the key_id attribute, followed by its grants. The key's type
+// comes from the metadata already described (see kmsKeyType).
 // A key is named after its alias, in names by key ID, or else its ID.
 func (l *kmsLister) addKeys(names map[string]string) error {
 	pages := kms.NewListKeysPaginator(l.svc, &kms.ListKeysInput{}, stopOnDuplicateToken)
@@ -87,7 +91,7 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 			}
 			id := aws.ToString(key.KeyId)
 			name := cmp.Or(names[id], id)
-			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, "aws_kms_key", "aws",
+			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(metadata), "aws",
 				map[string]string{"key_id": id}))
 			l.addGrants(id, name)
 		}
@@ -100,14 +104,14 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 // ARN, with the principal the grant gives to as grantee_principal, by which
 // the default selection leaves out the grants AWS services make for
 // themselves (see awsServiceGrantee). A grant is named after its name, or
-// else after the key, keyName. A failure to list them is logged and ends
+// else after the key, keyName. A failure to list them is gathered and ends
 // the key's grants there: the key itself stays listed.
 func (l *kmsLister) addGrants(keyID, keyName string) {
 	pages := kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(l.g.Context())
 		if err != nil {
-			log.Printf("aws: kms: can't list the grants of key %s: %v", keyID, err)
+			l.parts.add("grants of key "+keyID, err)
 			return
 		}
 		for _, grant := range page.Grants {
@@ -159,18 +163,43 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 const awsManagedAliasPrefix = "alias/aws/"
 
 // describe returns the metadata of the key keyID, or nil when it can't be
-// described, which it logs. Successful answers are remembered.
+// described, which it gathers, but for a key deleted since it was listed.
+// Answers are remembered, failures too, so that a key is described, and
+// its failure reported, once.
 func (l *kmsLister) describe(keyID string) *types.KeyMetadata {
 	if metadata, ok := l.keys[keyID]; ok {
 		return metadata
 	}
 	key, err := l.svc.DescribeKey(l.g.Context(), &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
 	if err != nil {
-		log.Printf("aws: kms: can't describe key %s; leaving it out: %v", keyID, err)
+		l.parts.add("key "+keyID, err)
+		l.keys[keyID] = nil
 		return nil
 	}
 	l.keys[keyID] = key.KeyMetadata
 	return key.KeyMetadata
+}
+
+// kmsKeyType returns the Terraform type of a key with metadata: Terraform
+// has one for each origin of the key material and for a multi-Region
+// replica, and aws_kms_key, which takes only keys whose material KMS made
+// and that aren't replicas, refuses to read the others. A replica key is an
+// aws_kms_replica_key, or an aws_kms_replica_external_key when its
+// material was imported; another key with imported material is an
+// aws_kms_external_key.
+func kmsKeyType(metadata *types.KeyMetadata) string {
+	replica := metadata.MultiRegionConfiguration != nil &&
+		metadata.MultiRegionConfiguration.MultiRegionKeyType == types.MultiRegionKeyTypeReplica
+	external := metadata.Origin == types.OriginTypeExternal
+	switch {
+	case replica && external:
+		return "aws_kms_replica_external_key"
+	case replica:
+		return "aws_kms_replica_key"
+	case external:
+		return "aws_kms_external_key"
+	}
+	return "aws_kms_key"
 }
 
 // kmsKeyListable reports whether a key with metadata is one to list: a

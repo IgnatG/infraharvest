@@ -94,6 +94,9 @@ type Resource struct {
 	// Scope is where discover listed it: provider, account and region, as
 	// the root it is imported into is laid out (aws/123456789012/eu-west-2).
 	Scope string `yaml:"scope,omitempty"`
+	// Service is the service that listed it, so that a discover that
+	// lists other services leaves the entry as it is (see Merge).
+	Service string `yaml:"service,omitempty"`
 	// Tags are the resource's tags (labels on Google Cloud) when discover
 	// could read them, for rules and the picker.
 	Tags    map[string]string `yaml:"tags,omitempty"`
@@ -176,6 +179,12 @@ func (p Patterns) match(value string) bool {
 		return true
 	}
 	for _, pattern := range p {
+		if !strings.Contains(pattern, "*") {
+			if pattern == value {
+				return true
+			}
+			continue
+		}
 		if glob(pattern).MatchString(value) {
 			return true
 		}
@@ -183,12 +192,22 @@ func (p Patterns) match(value string) bool {
 	return false
 }
 
+// globs holds the compiled glob patterns, by pattern: rules are matched
+// against every listed resource, and a file has few patterns.
+var globs sync.Map
+
+// glob returns pattern compiled, once per pattern.
 func glob(pattern string) *regexp.Regexp {
+	if re, ok := globs.Load(pattern); ok {
+		return re.(*regexp.Regexp)
+	}
 	parts := strings.Split(pattern, "*")
 	for i, part := range parts {
 		parts[i] = regexp.QuoteMeta(part)
 	}
-	return regexp.MustCompile("^" + strings.Join(parts, ".*") + "$")
+	re := regexp.MustCompile("^" + strings.Join(parts, ".*") + "$")
+	globs.Store(pattern, re)
+	return re
 }
 
 // Load reads and checks a selection file.
@@ -232,9 +251,10 @@ const header = `# infraharvest selection file: which listed resources to import.
 #     - exclude: { tags: { env: dev } }
 #
 # Running discover again updates this file: entries keep their decisions and
-# notes, resources no longer found are dropped, and new ones are added with
-# new: true, decided by the rules and defaults. Review them, then remove the
-# mark.
+# notes, resources no longer found where it listed are dropped (entries of
+# accounts, regions and services it didn't list stay), and new ones are
+# added with new: true, decided by the rules and defaults. Review them, then
+# remove the mark.
 #
 `
 
@@ -326,11 +346,13 @@ func (f *File) index() {
 // so), marked New for review. Listed resources it lacks are added with New
 // set: decided by f's rules if one matches, else excluded with listed's
 // reason if listed excludes them (the provider's defaults), else by f's
-// defaults. Entries no longer listed are dropped, unless keepUnlisted is
-// set, as it is when the listing failed in part: they may be only what
-// didn't list this time, and keep their decisions. It returns how many
-// were added and dropped.
-func (f *File) Merge(listed []Resource, keepUnlisted bool) (added, dropped int) {
+// defaults. An entry no longer listed is dropped only if covered reports
+// that this run listed everything that would list it, such as its service
+// in its scope; any other stays with its decision, as an entry of another
+// region, account or service does, or of a listing that failed in part.
+// A nil covered covers every entry. It returns how many were added and
+// dropped.
+func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dropped int) {
 	f.index()
 	seen := map[string]bool{}
 	kept := map[string]bool{}
@@ -346,6 +368,9 @@ func (f *File) Merge(listed []Resource, keepUnlisted bool) (added, dropped int) 
 			m := *r
 			// Where it is listed, and its tags, are discover's to say.
 			m.Scope, m.Tags = l.Scope, l.Tags
+			if l.Service != "" {
+				m.Service = l.Service
+			}
 			if m.Include && m.Note == "" && isManaged(l.Reason) {
 				m.Include, m.Reason, m.New = false, l.Reason, true
 			}
@@ -366,7 +391,7 @@ func (f *File) Merge(listed []Resource, keepUnlisted bool) (added, dropped int) 
 		if kept[key(r.Scope, r.Type, r.ID)] {
 			continue
 		}
-		if keepUnlisted {
+		if covered != nil && !covered(r) {
 			merged = append(merged, r)
 			continue
 		}

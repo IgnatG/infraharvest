@@ -24,7 +24,7 @@ func (az *VirtualNetworkLister) List() error {
 		if network.ID == nil || network.Name == nil {
 			continue
 		}
-		az.recordBare(*network.ID, *network.Name, "azurerm_virtual_network")
+		az.recordTagged(*network.ID, *network.Name, "azurerm_virtual_network", network.Tags)
 	}
 	return nil
 }

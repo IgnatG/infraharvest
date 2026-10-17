@@ -79,13 +79,8 @@ func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
 // and when the test ends.
 func forgetSQLInstances(t *testing.T) {
 	t.Helper()
-	forget := func() {
-		sqlInstanceLists.Lock()
-		sqlInstanceLists.byKey = map[string]*sqlInstanceList{}
-		sqlInstanceLists.Unlock()
-	}
-	forget()
-	t.Cleanup(forget)
+	sqlInstanceLists.forget()
+	t.Cleanup(sqlInstanceLists.forget)
 }
 
 // cloudSQLLister is a lister of region of the project acme, with the
@@ -190,18 +185,22 @@ func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 	}
 }
 
-// An instance list that fails isn't kept: the next import lists again.
-func TestCloudSQLListsAgainAfterAFailure(t *testing.T) {
+// An instance list that fails is kept, so that the imports of the
+// project's other regions don't make the failing call again: they fail
+// too, without a request. A process that lists afresh lists again.
+func TestCloudSQLKeepsAFailure(t *testing.T) {
 	server, _ := sqlAdmin(t)
 	var mu sync.Mutex
 	failing := true
+	requests := 0
 	failOnce := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		f := failing
 		failing = false
+		requests++
 		mu.Unlock()
 		if f {
-			http.Error(w, `{"error": {"message": "failed"}}`, http.StatusInternalServerError)
+			http.Error(w, `{"error": {"message": "failed"}}`, http.StatusForbidden)
 			return
 		}
 		server.Config.Handler.ServeHTTP(w, r)
@@ -212,9 +211,18 @@ func TestCloudSQLListsAgainAfterAFailure(t *testing.T) {
 	if err := newCloudSQL(t, "us-central1").List(); err == nil {
 		t.Fatal("the failed list succeeded")
 	}
-	g := cloudSQLLister(t, "us-central1")
+	if err := cloudSQLLister(t, "europe-west1").List(); err == nil {
+		t.Error("another region's import listed again after the failure")
+	}
+	mu.Lock()
+	made := requests
+	mu.Unlock()
+	if made != 1 {
+		t.Errorf("got %d requests, want the failing one", made)
+	}
+	g := newCloudSQL(t, "us-central1")
 	if err := g.List(); err != nil || len(g.Resources) != 4 {
-		t.Errorf("after a failure: got %d resources, %v", len(g.Resources), err)
+		t.Errorf("listing afresh: got %d resources, %v", len(g.Resources), err)
 	}
 }
 

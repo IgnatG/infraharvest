@@ -79,8 +79,13 @@ func TestAzureRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
-	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
-		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, coverage.Failures)
+	// floci-az has no Resource Graph, so the tags can't be read: that
+	// failure, and only that one, is the emulator's.
+	failures := slices.DeleteFunc(slices.Clone(coverage.Failures), func(f string) bool {
+		return strings.HasPrefix(f, "tags:") && strings.Contains(f, "Resource Graph")
+	})
+	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(failures) != 0 {
+		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, failures)
 	}
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {
@@ -194,6 +199,11 @@ func isolateAzureConfig(t *testing.T, host string) {
 		"ARM_CLIENT_ID":                       "",
 		"ARM_CLIENT_SECRET":                   "",
 		"ARM_CLIENT_CERTIFICATE_PATH":         "",
+		"ARM_CLIENT_CERTIFICATE":              "",
+		"ARM_CLIENT_ID_FILE_PATH":             "",
+		"ARM_CLIENT_SECRET_FILE_PATH":         "",
+		"ARM_USE_AKS_WORKLOAD_IDENTITY":       "",
+		"ARM_MSI_API_VERSION":                 "",
 		"ARM_USE_OIDC":                        "",
 		"ARM_USE_CLI":                         "false",
 		"ARM_AUXILIARY_TENANT_IDS":            "",

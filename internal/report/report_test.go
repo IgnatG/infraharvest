@@ -316,3 +316,35 @@ func TestSkippedChecks(t *testing.T) {
 		t.Errorf("report:\n%s", md)
 	}
 }
+
+// Failures are of every part of the import, not only of services that
+// couldn't be listed, and the report says so.
+func TestMarkdownFailures(t *testing.T) {
+	r := &Report{Failures: []string{"account 111122223333: assume role: access denied", "service s3: access denied"}}
+	md := r.Markdown()
+	if strings.Contains(md, "Failed services") || !strings.Contains(md, "## Failures") {
+		t.Errorf("markdown:\n%s", md)
+	}
+	for _, f := range r.Failures {
+		if !strings.Contains(md, f) {
+			t.Errorf("markdown misses %q:\n%s", f, md)
+		}
+	}
+}
+
+// The manifests of a run's Import calls add up: the newer and unused
+// modules of each, once, and the provider a call held back.
+func TestManifestAdd(t *testing.T) {
+	var m Manifest
+	m.Add(Manifest{Tool: Component{Name: "infraharvest"}, Provider: Provider{Source: "registry.terraform.io/hashicorp/aws", Constraint: "~> 6.67", Version: "6.67.0"},
+		Modules: []ModuleVersion{{Source: "terraform-aws-modules/vpc/aws", Version: "6.0.0", Latest: "6.1.0"}}})
+	m.Add(Manifest{Tool: Component{Name: "infraharvest"}, Provider: Provider{Source: "registry.terraform.io/hashicorp/aws", Constraint: "~> 6.50", HeldBack: "terraform-aws-modules/eks/aws 21.0.0 accepts < 6.51"},
+		Modules: []ModuleVersion{{Source: "terraform-aws-modules/vpc/aws", Version: "6.0.0", Latest: "6.1.0"}, {Source: "terraform-aws-modules/eks/aws", Version: "21.0.0", Latest: "21.1.0"}},
+		Unused:  []UnusedModule{{Source: "terraform-aws-modules/old/aws", Version: "1.0.0", Accepts: "< 6.0"}}})
+	if len(m.Modules) != 2 || len(m.Unused) != 1 {
+		t.Errorf("modules %+v, unused %+v", m.Modules, m.Unused)
+	}
+	if m.Provider.HeldBack == "" || m.Provider.Constraint != "~> 6.50" || m.Provider.Version != "6.67.0" {
+		t.Errorf("provider %+v", m.Provider)
+	}
+}

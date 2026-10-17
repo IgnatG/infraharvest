@@ -80,7 +80,8 @@ func renderServicesReference() (string, error) {
 	b.WriteString("The services each provider lists, as `--services` and `--skip` name them, and the Terraform resource types each one lists. " +
 		"The types are those named in the service's lister code, those the [catalogue](../catalogue.md) assigns to the service, and the child resources the catalogue imports with them. " +
 		"A service lists only the types an account has, and a few services decide the type of a resource from what the cloud returns, so the cloud can add types not shown here.\n\n")
-	b.WriteString("`--services=*` lists every service except the opt-in ones, which list through the cloud's inventory API what other services already list: name them to use them. " +
+	b.WriteString("`--services=*` lists every service except the opt-in ones: name them to use them. " +
+		"Azure's list through the cloud's inventory API what other services already list, and AWS's list services that have reached end of support. " +
 		"`infraharvest services <provider>` prints a provider's services.\n")
 	for _, name := range referenceProviders {
 		if err := writeProviderServices(&b, name); err != nil {

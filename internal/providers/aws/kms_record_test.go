@@ -5,7 +5,12 @@ package aws
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordKmsKeyARN = "arn:aws:kms:us-east-1:123456789012:key/"
@@ -18,13 +23,15 @@ var recordKmsKeys = map[string]string{
 	"k-doomed":  `{"KeyMetadata":{"KeyId":"k-doomed","KeyManager":"CUSTOMER","KeyState":"PendingDeletion"}}`,
 	"k-replica": `{"KeyMetadata":{"KeyId":"k-replica","KeyManager":"CUSTOMER","KeyState":"PendingReplicaDeletion"}}`,
 	"k-off":     `{"KeyMetadata":{"KeyId":"k-off","KeyManager":"CUSTOMER","KeyState":"Disabled"}}`,
+	"k-mrr":     `{"KeyMetadata":{"KeyId":"k-mrr","KeyManager":"CUSTOMER","KeyState":"Enabled","Origin":"AWS_KMS","MultiRegion":true,"MultiRegionConfiguration":{"MultiRegionKeyType":"REPLICA"}}}`,
 	"k-secret":  recordJSONError("AccessDeniedException"),
 }
 
 // The lister lists the customer managed keys not being deleted, each
 // followed by its grants, then the aliases of such keys. Keys and aliases it
-// can't describe are left out; a key whose grants it can't list is still
-// listed. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
+// can't describe are left out, each key described once; a key whose grants
+// it can't list is still listed; and both failures make the listing
+// partial. Grants are imported as <grant's key ID>:<grant ID>, and the grant's
 // key ID is the key's ARN. A key is named after its alias, and a grant
 // after its name: before, they were labelled after their IDs. A grant
 // records its grantee principal, by which the default selection leaves out
@@ -36,7 +43,7 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 		switch call.Op {
 		case "ListKeys":
 			if recordSecondPage(call) {
-				return `{"Keys":[{"KeyId":"k-replica"},{"KeyId":"k-secret"},{"KeyId":"k-off"}],"Truncated":false}`
+				return `{"Keys":[{"KeyId":"k-replica"},{"KeyId":"k-secret"},{"KeyId":"k-off"},{"KeyId":"k-mrr"}],"Truncated":false}`
 			}
 			return `{"Keys":[{"KeyId":"k-app"},{"KeyId":"k-aws"},{"KeyId":"k-doomed"}],"NextMarker":"` + nextPageToken + `","Truncated":true}`
 		case "DescribeKey":
@@ -50,6 +57,8 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 				return fmt.Sprintf(`{"Grants":[{"KeyId":"%sk-app","GrantId":"%s","Name":"lambda","GranteePrincipal":"arn:aws:iam::123456789012:role/app"}],"NextMarker":"%s","Truncated":%t}`, recordKmsKeyARN, id, token, token != "")
 			case "k-off":
 				return recordJSONError("AccessDeniedException")
+			case "k-mrr":
+				return `{"Grants":[],"Truncated":false}`
 			}
 		case "ListAliases":
 			if recordSecondPage(call) {
@@ -67,8 +76,15 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 	})
 	g := &KmsLister{}
 
-	if err := g.List(); err != nil {
-		t.Fatal(err)
+	err := g.List()
+	if err == nil {
+		t.Fatal("want a partial error, got none")
+	}
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "key k-secret") || !strings.Contains(err.Error(), "grants of key k-off") {
+		t.Errorf("want a partial error for the key not described and the grants not listed, got %v", err)
+	}
+	if n := strings.Count(err.Error(), "key k-secret:"); n != 1 {
+		t.Errorf("k-secret's failure reported %d times, want once: %v", n, err)
 	}
 
 	assertRecorded(t, g.Resources,
@@ -76,6 +92,8 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-1", "lambda", map[string]string{"grantee_principal": "arn:aws:iam::123456789012:role/app"}},
 		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-2", "lambda", map[string]string{"grantee_principal": "arn:aws:iam::123456789012:role/app"}},
 		recordedResource{"aws_kms_key", "k-off", "off", map[string]string{"key_id": "k-off"}},
+		// A multi-Region replica is an aws_kms_replica_key.
+		recordedResource{"aws_kms_replica_key", "k-mrr", "k-mrr", map[string]string{"key_id": "k-mrr"}},
 		recordedResource{"aws_kms_alias", "alias/app", "alias/app", nil},
 		recordedResource{"aws_kms_alias", "alias/off", "alias/off", nil},
 	)
@@ -100,5 +118,29 @@ func TestRecordKmsReturnsListErrors(t *testing.T) {
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})
+	}
+}
+
+// A key's type follows the origin of its material and whether it is a
+// multi-Region replica, from the metadata DescribeKey answered.
+func TestKmsKeyType(t *testing.T) {
+	replica := &types.MultiRegionConfiguration{MultiRegionKeyType: types.MultiRegionKeyTypeReplica}
+	primary := &types.MultiRegionConfiguration{MultiRegionKeyType: types.MultiRegionKeyTypePrimary}
+	for _, c := range []struct {
+		metadata types.KeyMetadata
+		want     string
+	}{
+		{types.KeyMetadata{Origin: types.OriginTypeAwsKms}, "aws_kms_key"},
+		{types.KeyMetadata{}, "aws_kms_key"},
+		{types.KeyMetadata{Origin: types.OriginTypeAwsCloudhsm}, "aws_kms_key"},
+		{types.KeyMetadata{Origin: types.OriginTypeAwsKms, MultiRegionConfiguration: primary}, "aws_kms_key"},
+		{types.KeyMetadata{Origin: types.OriginTypeAwsKms, MultiRegionConfiguration: replica}, "aws_kms_replica_key"},
+		{types.KeyMetadata{Origin: types.OriginTypeExternal}, "aws_kms_external_key"},
+		{types.KeyMetadata{Origin: types.OriginTypeExternal, MultiRegionConfiguration: primary}, "aws_kms_external_key"},
+		{types.KeyMetadata{Origin: types.OriginTypeExternal, MultiRegionConfiguration: replica}, "aws_kms_replica_external_key"},
+	} {
+		if got := kmsKeyType(&c.metadata); got != c.want {
+			t.Errorf("origin %q, multi-Region %+v: got %s, want %s", c.metadata.Origin, c.metadata.MultiRegionConfiguration, got, c.want)
+		}
 	}
 }

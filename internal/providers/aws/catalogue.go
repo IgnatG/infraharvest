@@ -13,9 +13,27 @@ func awsCatalogue() *catalogue.Catalogue {
 	return catalogue.MustBuiltin("aws")
 }
 
-// importID returns the ID Terraform imports r with, as the catalogue
-// builds it, and false if Terraform can't import it.
-func importID(r harvest.Resource) (string, bool) {
-	id, ok, _ := awsCatalogue().ImportID(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
+// SetCatalogue takes the catalogue of the import, the built-in one with
+// the --catalogue overlay merged in, for what the provider reads from the
+// catalogue once services are listed: import IDs, ARNs and children (see
+// catalogue). The Cloud Control services, which are known before the
+// overlay is loaded, come from the built-in catalogue.
+func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
+	p.cat = c
+}
+
+// catalogue returns the catalogue of the import (see SetCatalogue), or the
+// built-in one before it is set.
+func (p *Provider) catalogue() *catalogue.Catalogue {
+	if p.cat != nil {
+		return p.cat
+	}
+	return awsCatalogue()
+}
+
+// importID returns the ID Terraform imports r with, as cat builds it, and
+// false if Terraform can't import it.
+func importID(cat *catalogue.Catalogue, r harvest.Resource) (string, bool) {
+	id, ok, _ := cat.ImportID(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
 	return id, ok
 }

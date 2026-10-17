@@ -5,8 +5,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func scanner(name string, blocking bool, findings ...Finding) Scanner {
@@ -43,6 +45,32 @@ func TestRunScanners(t *testing.T) {
 	}
 }
 
+// The scanners of a directory run at the same time, and the check lists
+// them in their order, whichever finishes first.
+func TestRunScannersAtTheSameTime(t *testing.T) {
+	started := make(chan struct{})
+	// first waits for second to start, which it can only if they run at
+	// the same time, and finishes last.
+	first := Scanner{Name: "tflint", Blocking: true, Run: func(context.Context, string) ([]Finding, error) {
+		select {
+		case <-started:
+			return nil, nil
+		case <-time.After(30 * time.Second):
+			return nil, errors.New("ran after the others")
+		}
+	}}
+	second := Scanner{Name: "trivy", Run: func(context.Context, string) ([]Finding, error) {
+		close(started)
+		return []Finding{{Rule: "AVD-AWS-0089", Severity: "HIGH"}}, nil
+	}}
+
+	check := runScanners(context.Background(), t.TempDir(), []Scanner{first, second})
+
+	if !check.Passed || len(check.Details) != 3 || check.Details[0] != "tflint: no findings" || !strings.HasPrefix(check.Details[1], "trivy: 1 findings") || check.Details[2] != "trivy: AVD-AWS-0089 (high)" {
+		t.Errorf("got passed=%v %q", check.Passed, check.Details)
+	}
+}
+
 func TestParseScannerOutput(t *testing.T) {
 	tflint, err := parseTflint([]byte(`{"issues":[{"rule":{"name":"terraform_typed_variables","severity":"warning"},"message":"no type","range":{"filename":"variables.tf","start":{"line":3}}}],"errors":[]}`))
 	if err != nil || len(tflint) != 1 || tflint[0].String() != "terraform_typed_variables (warning) variables.tf:3: no type" {
@@ -60,5 +88,16 @@ func TestParseScannerOutput(t *testing.T) {
 		if err != nil || len(checkov) != 1 || checkov[0].String() != "CKV_AWS_18 generated.tf:1: Ensure access logging" {
 			t.Errorf("checkov: %v, %v", checkov, err)
 		}
+	}
+}
+
+// Scanners read configuration, which needs no credentials: checkov uploads
+// what it scans with a platform key, and a cloud credential is no business
+// of any scanner.
+func TestScannerEnv(t *testing.T) {
+	got := scannerEnv([]string{"PATH=/usr/bin", "HOME=/home/me", "AWS_SECRET_ACCESS_KEY=x", "aws_profile=prod", "ARM_CLIENT_SECRET=x", "GOOGLE_APPLICATION_CREDENTIALS=/k.json", "TF_TOKEN_app_terraform_io=x", "BC_API_KEY=x", "PRISMA_API_URL=x", "TRIVY_CACHE_DIR=/c"})
+	want := []string{"PATH=/usr/bin", "HOME=/home/me", "TRIVY_CACHE_DIR=/c"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

@@ -105,9 +105,25 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 	}
 	if run == nil {
 		run = NewRun()
+		ctx, stop := InterruptContext(ctx)
+		defer stop()
 		return run.finish(importInto(ctx, run, provider, options, args))
 	}
 	return importInto(ctx, run, provider, options, args)
+}
+
+// InterruptContext returns ctx, cancelled on the first interrupt or
+// SIGTERM, for a whole command: every Import call it makes stops, and the
+// run still writes its report. After that first signal the handler is
+// removed, so a second one stops the process at once, as when a lister or
+// a Terraform child doesn't stop. stop releases the handler.
+func InterruptContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, stop
 }
 
 // importInto imports into run. It returns an error only if the import
@@ -119,8 +135,6 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.options = options
 	}
 	binary := engineBinary(options.Engine)
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// Before the provider signs in: its clients take the rate.
 	ratelimit.SetDefault(options.RateLimit)
@@ -157,6 +171,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.options = options
 		run.failures = append(run.failures, failures...)
 		run.addDiscovered(listed, defaults, scope, importID)
+		run.cover(scope, options)
 		return nil
 	}
 	chosen, err := run.selectionFile(options.Selection)
@@ -180,9 +195,12 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	var newerModules []report.ModuleVersion
 	var constraints []moduleConstraint
 	if modulesFromRegistry(options.Modules) {
+		if options.Modules == ModulesLatestUntested {
+			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
+		}
 		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Name()), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
 		// The organisation's own modules come first.
-		own := applicableAdapters(catalogueAdapters(ctx, execPath, run.modules, provider.Name()), selected)
+		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, run.modules), provider.Name()), selected)
 		moduleAdapters = append(own, moduleAdapters...)
 	}
 	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider), constraints)
@@ -203,6 +221,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, cat, root)
 	opts.IncludeOwned = options.IncludeOwned
+	opts.CommandTimeout = options.EngineTimeout
 	opts.KeepOwned = keptOwned(selected, listed, importID)
 	opts.External = leftOut
 	opts.Adapters, opts.ModulesDir = moduleOptions(options.Modules, options.Out, moduleAdapters)
@@ -225,13 +244,15 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	run.used = true
 	run.options = options
 	run.report.TagKeys = options.ReportTags
-	run.report.Manifest = report.Manifest{
+	// Each call adds what it selected: another region's may hold the
+	// provider back, or find other modules.
+	run.report.Add(report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version.Version},
 		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
 		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version, HeldBack: root.heldBack},
 		Modules:  newerModules,
 		Unused:   unusedModules,
-	}
+	})
 	for _, f := range failures {
 		run.report.Failures = append(run.report.Failures, f.Error())
 	}
@@ -316,7 +337,15 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 				continue
 			}
 			log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
-			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, &run.lock)
+			// A root of another call may pin another provider release line
+			// (see rootConfig): its lock file seeds this root only if it
+			// meets this root's constraint.
+			lock := &run.lock
+			var own []byte
+			if !lockMeets(run.lock, qualifiedSource(binary.Registry, root.provider.Source), root.provider.Version) {
+				lock = &own
+			}
+			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -507,6 +536,27 @@ func generateDir(ctx context.Context, dir string, tr terraformRun, imports []eng
 		}
 	}
 	return result, err
+}
+
+// lockMeets reports whether the provider at source that lock records meets
+// constraint, so that lock can seed a root with that constraint: terraform
+// init fails on a locked version the configuration doesn't accept. A lock
+// that records no version of source, or a constraint or version that
+// doesn't parse, counts as meeting it, as before such a check.
+func lockMeets(lock []byte, source, constraint string) bool {
+	locked := engine.LockedVersion(lock, source)
+	if locked == "" || constraint == "" {
+		return true
+	}
+	v, err := goversion.NewVersion(locked)
+	if err != nil {
+		return true
+	}
+	c, err := goversion.NewConstraint(constraint)
+	if err != nil {
+		return true
+	}
+	return c.Check(v)
 }
 
 // rootFiles are the files every output directory starts with, and the

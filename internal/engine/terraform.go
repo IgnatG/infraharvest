@@ -7,17 +7,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
 	"github.com/hashicorp/hc-install/releases"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // Binary describes an engine binary: Terraform or OpenTofu, which run the
@@ -154,15 +157,124 @@ func installLatestTerraform(ctx context.Context, dir string) (string, error) {
 	return path, nil
 }
 
-// initMu serializes terraform init within the process. The roots of
+// initSlot serializes terraform init within the process. The roots of
 // several accounts can generate in parallel, sharing one plugin cache,
-// which Terraform doesn't guarantee to be safe for concurrent installs.
-var initMu sync.Mutex
+// which Terraform doesn't guarantee to be safe for concurrent installs. It
+// is a channel rather than a mutex, so that a root waiting for its turn
+// stops waiting when its context is done.
+var initSlot = make(chan struct{}, 1)
 
 // initTerraform runs terraform init in tf's working directory, one at a
-// time (see initMu).
+// time (see initSlot).
 func initTerraform(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
-	initMu.Lock()
-	defer initMu.Unlock()
+	select {
+	case initSlot <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-initSlot }()
 	return tf.Init(ctx, opts...)
+}
+
+// timeoutError is the error of a Terraform command that ran longer than
+// it may (see Options.CommandTimeout).
+type timeoutError struct {
+	timeout time.Duration
+}
+
+func (e *timeoutError) Error() string {
+	return fmt.Sprintf("timed out after %s", e.timeout)
+}
+
+// Unwrap makes a timeout a context.DeadlineExceeded.
+func (e *timeoutError) Unwrap() error {
+	return context.DeadlineExceeded
+}
+
+// timedTerraform is a Terraform whose every command runs for at most
+// timeout. A command still running then is stopped, and fails with a
+// timeoutError, unless the caller's context was done first.
+type timedTerraform struct {
+	Terraform
+	timeout time.Duration
+}
+
+// withTimeout returns tf with each command bounded by timeout (see
+// timedTerraform), or tf itself if timeout is 0 or tf is bounded already.
+func withTimeout(tf Terraform, timeout time.Duration) Terraform {
+	if timeout <= 0 {
+		return tf
+	}
+	if _, ok := tf.(*timedTerraform); ok {
+		return tf
+	}
+	return &timedTerraform{Terraform: tf, timeout: timeout}
+}
+
+// bounded runs command with a context that ends after t.timeout.
+func (t *timedTerraform) bounded(ctx context.Context, command func(context.Context) error) error {
+	timed, cancel := context.WithTimeout(ctx, t.timeout)
+	defer cancel()
+	err := command(timed)
+	if err != nil && ctx.Err() == nil && errors.Is(timed.Err(), context.DeadlineExceeded) {
+		return &timeoutError{timeout: t.timeout}
+	}
+	return err
+}
+
+func (t *timedTerraform) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	return t.bounded(ctx, func(ctx context.Context) error {
+		return t.Terraform.Init(ctx, opts...)
+	})
+}
+
+func (t *timedTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	var changes bool
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		changes, err = t.Terraform.PlanJSON(ctx, w, opts...)
+		return err
+	})
+	return changes, err
+}
+
+func (t *timedTerraform) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
+	var out *tfjson.ValidateOutput
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = t.Terraform.Validate(ctx)
+		return err
+	})
+	return out, err
+}
+
+func (t *timedTerraform) ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error) {
+	var schemas *tfjson.ProviderSchemas
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		schemas, err = t.Terraform.ProvidersSchema(ctx)
+		return err
+	})
+	return schemas, err
+}
+
+func (t *timedTerraform) ShowPlanFile(ctx context.Context, planPath string, opts ...tfexec.ShowOption) (*tfjson.Plan, error) {
+	var p *tfjson.Plan
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		p, err = t.Terraform.ShowPlanFile(ctx, planPath, opts...)
+		return err
+	})
+	return p, err
+}
+
+func (t *timedTerraform) FormatCheck(ctx context.Context, opts ...tfexec.FormatOption) (bool, []string, error) {
+	var formatted bool
+	var unformatted []string
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		formatted, unformatted, err = t.Terraform.FormatCheck(ctx, opts...)
+		return err
+	})
+	return formatted, unformatted, err
 }

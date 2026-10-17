@@ -1,0 +1,54 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Restore the Go cache
+description: >-
+  Restores the Go module and build caches under a key of the job's own, for
+  jobs whose builds no other job shares (the race detector, another OS or
+  architecture). Run it after setup-go with cache: false. It only restores:
+  the job saves with actions/cache/save, on main only, so that pull requests
+  share main's cache instead of each saving a copy of their own.
+
+inputs:
+  name:
+    description: What the cache holds, such as race or darwin-arm64
+    required: true
+
+outputs:
+  paths:
+    description: The module and build cache directories, one per line
+    value: ${{ steps.paths.outputs.paths }}
+  key:
+    description: The key to save the cache under
+    value: ${{ steps.paths.outputs.key }}
+  hit:
+    description: true when the cache was restored from exactly that key
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Cache paths and key
+      id: paths
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+      # go.sum names every module the build reads: a new one gets a new
+      # key, which restores the newest older cache to start from.
+      run: |
+        sum=$(git hash-object go.sum)
+        {
+          echo "paths<<EOF"
+          go env GOMODCACHE
+          go env GOCACHE
+          echo "EOF"
+          echo "prefix=go-$NAME-$RUNNER_OS-$(go env GOVERSION)-"
+          echo "key=go-$NAME-$RUNNER_OS-$(go env GOVERSION)-$sum"
+        } >> "$GITHUB_OUTPUT"
+    - name: Restore
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.paths.outputs.paths }}
+        key: ${{ steps.paths.outputs.key }}
+        restore-keys: ${{ steps.paths.outputs.prefix }}

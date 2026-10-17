@@ -211,14 +211,14 @@ func TestDependenciesRejectCycles(t *testing.T) {
 }
 
 // postProcess plans once for the imported values, reads the schemas to
-// find defaults among the constants, then plans once per step it keeps or
-// undoes, showing the plan of the steps it checks by resource.
+// find defaults among the constants, then plans once for all the steps,
+// which keeps them (see verifySteps).
 func TestPostProcessAddsReferences(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues)}
 
-	if _, err := postProcess(context.Background(), tf, dir, Options{}, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, Options{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -233,9 +233,12 @@ func TestPostProcessAddsReferences(t *testing.T) {
 func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
-	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues), plans: []fakePlan{{}, {summary: changeSummary{Change: 1}}}}
+	// The imported values, then the plan of every step at once, then that
+	// of the references alone.
+	changed := fakePlan{summary: changeSummary{Change: 1}}
+	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues), plans: []fakePlan{{}, changed, changed}}
 
-	if _, err := postProcess(context.Background(), tf, dir, Options{}, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, Options{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
