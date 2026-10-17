@@ -354,3 +354,33 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 }
+
+// A root whose modules directory is inside it, as with --layout {out},
+// calls its modules by ./ paths: modules/<name> would be a registry
+// address.
+func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
+	dir, _ := moduleRoot(t, twoBuckets)
+	modulesDir := filepath.Join(dir, ModulesDirName)
+
+	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	if err != nil || !changed || len(created) != 1 {
+		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
+	}
+
+	want := `source = "./` + ModulesDirName + "/" + filepath.Base(created[0]) + `"`
+	if root := readFile(t, dir, GeneratedFileName); !strings.Contains(root, want) {
+		t.Errorf("generated.tf misses %q:\n%s", want, root)
+	}
+}
+
+func TestLocalSource(t *testing.T) {
+	for _, c := range []struct{ rel, want string }{
+		{filepath.Join("..", "..", "..", ModulesDirName), "../../../modules/vpc"},
+		{ModulesDirName, "./modules/vpc"},
+		{".", "./vpc"},
+	} {
+		if got := localSource(c.rel, "vpc"); got != c.want {
+			t.Errorf("localSource(%q): got %q, want %q", c.rel, got, c.want)
+		}
+	}
+}

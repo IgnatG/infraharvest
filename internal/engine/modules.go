@@ -693,7 +693,7 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 				}
 			}
 			callBlock := hclwrite.NewBlock("module", []string{call})
-			callBlock.Body().SetAttributeValue("source", cty.StringVal(filepath.ToSlash(filepath.Join(source, g.name))))
+			callBlock.Body().SetAttributeValue("source", cty.StringVal(localSource(source, g.name)))
 			for _, in := range g.inputs {
 				value := in.values[ci]
 				if hasObjects(in.ty) {
@@ -879,4 +879,16 @@ func aliasedProvider(r resourceBlock) bool {
 	}
 	traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
 	return diags.HasErrors() || len(traversal) > 1
+}
+
+// localSource is the source of the module name in modulesDir, the path
+// rel says modulesDir is at from the root that calls it. It starts with
+// ./ or ../, as Terraform needs to read it as a local path, not a
+// registry address: modules/name would be one.
+func localSource(rel, name string) string {
+	source := filepath.ToSlash(filepath.Join(rel, name))
+	if !strings.HasPrefix(source, "../") {
+		source = "./" + source
+	}
+	return source
 }
