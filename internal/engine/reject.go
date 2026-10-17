@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -68,6 +69,10 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 		for _, m := range messages {
 			fmt.Fprintf(out, "#   %s\n", m)
 		}
+		// variables.tf declares only the variables of the resources kept.
+		if vars := variablesIn(resources[addr]); len(vars) > 0 {
+			fmt.Fprintf(out, "# Before moving it back, declare the sensitive variables it reads in %s: %s.\n", VariablesFileName, strings.Join(vars, ", "))
+		}
 		for _, moved := range []struct {
 			file  *hclFile
 			block *hclwrite.Block
@@ -121,4 +126,27 @@ func unconfigured(dir string) (map[string][]tfjson.Diagnostic, error) {
 		}
 	}
 	return missing, nil
+}
+
+// variablesIn returns the names of the input variables block refers to,
+// in order and once each, or none if block is nil.
+func variablesIn(block *hclwrite.Block) []string {
+	if block == nil {
+		return nil
+	}
+	tokens := block.BuildTokens(nil)
+	var names []string
+	for i := 0; i+2 < len(tokens); i++ {
+		if tokens[i].Type != hclsyntax.TokenIdent || string(tokens[i].Bytes) != "var" ||
+			tokens[i+1].Type != hclsyntax.TokenDot || tokens[i+2].Type != hclsyntax.TokenIdent {
+			continue
+		}
+		if i > 0 && tokens[i-1].Type == hclsyntax.TokenDot {
+			continue // an attribute named var, as in local.var.x
+		}
+		if name := string(tokens[i+2].Bytes); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
