@@ -191,9 +191,7 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 func forgetSearches(t *testing.T) {
 	t.Helper()
 	forget := func() {
-		searches.Lock()
-		searches.byKey = map[string]*projectSearch{}
-		searches.Unlock()
+		searches.forget()
 		rejectedTypes.Lock()
 		rejectedTypes.byKey = map[string]bool{}
 		rejectedTypes.Unlock()
@@ -397,9 +395,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
 	}
 
-	searches.Lock()
-	searches.byKey = map[string]*projectSearch{}
-	searches.Unlock()
+	searches.forget()
 	before := len(search.requests)
 	if got := listAssetsIn(t, cat, ""); len(got) != 5 {
 		t.Errorf("searching again: got %v", byID(got))

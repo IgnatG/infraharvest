@@ -10,11 +10,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"unicode"
 
 	"google.golang.org/api/cloudasset/v1"
@@ -119,51 +117,17 @@ func inventoryTypes(cat *catalogue.Catalogue, types []string) []string {
 // command imports a project region by region, each import taking from the
 // same project-wide search what is in its region, so the search runs once
 // for all of them rather than once for each.
-var searches = struct {
-	sync.Mutex
-	byKey map[string]*projectSearch
-}{byKey: map[string]*projectSearch{}}
-
-// projectSearch is one project's search for one set of asset types: its
-// results once it has succeeded. mu is held while it runs, so that an
-// import that wants it meanwhile waits for it rather than searching too.
-type projectSearch struct {
-	mu      sync.Mutex
-	done    bool
-	results []*cloudasset.ResourceSearchResult
-}
-
-// searchKey names a search: where it goes (an emulator, or Google), the
-// project and the asset types, which are sorted.
-func searchKey(project string, assetTypes []string) string {
-	return os.Getenv(EndpointEnv) + "\x00" + project + "\x00" + strings.Join(assetTypes, ",")
-}
+var searches projectLists[[]*cloudasset.ResourceSearchResult]
 
 // searchOnce returns what searchAll finds in the project for assetTypes,
-// searching only the first time the process asks: the imports of a
-// project's regions and of global share the search, which they only read.
-// A search that fails isn't kept, so the next import searches again.
+// which are sorted, searching only the first time the process asks (see
+// projectLists): the imports of a project's regions and of global share
+// the search, which they only read. A search that fails isn't kept, so
+// the next import searches again.
 func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
-	key := searchKey(project, assetTypes)
-	searches.Lock()
-	s, ok := searches.byKey[key]
-	if !ok {
-		s = &projectSearch{}
-		searches.byKey[key] = s
-	}
-	searches.Unlock()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.done {
-		return s.results, nil
-	}
-	results, err := searchAll(ctx, svc, project, assetTypes)
-	if err != nil {
-		return nil, err
-	}
-	s.results, s.done = results, true
-	return results, nil
+	return searches.once(project+"\x00"+strings.Join(assetTypes, ","), func() ([]*cloudasset.ResourceSearchResult, error) {
+		return searchAll(ctx, svc, project, assetTypes)
+	})
 }
 
 // rejectedTypes are the asset types the search has rejected in the

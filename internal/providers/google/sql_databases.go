@@ -7,8 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"sync"
 
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/sqladmin/v1"
@@ -105,56 +103,25 @@ func sqlPrimaries(ctx context.Context, svc *sqladmin.Service, project, region st
 // sqlInstancesKey: the list has every region's instances, and one command
 // imports a project region by region, so it is listed once for all of
 // them rather than once for each, as searchOnce searches.
-var sqlInstanceLists = struct {
-	sync.Mutex
-	byKey map[string]*sqlInstanceList
-}{byKey: map[string]*sqlInstanceList{}}
-
-// sqlInstanceList is one project's instance list: its instances once it
-// has succeeded. mu is held while it runs, so that an import that wants
-// it meanwhile waits for it rather than listing too.
-type sqlInstanceList struct {
-	mu        sync.Mutex
-	done      bool
-	instances []*sqladmin.DatabaseInstance
-}
-
-// sqlInstancesKey names a project's instance list: where it goes (an
-// emulator, or Google) and the project.
-func sqlInstancesKey(project string) string {
-	return os.Getenv(EndpointEnv) + "\x00" + project
-}
+var sqlInstanceLists projectLists[[]*sqladmin.DatabaseInstance]
 
 // sqlInstancesOnce returns the project's Cloud SQL instances, from every
 // page of the instance list, listing them only the first time the process
-// asks: the imports of a project's regions share the list, which they
-// only read. A list that fails isn't kept, so the next import lists
-// again.
+// asks (see projectLists): the imports of a project's regions share the
+// list, which they only read. A list that fails isn't kept, so the next
+// import lists again.
 func sqlInstancesOnce(ctx context.Context, svc *sqladmin.Service, project string) ([]*sqladmin.DatabaseInstance, error) {
-	key := sqlInstancesKey(project)
-	sqlInstanceLists.Lock()
-	l, ok := sqlInstanceLists.byKey[key]
-	if !ok {
-		l = &sqlInstanceList{}
-		sqlInstanceLists.byKey[key] = l
-	}
-	sqlInstanceLists.Unlock()
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.done {
-		return l.instances, nil
-	}
-	var instances []*sqladmin.DatabaseInstance
-	err := svc.Instances.List(project).Pages(ctx, func(page *sqladmin.InstancesListResponse) error {
-		instances = append(instances, page.Items...)
-		return nil
+	return sqlInstanceLists.once(project, func() ([]*sqladmin.DatabaseInstance, error) {
+		var instances []*sqladmin.DatabaseInstance
+		err := svc.Instances.List(project).Pages(ctx, func(page *sqladmin.InstancesListResponse) error {
+			instances = append(instances, page.Items...)
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing the Cloud SQL instances of project %s: %w", project, err)
+		}
+		return instances, nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("listing the Cloud SQL instances of project %s: %w", project, err)
-	}
-	l.instances, l.done = instances, true
-	return instances, nil
 }
 
 // ownsDatabases reports whether an instance's databases are its own: not

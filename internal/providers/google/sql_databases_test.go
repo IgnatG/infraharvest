@@ -79,13 +79,8 @@ func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
 // and when the test ends.
 func forgetSQLInstances(t *testing.T) {
 	t.Helper()
-	forget := func() {
-		sqlInstanceLists.Lock()
-		sqlInstanceLists.byKey = map[string]*sqlInstanceList{}
-		sqlInstanceLists.Unlock()
-	}
-	forget()
-	t.Cleanup(forget)
+	sqlInstanceLists.forget()
+	t.Cleanup(sqlInstanceLists.forget)
 }
 
 // cloudSQLLister is a lister of region of the project acme, with the
