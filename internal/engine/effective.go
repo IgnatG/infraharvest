@@ -50,32 +50,33 @@ const maxFillRounds = 2
 // keep theirs. A change of a resource it didn't fill is the plan's own,
 // as an autoscaled group's size may be, and changes nothing. If the
 // configuration doesn't plan, no resource keeps tags. It reports whether
-// it changed generated.tf.
-func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, error) {
+// it changed generated.tf and, where a plan showed generated.tf as it
+// leaves it, that plan (see shownPlan).
+func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
 	backup, err := backupFiles(dir, GeneratedFileName)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	left := map[string]bool{}
 	for round := 0; round < maxFillRounds; round++ {
 		if round > 0 {
 			if err := backup.restore(); err != nil {
-				return false, err
+				return false, nil, err
 			}
 		}
 		filled, err := fillTags(dir, et, values, left)
 		if err != nil {
-			return false, errors.Join(err, backup.restore())
+			return false, nil, errors.Join(err, backup.restore())
 		}
 		if len(filled) == 0 {
-			return false, nil
+			return false, nil, nil
 		}
-		p, _, diags, err := showPlanWithSummary(ctx, tf, vars)
+		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
-			return false, errors.Join(err, backup.restore())
+			return false, nil, errors.Join(err, backup.restore())
 		}
 		if len(diags) > 0 || p == nil {
-			return false, backup.restore()
+			return false, nil, backup.restore()
 		}
 		settled := true
 		for _, rc := range p.ResourceChanges {
@@ -98,19 +99,19 @@ func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et Effecti
 		}
 		if settled {
 			logUnfilled(dir, et, left)
-			return true, nil
+			return true, &shownPlan{plan: p, summary: summary}, nil
 		}
 	}
 	// Out of rounds: the resources that settled keep their tags.
 	if err := backup.restore(); err != nil {
-		return false, err
+		return false, nil, err
 	}
 	filled, err := fillTags(dir, et, values, left)
 	if err != nil {
-		return false, errors.Join(err, backup.restore())
+		return false, nil, errors.Join(err, backup.restore())
 	}
 	logUnfilled(dir, et, left)
-	return len(filled) > 0, nil
+	return len(filled) > 0, nil, nil
 }
 
 // logUnfilled logs the resources fillEffectiveTags left without their

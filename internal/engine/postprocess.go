@@ -53,12 +53,12 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	// Tags an import leaves out of the configuration first: they are what
 	// the steps below compare with, and the shared ones go to a local.
 	if et := opts.EffectiveTags; et != nil {
-		filled, err := fillEffectiveTags(ctx, tf, dir, *et, values, changes, opts.StateOnly, vars)
+		filled, last, err := fillEffectiveTags(ctx, tf, dir, *et, values, changes, opts.StateOnly, vars)
 		if err != nil {
 			return nil, err
 		}
 		if filled {
-			if baseline, values, changes, err = planValues(ctx, tf, vars); err != nil {
+			if baseline, values, changes, err = replanValues(ctx, tf, vars, last); err != nil {
 				return nil, err
 			}
 			if baseline == nil {
@@ -71,13 +71,13 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 	if et := opts.EffectiveTags; et != nil {
 		rules.tags = et.Attribute
 	}
-	stripped, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, rules)
+	stripped, last, err := stripDefaults(ctx, tf, dir, *baseline, changes, vars, rules)
 	if err != nil {
 		return nil, err
 	}
 	if stripped {
 		// Leaving out a default may remove changes: compare with the new plan.
-		if baseline, values, changes, err = planValues(ctx, tf, vars); err != nil {
+		if baseline, values, changes, err = replanValues(ctx, tf, vars, last); err != nil {
 			return nil, err
 		}
 		if baseline == nil {
@@ -390,6 +390,34 @@ func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*c
 	if err != nil || p == nil {
 		return nil, nil, nil, err
 	}
+	values, changes := valuesOf(p)
+	return summary, values, changes, nil
+}
+
+// shownPlan is a plan Terraform showed of the configuration as a step
+// left it, with its change summary. A step that ends on such a plan hands
+// it back, so that the steps after it compare with it rather than plan
+// the same configuration again.
+type shownPlan struct {
+	plan    *tfjson.Plan
+	summary *changeSummary
+}
+
+// replanValues is planValues for the configuration a step changed: from
+// last, the plan the step ended on, if it has one, as planning the same
+// configuration with the same vars again would only read every imported
+// resource again.
+func replanValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption, last *shownPlan) (*changeSummary, map[string]map[string]any, map[string]string, error) {
+	if last == nil || last.plan == nil || last.summary == nil {
+		return planValues(ctx, tf, vars)
+	}
+	values, changes := valuesOf(last.plan)
+	return last.summary, values, changes, nil
+}
+
+// valuesOf returns each resource's imported attribute values and planned
+// change (see changeSignature) in p, by address.
+func valuesOf(p *tfjson.Plan) (map[string]map[string]any, map[string]string) {
 	values := map[string]map[string]any{}
 	changes := map[string]string{}
 	for _, rc := range p.ResourceChanges {
@@ -404,7 +432,7 @@ func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*c
 		values[rc.Address] = attrs
 		changes[rc.Address] = changeSignature(rc)
 	}
-	return summary, values, changes, nil
+	return values, changes
 }
 
 // placeholders gives each secret variable without a known value (see

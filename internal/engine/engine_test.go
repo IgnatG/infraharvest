@@ -664,9 +664,9 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 
 	// The secret error needs no repair. A plan shows whether the imported
 	// object holds the value; validation checks the variable;
-	// post-processing plans with a placeholder value for it, leaves out
-	// value_wo = null, and plans again.
-	if want := "init,plan,schema,plan,show,validate,plan,show,plan,show,plan,show,fmt,validate,plan,show"; strings.Join(tf.calls, ",") != want {
+	// post-processing plans with a placeholder value for it, then leaves out
+	// value_wo = null, whose plan the steps after it compare with.
+	if want := "init,plan,schema,plan,show,validate,plan,show,plan,show,fmt,validate,plan,show"; strings.Join(tf.calls, ",") != want {
 		t.Errorf("calls: got %v, want %s", tf.calls, want)
 	}
 	wantSecrets := []Secret{{Variable: "aws_ssm_parameter_app_env_value", Address: "aws_ssm_parameter.app_env", Attribute: "value", schemaPath: []string{"value"}, ty: cty.String}}

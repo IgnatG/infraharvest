@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -98,5 +99,30 @@ resource "aws_ebs_volume" "logs" {
 		if got := dataReaders(f, address); len(got) != 0 {
 			t.Errorf("%q: got %v, want none", address, got)
 		}
+	}
+}
+
+// postProcess plans as few times as it can and still checks every step
+// against the plan: here once for the imported values, once to leave out
+// a null, whose plan is then the one the steps compare with, once for the
+// tag lift and once for the literal lift. Every plan with import blocks
+// reads every imported resource again, so the count is what a root costs.
+func TestPostProcessPlanCount(t *testing.T) {
+	dir, tf := liftTagsDir(t)
+	writeConfig(t, dir, GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
+
+	if _, err := postProcess(context.Background(), tf, dir, Options{DefaultTags: &awsDefaultTags}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := strings.Join(tf.calls, ","), "plan,show,schema,plan,show,schema,plan,show,plan,show"; got != want {
+		t.Errorf("calls: got %s, want %s", got, want)
+	}
+	generated := readFile(t, dir, GeneratedFileName)
+	if strings.Contains(generated, "propagating_vgws") || !strings.Contains(generated, "local.vpc_id") {
+		t.Errorf("want the null left out and the literals lifted:\n%s", generated)
+	}
+	if !strings.Contains(readFile(t, dir, ProvidersFileName), "default_tags") {
+		t.Error("tags not lifted")
 	}
 }

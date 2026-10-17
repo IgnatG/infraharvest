@@ -144,12 +144,17 @@ func TestFillEffectiveTags(t *testing.T) {
 			writeConfig(t, dir, GeneratedFileName, labelledTopics)
 			tf := &fakeTerraform{dir: dir, plans: tc.plans, showns: tc.showns}
 
-			filled, err := fillEffectiveTags(context.Background(), tf, dir, googleLabels, labelledValues(), noChanges, stateOnly, nil)
+			filled, last, err := fillEffectiveTags(context.Background(), tf, dir, googleLabels, labelledValues(), noChanges, stateOnly, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if filled != tc.want {
 				t.Errorf("filled: %v, want %v", filled, tc.want)
+			}
+			// What it fills settles on a plan, which postProcess compares
+			// with next instead of planning again.
+			if (last != nil) != tc.want {
+				t.Errorf("plan handed back: %v, want one: %v", last != nil, tc.want)
 			}
 			generated := squashed(readFile(t, dir, GeneratedFileName))
 			for _, name := range []string{"orders", "events"} {
