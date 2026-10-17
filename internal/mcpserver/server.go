@@ -257,6 +257,11 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if err != nil {
 		return nil, nil, err
 	}
+	if stopped(code) {
+		// It may have stopped before it wrote the selection file: one that
+		// is there may be an earlier run's.
+		return errorResult(fmt.Sprintf("discover was stopped (exit code %d), so the selection file is not read:\n%s", code, tail(stderr))), nil, nil
+	}
 	if code == report.ExitCouldNotRun {
 		// Nothing was written: a selection file that is there is an old one.
 		return errorResult(fmt.Sprintf("discover couldn't run (exit code %d):\n%s", code, tail(stderr))), nil, nil
@@ -421,6 +426,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 	var r report.Report
 	if err := json.Unmarshal(stdout, &r); err != nil {
+		if stopped(code) {
+			return errorResult(fmt.Sprintf("The import was stopped (exit code %d):\n%s", code, tail(stderr))), nil, nil
+		}
 		return errorResult(fmt.Sprintf("The import couldn't run (exit code %d):\n%s", code, tail(stderr))), nil, nil
 	}
 	result := &ImportResult{
@@ -433,7 +441,24 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
+	if stopped(code) {
+		text = "The import was stopped before it finished. " + text
+	}
 	return textResult(text), result, nil
+}
+
+// Exit codes of a run a signal stopped, 128 and the signal's number, as
+// infraharvest exits on SIGINT and SIGTERM.
+const (
+	exitInterrupted = 130
+	exitTerminated  = 143
+)
+
+// stopped reports whether a run that exited with code was stopped by a
+// signal: one it caught, or one that killed it, for which the exit code is
+// negative.
+func stopped(code int) bool {
+	return code < 0 || code == exitInterrupted || code == exitTerminated
 }
 
 // confirmation names the import tool's request for the user's confirmation.

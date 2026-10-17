@@ -874,3 +874,23 @@ func TestTailBoundsLines(t *testing.T) {
 		t.Errorf("long line: %d bytes, cut %v", len(long), ok)
 	}
 }
+
+// A discover a signal stopped may not have written the selection file:
+// one that is there may be an earlier run's, so it isn't read.
+func TestDiscoverStopped(t *testing.T) {
+	for _, code := range []int{exitInterrupted, exitTerminated, -1} {
+		runner := &fakeRunner{discoverExit: code, discoverStderr: "interrupted\n"}
+		dir := t.TempDir()
+		session := connect(t, runner, dir, nil)
+		path := filepath.Join(dir, "selection.yaml")
+		if err := writeSelection(path); err != nil {
+			t.Fatal(err)
+		}
+
+		res, text := call(t, session, "discover", map[string]any{"provider": "aws", "services": []string{"vpc"}, "selection": path})
+
+		if !res.IsError || !strings.Contains(text, "discover was stopped") || strings.Contains(text, "lists 3 resources") {
+			t.Errorf("exit code %d: want an error result saying discover was stopped, got %s", code, text)
+		}
+	}
+}
