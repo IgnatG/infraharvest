@@ -12,13 +12,12 @@ package harvest
 // pass them to the cloud API, and a resource whose lister recorded no such
 // attribute must not be dropped for it.
 //
-// A lister without filters is left exactly as it is, duplicates included.
-// When nothing is kept, Resources becomes nil.
+// Duplicates are dropped with or without filters: a lister that reaches a
+// resource twice, such as through two parents or overlapping pages, would
+// otherwise import it twice, under two names. A resource without an
+// address or an observation is kept as it is. When nothing is kept,
+// Resources becomes nil.
 func prune(s *ListerBase) {
-	if len(s.filters) == 0 {
-		return
-	}
-
 	// resourceKey identifies a resource for spotting duplicates. The ID
 	// alone is not enough, since resources of different types may share
 	// one.
@@ -28,7 +27,11 @@ func prune(s *ListerBase) {
 	kept := make(map[resourceKey]bool)
 	var resources []Resource
 	for _, resource := range s.Resources {
-		if !passesIDFilters(s.filters, resource) {
+		if len(s.filters) > 0 && !passesIDFilters(s.filters, resource) {
+			continue
+		}
+		if resource.Address == nil || resource.Observed == nil {
+			resources = append(resources, resource)
 			continue
 		}
 		key := resourceKey{resource.Address.Type, resource.Observed.ID}
