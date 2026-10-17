@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,28 +47,10 @@ const googleProject = "infraharvest-e2e"
 // the project's IAM policy, the Cloud SQL and Cloud Scheduler lists, and
 // what Terraform plans with.
 func TestGoogleRoundTrip(t *testing.T) {
-	endpoint := os.Getenv(google.EndpointEnv)
-	if endpoint == "" {
-		skipUnconfigured(t, google.EndpointEnv+" is not set; start floci-gcp in e2e/compose.yaml")
-	}
-	if !isLoopback(endpoint) {
-		t.Fatalf("%s=%s: the test creates resources, so it only runs against a local emulator", google.EndpointEnv, endpoint)
-	}
-	isolateGoogleConfig(t, endpoint)
+	e := seedGoogle(t)
+	ctx, engineName, execPath, plugins, state := e.ctx, e.engineName, e.execPath, e.plugins, e.state
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	cache := t.TempDir()
-	engineName, binary := e2eEngine(t)
-	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	plugins := filepath.Join(cache, "plugins")
-
-	state := seed(ctx, t, "google", execPath, plugins)
-
-	search := assetSearch(t, endpoint, state)
+	search := assetSearch(t, e.endpoint, state)
 	t.Setenv(google.EndpointEnv, search.URL)
 
 	// Every service: global resources in global's root, with the network's
@@ -108,6 +91,104 @@ func TestGoogleRoundTrip(t *testing.T) {
 	}; !slices.Equal(envRoots, want) {
 		t.Errorf("--env-tags=env: roots %v, want %v", envRoots, want)
 	}
+}
+
+// googleEstate is testdata/google, created in floci-gcp for one test, and
+// the engine that test imports it with.
+type googleEstate struct {
+	ctx                  context.Context
+	engineName, execPath string
+	plugins              string
+	// endpoint is floci-gcp's, for a stand-in in front of it (see
+	// assetSearch).
+	endpoint string
+	state    []*tfjson.StateResource
+}
+
+// googleSeeded is what seedGoogle created in this process. floci-gcp
+// can't create testdata/google twice, so the tests run against one
+// floci-gcp share it; CI runs them on runners of their own (see the
+// e2e-google job).
+var googleSeeded struct {
+	sync.Mutex
+	state []*tfjson.StateResource
+}
+
+// seedGoogle creates testdata/google in floci-gcp, at the endpoint
+// google.EndpointEnv names, with Terraform (or OpenTofu with
+// E2E_ENGINE=tofu), unless an earlier test did, skipping the test when
+// there is no emulator.
+func seedGoogle(t *testing.T) googleEstate {
+	t.Helper()
+	endpoint := os.Getenv(google.EndpointEnv)
+	if endpoint == "" {
+		skipUnconfigured(t, google.EndpointEnv+" is not set; start floci-gcp in e2e/compose.yaml")
+	}
+	if !isLoopback(endpoint) {
+		t.Fatalf("%s=%s: the test creates resources, so it only runs against a local emulator", google.EndpointEnv, endpoint)
+	}
+	isolateGoogleConfig(t, endpoint)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	t.Cleanup(cancel)
+	cache := t.TempDir()
+	engineName, binary := e2eEngine(t)
+	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(cache, "plugins")
+	googleSeeded.Lock()
+	defer googleSeeded.Unlock()
+	if googleSeeded.state == nil {
+		googleSeeded.state = seed(ctx, t, "google", execPath, plugins)
+	}
+	return googleEstate{ctx: ctx, engineName: engineName, execPath: execPath, plugins: plugins, endpoint: endpoint, state: googleSeeded.state}
+}
+
+// googleScope are the flags that say what the Google Cloud tests list:
+// every service, in the project testdata/google creates its resources in,
+// in the regions it creates them in.
+func googleScope() []string {
+	return []string{"--projects=" + googleProject, "--services=*", "--regions=global,us-central1"}
+}
+
+// importGoogle runs infraharvest import google with e's engine on what
+// googleScope says, and args, into out, or a new directory if out is "",
+// and returns the directory.
+func importGoogle(t *testing.T, e googleEstate, out string, args ...string) string {
+	t.Helper()
+	if out == "" {
+		out = t.TempDir()
+	}
+	root := cli.NewCmdRoot()
+	root.SetArgs(append(append([]string{
+		"import", "google",
+		"--engine=" + e.engineName,
+		"--terraform-path=" + e.execPath,
+		"--out=" + out,
+		// Keep going after a failure, so one run reports every problem;
+		// the checks on coverage.json still fail the test.
+		"--allow-partial",
+	}, googleScope()...), args...))
+	if err := root.ExecuteContext(e.ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
+		t.Fatalf("infraharvest import google %v: %v", args, err)
+	}
+	return out
+}
+
+// discoverGoogle runs infraharvest discover google on what googleScope
+// says into out, where it saves its inventories, and returns the
+// selection file it writes.
+func discoverGoogle(t *testing.T, e googleEstate, out string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	root := cli.NewCmdRoot()
+	root.SetArgs(append([]string{"discover", "google", "--pick=false", "--out=" + out, "--selection=" + path}, googleScope()...))
+	if err := root.ExecuteContext(e.ctx); err != nil {
+		t.Fatalf("infraharvest discover google: %v", err)
+	}
+	return path
 }
 
 // checkGoogleImport imports the project with flags, checks the import

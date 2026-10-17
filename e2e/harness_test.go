@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
 // seed applies testdata/<fixture> and returns the resources it created.
@@ -296,4 +298,83 @@ func e2eEngine(t *testing.T) (string, engine.Binary) {
 		t.Fatalf("E2E_ENGINE=%s: use terraform or tofu", name)
 		return "", engine.Binary{}
 	}
+}
+
+// outputFiles returns the files an import wrote under out, by path relative
+// to it, without Terraform's working directories.
+func outputFiles(t *testing.T, out string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// Terraform's working directories, and infraharvest's checkpoints.
+			if d.Name() == ".terraform" || d.Name() == importer.CheckpointDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(out, path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(rel)] = readFile(t, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// generatedTimes returns when each root's imports.tf under out was last
+// written, by path.
+func generatedTimes(t *testing.T, out string) map[string]int64 {
+	t.Helper()
+	times := map[string]int64{}
+	for _, dir := range generatedDirs(t, out) {
+		info, err := os.Stat(filepath.Join(dir, engine.ImportsFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		times[dir] = info.ModTime().UnixNano()
+	}
+	return times
+}
+
+// growingFiles are the files of a root whose blocks an incremental import
+// may add to anywhere, not only after the root's own.
+var growingFiles = []string{engine.ImportsFileName, engine.DataFileName, engine.VariablesFileName, engine.LocalsFileName}
+
+// addedConfiguration returns, by file, the configuration an incremental
+// import added to the .tf files of the output, from before to after: a new
+// file's content, or what an existing file has after the blocks it had.
+// The blocks a root had stay as they were, so it fails the test for a file
+// they changed in, but for growingFiles.
+func addedConfiguration(t *testing.T, before, after map[string]string) map[string]string {
+	t.Helper()
+	added := map[string]string{}
+	for name, content := range after {
+		if !strings.HasSuffix(name, ".tf") || slices.Contains(growingFiles, path.Base(name)) {
+			continue
+		}
+		old, existed := before[name]
+		switch {
+		case !existed:
+			added[name] = content
+		case content == old:
+		case strings.HasPrefix(content, old):
+			added[name] = content[len(old):]
+		default:
+			t.Errorf("--incremental changed %s", name)
+		}
+	}
+	for name := range before {
+		if _, ok := after[name]; !ok && strings.HasSuffix(name, ".tf") {
+			t.Errorf("--incremental removed %s", name)
+		}
+	}
+	return added
 }

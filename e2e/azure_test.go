@@ -12,8 +12,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
@@ -37,70 +40,17 @@ var azureServices = []string{"managed_identity", "network_interface", "network_s
 // imports them with --engine=terraform (or E2E_ENGINE=tofu) and checks the
 // engine plans every one as an import with no changes.
 func TestAzureRoundTrip(t *testing.T) {
-	host := os.Getenv(azureMetadataHostEnv)
-	if host == "" {
-		skipUnconfigured(t, azureMetadataHostEnv+" is not set; start floci-az in e2e/compose.yaml")
-	}
-	if !isLoopback("https://" + host) {
-		t.Fatalf("%s=%s: the test creates resources, so it only runs against a local emulator", azureMetadataHostEnv, host)
-	}
-	isolateAzureConfig(t, host)
+	e := seedAzure(t)
+	ctx, execPath, plugins, state := e.ctx, e.execPath, e.plugins, e.state
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	cache := t.TempDir()
-	engineName, binary := e2eEngine(t)
-	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	plugins := filepath.Join(cache, "plugins")
+	out := importAzure(t, e, "", "--all")
 
-	state := seed(ctx, t, "azure", execPath, plugins)
-
-	out := t.TempDir()
-	root := cli.NewCmdRoot()
-	root.SetArgs([]string{
-		"import", "azure",
-		"--engine=" + engineName,
-		"--terraform-path=" + execPath,
-		// floci-az lists network resources by resource group only.
-		"--resource-group=" + azureResourceGroup,
-		"--services=" + strings.Join(azureServices, ","),
-		"--out=" + out,
-		"--all",
-		"--allow-partial",
-	})
-	if err := root.ExecuteContext(ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
-		t.Fatalf("infraharvest import azure: %v", err)
-	}
-
-	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
-		t.Fatal(err)
-	}
-	// floci-az has no Resource Graph, so the tags can't be read: that
-	// failure, and only that one, is the emulator's.
-	failures := slices.DeleteFunc(slices.Clone(coverage.Failures), func(f string) bool {
-		return strings.HasPrefix(f, "tags:") && strings.Contains(f, "Resource Graph")
-	})
-	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(failures) != 0 {
-		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, failures)
-	}
-	for _, d := range coverage.Directories {
-		for _, l := range d.LeftOut {
-			t.Errorf("%s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
-		}
-		for _, c := range d.Checks {
-			if !c.Passed {
-				t.Errorf("%s: %s failed: %v", d.Path, c.Name, c.Details)
-			}
-		}
-	}
+	coverage := coverageOf(t, out)
+	checkCoverage(t, "--all", coverage, azureEmulatorFailure)
 
 	imported := map[string]int{}
 	// One root, for the subscription and the resource group.
-	wantDir := filepath.Join(out, "azure", os.Getenv("ARM_SUBSCRIPTION_ID"), azureResourceGroup)
+	wantDir := azureRoot(out)
 	checkAzureTags(t, wantDir)
 	for _, dir := range generatedDirs(t, out) {
 		if filepath.Clean(dir) != wantDir {
@@ -159,6 +109,110 @@ func TestAzureRoundTrip(t *testing.T) {
 			}
 		}
 	}
+}
+
+// azureEstate is testdata/azure, created in floci-az for one test, and the
+// engine that test imports it with.
+type azureEstate struct {
+	ctx                  context.Context
+	engineName, execPath string
+	plugins              string
+	state                []*tfjson.StateResource
+}
+
+// azureSeeded is what seedAzure created in this process. floci-az can't
+// create testdata/azure twice, so the tests run against one floci-az share
+// it; CI runs them on runners of their own (see the e2e-azure job).
+var azureSeeded struct {
+	sync.Mutex
+	state []*tfjson.StateResource
+}
+
+// seedAzure creates testdata/azure in floci-az, at the metadata host
+// azureMetadataHostEnv names, with Terraform (or OpenTofu with
+// E2E_ENGINE=tofu), unless an earlier test did, skipping the test when
+// there is no emulator.
+func seedAzure(t *testing.T) azureEstate {
+	t.Helper()
+	host := os.Getenv(azureMetadataHostEnv)
+	if host == "" {
+		skipUnconfigured(t, azureMetadataHostEnv+" is not set; start floci-az in e2e/compose.yaml")
+	}
+	if !isLoopback("https://" + host) {
+		t.Fatalf("%s=%s: the test creates resources, so it only runs against a local emulator", azureMetadataHostEnv, host)
+	}
+	isolateAzureConfig(t, host)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	t.Cleanup(cancel)
+	cache := t.TempDir()
+	engineName, binary := e2eEngine(t)
+	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(cache, "plugins")
+	azureSeeded.Lock()
+	defer azureSeeded.Unlock()
+	if azureSeeded.state == nil {
+		azureSeeded.state = seed(ctx, t, "azure", execPath, plugins)
+	}
+	return azureEstate{ctx: ctx, engineName: engineName, execPath: execPath, plugins: plugins, state: azureSeeded.state}
+}
+
+// azureScope are the flags that say what the Azure tests list: the
+// resource group testdata/azure creates, as floci-az lists network
+// resources by resource group only, and the services that list it through
+// Resource Manager, as floci-az has no Resource Graph, which --services=*
+// uses.
+func azureScope() []string {
+	return []string{"--resource-group=" + azureResourceGroup, "--services=" + strings.Join(azureServices, ",")}
+}
+
+// importAzure runs infraharvest import azure with e's engine on what
+// azureScope says, and args, into out, or a new directory if out is "",
+// and returns the directory.
+func importAzure(t *testing.T, e azureEstate, out string, args ...string) string {
+	t.Helper()
+	if out == "" {
+		out = t.TempDir()
+	}
+	root := cli.NewCmdRoot()
+	root.SetArgs(append(append([]string{
+		"import", "azure",
+		"--engine=" + e.engineName,
+		"--terraform-path=" + e.execPath,
+		"--out=" + out,
+		// Keep going after a failure, so one run reports every problem;
+		// the checks on coverage.json still fail the test.
+		"--allow-partial",
+	}, azureScope()...), args...))
+	if err := root.ExecuteContext(e.ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
+		t.Fatalf("infraharvest import azure %v: %v", args, err)
+	}
+	return out
+}
+
+// discoverAzure runs infraharvest discover azure on what azureScope says
+// into out, where it saves its inventory, and returns the selection file
+// it writes.
+func discoverAzure(t *testing.T, e azureEstate, out string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	root := cli.NewCmdRoot()
+	root.SetArgs(append([]string{"discover", "azure", "--pick=false", "--out=" + out, "--selection=" + path, "--allow-partial"}, azureScope()...))
+	// The tags, which only Resource Graph reads, fail (see
+	// azureEmulatorFailure).
+	if err := root.ExecuteContext(e.ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
+		t.Fatalf("infraharvest discover azure: %v", err)
+	}
+	return path
+}
+
+// azureEmulatorFailure reports whether an import's failure is floci-az's:
+// it has no Resource Graph, so the tags can't be read.
+func azureEmulatorFailure(failure string) bool {
+	return strings.HasPrefix(failure, "tags:") && strings.Contains(failure, "Resource Graph")
 }
 
 // checkAzureTags checks the tags the fixture's resources share became
