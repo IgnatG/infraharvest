@@ -10,18 +10,33 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 // VpcEndpointLister lists the VPC endpoints of a region as
 // aws_vpc_endpoint, each by its ID. Endpoints of every type (gateway,
-// interface, load balancer) and in every state are listed, each named after
-// its service (see vpcEndpointName).
+// interface, load balancer) are listed, each named after its service (see
+// vpcEndpointName), but for those an AWS service created and manages
+// (RequesterManaged, such as GuardDuty's) and those gone or going (see
+// goneVpcEndpointStates).
 type VpcEndpointLister struct {
 	Service
 }
 
-// List lists every VPC endpoint, page by page. An API error is
-// returned and ends the listing.
+// goneVpcEndpointStates are the states, in lower case, of the endpoints
+// that are gone, going or never came to be. EC2 goes on reporting such
+// endpoints for a while, but there is nothing left to import. A partial
+// endpoint still exists, so it is listed.
+var goneVpcEndpointStates = map[string]bool{
+	strings.ToLower(string(types.StateDeleting)): true,
+	strings.ToLower(string(types.StateDeleted)):  true,
+	strings.ToLower(string(types.StateRejected)): true,
+	strings.ToLower(string(types.StateFailed)):   true,
+	strings.ToLower(string(types.StateExpired)):  true,
+}
+
+// List lists every VPC endpoint the account manages and that is not gone,
+// page by page. An API error is returned and ends the listing.
 func (g *VpcEndpointLister) List() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
@@ -36,6 +51,11 @@ func (g *VpcEndpointLister) List() error {
 			return err
 		}
 		for _, endpoint := range page.VpcEndpoints {
+			// EC2 answers the state as "available" where the SDK's
+			// constants say "Available", so its case is ignored.
+			if aws.ToBool(endpoint.RequesterManaged) || goneVpcEndpointStates[strings.ToLower(string(endpoint.State))] {
+				continue
+			}
 			id := aws.ToString(endpoint.VpcEndpointId)
 			g.Resources = append(g.Resources, harvest.RecordBare(id, vpcEndpointName(aws.ToString(endpoint.ServiceName), id), "aws_vpc_endpoint", "aws"))
 		}
