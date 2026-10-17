@@ -39,7 +39,8 @@ updates:
   # The images the Dockerfile pins by tag and digest: the base images, and
   # Terraform and OpenTofu, whose binaries the release image copies.
   # The workflows' TERRAFORM_VERSION and TOFU_VERSION (test.yml,
-  # action-test.yml, sandbox-*.yml) aren't tracked: bump them in the same PR.
+  # action-test.yml, sandbox-*.yml) aren't tracked: bump them in the same PR;
+  # the tests workflow fails until they match (check-versions.sh).
   - package-ecosystem: docker
     directory: /
     schedule:

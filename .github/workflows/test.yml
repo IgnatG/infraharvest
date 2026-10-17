@@ -707,6 +707,10 @@ jobs:
     - name: Names
       if: ${{ !cancelled() }}
       run: scripts/check-names.sh
+    # The workflows test with the engines the release image ships.
+    - name: Engine and scanner versions
+      if: ${{ !cancelled() }}
+      run: .github/scripts/check-versions.sh
     - name: reuse lint
       if: ${{ !cancelled() }}
       uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
