@@ -54,23 +54,15 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 		}},
 	}
 	b := Read(c.Anchor.Address(), c.Anchor.Body)
-	for _, required := range []struct{ arg, input string }{{"name", "name"}, {"project", "project_id"}, {"location", "location"}} {
-		value, ok := b.Attr(required.arg)
-		if !ok {
-			return nil, Declinef("%s has no %s", c.Anchor.Address(), required.arg)
-		}
-		call.Set(required.input, value)
+	if err := b.Require(call, Pair{"name", "name"}, Pair{"project", "project_id"}, Pair{"location", "location"}); err != nil {
+		return nil, err
 	}
-	for _, p := range [][2]string{
-		{"force_destroy", "force_destroy"},
-		{"labels", "labels"},
-		{"public_access_prevention", "public_access_prevention"},
-		{"storage_class", "storage_class"},
-	} {
-		if value, ok := b.Attr(p[0]); ok {
-			call.Set(p[1], value)
-		}
-	}
+	b.CopyAs(call,
+		Pair{"force_destroy", "force_destroy"},
+		Pair{"labels", "labels"},
+		Pair{"public_access_prevention", "public_access_prevention"},
+		Pair{"storage_class", "storage_class"},
+	)
 	// Terraform's own setting, which an import records at its default.
 	b.IgnoreDeletionPolicy()
 	// The module's default is true; left out, the bucket's is false.
