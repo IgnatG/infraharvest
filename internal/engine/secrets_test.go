@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -333,6 +334,24 @@ func TestValuesAt(t *testing.T) {
 	} {
 		if got := allNull(valuesAt(object, tc.path)); got != tc.null {
 			t.Errorf("%v: allNull %v, want %v", tc.path, got, tc.null)
+		}
+	}
+}
+
+func TestAboutSecret(t *testing.T) {
+	secrets := []secretAttribute{{address: "aws_ssm_parameter.p", path: "value", schemaPath: []string{"value"}, rng: hcl.Range{Start: hcl.Pos{Line: 4}, End: hcl.Pos{Line: 4}}}}
+	for _, c := range []struct {
+		d    tfjson.Diagnostic
+		want bool
+	}{
+		{errorAt(4, "Invalid value", ""), true},
+		{errorAt(2, "Invalid combination of arguments", `"value": one of insecure_value,value,value_wo must be specified`), true},
+		{tfjson.Diagnostic{Severity: tfjson.DiagnosticSeverityError, Summary: "Missing required argument", Detail: `The argument "value" is required, but no definition was found.`}, true},
+		// Another attribute's error that happens to say value.
+		{errorAt(3, "Invalid value", `expected value of tier to be one of ["Standard" "Advanced"]`), false},
+	} {
+		if got := aboutSecret(c.d, secrets); got != c.want {
+			t.Errorf("%s: %s: got %v, want %v", c.d.Summary, c.d.Detail, got, c.want)
 		}
 	}
 }

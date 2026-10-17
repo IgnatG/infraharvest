@@ -208,22 +208,37 @@ func allNull(values []any) bool {
 }
 
 // aboutSecret reports whether d is about one of secrets: its range is on
-// the attribute, or its message names the attribute, as in
-// "one of insecure_value,value,value_wo must be specified". Such errors are
-// expected while the attributes are null and go away once they read from
-// variables; validation after that catches any taken for one by mistake.
+// the attribute, or its message names the attribute and says a value is
+// missing (see missingValue), as in "one of insecure_value,value,value_wo
+// must be specified". Such errors are expected while the attributes are
+// null and go away once they read from variables; validation after that
+// catches any taken for one by mistake. A message that names an attribute
+// for another reason, such as "Invalid value", isn't about it: secret
+// attributes are often called value or password.
 func aboutSecret(d tfjson.Diagnostic, secrets []secretAttribute) bool {
+	for _, s := range secrets {
+		if d.Range != nil && spans(s.rng, d.Range.Start.Line) {
+			return true
+		}
+	}
+	if !missingValue.MatchString(d.Summary + " " + d.Detail) {
+		return false
+	}
 	words := map[string]bool{}
 	for _, w := range notInIdentifier.Split(d.Summary+" "+d.Detail, -1) {
 		words[w] = true
 	}
 	for _, s := range secrets {
-		if d.Range != nil && spans(s.rng, d.Range.Start.Line) || words[s.name()] {
+		if words[s.name()] {
 			return true
 		}
 	}
 	return false
 }
+
+// missingValue matches what Terraform and the providers say of an argument
+// that has no value but needs one.
+var missingValue = regexp.MustCompile(`(?i)must be specified|must be set|required|not set|at least one of`)
 
 var notInIdentifier = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 
