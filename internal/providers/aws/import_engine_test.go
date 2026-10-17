@@ -41,7 +41,7 @@ func TestImportID(t *testing.T) {
 			"/dev/sdh:vol-1:i-1", true},
 	}
 	for _, tt := range tests {
-		id, ok := importID(tt.resource)
+		id, ok := importID(awsCatalogue(), tt.resource)
 		if id != tt.wantID || ok != tt.wantOK {
 			t.Errorf("%s: got %q, %v; want %q, %v", tt.resource.Address.Type, id, ok, tt.wantID, tt.wantOK)
 		}

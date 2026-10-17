@@ -8,6 +8,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -30,6 +31,8 @@ type Provider struct {
 	// for ProfileRegion, the region the SDK resolved, once Scope has found
 	// them; the provider block pins both.
 	account, resolvedRegion string
+	// cat is the catalogue of the import, nil until SetCatalogue sets it.
+	cat *catalogue.Catalogue
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,

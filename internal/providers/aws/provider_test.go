@@ -12,7 +12,10 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
-var _ harvest.ProviderWithOptInServices = (*Provider)(nil)
+var (
+	_ harvest.ProviderWithOptInServices = (*Provider)(nil)
+	_ harvest.ProviderWithCatalogue     = (*Provider)(nil)
+)
 
 // The services of AWS services at end of support are services, which *
 // leaves out: they are imported only when named.

@@ -93,7 +93,7 @@ var s3Probes = map[string]s3Probe{
 // as its children, which carry the settings of the arguments it omits from
 // aws_s3_bucket. Other resources have none.
 func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harvest.Resource, error) {
-	entry, ok := awsCatalogue().Entry(r.Address.Type)
+	entry, ok := p.catalogue().Entry(r.Address.Type)
 	if r.Address.Type != "aws_s3_bucket" || !ok || len(entry.Children) == 0 {
 		return nil, nil
 	}

@@ -4,13 +4,16 @@
 package aws
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 func TestTagIndexLookup(t *testing.T) {
-	x := newTagIndex()
+	x := newTagIndex(awsCatalogue())
 	for arn, env := range map[string]string{
 		"arn:aws:ec2:eu-west-2:123456789012:vpc/vpc-1":                                               "vpc",
 		"arn:aws:s3:::logs":                                                                          "bucket",
@@ -66,7 +69,7 @@ func TestTagIndexLookup(t *testing.T) {
 
 // A name that two ARNs share says neither.
 func TestTagIndexAmbiguousName(t *testing.T) {
-	x := newTagIndex()
+	x := newTagIndex(awsCatalogue())
 	x.add("arn:aws:iam::123456789012:role/a/deployer", map[string]string{"env": "a"})
 	x.add("arn:aws:iam::123456789012:role/b/deployer", map[string]string{"env": "b"})
 	if tags, ok := x.lookup(harvest.RecordBare("deployer", "deployer", "aws_iam_role", "aws"), ""); ok {
@@ -74,5 +77,43 @@ func TestTagIndexAmbiguousName(t *testing.T) {
 	}
 	if tags, ok := x.lookup(harvest.RecordBare("a/deployer", "deployer", "aws_iam_role", "aws"), ""); !ok || tags["env"] != "a" {
 		t.Errorf("by path: got %v, %v", tags, ok)
+	}
+}
+
+// The provider reads the catalogue of the import, the --catalogue overlay
+// merged in, once SetCatalogue gives it: an overlay's arn entry finds a
+// type's tags, and its import ID is what the provider matches on.
+func TestProviderUsesTheImportsCatalogue(t *testing.T) {
+	dir := t.TempDir()
+	overlay := "provider: aws\ntypes:\n  aws_iot_thing:\n    arn: { service: iot, resource_type: thing }\n" +
+		"  aws_route_table_association:\n    import_id: \"{id}\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat, err := catalogue.Load("aws", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Provider{}
+	if p.catalogue() != awsCatalogue() {
+		t.Error("before SetCatalogue, want the built-in catalogue")
+	}
+	p.SetCatalogue(cat)
+
+	thing := harvest.RecordBare("sensor", "sensor", "aws_iot_thing", "aws")
+	for _, c := range []struct {
+		cat  *catalogue.Catalogue
+		want bool
+	}{{awsCatalogue(), false}, {p.catalogue(), true}} {
+		x := newTagIndex(c.cat)
+		x.add("arn:aws:iot:eu-west-2:123456789012:thing/sensor", map[string]string{"env": "iot"})
+		if _, ok := x.lookup(thing, ""); ok != c.want {
+			t.Errorf("thing found by name: %v, want %v (only the overlay has its arn entry)", ok, c.want)
+		}
+	}
+	association := harvest.Record("rtbassoc-1", "subnet-1", "aws_route_table_association", "aws",
+		map[string]string{"subnet_id": "subnet-1", "route_table_id": "rtb-1"})
+	if id, ok := importID(p.catalogue(), association); id != "rtbassoc-1" || !ok {
+		t.Errorf("an overlay's import ID: got %q, %v", id, ok)
 	}
 }

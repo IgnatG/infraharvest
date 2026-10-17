@@ -61,7 +61,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		key := r.Address.Type + " " + r.Observed.ID
 		stack, ok := stacks[r.Observed.ID]
 		if !ok {
-			if id, importable := importID(r); importable {
+			if id, importable := importID(p.catalogue(), r); importable {
 				stack, ok = stacks[id]
 			}
 		}

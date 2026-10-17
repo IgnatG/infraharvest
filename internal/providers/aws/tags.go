@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -24,11 +25,11 @@ type arnResource struct {
 }
 
 // arnResourceOf returns where the ARNs of a taggable Terraform type whose
-// IDs are names, not ARNs, name its resources, from the catalogue. Resources
-// of the other types are tagged only if their ID, import ID or arn
-// attribute is an ARN the Resource Groups Tagging API lists.
-func arnResourceOf(typ string) (arnResource, bool) {
-	e, ok := awsCatalogue().Entry(typ)
+// IDs are names, not ARNs, name its resources, from the catalogue cat.
+// Resources of the other types are tagged only if their ID, import ID or
+// arn attribute is an ARN the Resource Groups Tagging API lists.
+func arnResourceOf(cat *catalogue.Catalogue, typ string) (arnResource, bool) {
+	e, ok := cat.Entry(typ)
 	if !ok || e.ARN == nil {
 		return arnResource{}, false
 	}
@@ -36,16 +37,17 @@ func arnResourceOf(typ string) (arnResource, bool) {
 }
 
 // tagIndex finds the tags of resources by ARN, or by the service, resource
-// type and name an ARN is made of.
+// type and name an ARN is made of, which the catalogue cat gives types.
 type tagIndex struct {
 	byARN map[string]map[string]string
 	// byName holds the ARNs of each service, resource type and name; a
 	// name more than one ARN shares can't say which is meant.
 	byName map[arnResource]map[string][]string
+	cat    *catalogue.Catalogue
 }
 
-func newTagIndex() *tagIndex {
-	return &tagIndex{byARN: map[string]map[string]string{}, byName: map[arnResource]map[string][]string{}}
+func newTagIndex(cat *catalogue.Catalogue) *tagIndex {
+	return &tagIndex{byARN: map[string]map[string]string{}, byName: map[arnResource]map[string][]string{}, cat: cat}
 }
 
 // add records the tags of the resource arn names.
@@ -95,7 +97,7 @@ func (x *tagIndex) lookup(r harvest.Resource, importID string) (map[string]strin
 			return tags, true
 		}
 	}
-	key, ok := arnResourceOf(r.Address.Type)
+	key, ok := arnResourceOf(x.cat, r.Address.Type)
 	if !ok {
 		return nil, false
 	}
@@ -130,7 +132,8 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 		config = config.Copy()
 		config.Region = "us-east-1"
 	}
-	index := newTagIndex()
+	cat := p.catalogue()
+	index := newTagIndex(cat)
 	pages := resourcegroupstaggingapi.NewGetResourcesPaginator(resourcegroupstaggingapi.NewFromConfig(config), &resourcegroupstaggingapi.GetResourcesInput{
 		ResourcesPerPage: aws.Int32(100),
 	}, stopOnDuplicateToken)
@@ -149,7 +152,7 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 	}
 	found := map[string]map[string]string{}
 	for _, r := range resources {
-		id, _ := importID(r)
+		id, _ := importID(cat, r)
 		if tags, ok := index.lookup(r, id); ok && len(tags) > 0 {
 			found[r.Address.Type+" "+r.Observed.ID] = tags
 		}
