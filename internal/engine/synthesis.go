@@ -664,11 +664,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 	body := generated.file.Body()
 	moved := map[string]bool{}
 	importTo := map[string]string{}
-	type rename struct {
-		search      []string
-		replacement hclwrite.Tokens
-	}
-	var renames []rename
+	var renames []referenceRename
 	for _, t := range trials {
 		for _, m := range t.members() {
 			moved[m] = true
@@ -679,11 +675,11 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 				if err != nil {
 					return fmt.Errorf("%s: output for %s.%s: %w", t.adapter.Source, m, attr, err)
 				}
-				renames = append(renames, rename{[]string{typ, name, attr}, replacement})
+				renames = append(renames, referenceRename{[]string{typ, name, attr}, replacement})
 			}
 		}
 		for reference, v := range t.literals {
-			renames = append(renames, rename{strings.Split(reference, "."), hclwrite.TokensForValue(cty.StringVal(v))})
+			renames = append(renames, referenceRename{strings.Split(reference, "."), hclwrite.TokensForValue(cty.StringVal(v))})
 		}
 	}
 	for _, r := range generated.resources() {
@@ -691,9 +687,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 			body.RemoveBlock(r.write)
 			continue
 		}
-		for _, rn := range renames {
-			replaceReferences(r.write.Body(), rn.search, rn.replacement)
-		}
+		replaceAllReferences(r.write.Body(), renames)
 	}
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
@@ -719,9 +713,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 			}
 			block.Body().SetAttributeRaw(arg.Name, arg.Value)
 		}
-		for _, rn := range renames {
-			replaceReferences(block.Body(), rn.search, rn.replacement)
-		}
+		replaceAllReferences(block.Body(), renames)
 		body.AppendNewline()
 		body.AppendBlock(block)
 	}
@@ -913,6 +905,21 @@ func outputTokens(call, output string) (hclwrite.Tokens, error) {
 		return nil, diags
 	}
 	return hclwrite.TokensForTraversal(traversal), nil
+}
+
+// referenceRename makes the references that begin with the steps of search
+// begin with replacement instead (see replaceReferences).
+type referenceRename struct {
+	search      []string
+	replacement hclwrite.Tokens
+}
+
+// replaceAllReferences applies renames to body and its nested blocks, in
+// order.
+func replaceAllReferences(body *hclwrite.Body, renames []referenceRename) {
+	for _, rn := range renames {
+		replaceReferences(body, rn.search, rn.replacement)
+	}
 }
 
 // replaceReferences replaces, in body and its nested blocks, the start of
