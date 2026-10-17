@@ -256,7 +256,8 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 			opts.External = append(opts.External, e)
 		}
 	}
-	// The added resources go into a file of their own (see AddedFileName).
+	// The added resources go after the blocks of the file of their type, or
+	// into a file of their own (see merge).
 	opts.SplitFiles = false
 	result, err := Generate(ctx, tf, staging, imports, opts)
 	if err != nil {
