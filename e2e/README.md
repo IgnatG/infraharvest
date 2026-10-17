@@ -218,7 +218,7 @@ When the bootstrap changes, such as when the estate gains a kind of resource tha
 Each sandbox test also does what a team does with the output. It copies the output directory without any state, then for each generated root:
 
 1. Runs `terraform init`.
-2. Runs `terraform apply` as the read-only identity that imported. The apply only imports: every resource goes into a new local state, and nothing in the cloud changes, so read access is all it needs.
+2. Runs `terraform apply` as the read-only identity that imported. The apply only imports: every resource goes into a new local state, and nothing in the cloud changes, so read access is all it needs. Google Cloud is the exception: after an import, the Google provider updates the labels of each labelled resource in place, to the values it already has, which needs the right to update it. So the Google test applies as the fixture account, as a team applies with its deployment identity, and the bootstrap gives the fixture `roles/viewer` and `roles/iam.securityReviewer` to read what the roots import.
 3. Runs `terraform plan` again, which must find nothing to import or change.
 
 The test fails if the apply leaves nothing in state, or if anything is still planned after it. The state stays on the runner and goes with it.

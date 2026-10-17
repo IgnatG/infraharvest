@@ -100,6 +100,12 @@ locals {
     "roles/iam.serviceAccountCreator",
     "roles/iam.serviceAccountDeleter",
     "roles/iam.serviceAccountViewer",
+    # Reading what the read-only account reads: the sandbox test applies
+    # the generated roots as the fixture, and planning them reads the
+    # project, its billing and the IAM policies the grants are imported
+    # from.
+    "roles/iam.securityReviewer",
+    "roles/viewer",
   ])
 
   # What infraharvest-ci-function needs to build the function, as a

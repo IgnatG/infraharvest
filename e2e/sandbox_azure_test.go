@@ -190,7 +190,7 @@ func (s *azureSandbox) checkAzureImport(ctx context.Context, t *testing.T, cover
 	}
 	imported := checkNoChanges(ctx, t, root, s.execPath, s.plugins, nil)
 	t.Logf("imported: %v", imported)
-	checkApplied(ctx, t, s.out, []string{root}, s.execPath, s.plugins, func(string) []tfexec.PlanOption { return nil })
+	checkApplied(ctx, t, s.out, []string{root}, s.execPath, s.plugins, nil, func(string) []tfexec.PlanOption { return nil })
 
 	seeded := map[string]int{}
 	for _, r := range created {

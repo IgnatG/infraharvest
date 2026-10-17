@@ -157,15 +157,19 @@ func (w *syncBuffer) String() string {
 }
 
 // checkApplied does what a team does with the import's output, out: it
-// applies each generated root of dirs, then plans it again, with vars for
-// each root (see secretValues), both as the import's identity. The apply
-// only imports, recording every resource in a new local state and
-// changing nothing in the cloud, so the read-only identity can run it:
-// an import needs only to read. The plan after it must find nothing to
-// import or change. It works on a copy of out, so that out stays as the
+// applies each generated root of dirs, with env on top of the process's
+// environment, then plans it again as the import's identity, with vars
+// for each root (see secretValues). The apply only imports, recording
+// every resource in a new local state and changing nothing in the cloud,
+// so where env is nil the read-only identity runs it: an import needs
+// only to read. Google's provider is the exception: after an import it
+// updates the labels of a labelled resource in place, to the same values,
+// which needs the right to update it, so Google applies as the fixture
+// identity, as a team applies with its deployment identity. The plan
+// after it must find nothing to import or change. It works on a copy of out, so that out stays as the
 // import left it, with no state, for the steps after it and the output
 // the workflow keeps.
-func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, execPath, plugins string, vars func(dir string) []tfexec.PlanOption) {
+func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, execPath, plugins string, env map[string]string, vars func(dir string) []tfexec.PlanOption) {
 	t.Helper()
 	copied := t.TempDir()
 	if err := copyOutput(out, copied); err != nil {
@@ -177,7 +181,7 @@ func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, 
 			t.Fatal(err)
 		}
 		root := filepath.Join(copied, rel)
-		applier, err := engine.NewTerraform(root, execPath, plugins, nil)
+		applier, err := engine.NewTerraform(root, execPath, plugins, env)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,14 +208,18 @@ func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, 
 		if managed == 0 {
 			t.Errorf("%s: the apply left nothing in state", rel)
 		}
+		planner, err := engine.NewTerraform(root, execPath, plugins, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		afterFile := filepath.Join(t.TempDir(), "after.tfplan")
-		changed, err := applier.Plan(ctx, append(vars(dir), tfexec.Out(afterFile))...)
+		changed, err := planner.Plan(ctx, append(vars(dir), tfexec.Out(afterFile))...)
 		if err != nil {
 			t.Errorf("%s: terraform plan after the apply: %v", rel, err)
 			continue
 		}
 		if changed {
-			plan, err := applier.ShowPlanFile(ctx, afterFile)
+			plan, err := planner.ShowPlanFile(ctx, afterFile)
 			if err != nil {
 				t.Fatalf("%s: terraform show: %v", rel, err)
 			}

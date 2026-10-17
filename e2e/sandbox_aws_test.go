@@ -227,7 +227,7 @@ func (s *sandbox) checkImport(ctx context.Context, t *testing.T, created []*tfjs
 			imported[typ] += n
 		}
 	}
-	checkApplied(ctx, t, s.out, generatedDirs(t, s.out), s.execPath, s.plugins, func(dir string) []tfexec.PlanOption { return secretValues(t, dir, created) })
+	checkApplied(ctx, t, s.out, generatedDirs(t, s.out), s.execPath, s.plugins, nil, func(dir string) []tfexec.PlanOption { return secretValues(t, dir, created) })
 	seeded := map[string]int{}
 	for _, r := range created {
 		seeded[r.Type]++
