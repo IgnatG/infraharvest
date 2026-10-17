@@ -52,6 +52,8 @@ For each root, infraharvest writes an `import` block per resource and has Terraf
 
 ## 4. Plan and apply
 
+There is no state to create first: the first `terraform apply` writes it. Without a backend, Terraform keeps it in `terraform.tfstate` in the root's directory; to keep it in a remote backend instead, set one in a [configuration file](configuration.md) before importing, and each root gets a `backend.tf`. If the root has `variables.tf` with secret variables, set them first, as its README says.
+
 ```sh
 cd infraharvest-out/aws/<account>/eu-west-2
 terraform init
@@ -59,7 +61,19 @@ terraform plan    # imports every resource, changes nothing
 terraform apply   # records the resources in the state, without changing them
 ```
 
-Then delete `imports.tf`: the resources are in the state. To keep a remote state backend, set it in a [configuration file](configuration.md) before importing.
+Then delete `imports.tf`: the resources are in the state. [Applying the roots](output.md#applying-the-roots) covers secrets, resources already in another state, and `rejected.hcl`.
+
+## 5. Keep it up to date
+
+When new resources appear, run `discover` again, which marks them `new`, review them, and add them to the roots with `--incremental`. After deleting `imports.tf`, pass `--managed-state` too, so that the import knows what the roots have:
+
+```sh
+infraharvest discover aws --services=vpc,subnet,sg,s3 --regions=eu-west-2
+infraharvest import aws --services=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml \
+  --incremental --managed-state=infraharvest-out
+```
+
+`--managed-state` takes the state files under a directory, as here with local state, or `backend` for the backend of the configuration file. See [Day to day](usage.md#day-to-day).
 
 ## Next
 

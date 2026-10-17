@@ -22,6 +22,24 @@ Each output directory gets:
 
 Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource labels are described under [Resource labels](#resource-labels).
 
+## Applying the roots
+
+infraharvest writes configuration and no state. You don't create or edit a state file first: the import blocks in `imports.tf` tell Terraform to read each resource into the state on the first `terraform apply`. Take each root under management in its own directory:
+
+1. Decide where its state goes. With a `backend` in the [configuration file](configuration.md), each root gets a `backend.tf` with a state key of its own; if the storage doesn't exist yet, `infraharvest bootstrap` writes a root that creates it. Without a backend, there is no `backend.tf`, and Terraform keeps the state in `terraform.tfstate` in the root's directory, which the output's `.gitignore` keeps out of version control.
+2. If the root has `variables.tf` with `sensitive` variables, set them (see [Secrets](#secrets)): from your secret store or with `TF_VAR_<name>`. The root's README lists them.
+3. Run `terraform init` and `terraform plan` with credentials that can read the resources, and write to the backend if there is one. The plan imports every resource and changes nothing. Where the README's checks list updates to arguments the provider keeps only in state, such as a Google Cloud resource's `labels` and `terraform_labels`, the plan shows those updates too: they change the state, not the cloud.
+4. Run `terraform apply`. It writes the resources into the state and changes nothing in the cloud.
+5. Delete `imports.tf`: the resources are in the state.
+
+The roots can be applied in any order. What one root reads of another's resources, through a data source or a variable with a default (see [Tidying](#tidying)), already exists in the cloud. Roots that call generated local modules refer to `<out>/modules/` by a relative path, so keep the output directory together, as it is, when you commit it.
+
+Some resources need a decision first:
+
+- **Resources already in another state.** Import with `--managed-state` pointing at that state, and they are left out, so no resource ends up in two states (see [Choosing what to import](usage.md#choosing-what-to-import)). Importing them again into a new state would give them two owners.
+- **Rejected resources.** `rejected.hcl` holds what Terraform couldn't import or generate valid configuration for, with its errors. Terraform doesn't load the file, so the root plans and applies without them. Fix a resource and move its blocks into `imports.tf` and the configuration before applying, or leave it out.
+- **New resources later.** Run the import again with `--incremental` to add them to the roots (see [Usage](usage.md#choosing-what-to-import)). Once you have deleted a root's `imports.tf`, also pass `--managed-state`, such as `backend`, so that the import knows what the root has.
+
 ## Resource labels
 
 The label of each resource block (the `NAME` in `resource "TYPE" "NAME"`) follows the [HashiCorp style guide](https://developer.hashicorp.com/terraform/language/style): lower case words joined by underscores, made from what a person knows the resource by rather than from its ID.
@@ -127,7 +145,7 @@ After generating a directory, infraharvest runs its verification gate on it and 
 
 A failed check counts like a resource that couldn't be imported (exit code 1, or 3 with `--allow-partial`).
 
-To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, initialising each without its backend, so it needs no access to the state; set secret variables first. `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
+To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, initialising each without its backend, so it needs no access to the state; set secret variables first. Without the state, its plan relies on the import blocks, so run it before you delete `imports.tf`: on a root without them, the plan would create every resource. After `terraform apply`, a `terraform plan` of the root, with its state, shows what has changed in the cloud since. `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
 
 ## Exit codes
 

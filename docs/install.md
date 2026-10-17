@@ -17,6 +17,8 @@ sha256sum --check --ignore-missing "infraharvest_${VERSION}_SHA256SUMS"
 
 The archives' build provenance is attested on GitHub; with the [GitHub CLI](https://cli.github.com/), `gh attestation verify "infraharvest_${VERSION}_linux_amd64.tar.gz" --repo IgnatG/infraharvest` checks it.
 
+Each archive is named after the release, the system and the architecture, such as `infraharvest_0.1.0_linux_amd64.tar.gz` or `infraharvest_0.1.0_windows_amd64.zip`, and holds the `infraharvest` binary (`infraharvest.exe` on Windows) with the licence and the README. Extract it into a directory on your `PATH`. On Windows, which the install script doesn't cover, this, the container image and Go are the ways to install.
+
 ## Container image
 
 `ghcr.io/ignatg/infraharvest` (linux/amd64 and linux/arm64, signed with cosign) includes pinned Terraform and OpenTofu binaries, and git for registry modules. It runs as a non-root user in `/work`:
@@ -68,7 +70,7 @@ curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh
 
 ## With Go
 
-`go install github.com/IgnatG/infraharvest@latest`
+`go install github.com/IgnatG/infraharvest@latest`, or `@v0.1.0` for a given release.
 
 ## From source
 
@@ -88,3 +90,11 @@ go build -tags minimal,aws,google -o infraharvest .   # AWS and Google Cloud
 ```
 
 The other providers' commands are then missing from `import` and `discover`.
+
+## In GitHub Actions
+
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md) installs a release, checks its signature and checksum, and runs an import: `uses: IgnatG/infraharvest/action@<commit SHA>` with `version: v0.1.0`.
+
+## Check the install
+
+`infraharvest version` prints the version, and `infraharvest services aws` (or `azure`, `google`) the services an import can name.
