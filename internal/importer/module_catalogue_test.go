@@ -44,7 +44,7 @@ func TestCatalogueAdapters(t *testing.T) {
 	google := t.TempDir()
 	writeTF(google, "resource \"google_storage_bucket\" \"this\" {\n  name     = \"b\"\n  location = \"EU\"\n}\n")
 
-	list := catalogueAdapters(fetchAdapters(t.Context(), "", []config.Module{{Source: bucket}, {Source: counted}, {Source: google}}), "aws")
+	list := catalogueAdapters(fetchAdapters(t.Context(), "", "", "aws", []config.Module{{Source: bucket}, {Source: counted}, {Source: google}}), "aws")
 	if len(list) != 1 || list[0].Source != bucket || list[0].Anchor != "aws_s3_bucket" {
 		t.Errorf("adapters: %+v", list)
 	}
@@ -66,7 +66,7 @@ func TestOwnAdaptersFetchOnce(t *testing.T) {
 		modules = append(modules, config.Module{Source: dir})
 	}
 	run := NewRun()
-	first := run.shared.ownAdapters(t.Context(), "", modules)
+	first := run.shared.ownAdapters(t.Context(), "", "", "aws", modules)
 	if len(first) != len(modules) {
 		t.Fatalf("adapters: %+v", first)
 	}
@@ -81,7 +81,59 @@ func TestOwnAdaptersFetchOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if again := run.child().shared.ownAdapters(t.Context(), "", modules); len(again) != len(modules) {
+	if again := run.child().shared.ownAdapters(t.Context(), "", "", "aws", modules); len(again) != len(modules) {
 		t.Errorf("fetched again: %+v", again)
+	}
+}
+
+// An import leaves out, before fetching, the registry modules of the
+// other providers it imports, and keeps those it can't tell.
+func TestForOtherProvider(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		source, provider string
+		other            bool
+	}{
+		{"example.com/platform/network/aws", "aws", false},
+		{"example.com/platform/network/google", "aws", true},
+		{"platform/network/azurerm", "aws", true},
+		{"example.com/platform/network/google//modules/subnets", "google-beta", false},
+		{"example.com/platform/network/azure", "aws", false}, // not a provider infraharvest imports
+		{"git::https://example.com/modules.git//google?ref=v1.0.0", "aws", false},
+		{"./modules/google", "aws", false},
+	} {
+		if got := forOtherProvider(config.Module{Source: c.source, Version: "1.0.0"}, c.provider); got != c.other {
+			t.Errorf("%s for %s: got %v, want %v", c.source, c.provider, got, c.other)
+		}
+	}
+}
+
+// A module that can't change is found in the cache without fetching it;
+// one that can, a git tag, is fetched again.
+func TestFetchModuleCached(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	pinned := config.Module{Source: "example.com/platform/network/aws", Version: "1.2.0"}
+	cached := cachedModule(cacheDir, pinned)
+	moduleDir := filepath.Join(cached, ".terraform", "modules", "m")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"Modules":[{"Key":"m","Dir":".terraform/modules/m"}]}`
+	if err := os.WriteFile(filepath.Join(cached, ".terraform", "modules", "modules.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No engine: fetching would fail.
+	dir, cleanup, err := fetchModule(t.Context(), "", cacheDir, pinned)
+	if err != nil || dir != moduleDir {
+		t.Fatalf("got %s, %v; want %s", dir, err, moduleDir)
+	}
+	cleanup()
+	if !isDir(moduleDir) {
+		t.Error("cleanup removed the cached module")
+	}
+	tagged := config.Module{Source: "git::https://example.com/modules.git//network?ref=v1.2.0"}
+	if _, _, err := fetchModule(t.Context(), "", cacheDir, tagged); err == nil {
+		t.Error("a module at a tag came from the cache")
 	}
 }

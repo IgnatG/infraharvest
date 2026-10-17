@@ -236,3 +236,30 @@ func TestGitRef(t *testing.T) {
 		t.Error("commitSHA")
 	}
 }
+
+// A registry module's source ends with its provider, and only a registry
+// module at its version or a git repository at a commit can't change.
+func TestModuleProviderAndImmutable(t *testing.T) {
+	t.Parallel()
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	for _, c := range []struct {
+		module    Module
+		provider  string
+		immutable bool
+	}{
+		{Module{Source: "example.com/platform/network/aws", Version: "1.2.0"}, "aws", true},
+		{Module{Source: "platform/network/google//modules/subnets", Version: "1.2.0"}, "google", true},
+		{Module{Source: "git::https://example.com/modules.git//network?ref=" + commit}, "", true},
+		{Module{Source: "git::https://example.com/modules.git//network?ref=v1.2.0"}, "", false},
+		{Module{Source: "github.com/example/modules//network?ref=main"}, "", false},
+		{Module{Source: "./modules/network"}, "", false},
+		{Module{Source: "example.com/network"}, "", false},
+	} {
+		if got := c.module.RegistryProvider(); got != c.provider {
+			t.Errorf("%s: provider %q, want %q", c.module.Source, got, c.provider)
+		}
+		if got := c.module.Immutable(); got != c.immutable {
+			t.Errorf("%s: immutable %v, want %v", c.module.Source, got, c.immutable)
+		}
+	}
+}
