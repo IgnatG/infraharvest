@@ -163,28 +163,82 @@ func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, as
 	return results, nil
 }
 
-// searchAll searches the project for resources of assetTypes. If the
-// search rejects them, as it does when one can't be searched, it searches
-// them one by one and logs those it rejects.
+// rejectedTypes are the asset types the search has rejected in the
+// process, by where it went (an emulator, or Google) and the type: the
+// searches of other projects leave them out rather than find them again.
+var rejectedTypes = struct {
+	sync.Mutex
+	byKey map[string]bool
+}{byKey: map[string]bool{}}
+
+// rejectedKey names an asset type the search rejected, where it went.
+func rejectedKey(assetType string) string {
+	return os.Getenv(EndpointEnv) + "\x00" + assetType
+}
+
+// searchAll searches the project for resources of assetTypes, but for
+// those the search has rejected before (see rejectedTypes). If the search
+// rejects them, as it does when one can't be searched, it searches each
+// half on its own, and so on, so that a few types it rejects cost a few
+// searches each, not one search per type; it logs and remembers those it
+// rejects. If it rejects every type, the rejection isn't about a type,
+// and it fails.
 func searchAll(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
-	results, err := search(ctx, svc, project, assetTypes)
-	if !isBadRequest(err) || len(assetTypes) == 1 {
+	rejectedTypes.Lock()
+	searchable := slices.DeleteFunc(slices.Clone(assetTypes), func(t string) bool { return rejectedTypes.byKey[rejectedKey(t)] })
+	rejectedTypes.Unlock()
+	if len(searchable) == 0 {
+		return nil, nil
+	}
+	results, err := search(ctx, svc, project, searchable)
+	if !isBadRequest(err) || len(searchable) == 1 {
 		return results, err
 	}
-	log.Printf("google: cloud_asset: the search rejects the catalogue's asset types (%v); searching them one by one", err)
-	results = nil
-	for _, t := range assetTypes {
-		found, err := search(ctx, svc, project, []string{t})
-		if isBadRequest(err) {
-			log.Printf("google: cloud_asset: %s can't be searched: %v", t, err)
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, found...)
+	log.Printf("google: cloud_asset: the search rejects the catalogue's asset types (%v); searching them in parts", err)
+	var rejected []string
+	half := len(searchable) / 2
+	first, err := searchParts(ctx, svc, project, searchable[:half], &rejected)
+	if err != nil {
+		return nil, err
 	}
-	return results, nil
+	second, err := searchParts(ctx, svc, project, searchable[half:], &rejected)
+	if err != nil {
+		return nil, err
+	}
+	if len(rejected) == len(searchable) {
+		return nil, fmt.Errorf("searching project %s: the search rejects every asset type, each on its own too", project)
+	}
+	rejectedTypes.Lock()
+	for _, t := range rejected {
+		rejectedTypes.byKey[rejectedKey(t)] = true
+	}
+	rejectedTypes.Unlock()
+	return append(first, second...), nil
+}
+
+// searchParts searches the project for resources of assetTypes, and, if
+// the search rejects them, for each half of them on its own, adding to
+// rejected the types it rejects alone, which it logs.
+func searchParts(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string, rejected *[]string) ([]*cloudasset.ResourceSearchResult, error) {
+	results, err := search(ctx, svc, project, assetTypes)
+	switch {
+	case !isBadRequest(err):
+		return results, err
+	case len(assetTypes) == 1:
+		log.Printf("google: cloud_asset: %s can't be searched: %v", assetTypes[0], err)
+		*rejected = append(*rejected, assetTypes[0])
+		return nil, nil
+	}
+	half := len(assetTypes) / 2
+	first, err := searchParts(ctx, svc, project, assetTypes[:half], rejected)
+	if err != nil {
+		return nil, err
+	}
+	second, err := searchParts(ctx, svc, project, assetTypes[half:], rejected)
+	if err != nil {
+		return nil, err
+	}
+	return append(first, second...), nil
 }
 
 func search(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {

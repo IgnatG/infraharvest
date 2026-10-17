@@ -6,6 +6,7 @@ package google
 import (
 	"encoding/json"
 	"log"
+	"math/bits"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -184,8 +185,8 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 	return listAssetsIn(t, cat, region)
 }
 
-// forgetSearches drops the searches the process has kept, now and when
-// the test ends, so that a test's search doesn't reach another's, which
+// forgetSearches drops the searches and the rejected asset types the process
+// has kept, now and when the test ends, so that a test's search doesn't reach another's, which
 // a server on the same port would otherwise give it.
 func forgetSearches(t *testing.T) {
 	t.Helper()
@@ -193,6 +194,9 @@ func forgetSearches(t *testing.T) {
 		searches.Lock()
 		searches.byKey = map[string]*projectSearch{}
 		searches.Unlock()
+		rejectedTypes.Lock()
+		rejectedTypes.byKey = map[string]bool{}
+		rejectedTypes.Unlock()
 	}
 	forget()
 	t.Cleanup(forget)
@@ -370,7 +374,8 @@ func TestCloudAssetSearchesAgainAfterAFailure(t *testing.T) {
 }
 
 // When the search rejects the asset types, as it does for one it can't
-// search, it searches them one by one and leaves out what it rejects;
+// search, it searches them in halves, and halves of those, and leaves out
+// what it rejects alone, which the next project's search doesn't ask for;
 // --catalogue entries map types the built-in catalogue doesn't.
 func TestCloudAssetSearchesTypeByType(t *testing.T) {
 	dir := t.TempDir()
@@ -387,8 +392,34 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 	if _, ok := got["projects/acme-prod/global/networks/main"]; !ok || len(got) != 5 {
 		t.Errorf("got %v", got)
 	}
-	if n := len(cat.InventoryTypes()); len(search.requests) != n+1 {
-		t.Errorf("got %d requests, want the rejected one and one per type, %d", len(search.requests), n+1)
+	// The rejected search, then two for each halving down to the type.
+	if n, most := len(cat.InventoryTypes()), 1+2*bits.Len(uint(len(cat.InventoryTypes()))); len(search.requests) > most {
+		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
+	}
+
+	searches.Lock()
+	searches.byKey = map[string]*projectSearch{}
+	searches.Unlock()
+	before := len(search.requests)
+	if got := listAssetsIn(t, cat, ""); len(got) != 5 {
+		t.Errorf("searching again: got %v", byID(got))
+	}
+	if again := search.requests[before:]; len(again) != 1 || slices.Contains(again[0], "example.googleapis.com/Widget") {
+		t.Errorf("searching again: requests %v, want one without the rejected type", again)
+	}
+}
+
+// A search that rejects every type, each on its own too, isn't rejecting
+// a type, and fails.
+func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
+	cat := catalogue.MustBuiltin("google")
+	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: cat.InventoryTypes()}
+	server := httptest.NewServer(search)
+	t.Cleanup(server.Close)
+	t.Setenv(EndpointEnv, server.URL)
+	forgetSearches(t)
+	if err := assetLister(t, nil, "").List(); err == nil || !strings.Contains(err.Error(), "every asset type") {
+		t.Errorf("error %v, want one saying every type is rejected", err)
 	}
 }
 
