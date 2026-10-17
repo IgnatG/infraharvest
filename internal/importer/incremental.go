@@ -7,10 +7,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -154,4 +157,92 @@ func checkpointResult(out, dir string) (*engine.Result, error) {
 		return nil, err
 	}
 	return c.Result, nil
+}
+
+// InOtherRootReason is why an incremental import leaves out a resource
+// another root of the output imports, which the reason names after it.
+const InOtherRootReason = "already in another root of the output"
+
+// heldElsewhere returns, by type and import ID, the root, relative to
+// out, that imports each resource the checkpoints under out record for a
+// root other than those of byDir: a resource goes into one root only, so
+// an incremental import leaves it out rather than import it again, as
+// when the root an import puts a type in has changed since the root that
+// has it was generated. Only roots that still have their import blocks
+// count, and only what they import: a resource one left out may be
+// generated in another. A checkpoint that can't be read is logged and
+// passed over.
+func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.External]string, error) {
+	base := filepath.Join(out, CheckpointDir, "checkpoints")
+	if _, err := os.Stat(base); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	own := map[string]bool{}
+	for dir := range byDir {
+		own[filepath.Clean(checkpointPath(out, dir))] = true
+	}
+	held := map[engine.External]string{}
+	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".json" || own[filepath.Clean(path)] {
+			return nil
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Join(out, strings.TrimSuffix(rel, ".json"))
+		if ok, err := fileExists(filepath.Join(dir, engine.ImportsFileName)); err != nil || !ok {
+			return err
+		}
+		c, err := readCheckpoint(out, dir)
+		if err != nil {
+			log.Printf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(out, dir), err)
+			return nil
+		}
+		if c == nil || c.Result == nil {
+			return nil
+		}
+		root := relativePath(out, dir)
+		for _, imp := range c.Result.Imported {
+			key := engine.External{Type: imp.Type, ID: imp.ID}
+			if _, ok := held[key]; !ok {
+				held[key] = root
+			}
+		}
+		return nil
+	})
+	return held, err
+}
+
+// leaveOutHeld removes from byDir the imports of what another root holds
+// (see heldElsewhere), recording each as excluded, with the root, and
+// drops the roots it leaves with nothing to import.
+func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.External]string) {
+	if len(held) == 0 {
+		return
+	}
+	dirs := make([]string, 0, len(byDir))
+	for dir := range byDir {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		var kept []engine.Import
+		for _, imp := range byDir[dir] {
+			if root, ok := held[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
+				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: r.scope})
+				continue
+			}
+			kept = append(kept, imp)
+		}
+		if len(kept) == 0 {
+			log.Printf("%s: each of its resources is in another root of the output (--incremental)", dir)
+			delete(byDir, dir)
+			continue
+		}
+		byDir[dir] = kept
+	}
 }

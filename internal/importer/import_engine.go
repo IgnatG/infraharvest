@@ -321,6 +321,14 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.report.AddDiscovered(scope, counted)
 	}
 
+	if options.Incremental {
+		// What an earlier import put in another root stays there.
+		held, err := heldElsewhere(options.Out, byDir)
+		if err != nil {
+			return err
+		}
+		run.leaveOutHeld(byDir, held)
+	}
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)

@@ -186,3 +186,71 @@ func TestAddToRootRefusesAnUnfinishedRoot(t *testing.T) {
 		}
 	}
 }
+
+// An incremental import leaves out what another root of the output
+// imports, naming that root: a subnetwork an earlier import put in its
+// region's root isn't imported again into the global root, where imports
+// now put subnetworks. The roots being imported, a root whose import
+// blocks are gone and what a root left out don't count, and a root left
+// with nothing to import is dropped.
+func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
+	out := t.TempDir()
+	global := filepath.Join(out, "google", "acme", "global")
+	regional := filepath.Join(out, "google", "acme", "us-central1")
+	gone := filepath.Join(out, "google", "acme", "europe-west1")
+	network := engine.Import{Type: "google_compute_network", Name: "main", ID: "projects/acme/global/networks/main"}
+	subnet := engine.Import{Type: "google_compute_subnetwork", Name: "app", ID: "projects/acme/regions/us-central1/subnetworks/app"}
+	rejected := engine.Import{Type: "google_compute_subnetwork", Name: "bad", ID: "projects/acme/regions/us-central1/subnetworks/bad"}
+	eu := engine.Import{Type: "google_compute_subnetwork", Name: "eu", ID: "projects/acme/regions/europe-west1/subnetworks/eu"}
+	for dir, result := range map[string]*engine.Result{
+		global:   {Imported: []engine.Import{network}},
+		regional: {Imported: []engine.Import{subnet}, Rejected: []engine.Rejection{{Address: "google_compute_subnetwork.bad", ID: rejected.ID}}},
+		gone:     {Imported: []engine.Import{eu}},
+	} {
+		if err := saveCheckpoint(out, dir, "fp", result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{global, regional} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, engine.ImportsFileName), []byte("# imports\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	byDir := map[string][]engine.Import{global: {network, subnet, rejected, eu}}
+
+	held, err := heldElsewhere(out, byDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[engine.External]string{{Type: subnet.Type, ID: subnet.ID}: "google/acme/us-central1"}; !reflect.DeepEqual(held, want) {
+		t.Fatalf("held elsewhere: got %v, want %v", held, want)
+	}
+	r := &Run{options: Options{Out: out}, scope: "acme/global"}
+	r.leaveOutHeld(byDir, held)
+	if want := []engine.Import{network, rejected, eu}; !reflect.DeepEqual(byDir[global], want) {
+		t.Errorf("global: got %v, want %v", byDir[global], want)
+	}
+	want := []report.Excluded{{Type: subnet.Type, ID: subnet.ID, Reason: InOtherRootReason + ", google/acme/us-central1", Scope: "acme/global"}}
+	if !reflect.DeepEqual(r.report.Excluded, want) {
+		t.Errorf("excluded:\ngot  %+v\nwant %+v", r.report.Excluded, want)
+	}
+
+	only := map[string][]engine.Import{global: {subnet}}
+	r.leaveOutHeld(only, held)
+	if _, ok := only[global]; ok {
+		t.Errorf("a root with nothing left to import is kept: %v", only)
+	}
+}
+
+// With no checkpoints, as before an output's first import, nothing is
+// held elsewhere.
+func TestHeldElsewhereWithoutCheckpoints(t *testing.T) {
+	out := t.TempDir()
+	held, err := heldElsewhere(out, map[string][]engine.Import{filepath.Join(out, "aws", "123"): nil})
+	if err != nil || len(held) != 0 {
+		t.Errorf("got %v, %v; want nothing", held, err)
+	}
+}
