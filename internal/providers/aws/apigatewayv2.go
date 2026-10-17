@@ -28,7 +28,9 @@ type APIGatewayV2Lister struct {
 }
 
 // List lists every API first, then each API's parts, then the VPC
-// links. Any error stops the listing and is returned.
+// links. Models and route responses exist only for WebSocket APIs, so an
+// HTTP API isn't asked for them. Any error stops the listing and is
+// returned.
 func (g *APIGatewayV2Lister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -36,19 +38,20 @@ func (g *APIGatewayV2Lister) List() error {
 	}
 	svc := apigatewayv2.NewFromConfig(config)
 
-	apiIDs, err := g.listAPIs(svc)
+	apis, err := g.listAPIs(svc)
 	if err != nil {
 		return err
 	}
-	for _, apiID := range apiIDs {
-		for _, list := range []func(*apigatewayv2.Client, string) error{
-			g.listStages,
-			g.listModels,
-			g.listIntegrations,
-			g.listRoutes,
-			g.listAuthorizers,
-		} {
-			if err := list(svc, apiID); err != nil {
+	for _, api := range apis {
+		lists := []func(*apigatewayv2.Client, string) error{g.listStages}
+		if !api.http {
+			lists = append(lists, g.listModels)
+		}
+		lists = append(lists, g.listIntegrations, func(svc *apigatewayv2.Client, apiID string) error {
+			return g.listRoutes(svc, apiID, !api.http)
+		}, g.listAuthorizers)
+		for _, list := range lists {
+			if err := list(svc, api.id); err != nil {
 				return err
 			}
 		}
@@ -56,11 +59,18 @@ func (g *APIGatewayV2Lister) List() error {
 	return g.listVPCLinks(svc)
 }
 
-// listAPIs lists the APIs and returns their IDs, in the order listed. The
-// SDK has no paginators for API Gateway version 2, so this and every other
+// apiV2Ref is a listed API: its ID, and whether it is an HTTP API, which
+// has no models or route responses, rather than a WebSocket one.
+type apiV2Ref struct {
+	id   string
+	http bool
+}
+
+// listAPIs lists the APIs and returns them, in the order listed. The SDK
+// has no paginators for API Gateway version 2, so this and every other
 // list follows NextToken with paginateByMarker.
-func (g *APIGatewayV2Lister) listAPIs(svc *apigatewayv2.Client) ([]string, error) {
-	var apiIDs []string
+func (g *APIGatewayV2Lister) listAPIs(svc *apigatewayv2.Client) ([]apiV2Ref, error) {
+	var apis []apiV2Ref
 	err := paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetApis(g.Context(), &apigatewayv2.GetApisInput{NextToken: token})
 		if err != nil {
@@ -68,12 +78,12 @@ func (g *APIGatewayV2Lister) listAPIs(svc *apigatewayv2.Client) ([]string, error
 		}
 		for _, api := range output.Items {
 			apiID := aws.ToString(api.ApiId)
-			apiIDs = append(apiIDs, apiID)
+			apis = append(apis, apiV2Ref{id: apiID, http: api.ProtocolType == types.ProtocolTypeHttp})
 			g.Resources = append(g.Resources, harvest.RecordBare(apiID, aws.ToString(api.Name), "aws_apigatewayv2_api", "aws"))
 		}
 		return output.NextToken, nil
 	})
-	return apiIDs, err
+	return apis, err
 }
 
 // listStages lists the API's stages, named after their names. Terraform
@@ -142,9 +152,9 @@ func (g *APIGatewayV2Lister) listIntegrations(svc *apigatewayv2.Client, apiID st
 }
 
 // listRoutes lists the API's routes, named after their route keys (GET
-// /orders), and once every page of routes is in, each listed route's
-// responses.
-func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string) error {
+// /orders), and once every page of routes is in, with responses set, each
+// listed route's responses.
+func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string, responses bool) error {
 	var routeIDs, routeKeys []string
 	err := paginateByMarker(func(token *string) (*string, error) {
 		output, err := svc.GetRoutes(g.Context(), &apigatewayv2.GetRoutesInput{ApiId: aws.String(apiID), NextToken: token})
@@ -165,7 +175,7 @@ func (g *APIGatewayV2Lister) listRoutes(svc *apigatewayv2.Client, apiID string) 
 		}
 		return output.NextToken, nil
 	})
-	if err != nil {
+	if err != nil || !responses {
 		return err
 	}
 	for i, routeID := range routeIDs {
