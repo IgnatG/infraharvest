@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
 func TestIAMRoleMapsEveryMember(t *testing.T) {
@@ -193,6 +196,30 @@ func TestPolicyKey(t *testing.T) {
 		value, _ := Read("x.y", c.Anchor.Body).Attr("a")
 		if got := policyKey(value, "fallback"); got != want {
 			t.Errorf("policyKey(%s): got %q, want %q", arn, got, want)
+		}
+	}
+}
+
+func TestSameTokens(t *testing.T) {
+	expr := func(src string) hclwrite.Tokens {
+		t.Helper()
+		f, diags := hclwrite.ParseConfig([]byte("x = "+src+"\n"), "", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatal(diags)
+		}
+		return f.Body().GetAttribute("x").Expr().BuildTokens(nil)
+	}
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{`{ a = 1 }`, `{a=1}`, true},
+		{"{\n  a = 1\n}", `{ a = 1 }`, true},
+		{`{ team = "data eng" }`, `{ team = "dataeng" }`, false},
+		{`var.a`, `var.b`, false},
+	} {
+		if got := sameTokens(expr(c.a), expr(c.b)); got != c.want {
+			t.Errorf("sameTokens(%s, %s): got %v, want %v", c.a, c.b, got, c.want)
 		}
 	}
 }

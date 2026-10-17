@@ -195,8 +195,24 @@ func isRootPath(tokens hclwrite.Tokens) bool {
 	return ok && path == "/"
 }
 
+// sameTokens reports whether two expressions are the same but for the
+// white space between their tokens; white space inside a string counts.
 func sameTokens(a, b hclwrite.Tokens) bool {
-	return bytes.Equal(bytes.Join(bytes.Fields(a.Bytes()), nil), bytes.Join(bytes.Fields(b.Bytes()), nil))
+	return bytes.Equal(tokensKey(a), tokensKey(b))
+}
+
+// tokensKey returns an expression's tokens without the white space and
+// the newlines between them, as sameTokens compares them: "a b" and "ab"
+// differ, { a = 1 } and {a=1} don't.
+func tokensKey(tokens hclwrite.Tokens) []byte {
+	var key []byte
+	for _, t := range tokens {
+		if t.Type == hclsyntax.TokenNewline {
+			continue
+		}
+		key = append(append(key, t.Bytes...), 0)
+	}
+	return key
 }
 
 // policyKey names an attached policy in the module's policies map: the
