@@ -159,8 +159,7 @@ var (
 // cacheKey returns the key of the service's configuration, from its
 // arguments.
 func (s *Service) cacheKey() configKey {
-	settings := settingsOf(s.Settings())
-	return configKey{region: settings.region, profile: settings.profile, roleARN: settings.roleARN}
+	return configKey(settingsOf(s.Settings()))
 }
 
 // sdkConfig returns the SDK configuration of the service's account
