@@ -1,4 +1,9 @@
 version: 2
+# A cooldown holds back a version update until the release is a few days
+# old, as malicious or yanked releases of a module, an action or an image
+# are usually caught within days: 7 days for what is built into or runs
+# with the release (Go modules, actions, the Dockerfile's images).
+# Security updates aren't held back.
 updates:
   # One grouped PR per week: every PR runs the full (heavy) CI.
   - package-ecosystem: gomod
@@ -10,7 +15,7 @@ updates:
       go-modules:
         patterns: ["*"]
     cooldown:
-      default-days: 1
+      default-days: 7
 
   # The Floci emulator image the end-to-end tests run against.
   - package-ecosystem: docker-compose
@@ -29,7 +34,7 @@ updates:
       actions:
         patterns: ["*"]
     cooldown:
-      default-days: 1
+      default-days: 7
 
   # The images the Dockerfile pins by tag and digest: the base images, and
   # Terraform and OpenTofu, whose binaries the release image copies.
@@ -40,7 +45,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 1
+      default-days: 7
 
   # The documentation site's build (docs/requirements.txt).
   - package-ecosystem: pip
