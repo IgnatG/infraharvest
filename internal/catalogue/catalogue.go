@@ -224,6 +224,18 @@ type Catalogue struct {
 	entries  map[string]*Entry
 	// sources records where each entry came from, for errors.
 	sources map[string]string
+
+	// byInventory has the entries with an inventory type, by that type in
+	// lower case, in the order of their Terraform types, built on the first
+	// FromInventory: a catalogue doesn't change once loaded.
+	inventoryOnce sync.Once
+	byInventory   map[string][]inventoryEntry
+}
+
+// inventoryEntry is an entry FromInventory matches: its Terraform type
+// and its inventory name pattern in lower case, "" for any name.
+type inventoryEntry struct {
+	typ, name string
 }
 
 var (
@@ -610,25 +622,35 @@ func (c *Catalogue) InventoryTypes() []string {
 // entry has that type and a name pattern that matches, if it has one,
 // sorted. More than one means the catalogue can't tell them apart.
 func (c *Catalogue) FromInventory(assetType, name string) []string {
+	c.inventoryOnce.Do(c.indexInventory)
 	var types []string
-	for typ, e := range c.entries {
-		if e.Inventory != nil && e.Inventory.matches(assetType, name) {
-			types = append(types, typ)
+	lowerName := ""
+	for _, e := range c.byInventory[strings.ToLower(assetType)] {
+		if e.name != "" {
+			if lowerName == "" {
+				lowerName = strings.ToLower(name)
+			}
+			if ok, _ := path.Match(e.name, lowerName); !ok {
+				continue
+			}
 		}
+		types = append(types, e.typ)
 	}
-	sort.Strings(types)
 	return types
 }
 
-func (i *Inventory) matches(assetType, name string) bool {
-	if !strings.EqualFold(i.Type, assetType) {
-		return false
+// indexInventory builds byInventory (see FromInventory).
+func (c *Catalogue) indexInventory() {
+	c.byInventory = map[string][]inventoryEntry{}
+	for typ, e := range c.entries {
+		if e.Inventory != nil {
+			key := strings.ToLower(e.Inventory.Type)
+			c.byInventory[key] = append(c.byInventory[key], inventoryEntry{typ: typ, name: strings.ToLower(e.Inventory.Name)})
+		}
 	}
-	if i.Name == "" {
-		return true
+	for _, list := range c.byInventory {
+		sort.Slice(list, func(i, j int) bool { return list[i].typ < list[j].typ })
 	}
-	ok, _ := path.Match(strings.ToLower(i.Name), strings.ToLower(name))
-	return ok
 }
 
 func (r SkipRule) matches(id string, attributes map[string]string) bool {
