@@ -343,15 +343,21 @@ func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 	}
 }
 
-// A search that fails isn't kept: the next import searches again.
-func TestCloudAssetSearchesAgainAfterAFailure(t *testing.T) {
+// A search that fails is kept, so that the imports of the project's other
+// regions don't search again: they fail too. A process that searches
+// afresh searches again.
+func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	search := &fakeAssetSearch{results: searchResults, perPage: 500}
 	var fail sync.Mutex
 	failing := true
+	failed := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fail.Lock()
 		f := failing
 		failing = false
+		if f {
+			failed++
+		}
 		fail.Unlock()
 		if f {
 			http.Error(w, "unavailable", http.StatusForbidden)
@@ -363,11 +369,20 @@ func TestCloudAssetSearchesAgainAfterAFailure(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 	forgetSearches(t)
 
-	if err := assetLister(t, nil, "").List(); err == nil {
-		t.Fatal("the failed search succeeded")
+	for range 2 {
+		if err := assetLister(t, nil, "").List(); err == nil {
+			t.Fatal("the failed search succeeded")
+		}
 	}
+	fail.Lock()
+	failures := failed
+	fail.Unlock()
+	if failures != 1 || len(search.requests) != 0 {
+		t.Errorf("after a failure: %d failed and %d other searches, want the failed one only", failures, len(search.requests))
+	}
+	searches.forget()
 	if got := listAssetsIn(t, nil, ""); len(got) != 5 || len(search.requests) != 1 {
-		t.Errorf("after a failure: got %d resources from %d searches", len(got), len(search.requests))
+		t.Errorf("searching afresh: got %d resources from %d searches", len(got), len(search.requests))
 	}
 }
 
