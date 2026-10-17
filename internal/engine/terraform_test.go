@@ -7,11 +7,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/filelock"
 )
 
 // hangingTerraform is a Terraform whose plans and inits run until their
@@ -113,5 +117,41 @@ func TestPlanStopped(t *testing.T) {
 	// A plan that failed on its own reports its errors as diagnostics.
 	if diags, _, err := plan(context.Background(), stoppedPlan{err: exit}); err != nil || len(diags) != 1 {
 		t.Errorf("failed: got %v, %v; want the diagnostic", diags, err)
+	}
+}
+
+// Another process's lock on the plugin cache, a file next to it, makes an
+// init wait, until its context is done; once it is released the lock is
+// taken.
+func TestLockPluginCache(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "plugins")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other, err := filelock.TryLock(cache + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if lock, err := lockPluginCache(ctx, cache); !errors.Is(err, context.DeadlineExceeded) {
+		if lock != nil {
+			_ = lock.Unlock()
+		}
+		t.Fatalf("want the wait stopped by the context, got %v", err)
+	}
+	if err := other.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockPluginCache(t.Context(), cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(cache)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("the plugin cache holds %v (%v), want nothing of the lock's", entries, err)
 	}
 }

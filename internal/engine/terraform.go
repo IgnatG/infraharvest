@@ -21,6 +21,8 @@ import (
 	"github.com/hashicorp/hc-install/releases"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/filelock"
 )
 
 // Binary describes an engine binary: Terraform or OpenTofu, which run the
@@ -159,10 +161,26 @@ func installLatestTerraform(ctx context.Context, dir string) (string, error) {
 
 // initSlot serializes terraform init within the process. The roots of
 // several accounts can generate in parallel, sharing one plugin cache,
-// which Terraform doesn't guarantee to be safe for concurrent installs. It
-// is a channel rather than a mutex, so that a root waiting for its turn
-// stops waiting when its context is done.
+// which Terraform doesn't guarantee to be safe for concurrent installs;
+// other processes wait for the cache's lock (see lockPluginCache). It is a
+// channel rather than a mutex, so that a root waiting for its turn stops
+// waiting when its context is done.
 var initSlot = make(chan struct{}, 1)
+
+// lockPluginCache waits until this process holds the lock of the plugin
+// cache dir, or ctx is done. The lock is a file next to the cache, named
+// after it with .lock, where Terraform, which reads the cache, never
+// looks.
+func lockPluginCache(ctx context.Context, dir string) (*filelock.Lock, error) {
+	path := filepath.Clean(dir) + ".lock"
+	lock, err := filelock.Wait(ctx, path, func() {
+		log.Printf("waiting for another process to finish installing providers into %s", dir)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("lock the plugin cache %s: %w", dir, err)
+	}
+	return lock, nil
+}
 
 // initTerraform runs terraform init in tf's working directory, one at a
 // time (see initSlot).

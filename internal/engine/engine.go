@@ -60,8 +60,9 @@ type Terraform interface {
 // NewTerraform returns a Terraform runner for dir that shares downloaded
 // providers through pluginCacheDir, with env on top of the process's
 // environment, such as the credentials the provider resolved. It creates
-// both directories.
-func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (*tfexec.Terraform, error) {
+// both directories. Its init holds the plugin cache's lock (see
+// Runner.Init).
+func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (*Runner, error) {
 	for _, d := range []string{dir, pluginCacheDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
@@ -74,7 +75,27 @@ func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (
 	if err := tf.SetEnv(terraformEnviron(pluginCacheDir, env)); err != nil {
 		return nil, err
 	}
-	return tf, nil
+	return &Runner{Terraform: tf, pluginCacheDir: pluginCacheDir}, nil
+}
+
+// Runner is the Terraform runner NewTerraform returns: tfexec's, whose
+// init holds the lock of the plugin cache it shares.
+type Runner struct {
+	*tfexec.Terraform
+	pluginCacheDir string
+}
+
+// Init runs terraform init holding the plugin cache's lock (see
+// lockPluginCache): other processes, such as another infraharvest run on
+// the machine, share the cache, and Terraform doesn't guarantee that
+// installs into it at the same time are safe.
+func (r *Runner) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	lock, err := lockPluginCache(ctx, r.pluginCacheDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+	return r.Terraform.Init(ctx, opts...)
 }
 
 // terraformEnviron is the environment Terraform runs with: the process's,
@@ -98,7 +119,7 @@ func NewFreshEnvTerraform(dir, execPath, pluginCacheDir string, env map[string]s
 	if err != nil {
 		return nil, err
 	}
-	return &freshEnvTerraform{Terraform: tf, pluginCacheDir: pluginCacheDir, env: fresh}, nil
+	return &freshEnvTerraform{Runner: tf, pluginCacheDir: pluginCacheDir, env: fresh}, nil
 }
 
 // freshEnvTerraform is a Terraform runner that sets its environment again,
@@ -106,7 +127,7 @@ func NewFreshEnvTerraform(dir, execPath, pluginCacheDir string, env map[string]s
 // root's commands one at a time, so the environment never changes under a
 // running one.
 type freshEnvTerraform struct {
-	*tfexec.Terraform
+	*Runner
 	pluginCacheDir string
 	env            func(context.Context) (map[string]string, error)
 }
@@ -117,10 +138,10 @@ func (t *freshEnvTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...t
 	if err != nil {
 		return false, err
 	}
-	if err := t.Terraform.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
+	if err := t.Runner.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
 		return false, err
 	}
-	return t.Terraform.PlanJSON(ctx, w, opts...)
+	return t.Runner.PlanJSON(ctx, w, opts...)
 }
 
 // Result is what Generate leaves for the user to finish.
