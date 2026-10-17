@@ -218,8 +218,8 @@ When the bootstrap changes, such as when the estate gains a kind of resource tha
 Each sandbox test also does what a team does with the output. It copies the output directory without any state, then for each generated root:
 
 1. Runs `terraform init`.
-2. Runs `terraform apply` with the fixture identity, the one that created the estate, as a team applies with its deployment role. The apply only imports: every resource goes into a new local state, and nothing in the cloud changes.
-3. Runs `terraform plan` again as the read-only identity, which must find nothing to import or change.
+2. Runs `terraform apply` as the read-only identity that imported. The apply only imports: every resource goes into a new local state, and nothing in the cloud changes, so read access is all it needs.
+3. Runs `terraform plan` again, which must find nothing to import or change.
 
 The test fails if the apply leaves nothing in state, or if anything is still planned after it. The state stays on the runner and goes with it.
 
