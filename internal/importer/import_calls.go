@@ -5,8 +5,11 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"strconv"
+	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -21,6 +24,10 @@ type Call struct {
 	// Where says what the call covers, such as "region eu-west-1", for the
 	// log; empty logs nothing.
 	Where string
+	// First makes the call go before the calls that run at once, one at a
+	// time, as AWS's global and us-east-1 calls do. The calls it applies
+	// to come first.
+	First bool
 }
 
 // ImportCalls makes the Import calls that cover one scope, an account,
@@ -31,10 +38,15 @@ type Call struct {
 // root to a regional bucket. Another scope's roots are never referred to:
 // its resources are read with other credentials.
 //
-// Each call records into a run of its own (see Run.child), merged into the
-// command's run in the order of calls. The first call that fails stops the
-// others, and its error is the scope's; nothing is generated after a call
-// fails to list.
+// Both steps go call by call: the first call, and the First calls after
+// it, one at a time, as the first installs Terraform and the provider into
+// the caches every root shares and its lock file pins the provider for the
+// others; then the rest, options.Parallel at a time, over every scope of
+// the command (see shared.callSlots). Each call records into a run of its
+// own (see Run.child), merged into the command's run in the order of
+// calls, so the report doesn't depend on which finished first. The first
+// call that fails stops the others, and its error is the scope's; nothing
+// is generated after a call fails to list.
 func ImportCalls(ctx context.Context, calls []Call) error {
 	if len(calls) == 0 {
 		return nil
@@ -124,17 +136,27 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 			run.merge(r)
 		}
 	}()
+	lead := 1
+	for lead < len(calls) && calls[lead].First {
+		lead++
+	}
+	slots := run.shared.callSlots(options.Parallel)
+	name := func(i int) string {
+		if calls[i].Where != "" {
+			return calls[i].Where
+		}
+		return "call " + strconv.Itoa(i+1)
+	}
 
 	listed := make([]*listedCall, len(calls))
-	for i, c := range calls {
-		c.logWhere()
+	err := eachCall(ctx, slots, len(calls), lead, options.Parallel, name, func(ctx context.Context, i int) error {
+		calls[i].logWhere()
 		var err error
-		if listed[i], err = steps.list(ctx, runs[i], c); err != nil {
-			return err
-		}
-	}
-	if options.Discover {
-		return nil
+		listed[i], err = steps.list(ctx, runs[i], calls[i])
+		return err
+	})
+	if err != nil || options.Discover {
+		return err
 	}
 
 	byDirs := make([]map[string][]engine.Import, len(calls))
@@ -144,21 +166,84 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 		}
 	}
 	// The first lock file seeds the calls after it, as one run's calls
-	// share it (see generateDir).
+	// share it (see generateDir). Only the calls that go one at a time set
+	// it, before the others start.
 	seed := run.lock
-	for i, c := range listed {
-		if c == nil {
-			continue
+	return eachCall(ctx, slots, len(calls), lead, options.Parallel, name, func(ctx context.Context, i int) error {
+		if listed[i] == nil {
+			return nil
 		}
 		if runs[i].lock == nil {
 			runs[i].lock = seed
 		}
-		if err := steps.generate(ctx, c, scopeRoots(byDirs, i)); err != nil {
-			return err
-		}
-		if seed == nil {
+		err := steps.generate(ctx, listed[i], scopeRoots(byDirs, i))
+		if i < lead && seed == nil {
 			seed = runs[i].lock
 		}
+		return err
+	})
+}
+
+// eachCall runs do for 0 to n-1: the first lead of them one at a time, in
+// order, then the others, up to parallel at once (one below 1), each
+// holding one of slots while it runs. The first that fails, or panics,
+// cancels the context the others run with, and none start after it; its
+// error is returned. An interrupt of ctx shows in the error.
+func eachCall(ctx context.Context, slots chan struct{}, n, lead, parallel int, name func(int) string, do func(context.Context, int) error) error {
+	callCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var mu sync.Mutex
+	var first error
+	fail := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if first == nil {
+			first = err
+			cancel()
+		}
 	}
-	return nil
+	failed := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return first != nil
+	}
+	at := func(i int) {
+		select {
+		case slots <- struct{}{}:
+		case <-callCtx.Done():
+			fail(callCtx.Err())
+			return
+		}
+		defer func() { <-slots }()
+		err := importSafely(func(Options, string) error { return do(callCtx, i) }, Options{}, name(i))
+		if err != nil {
+			fail(fmt.Errorf("%s: %w", name(i), err))
+		}
+	}
+
+	for i := 0; i < min(lead, n) && !failed(); i++ {
+		at(i)
+	}
+	started := make(chan struct{}, max(parallel, 1))
+	var wg sync.WaitGroup
+	for i := lead; i < n && !failed(); i++ {
+		started <- struct{}{}
+		if failed() {
+			<-started
+			break
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-started }()
+			at(i)
+		}()
+	}
+	wg.Wait()
+
+	if err := ctx.Err(); first != nil && err != nil && !errors.Is(first, err) {
+		// What failed because of the interrupt still reads as one.
+		return fmt.Errorf("%w: %w", err, first)
+	}
+	return first
 }

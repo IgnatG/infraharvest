@@ -142,7 +142,9 @@ type Options struct {
 	// empty in a region.
 	ResourceExplorer bool
 	// Parallel is how many accounts, subscriptions or projects import at
-	// once (see ImportEach).
+	// once (see ImportEach), and how many Import calls of the command, in
+	// every account and region, list or generate at once in all (see
+	// ImportCalls).
 	Parallel int
 
 	// run is the run this call records into, when it isn't the command's

@@ -160,6 +160,15 @@ func TestAWSCalls(t *testing.T) {
 		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
 		{[]string{"eu-west-2", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-2/"},
 	})
+	// The global and us-east-1-only calls go first, one at a time; the
+	// regions' then run at once.
+	var first []bool
+	for _, c := range awsCalls(options) {
+		first = append(first, c.first)
+	}
+	if want := []bool{true, true, false, false}; !slices.Equal(first, want) {
+		t.Errorf("first: got %v, want %v", first, want)
+	}
 
 	// Global services, and those only in us-east-1, have a root of their
 	// own beside a single region's.

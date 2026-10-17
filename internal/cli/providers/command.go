@@ -79,6 +79,9 @@ type call struct {
 	// where says what the call covers, such as "region eu-west-1", for the
 	// log; empty logs nothing.
 	where string
+	// first makes the call go before the calls of its scope that run at
+	// once (see importer.Call).
+	first bool
 }
 
 // importFunc is the signature of importer.ImportCalls, which tests
@@ -95,7 +98,7 @@ func (p plan) run(ctx context.Context, options importer.Options, newProvider fun
 		planned := p.calls(scopeOptions, scope)
 		calls := make([]importer.Call, len(planned))
 		for i, c := range planned {
-			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where}
+			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where, First: c.first}
 		}
 		return importCalls(ctx, calls)
 	}
@@ -183,7 +186,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 // ParallelFlag adds --parallel to cmd, bound to options.Parallel: how many
 // of the scopes what describes import at once.
 func ParallelFlag(cmd *cobra.Command, options *importer.Options, what string) {
-	cmd.PersistentFlags().IntVar(&options.Parallel, "parallel", 1, "how many "+what+" to import at once; each runs its own Terraform, so memory use grows with it")
+	cmd.PersistentFlags().IntVar(&options.Parallel, "parallel", 1, "how many "+what+" to import at once, in all; each runs its own Terraform, so memory use grows with it")
 }
 
 // checkScopesApart fails when several scopes of kind would share roots:

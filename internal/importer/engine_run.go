@@ -84,6 +84,25 @@ type shared struct {
 	outMu     sync.Mutex
 	outLock   *filelock.Lock
 	outLocked bool
+
+	// calls bounds how many Import calls of the command list or generate
+	// at once, over every account and region (see callSlots).
+	callsMu sync.Mutex
+	calls   chan struct{}
+}
+
+// callSlots returns the slots the Import calls of the command take while
+// they list or generate, n of them, made on first use: the regions of
+// accounts imported at once share --parallel with the accounts, so no more
+// than n calls run at once in all. A call that holds a slot never waits for
+// another.
+func (s *shared) callSlots(n int) chan struct{} {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	if s.calls == nil {
+		s.calls = make(chan struct{}, max(n, 1))
+	}
+	return s.calls
 }
 
 // ownAdapters returns the adapters of the organisation's modules (see

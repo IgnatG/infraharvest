@@ -32,13 +32,13 @@ func init() {
 		long: "List the resources of the services --services names in an AWS account, and\n" +
 			"generate their Terraform configuration with import blocks. The credentials come\n" +
 			"from --profile, or the environment. Without --regions, the import covers the\n" +
-			"profile's region; with it, each region in turn, and global services, such as\n" +
+			"profile's region; with it, each region, and global services, such as\n" +
 			"iam and route53, once on their own.\n\n" +
 			"--accounts or --organization imports several accounts in one run, each through\n" +
 			"the role --assume-role names. Nothing is applied and no state is written.",
 		sampleServices: "vpc,s3",
 		sampleIDs:      "vpc=vpc-0a1b2c3d",
-		parallelScopes: "accounts of --accounts or --organization",
+		parallelScopes: "accounts of --accounts or --organization and regions of --regions",
 		flags:          awsFlags,
 	})
 }
@@ -51,7 +51,7 @@ func newAWSProvider() harvest.Provider {
 // awsFlags adds the AWS command's own flags. They all live in options.
 func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 	flags.StringVar(&options.Profile, "profile", "default", "AWS profile, from the shared configuration and credentials files, whose credentials the import uses")
-	flags.StringSliceVar(&options.Regions, "regions", nil, "regions to import, each in turn, such as eu-west-1,us-east-1 (default: the region of the profile or the environment)")
+	flags.StringSliceVar(&options.Regions, "regions", nil, "regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment)")
 	flags.StringSliceVar(&options.Accounts, "accounts", nil, "accounts to import, each through the role --assume-role names")
 	flags.BoolVar(&options.Organization, "organization", false, "import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names")
 	flags.StringVar(&options.AssumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
@@ -117,7 +117,9 @@ func awsAccounts(ctx context.Context, options importer.Options) ([]string, error
 // --regions, one call lists in the default region. With it, global
 // services are imported once, in the global region; those that only work
 // in us-east-1 there, with the regional ones when us-east-1 is one of
-// --regions; and the rest in each of --regions, in order.
+// --regions; and the rest in each of --regions, in order. The global and
+// us-east-1-only calls go first, one at a time, and the regions' then
+// --parallel at once (see importer.ImportCalls).
 func awsCalls(options importer.Options) []call {
 	if len(options.Regions) == 0 {
 		return []call{awsCall(options, awsprovider.ProfileRegion, "the default region")}
@@ -154,14 +156,18 @@ func awsCalls(options importer.Options) []call {
 		globalOptions.Services = global
 		globalOptions.Regions = []string{awsprovider.GlobalPseudoRegion}
 		globalOptions.Layout = layout("global")
-		result = append(result, awsCall(globalOptions, awsprovider.GlobalPseudoRegion, "the default region"))
+		globalCall := awsCall(globalOptions, awsprovider.GlobalPseudoRegion, "the default region")
+		globalCall.first = true
+		result = append(result, globalCall)
 	}
 	if len(eastOnly) > 0 && !eastWithRegional {
 		eastOptions := options
 		eastOptions.Services = eastOnly
 		eastOptions.Regions = []string{awsprovider.GlobalHomeRegion}
 		eastOptions.Layout = layout(awsprovider.GlobalHomeRegion)
-		result = append(result, awsCall(eastOptions, awsprovider.GlobalHomeRegion, "region "+awsprovider.GlobalHomeRegion))
+		eastCall := awsCall(eastOptions, awsprovider.GlobalHomeRegion, "region "+awsprovider.GlobalHomeRegion)
+		eastCall.first = true
+		result = append(result, eastCall)
 	}
 	if len(regional) == 0 {
 		return result
