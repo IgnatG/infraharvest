@@ -131,9 +131,11 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 
 // withoutUnset leaves out of found, and removes from their resources, the
 // secret attributes the imported objects hold no value for, such as a
-// database's master password, which AWS never returns: unset, the
-// argument plans as the imported null, where a variable would make the
-// plan set it, and a placeholder could break the provider's rules for it.
+// database's master password, which AWS never returns, or hold the empty
+// string, as the google provider does for an encryption key never set:
+// unset, the argument plans as what was imported, where a variable would
+// make the plan set it, and a placeholder could break the provider's rules
+// for it.
 // An attribute the schema requires keeps its variable, as does one of a
 // nested block whose imported blocks don't all lack it. It plans once,
 // with the attributes still null as Terraform generated them; if that plan
@@ -157,7 +159,7 @@ func withoutUnset(ctx context.Context, tf Terraform, found map[string][]secretAt
 		for _, s := range secrets {
 			before, ok := imported[address]
 			attr := schemaAttribute(schemas, resourceType, s.schemaPath)
-			if !ok || attr == nil || attr.Required || !allNull(valuesAt(before, s.schemaPath)) {
+			if !ok || attr == nil || attr.Required || !allUnset(valuesAt(before, s.schemaPath)) {
 				kept[address] = append(kept[address], s)
 				continue
 			}
@@ -196,11 +198,13 @@ func valuesAt(v any, path []string) []any {
 	return nil
 }
 
-// allNull reports whether values holds at least one value, and every one is
-// null.
-func allNull(values []any) bool {
+// allUnset reports whether values holds at least one value, and every one is
+// null or the empty string, which providers built on the plugin SDK, such
+// as google, record for an optional string never set, such as a disk's
+// encryption key.
+func allUnset(values []any) bool {
 	for _, v := range values {
-		if v != nil {
+		if v != nil && v != "" {
 			return false
 		}
 	}
