@@ -277,8 +277,15 @@ func fetchVersions(ctx context.Context, client *http.Client, url string) (conten
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500, fmt.Errorf("%s returned %s", url, resp.Status)
 	}
-	content, err = io.ReadAll(io.LimitReader(resp.Body, registryBodyLimit))
-	return content, err != nil, err
+	content, err = io.ReadAll(io.LimitReader(resp.Body, registryBodyLimit+1))
+	if err != nil {
+		return nil, true, err
+	}
+	// Cut off, the answer would fail as JSON that ends too soon.
+	if len(content) > registryBodyLimit {
+		return nil, false, fmt.Errorf("%s answered with more than %d MiB, the most infraharvest reads", url, registryBodyLimit>>20)
+	}
+	return content, false, nil
 }
 
 // LockedVersion returns the version of the provider at source

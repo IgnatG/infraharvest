@@ -235,3 +235,24 @@ func TestLockedVersionOfAnOpenTofuProvider(t *testing.T) {
 		t.Errorf("another registry's provider: got %q, want none", got)
 	}
 }
+
+// An answer larger than the limit fails, saying so, rather than being cut
+// off into a JSON error; one at the limit is read whole.
+func TestFetchVersionsLimit(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := registryBodyLimit
+		if r.URL.Path == "/large" {
+			n++
+		}
+		_, _ = w.Write([]byte(strings.Repeat(" ", n)))
+	}))
+	defer registry.Close()
+	content, _, err := fetchVersions(context.Background(), registry.Client(), registry.URL+"/fits")
+	if err != nil || len(content) != registryBodyLimit {
+		t.Errorf("at the limit: %d bytes, %v", len(content), err)
+	}
+	_, retry, err := fetchVersions(context.Background(), registry.Client(), registry.URL+"/large")
+	if err == nil || retry || !strings.Contains(err.Error(), "more than 4 MiB") {
+		t.Errorf("over the limit: retry %v, %v", retry, err)
+	}
+}
