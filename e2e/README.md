@@ -47,6 +47,15 @@ An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so
 2. `infraharvest import google --all` imports them: with `--services='*'`, and again with `--env-tags`.
 3. Terraform plans the generated configuration. Every resource must be an import with no changes, and every resource type created in step 1 must be imported.
 
+Four more tests import the same resources, each through a flow the round trip doesn't take:
+
+- `TestGoogleSelection` runs `infraharvest discover google`, checks the selection file and the inventories it saves list what step 1 created, and leaves out a firewall rule named like a default network's ([`testdata/google-selection`](testdata/google-selection/main.tf)). It then edits the file to exclude the Pub/Sub subscription and include that rule, and imports with `--selection`: the import must import what the file includes and nothing else, with no changes.
+- `TestGoogleIncremental` imports, creates a Pub/Sub topic ([`testdata/google-incremental`](testdata/google-incremental/main.tf)) and imports again with `--incremental`: the topic must be added to global's root in a file of its own, with nothing else changed, and the roots must still plan with no changes.
+- `TestGoogleResume` imports again with `--resume` into a finished import's output, which must generate no root again.
+- `TestGoogleReuseInventory` imports with `--reuse-inventory` after discover: the import must take the resources from the inventories discover saved and make none of the listing requests (searches and reads of the IAM policy) discover made.
+
+CI runs the round trip and `TestGoogleIncremental`, which adds to what the others import, on runners of their own, and the other three on a third; run in one process, they share the resources the first one creates.
+
 ```sh
 docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
 INFRAHARVEST_GOOGLE_ENDPOINT=http://localhost:4588 go test -tags e2e,minimal,google -run TestGoogle -v ./e2e/

@@ -393,8 +393,11 @@ jobs:
       if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,aws ./e2e/
 
+  # TestGoogleIncremental adds to the estate the other tests import, so it
+  # runs on a runner of its own, with its own floci-gcp, as does the round
+  # trip; the other tests share a third.
   e2e-google:
-    name: e2e-google (${{ matrix.engine }})
+    name: e2e-google (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -403,6 +406,17 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
+        shard: [round-trip, incremental, others]
+        include:
+        - shard: round-trip
+          run: ^TestGoogleRoundTrip$
+          skip: ""
+        - shard: incremental
+          run: ^TestGoogleIncremental$
+          skip: ""
+        - shard: others
+          run: ^TestGoogle
+          skip: ^TestGoogle(RoundTrip|Incremental)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -426,14 +440,16 @@ jobs:
         INFRAHARVEST_E2E_REQUIRED: "1"
         INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4588
         E2E_ENGINE: ${{ matrix.engine }}
-      run: go test -tags e2e,minimal,google -timeout 20m -v -run TestGoogle ./e2e/
+        RUN: ${{ matrix.run }}
+        SKIP: ${{ matrix.skip }}
+      run: go test -tags e2e,minimal,google -timeout 20m -v -run "$RUN" -skip "$SKIP" ./e2e/
     - name: floci-gcp logs
       if: failure()
       run: docker compose -f e2e/compose.yaml --profile google logs floci-gcp
     # The sandbox test runs only by hand (sandbox-google), so check here
     # that it builds.
     - name: Vet the sandbox test
-      if: matrix.engine == 'terraform'
+      if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,google ./e2e/
 
   # TestAzureIncremental adds to the estate the other tests import, so it
