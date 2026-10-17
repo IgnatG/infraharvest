@@ -27,7 +27,7 @@ Every import names its projects; there is no default:
 - `--organization` takes an organization ID and adds every active project in it, in its folders and their subfolders too.
 - `--folders` takes folder IDs and adds every active project in them and their subfolders.
 
-Listing an organization's or a folder's projects needs `resourcemanager.projects.list` and `resourcemanager.folders.list`, which `roles/browser` and `roles/viewer` grant. Each project goes into roots of its own, so with several, a custom `--layout` must contain `{account}` (or `{provider}/{service}`, which gets the project and region put in). `--parallel` imports that many projects at once, each with its own Terraform, and a project that fails is reported while the run goes on to the next.
+Listing an organization's or a folder's projects needs `resourcemanager.projects.list` and `resourcemanager.folders.list`, which `roles/browser` and `roles/viewer` grant. Each project goes into roots of its own, so with several, a custom `--layout` must contain `{account}` (or `{provider}/{service}`, which gets the project and region put in). `--parallel` imports that many projects at once, each with its own Terraform (see [Running in parallel](usage.md#running-in-parallel)), and a project that fails is reported while the run goes on to the next.
 
 ```sh
 infraharvest import google --organization 123456789012 --services='*' --regions=global,europe-west2 --all --parallel 4

@@ -35,7 +35,7 @@ infraharvest import aws --organization --services=vpc,subnet,sg --regions=eu-wes
   --assume-role 'arn:aws:iam::{account}:role/infraharvest-readonly' --parallel 4
 ```
 
-Each account goes into roots of its own, so a custom `--layout` must contain `{account}`. `--parallel` imports that many accounts at once, each with its own Terraform; their regions count towards the same limit, so no more than `--parallel` regions run at once in all. An account that fails, for example because the role can't be assumed, is reported, and the run goes on to the next. The generated provider block assumes the same role, from the credentials of whoever plans.
+Each account goes into roots of its own, so a custom `--layout` must contain `{account}`. `--parallel` imports that many accounts at once, each with its own Terraform; their regions count towards the same limit, so no more than `--parallel` regions run at once in all (see [Running in parallel](usage.md#running-in-parallel)). An account that fails, for example because the role can't be assumed, is reported, and the run goes on to the next. The generated provider block assumes the same role, from the credentials of whoever plans.
 
 Without `--accounts` or `--organization`, an `--assume-role` ARN without `{account}` is assumed as it is, for the one account it names.
 
