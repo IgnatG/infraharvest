@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 
 	"google.golang.org/api/cloudasset/v1"
