@@ -25,6 +25,8 @@ type fakeRunner struct {
 	runs           [][]string
 	discoverExit   int
 	discoverStderr string
+	// selections are the contents of the selection files imports read.
+	selections []string
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -37,6 +39,15 @@ func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int,
 		path := strings.TrimPrefix(args[len(args)-1], "--selection=")
 		return nil, nil, 0, writeSelection(path)
 	case "import":
+		for _, a := range args {
+			if path, ok := strings.CutPrefix(a, "--selection="); ok {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return nil, nil, 2, err
+				}
+				f.selections = append(f.selections, string(content))
+			}
+		}
 		r := report.Report{Totals: report.CoverageTotal{Discovered: 3, Imported: 2, Excluded: 1}}
 		out, err := json.Marshal(r)
 		return out, []byte("imported 2 of 3 resources\n"), 0, err
@@ -154,9 +165,30 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
 	}
-	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=" + path, "--out=" + out, "--format=json"}
-	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
+	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=", "--out=" + out, "--format=json"}
+	if len(runner.runs) != 1 {
+		t.Fatalf("runs: %v, want one", runner.runs)
+	}
+	// The import reads the confirmed content from a private copy, removed
+	// once it is done.
+	got := slices.Clone(runner.runs[0])
+	copied := ""
+	for i, a := range got {
+		if p, ok := strings.CutPrefix(a, "--selection="); ok {
+			copied, got[i] = p, "--selection="
+		}
+	}
+	if !slices.Equal(got, want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+	if copied == path || copied == "" {
+		t.Errorf("the import read %q, not a private copy of %s", copied, path)
+	}
+	if _, err := os.Stat(copied); err == nil {
+		t.Errorf("the copy %s is left behind", copied)
+	}
+	if original, err := os.ReadFile(path); err != nil || len(runner.selections) != 1 || runner.selections[0] != string(original) {
+		t.Errorf("the import read %q, want the confirmed content %q (%v)", runner.selections, original, err)
 	}
 }
 
@@ -579,5 +611,53 @@ func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
 	}
 	if len(runner.runs) != 0 {
 		t.Errorf("ran with a link out of the root: %v", runner.runs)
+	}
+}
+
+// An answer counts only to a confirmation request the server made, and
+// only once: a client can't skip asking by computing the state, nor run
+// one confirmed import twice.
+func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "generated")
+	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
+	args, err := scopeArgs("import", scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args = append(args, "--engine=terraform", "--selection="+path, "--out="+out, "--format=json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := confirmationState(args, content)
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run, root: dir}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
+		RequestState:   state,
+	}}
+	in := ImportInput{Scope: scope, Selection: path, Out: out}
+
+	if res, _, err := tools.importSelection(t.Context(), req, in); err != nil || res == nil || !res.IsError {
+		t.Errorf("an answer never asked for: got %+v, %v, want the import refused", res, err)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("imported without asking: %v", runner.runs)
+	}
+
+	tools.issue(state)
+	if res, _, err := tools.importSelection(t.Context(), req, in); err != nil || res == nil || res.IsError {
+		t.Errorf("a confirmed import: got %+v, %v", res, err)
+	}
+	if res, _, err := tools.importSelection(t.Context(), req, in); err != nil || res == nil || !res.IsError {
+		t.Errorf("the same answer again: got %+v, %v, want the import refused", res, err)
+	}
+	if len(runner.runs) != 1 {
+		t.Errorf("runs: %v, want one", runner.runs)
 	}
 }

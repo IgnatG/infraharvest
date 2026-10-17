@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -79,6 +80,11 @@ type tools struct {
 	run Runner
 	// root is the directory the tools' files must be under.
 	root string
+
+	mu sync.Mutex
+	// issued are the states of the imports the server asked the user to
+	// confirm, and hasn't run yet (see confirmationState).
+	issued map[string]bool
 }
 
 // within checks that path, which the agent chose, is under the root: an
@@ -318,13 +324,22 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Incremental {
 		args = append(args, "--incremental")
 	}
+	// The selection file is read once: the user confirms these bytes, and the
+	// import reads them from a private copy, so a file the agent changes in
+	// between, such as with a discover running at the same time, isn't what
+	// is imported.
 	content, err := os.ReadFile(in.Selection)
 	if err != nil {
 		return nil, nil, err
 	}
-	summary, err := summarize(in.Selection)
+	snapshot, err := newSnapshot(content)
 	if err != nil {
 		return nil, nil, err
+	}
+	defer snapshot.remove()
+	summary, err := summarize(snapshot.path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", in.Selection, err)
 	}
 
 	// A person confirms the selection: an agent may not import on its own.
@@ -342,6 +357,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		if !canAsk(req.Session) {
 			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", strings.Join(args, " "))), nil, nil
 		}
+		t.issue(state)
 		return &mcp.CallToolResult{
 			InputRequests: mcp.InputRequestMap{confirmation: &mcp.ElicitParams{
 				Message:         message,
@@ -351,11 +367,18 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		}, nil, nil
 	}
 	answer, ok := req.Params.InputResponses[confirmation].(*mcp.ElicitResult)
-	if !ok || answer.Action != "accept" || req.Params.RequestState != state {
+	// Only an answer to a request this server made counts, and only once.
+	if !ok || answer.Action != "accept" || req.Params.RequestState != state || !t.redeem(state) {
 		return errorResult("The user didn't confirm the import, so nothing was imported."), nil, nil
 	}
 
-	stdout, stderr, code, err := t.run(ctx, args)
+	childArgs := slices.Clone(args)
+	for i, a := range childArgs {
+		if a == "--selection="+in.Selection {
+			childArgs[i] = "--selection=" + snapshot.path
+		}
+	}
+	stdout, stderr, code, err := t.run(ctx, childArgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -392,6 +415,49 @@ func confirmationState(args []string, content []byte) string {
 	fmt.Fprintf(sum, "selection %x\n", selectionSum)
 	return hex.EncodeToString(sum.Sum(nil))
 }
+
+// issue records that the server asked the user to confirm the import
+// state identifies.
+func (t *tools) issue(state string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.issued == nil {
+		t.issued = map[string]bool{}
+	}
+	t.issued[state] = true
+}
+
+// redeem reports whether the server asked the user to confirm the import
+// state identifies, and forgets it: one confirmation runs one import.
+func (t *tools) redeem(state string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.issued[state] {
+		return false
+	}
+	delete(t.issued, state)
+	return true
+}
+
+// snapshot is a private copy of a selection file's content.
+type snapshot struct {
+	dir, path string
+}
+
+func newSnapshot(content []byte) (*snapshot, error) {
+	dir, err := os.MkdirTemp("", "infraharvest-mcp-")
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, "selection.yaml")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	return &snapshot{dir: dir, path: path}, nil
+}
+
+func (s *snapshot) remove() { _ = os.RemoveAll(s.dir) }
 
 // canAsk reports whether the client can ask its user to confirm.
 func canAsk(session *mcp.ServerSession) bool {
