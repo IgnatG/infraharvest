@@ -43,13 +43,18 @@ func TryLock(path string) (*Lock, error) {
 }
 
 // pollInterval is how long Wait waits before it tries a taken lock again.
-var pollInterval = 100 * time.Millisecond
+const pollInterval = 100 * time.Millisecond
 
 // Wait takes the lock on the file at path as TryLock does, trying again
 // while another holder has it, until it is free or ctx is done. busy, if
 // not nil, is called once, when the lock is first found taken, such as to
 // log what the caller is waiting for.
 func Wait(ctx context.Context, path string, busy func()) (*Lock, error) {
+	return wait(ctx, path, busy, pollInterval)
+}
+
+// wait is Wait, trying a taken lock again every interval.
+func wait(ctx context.Context, path string, busy func(), interval time.Duration) (*Lock, error) {
 	for {
 		l, err := TryLock(path)
 		if !errors.Is(err, ErrLocked) {
@@ -59,7 +64,7 @@ func Wait(ctx context.Context, path string, busy func()) (*Lock, error) {
 			busy()
 			busy = nil
 		}
-		timer := time.NewTimer(pollInterval)
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
