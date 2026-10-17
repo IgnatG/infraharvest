@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -60,7 +59,7 @@ func (g *LambdaLister) List() error {
 // function_name attribute; each is followed by its permissions and event
 // invoke configs. The ARNs of the layer versions the functions use, which
 // the list answers already, are added to used. The functions of a page are
-// read lambdaFunctionParallel at a time, as each takes two calls of its
+// read resourceParallel at a time, as each takes two calls of its
 // own, and recorded in the page's order.
 func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) error {
 	pages := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
@@ -71,18 +70,10 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) er
 		}
 		parts := make([][]harvest.Resource, len(page.Functions))
 		errs := make([]error, len(page.Functions))
-		slots := make(chan struct{}, lambdaFunctionParallel)
-		var wg sync.WaitGroup
-		for i, function := range page.Functions {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				slots <- struct{}{}
-				defer func() { <-slots }()
-				parts[i], errs[i] = g.functionParts(svc, aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName))
-			}()
-		}
-		wg.Wait()
+		inParallel(len(page.Functions), resourceParallel, func(i int) {
+			function := page.Functions[i]
+			parts[i], errs[i] = g.functionParts(svc, aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName))
+		})
 		for i, function := range page.Functions {
 			arn, name := aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName)
 			for _, layer := range function.Layers {
@@ -98,9 +89,6 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) er
 	}
 	return nil
 }
-
-// lambdaFunctionParallel is how many functions addFunctions reads at once.
-const lambdaFunctionParallel = 4
 
 // functionParts returns the permissions, then the event invoke configs, of
 // the function functionName, whose ARN is functionARN.
