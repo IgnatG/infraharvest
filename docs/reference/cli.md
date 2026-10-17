@@ -61,11 +61,11 @@ infraharvest discover aws
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
-| `--parallel` | `1` | how many accounts of --accounts or --organization to import at once; each runs its own Terraform, so memory use grows with it |
+| `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regions` |  | regions to import, each in turn, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
+| `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, such as after a run that failed part way |
@@ -107,7 +107,7 @@ infraharvest discover azure
 | `--management-group` |  | import every enabled subscription under this management group ID, in its child groups too (needs Reader on the group) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
-| `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once; each runs its own Terraform, so memory use grows with it |
+| `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
@@ -154,11 +154,11 @@ infraharvest discover google
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants) |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
-| `--parallel` | `1` | how many projects of --projects, --organization or --folders to import at once; each runs its own Terraform, so memory use grows with it |
+| `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--projects` |  | projects to import |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regions` | `[global]` | regions to import, each in turn, such as global,europe-west1; global holds the resources that belong to no region |
+| `--regions` | `[global]` | regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
@@ -213,10 +213,10 @@ infraharvest import aws
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
-| `--parallel` | `1` | how many accounts of --accounts or --organization to import at once; each runs its own Terraform, so memory use grows with it |
+| `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regions` |  | regions to import, each in turn, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
+| `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, such as after a run that failed part way |
@@ -258,7 +258,7 @@ infraharvest import azure
 | `--management-group` |  | import every enabled subscription under this management group ID, in its child groups too (needs Reader on the group) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
-| `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once; each runs its own Terraform, so memory use grows with it |
+| `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `-g`, `--resource-group` |  | resource group to import (default: the whole subscription) |
@@ -304,10 +304,10 @@ infraharvest import google
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants) |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
-| `--parallel` | `1` | how many projects of --projects, --organization or --folders to import at once; each runs its own Terraform, so memory use grows with it |
+| `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--projects` |  | projects to import |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regions` | `[global]` | regions to import, each in turn, such as global,europe-west1; global holds the resources that belong to no region |
+| `--regions` | `[global]` | regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |

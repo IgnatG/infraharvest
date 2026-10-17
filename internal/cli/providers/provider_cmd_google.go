@@ -31,7 +31,7 @@ func init() {
 			"no state is written.",
 		sampleServices: "cloud_asset,iam",
 		sampleIDs:      "storage_bucket=my-logs",
-		parallelScopes: "projects of --projects, --organization or --folders",
+		parallelScopes: "projects of --projects, --organization or --folders and regions of --regions",
 		flags:          googleFlags,
 	})
 }
@@ -48,7 +48,7 @@ type googleScopes struct {
 // googleFlags adds the Google command's own flags.
 func googleFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 	scopes := &googleScopes{}
-	flags.StringSliceVar(&options.Regions, "regions", []string{"global"}, "regions to import, each in turn, such as global,europe-west1; global holds the resources that belong to no region")
+	flags.StringSliceVar(&options.Regions, "regions", []string{"global"}, "regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region")
 	flags.StringSliceVar(&options.Projects, "projects", nil, "projects to import")
 	flags.StringVar(&scopes.organization, "organization", "", "import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants)")
 	flags.StringSliceVar(&scopes.folders, "folders", nil, "import every active project of these folder IDs, in their subfolders too")

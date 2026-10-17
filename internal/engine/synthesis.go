@@ -72,7 +72,8 @@ func (t *trial) moduleAddress(member string) string {
 // writes every call, installs the modules and plans, and takes back the
 // calls whose resources would plan differently than baseline, which has
 // each resource's planned change (see changeSignature), until the plan
-// matches. A module may set the arguments opts.StateOnly names, which
+// matches; when the plan fails in a way it can't pin on a call, it plans
+// half of the calls at a time to find the calls that fail. A module may set the arguments opts.StateOnly names, which
 // import can't. Calls are named other than the modules in opts.Taken. It
 // returns the clusters it didn't move, with why, and the plan's change
 // summary with the calls it kept, and the lengths of their list outputs
@@ -100,42 +101,126 @@ func synthesize(ctx context.Context, tf Terraform, dir string, opts Options, bas
 		// Typically: the registry can't be reached.
 		reject(fmt.Sprintf("terraform init: %v", err), trials...)
 	}
-	for round := 0; round <= len(trials); round++ {
-		active := activeTrials(trials)
-		if len(active) == 0 {
-			break
+	// written are the calls the root has now. kept are the calls a plan
+	// accepted together, and keptSummary is that plan's summary.
+	written := trials
+	var kept []*trial
+	var keptSummary changeSummary
+	write := func(ts []*trial) error {
+		if slices.Equal(ts, written) {
+			return nil
 		}
-		if round > 0 {
-			if err := backup.restore(); err != nil {
-				return nil, baseline, nil, err
-			}
-			if err := writeCalls(dir, active, opts.ModuleProviders); err != nil {
-				return nil, baseline, nil, errors.Join(err, backup.restore())
-			}
+		if err := backup.restore(); err != nil {
+			return err
 		}
-		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
-		if err != nil {
-			return nil, baseline, nil, errors.Join(err, backup.restore())
-		}
-		if !judge(active, p, summary, diags, baseline, changes, opts.StateOnly) {
-			if len(activeTrials(trials)) == len(active) {
-				// Nothing to take back (the plan reported neither errors
-				// nor a result): planning again would show the same.
-				reject("the plan reported no result", active...)
-				break
-			}
+		written = ts
+		return writeCalls(dir, ts, opts.ModuleProviders)
+	}
+	// pending are the groups of calls still to plan with kept, in turn. A
+	// group whose failure the plan can't pin on one of its calls is halved
+	// and its halves are planned in turn, the other held back meanwhile,
+	// until only the calls that fail are declined: one plan when the calls
+	// plan clean, and a plan or two for each halving for each call that
+	// doesn't. Every plan keeps a group, declines a call or halves a group,
+	// so the loop ends.
+	pending := []*callGroup{{trials: activeTrials(trials)}}
+	var passed *callGroup
+	for len(pending) > 0 {
+		g := pending[0]
+		pending = pending[1:]
+		g.trials = activeTrials(g.trials)
+		if len(g.trials) == 0 {
 			continue
 		}
-		if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
+		// A group known to fail with what is kept (see callGroup) is
+		// halved, or declined, without planning it again.
+		reason := g.fails
+		if g.failsAfter == nil || g.failsAfter != passed {
+			tried := inOrder(trials, kept, g.trials)
+			if err := write(tried); err != nil {
+				return nil, baseline, nil, errors.Join(err, backup.restore())
+			}
+			p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+			if err != nil {
+				return nil, baseline, nil, errors.Join(err, backup.restore())
+			}
+			ok, why := judge(tried, p, summary, diags, baseline, changes, opts.StateOnly)
+			switch {
+			case ok:
+				kept, keptSummary, passed = tried, *summary, g
+				continue
+			case len(activeTrials(tried)) < len(tried):
+				// The plan took calls back: what is left plans again, with
+				// the group if the plan took back one of kept.
+				retry := &callGroup{trials: g.trials}
+				if len(activeTrials(kept)) < len(kept) {
+					retry.trials, kept = tried, nil
+				}
+				pending = append([]*callGroup{retry}, pending...)
+				continue
+			case why == "":
+				// Nothing to take back (the plan reported neither errors
+				// nor a result): planning again would show the same.
+				reject("the plan reported no result", g.trials...)
+				for _, held := range pending {
+					reject("the plan reported no result", held.trials...)
+				}
+				pending = nil
+				continue
+			}
+			reason = why
+		}
+		if len(g.trials) == 1 {
+			reject(reason, g.trials...)
+			continue
+		}
+		first := &callGroup{trials: g.trials[:len(g.trials)/2]}
+		second := &callGroup{trials: g.trials[len(g.trials)/2:], fails: reason, failsAfter: first}
+		pending = append([]*callGroup{first, second}, pending...)
+	}
+	if len(kept) == 0 {
+		if err := backup.restore(); err != nil {
 			return nil, baseline, nil, err
 		}
-		return append(declined, rejections(trials)...), *summary, outputLists(active), nil
+		return append(declined, rejections(trials)...), baseline, nil, nil
 	}
-	reject("the plan didn't settle", trials...)
-	if err := backup.restore(); err != nil {
+	// The last plan may have tried calls declined since: the root has the
+	// calls the plan of kept accepted, which planning again would show.
+	if err := write(kept); err != nil {
+		return nil, baseline, nil, errors.Join(err, backup.restore())
+	}
+	if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
 		return nil, baseline, nil, err
 	}
-	return append(declined, rejections(trials)...), baseline, nil, nil
+	return append(declined, rejections(trials)...), keptSummary, outputLists(kept), nil
+}
+
+// callGroup is calls synthesize plans together with the calls it kept.
+type callGroup struct {
+	trials []*trial
+	// fails, if set, is why the plan failed with this group and the group
+	// failsAfter together, the halves of a group. When the next plan keeps
+	// failsAfter whole, what is kept with this group is what failed.
+	fails      string
+	failsAfter *callGroup
+}
+
+// inOrder returns the trials of trials in any of sets, in their order in
+// trials, as the root calls them.
+func inOrder(trials []*trial, sets ...[]*trial) []*trial {
+	in := map[*trial]bool{}
+	for _, set := range sets {
+		for _, t := range set {
+			in[t] = true
+		}
+	}
+	var ordered []*trial
+	for _, t := range trials {
+		if in[t] {
+			ordered = append(ordered, t)
+		}
+	}
+	return ordered
 }
 
 func activeTrials(trials []*trial) []*trial {
@@ -152,23 +237,26 @@ func activeTrials(trials []*trial) []*trial {
 // whether there was none: the plan has no errors, every member plans as
 // it did in the root, or only also updates arguments stateOnly names for
 // its type, the modules create nothing else, and the totals match
-// baseline, with those updates and the imports the calls add.
-func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjson.Diagnostic, baseline changeSummary, changes map[string]string, stateOnly map[string][]string) bool {
+// baseline, with those updates and the imports the calls add. When the
+// plan fails with nothing to tell the calls apart by, an error about none
+// of them or totals that don't match, it also returns why, and rejects
+// none for it: the caller plans them apart.
+func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjson.Diagnostic, baseline changeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
 	if len(diags) > 0 || p == nil {
+		unattributed := ""
 		for _, d := range diags {
 			t := trialOf(active, d)
 			if t == nil {
-				// Nothing to tell the calls apart by: take them all back.
-				for _, t := range active {
-					t.rejected = "plan error: " + diagnosticMessage(d)
+				if unattributed == "" {
+					unattributed = "plan error: " + diagnosticMessage(d)
 				}
-				return false
+				continue
 			}
 			if t.rejected == "" {
 				t.rejected = "plan error: " + diagnosticMessage(d)
 			}
 		}
-		return false
+		return false, unattributed
 	}
 	ok := true
 	expected := baseline
@@ -209,12 +297,9 @@ func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjs
 	}
 	if ok && (summary == nil || *summary != expected) {
 		// A change outside the modules: nothing to tell the calls apart by.
-		for _, t := range active {
-			t.rejected = "the plan changed outside the module calls"
-		}
-		return false
+		return false, "the plan changed outside the module calls"
 	}
-	return ok
+	return ok, ""
 }
 
 // trialOf returns the trial a diagnostic is about, or nil.
