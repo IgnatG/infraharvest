@@ -294,7 +294,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Name()), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
 		// The organisation's own modules come first.
-		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, run.modules), provider.Name()), selected)
+		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, filepath.Join(cacheDir, "modules"), provider.Name(), run.modules), provider.Name()), selected)
 		moduleAdapters = append(own, moduleAdapters...)
 	}
 	root, err := options.tools.root(ctx, binary.Registry, execPath, engineProvider(provider), constraints)

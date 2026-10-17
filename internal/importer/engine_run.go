@@ -72,11 +72,10 @@ type shared struct {
 	// resolved (see managedState).
 	managed map[string]managed.Resources
 
-	// own are the adapters of the organisation's own modules, of every
-	// provider, once fetched (see ownAdapters).
-	ownMu      sync.Mutex
-	own        []adapters.Adapter
-	ownFetched bool
+	// own are the adapters of the organisation's own modules, by the
+	// provider they were fetched for (see ownAdapters).
+	ownMu sync.Mutex
+	own   map[string][]adapters.Adapter
 
 	// outLock is the output directory's lock, which outLocked says the
 	// command has taken, held until the run finishes (see Run.lockOut). It
@@ -105,17 +104,21 @@ func (s *shared) callSlots(n int) chan struct{} {
 	return s.calls
 }
 
-// ownAdapters returns the adapters of the organisation's modules (see
-// fetchAdapters), fetching them with the engine at execPath on first use
-// only: every Import call of the command, in every account, uses the same
-// modules.
-func (s *shared) ownAdapters(ctx context.Context, execPath string, modules []config.Module) []adapters.Adapter {
+// ownAdapters returns the adapters of the organisation's modules for
+// provider (see fetchAdapters), fetching them with the engine at
+// execPath, into the cache under cacheDir, on first use only: every Import
+// call of the command, in every account, uses the same modules.
+func (s *shared) ownAdapters(ctx context.Context, execPath, cacheDir, provider string, modules []config.Module) []adapters.Adapter {
 	s.ownMu.Lock()
 	defer s.ownMu.Unlock()
-	if !s.ownFetched {
-		s.own, s.ownFetched = fetchAdapters(ctx, execPath, modules), true
+	if own, ok := s.own[provider]; ok {
+		return own
 	}
-	return s.own
+	if s.own == nil {
+		s.own = map[string][]adapters.Adapter{}
+	}
+	s.own[provider] = fetchAdapters(ctx, execPath, cacheDir, provider, modules)
+	return s.own[provider]
 }
 
 // managedState returns the managed resources of the state in sources,

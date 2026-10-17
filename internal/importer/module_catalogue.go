@@ -5,11 +5,14 @@ package importer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -36,20 +39,38 @@ func catalogueAdapters(own []adapters.Adapter, provider string) []adapters.Adapt
 // fetchModulesParallel is how many modules fetchAdapters fetches at once.
 const fetchModulesParallel = 4
 
+// importedProviders are the providers infraharvest imports. A registry
+// module whose source ends with one of them is for that provider's
+// resources only.
+var importedProviders = []string{"aws", "azurerm", "google"}
+
+// forOtherProvider reports whether m is a registry module for a provider
+// other than provider, such as google, or google-beta's google: one an
+// import of provider has no use for, which it needn't fetch.
+func forOtherProvider(m config.Module, provider string) bool {
+	base, _, _ := strings.Cut(provider, "-")
+	p := m.RegistryProvider()
+	return p != base && slices.Contains(importedProviders, p)
+}
+
 // fetchAdapters returns an adapter for each of the organisation's own
-// modules (see adapters.Generic), in their order, fetched with the engine
-// at execPath, a few at a time: git and registry modules as Terraform
-// fetches them, with its credentials. A module that can't be fetched or
-// matched is logged and left out.
-func fetchAdapters(ctx context.Context, execPath string, modules []config.Module) []adapters.Adapter {
+// modules (see adapters.Generic) that can be of provider's, in their order,
+// fetched with the engine at execPath, a few at a time: git and registry
+// modules as Terraform fetches them, with its credentials. Modules that
+// can't change are fetched once, into cacheDir (see fetchModule). A module
+// that can't be fetched or matched is logged and left out.
+func fetchAdapters(ctx context.Context, execPath, cacheDir, provider string, modules []config.Module) []adapters.Adapter {
 	fetched := make([]*adapters.Adapter, len(modules))
 	slots := make(chan struct{}, fetchModulesParallel)
 	var wg sync.WaitGroup
 	for i, m := range modules {
+		if forOtherProvider(m, provider) {
+			continue
+		}
 		slots <- struct{}{}
 		wg.Go(func() {
 			defer func() { <-slots }()
-			dir, cleanup, err := fetchModule(ctx, execPath, m)
+			dir, cleanup, err := fetchModule(ctx, execPath, cacheDir, m)
 			if err != nil {
 				log.Printf("module %s: %v; not used", m.Source, err)
 				return
@@ -74,14 +95,70 @@ func fetchAdapters(ctx context.Context, execPath string, modules []config.Module
 }
 
 // fetchModule returns the directory with m's configuration, and a function
-// that removes what fetching it left. A local module is its directory.
-func fetchModule(ctx context.Context, execPath string, m config.Module) (string, func(), error) {
+// that removes what fetching it left. A local module is its directory. A
+// module that can't change (see config.Module.Immutable) is fetched once
+// into cacheDir, unless cacheDir is "", and found there after that.
+func fetchModule(ctx context.Context, execPath, cacheDir string, m config.Module) (string, func(), error) {
 	if config.IsLocalModule(m.Source) {
 		return m.Source, func() {}, nil
 	}
-	dir, err := os.MkdirTemp("", "infraharvest-module-")
+	cached, parent := "", ""
+	if cacheDir != "" && m.Immutable() {
+		cached = cachedModule(cacheDir, m)
+		if moduleDir, err := installedModule(cached, "m"); err == nil && isDir(moduleDir) {
+			return moduleDir, func() {}, nil
+		}
+		// Fetched next to the cache, so that it moves there in one rename.
+		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+			return "", nil, err
+		}
+		parent = cacheDir
+	}
+	dir, err := fetchInto(ctx, execPath, parent, m)
 	if err != nil {
 		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	if cached != "" {
+		// Into the cache whole, so that it never holds half a module; if
+		// another import put it there first, that one is used.
+		if err := os.Rename(dir, cached); err == nil || isDir(cached) {
+			cleanup()
+			if moduleDir, err := installedModule(cached, "m"); err == nil {
+				return moduleDir, func() {}, nil
+			}
+			return "", nil, fmt.Errorf("the cached module in %s is incomplete", cached)
+		}
+	}
+	moduleDir, err := installedModule(dir, "m")
+	if err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return moduleDir, cleanup, nil
+}
+
+// cachedModule returns where in cacheDir m is kept, by its source and
+// version.
+func cachedModule(cacheDir string, m config.Module) string {
+	sum := sha256.Sum256([]byte(m.Source + "\x00" + m.Version))
+	return filepath.Join(cacheDir, hex.EncodeToString(sum[:16]))
+}
+
+// isDir reports whether path is a directory.
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// fetchInto fetches m with the engine at execPath into a new directory, in
+// parent, or the system's temporary directory if parent is "", and returns
+// that directory: a root with one module call, m, which Terraform
+// installs under .terraform/modules.
+func fetchInto(ctx context.Context, execPath, parent string, m config.Module) (string, error) {
+	dir, err := os.MkdirTemp(parent, "infraharvest-module-")
+	if err != nil {
+		return "", err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	f := hclwrite.NewEmptyFile()
@@ -92,23 +169,18 @@ func fetchModule(ctx context.Context, execPath string, m config.Module) (string,
 	}
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), f.Bytes(), 0o600); err != nil {
 		cleanup()
-		return "", nil, err
+		return "", err
 	}
 	tf, err := tfexec.NewTerraform(dir, execPath)
 	if err != nil {
 		cleanup()
-		return "", nil, err
+		return "", err
 	}
 	if err := tf.Get(ctx); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("fetching: %w", err)
+		return "", fmt.Errorf("fetching: %w", err)
 	}
-	moduleDir, err := installedModule(dir, "m")
-	if err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	return moduleDir, cleanup, nil
+	return dir, nil
 }
 
 // installedModule returns where Terraform, in dir, installed the module
