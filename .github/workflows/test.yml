@@ -85,9 +85,12 @@ jobs:
       run: go build -o infraharvest .
     # Each package's statements its own tests run, for visibility: no
     # threshold. The total goes to the run's summary, the profile is
-    # uploaded (go tool cover -html=coverage.out shows it).
+    # uploaded (go tool cover -html=coverage.out shows it). The tests run in
+    # a random order: packages swap test hooks and keep process-wide caches,
+    # and a test that passes only after another shows here. A failure prints
+    # the seed; -shuffle=<seed> repeats the order.
     - name: Test
-      run: go test -coverprofile=coverage.out ./...
+      run: go test -shuffle=on -coverprofile=coverage.out ./...
     - name: Coverage
       if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
       run: |
