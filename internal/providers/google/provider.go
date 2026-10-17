@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/api/compute/v1"
@@ -114,9 +115,32 @@ func computeDisabled(err error) bool {
 	return strings.Contains(fmt.Sprint(apiErr.Details...), "SERVICE_DISABLED")
 }
 
+// regionNames holds the regions lookUpRegion found, by project and region:
+// every service of an Import call initialises a provider of its own, and
+// they all ask about the same region.
+var regionNames sync.Map
+
 // lookUpRegion returns the name of region as the Compute Engine API knows
-// it in project, asking with ctx.
+// it in project, asking with ctx the first time only; a failure isn't
+// kept.
 func lookUpRegion(ctx context.Context, project, region string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	key := project + "/" + region
+	if name, ok := regionNames.Load(key); ok {
+		return name.(string), nil
+	}
+	name, err := askRegion(ctx, project, region)
+	if err != nil {
+		return "", err
+	}
+	regionNames.Store(key, name)
+	return name, nil
+}
+
+// askRegion asks the Compute Engine API for region in project.
+func askRegion(ctx context.Context, project, region string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, regionLookupTimeout)
 	defer cancel()
 	svc, err := compute.NewService(ctx, clientOptions(ctx)...)

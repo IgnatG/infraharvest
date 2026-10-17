@@ -54,6 +54,8 @@ func TestSelectUnknownService(t *testing.T) {
 // Init takes the project from its arguments or the environment, and looks
 // a region other than global up; global needs no call.
 func TestInit(t *testing.T) {
+	regionNames.Clear()
+	t.Cleanup(regionNames.Clear)
 	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path+"?"+r.URL.Query().Get("fields"))
@@ -79,6 +81,10 @@ func TestInit(t *testing.T) {
 	}
 	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" || p.Directory() != "google" {
 		t.Errorf("europe-west1: %v, %+v, directory %q", err, p, p.Directory())
+	}
+	// Another service of the same call asks again: the region is known.
+	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err != nil || p.region.Name != "europe-west1" {
+		t.Errorf("europe-west1 again: %v, %+v", err, p)
 	}
 	if !slices.Equal(paths, []string{"/compute/v1/projects/acme/regions/europe-west1?name"}) {
 		t.Errorf("calls %v", paths)
