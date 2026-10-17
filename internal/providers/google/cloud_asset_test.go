@@ -236,14 +236,17 @@ func byID(resources []harvest.Resource) map[string]harvest.Resource {
 }
 
 // One search, page by page, for the catalogue's asset types; the global
-// import takes what isn't in a region, with the IDs Terraform imports.
+// import takes what isn't in a region, and the subnetworks of every
+// region, with their networks, with the IDs Terraform imports.
 func TestCloudAssetListsTheProject(t *testing.T) {
 	search := &fakeAssetSearch{results: searchResults, perPage: 3}
 	got := byID(listAssets(t, search, nil, ""))
 
 	want := map[string]string{
-		"projects/acme-prod/global/networks/main":    "google_compute_network",
-		"projects/acme-prod/global/networks/default": "google_compute_network",
+		"projects/acme-prod/global/networks/main":                "google_compute_network",
+		"projects/acme-prod/global/networks/default":             "google_compute_network",
+		"projects/acme-prod/regions/us-central1/subnetworks/app": "google_compute_subnetwork",
+		"projects/acme-prod/regions/europe-west1/subnetworks/eu": "google_compute_subnetwork",
 		"acme-assets": "google_storage_bucket",
 		"projects/acme-prod/serviceAccounts/104355798712345678901": "google_service_account",
 		"projects/acme-prod/alertPolicies/987":                     "google_monitoring_alert_policy",
@@ -284,13 +287,13 @@ func TestCloudAssetListsTheProject(t *testing.T) {
 }
 
 // A region's import takes what is in the region and its zones, with the
-// zonal and regional types of one asset type apart.
+// zonal and regional types of one asset type apart, but not its
+// subnetworks, which the global import takes with their networks.
 func TestCloudAssetListsARegion(t *testing.T) {
 	got := byID(listAssets(t, &fakeAssetSearch{results: searchResults, perPage: 500}, nil, "us-central1"))
 	want := map[string]string{
-		"projects/acme-prod/regions/us-central1/subnetworks/app": "google_compute_subnetwork",
-		"projects/acme-prod/zones/us-central1-a/disks/data":      "google_compute_disk",
-		"projects/acme-prod/regions/us-central1/disks/shared":    "google_compute_region_disk",
+		"projects/acme-prod/zones/us-central1-a/disks/data":   "google_compute_disk",
+		"projects/acme-prod/regions/us-central1/disks/shared": "google_compute_region_disk",
 	}
 	if len(got) != len(want) {
 		t.Errorf("got %v", got)
@@ -336,7 +339,7 @@ func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 	if len(search.requests) != 1 {
 		t.Errorf("got %d searches, want 1", len(search.requests))
 	}
-	for i, want := range []int{5, 3, 1, 3, 5} {
+	for i, want := range []int{7, 2, 0, 2, 7} {
 		if len(got[i]) != want {
 			t.Errorf("%q: got %d resources, want %d: %v", regions[i], len(got[i]), want, byID(got[i]))
 		}
@@ -402,7 +405,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 	}
 	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: []string{"example.googleapis.com/Widget"}}
 	got := byID(listAssets(t, search, cat, ""))
-	if _, ok := got["projects/acme-prod/global/networks/main"]; !ok || len(got) != 5 {
+	if _, ok := got["projects/acme-prod/global/networks/main"]; !ok || len(got) != 7 {
 		t.Errorf("got %v", got)
 	}
 	// The rejected search, then two for each halving down to the type.
@@ -412,7 +415,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 
 	searches.forget()
 	before := len(search.requests)
-	if got := listAssetsIn(t, cat, ""); len(got) != 5 {
+	if got := listAssetsIn(t, cat, ""); len(got) != 7 {
 		t.Errorf("searching again: got %v", byID(got))
 	}
 	if again := search.requests[before:]; len(again) != 1 || slices.Contains(again[0], "example.googleapis.com/Widget") {
@@ -531,13 +534,14 @@ func TestRegionOf(t *testing.T) {
 }
 
 // The import of global names the regions of what it leaves to the
-// imports of regions, as --regions defaults to global alone.
+// imports of regions, as --regions defaults to global alone: not
+// europe-west1, whose only resource is a subnetwork, which it takes.
 func TestGlobalNamesTheOtherRegions(t *testing.T) {
 	var logged strings.Builder
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	listAssets(t, &fakeAssetSearch{results: searchResults, perPage: 500}, nil, "")
-	if want := "for the imports of their regions, which --regions names: europe-west1, us-central1"; !strings.Contains(logged.String(), want) {
+	if want := "for the imports of their regions, which --regions names: us-central1"; !strings.Contains(logged.String(), want) {
 		t.Errorf("log %q, want %q", logged.String(), want)
 	}
 }

@@ -17,10 +17,11 @@ import (
 // and name and firewall rules by name, and passes its project to all of
 // them: it declines members in another project, names it can't key by
 // (not literals), auto mode networks, networks with none of their
-// subnetworks in the root (a Google Cloud import's global root, whose
-// regions' roots have them), and firewall rules that set both source and
-// destination ranges. Routes stay in the root, referring to
-// the module's outputs.
+// subnetworks in the root (a Google Cloud import puts a network's
+// subnetworks in its global root with it, but a root an earlier import
+// generated may have them in its regions' roots), and firewall rules that
+// set both source and destination ranges. Routes stay in the root,
+// referring to the module's outputs.
 var GoogleNetwork = Adapter{
 	Source:   "terraform-google-modules/network/google",
 	Version:  "18.3.1",
@@ -163,9 +164,10 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 		}
 	}
 	if len(subnets) == 0 {
-		// Such as in the global root, when the subnetworks are in their
-		// regions': the call would read as a network without subnetworks,
-		// subnets = [], while they are managed elsewhere.
+		// Such as in the global root, when an earlier import put the
+		// subnetworks in their regions' roots: the call would read as a
+		// network without subnetworks, subnets = [], while they are
+		// managed elsewhere.
 		return nil, Declinef("%s has no subnetworks in this root, which the module's subnets would take", c.Anchor.Address())
 	}
 	call.Set("subnets", hclwrite.TokensForTuple(subnets))

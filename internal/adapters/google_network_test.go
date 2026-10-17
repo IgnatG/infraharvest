@@ -129,8 +129,8 @@ func TestGoogleNetworkDeclines(t *testing.T) {
 }
 
 // A network whose subnetworks aren't in the root, as in the global root
-// of a Google Cloud import, whose regions' roots have them, stays a
-// resource: before, the call had subnets = [] and only the firewall rules.
+// of an earlier Google Cloud import, whose regions' roots have them,
+// stays a resource: before, the call had subnets = [] and only the firewall rules.
 func TestGoogleNetworkDeclinesWithoutSubnetworks(t *testing.T) {
 	start := strings.Index(googleNetworkCluster, `resource "google_compute_subnetwork" "app"`)
 	end := strings.Index(googleNetworkCluster, `resource "google_compute_firewall" "https"`)
@@ -138,5 +138,36 @@ func TestGoogleNetworkDeclinesWithoutSubnetworks(t *testing.T) {
 	_, err := GoogleNetwork.Map(cluster(t, src))
 	if !IsDecline(err) || !strings.Contains(err.Error(), "no subnetworks") {
 		t.Errorf("got %v, want a decline for the missing subnetworks", err)
+	}
+}
+
+// The global root of a Google Cloud import has a network with its
+// subnetworks of every region, which the call takes together, each keyed
+// by its region and name, so that two regions' subnetworks of one name
+// stay apart.
+func TestGoogleNetworkMapsSubnetworksOfEveryRegion(t *testing.T) {
+	src := googleNetworkCluster + `resource "google_compute_subnetwork" "app_eu" {
+  ip_cidr_range = "10.30.0.0/24"
+  name          = "app"
+  network       = google_compute_network.main.self_link
+  project       = "acme"
+  region        = "europe-west2"
+}
+`
+	call, err := GoogleNetwork.Map(cluster(t, src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := render(t, GoogleNetwork, call)
+	if want := squash(`{ subnet_name = "app" subnet_region = "europe-west2" subnet_ip = "10.30.0.0/24" }`); !strings.Contains(got, want) {
+		t.Errorf("call misses %q:\n%s", want, got)
+	}
+	for address, want := range map[string]string{
+		"google_compute_subnetwork.app":    `module.subnets.google_compute_subnetwork.subnetwork["us-central1/app"]`,
+		"google_compute_subnetwork.app_eu": `module.subnets.google_compute_subnetwork.subnetwork["europe-west2/app"]`,
+	} {
+		if call.Addresses[address] != want {
+			t.Errorf("%s: got %q, want %q", address, call.Addresses[address], want)
+		}
 	}
 }
