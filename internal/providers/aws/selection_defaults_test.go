@@ -313,7 +313,9 @@ func TestCloudFormationManagedScansEveryRegion(t *testing.T) {
 	if calls.Load() != 3 {
 		t.Errorf("ListStacks called %d times, want once for each of 3 regions", calls.Load())
 	}
-	if !reflect.DeepEqual(managed, map[string]string{"app-assets": "app"}) {
+	// Each region's stack names the bucket; those of the first region come first.
+	bucket := stackResource{stack: "app", cloudFormationType: "AWS::S3::Bucket"}
+	if !reflect.DeepEqual(managed, map[string][]stackResource{"app-assets": {bucket, bucket, bucket}}) {
 		t.Errorf("managed %v", managed)
 	}
 }
@@ -340,7 +342,7 @@ func TestRegionStacksAreScannedOnce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if managed["app-assets"] != "app" {
+		if want := []stackResource{{stack: "app", cloudFormationType: "AWS::S3::Bucket"}}; !reflect.DeepEqual(managed["app-assets"], want) {
 			t.Errorf("%s: managed %v", region, managed)
 		}
 	}

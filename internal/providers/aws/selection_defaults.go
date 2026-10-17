@@ -35,12 +35,13 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 // their rules, the KMS grants AWS services make for themselves, and the
 // Auto Scaling groups and launch templates of EKS managed node groups,
 // which AWS creates itself; the replicas of a DynamoDB global table in
-// every region but the one that imports the table with its replicas; what CloudFormation stacks manage, which would
-// otherwise have two owners; what other accounts share;
-// and the targets Auto Scaling groups and ECS services register in their
-// target groups, which they register and deregister themselves. The
-// catalogue's skip rules leave out what IDs tell, such as service-linked
-// roles.
+// every region but the one that imports the table with its replicas; what
+// CloudFormation stacks manage, which would otherwise have two owners,
+// matched by physical ID and, where cloudFormationTypes knows it, by type;
+// what other accounts share; and the targets Auto Scaling groups and ECS
+// services register in their target groups, which they register and
+// deregister themselves. The catalogue's skip rules leave out what IDs
+// tell, such as service-linked roles.
 func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Resource) (map[string]string, error) {
 	excluded := map[string]string{}
 	network := false
@@ -58,12 +59,14 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		return excluded, err
 	}
 	stacks, stacksErr := p.cloudFormationManaged(ctx, config)
+	cat := p.catalogue()
+	types := stackTypes(cat)
 	for _, r := range resources {
 		key := r.Address.Type + " " + r.Observed.ID
-		stack, ok := stacks[r.Observed.ID]
+		stack, ok := managingStack(stacks[r.Observed.ID], cat, types, r.Address.Type)
 		if !ok {
-			if id, importable := importID(p.catalogue(), r); importable {
-				stack, ok = stacks[id]
+			if id, importable := importID(cat, r); importable && id != r.Observed.ID {
+				stack, ok = managingStack(stacks[id], cat, types, r.Address.Type)
 			}
 		}
 		if ok {

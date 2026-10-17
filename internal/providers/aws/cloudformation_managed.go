@@ -55,7 +55,7 @@ type stackScanKey struct {
 
 // stackScan is what stackResources found in a region, and when.
 type stackScan struct {
-	managed map[string]string
+	managed map[string][]stackResource
 	at      time.Time
 }
 
@@ -66,15 +66,16 @@ var (
 	stackScans = map[stackScanKey]stackScan{}
 )
 
-// cloudFormationManaged returns the physical IDs of the resources the
-// CloudFormation stacks of the region config names manage, with the
-// stack's name. For the global services, such as IAM, it asks every
-// region the account has enabled, stackScanParallel at a time: a stack in
-// any of them can create a role. A region whose stacks can't be read, as
-// one an SCP denies, is reported, and the other regions are still asked.
-// Where two regions' stacks name the same physical ID, the first region,
-// in DescribeRegions' order, names the stack.
-func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config) (map[string]string, error) {
+// cloudFormationManaged returns the resources the CloudFormation stacks of
+// the region config names manage, by physical ID, with the stack's name
+// and the resource's CloudFormation type. For the global services, such
+// as IAM, it asks every region the account has enabled, stackScanParallel
+// at a time: a stack in any of them can create a role. A region whose
+// stacks can't be read, as one an SCP denies, is reported, and the other
+// regions are still asked.
+// Where several stacks name the same physical ID, those of the first
+// region, in DescribeRegions' order, come first.
+func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config) (map[string][]stackResource, error) {
 	regions := []string{config.Region}
 	if p.region == GlobalPseudoRegion {
 		regional := config.Copy()
@@ -88,7 +89,7 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 			regions = append(regions, aws.ToString(r.RegionName))
 		}
 	}
-	found := make([]map[string]string, len(regions))
+	found := make([]map[string][]stackResource, len(regions))
 	errs := make([]error, len(regions))
 	slots := make(chan struct{}, stackScanParallel)
 	var wg sync.WaitGroup
@@ -102,13 +103,11 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 		}()
 	}
 	wg.Wait()
-	managed := map[string]string{}
+	managed := map[string][]stackResource{}
 	var failed []error
 	for i, region := range regions {
-		for id, stack := range found[i] {
-			if _, ok := managed[id]; !ok {
-				managed[id] = stack
-			}
+		for id, resources := range found[i] {
+			managed[id] = append(managed[id], resources...)
 		}
 		if errs[i] != nil {
 			failed = append(failed, fmt.Errorf("CloudFormation stacks in %s: %w", region, errs[i]))
@@ -123,7 +122,7 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 // regional calls reuse what its global call scanned, as the global call
 // comes first. What a scan that failed found is returned with its error,
 // and not remembered.
-func regionStacks(ctx context.Context, config aws.Config, region string) (map[string]string, error) {
+func regionStacks(ctx context.Context, config aws.Config, region string) (map[string][]stackResource, error) {
 	credentials, remember := config.Credentials.(*aws.CredentialsCache)
 	remember = remember && testConfig == nil
 	key := stackScanKey{credentials: credentials, region: region}
@@ -137,7 +136,7 @@ func regionStacks(ctx context.Context, config aws.Config, region string) (map[st
 	}
 	regional := config.Copy()
 	regional.Region = region
-	managed := map[string]string{}
+	managed := map[string][]stackResource{}
 	if err := stackResources(ctx, cloudformation.NewFromConfig(regional), managed); err != nil {
 		return managed, err
 	}
@@ -149,10 +148,11 @@ func regionStacks(ctx context.Context, config aws.Config, region string) (map[st
 	return managed, nil
 }
 
-// stackResources adds the physical IDs of the resources of every live
-// stack to managed, nested stacks included, but for those the stack has
-// deleted, as a stack that rolled back lists them.
-func stackResources(ctx context.Context, svc *cloudformation.Client, managed map[string]string) error {
+// stackResources adds the resources of every live stack to managed, by
+// physical ID, with the stack's name and their CloudFormation type,
+// nested stacks included, but for those the stack has deleted, as a stack
+// that rolled back lists them.
+func stackResources(ctx context.Context, svc *cloudformation.Client, managed map[string][]stackResource) error {
 	stacks := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)
 	for stacks.HasMorePages() {
 		page, err := stacks.NextPage(ctx)
@@ -169,7 +169,7 @@ func stackResources(ctx context.Context, svc *cloudformation.Client, managed map
 				}
 				for _, r := range page.StackResourceSummaries {
 					if id := aws.ToString(r.PhysicalResourceId); id != "" && r.ResourceStatus != cftypes.ResourceStatusDeleteComplete {
-						managed[id] = name
+						managed[id] = append(managed[id], stackResource{stack: name, cloudFormationType: aws.ToString(r.ResourceType)})
 					}
 				}
 			}
