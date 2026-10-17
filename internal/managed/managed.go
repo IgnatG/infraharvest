@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -78,6 +79,8 @@ func Load(ctx context.Context, sources []string, stores Stores) (Resources, erro
 			err = r.loadObjects(ctx, source, stores)
 		case strings.HasPrefix(source, "tfc://"):
 			err = r.loadWorkspaces(ctx, source, stores)
+		case isURL(source):
+			err = errNotBlobStorage
 		default:
 			err = r.loadLocal(source)
 		}
@@ -100,6 +103,8 @@ func CheckSources(sources []string) error {
 			_, err = parseObjects(source)
 		case strings.HasPrefix(source, "tfc://"):
 			_, _, _, err = parseWorkspaces(source)
+		case isURL(source):
+			err = errNotBlobStorage
 		default:
 			_, err = os.Stat(source)
 		}
@@ -159,15 +164,29 @@ func parseWorkspaces(source string) (organization, pattern, host string, err err
 	return organization, pattern, host, nil
 }
 
+// azureBlobSuffixes are the hosts of Blob Storage in Azure's clouds:
+// public, US Government and China. The credentials the azurerm backend
+// uses go to the host a source names, so no other host is read from.
+var azureBlobSuffixes = []string{"blob.core.windows.net", "blob.core.usgovcloudapi.net", "blob.core.chinacloudapi.cn"}
+
 // isAzureBlob tells whether source is a Blob Storage URL, whose host is
-// <account>.blob.<the cloud's storage suffix>.
+// <account>.<one of azureBlobSuffixes>.
 func isAzureBlob(source string) bool {
 	u, err := url.Parse(source)
-	if err != nil || u.Scheme != "https" {
+	if err != nil || u.Scheme != "https" || u.Port() != "" {
 		return false
 	}
-	_, rest, _ := strings.Cut(u.Hostname(), ".")
-	return strings.HasPrefix(rest, "blob.")
+	account, rest, _ := strings.Cut(strings.ToLower(u.Hostname()), ".")
+	return account != "" && slices.Contains(azureBlobSuffixes, rest)
+}
+
+// errNotBlobStorage rejects an http or https source that isn't a Blob
+// Storage URL, which would get the Azure credentials otherwise.
+var errNotBlobStorage = errors.New("not a Blob Storage URL: the host must be <account>." + strings.Join(azureBlobSuffixes, ", <account>."))
+
+// isURL tells whether source is an http or https URL.
+func isURL(source string) bool {
+	return strings.HasPrefix(source, "https://") || strings.HasPrefix(source, "http://")
 }
 
 // loadObjects reads the *.tfstate objects under an s3://, gs:// or Blob

@@ -137,6 +137,11 @@ func TestIsAzureBlob(t *testing.T) {
 	for source, want := range map[string]bool{
 		"https://acmestate.blob.core.windows.net/tfstate/":      true,
 		"https://acmestate.blob.core.usgovcloudapi.net/tfstate": true,
+		"https://acmestate.blob.core.chinacloudapi.cn/tfstate":  true,
+		"https://acmestate.blob.evil.example/tfstate":           false,
+		"https://acmestate.blob.core.windows.net.evil.example/": false,
+		"https://blob.core.windows.net/tfstate/":                false,
+		"https://acmestate.blob.core.windows.net:8443/tfstate/": false,
 		"https://acmestate.file.core.windows.net/share/":        false,
 		"http://acmestate.blob.core.windows.net/tfstate/":       false,
 		"s3://acme-state/blob.json":                             false,
@@ -148,6 +153,15 @@ func TestIsAzureBlob(t *testing.T) {
 	}
 	if _, err := Load(context.Background(), []string{"https://acmestate.blob.core.windows.net/"}, Stores{}); err == nil {
 		t.Error("want an error for a source without a container")
+	}
+	// Another host would get the Azure credentials.
+	for _, source := range []string{"https://acmestate.blob.evil.example/tfstate/", "http://acmestate.blob.core.windows.net/tfstate/"} {
+		if err := CheckSources([]string{source}); err == nil || !strings.Contains(err.Error(), "not a Blob Storage URL") {
+			t.Errorf("CheckSources(%s): want an error naming Blob Storage, got %v", source, err)
+		}
+		if _, err := Load(context.Background(), []string{source}, Stores{}); err == nil || !strings.Contains(err.Error(), "not a Blob Storage URL") {
+			t.Errorf("Load(%s): want an error naming Blob Storage, got %v", source, err)
+		}
 	}
 }
 
