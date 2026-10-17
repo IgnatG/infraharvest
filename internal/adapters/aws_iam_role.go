@@ -202,15 +202,15 @@ func sameTokens(a, b hclwrite.Tokens) bool {
 }
 
 // tokensKey returns an expression's tokens without the white space and
-// the newlines between them, as sameTokens compares them: "a b" and "ab"
-// differ, { a = 1 } and {a=1} don't.
+// the newlines between them, as sameTokens compares them and as a group
+// key reads them: "a b" and "ab" differ, { a = 1 } and {a=1} don't.
 func tokensKey(tokens hclwrite.Tokens) []byte {
 	var key []byte
 	for _, t := range tokens {
 		if t.Type == hclsyntax.TokenNewline {
 			continue
 		}
-		key = append(append(key, t.Bytes...), 0)
+		key = append(key, t.Bytes...)
 	}
 	return key
 }
