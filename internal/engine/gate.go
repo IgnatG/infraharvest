@@ -518,21 +518,74 @@ func sortedKeys[V any](m map[string]V) []string {
 // the configuration (see scanLiteralSecrets).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
+	values := newValueMatcher(sensitive)
 	err := walkOutputAndModules(dir, func(rel string, content string) {
-		scanFile(&check, sensitive, rel, content)
+		scanFile(&check, values, rel, content)
 	})
 	return check, err
 }
 
+// valueMatcher finds whether a text holds any of a set of values, in one
+// pass over the text however many values there are: each run of
+// minSecretLength bytes of the text is looked up among the values' first
+// bytes, and only the values that start so are compared. A root may have
+// thousands of sensitive values, and a strings.Contains for each would read
+// every file that many times.
+type valueMatcher struct {
+	byPrefix map[uint64][]string
+	// short are the values shorter than minSecretLength, compared one by
+	// one.
+	short []string
+}
+
+func newValueMatcher(values []string) valueMatcher {
+	m := valueMatcher{byPrefix: map[uint64][]string{}}
+	for _, v := range values {
+		if len(v) < minSecretLength {
+			m.short = append(m.short, v)
+			continue
+		}
+		key := prefixKey(v)
+		m.byPrefix[key] = append(m.byPrefix[key], v)
+	}
+	return m
+}
+
+// prefixKey packs the first minSecretLength bytes of s into a number.
+func prefixKey(s string) uint64 {
+	var key uint64
+	for i := range minSecretLength {
+		key = key<<8 | uint64(s[i])
+	}
+	return key
+}
+
+// in reports whether content holds one of the values.
+func (m valueMatcher) in(content string) bool {
+	for _, v := range m.short {
+		if strings.Contains(content, v) {
+			return true
+		}
+	}
+	if len(m.byPrefix) == 0 {
+		return false
+	}
+	for i := 0; i+minSecretLength <= len(content); i++ {
+		for _, v := range m.byPrefix[prefixKey(content[i:])] {
+			if strings.HasPrefix(content[i:], v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // scanFile runs scanSecrets' checks on one file, rel, adding what it finds
 // to check.
-func scanFile(check *Check, sensitive []string, rel, content string) {
-	for _, v := range sensitive {
-		if strings.Contains(content, v) {
-			check.Passed = false
-			check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
-			break
-		}
+func scanFile(check *Check, sensitive valueMatcher, rel, content string) {
+	if sensitive.in(content) {
+		check.Passed = false
+		check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
 	}
 	for _, name := range secretPatternNames {
 		if secretPatterns[name].MatchString(content) {
@@ -566,7 +619,7 @@ func checkReadme(dir string, result *Result, values []string) error {
 		return err
 	}
 	found := Check{Passed: true}
-	scanFile(&found, values, ReadmeFileName, string(content))
+	scanFile(&found, newValueMatcher(values), ReadmeFileName, string(content))
 	if found.Passed {
 		return nil
 	}

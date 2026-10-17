@@ -429,3 +429,31 @@ func TestGateCancelled(t *testing.T) {
 		t.Errorf("want the cancellation, got %v", err)
 	}
 }
+
+// TestValueMatcher checks that valueMatcher finds what a strings.Contains
+// of each value would: at the start and the end of a text, among values
+// that share their first bytes, and values shorter than minSecretLength.
+func TestValueMatcher(t *testing.T) {
+	t.Parallel()
+	values := []string{"s3cr3t-value", "s3cr3t-other", "abc", "token-1234567"}
+	contains := func(content string) bool {
+		for _, v := range values {
+			if strings.Contains(content, v) {
+				return true
+			}
+		}
+		return false
+	}
+	m := newValueMatcher(values)
+	for _, content := range []string{
+		"", "s3cr3t", "s3cr3t-valu", "s3cr3t-value", "prefix s3cr3t-other", "token-123456 token-1234567",
+		"no secret here", "ab", "zzabc", "s3cr3t-s3cr3t-value", "s3cr3t-otherwise",
+	} {
+		if got, want := m.in(content), contains(content); got != want {
+			t.Errorf("in(%q) = %v, want %v", content, got, want)
+		}
+	}
+	if newValueMatcher(nil).in("anything") {
+		t.Error("a matcher of no values matched")
+	}
+}
