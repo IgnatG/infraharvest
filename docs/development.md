@@ -202,7 +202,6 @@ The `release` workflow publishes a release from `main`: it runs the tests in a j
 | `go vet`, `go test` | `make vet`, `make test` (compile) | `tests` on every pull request; `make ci-check PKG=...` on a branch |
 | Golden files | `make golden` (compiles) | `make ci-golden PKG=...` |
 | `go mod tidy` | none | `make ci-tidy`; `tests` checks it |
-| Emulator round trips, race detector, Windows | none | `tests` on every pull request |
-| macOS | none | `macos` after merges to `main`, weekly, and by hand |
+| Emulator round trips, race detector, Windows, macOS, arm64 builds | none | `tests` on every pull request and after each merge to `main` |
 
 The fast checks need only the tools they run (gofmt, goimports, shellcheck, actionlint, Node.js), each optional: the hook skips a check whose tool is missing and says how to install it, and CI runs it anyway. Run the compiling checks locally only if your machine can take it; otherwise push the branch and use the `ci-*` targets, which need the [GitHub CLI](https://cli.github.com/). `make help` lists every target.

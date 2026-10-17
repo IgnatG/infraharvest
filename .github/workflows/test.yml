@@ -56,7 +56,6 @@ jobs:
         HEAD: ${{ github.event.pull_request.head.sha }}
       run: .github/scripts/changes.sh
 
-  # macOS runs in macos.yml, after merges: its build takes about 40 minutes.
   unit:
     name: go test
     needs: changes
@@ -102,11 +101,17 @@ jobs:
         persist-credentials: false
     - name: Free disk space
       run: .github/scripts/free-disk-space.sh start
+    # -race builds objects no other job shares: a cache of their own.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: race
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Race
@@ -114,6 +119,12 @@ jobs:
         go test -race -tags minimal,aws,google
         ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
         ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # A required check: passes when go test and race passed, or were skipped.
   test:
@@ -142,11 +153,18 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    # Restore only, from main: a Windows cache is about 900 MB, and pull
+    # requests saving one each filled the repository's cache.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: test
     - name: Test
       run: >-
         go test
@@ -154,6 +172,46 @@ jobs:
         ./internal/importer/... ./internal/config/... ./internal/selection/... ./internal/mcpserver/...
     - name: Test the CLI
       run: go test -tags minimal,aws,google ./internal/cli/...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
+
+  # The whole module on macOS, which the release builds for but no other
+  # job runs on. With main's cache it takes about five minutes; a pull
+  # request that changes go.sum builds from an older cache.
+  test-macos:
+    name: macos test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: test
+    - name: Build
+      run: go build -o infraharvest .
+    - name: Test
+      run: go test ./...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   govulncheck:
     needs: changes
@@ -518,15 +576,25 @@ jobs:
           echo "::error::google should not be compiled into a minimal,aws build"; exit 1
         fi
 
-  # macOS builds and tests only after merges (macos.yml), so compile and
-  # vet every package for darwin/arm64 here: a break in a darwin-only file
-  # shows on the pull request, not at the release.
-  darwin:
-    name: darwin/arm64 build
+  # The release's other targets, which no job above compiles: the full
+  # module for linux/arm64 and windows/arm64 (test-windows builds only some
+  # packages, and test-macos covers darwin/arm64), built and vetted, so that
+  # a dependency bump that breaks one shows on the pull request, not at the
+  # release.
+  cross:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }} build
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - goos: linux
+          goarch: arm64
+        - goos: windows
+          goarch: arm64
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -537,27 +605,38 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: ${{ matrix.goos }}-${{ matrix.goarch }}
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Build
       env:
-        GOOS: darwin
-        GOARCH: arm64
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: "0"
       run: go build ./...
     - name: Vet
       env:
-        GOOS: darwin
-        GOARCH: arm64
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: "0"
       run: go vet ./...
+    - name: Save the Go cache
+      if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # A required check: passes when the other Go and Terraform checks passed,
   # or were skipped. Not the fuzzing, which can find an input a pull request
   # didn't bring: it reports on its own.
   checks:
-    needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
+    needs: [changes, test-windows, test-macos, govulncheck, engine-integration, permissions, build-tags, cross]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
