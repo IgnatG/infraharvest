@@ -81,8 +81,10 @@ func (g *EcrLister) addRepository(client *ecr.Client, repository types.Repositor
 }
 
 // ecrRepositoryGone reports whether err says the repository no longer
-// exists, as when it was deleted since it was listed.
+// exists, as when it was deleted since it was listed, or that the endpoint
+// doesn't offer the operation, as an emulator may not (see
+// operationUnsupported): either way there is no policy to import.
 func ecrRepositoryGone(err error) bool {
 	var gone *types.RepositoryNotFoundException
-	return errors.As(err, &gone)
+	return errors.As(err, &gone) || operationUnsupported(err)
 }

@@ -21,13 +21,30 @@ type partFailures struct {
 }
 
 // add records err, the failure of the part what, unless it says the
-// resource is gone, deleted since it was listed, which leaves nothing to
-// list. A nil err is no failure.
+// resource is gone, deleted since it was listed, or that the endpoint
+// doesn't offer the operation (see operationUnsupported): either leaves
+// nothing to list. A nil err is no failure.
 func (p *partFailures) add(what string, err error) {
-	if err == nil || resourceGone(err) {
+	if err == nil || resourceGone(err) || operationUnsupported(err) {
 		return
 	}
 	p.errs = append(p.errs, fmt.Errorf("%s: %w", what, err))
+}
+
+// unsupportedOperationCodes are the error codes an endpoint answers an
+// operation it doesn't implement with, as an emulator may: there is then
+// nothing of that kind to import, as for S3's NotImplemented.
+var unsupportedOperationCodes = map[string]bool{
+	"NotImplemented":            true,
+	"UnknownOperationException": true,
+	"UnsupportedOperation":      true,
+	"InvalidAction":             true,
+}
+
+// operationUnsupported reports whether err says the endpoint doesn't
+// implement the operation asked (see unsupportedOperationCodes).
+func operationUnsupported(err error) bool {
+	return unsupportedOperationCodes[apiErrorCode(err)]
 }
 
 // err returns the failures as one partial error, or nil when there are
