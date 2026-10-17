@@ -173,11 +173,11 @@ func reasonEKSNodeGroup(nodeGroup string) string {
 // by the tags the auto_scaling lister records.
 func excludeEKSNodeGroups(resources []harvest.Resource, excluded map[string]string) {
 	for _, r := range resources {
-		switch r.Address.Type {
-		case "aws_autoscaling_group", "aws_launch_template":
-			if nodeGroup := r.Observed.Attributes[eksNodeGroupTag]; nodeGroup != "" {
-				excluded[r.Address.Type+" "+r.Observed.ID] = reasonEKSNodeGroup(nodeGroup)
-			}
+		if r.Address.Type != "aws_autoscaling_group" && r.Address.Type != "aws_launch_template" {
+			continue
+		}
+		if nodeGroup := r.Observed.Attributes[eksNodeGroupTag]; nodeGroup != "" {
+			excluded[r.Address.Type+" "+r.Observed.ID] = reasonEKSNodeGroup(nodeGroup)
 		}
 	}
 }
