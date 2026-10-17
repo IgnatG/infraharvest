@@ -693,7 +693,7 @@ func TestValuesShownToTheUser(t *testing.T) {
 
 	dir := t.TempDir()
 	tools := &tools{run: (&fakeRunner{}).run, root: dir}
-	if err := tools.within("out", filepath.Join(dir, "gen\nInto nothing")); err == nil || !strings.Contains(err.Error(), "control character") {
+	if _, err := tools.within("out", filepath.Join(dir, "gen\nInto nothing")); err == nil || !strings.Contains(err.Error(), "control character") {
 		t.Errorf("a path with a newline: got %v", err)
 	}
 }
@@ -740,5 +740,33 @@ func TestCheckDefaultRoot(t *testing.T) {
 	}
 	if err := CheckDefaultRoot(home, ""); err != nil {
 		t.Errorf("without a home directory: %v", err)
+	}
+}
+
+// A relative path is relative to the root, wherever the server runs: the
+// child gets it, and the report is read from it, joined onto the root.
+func TestRelativePathsAreUnderRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(t.TempDir())
+	runner := &fakeRunner{}
+	tools := &tools{run: runner.run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
+
+	if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: "selection.yaml"}); err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	want := "--selection=" + filepath.Join(root, "selection.yaml")
+	if len(runner.runs) != 1 || runner.runs[0][len(runner.runs[0])-1] != want {
+		t.Errorf("runs: %v, want the last argument %s", runner.runs, want)
+	}
+	if _, err := os.Stat(filepath.Join(root, "selection.yaml")); err != nil {
+		t.Errorf("the selection file isn't under the root: %v", err)
+	}
+	if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: filepath.Join("..", "selection.yaml")}); err == nil || !strings.Contains(err.Error(), "must be under") {
+		t.Errorf("a relative path up from the root: got %v, want it rejected", err)
+	}
+	if _, _, err := tools.report(t.Context(), req, ReportInput{Out: "generated"}); err == nil || !strings.Contains(err.Error(), filepath.Join(root, "generated")) {
+		t.Errorf("report: got %v, want it read under the root", err)
 	}
 }

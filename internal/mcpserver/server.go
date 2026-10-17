@@ -93,17 +93,28 @@ type tools struct {
 // within checks that path, which the agent chose, is under the root: an
 // agent may not read or write files anywhere else on the machine. The path
 // has to be under it as written and where it leads, so a symbolic link
-// under the root to somewhere else doesn't take it out.
-func (t *tools) within(what, path string) error {
+// under the root to somewhere else doesn't take it out. A relative path is
+// relative to the root, not to the directory the server runs in; within
+// returns the path to use, joined onto the root if it was relative.
+func (t *tools) within(what, path string) (string, error) {
 	if strings.ContainsFunc(path, unicode.IsControl) {
 		// Such as a newline, which could make the confirmation the user is
 		// shown say something else.
-		return fmt.Errorf("%s %q has a control character", what, path)
+		return "", fmt.Errorf("%s %q has a control character", what, path)
 	}
 	root, err := filepath.Abs(t.root)
 	if err != nil {
-		return err
+		return "", err
 	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	return path, checkWithin(what, root, path)
+}
+
+// checkWithin checks that path, which is absolute, is under root (see
+// within).
+func checkWithin(what, root, path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -226,7 +237,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection == "" {
 		return nil, nil, errors.New("selection is required")
 	}
-	if err := t.within("selection", in.Selection); err != nil {
+	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
 	// Never the picker: the client talks to this process over stdio.
@@ -312,10 +323,10 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Selection == "" || in.Out == "" {
 		return nil, nil, errors.New("selection and out are required")
 	}
-	if err := t.within("selection", in.Selection); err != nil {
+	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	if err := t.within("out", in.Out); err != nil {
+	if in.Out, err = t.within("out", in.Out); err != nil {
 		return nil, nil, err
 	}
 	if err := t.linksStayUnder("out", in.Out); err != nil {
@@ -482,14 +493,16 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 	if in.Out == "" {
 		return nil, nil, errors.New("out is required")
 	}
-	if err := t.within("out", in.Out); err != nil {
+	out, err := t.within("out", in.Out)
+	if err != nil {
 		return nil, nil, err
 	}
+	in.Out = out
 	// The report's own path too: .infraharvest or report.md could be a
 	// symbolic link that leads out of the root, such as one a cloned
 	// repository plants to a credentials file.
 	path := filepath.Join(in.Out, report.Dir, "report.md")
-	if err := t.within("report", path); err != nil {
+	if _, err := t.within("report", path); err != nil {
 		return nil, nil, err
 	}
 	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
@@ -515,7 +528,8 @@ func (t *tools) linksStayUnder(what, dir string) error {
 			return filepath.SkipDir
 		}
 		if d.Type()&fs.ModeSymlink != 0 {
-			return t.within(what, path)
+			_, err := t.within(what, path)
+			return err
 		}
 		return nil
 	})
