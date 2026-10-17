@@ -3,97 +3,153 @@
   "version": "6.8.2",
   "variables": {
     "create": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_inline_policy": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_instance_profile": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "description": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "enable_bitbucket_oidc": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_github_oidc": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_oidc": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_saml": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "github_provider": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "token.actions.githubusercontent.com"
     },
     "inline_policy_permissions": {
-      "required": false
+      "required": false,
+      "type": "map(object({ sid = optional(string) actions = optional(list(string)) not_actions = optional(list(string)) effect = optional(string, \"Allow\") resources = optional(list(string)) not_resources = optional(list(string)) principals = optional(list(object({ type = string identifiers = list(string) }))) not_principals = optional(list(object({ type = string identifiers = list(string) }))) condition = optional(list(object({ test = string variable = string values = list(string) }))) }))"
     },
     "max_session_duration": {
-      "required": false
+      "required": false,
+      "type": "number"
     },
     "name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "oidc_account_id": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "oidc_audiences": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "oidc_provider_urls": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "oidc_subjects": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "oidc_wildcard_subjects": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "override_inline_policy_documents": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "override_trust_policy_documents": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "path": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "permissions_boundary": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "policies": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "saml_endpoints": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": [
+        "https://signin.aws.amazon.com/saml"
+      ]
     },
     "saml_provider_ids": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "saml_trust_actions": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "source_inline_policy_documents": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "source_trust_policy_documents": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "trust_policy_conditions": {
-      "required": false
+      "required": false,
+      "type": "list(object({ test = string variable = string values = list(string) }))",
+      "default": []
     },
     "trust_policy_permissions": {
-      "required": false
+      "required": false,
+      "type": "map(object({ sid = optional(string) actions = optional(list(string)) not_actions = optional(list(string)) effect = optional(string, \"Allow\") resources = optional(list(string)) not_resources = optional(list(string)) principals = optional(list(object({ type = string identifiers = list(string) }))) not_principals = optional(list(object({ type = string identifiers = list(string) }))) condition = optional(list(object({ test = string variable = string values = list(string) }))) }))"
     },
     "use_name_prefix": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     }
   },
   "outputs": [

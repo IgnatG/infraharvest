@@ -3,16 +3,24 @@
   "version": "8.3.0",
   "variables": {
     "bindings": {
-      "required": false
+      "required": false,
+      "type": "map(list(string))",
+      "default": {}
     },
     "conditional_bindings": {
-      "required": false
+      "required": false,
+      "type": "list(object({ role = string title = string description = string expression = string members = list(string) }))",
+      "default": []
     },
     "mode": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "additive"
     },
     "projects": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     }
   },
   "outputs": [

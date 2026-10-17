@@ -3,31 +3,43 @@
   "version": "0.5.3",
   "variables": {
     "enable_telemetry": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "federated_identity_credentials": {
-      "required": false
+      "required": false,
+      "type": "map(object({ audience = list(string) issuer = string name = string subject = string }))",
+      "default": {}
     },
     "isolation_scope": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "location": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "lock": {
-      "required": false
+      "required": false,
+      "type": "object({ kind = string name = optional(string, null) })"
     },
     "name": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "resource_group_name": {
-      "required": true
+      "required": true,
+      "type": "string"
     },
     "role_assignments": {
-      "required": false
+      "required": false,
+      "type": "map(object({ role_definition_id_or_name = string scope = string condition = optional(string, null) condition_version = optional(string, null) delegated_managed_identity_resource_id = optional(string, null) description = optional(string, null) skip_service_principal_aad_check = optional(bool, null) }))",
+      "default": {}
     },
     "tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)"
     }
   },
   "outputs": [

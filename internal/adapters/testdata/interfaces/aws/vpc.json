@@ -3,712 +3,1311 @@
   "version": "6.7.3",
   "variables": {
     "amazon_side_asn": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "64512"
     },
     "azs": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "cidr": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "10.0.0.0/16"
     },
     "create_database_internet_gateway_route": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_database_nat_gateway_route": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_database_subnet_group": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_database_subnet_route_table": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_egress_only_igw": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_elasticache_subnet_group": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_elasticache_subnet_route_table": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_flow_log_cloudwatch_iam_role": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_flow_log_cloudwatch_log_group": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_igw": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_multiple_intra_route_tables": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_multiple_public_route_tables": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_private_nat_gateway_route": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_redshift_subnet_group": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "create_redshift_subnet_route_table": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "create_vpc": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "customer_gateway_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "customer_gateways": {
-      "required": false
+      "required": false,
+      "type": "map(map(any))",
+      "default": {}
     },
     "customer_owned_ipv4_pool": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "database_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "database_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "database_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "database_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "database_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "database_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "database_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "database_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "database_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "database_subnet_group_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "database_subnet_group_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "database_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "database_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "database_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "database_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "database_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "db"
     },
     "database_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "database_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "default_network_acl_egress": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "action": "allow",
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_no": 100,
+          "to_port": 0
+        },
+        {
+          "action": "allow",
+          "from_port": 0,
+          "ipv6_cidr_block": "::/0",
+          "protocol": "-1",
+          "rule_no": 101,
+          "to_port": 0
+        }
+      ]
     },
     "default_network_acl_ingress": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "action": "allow",
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_no": 100,
+          "to_port": 0
+        },
+        {
+          "action": "allow",
+          "from_port": 0,
+          "ipv6_cidr_block": "::/0",
+          "protocol": "-1",
+          "rule_no": 101,
+          "to_port": 0
+        }
+      ]
     },
     "default_network_acl_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "default_network_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "default_route_table_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "default_route_table_propagating_vgws": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "default_route_table_routes": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": []
     },
     "default_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "default_security_group_egress": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": []
     },
     "default_security_group_ingress": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": []
     },
     "default_security_group_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "default_security_group_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "default_vpc_enable_dns_hostnames": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "default_vpc_enable_dns_support": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "default_vpc_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "default_vpc_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "dhcp_options_domain_name": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "dhcp_options_domain_name_servers": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": [
+        "AmazonProvidedDNS"
+      ]
     },
     "dhcp_options_ipv6_address_preferred_lease_time": {
-      "required": false
+      "required": false,
+      "type": "number"
     },
     "dhcp_options_netbios_name_servers": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "dhcp_options_netbios_node_type": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "dhcp_options_ntp_servers": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "dhcp_options_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "elasticache_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "elasticache_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "elasticache_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "elasticache_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "elasticache_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "elasticache_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "elasticache_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "elasticache_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "elasticache_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "elasticache_subnet_group_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "elasticache_subnet_group_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "elasticache_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "elasticache_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "elasticache_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "elasticache_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "elasticache_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "elasticache"
     },
     "elasticache_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "elasticache_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "enable_dhcp_options": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_dns_hostnames": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "enable_dns_support": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "enable_flow_log": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_ipv6": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_nat_gateway": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_network_address_usage_metrics": {
-      "required": false
+      "required": false,
+      "type": "bool"
     },
     "enable_public_redshift": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "enable_vpn_gateway": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "external_nat_ip_ids": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "external_nat_ips": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "flow_log_cloudwatch_iam_role_arn": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "flow_log_cloudwatch_iam_role_conditions": {
-      "required": false
+      "required": false,
+      "type": "list(object({ test = string variable = string values = list(string) }))",
+      "default": []
     },
     "flow_log_cloudwatch_log_group_class": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "flow_log_cloudwatch_log_group_kms_key_id": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "flow_log_cloudwatch_log_group_name_prefix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "/aws/vpc-flow-log/"
     },
     "flow_log_cloudwatch_log_group_name_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "flow_log_cloudwatch_log_group_retention_in_days": {
-      "required": false
+      "required": false,
+      "type": "number"
     },
     "flow_log_cloudwatch_log_group_skip_destroy": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "flow_log_deliver_cross_account_role": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "flow_log_destination_arn": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "flow_log_destination_type": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "cloud-watch-logs"
     },
     "flow_log_file_format": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "flow_log_hive_compatible_partitions": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "flow_log_log_format": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "flow_log_max_aggregation_interval": {
-      "required": false
+      "required": false,
+      "type": "number",
+      "default": 600
     },
     "flow_log_per_hour_partition": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "flow_log_traffic_type": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "ALL"
     },
     "igw_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "instance_tenancy": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "default"
     },
     "intra_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "intra_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "intra_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "intra_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "intra_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "intra_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "intra_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "intra_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "intra_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "intra_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "intra_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "intra_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "intra_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "intra_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "intra"
     },
     "intra_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "intra_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "ipv4_ipam_pool_id": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "ipv4_netmask_length": {
-      "required": false
+      "required": false,
+      "type": "number"
     },
     "ipv6_cidr": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "ipv6_cidr_block_network_border_group": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "ipv6_ipam_pool_id": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "ipv6_netmask_length": {
-      "required": false
+      "required": false,
+      "type": "number"
     },
     "manage_default_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "manage_default_route_table": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "manage_default_security_group": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "manage_default_vpc": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "map_customer_owned_ip_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "map_public_ip_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "name": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "nat_eip_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "nat_gateway_destination_cidr_block": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "0.0.0.0/0"
     },
     "nat_gateway_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "one_nat_gateway_per_az": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "outpost_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "outpost_arn": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "outpost_az": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "outpost_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "outpost_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "outpost_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "outpost_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "outpost_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "outpost_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "outpost_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "outpost_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "outpost_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "outpost_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "outpost_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "outpost_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "outpost"
     },
     "outpost_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "outpost_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "private_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "private_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "private_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "private_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "private_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "private_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "private_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "private_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "private_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "private_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "private_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "private_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "private_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "private_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "private"
     },
     "private_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "private_subnet_tags_per_az": {
-      "required": false
+      "required": false,
+      "type": "map(map(string))",
+      "default": {}
     },
     "private_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "propagate_intra_route_tables_vgw": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "propagate_private_route_tables_vgw": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "propagate_public_route_tables_vgw": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "public_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "public_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "public_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "public_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "public_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "public_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "public_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "public_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "public_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "public_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "public_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "public_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "public_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "public_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "public"
     },
     "public_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "public_subnet_tags_per_az": {
-      "required": false
+      "required": false,
+      "type": "map(map(string))",
+      "default": {}
     },
     "public_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "putin_khuylo": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "redshift_acl_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "redshift_dedicated_network_acl": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "redshift_inbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "redshift_outbound_acl_rules": {
-      "required": false
+      "required": false,
+      "type": "list(map(string))",
+      "default": [
+        {
+          "cidr_block": "0.0.0.0/0",
+          "from_port": 0,
+          "protocol": "-1",
+          "rule_action": "allow",
+          "rule_number": 100,
+          "to_port": 0
+        }
+      ]
     },
     "redshift_route_table_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "redshift_subnet_assign_ipv6_address_on_creation": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "redshift_subnet_enable_dns64": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "redshift_subnet_enable_resource_name_dns_a_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "redshift_subnet_enable_resource_name_dns_aaaa_record_on_launch": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "redshift_subnet_group_name": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "redshift_subnet_group_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "redshift_subnet_ipv6_native": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "redshift_subnet_ipv6_prefixes": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "redshift_subnet_names": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "redshift_subnet_private_dns_hostname_type_on_launch": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "redshift_subnet_suffix": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "redshift"
     },
     "redshift_subnet_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "redshift_subnets": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "region": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "reuse_nat_ips": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "secondary_cidr_blocks": {
-      "required": false
+      "required": false,
+      "type": "list(string)",
+      "default": []
     },
     "single_nat_gateway": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "use_ipam_pool": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": false
     },
     "vpc_block_public_access_exclusions": {
-      "required": false
+      "required": false,
+      "type": "map(any)",
+      "default": {}
     },
     "vpc_block_public_access_options": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "vpc_flow_log_iam_policy_name": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "vpc-flow-log-to-cloudwatch"
     },
     "vpc_flow_log_iam_policy_use_name_prefix": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "vpc_flow_log_iam_role_name": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": "vpc-flow-log-role"
     },
     "vpc_flow_log_iam_role_path": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "vpc_flow_log_iam_role_use_name_prefix": {
-      "required": false
+      "required": false,
+      "type": "bool",
+      "default": true
     },
     "vpc_flow_log_permissions_boundary": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "vpc_flow_log_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "vpc_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     },
     "vpn_gateway_az": {
-      "required": false
+      "required": false,
+      "type": "string"
     },
     "vpn_gateway_id": {
-      "required": false
+      "required": false,
+      "type": "string",
+      "default": ""
     },
     "vpn_gateway_tags": {
-      "required": false
+      "required": false,
+      "type": "map(string)",
+      "default": {}
     }
   },
   "outputs": [
