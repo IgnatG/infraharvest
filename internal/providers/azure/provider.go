@@ -5,8 +5,11 @@ package azure
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
@@ -118,21 +121,15 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 // ctx when cfg has one, and returns cfg so completed, the credential cfg
 // signs in with and the options of the Resource Manager clients. It sends
 // no request other than the metadata one: the credential signs in on its
-// first token.
+// first token. Every sign-in of the run with the same configuration, for
+// whichever subscription, shares one credential, and so its tokens, and
+// reads the metadata host once (see signIns).
 func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCredential, *arm.ClientOptions, error) {
-	if cfg.metadataHost != "" {
-		ctx, cancel := context.WithTimeout(ctx, signInHTTPTimeout)
-		defer cancel()
-		described, err := cloudFromMetadata(ctx, http.DefaultClient, cfg.metadataHost)
-		if err != nil {
-			return authConfig{}, nil, nil, err
-		}
-		cfg.cloud = described
-	}
-	credential, err := newCredential(cfg)
+	session, err := signInOnce(ctx, cfg)
 	if err != nil {
 		return authConfig{}, nil, nil, err
 	}
+	cfg.cloud = session.cloud
 	options := &arm.ClientOptions{
 		ClientOptions: policy.ClientOptions{
 			Cloud:     cfg.cloud,
@@ -145,7 +142,55 @@ func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCreden
 		// reads, and the Reader role can't register one anyway.
 		DisableRPRegistration: true,
 	}
-	return cfg, credential, options, nil
+	return cfg, session.credential, options, nil
+}
+
+// signedIn is what signing in with one configuration made: the cloud,
+// completed from a metadata host when there is one, and the credential.
+type signedIn struct {
+	cloud      cloud.Configuration
+	credential azcore.TokenCredential
+}
+
+// signIns holds the signedIn of each configuration signed in with, by
+// signInKey. Every service of an import initialises a provider of its own,
+// and every subscription of a run signs in again, all with the same
+// configuration: without it each would get a credential of its own, and
+// fetch its own token from the Azure CLI, Entra or the managed identity
+// endpoint on its first request.
+var signIns sync.Map
+
+// signInOnce returns the signedIn kept for cfg's configuration, or signs
+// in and keeps it; a failure isn't kept.
+func signInOnce(ctx context.Context, cfg authConfig) (signedIn, error) {
+	key := signInKey(cfg)
+	if kept, ok := signIns.Load(key); ok {
+		return kept.(signedIn), nil
+	}
+	if cfg.metadataHost != "" {
+		ctx, cancel := context.WithTimeout(ctx, signInHTTPTimeout)
+		defer cancel()
+		described, err := cloudFromMetadata(ctx, http.DefaultClient, cfg.metadataHost)
+		if err != nil {
+			return signedIn{}, err
+		}
+		cfg.cloud = described
+	}
+	credential, err := newCredential(cfg)
+	if err != nil {
+		return signedIn{}, err
+	}
+	kept, _ := signIns.LoadOrStore(key, signedIn{cloud: cfg.cloud, credential: credential})
+	return kept.(signedIn), nil
+}
+
+// signInKey is a digest of everything in cfg but the subscription, which
+// the credential doesn't depend on. It is a digest so that the secrets cfg
+// holds aren't kept a second time as a map key.
+func signInKey(cfg authConfig) string {
+	cfg.subscriptionID = ""
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%#v", cfg)))
+	return hex.EncodeToString(sum[:])
 }
 
 // limiters holds each subscription's *ratelimit.Limiter, by subscription
