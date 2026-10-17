@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -106,21 +107,34 @@ func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harv
 	}
 	svc := s3.NewFromConfig(config)
 	bucket := r.Observed.ID
-	var children []harvest.Resource
-	var errs []error
-	for _, child := range entry.Children {
+	// The probes ask about one bucket each, so they run at once, and their
+	// answers are read in the catalogue's order, which the output keeps.
+	configured := make([]bool, len(entry.Children))
+	probeErrs := make([]error, len(entry.Children))
+	var wg sync.WaitGroup
+	for i, child := range entry.Children {
 		probe, ok := s3Probes[child]
 		if !ok {
-			errs = append(errs, fmt.Errorf("%s: no way to tell whether a bucket has one", child))
+			probeErrs[i] = errors.New("no way to tell whether a bucket has one")
 			continue
 		}
-		configured, err := probe(ctx, svc, &bucket)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			name := bucket
+			configured[i], probeErrs[i] = probe(ctx, svc, &name)
+		}()
+	}
+	wg.Wait()
+	var children []harvest.Resource
+	var errs []error
+	for i, child := range entry.Children {
 		var apiErr smithy.APIError
-		switch {
+		switch err := probeErrs[i]; {
 		case errors.As(err, &apiErr) && s3NotConfigured[apiErr.ErrorCode()]:
 		case err != nil:
 			errs = append(errs, fmt.Errorf("%s: %w", child, err))
-		case configured:
+		case configured[i]:
 			children = append(children, harvest.RecordBare(bucket, bucket, child, "aws"))
 		}
 	}
