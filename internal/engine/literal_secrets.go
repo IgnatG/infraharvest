@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -161,6 +162,13 @@ func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags
 		value := stringLiteral(e)
 		if value == "" {
 			return nil
+		}
+		// A script, such as an instance's user data, is looked into
+		// line by line: a secret it sets moves the whole script.
+		if !tags && scriptKey(key) {
+			if reason := scriptSecret(value); reason != "" {
+				return []foundSecret{{attribute: path, key: key, value: value, reason: reason, literal: e, whole: true}}
+			}
 		}
 		// A JSON document is looked into first, so that a secret in it
 		// becomes a variable of its own and the rest keeps its text; the
@@ -306,6 +314,76 @@ func secretsInJSONString(e *hclsyntax.TemplateExpr, value, path, key string) []f
 	return found
 }
 
+// scriptKey reports whether key is an argument or metadata key that holds
+// a script an instance runs, such as an EC2 launch template's user_data,
+// kept in base64, or a Compute Engine instance's startup script.
+func scriptKey(key string) bool {
+	switch strings.ToLower(key) {
+	case "user_data", "user_data_base64", "custom_data", "metadata_startup_script", "startup_script",
+		"user-data", "startup-script", "shutdown-script", "windows-startup-script-ps1", "windows-startup-script-cmd",
+		"sysprep-specialize-script-ps1", "sysprep-specialize-script-cmd", "cloud-init", "cloud_init":
+		return true
+	}
+	return false
+}
+
+var (
+	// scriptAssignment finds what a line of a script sets: an environment
+	// variable (NAME=value, export NAME=value, $env:NAME = value), a YAML
+	// key (name: value), or a command-line option (--name value,
+	// --name=value).
+	scriptAssignment = []*regexp.Regexp{
+		regexp.MustCompile(`(?:^|[\s;&|(])(?:export\s+|set\s+|\$env:)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^\s;&|]+)`),
+		regexp.MustCompile(`^\s*-?\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:\s+("[^"]*"|'[^']*'|\S+)\s*$`),
+		regexp.MustCompile(`(?:^|\s)--([A-Za-z][A-Za-z0-9-]*)(?:=|\s+)("[^"]*"|'[^']*'|[^\s;&|-][^\s;&|]*)`),
+	}
+	// mysqlPassword finds the password a mysql command line gives as
+	// -p<password>.
+	mysqlPassword = regexp.MustCompile(`\bmysql(?:dump|admin)?\b.*\s-p("[^"]+"|'[^']+'|[^\s'"]+)`)
+	// base64Text is what a base64 script, such as a launch template's user
+	// data, looks like.
+	base64Text = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,2}$`)
+)
+
+// scriptSecret says why the script value holds a secret, or returns "": a
+// credential format anywhere in it, or a line that sets a key whose name
+// says it is a secret (see secretReason) to a value of its own, not one it
+// reads from elsewhere, as "$DB_PASSWORD" or "$(aws secretsmanager ...)"
+// does. A script in base64 is decoded first.
+func scriptSecret(value string) string {
+	text := value
+	if v := strings.TrimSpace(value); len(v)%4 == 0 && base64Text.MatchString(v) {
+		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil && utf8.Valid(decoded) {
+			text = string(decoded)
+		}
+	}
+	if name := credentialFormat(text); name != "" {
+		return "the script holds what looks like a " + name
+	}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if m := mysqlPassword.FindStringSubmatch(line); m != nil && scriptValue(m[1]) {
+			return "the script gives mysql a password"
+		}
+		for _, re := range scriptAssignment {
+			for _, m := range re.FindAllStringSubmatch(line, -1) {
+				key, v := m[1], strings.Trim(m[2], `"'`)
+				if secretKeyName(key) && scriptValue(v) && secretReason(key, v, true) != "" {
+					return "the script sets " + key + ", whose name says it is a secret"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// scriptValue reports whether a value a script sets is written in it, not
+// read from a variable, a command or a file.
+func scriptValue(v string) bool {
+	v = strings.Trim(v, `"'`)
+	return v != "" && !strings.ContainsAny(v[:1], "$`<@%") && !strings.Contains(v, "$(") && !strings.Contains(v, "${")
+}
+
 // secretReason says why value, going by key, is a secret, or returns "".
 // Credential formats (see credentialFormat) are secrets anywhere. A value
 // whose key names a secret (see secretKeyName), or that looks random
@@ -339,7 +417,7 @@ func secretReason(key, value string, freeForm bool) string {
 // literalSecretPatterns are credential formats looked for in single
 // values, besides secretPatterns. A webhook URL is the whole value.
 var literalSecretPatterns = map[string]*regexp.Regexp{
-	"password in a connection string": regexp.MustCompile(`(?i)(^|;)\s*(password|pwd)\s*=\s*[^;\s]+`),
+	"password in a connection string": regexp.MustCompile(`(?im)(^|;)\s*(password|pwd)\s*=\s*[^;\s]+`),
 	"Azure shared access key":         regexp.MustCompile(`SharedAccessKey=[A-Za-z0-9+/=]{20,}`),
 	"Azure SAS token":                 regexp.MustCompile(`[?&]sig=[A-Za-z0-9%+/=]{20,}`),
 	"Slack webhook":                   regexp.MustCompile(`^https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}`),

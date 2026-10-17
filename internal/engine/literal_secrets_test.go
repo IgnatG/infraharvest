@@ -436,3 +436,72 @@ func TestRemoveStaleSecretValues(t *testing.T) {
 		}
 	}
 }
+
+// Scripts hide secrets the other checks can't see: in base64, as a launch
+// template keeps its user data, or on a line of their own.
+func TestLiteralSecretsInScripts(t *testing.T) {
+	password := fakeSecret("script-db")[:20]
+	token := fakeSecret("script-token")[:32]
+	userData := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nyum install -y mysql\nexport DB_PASSWORD='" + password + "'\n"))
+	clean := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nmkdir -p /opt/app\nexport DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id db --query SecretString --output text)\n"))
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_launch_template" "app" {
+  name      = "app"
+  user_data = "`+userData+`"
+}
+
+resource "aws_launch_template" "clean" {
+  name      = "clean"
+  user_data = "`+clean+`"
+}
+
+resource "google_compute_instance" "web" {
+  name = "web"
+  metadata = {
+    enable-oslogin = "TRUE"
+    startup-script = "#!/bin/bash\ncd /opt/app\nAPI_TOKEN=`+token+` ./run.sh --port 8080\n"
+  }
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range secrets {
+		got = append(got, s.Address+" "+s.Attribute)
+	}
+	want := []string{"aws_launch_template.app user_data", "google_compute_instance.web metadata.startup-script"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	generated := readFile(t, dir, GeneratedFileName)
+	for _, want := range []string{clean, `enable-oslogin = "TRUE"`} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("missing %q in:\n%s", want, generated)
+		}
+	}
+	assertNotWritten(t, dir, userData, token)
+}
+
+func TestScriptSecret(t *testing.T) {
+	secret := fakeSecret("script")[:20]
+	for script, want := range map[string]bool{
+		"export DB_PASSWORD=" + secret:                                         true,
+		"#!/bin/sh\nmysql -u root -p'" + secret + "' app < x.sql":              true,
+		"run --api-token " + secret:                                            true,
+		"#cloud-config\nchpasswd:\n  list: x\npassword: " + secret:             true,
+		"$env:CLIENT_SECRET = '" + secret + "'":                                true,
+		base64.StdEncoding.EncodeToString([]byte("API_KEY=" + secret)):         true,
+		"export DB_PASSWORD=$DB_PASSWORD_FROM_SSM":                             false,
+		"export DB_PASSWORD_FILE=/run/secrets/db":                              false,
+		"mkdir -p /opt/app && echo ECS_CLUSTER=prod >> /etc/ecs/ecs.config":    false,
+		"/etc/eks/bootstrap.sh prod --b64-cluster-ca " + secret:                false,
+		base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\necho hello\n")): false,
+	} {
+		if got := scriptSecret(script) != ""; got != want {
+			t.Errorf("scriptSecret(%q): got secret %v, want %v", script, got, want)
+		}
+	}
+}
