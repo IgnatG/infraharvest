@@ -80,3 +80,38 @@ func TestInitWaitStopsOnCancellation(t *testing.T) {
 		t.Errorf("init ran %d times while another was running", tf.inits)
 	}
 }
+
+// stoppedPlan is a Terraform whose plan reports an error diagnostic, as
+// Terraform does when it is stopped part way, and fails with err.
+type stoppedPlan struct {
+	Terraform
+	err error
+}
+
+func (s stoppedPlan) PlanJSON(_ context.Context, w io.Writer, _ ...tfexec.PlanOption) (bool, error) {
+	_, _ = io.WriteString(w, `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Operation cancelled"}}`+"\n")
+	return false, s.err
+}
+
+func (stoppedPlan) SetStdout(io.Writer) {}
+
+// The diagnostics of a plan that was stopped aren't errors of the
+// configuration: plan returns why it was stopped.
+func TestPlanStopped(t *testing.T) {
+	exit := errors.New("exit status 1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if diags, _, err := plan(ctx, stoppedPlan{err: exit}); !errors.Is(err, context.Canceled) || diags != nil {
+		t.Errorf("cancelled: got %v, %v; want the cancellation", diags, err)
+	}
+
+	timeout := &timeoutError{timeout: time.Minute}
+	if diags, _, err := plan(context.Background(), stoppedPlan{err: timeout}); !errors.Is(err, timeout) || diags != nil {
+		t.Errorf("timed out: got %v, %v; want the timeout", diags, err)
+	}
+
+	// A plan that failed on its own reports its errors as diagnostics.
+	if diags, _, err := plan(context.Background(), stoppedPlan{err: exit}); err != nil || len(diags) != 1 {
+		t.Errorf("failed: got %v, %v; want the diagnostic", diags, err)
+	}
+}

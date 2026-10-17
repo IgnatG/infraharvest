@@ -165,6 +165,11 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	if err != nil {
 		return nil, err
 	}
+	// Checks cut short, such as a scanner that couldn't run, say nothing
+	// of dir: a cancelled gate fails as cancelled, not as failed checks.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return append(gate, determinism), nil
 }
 

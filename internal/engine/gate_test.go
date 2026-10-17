@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -392,5 +393,27 @@ func TestScannersDontSeeSecrets(t *testing.T) {
 	}
 	if c := gate.check(CheckScanners); !c.Skipped {
 		t.Errorf("scanners not skipped: %+v", c)
+	}
+}
+
+// A gate interrupted part way fails as cancelled, not with the checks
+// that were cut short.
+func TestGateCancelled(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tf := &fakeTerraform{dir: dir}
+
+	_, err := gateWith(ctx, tf, dir, Options{}, func() (Check, []string, error) {
+		cancel() // as an interrupt while the plan runs
+		return Check{Name: CheckPlan, Passed: true}, nil, nil
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("want the cancellation, got %v", err)
 	}
 }

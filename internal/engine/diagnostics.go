@@ -30,13 +30,22 @@ type changeSummary struct {
 
 // plan runs terraform plan and returns its error diagnostics and its change
 // summary, which is nil if Terraform reported none, as when the plan fails.
-// It returns an error only when Terraform failed without reporting any
-// diagnostics, for example when it couldn't start or ctx was cancelled, or
+// It returns an error when Terraform failed without reporting any
+// diagnostics, for example when it couldn't start, when ctx is done or the
+// plan timed out, whatever Terraform reported before it was stopped, or
 // when its output couldn't be read.
 func plan(ctx context.Context, tf Terraform, opts ...tfexec.PlanOption) ([]tfjson.Diagnostic, *changeSummary, error) {
 	var out bytes.Buffer
 	_, err := tf.PlanJSON(ctx, &out, opts...)
 	tf.SetStdout(io.Discard) // PlanJSON leaves out as the output of later commands
+	// A stopped plan reports what it was doing, such as "Operation
+	// cancelled": that isn't an error of the configuration.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, nil, err
+	}
 	uiDiags, scanErr := parseUIDiagnostics(out.Bytes())
 	if scanErr != nil {
 		return nil, nil, fmt.Errorf("read the plan's output: %w", scanErr)
