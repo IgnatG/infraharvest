@@ -10,6 +10,8 @@ Find the message you see, or the exit code, below. infraharvest logs to stderr, 
 | 1 | Something couldn't be imported; the log ends with `output is incomplete; rerun with --allow-partial to accept partial output` | `coverage.json`, below |
 | 2 | The import couldn't run: no credentials, no Terraform, a registry out of reach, state that can't be read | The last line of the log |
 | 3 | Something couldn't be imported, `--allow-partial` is set (`output is incomplete (--allow-partial is set)`), and the output has the rest | `coverage.json`, below |
+| 130 | The import was interrupted with Ctrl-C (SIGINT) | `coverage.json` lists what was done before it stopped |
+| 143 | The import was terminated (SIGTERM), as by a CI runner cancelling the job or a timeout | `coverage.json`, as for 130 |
 
 See [Exit codes](output.md#exit-codes). A failed check of the [verification gate](output.md#verification-gate) counts as something that couldn't be imported.
 

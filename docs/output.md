@@ -137,8 +137,10 @@ To check generated roots again, for example after editing them, run `infraharves
 | 1 | Something couldn't be imported, and `--allow-partial` isn't set |
 | 2 | The import couldn't run, for example without credentials or a Terraform binary |
 | 3 | Something couldn't be imported, `--allow-partial` is set, and the output has the rest |
+| 130 | The import was interrupted (Ctrl-C, SIGINT) |
+| 143 | The import was terminated (SIGTERM) |
 
-An import that can't run still writes its report, with the error and exit code 2, so that an earlier run's report isn't taken for its own.
+An import that can't run still writes its report, with the error and exit code 2, so that an earlier run's report isn't taken for its own. So does an interrupted or terminated one, with exit code 130 or 143, as a shell reports a process the signal ended; a second Ctrl-C stops the process at once, without a report. `infraharvest verify` exits with the same codes when interrupted.
 
 ## Repairs
 

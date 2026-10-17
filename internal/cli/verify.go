@@ -4,10 +4,6 @@
 package cli
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
@@ -32,9 +28,9 @@ func newVerifyCmd() *cobra.Command {
 			if len(args) == 1 {
 				options.Out = args[0]
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := importer.InterruptContext(cmd.Context())
 			defer stop()
-			return importer.Verify(ctx, options, cmd.OutOrStdout())
+			return importer.Interrupted(ctx, importer.Verify(ctx, options, cmd.OutOrStdout()))
 		},
 	}
 	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
