@@ -104,7 +104,7 @@ func mapGoogleKMS(c Cluster) (*Call, error) {
 			}
 		}
 		// Terraform's own setting, which an import records at its default.
-		r.IgnoreDefault("deletion_policy", cty.StringVal("DELETE"))
+		r.IgnoreDeletionPolicy()
 		if err := r.Done(); err != nil {
 			return nil, err
 		}

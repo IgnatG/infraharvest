@@ -528,16 +528,6 @@ func literalEquals(expr hclsyntax.Expression, want string) bool {
 	return !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() && v.AsString() == want
 }
 
-// refersTo reports whether an expression is a reference to resource.
-func refersTo(expr hclsyntax.Expression, resource Resource) bool {
-	traversal, ok := expr.(*hclsyntax.ScopeTraversalExpr)
-	if !ok || len(traversal.Traversal) < 2 || traversal.Traversal.RootName() != resource.Type {
-		return false
-	}
-	step, ok := traversal.Traversal[1].(hcl.TraverseAttr)
-	return ok && step.Name == resource.Name
-}
-
 // sortSubnets orders subnets by zone, then CIDR block.
 func sortSubnets(subnets []*vpcSubnet) {
 	slices.SortFunc(subnets, func(a, b *vpcSubnet) int {

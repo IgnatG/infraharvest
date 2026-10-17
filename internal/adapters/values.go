@@ -73,6 +73,13 @@ func (r *Reader) IgnoreDefault(name string, want cty.Value) {
 	}
 }
 
+// IgnoreDeletionPolicy marks the google provider's Terraform-only
+// deletion_policy read at its default, DELETE, which an import of a
+// resource that has it always records.
+func (r *Reader) IgnoreDeletionPolicy() {
+	r.IgnoreDefault("deletion_policy", cty.StringVal("DELETE"))
+}
+
 // stringList returns values as a list of strings, empty if there are none.
 func stringList(values []string) cty.Value {
 	if len(values) == 0 {

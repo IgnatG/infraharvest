@@ -104,7 +104,7 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 	// It only acts when the network is created, which an import doesn't.
 	network.Ignore("delete_default_routes_on_create")
 	// Terraform's own setting, which an import records at its default.
-	network.IgnoreDefault("deletion_policy", cty.StringVal("DELETE"))
+	network.IgnoreDeletionPolicy()
 	if err := network.Done(); err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 		if p, ok := r.Attr("project"); !ok || !sameTokens(p, project) {
 			return nil, Declinef("%s isn't in the network's project, as the module puts it", m.Address())
 		}
-		r.IgnoreDefault("deletion_policy", cty.StringVal("DELETE"))
+		r.IgnoreDeletionPolicy()
 		// The module has no input for it; Google's default is off.
 		r.IgnoreDefault("allow_subnet_cidr_routes_overlap", cty.False)
 		switch m.Type {

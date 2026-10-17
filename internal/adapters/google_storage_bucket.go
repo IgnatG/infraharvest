@@ -72,7 +72,7 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 		}
 	}
 	// Terraform's own setting, which an import records at its default.
-	b.IgnoreDefault("deletion_policy", cty.StringVal("DELETE"))
+	b.IgnoreDeletionPolicy()
 	// The module's default is true; left out, the bucket's is false.
 	uniform, ok := b.Attr("uniform_bucket_level_access")
 	if !ok {
