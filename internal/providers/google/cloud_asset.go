@@ -224,9 +224,14 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 	}
 	var resources []harvest.Resource
 	elsewhere := 0
+	// The regions of what is elsewhere, for the import of global to name.
+	var regions []string
 	for _, r := range results {
 		if !inRegion(r.Location, region) {
 			elsewhere++
+			if in := regionOf(r.Location); in != "" && !slices.Contains(regions, in) {
+				regions = append(regions, in)
+			}
 			continue
 		}
 		if strings.Contains(strings.ToUpper(r.State), "DELET") {
@@ -248,7 +253,10 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 	if elsewhere > 0 {
 		where := "the global import"
 		if region == "" {
-			where = "the imports of their regions"
+			// --regions defaults to global alone, which leaves them out:
+			// name the regions to add.
+			slices.Sort(regions)
+			where = "the imports of their regions, which --regions names: " + strings.Join(regions, ", ")
 		}
 		log.Printf("%s: cloud_asset: %d resources of project %s are in other locations, for %s", provider, elsewhere, projectID, where)
 	}
@@ -275,6 +283,19 @@ func assetName(displayName, id string) string {
 // as us-central1 or us-central1-a, rather than global or a multi-region
 // such as us or nam4.
 var regional = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+(-[a-z])?$`)
+
+// regionOf is the region of a location in a region or a zone, such as
+// us-central1 for us-central1-a, or "" for global or a multi-region.
+func regionOf(location string) string {
+	location = strings.ToLower(location)
+	if !regional.MatchString(location) {
+		return ""
+	}
+	if dash := strings.LastIndexByte(location, '-'); len(location)-dash == 2 {
+		return location[:dash]
+	}
+	return location
+}
 
 // inRegion reports whether a resource at location belongs to the import of
 // region: the region and its zones, or, for global (""), what isn't in a

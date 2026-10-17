@@ -5,6 +5,7 @@ package google
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -469,5 +470,32 @@ func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	}
 	if p.Selected().Settings()["catalogue"] != cat {
 		t.Error("the service doesn't get the import's catalogue")
+	}
+}
+
+func TestRegionOf(t *testing.T) {
+	for location, want := range map[string]string{
+		"us-central1":    "us-central1",
+		"us-central1-a":  "us-central1",
+		"EUROPE-WEST2-B": "europe-west2",
+		"global":         "",
+		"us":             "",
+		"nam4":           "",
+	} {
+		if got := regionOf(location); got != want {
+			t.Errorf("%q: got %q, want %q", location, got, want)
+		}
+	}
+}
+
+// The import of global names the regions of what it leaves to the
+// imports of regions, as --regions defaults to global alone.
+func TestGlobalNamesTheOtherRegions(t *testing.T) {
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	listAssets(t, &fakeAssetSearch{results: searchResults, perPage: 500}, nil, "")
+	if want := "for the imports of their regions, which --regions names: europe-west1, us-central1"; !strings.Contains(logged.String(), want) {
+		t.Errorf("log %q, want %q", logged.String(), want)
 	}
 }
