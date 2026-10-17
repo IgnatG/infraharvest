@@ -284,6 +284,96 @@ func TestLoadReadsAzureWorkspaces(t *testing.T) {
 	}
 }
 
+// recordingStore is a fakeStore that records the prefixes it is listed
+// with.
+type recordingStore struct {
+	fakeStore
+	prefixes *[]string
+}
+
+func (r recordingStore) List(ctx context.Context, bucket, prefix string) ([]string, error) {
+	*r.prefixes = append(*r.prefixes, prefix)
+	return r.fakeStore.List(ctx, bucket, prefix)
+}
+
+// The S3 backend keeps the state of a workspace other than default at
+// <workspace_key_prefix>/<workspace>/<key>, at the bucket's root, which is
+// listed too: "env:/" unless the source names another prefix, keeping only
+// the keys under the source's prefix. A source under the workspaces'
+// prefix, or with none, lists them already.
+func TestLoadReadsS3Workspaces(t *testing.T) {
+	role := func(id string) string {
+		return `{"version": 4, "resources": [{"mode": "managed", "type": "aws_iam_role", "instances": [{"attributes": {"id": "` + id + `"}}]}]}`
+	}
+	bucket := fakeStore{
+		"imported/iam/terraform.tfstate":              role("default"),
+		"env:/staging/imported/iam/terraform.tfstate": role("staging"),
+		"env:/staging/other/terraform.tfstate":        role("other"),
+		"env:/staging/imported/iam/notes.txt":         "not state",
+		"workspaces/prod/imported/terraform.tfstate":  role("prod"),
+	}
+	for _, tc := range []struct {
+		source       string
+		wantPrefixes []string
+		found        []string
+		notFound     []string
+		where        string
+	}{
+		{
+			source:       "s3://acme-state/imported/",
+			wantPrefixes: []string{"imported/", "env:/"},
+			found:        []string{"default", "staging"},
+			notFound:     []string{"other", "prod"},
+			where:        "s3://acme-state/env:/staging/imported/iam/terraform.tfstate",
+		},
+		{
+			source:       "s3://acme-state/imported?workspace_key_prefix=workspaces",
+			wantPrefixes: []string{"imported", "workspaces/"},
+			found:        []string{"default", "prod"},
+			notFound:     []string{"staging", "other"},
+		},
+		{
+			source:       "s3://acme-state/env:/staging/",
+			wantPrefixes: []string{"env:/staging/"},
+			found:        []string{"staging", "other"},
+			notFound:     []string{"default"},
+		},
+		{
+			source:       "s3://acme-state",
+			wantPrefixes: []string{""},
+			found:        []string{"default", "staging", "other", "prod"},
+		},
+	} {
+		var prefixes []string
+		stores := Stores{S3: func(context.Context, string, string) (ObjectStore, error) {
+			return recordingStore{bucket, &prefixes}, nil
+		}}
+		r, err := Load(context.Background(), []string{tc.source}, stores)
+		if err != nil {
+			t.Errorf("%s: %v", tc.source, err)
+			continue
+		}
+		if fmt.Sprint(prefixes) != fmt.Sprint(tc.wantPrefixes) {
+			t.Errorf("%s: listed %q, want %q", tc.source, prefixes, tc.wantPrefixes)
+		}
+		for _, id := range tc.found {
+			if _, ok := r.Lookup("aws_iam_role", id); !ok {
+				t.Errorf("%s: role %s not found", tc.source, id)
+			}
+		}
+		for _, id := range tc.notFound {
+			if where, ok := r.Lookup("aws_iam_role", id); ok {
+				t.Errorf("%s: role %s found in %s", tc.source, id, where)
+			}
+		}
+		if tc.where != "" {
+			if where, _ := r.Lookup("aws_iam_role", "staging"); where != tc.where {
+				t.Errorf("%s: where %q, want %q", tc.source, where, tc.where)
+			}
+		}
+	}
+}
+
 // A state larger than the limit fails, saying so, rather than being cut
 // off into a JSON error.
 func TestReadStateLimit(t *testing.T) {

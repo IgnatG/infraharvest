@@ -115,7 +115,9 @@ var DefaultStores = Stores{S3: NewS3, GCS: NewGCS, AzureBlob: NewAzureBlob, HCPT
 
 // Load reads the state in sources: state files, directories with state
 // files (*.tfstate, outside .terraform), s3://bucket/prefix (?region=
-// names the bucket's region, ?profile= the profile to read it with),
+// names the bucket's region, ?profile= the profile to read it with,
+// ?workspace_key_prefix= where its workspaces' states are, see
+// s3WorkspaceStates),
 // gs://bucket/prefix and https://<account>.blob.core.windows.net/
 // container/prefix, all of whose *.tfstate objects are read, and
 // tfc://organization/workspace, the current state of HCP Terraform
@@ -272,12 +274,53 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 			states = append(states, key)
 		}
 	}
+	if o.url.Scheme == "s3" {
+		workspaces, err := s3WorkspaceStates(ctx, store, o)
+		if err != nil {
+			return err
+		}
+		states = append(states, workspaces...)
+	}
 	if len(states) == 0 {
 		return errors.New("no .tfstate object under the prefix")
 	}
 	return r.parseAll(ctx, states, func(ctx context.Context, key string) ([]byte, error) {
 		return store.Get(ctx, bucket, key)
 	}, base)
+}
+
+// defaultWorkspaceKeyPrefix is the S3 backend's workspace_key_prefix when
+// the configuration sets none, as the roots infraharvest writes don't.
+const defaultWorkspaceKeyPrefix = "env:"
+
+// s3WorkspaceStates returns the keys of the states the S3 backend keeps
+// for the workspaces other than default of the keys under o's prefix. It
+// keeps them at <workspace_key_prefix>/<workspace>/<key>, at the bucket's
+// root rather than under the prefix, so they are listed on their own:
+// with the source's ?workspace_key_prefix=, or else "env:". A source whose
+// prefix is empty, or is itself under the workspaces' prefix, already
+// lists them, and nothing more is asked for.
+func s3WorkspaceStates(ctx context.Context, store ObjectStore, o objectSource) ([]string, error) {
+	workspaceKeyPrefix := o.url.Query().Get("workspace_key_prefix")
+	if workspaceKeyPrefix == "" {
+		workspaceKeyPrefix = defaultWorkspaceKeyPrefix
+	}
+	workspaceKeyPrefix = strings.TrimSuffix(workspaceKeyPrefix, "/") + "/"
+	if o.prefix == "" || strings.HasPrefix(o.prefix, workspaceKeyPrefix) {
+		return nil, nil
+	}
+	keys, err := store.List(ctx, o.bucket, workspaceKeyPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("workspace states under %s: %w", workspaceKeyPrefix, err)
+	}
+	var states []string
+	for _, key := range keys {
+		_, workspaceKey, ok := strings.Cut(strings.TrimPrefix(key, workspaceKeyPrefix), "/")
+		if ok && strings.HasPrefix(workspaceKey, o.prefix) && isStateObject("s3", key) {
+			states = append(states, key)
+		}
+	}
+	return states, nil
 }
 
 // isStateObject reports whether the object at key, in a store of scheme
