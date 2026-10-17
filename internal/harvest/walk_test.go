@@ -9,6 +9,7 @@ import (
 )
 
 func TestValuesAt(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		path string
@@ -79,6 +80,7 @@ func TestValuesAt(t *testing.T) {
 }
 
 func TestHasPath(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		data map[string]interface{}

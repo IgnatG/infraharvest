@@ -31,6 +31,7 @@ const providerSchemasEnv = "INFRAHARVEST_PROVIDER_SCHEMAS"
 // rename in the provider would otherwise leave an omit or a default doing
 // nothing.
 func TestCatalogueMatchesProviderSchemas(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv(providerSchemasEnv)
 	if dir == "" {
 		t.Skipf("%s isn't set: the test workflow's catalogue-schemas job sets it", providerSchemasEnv)
@@ -226,6 +227,7 @@ func convertsTo(value string, ty cty.Type) bool {
 // data sources, and defaults of the wrong type, and accepts what the
 // schema has.
 func TestSchemaProblems(t *testing.T) {
+	t.Parallel()
 	schema := &tfjson.ProviderSchema{
 		ResourceSchemas: map[string]*tfjson.Schema{
 			"aws_thing": {Block: &tfjson.SchemaBlock{

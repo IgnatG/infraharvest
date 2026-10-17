@@ -54,6 +54,7 @@ resource "aws_ssm_parameter" "d" {
 `
 
 func TestRemoveRejected(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	if err := os.WriteFile(path, []byte(rejectedConfig), 0o644); err != nil {
 		t.Fatal(err)
@@ -95,6 +96,7 @@ func TestRemoveRejected(t *testing.T) {
 }
 
 func TestRemoveRejectedLeavesOtherErrors(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	if err := os.WriteFile(path, []byte(rejectedConfig), 0o644); err != nil {
 		t.Fatal(err)
@@ -153,6 +155,7 @@ resource "aws_network_acl" "c" {
 `
 
 func TestRemoveRejectedBlocksAndObjects(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	if err := os.WriteFile(path, []byte(conflictingBlocksConfig), 0o644); err != nil {
 		t.Fatal(err)
@@ -192,6 +195,7 @@ func TestRemoveRejectedBlocksAndObjects(t *testing.T) {
 // A nested block with a value isn't unset: removing it would change the
 // configuration.
 func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	config := `resource "aws_lb_target_group" "b" {
   target_failover {
@@ -217,6 +221,7 @@ func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
 // An error that names only the argument points at the block that lacks
 // it, such as a forward action's stickiness block, set only to false, on AWS.
 func TestRemoveRejectedBlockByBareArgument(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	config := `resource "aws_lb_listener" "a" {
   port = 80
@@ -254,6 +259,7 @@ func TestRemoveRejectedBlockByBareArgument(t *testing.T) {
 // about set elements and attributes written as blocks point at the
 // resource, naming the argument by path or on its own.
 func TestRemoveRejectedAtResourceLevel(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
 	config := `resource "aws_lb" "a" {
   name = ""

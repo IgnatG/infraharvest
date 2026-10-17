@@ -72,6 +72,7 @@ var bothCalls = []string{
 }
 
 func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(bothCalls...)}}
 	before, err := importTargets(dir)
@@ -127,6 +128,7 @@ func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
 // A call leaves out the arguments set to the module's defaults, as a
 // person would call it; before, it set every one the resources had.
 func TestSynthesizeLeavesOutModuleDefaults(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(bothCalls...)}}
 	withDefaults := testAdapter
@@ -143,6 +145,7 @@ func TestSynthesizeLeavesOutModuleDefaults(t *testing.T) {
 
 // A call whose resources plan differently is taken back; the others stay.
 func TestSynthesizeTakesBackCallsThatChangeThePlan(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	first := importedPlan(bothCalls...)
 	first.ResourceChanges[3] = resourceChange("module.state.aws_s3_bucket.this[0]", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"tags": nil}, map[string]any{"tags": map[string]any{}})
@@ -166,6 +169,7 @@ func TestSynthesizeTakesBackCallsThatChangeThePlan(t *testing.T) {
 // A module may set arguments the provider keeps only in state, which
 // import can't: the plan then updates them, and nothing else.
 func TestSynthesizeAllowsStateOnlyUpdates(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		stateOnly map[string][]string
@@ -198,6 +202,7 @@ func TestSynthesizeAllowsStateOnlyUpdates(t *testing.T) {
 }
 
 func TestSynthesizeTakesBackCallsThatCreate(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	p := importedPlan(bothCalls...)
 	p.ResourceChanges = append(p.ResourceChanges, resourceChange("module.logs.aws_s3_bucket_public_access_block.this[0]", tfjson.Actions{tfjson.ActionCreate}, nil, map[string]any{}))
@@ -214,6 +219,7 @@ func TestSynthesizeTakesBackCallsThatCreate(t *testing.T) {
 
 // Without the modules (no registry), nothing moves.
 func TestSynthesizeWithoutTheModules(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, initErr: errors.New("registry unreachable")}
 
@@ -265,6 +271,7 @@ var cycle = []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summa
 // An error the plan can't pin on one call is found by planning the calls
 // apart: the call it comes with is declined with it, and the other kept.
 func TestSynthesizeOnAPlanError(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := callsTerraform(t, dir, func(calls map[string]bool) fakePlan {
 		if calls["state"] {
@@ -307,6 +314,7 @@ func bucketRoot(n int) (string, map[string]string) {
 // with, with its reason, found by planning half of the calls at a time;
 // the others are kept, and the plans paid stay few.
 func TestSynthesizeFindsTheCallsAPlanFailsFor(t *testing.T) {
+	t.Parallel()
 	const n = 8
 	failsWith := func(bad ...string) func(map[string]bool) fakePlan {
 		return func(calls map[string]bool) fakePlan {
@@ -393,6 +401,7 @@ func TestSynthesizeFindsTheCallsAPlanFailsFor(t *testing.T) {
 // A plan that reports neither errors nor a result tells nothing: the calls
 // are taken back, not planned again.
 func TestSynthesizeWhenThePlanReportsNothing(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{nil}}
 
@@ -412,6 +421,7 @@ func TestSynthesizeWhenThePlanReportsNothing(t *testing.T) {
 }
 
 func TestMapClustersDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		root, reason string
 	}{
@@ -440,6 +450,7 @@ func TestMapClustersDeclines(t *testing.T) {
 // A reference to a string the module has no output for, such as an
 // alarm's queue name, becomes the string again: the call matters more.
 func TestMapClustersWritesStringsWithoutOutputs(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, strings.Replace(twoBuckets, "policy = aws_s3_bucket.logs.arn", "policy = aws_s3_bucket.logs.region", 1))
 	values := map[string]map[string]any{"aws_s3_bucket.logs": {"region": "eu-west-2"}}
 	trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil, values)
@@ -461,6 +472,7 @@ func squashed(s string) string {
 // References become references to module outputs, or to paths into them,
 // wherever they are in an expression; longer names and data sources stay.
 func TestSpliceTraversal(t *testing.T) {
+	t.Parallel()
 	replacement, err := outputTokens("net", `subnets["us-central1/app"].self_link`)
 	if err != nil {
 		t.Fatal(err)
@@ -500,6 +512,7 @@ func TestSpliceTraversal(t *testing.T) {
 // A kept call whose module uses another provider configures it in the
 // root; when every call is taken back, so is the provider.
 func TestSynthesizeConfiguresModuleProviders(t *testing.T) {
+	t.Parallel()
 	withBeta := testAdapter
 	withBeta.Providers = []string{"google-beta"}
 	moduleProviders := map[string]Provider{"google-beta": {Name: "google-beta", Source: "hashicorp/google-beta", Config: map[string]interface{}{"project": "acme"}}}
@@ -592,6 +605,7 @@ resource "aws_security_group" "web" {
 // Members join through the cluster's other resources, in either
 // direction, and the call imports what the module keeps separately.
 func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, network)
 	trials, declined, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil, nil)
 	if err != nil || len(declined) != 0 || len(trials) != 1 {
@@ -634,6 +648,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 // The added imports count: a plan that imports only the root's resources
 // doesn't match.
 func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, network)
 	trials, _, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil, nil)
 	if err != nil || len(trials) != 1 {
@@ -657,6 +672,7 @@ func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
 
 // Members the module doesn't manage stay in the root.
 func TestMapClustersLeavesWhatTheAdapterLeaves(t *testing.T) {
+	t.Parallel()
 	leaving := networkAdapter
 	leaving.Map = func(c adapters.Cluster) (*adapters.Call, error) {
 		call, err := networkAdapter.Map(c)
@@ -707,6 +723,7 @@ var grantsAdapter = adapters.Adapter{
 // Resources with the same key join one cluster without referring to each
 // other; one without a key stays out, and a declined group is tried once.
 func TestMapClustersGroups(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, `resource "google_project_iam_member" "a" {
   project = "acme"
 }
@@ -750,6 +767,7 @@ resource "google_project_iam_member" "f" {
 // A call the adapter names is named so, made unique, rather than after its
 // anchor, which is only the first resource of a group.
 func TestMapClustersNamesCallsAsTheAdapterSays(t *testing.T) {
+	t.Parallel()
 	dir, _ := moduleRoot(t, `resource "google_project_iam_member" "a" {
   project = "acme"
 }
@@ -781,6 +799,7 @@ resource "google_project_iam_member" "b" {
 
 // A module in a directory is called by its path from the root.
 func TestCallSource(t *testing.T) {
+	t.Parallel()
 	out := t.TempDir()
 	root := filepath.Join(out, "aws", "123", "eu-west-2")
 	for source, want := range map[string]string{
@@ -800,6 +819,7 @@ func TestCallSource(t *testing.T) {
 // versioning, which takes no tags, go with them; two other configurations
 // share none.
 func TestSharedProvider(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
   bucket   = "logs"
   provider = aws.without_default_tags
@@ -847,6 +867,7 @@ resource "aws_s3_bucket_versioning" "other" {
 // The references between a root's resources are read once, for every
 // anchor and trial to look up: who refers to whom, and from where.
 func TestIndexReferences(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
 }

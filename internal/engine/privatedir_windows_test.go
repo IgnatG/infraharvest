@@ -16,6 +16,7 @@ import (
 // to the current user, SYSTEM and Administrators only, inheriting nothing;
 // restore gives the directory its inherited access back.
 func TestMakePrivateSetsAProtectedAccessList(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "sqs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

@@ -58,6 +58,7 @@ const awsProviders = `provider "aws" {
 var awsDefaultTags = DefaultTags{Provider: "aws", Attribute: "tags", Block: "default_tags", ReservedPrefix: "aws:"}
 
 func TestLiftLiterals(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, networkGenerated)
 
@@ -84,6 +85,7 @@ func TestLiftLiterals(t *testing.T) {
 
 // An AWS-managed policy reads better by its ARN than as a local.
 func TestLiftLiteralsLeavesManagedPolicies(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, strings.Repeat(`resource "aws_iam_role_policy_attachment" "a" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
@@ -96,6 +98,7 @@ func TestLiftLiteralsLeavesManagedPolicies(t *testing.T) {
 }
 
 func TestLiftLiteralsNamesAreUnique(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, strings.Repeat(`resource "aws_subnet" "a" {
   vpc_id = "vpc-0abc1234"
@@ -118,6 +121,7 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 }
 
 func TestCommonTags(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, networkGenerated)
 	resources, ok := taggedResources(f, awsDefaultTags, nil)
 	if !ok || len(resources) != 3 {
@@ -167,6 +171,7 @@ func liftTagsDir(t *testing.T) (string, *fakeTerraform) {
 }
 
 func TestLiftTags(t *testing.T) {
+	t.Parallel()
 	dir, tf := liftTagsDir(t)
 
 	kept, err := liftTagsVerified(tf, dir)
@@ -198,6 +203,7 @@ func TestLiftTags(t *testing.T) {
 // AWS records every tag in tags_all, so moving tags can change a plan: a
 // lift that does is undone.
 func TestLiftTagsRevertsWhenThePlanChanges(t *testing.T) {
+	t.Parallel()
 	dir, tf := liftTagsDir(t)
 	tf.plans = []fakePlan{{summary: changeSummary{Change: 3}}}
 
@@ -219,6 +225,7 @@ func TestLiftTagsRevertsWhenThePlanChanges(t *testing.T) {
 
 // Without a plan to compare with, tags stay where they are.
 func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
+	t.Parallel()
 	dir, tf := liftTagsDir(t)
 	tf.plans = []fakePlan{{diags: []tfjson.Diagnostic{errorAt(1, "Invalid value", "")}}}
 	opts := Options{DefaultTags: &awsDefaultTags}
@@ -238,6 +245,7 @@ func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
 }
 
 func TestOmitArgumentsForEveryType(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := writeConfig(t, dir, GeneratedFileName, `resource "aws_sqs_queue" "a" {
   name     = "a"
@@ -258,6 +266,7 @@ func TestOmitArgumentsForEveryType(t *testing.T) {
 
 // The Google provider applies labels through its default_labels argument.
 func TestLiftLabelsIntoAnArgument(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	generated := `resource "google_storage_bucket" "a" {
   labels = {
@@ -353,6 +362,7 @@ var azureDefaultTags = DefaultTags{Provider: "azurerm", Attribute: "tags", Reser
 // azurerm has no provider-wide tags: the resources refer to the local, and
 // module calls copy their tags expression.
 func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, azureGenerated)
 
@@ -384,6 +394,7 @@ func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
 
 // Tags the cloud sets itself are never the shared ones.
 func TestLiftTagsLeavesReservedTags(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_resource_group" "a" {
   location = "westeurope"
@@ -428,6 +439,7 @@ var taggedSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.Provider
 // tag: those use a configuration of the provider without default_tags.
 // A resource's own value of a shared tag stays, over the provider's.
 func TestLiftTagsMostResourcesShare(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "ci" {
   name = "ci"
@@ -509,6 +521,7 @@ resource "aws_subnet" "c" {
 // provider without them: the resources that have the shared tags refer to
 // the local, and the others keep theirs.
 func TestLiftTagsIntoTheLocalAsTheFallback(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "a" {
   name = "a"

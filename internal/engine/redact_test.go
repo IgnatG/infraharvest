@@ -17,6 +17,7 @@ import (
 // they write: the plans' diagnostics must come back without the values
 // Generate hid, raw or quoted.
 func TestRedactingTerraformHidesValues(t *testing.T) {
+	t.Parallel()
 	plain := fakeSecret("plain")
 	quoted := `pa"ss\w<o>rd&` + fakeSecret("quoted")[:12]
 	fake := &fakeTerraform{plans: []fakePlan{{diags: []tfjson.Diagnostic{
@@ -47,6 +48,7 @@ func TestRedactingTerraformHidesValues(t *testing.T) {
 }
 
 func TestRedactingTerraformRedactsErrors(t *testing.T) {
+	t.Parallel()
 	secret := fakeSecret("error")
 	cause := errors.New("exit status 1: " + secret)
 	r := &redactingTerraform{Terraform: &fakeTerraform{plans: []fakePlan{{err: cause}}}}
@@ -65,6 +67,7 @@ func TestRedactingTerraformRedactsErrors(t *testing.T) {
 }
 
 func TestRedactUIOutputKeepsOtherLines(t *testing.T) {
+	t.Parallel()
 	secret := fakeSecret("ui")
 	out := "{\"type\":\"version\",\"terraform\":\"1.9.0\"}\nnot json " + secret + "\n{\"type\":\"diagnostic\",\"diagnostic\":{\"detail\":\"got \\\"" + secret + "\\\"\"}}\n"
 	got := string(redactUIOutput([]byte(out), textForms([]string{secret})))
@@ -85,6 +88,7 @@ func TestRedactUIOutputKeepsOtherLines(t *testing.T) {
 
 // The gate ran before Generate wrote the README, which shows its details.
 func TestRedactResultAndCheckReadme(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	secret := fakeSecret("readme")
 	secrets := []Secret{{Variable: "a", value: secret}}

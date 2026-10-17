@@ -14,6 +14,7 @@ import (
 )
 
 func TestBootstrap(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		backend Backend
 		want    map[string][]string

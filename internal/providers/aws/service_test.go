@@ -254,3 +254,19 @@ func TestServiceReadsTheProviderArgs(t *testing.T) {
 		t.Errorf("regionSetting of another type: got %q, want none", got)
 	}
 }
+
+// The settings a service gets come back as they went in, and those of
+// another type as none.
+func TestServiceSettingsRoundTrip(t *testing.T) {
+	want := serviceSettings{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
+	args := want.args()
+	if got := settingsOf(args); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if args[skipRegionValidationKey] != true {
+		t.Errorf("skip_region_validation: got %v", args[skipRegionValidationKey])
+	}
+	if got := settingsOf(map[string]interface{}{regionKey: 1, profileKey: true}); got != (serviceSettings{}) {
+		t.Errorf("settings of other types: got %+v", got)
+	}
+}

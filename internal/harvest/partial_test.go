@@ -12,6 +12,7 @@ import (
 // A partial error is told apart through the errors that wrap it, but not
 // through one that joins it to others, and keeps what it wraps.
 func TestPartial(t *testing.T) {
+	t.Parallel()
 	refused := errors.New("403 Forbidden")
 	if Partial(nil) != nil {
 		t.Error("Partial(nil) should be nil")

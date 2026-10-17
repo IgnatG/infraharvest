@@ -29,6 +29,7 @@ resource "google_project_iam_member" "ci_viewer" {
 `
 
 func TestGoogleServiceAccountMapsItsRoles(t *testing.T) {
+	t.Parallel()
 	call, err := GoogleServiceAccount.Map(cluster(t, googleServiceAccountCluster))
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +57,7 @@ func TestGoogleServiceAccountMapsItsRoles(t *testing.T) {
 }
 
 func TestGoogleServiceAccountDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ from, to, reason string }{
 		"a role in another project": {
 			`project = "acme"

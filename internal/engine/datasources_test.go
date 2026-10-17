@@ -18,6 +18,7 @@ var awsDataSources = map[string]DataSource{
 }
 
 func TestAddDataSources(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "web" {
   security_groups = [aws_security_group.web.id, "sg-0def5678"]
@@ -74,6 +75,7 @@ resource "aws_lambda_function" "f" {
 // Two IDs with the same label are named in one order, whatever order the
 // caller lists them in.
 func TestAddDataSourcesNamesInOneOrder(t *testing.T) {
+	t.Parallel()
 	for _, reversed := range []bool{false, true} {
 		dir := t.TempDir()
 		writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
@@ -111,6 +113,7 @@ resource "aws_lambda_function" "b" {
 // listed twice is read once, by its name; a name the root uses goes to
 // what has it.
 func TestAddDataSourcesNamedByResourceName(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_security_group" "web" {
   vpc_id = "vpc-0abc1234"
@@ -150,6 +153,7 @@ resource "aws_security_group_rule" "web" {
 }
 
 func TestDataLabel(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		e    External
 		want string
@@ -168,6 +172,7 @@ func TestDataLabel(t *testing.T) {
 }
 
 func TestAddDataSourcesWithoutReferences(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_vpc\" \"a\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")
 

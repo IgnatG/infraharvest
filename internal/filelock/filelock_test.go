@@ -15,6 +15,7 @@ import (
 // A lock has one holder at a time, also within one process, and is free
 // again once released.
 func TestTryLock(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "lock")
 	first, err := TryLock(path)
 	if err != nil {
@@ -44,6 +45,7 @@ func TestTryLock(t *testing.T) {
 // The holder can be read while the lock is held, and is cleared when it
 // is released.
 func TestRecordAndReadHolder(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "lock")
 	l, err := TryLock(path)
 	if err != nil {
@@ -74,9 +76,7 @@ func TestRecordAndReadHolder(t *testing.T) {
 // Wait takes the lock once its holder releases it, saying once that it
 // waits, and stops waiting when its context is done.
 func TestWait(t *testing.T) {
-	interval := pollInterval
-	pollInterval = time.Millisecond
-	defer func() { pollInterval = interval }()
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "lock")
 	held, err := TryLock(path)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestWait(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if l, err := Wait(ctx, path, nil); !errors.Is(err, context.Canceled) {
+	if l, err := wait(ctx, path, nil, time.Millisecond); !errors.Is(err, context.Canceled) {
 		if l != nil {
 			_ = l.Unlock()
 		}
@@ -94,12 +94,12 @@ func TestWait(t *testing.T) {
 
 	// The holder lets go when Wait says it waits.
 	busy := 0
-	l, err := Wait(t.Context(), path, func() {
+	l, err := wait(t.Context(), path, func() {
 		busy++
 		if err := held.Unlock(); err != nil {
 			t.Error(err)
 		}
-	})
+	}, time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}

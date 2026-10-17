@@ -10,6 +10,7 @@ import (
 )
 
 func TestOwnedBy(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		tags  map[string]string
 		owner Owner
@@ -40,6 +41,7 @@ func TestOwnedBy(t *testing.T) {
 // doesn't read every type's tags, such as IAM roles', so Generate looks at
 // the tags Terraform generated too.
 func TestGenerateLeavesOutOwnedResources(t *testing.T) {
+	t.Parallel()
 	generated := `resource "aws_iam_role" "app" {
   name = "app"
 }

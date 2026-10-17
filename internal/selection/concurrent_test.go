@@ -10,6 +10,7 @@ import (
 
 // The accounts of one import decide in parallel, from one file.
 func TestDecideConcurrently(t *testing.T) {
+	t.Parallel()
 	f := &File{Version: Version, Resources: []Resource{
 		{Scope: "aws/1/eu-west-2", Type: "aws_vpc", ID: "vpc-1", Include: true},
 		{Scope: "aws/2/eu-west-2", Type: "aws_vpc", ID: "vpc-2"},

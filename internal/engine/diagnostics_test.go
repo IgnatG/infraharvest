@@ -14,6 +14,7 @@ import (
 )
 
 func TestParseUIDiagnostics(t *testing.T) {
+	t.Parallel()
 	out := `{"@level":"info","@message":"Terraform 1.16.5","type":"version"}
 {"@level":"error","@message":"Error: Invalid combination","type":"diagnostic","diagnostic":{"severity":"error","summary":"Invalid combination","detail":"one of a,b","address":"aws_x.a","range":{"filename":"generated.tf","start":{"line":4,"column":3,"byte":40},"end":{"line":4,"column":8,"byte":45}}}}
 not json
@@ -40,6 +41,7 @@ not json
 }
 
 func TestFormatDiagnostic(t *testing.T) {
+	t.Parallel()
 	d := errorAt(7, "Invalid value", "expected one of\n  a, b")
 	if got, want := formatDiagnostic(d), "generated.tf:7: Invalid value: expected one of a, b"; got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -63,6 +65,7 @@ func writeConfig(t *testing.T, dir, name, content string) *hclFile {
 }
 
 func TestByResource(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imports, err := ImportsFile([]Import{
 		{Type: "aws_sqs_queue", Name: "a", ID: "a"},
@@ -104,6 +107,7 @@ func TestByResource(t *testing.T) {
 }
 
 func TestOnlyMentioned(t *testing.T) {
+	t.Parallel()
 	addresses := map[string]bool{"aws_sqs_queue.a": true, "aws_sqs_queue.a-b": true}
 	for text, want := range map[string]string{
 		`importing "aws_sqs_queue.a-b".`:              "aws_sqs_queue.a-b",
@@ -118,6 +122,7 @@ func TestOnlyMentioned(t *testing.T) {
 }
 
 func TestReject(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imports, err := ImportsFile([]Import{{Type: "aws_vpc", Name: "a", ID: "vpc-a"}, {Type: "aws_vpc", Name: "b", ID: "vpc-b"}})
 	if err != nil {

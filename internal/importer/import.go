@@ -155,6 +155,9 @@ type Options struct {
 	// --catalogue overlay merged in, once importInto has loaded it; the
 	// provider of each service listed is given it (see listServices).
 	cat *catalogue.Catalogue
+	// tools are what the call reaches outside the process through; nil
+	// uses the real ones (see callTools).
+	tools *callTools
 }
 
 // Import lists the resources of provider's services in options.Services,

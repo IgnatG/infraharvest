@@ -11,6 +11,7 @@ import (
 )
 
 func TestWriteSecretFileIsOwnerOnly(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "terraform.tfstate")
 
 	if err := WriteSecretFile(path, []byte("secret")); err != nil {
@@ -22,6 +23,7 @@ func TestWriteSecretFileIsOwnerOnly(t *testing.T) {
 }
 
 func TestWriteSecretFileTightensExistingFile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "terraform.tfstate")
 	if err := os.WriteFile(path, []byte("old state from an earlier run"), 0o777); err != nil {
 		t.Fatal(err)
@@ -36,6 +38,7 @@ func TestWriteSecretFileTightensExistingFile(t *testing.T) {
 }
 
 func TestWriteSecretFileLeavesNoTempFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	if err := WriteSecretFile(filepath.Join(dir, "plan.json"), []byte("{}")); err != nil {
@@ -52,6 +55,7 @@ func TestWriteSecretFileLeavesNoTempFiles(t *testing.T) {
 }
 
 func TestWriteSecretFileMissingDir(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "missing", "terraform.tfstate")
 
 	if err := WriteSecretFile(path, []byte("x")); err == nil {

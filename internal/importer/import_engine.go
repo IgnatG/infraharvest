@@ -281,7 +281,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if err != nil {
 		return nil, err
 	}
-	execPath, err := binary.Find(ctx, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
+	execPath, err := options.tools.find(ctx, binary, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, run.modules), provider.Name()), selected)
 		moduleAdapters = append(own, moduleAdapters...)
 	}
-	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider), constraints)
+	root, err := options.tools.root(ctx, binary.Registry, execPath, engineProvider(provider), constraints)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +460,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			if !lockMeets(run.lock, qualifiedSource(binary.Registry, root.provider.Source), root.provider.Version) {
 				lock = &own
 			}
-			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
+			result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}

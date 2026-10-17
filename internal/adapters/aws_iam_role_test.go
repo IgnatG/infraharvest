@@ -13,6 +13,7 @@ import (
 )
 
 func TestIAMRoleMapsEveryMember(t *testing.T) {
+	t.Parallel()
 	c := cluster(t, `resource "aws_iam_role" "ci" {
   assume_role_policy    = jsonencode({ Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }], Version = "2012-10-17" })
   force_detach_policies = false
@@ -82,6 +83,7 @@ resource "aws_iam_role_policy_attachment" "ci_readonly" {
 }
 
 func TestIAMRoleWithoutMembers(t *testing.T) {
+	t.Parallel()
 	c := cluster(t, `resource "aws_iam_role" "app" {
   assume_role_policy = "{}"
   name               = "app"
@@ -110,6 +112,7 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
 // profile that still has it: / is the same as no path. Before, the profile
 // was declined for another path than the role's.
 func TestIAMRoleRootPathIsNoPath(t *testing.T) {
+	t.Parallel()
 	_, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "ci" {
   assume_role_policy = "{}"
   name               = "ci"
@@ -128,6 +131,7 @@ resource "aws_iam_instance_profile" "ci" {
 // A role at the root path, with sessions of an hour, leaves both to the
 // module's defaults.
 func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
+	t.Parallel()
 	call, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "app" {
   assume_role_policy   = "{}"
   max_session_duration = 3600
@@ -147,6 +151,7 @@ func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
 }
 
 func TestIAMRoleDeclines(t *testing.T) {
+	t.Parallel()
 	const role = `resource "aws_iam_role" "app" {
   assume_role_policy = "{}"
   name               = "app"
@@ -187,6 +192,7 @@ func TestIAMRoleDeclines(t *testing.T) {
 }
 
 func TestPolicyKey(t *testing.T) {
+	t.Parallel()
 	for arn, want := range map[string]string{
 		`"arn:aws:iam::aws:policy/service-role/AWSLambdaRole"`: "AWSLambdaRole",
 		"aws_iam_policy.app.arn":                               "app",
@@ -201,6 +207,7 @@ func TestPolicyKey(t *testing.T) {
 }
 
 func TestSameTokens(t *testing.T) {
+	t.Parallel()
 	expr := func(src string) hclwrite.Tokens {
 		t.Helper()
 		f, diags := hclwrite.ParseConfig([]byte("x = "+src+"\n"), "", hcl.InitialPos)

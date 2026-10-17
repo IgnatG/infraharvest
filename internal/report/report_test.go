@@ -37,6 +37,7 @@ func sample() *Report {
 }
 
 func TestFinish(t *testing.T) {
+	t.Parallel()
 	r := sample()
 	discovered := map[string]int{"aws_sqs_queue": 1, "aws_ssm_parameter": 1, "aws_lb": 1, "aws_iam_role": 2, "aws_main_route_table_association": 1}
 
@@ -64,6 +65,7 @@ func TestFinish(t *testing.T) {
 
 // Types infraharvest doesn't import don't make an import incomplete.
 func TestFinishComplete(t *testing.T) {
+	t.Parallel()
 	r := &Report{
 		Directories: []Directory{{Path: "aws", Imported: []Resource{{Address: "aws_vpc.main", ID: "vpc-1"}}}},
 		Skipped:     []Skipped{{Type: "aws_main_route_table_association", Count: 1}},
@@ -77,6 +79,7 @@ func TestFinishComplete(t *testing.T) {
 }
 
 func TestWriteFilesIsDeterministic(t *testing.T) {
+	t.Parallel()
 	read := func() map[string]string {
 		out := t.TempDir()
 		r := sample()
@@ -114,6 +117,7 @@ func TestWriteFilesIsDeterministic(t *testing.T) {
 }
 
 func TestWriteJSON(t *testing.T) {
+	t.Parallel()
 	r := sample()
 	r.Finish(map[string]int{"aws_sqs_queue": 1}, nil, true)
 	var out bytes.Buffer
@@ -144,6 +148,7 @@ func TestWriteJSON(t *testing.T) {
 }
 
 func TestMarkdown(t *testing.T) {
+	t.Parallel()
 	r := sample()
 	r.Unused = []UnusedModule{{Source: "acme/bucket/aws", Version: "1.0.0", Accepts: ">= 5.0, < 6.0"}}
 	r.Finish(map[string]int{"aws_sqs_queue": 1, "aws_ssm_parameter": 1, "aws_lb": 1}, nil, false)
@@ -167,6 +172,7 @@ func TestMarkdown(t *testing.T) {
 }
 
 func TestManagedCounts(t *testing.T) {
+	t.Parallel()
 	r := &Report{}
 	r.Excluded = []Excluded{
 		{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC, which AWS creates in every region"},
@@ -184,6 +190,7 @@ func TestManagedCounts(t *testing.T) {
 
 // What another tool manages, and every count by account and region.
 func TestScopeCounts(t *testing.T) {
+	t.Parallel()
 	const prod, dev = "aws/111111111111/eu-west-2", "aws/222222222222/eu-west-2"
 	r := &Report{}
 	r.AddDiscovered(prod, 3)
@@ -219,6 +226,7 @@ func TestScopeCounts(t *testing.T) {
 }
 
 func TestCountsByTag(t *testing.T) {
+	t.Parallel()
 	scope := "aws/1/eu-west-2"
 	r := &Report{
 		TagKeys: []string{"team"},
@@ -273,6 +281,7 @@ func TestCountsByTag(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
+	t.Parallel()
 	var r Report
 	first := Report{Tool: Component{Name: "infraharvest", Version: "1.0.0"}, Provider: Provider{Source: "hashicorp/aws"}}
 	first.Directories = []Directory{{Path: "aws/111111111111/eu-west-2", Scope: "aws/111111111111/eu-west-2"}}
@@ -301,6 +310,7 @@ func TestMerge(t *testing.T) {
 // A check that couldn't run is listed as skipped, not as failed, and
 // doesn't make the import incomplete.
 func TestSkippedChecks(t *testing.T) {
+	t.Parallel()
 	r := &Report{Directories: []Directory{{Path: "aws", Checks: []Check{
 		{Name: "G1 format", Passed: true},
 		{Name: "G5 scanners", Passed: true, Skipped: true, Details: []string{"no scanner installed (tflint, trivy, checkov)"}},
@@ -320,6 +330,7 @@ func TestSkippedChecks(t *testing.T) {
 // Failures are of every part of the import, not only of services that
 // couldn't be listed, and the report says so.
 func TestMarkdownFailures(t *testing.T) {
+	t.Parallel()
 	r := &Report{Failures: []string{"account 111122223333: assume role: access denied", "service s3: access denied"}}
 	md := r.Markdown()
 	if strings.Contains(md, "Failed services") || !strings.Contains(md, "## Failures") {
@@ -335,6 +346,7 @@ func TestMarkdownFailures(t *testing.T) {
 // The manifests of a run's Import calls add up: the newer and unused
 // modules of each, once, and the provider a call held back.
 func TestManifestAdd(t *testing.T) {
+	t.Parallel()
 	var m Manifest
 	m.Add(Manifest{Tool: Component{Name: "infraharvest"}, Provider: Provider{Source: "registry.terraform.io/hashicorp/aws", Constraint: "~> 6.67", Version: "6.67.0"},
 		Modules: []ModuleVersion{{Source: "terraform-aws-modules/vpc/aws", Version: "6.0.0", Latest: "6.1.0"}}})

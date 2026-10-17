@@ -43,6 +43,7 @@ resources:
 `
 
 func TestDecide(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, edited))
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +68,7 @@ func TestDecide(t *testing.T) {
 }
 
 func TestDefaultsExclude(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, "version: 1\ndefaults:\n  include: false\nresources: []\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +79,7 @@ func TestDefaultsExclude(t *testing.T) {
 }
 
 func TestLoadRejectsMistakes(t *testing.T) {
+	t.Parallel()
 	for name, content := range map[string]string{
 		"unknown field":     "version: 1\ndefaults:\n  include: true\nresources:\n  - type: aws_vpc\n    id: a\n    includ: true\n",
 		"other version":     "version: 2\nresources: []\n",
@@ -90,6 +93,7 @@ func TestLoadRejectsMistakes(t *testing.T) {
 }
 
 func TestSaveRoundTrips(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
 		{Type: "aws_vpc", ID: "vpc-b", Include: true},
@@ -121,6 +125,7 @@ func TestSaveRoundTrips(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
+	t.Parallel()
 	f := &File{
 		Version:  Version,
 		Defaults: Defaults{Include: true},
@@ -162,6 +167,7 @@ func TestMerge(t *testing.T) {
 // After a listing that failed in part, the entries it didn't find keep
 // their decisions: they may be only what failed to list.
 func TestMergeKeepsUnlisted(t *testing.T) {
+	t.Parallel()
 	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
 		{Type: "aws_iam_role", ID: "admin", Scope: "aws/222233334444/global", Include: false, Note: "break-glass role"},
 		{Type: "aws_vpc", ID: "vpc-1", Scope: "aws/111122223333/eu-west-2", Include: true},
@@ -178,6 +184,7 @@ func TestMergeKeepsUnlisted(t *testing.T) {
 // A discover of one region drops only that region's entries it no longer
 // finds: the other region's keep their decisions and notes.
 func TestMergeKeepsWhatItDidNotCover(t *testing.T) {
+	t.Parallel()
 	const a, b = "aws/111122223333/eu-west-1", "aws/111122223333/eu-west-2"
 	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
 		{Type: "aws_vpc", ID: "vpc-a", Scope: a, Service: "vpc", Include: false, Note: "the network team's"},
@@ -200,6 +207,7 @@ func TestMergeKeepsWhatItDidNotCover(t *testing.T) {
 // The same type and ID in two scopes, such as one IAM role name in two
 // accounts, are two entries.
 func TestScopes(t *testing.T) {
+	t.Parallel()
 	const a, b = "aws/111122223333/global", "aws/444455556666/global"
 	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
 		{Type: "aws_iam_role", ID: "admin", Scope: a, Include: true},
@@ -247,6 +255,7 @@ func TestScopes(t *testing.T) {
 
 // An entry written without a scope decides the resource in any scope.
 func TestScopelessEntryApplies(t *testing.T) {
+	t.Parallel()
 	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
 		{Type: "aws_vpc", ID: "vpc-1", Include: false, Note: "the network team's"},
 	}}
@@ -264,6 +273,7 @@ func TestScopelessEntryApplies(t *testing.T) {
 // Discover with --managed-state excludes what Terraform manages since the
 // file was written, unless a person noted why it is included.
 func TestMergeExcludesManaged(t *testing.T) {
+	t.Parallel()
 	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
 		{Type: "aws_s3_bucket", ID: "logs", Include: true},
 		{Type: "aws_s3_bucket", ID: "assets", Include: true, Note: "moving it to this root"},
@@ -291,6 +301,7 @@ func TestMergeExcludesManaged(t *testing.T) {
 
 // A rule decides a new resource before the provider's defaults do.
 func TestMergeRulesBeforeDefaults(t *testing.T) {
+	t.Parallel()
 	f := &File{
 		Version:  Version,
 		Defaults: Defaults{Include: true},
@@ -318,6 +329,7 @@ resources: []
 `
 
 func TestRulesMatchTags(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, byTag))
 	if err != nil {
 		t.Fatal(err)
@@ -346,6 +358,7 @@ func TestRulesMatchTags(t *testing.T) {
 // Running discover again updates the tags of the entries it keeps, and a
 // rule by tag decides the new ones.
 func TestMergeUpdatesTags(t *testing.T) {
+	t.Parallel()
 	f, err := Load(write(t, byTag))
 	if err != nil {
 		t.Fatal(err)
@@ -384,6 +397,7 @@ func TestMergeUpdatesTags(t *testing.T) {
 
 // A pattern is compiled once, and one without * matches only itself.
 func TestPatternsMatch(t *testing.T) {
+	t.Parallel()
 	first, again := glob("/aws/lambda/*"), glob("/aws/lambda/*")
 	if first != again {
 		t.Error("the pattern was compiled twice")

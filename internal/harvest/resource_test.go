@@ -9,6 +9,7 @@ import (
 )
 
 func TestAttributeTags(t *testing.T) {
+	t.Parallel()
 	got := AttributeTags(map[string]string{
 		"id":                               "vpc-1",
 		"tags.%":                           "2",

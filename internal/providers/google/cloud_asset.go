@@ -434,7 +434,7 @@ func lastSegment(id string) string {
 // catalogue is the catalogue of the import (see SetCatalogue), or the
 // built-in one.
 func (g *CloudAssetLister) catalogue() *catalogue.Catalogue {
-	if cat, ok := g.Settings()[catalogueKey].(*catalogue.Catalogue); ok && cat != nil {
+	if cat := settingsOf(g.Settings()).catalogue; cat != nil {
 		return cat
 	}
 	return catalogue.MustBuiltin("google")

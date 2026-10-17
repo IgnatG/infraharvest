@@ -16,6 +16,7 @@ import (
 // An import Terraform generated no configuration for, such as of a KMS key
 // scheduled for deletion, is found.
 func TestUnconfigured(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_kms_key\" \"live\" {\n}\n")
 	content, err := ImportsFile([]Import{{Type: "aws_kms_key", Name: "live", ID: "k-1"}, {Type: "aws_kms_key", Name: "pending", ID: "k-2"}})
@@ -41,6 +42,7 @@ func TestUnconfigured(t *testing.T) {
 // A resource left out with secrets says which variables it reads:
 // variables.tf declares them no longer.
 func TestRejectNamesTheVariablesTheResourceReads(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_ssm_parameter" "p" {
   name  = "p"

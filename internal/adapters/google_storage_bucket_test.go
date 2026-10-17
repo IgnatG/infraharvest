@@ -37,6 +37,7 @@ const googleBucketCluster = `resource "google_storage_bucket" "assets" {
 `
 
 func TestGoogleStorageBucketMaps(t *testing.T) {
+	t.Parallel()
 	c := cluster(t, googleBucketCluster)
 	call, err := GoogleStorageBucket.Map(c)
 	if err != nil {
@@ -65,6 +66,7 @@ func TestGoogleStorageBucketMaps(t *testing.T) {
 }
 
 func TestGoogleStorageBucketDeclines(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ from, to string }{
 		"requester pays":    {"requester_pays              = false", "requester_pays = true"},
 		"turbo replication": {`rpo                         = "DEFAULT"`, `rpo = "ASYNC_TURBO"`},

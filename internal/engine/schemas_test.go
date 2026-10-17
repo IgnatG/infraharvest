@@ -15,6 +15,7 @@ import (
 // Roots share schemas only when the engine and their lock files are the
 // same: another provider version, or another provider, is another key.
 func TestSchemaKey(t *testing.T) {
+	t.Parallel()
 	write := func(lock string) string {
 		t.Helper()
 		dir := t.TempDir()
@@ -45,6 +46,7 @@ func TestSchemaKey(t *testing.T) {
 
 // The store reads each key's schemas once, and doesn't keep a failure.
 func TestSchemaStore(t *testing.T) {
+	t.Parallel()
 	s := &schemaStore{}
 	reads := 0
 	want := &tfjson.ProviderSchemas{FormatVersion: "1.0"}

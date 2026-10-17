@@ -9,6 +9,7 @@ import (
 )
 
 func TestReadmeFile(t *testing.T) {
+	t.Parallel()
 	result := &Result{
 		Imported: []Import{
 			{Type: "aws_ssm_parameter", Name: "token", ID: "/app/token"},
@@ -43,6 +44,7 @@ func TestReadmeFile(t *testing.T) {
 // labels, the README says to expect them, rather than a plan with no
 // changes.
 func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
+	t.Parallel()
 	gate := Gate{{Name: CheckPlan, Passed: true, Details: []string{"google_pubsub_topic.orders: " + stateOnlyChange + " (labels, terraform_labels)"}}}
 	got := string(readmeFile(&Result{Imported: []Import{{Type: "google_pubsub_topic", Name: "orders", ID: "projects/acme/topics/orders"}}, Gate: gate}))
 	if !strings.Contains(got, "with no changes but the updates the checks below list") || strings.Contains(got, "with no changes.\n") {

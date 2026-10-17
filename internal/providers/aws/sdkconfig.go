@@ -23,8 +23,8 @@ import (
 )
 
 // The keys of the settings each service gets (see Provider.serviceArgs),
-// read only through cacheKey and regionSetting, so that the two can't
-// drift apart.
+// written only by serviceSettings.args and read only by settingsOf, so
+// that the two can't drift apart.
 const (
 	regionKey               = "region"
 	profileKey              = "profile"
@@ -32,11 +32,46 @@ const (
 	skipRegionValidationKey = "skip_region_validation"
 )
 
+// serviceSettings are the settings each service gets, typed: the service
+// gets them as a map (see harvest.ListerConfig), which args makes and
+// settingsOf reads back. They pick the service's SDK configuration (see
+// Service.sdkConfig).
+type serviceSettings struct {
+	// region is the region to list: a region's name, GlobalPseudoRegion or
+	// ProfileRegion.
+	region string
+	// profile is the shared-config profile, "" or "default" for none.
+	profile string
+	// roleARN is the role to assume before listing, "" for none.
+	roleARN string
+}
+
+// args returns the settings as a service's settings map. It also sets
+// skip_region_validation, as the services have always been given it.
+func (s serviceSettings) args() map[string]interface{} {
+	return map[string]interface{}{
+		regionKey:               s.region,
+		profileKey:              s.profile,
+		roleARNKey:              s.roleARN,
+		skipRegionValidationKey: true,
+	}
+}
+
+// settingsOf returns the settings in a service's settings map, as args
+// makes it. A setting that is missing, or of another type, comes back as
+// "".
+func settingsOf(settings map[string]interface{}) serviceSettings {
+	var s serviceSettings
+	s.region, _ = settings[regionKey].(string)
+	s.profile, _ = settings[profileKey].(string)
+	s.roleARN, _ = settings[roleARNKey].(string)
+	return s
+}
+
 // regionSetting returns the region in a service's settings, "" when there
 // is none.
 func regionSetting(settings map[string]interface{}) string {
-	region, _ := settings[regionKey].(string)
-	return region
+	return settingsOf(settings).region
 }
 
 // roleSessionName names the sessions of the roles the provider assumes, as
@@ -124,11 +159,7 @@ var (
 // cacheKey returns the key of the service's configuration, from its
 // arguments.
 func (s *Service) cacheKey() configKey {
-	arg := func(name string) string {
-		v, _ := s.Settings()[name].(string)
-		return v
-	}
-	return configKey{region: arg(regionKey), profile: arg(profileKey), roleARN: arg(roleARNKey)}
+	return configKey(settingsOf(s.Settings()))
 }
 
 // sdkConfig returns the SDK configuration of the service's account

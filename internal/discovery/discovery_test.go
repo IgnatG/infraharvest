@@ -111,6 +111,7 @@ func TestListReportsFailuresAndDeadlines(t *testing.T) {
 }
 
 func TestListStopsWhenTheContextIsDone(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := List(ctx, []Discoverer{&fake{name: "slow", hang: true}, &fake{name: "good"}}, Options{}); !errors.Is(err, context.Canceled) {
@@ -166,6 +167,7 @@ func (s *labelService) List() error {
 }
 
 func TestListLabelsTheDiscoverers(t *testing.T) {
+	t.Parallel()
 	plain := &labelled{name: "plain"}
 	provider := &labelProvider{}
 	ds := []Discoverer{plain, Service("compute", provider, false, nil)}
@@ -208,6 +210,7 @@ func (s *errService) List() error {
 // A service whose lister fails in part returns what it listed with the
 // error; one whose lister fails returns nothing.
 func TestServiceKeepsWhatAPartialListingFound(t *testing.T) {
+	t.Parallel()
 	refused := errors.New("a part was refused")
 	resources, err := Service("dns", &errProvider{err: harvest.Partial(refused)}, false, nil).Discover(t.Context())
 	if !harvest.IsPartial(err) || !errors.Is(err, refused) || len(resources) != 1 {
@@ -230,6 +233,7 @@ func (panicking) Discover(context.Context) ([]harvest.Resource, error) {
 
 // A discoverer that panics fails as its service, and the others list.
 func TestListRecoversAPanic(t *testing.T) {
+	t.Parallel()
 	results, err := List(t.Context(), []Discoverer{panicking{}, &fake{name: "good"}}, Options{Parallel: 2})
 	if err != nil {
 		t.Fatal(err)

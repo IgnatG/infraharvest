@@ -156,15 +156,12 @@ func TestRetrySendsTheBodyAgain(t *testing.T) {
 
 // A retry stops waiting when the request's context ends.
 func TestRetryStopsWithTheContext(t *testing.T) {
-	old := retryDelay
-	retryDelay = time.Minute
-	t.Cleanup(func() { retryDelay = old })
 	f := &failingServer{statuses: []int{http.StatusServiceUnavailable}}
 	server := httptest.NewServer(f)
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	client := &http.Client{Transport: retryTransport{base: http.DefaultTransport}}
+	client := &http.Client{Transport: retryTransport{base: http.DefaultTransport, delay: time.Minute}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 	if err != nil {
 		t.Fatal(err)

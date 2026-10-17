@@ -54,6 +54,7 @@ resource "aws_lb_target_group" "api" {
 // A block goes where a condition on its own arguments holds, and only
 // there: the disabled stickiness goes, the enabled one stays.
 func TestOmitBlockWhenItsArgumentsHold(t *testing.T) {
+	t.Parallel()
 	got := omitResult(t, targetGroupsGenerated, map[string][]string{"aws_lb_target_group": {"stickiness when stickiness.enabled=false"}})
 	web, api, _ := strings.Cut(got, `resource "aws_lb_target_group" "api"`)
 	if strings.Contains(web, "stickiness") {
@@ -86,6 +87,7 @@ const instanceNestedGenerated = `resource "aws_instance" "app" {
 // conditions starting with a referring to that block, the others to the
 // resource.
 func TestOmitNestedArguments(t *testing.T) {
+	t.Parallel()
 	got := omitResult(t, instanceNestedGenerated, map[string][]string{"aws_instance": {
 		"availability_zone when subnet_id",
 		"root_block_device.iops=3000 when root_block_device.volume_type=gp3",
@@ -145,6 +147,7 @@ resource "aws_sns_topic" "events" {
 // any text and {name} the resource's name: the topic whose policy names
 // another topic keeps it.
 func TestOmitJSONValue(t *testing.T) {
+	t.Parallel()
 	pattern := `policy={"Version":"2008-10-17","Id":"__default_policy_ID","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":["SNS:Subscribe","SNS:Publish"],"Resource":"arn:{*}:sns:{*}:{*}:{name}"}]}`
 	got := omitResult(t, policiesGenerated, map[string][]string{"aws_sns_topic": {pattern}})
 	alerts, events, _ := strings.Cut(got, `resource "aws_sns_topic" "events"`)
@@ -158,6 +161,7 @@ func TestOmitJSONValue(t *testing.T) {
 
 // Entries under a resource's address apply to that resource only.
 func TestOmitByAddress(t *testing.T) {
+	t.Parallel()
 	omit := withResourceOmissions(map[string][]string{"aws_lb_target_group": {"name"}}, []Import{
 		{Type: "aws_lb_target_group", Name: "api", ID: "arn:api", Omit: []string{"protocol"}},
 		{Type: "aws_lb_target_group", Name: "web", ID: "arn:web"},
@@ -175,6 +179,7 @@ func TestOmitByAddress(t *testing.T) {
 // The standards check flags a nested argument at the value it is left
 // out for, where its conditions hold.
 func TestCheckOmittedNested(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, targetGroupsGenerated)
 	var findings []string
 	for _, b := range f.syntax.Blocks {
@@ -216,6 +221,7 @@ resource "azurerm_key_vault" "closed" {
 // are at Azure's values and whose rules are empty goes: the open vault
 // loses both, the vault with a policy and an IP rule keeps them.
 func TestOmitEmptyValuesAndOpenNetworkRules(t *testing.T) {
+	t.Parallel()
 	got := omitResult(t, vaultsGenerated, map[string][]string{"azurerm_key_vault": {
 		"access_policy=[]",
 		"network_acls when network_acls.bypass=AzureServices and network_acls.default_action=Allow and network_acls.ip_rules=[] and network_acls.virtual_network_subnet_ids=[]",

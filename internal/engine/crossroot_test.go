@@ -32,6 +32,7 @@ var awsARNs = map[string]ARN{
 // What another root manages, and no data source reads, comes from a
 // variable that says where; names only where the argument names the type.
 func TestAddRootVariables(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "app" {
   function_name = "app"
@@ -121,6 +122,7 @@ resource "aws_cloudfront_distribution" "web" {
 
 // AWS-managed CloudFront policies and the EBS key are read by name.
 func TestAddLookupsOfWhatAWSManages(t *testing.T) {
+	t.Parallel()
 	keyARN := "arn:aws:kms:eu-west-2:123456789012:key/" + keyID
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_cloudfront_distribution" "web" {
@@ -195,6 +197,7 @@ data "aws_vpc" "vpc_0abc1234" {
 // regional roots, which name it by its self link on either API host; a
 // resource whose plan that changes gets a variable instead.
 func TestAddRootVariablesReadsGoogleNetworks(t *testing.T) {
+	t.Parallel()
 	const link = "https://www.googleapis.com/compute/v1/projects/acme/global/networks/main"
 	others := []RootResource{
 		{Type: "google_compute_network", ID: "projects/acme/global/networks/main", Name: "main", Root: "google/acme/global"},

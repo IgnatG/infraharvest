@@ -65,6 +65,7 @@ module "artifacts" {
 var omitACL = map[string][]string{"aws_s3_bucket": {"acl"}}
 
 func TestCheckStandardsPasses(t *testing.T) {
+	t.Parallel()
 	root, _ := standardRoot(t)
 
 	check, err := checkStandards(root, omitACL, nil)
@@ -77,6 +78,7 @@ func TestCheckStandardsPasses(t *testing.T) {
 }
 
 func TestCheckStandardsFindings(t *testing.T) {
+	t.Parallel()
 	for rule, breakIt := range map[string]func(t *testing.T, root, module string){
 		"unpinned-required-version": func(t *testing.T, root, _ string) {
 			writeConfig(t, root, VersionsFileName, strings.Replace(pinnedVersions, ">= 1.16, < 2.0", ">= 1.16", 1))

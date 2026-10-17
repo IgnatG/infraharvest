@@ -16,6 +16,7 @@ import (
 
 // An edit that fails after changing a file leaves nothing of it behind.
 func TestVerifyRestoresWhenTheEditFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, networkGenerated)
 	tf := &fakeTerraform{dir: dir}
@@ -50,6 +51,7 @@ func TestVerifyRestoresWhenTheEditFails(t *testing.T) {
 // the same totals: one that hides another change in a resource that
 // already updates, such as its labels after an import, is undone.
 func TestVerifyComparesEachResourcesChange(t *testing.T) {
+	t.Parallel()
 	baseline := changeSummary{Change: 1}
 	updatesTags := resourceChange("aws_subnet.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"tags": map[string]any{}}, map[string]any{"tags": map[string]any{"a": "b"}})
 	changes := map[string]string{"aws_subnet.a": changeSignature(updatesTags)}
@@ -84,6 +86,7 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 // A plan error about a data source is the resources' that read it, so a
 // step undoes only them.
 func TestDataReaders(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_ebs_volume" "data" {
   kms_key_id = data.aws_kms_alias.ebs.target_key_arn
 }
@@ -108,6 +111,7 @@ resource "aws_ebs_volume" "logs" {
 // the tag and literal lifts together. Every plan with import blocks
 // reads every imported resource again, so the count is what a root costs.
 func TestPostProcessPlanCount(t *testing.T) {
+	t.Parallel()
 	dir, tf := liftTagsDir(t)
 	writeConfig(t, dir, GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
 
@@ -143,6 +147,7 @@ func commentStep(dir, comment string) tidyStep {
 // they checked one at a time, so that the step the plan rejects is the
 // only one undone.
 func TestVerifySteps(t *testing.T) {
+	t.Parallel()
 	for name, tt := range map[string]struct {
 		plans []fakePlan
 		calls string
@@ -177,6 +182,7 @@ func TestVerifySteps(t *testing.T) {
 
 // Steps that change nothing need no plan.
 func TestVerifyStepsWithoutChanges(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, networkGenerated)
 	tf := &fakeTerraform{dir: dir}

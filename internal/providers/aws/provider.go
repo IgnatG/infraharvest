@@ -162,10 +162,5 @@ func (p *Provider) Select(name string, verbose bool) error {
 // region, the profile and the role, which pick its SDK configuration (see
 // Service.sdkConfig).
 func (p *Provider) serviceArgs() map[string]interface{} {
-	return map[string]interface{}{
-		regionKey:               p.region,
-		profileKey:              p.profile,
-		roleARNKey:              p.roleARN,
-		skipRegionValidationKey: true,
-	}
+	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}.args()
 }

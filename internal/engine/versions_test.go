@@ -16,6 +16,7 @@ import (
 )
 
 func TestRequiredVersionAndProviderConstraint(t *testing.T) {
+	t.Parallel()
 	v := version.Must(version.NewVersion("1.16.5"))
 	if got, want := RequiredVersion(v), ">= 1.16, < 2.0"; got != want {
 		t.Errorf("RequiredVersion: got %q, want %q", got, want)
@@ -26,6 +27,7 @@ func TestRequiredVersionAndProviderConstraint(t *testing.T) {
 }
 
 func TestLatestProviderVersion(t *testing.T) {
+	t.Parallel()
 	var requested string
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requested = r.URL.Path
@@ -48,6 +50,7 @@ func TestLatestProviderVersion(t *testing.T) {
 }
 
 func TestLatestProviderVersionErrors(t *testing.T) {
+	t.Parallel()
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "missing") {
 			http.NotFound(w, r)
@@ -65,6 +68,7 @@ func TestLatestProviderVersionErrors(t *testing.T) {
 }
 
 func TestLockedVersion(t *testing.T) {
+	t.Parallel()
 	lock := []byte(`# This file is maintained automatically by "terraform init".
 provider "registry.terraform.io/hashicorp/aws" {
   version     = "6.67.0"
@@ -88,9 +92,8 @@ provider "registry.terraform.io/hashicorp/aws" {
 // A connection that fails, or a registry that answers 429 or 5xx, is tried
 // again; a 404 isn't; an answer is asked for once.
 func TestLatestProviderVersionRetries(t *testing.T) {
-	backoff := registryBackoff
-	registryBackoff = time.Millisecond
-	t.Cleanup(func() { registryBackoff = backoff })
+	t.Parallel()
+	ctx := context.WithValue(t.Context(), registryBackoffKey{}, time.Millisecond)
 
 	var calls atomic.Int32
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,20 +117,20 @@ func TestLatestProviderVersionRetries(t *testing.T) {
 	}))
 	defer registry.Close()
 
-	got, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/flaky")
+	got, err := LatestProviderVersion(ctx, registry.Client(), registry.URL, "hashicorp/flaky")
 	if err != nil || got.String() != "6.1.0" || calls.Load() != 3 {
 		t.Fatalf("got %v, %v after %d calls, want 6.1.0 on the third", got, err, calls.Load())
 	}
-	if got, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/flaky"); err != nil || got.String() != "6.1.0" || calls.Load() != 3 {
+	if got, err := LatestProviderVersion(ctx, registry.Client(), registry.URL, "hashicorp/flaky"); err != nil || got.String() != "6.1.0" || calls.Load() != 3 {
 		t.Errorf("asked again: %v, %v after %d calls", got, err, calls.Load())
 	}
 
 	calls.Store(10)
-	if _, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/missing"); err == nil || calls.Load() != 11 {
+	if _, err := LatestProviderVersion(ctx, registry.Client(), registry.URL, "hashicorp/missing"); err == nil || calls.Load() != 11 {
 		t.Errorf("404: %v after %d calls, want one", err, calls.Load()-10)
 	}
 	calls.Store(10)
-	if _, err := LatestProviderVersion(context.Background(), registry.Client(), registry.URL, "hashicorp/down"); err == nil || calls.Load() != 10+registryAttempts {
+	if _, err := LatestProviderVersion(ctx, registry.Client(), registry.URL, "hashicorp/down"); err == nil || calls.Load() != 10+registryAttempts {
 		t.Errorf("503: %v after %d calls, want %d", err, calls.Load()-10, registryAttempts)
 	}
 }
@@ -140,6 +143,7 @@ const moduleVersions = `{"modules":[{"source":"acme/thing/aws","versions":[
 ]}]}`
 
 func TestModuleReleases(t *testing.T) {
+	t.Parallel()
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/modules/acme/thing/aws/versions" {
 			http.NotFound(w, r)
@@ -185,6 +189,7 @@ func TestModuleReleases(t *testing.T) {
 }
 
 func TestProviderVersionWithinConstraints(t *testing.T) {
+	t.Parallel()
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"versions":[{"version":"6.40.0"},{"version":"6.49.3"},{"version":"6.52.0"},{"version":"7.0.0-beta1"}]}`))
 	}))
@@ -202,6 +207,7 @@ func TestProviderVersionWithinConstraints(t *testing.T) {
 }
 
 func TestPinnedToLock(t *testing.T) {
+	t.Parallel()
 	versions := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
 	lock := []byte(`provider "registry.terraform.io/hashicorp/aws" {
   version     = "6.30.1"
@@ -224,6 +230,7 @@ func TestPinnedToLock(t *testing.T) {
 }
 
 func TestLockedVersionOfAnOpenTofuProvider(t *testing.T) {
+	t.Parallel()
 	lock := []byte(`provider "registry.opentofu.org/hashicorp/aws" {
   version = "6.2.0"
 }
@@ -239,6 +246,7 @@ func TestLockedVersionOfAnOpenTofuProvider(t *testing.T) {
 // An answer larger than the limit fails, saying so, rather than being cut
 // off into a JSON error; one at the limit is read whole.
 func TestFetchVersionsLimit(t *testing.T) {
+	t.Parallel()
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := registryBodyLimit
 		if r.URL.Path == "/large" {

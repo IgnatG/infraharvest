@@ -9,6 +9,7 @@ import (
 )
 
 func TestLabel(t *testing.T) {
+	t.Parallel()
 	for name, want := range map[string]string{
 		"vpc-7fe7f292":               "vpc_7fe7f292",
 		"/infraharvest-e2e/endpoint": "infraharvest_e2e_endpoint",
@@ -36,6 +37,7 @@ func TestLabel(t *testing.T) {
 }
 
 func TestLabelledIsUniqueAndStable(t *testing.T) {
+	t.Parallel()
 	imports := []Import{
 		{Type: "aws_vpc", Name: "main", ID: "vpc-2"},
 		{Type: "aws_vpc", Name: "main_2", ID: "vpc-9"},
@@ -61,6 +63,7 @@ func TestLabelledIsUniqueAndStable(t *testing.T) {
 }
 
 func TestWithoutTypeWords(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ resourceType, label, want string }{
 		{"aws_sqs_queue", "orders_queue", "orders"},
 		{"aws_sqs_queue", "sqs_queue_orders", "orders"},
@@ -81,6 +84,7 @@ func TestWithoutTypeWords(t *testing.T) {
 }
 
 func TestSharedPrefix(t *testing.T) {
+	t.Parallel()
 	names := func(labels ...string) []Import {
 		imports := make([]Import, len(labels))
 		for i, label := range labels {
@@ -112,6 +116,7 @@ func TestSharedPrefix(t *testing.T) {
 // Before, the sandbox's labels read like
 // aws_ecs_task_definition.task_definition_ih_sbx_terraform_web.
 func TestLabelledTidy(t *testing.T) {
+	t.Parallel()
 	imports := []Import{
 		{Type: "aws_sqs_queue", Name: "ih-sbx-terraform-jobs", ID: "q1"},
 		{Type: "aws_sqs_queue", Name: "ih-sbx-terraform-second-queue", ID: "q2"},
@@ -152,6 +157,7 @@ func TestLabelledTidy(t *testing.T) {
 // What an incremental import adds is labelled main only if the root has no
 // resource of its type, and never takes a label the root has.
 func TestLabelledTidyKeepsTaken(t *testing.T) {
+	t.Parallel()
 	imports := []Import{
 		{Type: "aws_sqs_queue", Name: "shop-jobs", ID: "q1"},
 		{Type: "aws_sqs_queue", Name: "shop-orders", ID: "q2"},
@@ -174,6 +180,7 @@ func TestLabelledTidyKeepsTaken(t *testing.T) {
 // type: module "main" would say nothing, and a root with a VPC and a bucket
 // module would call them main and main_2.
 func TestCallName(t *testing.T) {
+	t.Parallel()
 	for address, want := range map[string]string{
 		"aws_vpc.main":       "vpc",
 		"aws_s3_bucket.main": "s3_bucket",

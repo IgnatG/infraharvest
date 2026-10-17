@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"google.golang.org/api/compute/v1"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // A lister without a project fails, rather than listing project "" or
@@ -47,5 +49,19 @@ func TestSelectPassesTheSettings(t *testing.T) {
 	}
 	if region := regionSetting(settings); region.Name != "europe-west2" {
 		t.Errorf("region %+v", region)
+	}
+}
+
+// The settings Select passes come back as they went in, the catalogue
+// among them, and a missing one as its zero value.
+func TestListerSettingsRoundTrip(t *testing.T) {
+	cat := catalogue.MustBuiltin("google")
+	want := listerSettings{region: compute.Region{Name: "us-central1"}, project: "acme", catalogue: cat}
+	got := settingsOf(want.args())
+	if got.region.Name != "us-central1" || got.project != "acme" || got.catalogue != cat {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if got := settingsOf(nil); got.region.Name != "" || got.project != "" || got.catalogue != nil {
+		t.Errorf("no settings: got %+v", got)
 	}
 }

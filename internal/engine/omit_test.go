@@ -32,6 +32,7 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 `
 
 func TestGenerateOmitsArguments(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir, generated: bucketGenerated}
 	imports := []Import{{Type: "aws_s3_bucket", Name: "artifacts", ID: "artifacts"}, {Type: "aws_s3_bucket_versioning", Name: "artifacts", ID: "artifacts"}}
@@ -61,6 +62,7 @@ func TestGenerateOmitsArguments(t *testing.T) {
 }
 
 func TestOmitArgumentsWithoutMatches(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := writeConfig(t, dir, GeneratedFileName, bucketGenerated).path
 
@@ -93,6 +95,7 @@ var omitScope = map[string][]string{"azurerm_storage_container": {"default_encry
 // container with the account's default scope loses it, the one with a
 // scope of its own keeps it.
 func TestOmitArgumentsByValue(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := writeConfig(t, dir, GeneratedFileName, containersGenerated).path
 
@@ -124,6 +127,7 @@ func TestOmitArgumentsByValue(t *testing.T) {
 // The standards check flags an argument set to the value it is left out
 // for, and only that.
 func TestCheckOmittedByValue(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, containersGenerated)
 	var findings []string
 	for _, b := range f.syntax.Blocks {
@@ -159,6 +163,7 @@ const instanceGenerated = `resource "aws_instance" "app" {
 // block.name leaves out an argument of nested blocks, of any type for
 // *.name, as it does at the top for name.
 func TestOmitArgumentsInNestedBlocks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := writeConfig(t, dir, GeneratedFileName, instanceGenerated).path
 	omit := map[string][]string{"*": {"tags_all", "*.tags_all"}, "aws_instance": {"root_block_device.volume_type=gp3", "ebs_block_device.volume_type=gp3"}}

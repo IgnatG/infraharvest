@@ -57,7 +57,11 @@ func ProviderConstraint(v *version.Version) string {
 // the wait before the second attempt, doubled before each later one.
 const registryAttempts = 3
 
-var registryBackoff = time.Second
+const registryBackoff = time.Second
+
+// registryBackoffKey carries, in a lookup's context, a wait that replaces
+// registryBackoff, for tests.
+type registryBackoffKey struct{}
 
 // registryAnswers remembers the registry's answers by URL: one import asks
 // once, however many accounts and regions it covers, and every root it
@@ -73,6 +77,9 @@ func getRegistry(ctx context.Context, client *http.Client, url, what string) ([]
 	var content []byte
 	var err error
 	wait := registryBackoff
+	if d, ok := ctx.Value(registryBackoffKey{}).(time.Duration); ok {
+		wait = d
+	}
 	for attempt := 1; ; attempt++ {
 		var retry bool
 		content, retry, err = fetchVersions(ctx, client, url)

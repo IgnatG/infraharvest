@@ -60,6 +60,7 @@ func thingRoot(t *testing.T) (string, map[string]string) {
 // Nulls, constant defaults and the blocks they leave empty go; a constant
 // that isn't the default, as the plan shows, and computed arguments stay.
 func TestStripDefaults(t *testing.T) {
+	t.Parallel()
 	dir, changes := thingRoot(t)
 	// Without retries = 0, the provider would use its own default.
 	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
@@ -95,6 +96,7 @@ func TestStripDefaults(t *testing.T) {
 
 // An empty block whose absence the plan shows stays.
 func TestStripDefaultsKeepsEmptyBlocksThePlanNeeds(t *testing.T) {
+	t.Parallel()
 	dir, changes := thingRoot(t)
 	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"setting": []any{map[string]any{}}}, map[string]any{"setting": []any{}}),
@@ -112,6 +114,7 @@ func TestStripDefaultsKeepsEmptyBlocksThePlanNeeds(t *testing.T) {
 // An error the plan can't pin on a resource keeps every constant; nulls
 // still go, as they are the same as leaving the argument out.
 func TestStripDefaultsUndoesOnErrors(t *testing.T) {
+	t.Parallel()
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
@@ -139,6 +142,7 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 // same, as the labels stay on the resource, no longer managed. Other
 // constants still go.
 func TestRemoveDefaultsKeepsTags(t *testing.T) {
+	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "google_pubsub_topic" "events" {
   name   = "events"
   labels = { env = "prod" }
@@ -164,6 +168,7 @@ func TestRemoveDefaultsKeepsTags(t *testing.T) {
 }
 
 func TestNoWorse(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		now, before string
 		want        bool
@@ -214,6 +219,7 @@ func roleRoot(t *testing.T, content string) (string, map[string]string) {
 // and "": the plan tells which are, and the others stay. Computed
 // arguments stay whatever their value.
 func TestStripDefaultsLeavesOutConstantDefaults(t *testing.T) {
+	t.Parallel()
 	dir, changes := roleRoot(t, `resource "aws_role" "a" {
   description          = "the app's role"
   managed              = "x"
@@ -252,6 +258,7 @@ func TestStripDefaultsLeavesOutConstantDefaults(t *testing.T) {
 // required alternatives, comes back before any plan: the arguments the
 // errors name, and the rest of the resource's constants still go.
 func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
+	t.Parallel()
 	dir, changes := roleRoot(t, `resource "aws_role" "a" {
   alpha = "a"
   beta  = "b"
@@ -288,6 +295,7 @@ func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
 // A resource that plans differently a second time keeps all its
 // constants, so that the plans stay few.
 func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
+	t.Parallel()
 	dir, changes := roleRoot(t, `resource "aws_role" "a" {
   alpha = "a"
   beta  = "b"
@@ -344,6 +352,7 @@ var lbSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSche
 // for those the catalogue keeps; so do optional blocks of zero values as a
 // whole, even with a required argument set to "".
 func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "a" {
   description     = ""
@@ -390,6 +399,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 // bucket kept storage_class = "STANDARD" and
 // soft_delete_policy { retention_duration_seconds = 604800 }.
 func TestStripDefaultsNamedInTheCatalogue(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "google_storage_bucket" "a" {
   name          = "a"
