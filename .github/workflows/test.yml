@@ -83,8 +83,27 @@ jobs:
     # anyway.
     - name: Build
       run: go build -o infraharvest .
+    # Each package's statements its own tests run, for visibility: no
+    # threshold. The total goes to the run's summary, the profile is
+    # uploaded (go tool cover -html=coverage.out shows it).
     - name: Test
-      run: go test ./...
+      run: go test -coverprofile=coverage.out ./...
+    - name: Coverage
+      if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+      run: |
+        go tool cover -func=coverage.out > "$RUNNER_TEMP/coverage.txt"
+        {
+          echo "### Coverage"
+          echo
+          echo "Statements covered by each package's own tests: $(tail -n 1 "$RUNNER_TEMP/coverage.txt" | awk '{print $NF}')"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload the coverage profile
+      if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: coverage
+        path: coverage.out
+        retention-days: 14
 
   # Accounts and projects import in parallel (--parallel), and listers,
   # discovery and the engine run concurrent work of their own: the state
