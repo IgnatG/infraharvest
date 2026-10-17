@@ -10,40 +10,31 @@ import (
 
 const recordFirehoseARN = "arn:aws:firehose:us-east-1:123456789012:deliverystream/"
 
-// recordFirehoseStream is a DescribeDeliveryStream answer for the stream
-// name in status.
-func recordFirehoseStream(name, status string) string {
-	return `{"DeliveryStreamDescription":{"DeliveryStreamName":"` + name + `","DeliveryStreamARN":"` + recordFirehoseARN + name +
-		`","DeliveryStreamStatus":"` + status + `","DeliveryStreamType":"DirectPut","VersionId":"1","Destinations":[],"HasMoreDestinations":false}}`
-}
+// recordCallerIdentity is GetCallerIdentity's answer for account
+// 123456789012.
+var recordCallerIdentity = recordQuery("GetCallerIdentity", "https://sts.amazonaws.com/doc/2011-06-15/",
+	`<Account>123456789012</Account><Arn>arn:aws:iam::123456789012:user/dev</Arn><UserId>AIDA</UserId>`)
 
 // The lister lists delivery streams 100 at a time, each page starting
-// after the last stream of the one before, and describes each for its
-// ARN, which it records it by, with the name as an attribute. A stream
-// being deleted, or whose description fails, is left out.
+// after the last stream of the one before, and records each by its ARN,
+// built from its name, the region and the account, which it asks for once,
+// with the name as an attribute. No stream is described.
 func TestRecordFirehoseListsDeliveryStreams(t *testing.T) {
+	identities := 0
 	useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
+		case "GetCallerIdentity":
+			identities++
+			return recordCallerIdentity
 		case "ListDeliveryStreams":
 			if !strings.Contains(call.Body, `"Limit":100`) {
 				t.Errorf("streams listed without a limit of 100: %s", call.Body)
 			}
 			switch recordJSONField(call, "ExclusiveStartDeliveryStreamName") {
 			case "":
-				return `{"DeliveryStreamNames":["orders","clicks","old"],"HasMoreDeliveryStreams":true}`
-			case "old":
-				return `{"DeliveryStreamNames":["audit","gone"],"HasMoreDeliveryStreams":false}`
-			}
-		case "DescribeDeliveryStream":
-			switch name := recordJSONField(call, "DeliveryStreamName"); name {
-			case "orders", "audit":
-				return recordFirehoseStream(name, "ACTIVE")
+				return `{"DeliveryStreamNames":["orders","clicks"],"HasMoreDeliveryStreams":true}`
 			case "clicks":
-				return recordFirehoseStream(name, "CREATING")
-			case "old":
-				return recordFirehoseStream(name, "DELETING")
-			case "gone":
-				return recordJSONError("ResourceNotFoundException")
+				return `{"DeliveryStreamNames":["audit"],"HasMoreDeliveryStreams":false}`
 			}
 		}
 		return recordUnexpected(t, call)
@@ -59,13 +50,65 @@ func TestRecordFirehoseListsDeliveryStreams(t *testing.T) {
 		recordedResource{"aws_kinesis_firehose_delivery_stream", recordFirehoseARN + "clicks", "clicks", map[string]string{"name": "clicks"}},
 		recordedResource{"aws_kinesis_firehose_delivery_stream", recordFirehoseARN + "audit", "audit", map[string]string{"name": "audit"}},
 	)
+	if identities != 1 {
+		t.Errorf("GetCallerIdentity asked %d times, want once", identities)
+	}
 }
 
-func TestRecordFirehoseReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
-		return recordJSONError("AccessDeniedException")
+// A region without streams doesn't ask for the account.
+func TestRecordFirehoseWithoutStreams(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListDeliveryStreams" {
+			return `{"DeliveryStreamNames":[],"HasMoreDeliveryStreams":false}`
+		}
+		return recordUnexpected(t, call)
 	})
 	g := &FirehoseLister{}
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+	assertRecorded(t, g.Resources)
+}
+
+// Failing to list the streams, or to find the account, fails the service.
+func TestRecordFirehoseReturnsErrors(t *testing.T) {
+	for _, failing := range []string{"ListDeliveryStreams", "GetCallerIdentity"} {
+		t.Run(failing, func(t *testing.T) {
+			useFakeAPI(t, func(call apiCall) string {
+				switch call.Op {
+				case "GetCallerIdentity":
+					if failing == call.Op {
+						return recordQueryError("https://sts.amazonaws.com/doc/2011-06-15/", "AccessDenied")
+					}
+					return recordCallerIdentity
+				case "ListDeliveryStreams":
+					if failing == call.Op {
+						return recordJSONError("AccessDenied")
+					}
+					return `{"DeliveryStreamNames":["orders"],"HasMoreDeliveryStreams":false}`
+				}
+				return recordUnexpected(t, call)
+			})
+			g := &FirehoseLister{}
+
+			assertRecordedError(t, g.List(), "AccessDenied")
+		})
+	}
+}
+
+// A region's partition is the one its name tells.
+func TestPartitionOf(t *testing.T) {
+	for region, want := range map[string]string{
+		"eu-west-2":      "aws",
+		"us-east-1":      "aws",
+		"cn-north-1":     "aws-cn",
+		"us-gov-west-1":  "aws-us-gov",
+		"us-iso-east-1":  "aws-iso",
+		"us-isob-east-1": "aws-iso-b",
+	} {
+		if got := partitionOf(region); got != want {
+			t.Errorf("partitionOf(%q) = %q, want %q", region, got, want)
+		}
+	}
 }
