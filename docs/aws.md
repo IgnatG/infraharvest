@@ -84,7 +84,7 @@ A load balancer listener that forwards to one target group keeps both `target_gr
 
 ## Services at end of life
 
-Cloud9 (`cloud9`) and Data Pipeline (`datapipeline`) are closed to new customers; MediaStore (`media_store`) and WAF Classic (`waf`, `waf_regional`) have reached end of support. What still exists in them can be imported. `cloud9` lists only EC2 environments, as `aws_cloud9_environment_ec2`: an SSH environment has no Terraform type, so it is skipped with a log message. `media_store` leaves out containers being deleted; the provider has deprecated `aws_media_store_container` and will remove it in a future version. `waf_regional` also lists which load balancers and API Gateway stages each web ACL protects, as `aws_wafregional_web_acl_association`.
+Cloud9 (`cloud9`) and Data Pipeline (`datapipeline`) are closed to new customers; MediaStore (`media_store`) and WAF Classic (`waf`, `waf_regional`) have reached end of support. What still exists in them can be imported. `media_store`, `waf` and `waf_regional` are opt-in: `--services='*'` leaves them out, so that every import doesn't ask their retired APIs in every region, and they are listed only when `--services` names them. `cloud9` lists only EC2 environments, as `aws_cloud9_environment_ec2`: an SSH environment has no Terraform type, so it is skipped with a log message. `media_store` leaves out containers being deleted; the provider has deprecated `aws_media_store_container` and will remove it in a future version. `waf_regional` also lists which load balancers and API Gateway stages each web ACL protects, as `aws_wafregional_web_acl_association`.
 
 ## Tags
 

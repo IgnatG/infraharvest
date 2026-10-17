@@ -4,11 +4,11 @@
 
 The services each provider lists, as `--services` and `--skip` name them, and the Terraform resource types each one lists. The types are those named in the service's lister code, those the [catalogue](../catalogue.md) assigns to the service, and the child resources the catalogue imports with them. A service lists only the types an account has, and a few services decide the type of a resource from what the cloud returns, so the cloud can add types not shown here.
 
-`--services=*` lists every service except the opt-in ones, which list through the cloud's inventory API what other services already list: name them to use them. `infraharvest services <provider>` prints a provider's services.
+`--services=*` lists every service except the opt-in ones: name them to use them. Azure's list through the cloud's inventory API what other services already list, and AWS's list services that have reached end of support. `infraharvest services <provider>` prints a provider's services.
 
 ## AWS
 
-`infraharvest import aws` has 99 services.
+`infraharvest import aws` has 96 services, and 3 opt-in.
 
 | Service | Terraform types |
 |---|---|
@@ -70,7 +70,6 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `lambda` | `aws_lambda_event_source_mapping`, `aws_lambda_function`, `aws_lambda_function_event_invoke_config`, `aws_lambda_layer_version`, `aws_lambda_permission` |
 | `logs` | `aws_cloudwatch_log_group` |
 | `media_package` | `aws_media_package_channel` |
-| `media_store` | `aws_media_store_container` |
 | `medialive` | `aws_medialive_channel`, `aws_medialive_input`, `aws_medialive_input_security_group` |
 | `mq` | `aws_mq_broker` |
 | `msk` | `aws_msk_cluster` |
@@ -105,12 +104,13 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `vpc_peering` | `aws_vpc_peering_connection` |
 | `vpn_connection` | `aws_vpn_connection` |
 | `vpn_gateway` | `aws_vpn_gateway` |
-| `waf` | `aws_waf_byte_match_set`, `aws_waf_geo_match_set`, `aws_waf_ipset`, `aws_waf_rate_based_rule`, `aws_waf_regex_match_set`, `aws_waf_regex_pattern_set`, `aws_waf_rule`, `aws_waf_rule_group`, `aws_waf_size_constraint_set`, `aws_waf_sql_injection_match_set`, `aws_waf_web_acl`, `aws_waf_xss_match_set` |
-| `waf_regional` | `aws_wafregional_byte_match_set`, `aws_wafregional_geo_match_set`, `aws_wafregional_ipset`, `aws_wafregional_rate_based_rule`, `aws_wafregional_regex_match_set`, `aws_wafregional_regex_pattern_set`, `aws_wafregional_rule`, `aws_wafregional_rule_group`, `aws_wafregional_size_constraint_set`, `aws_wafregional_sql_injection_match_set`, `aws_wafregional_web_acl`, `aws_wafregional_web_acl_association`, `aws_wafregional_xss_match_set` |
 | `wafv2_cloudfront` | `aws_wafv2_ip_set`, `aws_wafv2_regex_pattern_set`, `aws_wafv2_rule_group`, `aws_wafv2_web_acl`, `aws_wafv2_web_acl_association`, `aws_wafv2_web_acl_logging_configuration` |
 | `wafv2_regional` | `aws_wafv2_ip_set`, `aws_wafv2_regex_pattern_set`, `aws_wafv2_rule_group`, `aws_wafv2_web_acl`, `aws_wafv2_web_acl_association`, `aws_wafv2_web_acl_logging_configuration` |
 | `workspaces` | `aws_workspaces_directory`, `aws_workspaces_ip_group`, `aws_workspaces_workspace` |
 | `xray` | `aws_xray_sampling_rule` |
+| `media_store` (opt-in) | `aws_media_store_container` |
+| `waf` (opt-in) | `aws_waf_byte_match_set`, `aws_waf_geo_match_set`, `aws_waf_ipset`, `aws_waf_rate_based_rule`, `aws_waf_regex_match_set`, `aws_waf_regex_pattern_set`, `aws_waf_rule`, `aws_waf_rule_group`, `aws_waf_size_constraint_set`, `aws_waf_sql_injection_match_set`, `aws_waf_web_acl`, `aws_waf_xss_match_set` |
+| `waf_regional` (opt-in) | `aws_wafregional_byte_match_set`, `aws_wafregional_geo_match_set`, `aws_wafregional_ipset`, `aws_wafregional_rate_based_rule`, `aws_wafregional_regex_match_set`, `aws_wafregional_regex_pattern_set`, `aws_wafregional_rule`, `aws_wafregional_rule_group`, `aws_wafregional_size_constraint_set`, `aws_wafregional_sql_injection_match_set`, `aws_wafregional_web_acl`, `aws_wafregional_web_acl_association`, `aws_wafregional_xss_match_set` |
 
 ## Azure
 

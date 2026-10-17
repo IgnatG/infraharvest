@@ -6,6 +6,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -92,6 +93,17 @@ func (*Provider) Services() map[string]harvest.Lister {
 		supported[name] = &guardedLister{lister: &CloudControlLister{types: types}}
 	}
 	return supported
+}
+
+// endOfSupportServices are the services of AWS services at end of support,
+// WAF Classic and MediaStore, which only old estates still hold. They are
+// listed only when --services names them, so that every import of * doesn't
+// ask their retired APIs in every region.
+var endOfSupportServices = []string{"media_store", "waf", "waf_regional"}
+
+// OptInServices are the services * leaves out (see endOfSupportServices).
+func (*Provider) OptInServices() []string {
+	return slices.Clone(endOfSupportServices)
 }
 
 // Select makes the service called name the provider's current one,
