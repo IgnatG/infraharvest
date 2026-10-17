@@ -109,6 +109,22 @@ func (*Provider) Services() map[string]harvest.Lister {
 	return supported
 }
 
+// newServiceLister returns a new lister, wrapped in a guardedLister, for
+// the service called name, as Services has it, or nil when there is no
+// such service: a Cloud Control service takes the place of a lister of the
+// same name.
+func newServiceLister(name string) harvest.Lister {
+	if types, ok := cloudControlServices()[name]; ok {
+		return &guardedLister{lister: &CloudControlLister{types: types}}
+	}
+	for _, s := range serviceTable {
+		if s.name == name {
+			return &guardedLister{lister: s.newLister()}
+		}
+	}
+	return nil
+}
+
 // endOfSupportServices are the services of AWS services at end of support,
 // WAF Classic and MediaStore, which only old estates still hold. They are
 // listed only when --services names them, so that every import of * doesn't
@@ -121,10 +137,11 @@ func (*Provider) OptInServices() []string {
 }
 
 // Select makes the service called name the provider's current one,
-// with a new lister, and passes it the provider's settings.
+// with a new lister, and passes it the provider's settings. Only that
+// service's lister is made (see newServiceLister).
 func (p *Provider) Select(name string, verbose bool) error {
-	service, ok := p.Services()[name]
-	if !ok {
+	service := newServiceLister(name)
+	if service == nil {
 		return errors.New("not a service of aws; \"infraharvest services aws\" lists them")
 	}
 	p.Current = service

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
@@ -37,8 +38,10 @@ type cloudControlType struct {
 // name, each a group of related types the service listers don't cover:
 // the catalogue's types with a cloud_control entry, by service, sorted by
 // Terraform type. What AWS creates for the account, such as the default
-// event bus, the catalogue's skip rules leave out.
-func cloudControlServices() map[string][]cloudControlType {
+// event bus, the catalogue's skip rules leave out. They are worked out once,
+// from the built-in catalogue, which doesn't change; callers must not
+// modify the answer.
+var cloudControlServices = sync.OnceValue(func() map[string][]cloudControlType {
 	cat := awsCatalogue()
 	services := map[string][]cloudControlType{}
 	for _, typ := range cat.Types() {
@@ -53,7 +56,7 @@ func cloudControlServices() map[string][]cloudControlType {
 		})
 	}
 	return services
-}
+})
 
 // CloudControlLister lists a service of cloudControlServices.
 type CloudControlLister struct {

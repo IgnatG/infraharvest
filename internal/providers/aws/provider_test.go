@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -29,5 +30,23 @@ func TestEndOfSupportServicesAreOptIn(t *testing.T) {
 	}
 	if !slices.Contains(wildcard, "cloud9") || !slices.Contains(wildcard, "wafv2_regional") {
 		t.Errorf("* leaves out services still supported: %v", wildcard)
+	}
+}
+
+// Select makes only the lister of the service it names, the one Services
+// has for it, and refuses a name that isn't a service.
+func TestSelectMakesTheServicesLister(t *testing.T) {
+	p := &Provider{}
+	for name, want := range p.Services() {
+		if err := p.Select(name, false); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got, ok := p.Current.(*guardedLister)
+		if !ok || reflect.TypeOf(got.lister) != reflect.TypeOf(want.(*guardedLister).lister) {
+			t.Errorf("%s: selected %T, want %T", name, p.Current, want)
+		}
+	}
+	if err := p.Select("no-such-service", false); err == nil {
+		t.Error("want an error for a service that doesn't exist")
 	}
 }
