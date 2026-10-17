@@ -74,7 +74,8 @@ func (a *AzureBlob) List(ctx context.Context, container, prefix string) ([]strin
 	for pages.More() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
-			return nil, err
+			// A transport error quotes the URL, and with it a SAS token.
+			return nil, withoutURL(err)
 		}
 		for _, b := range page.Segment.BlobItems {
 			if b != nil && b.Name != nil {
@@ -89,7 +90,7 @@ func (a *AzureBlob) List(ctx context.Context, container, prefix string) ([]strin
 func (a *AzureBlob) Get(ctx context.Context, container, name string) ([]byte, error) {
 	resp, err := a.client.DownloadStream(ctx, container, name, nil)
 	if err != nil {
-		return nil, err
+		return nil, withoutURL(err)
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)

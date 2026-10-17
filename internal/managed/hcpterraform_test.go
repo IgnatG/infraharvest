@@ -180,3 +180,45 @@ func TestHCPTerraformToken(t *testing.T) {
 		t.Errorf("want an error naming TF_TOKEN_tfe_other_example, got %v", err)
 	}
 }
+
+// A state download URL is signed: it grants access to the state, secrets
+// included, so no error may quote it, whether the download fails with a
+// status or before any.
+func TestHCPTerraformDownloadErrorsHideTheURL(t *testing.T) {
+	const signed = "/v1/object/signed-dG9rZW4"
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer failing.Close()
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close() // nothing listens: the request fails before a status
+
+	for name, download := range map[string]string{"status": failing.URL + signed, "transport": closed.URL + signed} {
+		api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body any
+			switch r.URL.Path {
+			case "/api/v2/organizations/acme/workspaces/prod":
+				body = map[string]any{"data": map[string]any{"id": "ws-prod"}}
+			case "/api/v2/workspaces/ws-prod/current-state-version":
+				body = map[string]any{"data": map[string]any{"attributes": map[string]any{"hosted-state-download-url": download}}}
+			default:
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(body)
+		}))
+		h := &HCPTerraform{client: api.Client(), base: api.URL + "/api/v2", token: "api-token"}
+		_, err := h.Get(t.Context(), "acme", "prod")
+		api.Close()
+		if err == nil {
+			t.Errorf("%s: want an error", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "signed-") {
+			t.Errorf("%s: the error quotes the signed URL: %v", name, err)
+		}
+		if !strings.Contains(err.Error(), "acme/prod") {
+			t.Errorf("%s: the error doesn't name the workspace: %v", name, err)
+		}
+	}
+}
