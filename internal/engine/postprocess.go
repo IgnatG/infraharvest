@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -29,11 +30,12 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // (see addReferences), to resources it doesn't manage (see
 // addDataSources), to what other roots manage (see addRootVariables) and
 // to what the cloud or the provider defines (see addLookups), shared tags
-// (see applyTagLift) and repeated identifiers (see liftLiterals). Each
-// step is checked against the plan before it (see verify) and undone if
-// the plan changes; the references by resource (see verifyEach). Secret
-// variables get their values in these plans where Generate found them,
-// and placeholder values where Terraform doesn't show them. If the
+// (see applyTagLift) and repeated identifiers (see liftLiterals). The
+// steps are checked together by one plan, and only if it changes, each
+// against the plan before it, undone if the plan changes, the references
+// by resource (see verifySteps). Secret variables get their values in
+// these plans where Generate found them, and placeholder values where
+// Terraform doesn't show them. If the
 // configuration doesn't plan even so, only the literal lift is made,
 // checked by validation. Last, clusters of resources move into modules:
 // curated ones first (see synthesize), whose list outputs then replace
@@ -84,29 +86,21 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 			return nil, errors.New("the configuration stopped planning after leaving out defaults")
 		}
 	}
-	type step struct {
-		files []string
-		edit  func() (bool, error)
-		// each, instead of edit, is checked by resource (see verifyEach).
-		each func(skip map[string]int) (map[string]bool, error)
-		// fallback, if set, is the edit to try when the plan rejects edit.
-		fallback func() (bool, error)
-	}
-	steps := []step{{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+	steps := []tidyStep{{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
 	}}}
 	if len(opts.External) > 0 {
-		steps = append(steps, step{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+		steps = append(steps, tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 			return addDataSourcesSkipping(dir, opts.External, opts.DataSources, opts.Taken, skip)
 		}})
 	}
 	// After the data sources: variables are for what they can't read.
 	if len(opts.OtherRoots) > 0 {
-		steps = append(steps, step{files: []string{GeneratedFileName, VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+		steps = append(steps, tidyStep{files: []string{GeneratedFileName, VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 			return addRootVariables(dir, opts.OtherRoots, opts.ARNs, opts.Taken, skip)
 		}})
 	}
-	steps = append(steps, step{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+	steps = append(steps, tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 		return addLookups(dir, opts.Taken, skip)
 	}})
 	// Tags before literals, so a tag value is never made a local.
@@ -118,7 +112,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		if err != nil {
 			return nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
-		tags := step{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
+		tags := tidyStep{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
 		if dt.Block != "" && dt.Applied == nil {
 			// Where the provider can't apply the tags without changing a
 			// resource's, the resources still share them through the local.
@@ -128,24 +122,13 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		}
 		steps = append(steps, tags)
 	}
-	steps = append(steps, step{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
-	for _, step := range steps {
-		var kept bool
-		var err error
-		if step.each != nil {
-			_, err = verifyEach(ctx, tf, dir, *baseline, changes, vars, step.each, step.files...)
-		} else {
-			kept, err = verify(ctx, tf, dir, *baseline, changes, vars, step.edit, step.files...)
-		}
-		if err == nil && !kept && step.fallback != nil {
-			_, err = verify(ctx, tf, dir, *baseline, changes, vars, step.fallback, step.files...)
-		}
-		if err != nil {
-			return nil, err
-		}
+	steps = append(steps, tidyStep{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, opts.Taken) }})
+	if err := verifySteps(ctx, tf, dir, *baseline, changes, vars, steps); err != nil {
+		return nil, err
 	}
 	// Last, as clusters reach the modules through the references above.
 	var declined []ModuleCall
+	var after []tidyStep
 	if len(opts.Adapters) > 0 {
 		// Module calls may update arguments import can't set.
 		var lists map[string]int
@@ -154,21 +137,18 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 			return nil, err
 		}
 		if len(lists) > 0 {
-			collapse := func() (bool, error) {
+			after = append(after, tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) {
 				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
-			}
-			if _, err := verify(ctx, tf, dir, *baseline, changes, vars, collapse, GeneratedFileName); err != nil {
-				return nil, err
-			}
+			}})
 		}
 	}
 	// After the curated modules, whose calls take the project from the
 	// resources; checked like the steps above.
 	if len(opts.Inherited) > 0 {
-		inherited := func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }
-		if _, err := verify(ctx, tf, dir, *baseline, changes, vars, inherited, GeneratedFileName); err != nil {
-			return nil, err
-		}
+		after = append(after, tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }})
+	}
+	if err := verifySteps(ctx, tf, dir, *baseline, changes, vars, after); err != nil {
+		return nil, err
 	}
 	if opts.ModulesDir != "" {
 		if _, err := liftModules(ctx, tf, dir, opts.ModulesDir, *baseline, vars); err != nil {
@@ -197,6 +177,105 @@ func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string, taken 
 		return backup.restore()
 	}
 	return nil
+}
+
+// tidyStep is one of postProcess's edits of the configuration, which a
+// plan checks (see verifySteps).
+type tidyStep struct {
+	// files are those the step may change.
+	files []string
+	edit  func() (bool, error)
+	// each, instead of edit, is checked by resource (see verifyEach).
+	each func(skip map[string]int) (map[string]bool, error)
+	// fallback, if set, is the edit to try when the plan rejects edit.
+	fallback func() (bool, error)
+}
+
+// apply makes the step's edit, or its edit by resource with nothing
+// skipped, and reports whether it changed anything.
+func (s tidyStep) apply() (bool, error) {
+	if s.each == nil {
+		return s.edit()
+	}
+	edited, err := s.each(map[string]int{})
+	return len(edited) > 0, err
+}
+
+// verifySteps makes steps, in order, and keeps what the plan accepts of
+// them. Every plan with import blocks reads every imported resource
+// again, so it first makes them all and plans once (see verifyTogether).
+// Only if that plan differs does it check them one at a time, each step
+// against the plan before it (see verify) and undone if the plan
+// changes, by resource where the step has each (see verifyEach), and
+// with its fallback where the plan rejects its edit. Either way, what it
+// keeps has every resource plan the change it had.
+func verifySteps(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) error {
+	if len(steps) > 1 {
+		settled, err := verifyTogether(ctx, tf, dir, baseline, changes, vars, steps)
+		if err != nil || settled {
+			return err
+		}
+	}
+	for _, step := range steps {
+		var kept bool
+		var err error
+		if step.each != nil {
+			_, err = verifyEach(ctx, tf, dir, baseline, changes, vars, step.each, step.files...)
+		} else {
+			kept, err = verify(ctx, tf, dir, baseline, changes, vars, step.edit, step.files...)
+		}
+		if err == nil && !kept && step.fallback != nil {
+			_, err = verify(ctx, tf, dir, baseline, changes, vars, step.fallback, step.files...)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// verifyTogether makes the edit of every step, in order, each on the
+// files as the ones before it left them, and keeps them all if the
+// configuration then plans, with vars, as verify requires: without
+// errors, with baseline's change summary, and with each resource planning
+// the change it had. It reports whether that settled the steps: it kept
+// them, or none of them changed anything. Otherwise, as when one edit
+// fails, it leaves the files as they were, for the steps to be checked
+// one at a time.
+func verifyTogether(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) (bool, error) {
+	var files []string
+	for _, s := range steps {
+		for _, f := range s.files {
+			if !slices.Contains(files, f) {
+				files = append(files, f)
+			}
+		}
+	}
+	backup, err := backupFiles(dir, files...)
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	for _, s := range steps {
+		edited, err := s.apply()
+		if err != nil {
+			// The step may fail only on top of another's edit: let the
+			// steps one at a time tell.
+			return false, backup.restore()
+		}
+		changed = changed || edited
+	}
+	if !changed {
+		return true, backup.restore()
+	}
+	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+	if err != nil {
+		return false, errors.Join(err, backup.restore())
+	}
+	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
+		return true, nil
+	}
+	return false, backup.restore()
 }
 
 // verify makes edit, which changes files in dir, and keeps it only if the

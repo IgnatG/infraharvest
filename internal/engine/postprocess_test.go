@@ -104,8 +104,8 @@ resource "aws_ebs_volume" "logs" {
 
 // postProcess plans as few times as it can and still checks every step
 // against the plan: here once for the imported values, once to leave out
-// a null, whose plan is then the one the steps compare with, once for the
-// tag lift and once for the literal lift. Every plan with import blocks
+// a null, whose plan is then the one the steps compare with, and once for
+// the tag and literal lifts together. Every plan with import blocks
 // reads every imported resource again, so the count is what a root costs.
 func TestPostProcessPlanCount(t *testing.T) {
 	dir, tf := liftTagsDir(t)
@@ -115,7 +115,7 @@ func TestPostProcessPlanCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := strings.Join(tf.calls, ","), "plan,show,schema,plan,show,schema,plan,show,plan,show"; got != want {
+	if got, want := strings.Join(tf.calls, ","), "plan,show,schema,plan,show,schema,plan,show"; got != want {
 		t.Errorf("calls: got %s, want %s", got, want)
 	}
 	generated := readFile(t, dir, GeneratedFileName)
@@ -124,5 +124,73 @@ func TestPostProcessPlanCount(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, dir, ProvidersFileName), "default_tags") {
 		t.Error("tags not lifted")
+	}
+}
+
+// commentStep is a step that appends comment to generated.tf.
+func commentStep(dir, comment string) tidyStep {
+	return tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) {
+		path := filepath.Join(dir, GeneratedFileName)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false, err
+		}
+		return true, os.WriteFile(path, append(content, []byte("# "+comment+"\n")...), 0o644)
+	}}
+}
+
+// One plan checks steps that keep it as it was; only when it differs are
+// they checked one at a time, so that the step the plan rejects is the
+// only one undone.
+func TestVerifySteps(t *testing.T) {
+	for name, tt := range map[string]struct {
+		plans []fakePlan
+		calls string
+		want  []string // the comments kept
+	}{
+		"together":          {nil, "plan,show", []string{"one", "two"}},
+		"one at a time":     {[]fakePlan{{summary: changeSummary{Change: 1}}, {summary: changeSummary{Change: 1}}}, "plan,show,plan,show,plan,show", []string{"two"}},
+		"none of them kept": {[]fakePlan{{summary: changeSummary{Change: 1}}, {summary: changeSummary{Change: 1}}, {summary: changeSummary{Change: 1}}}, "plan,show,plan,show,plan,show", nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, networkGenerated)
+			tf := &fakeTerraform{dir: dir, plans: tt.plans}
+
+			if err := verifySteps(context.Background(), tf, dir, changeSummary{}, nil, nil, []tidyStep{commentStep(dir, "one"), commentStep(dir, "two")}); err != nil {
+				t.Fatal(err)
+			}
+
+			if got := strings.Join(tf.calls, ","); got != tt.calls {
+				t.Errorf("calls: got %s, want %s", got, tt.calls)
+			}
+			want := networkGenerated
+			for _, c := range tt.want {
+				want += "# " + c + "\n"
+			}
+			if got := readFile(t, dir, GeneratedFileName); got != want {
+				t.Errorf("generated.tf: got:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+}
+
+// Steps that change nothing need no plan.
+func TestVerifyStepsWithoutChanges(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, networkGenerated)
+	tf := &fakeTerraform{dir: dir}
+	unchanged := tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return false, nil }}
+	none := tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(map[string]int) (map[string]bool, error) { return nil, nil }}
+
+	if err := verifySteps(context.Background(), tf, dir, changeSummary{}, nil, nil, []tidyStep{unchanged, none}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tf.calls) != 0 {
+		t.Errorf("calls: %v, want none", tf.calls)
+	}
+	if got := readFile(t, dir, GeneratedFileName); got != networkGenerated {
+		t.Errorf("generated.tf changed:\n%s", got)
 	}
 }
