@@ -11,6 +11,9 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
+	"runtime/debug"
 	"runtime/pprof"
 	"sync"
 	"time"
@@ -89,6 +92,19 @@ func List(ctx context.Context, discoverers []Discoverer, opts Options) ([]Result
 	return results, nil
 }
 
+// safely runs d, turning a panic into its error, with the stack in the
+// log: a lister's bug fails its service, as any other failure does, and
+// the rest of the run goes on.
+func safely(ctx context.Context, d Discoverer) (resources []harvest.Resource, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("service %s panicked: %v\n%s", d.Name(), r, debug.Stack())
+			resources, err = nil, fmt.Errorf("panic: %v (the log has the stack)", r)
+		}
+	}()
+	return d.Discover(ctx)
+}
+
 // discover runs one discoverer within timeout.
 func discover(ctx context.Context, d Discoverer, timeout time.Duration) Result {
 	var listCtx context.Context
@@ -99,7 +115,7 @@ func discover(ctx context.Context, d Discoverer, timeout time.Duration) Result {
 		listCtx, cancel = context.WithCancel(ctx)
 	}
 	defer cancel()
-	resources, err := d.Discover(listCtx)
+	resources, err := safely(listCtx, d)
 	if ctx.Err() == nil && listCtx.Err() != nil {
 		err = ErrDeadline
 	}

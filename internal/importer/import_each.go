@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 )
@@ -30,7 +31,7 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 	run := activeRun
 	if run == nil || options.Parallel <= 1 || len(scopes) < 2 {
 		for _, scope := range scopes {
-			err := importOne(options, scope)
+			err := importSafely(importOne, options, scope)
 			if err == nil {
 				continue
 			}
@@ -56,7 +57,7 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 		runs[i] = run.child()
 		scopeOptions := options
 		scopeOptions.run = runs[i]
-		errs[i] = importOne(scopeOptions, scopes[i])
+		errs[i] = importSafely(importOne, scopeOptions, scopes[i])
 		if errors.Is(errs[i], context.Canceled) {
 			interrupted.Store(true)
 		}
@@ -99,4 +100,18 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 		}
 	}
 	return canceled
+}
+
+// importSafely imports scope with importOne, turning a panic into its
+// error, with the stack in the log: the scope fails, as one whose role
+// can't be assumed does, and the others go on, so the run still ends with
+// a report.
+func importSafely(importOne func(Options, string) error, options Options, scope string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("%s panicked: %v\n%s", scope, r, debug.Stack())
+			err = fmt.Errorf("panic: %v (the log has the stack)", r)
+		}
+	}()
+	return importOne(options, scope)
 }

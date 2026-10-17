@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"runtime/pprof"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -215,5 +216,28 @@ func TestServiceKeepsWhatAPartialListingFound(t *testing.T) {
 	resources, err = Service("dns", &errProvider{err: refused}, false, nil).Discover(t.Context())
 	if !errors.Is(err, refused) || resources != nil {
 		t.Errorf("failed: got %d resources and %v, want none and the error", len(resources), err)
+	}
+}
+
+// panicking panics when it lists.
+type panicking struct{}
+
+func (panicking) Name() string { return "broken" }
+
+func (panicking) Discover(context.Context) ([]harvest.Resource, error) {
+	panic("unexpected response")
+}
+
+// A discoverer that panics fails as its service, and the others list.
+func TestListRecoversAPanic(t *testing.T) {
+	results, err := List(t.Context(), []Discoverer{panicking{}, &fake{name: "good"}}, Options{Parallel: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Name != "broken" || results[0].Err == nil || !strings.Contains(results[0].Err.Error(), "panic:") || results[0].Resources != nil {
+		t.Errorf("the panicking service: %+v", results[0])
+	}
+	if results[1].Err != nil || len(results[1].Resources) != 1 {
+		t.Errorf("the other service: %+v", results[1])
 	}
 }
