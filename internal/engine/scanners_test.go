@@ -90,3 +90,14 @@ func TestParseScannerOutput(t *testing.T) {
 		}
 	}
 }
+
+// Scanners read configuration, which needs no credentials: checkov uploads
+// what it scans with a platform key, and a cloud credential is no business
+// of any scanner.
+func TestScannerEnv(t *testing.T) {
+	got := scannerEnv([]string{"PATH=/usr/bin", "HOME=/home/me", "AWS_SECRET_ACCESS_KEY=x", "aws_profile=prod", "ARM_CLIENT_SECRET=x", "GOOGLE_APPLICATION_CREDENTIALS=/k.json", "TF_TOKEN_app_terraform_io=x", "BC_API_KEY=x", "PRISMA_API_URL=x", "TRIVY_CACHE_DIR=/c"})
+	want := []string{"PATH=/usr/bin", "HOME=/home/me", "TRIVY_CACHE_DIR=/c"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

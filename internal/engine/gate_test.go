@@ -347,3 +347,40 @@ resource "aws_ssm_parameter" "a" {
 		t.Errorf("got %+v", check)
 	}
 }
+
+// External scanners are other people's code, and some upload what they
+// scan: they never see a directory that holds a secret value.
+func TestScannersDontSeeSecrets(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, ImportsFileName, `import {
+  to = aws_vpc.main
+  id = "vpc-1"
+}
+`)
+	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags = { token = "ghp_`+strings.Repeat("a1", 18)+`" }
+}
+`)
+	tf := &fakeTerraform{dir: dir, shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}}
+	ran := false
+	spy := Scanner{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+		ran = true
+		return nil, nil
+	}}
+
+	gate, err := runGate(context.Background(), tf, dir, nil, Options{Scanners: []Scanner{spy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Error("a scanner ran on a directory holding a secret")
+	}
+	if c := gate.check(CheckSecrets); c.Passed {
+		t.Errorf("G6 passed: %+v", c)
+	}
+	if c := gate.check(CheckScanners); !c.Skipped {
+		t.Errorf("scanners not skipped: %+v", c)
+	}
+}

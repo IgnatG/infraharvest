@@ -148,13 +148,18 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	if err != nil {
 		return nil, err
 	}
-	gate = append(gate, standards, runScanners(ctx, dir, opts.Scanners))
-
+	// Secrets first: external scanners are other people's code, and some
+	// send what they scan elsewhere, so they never see a directory that
+	// holds a secret value.
 	secretCheck, err := scanSecrets(dir, sensitive)
 	if err != nil {
 		return nil, err
 	}
-	gate = append(gate, secretCheck)
+	scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
+	if secretCheck.Passed {
+		scanners = runScanners(ctx, dir, opts.Scanners)
+	}
+	gate = append(gate, standards, scanners, secretCheck)
 
 	determinism, err := scanNondeterminism(dir)
 	if err != nil {
