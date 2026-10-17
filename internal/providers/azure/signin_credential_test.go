@@ -186,6 +186,10 @@ func TestNewCredentialNeedsTenantAndClient(t *testing.T) {
 		"a client certificate": {certificatePath: "/certs/sp.pem"},
 		"a client secret":      {clientSecret: "secret"},
 		"OIDC":                 {useOIDC: true, oidcRequestURL: "https://oidc.example/token", oidcRequestToken: "request-token"},
+		"an OIDC token":        {useOIDC: true, oidcToken: "id-token"},
+		"Azure DevOps pipeline OIDC": {
+			useOIDC: true, oidcRequestURL: "https://dev.azure.example/oidc", oidcRequestToken: "request-token", adoServiceConnectionID: "connection",
+		},
 	}
 	for words, settings := range methods {
 		for _, ids := range [][2]string{{"", "client"}, {"tenant", ""}, {"", ""}} {

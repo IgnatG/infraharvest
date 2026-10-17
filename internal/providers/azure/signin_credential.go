@@ -24,6 +24,10 @@ import (
 // GitHub Actions puts in the token when the request asks for it.
 const oidcAudience = "api://AzureADTokenExchange"
 
+// adoOIDCAPIVersion is the Azure DevOps API version an Azure Pipelines
+// OIDC token is asked for with, the one azurerm asks with.
+const adoOIDCAPIVersion = "7.1"
+
 // msiAPIVersion is the managed identity endpoint API version that
 // ARM_MSI_ENDPOINT is called with, the one Azure's instance metadata service
 // and emulators such as floci-az answer.
@@ -41,8 +45,13 @@ const (
 	signInWithCLI signInMethod = iota
 	signInWithCertificate
 	signInWithSecret
+	signInWithOIDCToken
+	signInWithADOPipeline
 	signInWithOIDC
 	signInWithManagedIdentity
+	// signInWithNothing is no method at all: the Azure CLI is turned off
+	// (ARM_USE_CLI=false) and nothing else is set up.
+	signInWithNothing
 )
 
 // String names the method in words, for error messages.
@@ -52,10 +61,16 @@ func (m signInMethod) String() string {
 		return "a client certificate"
 	case signInWithSecret:
 		return "a client secret"
+	case signInWithOIDCToken:
+		return "an OIDC token"
+	case signInWithADOPipeline:
+		return "Azure DevOps pipeline OIDC"
 	case signInWithOIDC:
 		return "OIDC"
 	case signInWithManagedIdentity:
 		return "a managed identity"
+	case signInWithNothing:
+		return "no method"
 	}
 	return "the Azure CLI"
 }
@@ -63,37 +78,72 @@ func (m signInMethod) String() string {
 // needsApplication says whether the method signs in as an application
 // registration, which takes both a tenant and a client ID.
 func (m signInMethod) needsApplication() bool {
-	return m == signInWithCertificate || m == signInWithSecret || m == signInWithOIDC
+	switch m {
+	case signInWithCertificate, signInWithSecret, signInWithOIDCToken, signInWithADOPipeline, signInWithOIDC:
+		return true
+	}
+	return false
 }
 
 // method picks how cfg signs in: the first method, in the order azurerm
-// documents them, whose settings are all present, and the Azure CLI when
-// none is.
+// tries them, whose settings are all present, and the Azure CLI when none
+// is, unless ARM_USE_CLI turns it off.
 func (cfg authConfig) method() signInMethod {
+	requested := cfg.oidcRequestURL != "" && cfg.oidcRequestToken != ""
 	switch {
-	case cfg.certificatePath != "":
+	case len(cfg.certificateData) > 0 || cfg.certificatePath != "":
 		return signInWithCertificate
 	case cfg.clientSecret != "":
 		return signInWithSecret
-	case cfg.useOIDC && cfg.oidcRequestURL != "" && cfg.oidcRequestToken != "":
+	case cfg.useOIDC && (cfg.oidcToken != "" || len(cfg.oidcTokenFiles) > 0):
+		return signInWithOIDCToken
+	case cfg.useOIDC && requested && cfg.adoServiceConnectionID != "":
+		return signInWithADOPipeline
+	case cfg.useOIDC && requested:
 		return signInWithOIDC
 	case cfg.useMSI:
 		return signInWithManagedIdentity
+	case cfg.cliDisabled:
+		return signInWithNothing
 	}
 	return signInWithCLI
 }
 
+// errNoIDToken is the error of ARM_USE_OIDC (or AKS workload identity)
+// with no ID token to sign in with and no managed identity to use instead.
+var errNoIDToken = errors.New("ARM_USE_OIDC (or ARM_USE_AKS_WORKLOAD_IDENTITY) is set, but there is no ID token to sign in with:" +
+	" set ARM_OIDC_TOKEN, ARM_OIDC_TOKEN_FILE_PATH, or ARM_OIDC_REQUEST_URL and ARM_OIDC_REQUEST_TOKEN" +
+	" (in GitHub Actions, grant the job id-token: write; on AKS, enable workload identity for the pod)")
+
+// errNoSignIn is the error of ARM_USE_CLI=false with no other method set
+// up.
+var errNoSignIn = errors.New("ARM_USE_CLI is false and no other way to sign in to Azure is set up:" +
+	" set up a client certificate, a client secret, OIDC or a managed identity, as for the azurerm provider")
+
 // newCredential builds the credential cfg's method signs in with, for cfg's
 // cloud. It sends no request: the credential signs in on its first token.
+// OIDC asked for without an ID token is an error rather than a quiet fall
+// back to the Azure CLI, which would list as another identity than the
+// one meant, as is ARM_USE_CLI=false with nothing else set up.
 func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 	method := cfg.method()
-	if method.needsApplication() && (cfg.tenantID == "" || cfg.clientID == "") {
+	switch {
+	case cfg.useOIDC && (method == signInWithCLI || method == signInWithNothing):
+		return nil, errNoIDToken
+	case method == signInWithNothing:
+		return nil, errNoSignIn
+	case method.needsApplication() && (cfg.tenantID == "" || cfg.clientID == ""):
 		return nil, fmt.Errorf("ARM_TENANT_ID and ARM_CLIENT_ID are both required to sign in with %s", method)
 	}
 	options := azcore.ClientOptions{Cloud: cfg.cloud}
 	// A custom cloud's authority is not one Entra's instance discovery
 	// knows, so the credentials must take it as it is.
 	customAuthority := cfg.metadataHost != ""
+	assertionOptions := &azidentity.ClientAssertionCredentialOptions{
+		ClientOptions:              options,
+		AdditionallyAllowedTenants: cfg.auxiliaryTenants,
+		DisableInstanceDiscovery:   customAuthority,
+	}
 
 	switch method {
 	case signInWithCertificate:
@@ -105,23 +155,28 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 				AdditionallyAllowedTenants: cfg.auxiliaryTenants,
 				DisableInstanceDiscovery:   customAuthority,
 			}))
+	case signInWithOIDCToken:
+		assertion := func(context.Context) (string, error) { return cfg.idToken() }
+		return asCredential(azidentity.NewClientAssertionCredential(cfg.tenantID, cfg.clientID, assertion, assertionOptions))
+	case signInWithADOPipeline:
+		client := &http.Client{Timeout: signInHTTPTimeout}
+		assertion := func(ctx context.Context) (string, error) {
+			return fetchADOIDToken(ctx, client, cfg.oidcRequestURL, cfg.oidcRequestToken, cfg.adoServiceConnectionID)
+		}
+		return asCredential(azidentity.NewClientAssertionCredential(cfg.tenantID, cfg.clientID, assertion, assertionOptions))
 	case signInWithOIDC:
 		client := &http.Client{Timeout: signInHTTPTimeout}
 		assertion := func(ctx context.Context) (string, error) {
 			return fetchIDToken(ctx, client, cfg.oidcRequestURL, cfg.oidcRequestToken)
 		}
-		return asCredential(azidentity.NewClientAssertionCredential(cfg.tenantID, cfg.clientID, assertion,
-			&azidentity.ClientAssertionCredentialOptions{
-				ClientOptions:              options,
-				AdditionallyAllowedTenants: cfg.auxiliaryTenants,
-				DisableInstanceDiscovery:   customAuthority,
-			}))
+		return asCredential(azidentity.NewClientAssertionCredential(cfg.tenantID, cfg.clientID, assertion, assertionOptions))
 	case signInWithManagedIdentity:
 		if cfg.msiEndpoint != "" {
 			return cacheTokens(&msiEndpointCredential{
-				endpoint: cfg.msiEndpoint,
-				clientID: cfg.clientID,
-				client:   &http.Client{Timeout: signInHTTPTimeout},
+				endpoint:   cfg.msiEndpoint,
+				apiVersion: cfg.msiAPIVersion,
+				clientID:   cfg.clientID,
+				client:     &http.Client{Timeout: signInHTTPTimeout},
 			}), nil
 		}
 		msiOptions := &azidentity.ManagedIdentityCredentialOptions{ClientOptions: options}
@@ -144,6 +199,29 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 	return cacheTokens(cli), nil
 }
 
+// idToken returns the OIDC ID token cfg holds: ARM_OIDC_TOKEN, or the
+// trimmed content of the files of oidcTokenFiles, read now, as AKS
+// rotates its token. Several of them must hold the same token, as azurerm
+// requires.
+func (cfg authConfig) idToken() (string, error) {
+	token, from := cfg.oidcToken, "ARM_OIDC_TOKEN"
+	for _, f := range cfg.oidcTokenFiles {
+		data, err := os.ReadFile(f.path)
+		if err != nil {
+			return "", fmt.Errorf("reading the OIDC token in %s: %w", f.variable, err)
+		}
+		fileToken := strings.TrimSpace(string(data))
+		if token != "" && token != fileToken {
+			return "", fmt.Errorf("%s and %s hold different OIDC tokens: unset one or make them match", from, f.variable)
+		}
+		token, from = fileToken, f.variable
+	}
+	if token == "" {
+		return "", fmt.Errorf("the OIDC token in %s is empty", from)
+	}
+	return token, nil
+}
+
 // asCredential returns a constructor's credential as an interface, and a
 // nil interface (not a typed nil pointer) when the constructor failed.
 func asCredential[C azcore.TokenCredential](credential C, err error) (azcore.TokenCredential, error) {
@@ -154,11 +232,16 @@ func asCredential[C azcore.TokenCredential](credential C, err error) (azcore.Tok
 }
 
 // certificateCredential signs in with the certificate (and its private
-// key) in the file ARM_CLIENT_CERTIFICATE_PATH names.
+// key) ARM_CLIENT_CERTIFICATE holds or, without it, that is in the file
+// ARM_CLIENT_CERTIFICATE_PATH names, as azurerm picks them.
 func certificateCredential(cfg authConfig, options azcore.ClientOptions, customAuthority bool) (azcore.TokenCredential, error) {
-	data, err := os.ReadFile(cfg.certificatePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading ARM_CLIENT_CERTIFICATE_PATH: %w", err)
+	data, from := cfg.certificateData, "ARM_CLIENT_CERTIFICATE"
+	if len(data) == 0 {
+		from = "ARM_CLIENT_CERTIFICATE_PATH"
+		var err error
+		if data, err = os.ReadFile(cfg.certificatePath); err != nil {
+			return nil, fmt.Errorf("reading ARM_CLIENT_CERTIFICATE_PATH: %w", err)
+		}
 	}
 	var password []byte
 	if cfg.certificatePassword != "" {
@@ -166,7 +249,7 @@ func certificateCredential(cfg authConfig, options azcore.ClientOptions, customA
 	}
 	certificates, key, err := azidentity.ParseCertificates(data, password)
 	if err != nil {
-		return nil, fmt.Errorf("parsing the certificate in ARM_CLIENT_CERTIFICATE_PATH: %w", err)
+		return nil, fmt.Errorf("parsing the certificate in %s: %w", from, err)
 	}
 	return asCredential(azidentity.NewClientCertificateCredential(cfg.tenantID, cfg.clientID, certificates, key,
 		&azidentity.ClientCertificateCredentialOptions{
@@ -212,6 +295,50 @@ func fetchIDToken(ctx context.Context, client *http.Client, requestURL, requestT
 	return answer.Value, nil
 }
 
+// fetchADOIDToken asks an Azure DevOps pipeline's OIDC request URL
+// (SYSTEM_OIDCREQUESTURI) for the ID token of the service connection
+// serviceConnectionID, the way azurerm does: a POST with the API version,
+// the service connection and Entra's audience, unless the URL names them.
+func fetchADOIDToken(ctx context.Context, client *http.Client, requestURL, requestToken, serviceConnectionID string) (string, error) {
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return "", fmt.Errorf("the OIDC request URL: %w", err)
+	}
+	query := u.Query()
+	for name, value := range map[string]string{
+		"api-version":         adoOIDCAPIVersion,
+		"serviceConnectionId": serviceConnectionID,
+		"audience":            oidcAudience,
+	} {
+		if !query.Has(name) {
+			query.Set(name, value)
+		}
+	}
+	u.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), http.NoBody)
+	if err != nil {
+		return "", fmt.Errorf("requesting an Azure DevOps OIDC token: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+requestToken)
+	body, err := doSignInRequest(client, req)
+	if err != nil {
+		return "", fmt.Errorf("requesting an Azure DevOps OIDC token: %w", err)
+	}
+	var answer struct {
+		OIDCToken string `json:"oidcToken"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		return "", fmt.Errorf("decoding the Azure DevOps OIDC token: %w", err)
+	}
+	if answer.OIDCToken == "" {
+		return "", errors.New("the Azure DevOps OIDC request URL answered without a token")
+	}
+	return answer.OIDCToken, nil
+}
+
 // doSignInRequest sends req and returns at most maxSignInResponse bytes of
 // the body of a 200 answer; any other status is an error.
 func doSignInRequest(client *http.Client, req *http.Request) ([]byte, error) {
@@ -237,6 +364,9 @@ func doSignInRequest(client *http.Client, req *http.Request) ([]byte, error) {
 // own.
 type msiEndpointCredential struct {
 	endpoint string
+	// apiVersion is ARM_MSI_API_VERSION, the endpoint's API version to
+	// ask with; empty, it is msiAPIVersion.
+	apiVersion string
 	// clientID picks a user-assigned identity; empty, the endpoint
 	// answers for the system-assigned one.
 	clientID string
@@ -255,7 +385,11 @@ func (c *msiEndpointCredential) GetToken(ctx context.Context, options policy.Tok
 		return azcore.AccessToken{}, fmt.Errorf("ARM_MSI_ENDPOINT: %w", err)
 	}
 	query := u.Query()
-	query.Set("api-version", msiAPIVersion)
+	apiVersion := c.apiVersion
+	if apiVersion == "" {
+		apiVersion = msiAPIVersion
+	}
+	query.Set("api-version", apiVersion)
 	// The endpoint takes a resource, which is the scope without the
 	// "/.default" that marks a resource's default permissions.
 	query.Set("resource", strings.TrimSuffix(options.Scopes[0], "/.default"))

@@ -6,11 +6,13 @@ package azure
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -35,28 +37,46 @@ type authConfig struct {
 	subscriptionID string
 
 	// tenantID and clientID name the Entra tenant and the application (or
-	// user-assigned managed identity) to sign in as.
+	// user-assigned managed identity) to sign in as. The client ID can
+	// come from ARM_CLIENT_ID_FILE_PATH's file, and both from AKS
+	// workload identity's AZURE_TENANT_ID and AZURE_CLIENT_ID.
 	tenantID string
 	clientID string
 
-	// clientSecret signs in a service principal with a secret.
+	// clientSecret signs in a service principal with a secret, from
+	// ARM_CLIENT_SECRET or ARM_CLIENT_SECRET_FILE_PATH's file.
 	clientSecret string
 
-	// certificatePath and certificatePassword sign in a service principal
+	// certificateData (ARM_CLIENT_CERTIFICATE, base64-decoded), or else
+	// certificatePath, and certificatePassword sign in a service principal
 	// with a PEM or PKCS#12 certificate.
+	certificateData     []byte
 	certificatePath     string
 	certificatePassword string
 
-	// useOIDC, oidcRequestURL and oidcRequestToken sign in with a GitHub
-	// Actions (or compatible) ID token exchanged for an Entra token.
-	useOIDC          bool
-	oidcRequestURL   string
-	oidcRequestToken string
+	// useOIDC (ARM_USE_OIDC or ARM_USE_AKS_WORKLOAD_IDENTITY) signs in with
+	// an ID token exchanged for an Entra token: oidcToken and the files of
+	// oidcTokenFiles, read on each sign-in as AKS rotates its token, or
+	// else the token oidcRequestURL hands out for oidcRequestToken, the
+	// way Azure DevOps does when adoServiceConnectionID is set and the way
+	// GitHub Actions does otherwise.
+	useOIDC                bool
+	oidcToken              string
+	oidcTokenFiles         []tokenFile
+	oidcRequestURL         string
+	oidcRequestToken       string
+	adoServiceConnectionID string
 
-	// useMSI signs in as a managed identity, through msiEndpoint when it is
-	// set and the environment's own identity endpoint otherwise.
-	useMSI      bool
-	msiEndpoint string
+	// useMSI signs in as a managed identity, through msiEndpoint (asked
+	// with msiAPIVersion, when set) when it is set and the environment's
+	// own identity endpoint otherwise.
+	useMSI        bool
+	msiEndpoint   string
+	msiAPIVersion string
+
+	// cliDisabled is ARM_USE_CLI=false: no falling back to the Azure CLI
+	// when nothing else is set up.
+	cliDisabled bool
 
 	// auxiliaryTenants are other tenants the credential may get tokens for,
 	// for resources that span tenants (such as a peering).
@@ -71,27 +91,58 @@ type authConfig struct {
 	metadataHost string
 }
 
+// tokenFile is a file holding an OIDC ID token, and the variable that
+// names it.
+type tokenFile struct {
+	variable, path string
+}
+
 // loadAuthConfig reads the ARM_* variables through getenv, which is
-// os.Getenv outside tests. It only reads and checks them: it makes no
-// network call, so a custom cloud's endpoints are left to signIn.
+// os.Getenv outside tests, the way the azurerm provider reads them, so
+// that the listers sign in as the generated roots' plans will. It reads
+// the client ID and secret files they name, but no token file, and makes
+// no network call, so a custom cloud's endpoints are left to signIn.
 func loadAuthConfig(getenv func(string) string) (authConfig, error) {
 	cfg := authConfig{
-		subscriptionID:      getenv("ARM_SUBSCRIPTION_ID"),
-		tenantID:            getenv("ARM_TENANT_ID"),
-		clientID:            getenv("ARM_CLIENT_ID"),
-		clientSecret:        getenv("ARM_CLIENT_SECRET"),
-		certificatePath:     getenv("ARM_CLIENT_CERTIFICATE_PATH"),
-		certificatePassword: getenv("ARM_CLIENT_CERTIFICATE_PASSWORD"),
-		msiEndpoint:         getenv("ARM_MSI_ENDPOINT"),
-		oidcRequestURL:      firstSet(getenv, "ARM_OIDC_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_URL"),
-		oidcRequestToken:    firstSet(getenv, "ARM_OIDC_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
+		subscriptionID:         getenv("ARM_SUBSCRIPTION_ID"),
+		tenantID:               strings.TrimSpace(getenv("ARM_TENANT_ID")),
+		certificatePath:        getenv("ARM_CLIENT_CERTIFICATE_PATH"),
+		certificatePassword:    getenv("ARM_CLIENT_CERTIFICATE_PASSWORD"),
+		msiEndpoint:            getenv("ARM_MSI_ENDPOINT"),
+		msiAPIVersion:          getenv("ARM_MSI_API_VERSION"),
+		oidcToken:              strings.TrimSpace(getenv("ARM_OIDC_TOKEN")),
+		oidcRequestURL:         firstSet(getenv, "ARM_OIDC_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_URL", "SYSTEM_OIDCREQUESTURI"),
+		oidcRequestToken:       firstSet(getenv, "ARM_OIDC_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "SYSTEM_ACCESSTOKEN"),
+		adoServiceConnectionID: firstSet(getenv, "ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID", "ARM_OIDC_AZURE_SERVICE_CONNECTION_ID"),
+	}
+	if path := getenv("ARM_OIDC_TOKEN_FILE_PATH"); path != "" {
+		cfg.oidcTokenFiles = append(cfg.oidcTokenFiles, tokenFile{"ARM_OIDC_TOKEN_FILE_PATH", path})
 	}
 
 	var err error
+	if cfg.clientID, err = valueOrFile(getenv, "ARM_CLIENT_ID", "ARM_CLIENT_ID_FILE_PATH"); err != nil {
+		return authConfig{}, err
+	}
+	if cfg.clientSecret, err = valueOrFile(getenv, "ARM_CLIENT_SECRET", "ARM_CLIENT_SECRET_FILE_PATH"); err != nil {
+		return authConfig{}, err
+	}
+	if encoded := getenv("ARM_CLIENT_CERTIFICATE"); encoded != "" {
+		if cfg.certificateData, err = base64.StdEncoding.DecodeString(encoded); err != nil {
+			return authConfig{}, fmt.Errorf("ARM_CLIENT_CERTIFICATE is not base64: %w", err)
+		}
+	}
 	if cfg.useOIDC, err = envBool(getenv, "ARM_USE_OIDC"); err != nil {
 		return authConfig{}, err
 	}
 	if cfg.useMSI, err = envBool(getenv, "ARM_USE_MSI"); err != nil {
+		return authConfig{}, err
+	}
+	useCLI, err := envBoolOr(getenv, "ARM_USE_CLI", true)
+	if err != nil {
+		return authConfig{}, err
+	}
+	cfg.cliDisabled = !useCLI
+	if err = cfg.addAKSWorkloadIdentity(getenv); err != nil {
 		return authConfig{}, err
 	}
 
@@ -121,17 +172,75 @@ func loadAuthConfig(getenv func(string) string) (authConfig, error) {
 	return cfg, nil
 }
 
-// envBool reads the boolean variable name the way the azurerm provider
+// addAKSWorkloadIdentity adds what ARM_USE_AKS_WORKLOAD_IDENTITY=true
+// brings, as azurerm does: OIDC, with the token file, client ID and
+// tenant ID AKS sets in AZURE_FEDERATED_TOKEN_FILE, AZURE_CLIENT_ID and
+// AZURE_TENANT_ID, where set. An ARM_CLIENT_ID or ARM_TENANT_ID that
+// says otherwise is an error, as it is to azurerm.
+func (cfg *authConfig) addAKSWorkloadIdentity(getenv func(string) string) error {
+	useAKS, err := envBool(getenv, "ARM_USE_AKS_WORKLOAD_IDENTITY")
+	if err != nil || !useAKS {
+		return err
+	}
+	cfg.useOIDC = true
+	if path := getenv("AZURE_FEDERATED_TOKEN_FILE"); path != "" {
+		cfg.oidcTokenFiles = append(cfg.oidcTokenFiles, tokenFile{"AZURE_FEDERATED_TOKEN_FILE", path})
+	}
+	for _, id := range []struct {
+		value    *string
+		own, aks string
+	}{
+		{&cfg.clientID, "ARM_CLIENT_ID", "AZURE_CLIENT_ID"},
+		{&cfg.tenantID, "ARM_TENANT_ID", "AZURE_TENANT_ID"},
+	} {
+		aks := getenv(id.aks)
+		if aks == "" {
+			continue
+		}
+		if *id.value != "" && *id.value != aks {
+			return fmt.Errorf("%s and %s, which AKS workload identity sets, differ: unset one, make them match or turn off ARM_USE_AKS_WORKLOAD_IDENTITY", id.own, id.aks)
+		}
+		*id.value = aks
+	}
+	return nil
+}
+
+// valueOrFile reads a setting the way azurerm reads the client ID and
+// secret: the variable name, trimmed, or the trimmed content of the file
+// the variable file names; both set, they must agree.
+func valueOrFile(getenv func(string) string, name, file string) (string, error) {
+	value := strings.TrimSpace(getenv(name))
+	path := getenv(file)
+	if path == "" {
+		return value, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", file, err)
+	}
+	fromFile := strings.TrimSpace(string(data))
+	if value != "" && value != fromFile {
+		return "", fmt.Errorf("%s and the file %s names differ: unset one or make them match", name, file)
+	}
+	return fromFile, nil
+}
+
+// envBool is envBoolOr for a variable that is false when unset.
+func envBool(getenv func(string) string, name string) (bool, error) {
+	return envBoolOr(getenv, name, false)
+}
+
+// envBoolOr reads the boolean variable name the way the azurerm provider
 // does, so that a setting means the same to both: whatever
 // strconv.ParseBool accepts (1, t, true, 0, f, false and their capitalised
-// and upper-case forms), with surrounding spaces ignored. Unset or empty is
-// false. Any other value is an error rather than a guess, because reading
-// "no" or "yes" wrongly would pick a different sign-in method without a
-// word.
-func envBool(getenv func(string) string, name string) (bool, error) {
+// and upper-case forms), with surrounding spaces ignored. Unset or empty,
+// it reads as unset. Any other value is an error rather than a guess, as
+// reading "no" or "yes" wrongly would pick another sign-in method without
+// a word.
+func envBoolOr(getenv func(string) string, name string, unset bool) (bool, error) {
 	value := strings.TrimSpace(getenv(name))
 	if value == "" {
-		return false, nil
+		return unset, nil
 	}
 	on, err := strconv.ParseBool(value)
 	if err != nil {

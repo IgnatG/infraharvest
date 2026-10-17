@@ -10,17 +10,22 @@ infraharvest discover azure --services='*'
 
 ## Signing in
 
-infraharvest reads the `ARM_*` environment variables the azurerm provider documents, and picks the first way of signing in they set up, in the provider's order:
+infraharvest reads the `ARM_*` environment variables the azurerm provider documents, the way the provider reads them, and picks the first way of signing in they set up, in the provider's order, so that it lists as the identity the generated roots will plan as:
 
 | Way | Variables |
 |---|---|
-| Client certificate | `ARM_CLIENT_CERTIFICATE_PATH` (a PFX or PEM file), with `ARM_CLIENT_CERTIFICATE_PASSWORD` if it has one, and `ARM_TENANT_ID`, `ARM_CLIENT_ID` |
-| Client secret | `ARM_CLIENT_SECRET`, `ARM_TENANT_ID`, `ARM_CLIENT_ID` |
-| OpenID Connect (workload identity federation) | `ARM_USE_OIDC=true`, `ARM_TENANT_ID`, `ARM_CLIENT_ID`, and the token request: `ARM_OIDC_REQUEST_URL` and `ARM_OIDC_REQUEST_TOKEN`, or in GitHub Actions the `ACTIONS_ID_TOKEN_REQUEST_*` variables its `id-token: write` permission sets |
-| Managed identity | `ARM_USE_MSI=true`, with `ARM_CLIENT_ID` for a user-assigned identity, and `ARM_MSI_ENDPOINT` for an endpoint other than the usual one |
-| Azure CLI | none: the account `az login` signed in, in the tenant `ARM_TENANT_ID` names, if set |
+| Client certificate | `ARM_CLIENT_CERTIFICATE` (a base64-encoded PFX) or `ARM_CLIENT_CERTIFICATE_PATH` (a PFX or PEM file), with `ARM_CLIENT_CERTIFICATE_PASSWORD` if it has one, and `ARM_TENANT_ID`, `ARM_CLIENT_ID` |
+| Client secret | `ARM_CLIENT_SECRET` or `ARM_CLIENT_SECRET_FILE_PATH`, `ARM_TENANT_ID`, `ARM_CLIENT_ID` |
+| OpenID Connect (workload identity federation) with a token | `ARM_USE_OIDC=true`, `ARM_TENANT_ID`, `ARM_CLIENT_ID`, and the ID token in `ARM_OIDC_TOKEN` or the file `ARM_OIDC_TOKEN_FILE_PATH` names, read again for each sign-in |
+| AKS workload identity | `ARM_USE_AKS_WORKLOAD_IDENTITY=true`: OIDC with the token file, client ID and tenant ID AKS sets (`AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`); an `ARM_CLIENT_ID` or `ARM_TENANT_ID` that differs stops the run |
+| OpenID Connect in Azure Pipelines | `ARM_USE_OIDC=true`, `ARM_TENANT_ID`, `ARM_CLIENT_ID`, `ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID` (or `ARM_OIDC_AZURE_SERVICE_CONNECTION_ID`), and the token request: `ARM_OIDC_REQUEST_URL` and `ARM_OIDC_REQUEST_TOKEN`, or the pipeline's `SYSTEM_OIDCREQUESTURI` and `SYSTEM_ACCESSTOKEN` |
+| OpenID Connect with a token request | `ARM_USE_OIDC=true`, `ARM_TENANT_ID`, `ARM_CLIENT_ID`, and the token request: `ARM_OIDC_REQUEST_URL` and `ARM_OIDC_REQUEST_TOKEN`, or in GitHub Actions the `ACTIONS_ID_TOKEN_REQUEST_*` variables its `id-token: write` permission sets |
+| Managed identity | `ARM_USE_MSI=true`, with `ARM_CLIENT_ID` for a user-assigned identity, and `ARM_MSI_ENDPOINT` (with `ARM_MSI_API_VERSION`, if it needs another) for an endpoint other than the usual one |
+| Azure CLI | none: the account `az login` signed in, in the tenant `ARM_TENANT_ID` names, if set, unless `ARM_USE_CLI=false` |
 
-`ARM_USE_OIDC` and `ARM_USE_MSI` are booleans, read as the azurerm provider reads them: `true`, `True`, `TRUE`, `t`, `T` or `1` turns the method on; `false`, `False`, `FALSE`, `f`, `F`, `0`, empty or unset leaves it off; any other value, such as `yes`, stops the run with an error.
+`ARM_CLIENT_ID` can come from the file `ARM_CLIENT_ID_FILE_PATH` names; set both, they must agree, as must a token and a token file. infraharvest stops with a clear error rather than signing in some other way when `ARM_USE_OIDC` or `ARM_USE_AKS_WORKLOAD_IDENTITY` is set but there is no ID token or token request (and no `ARM_USE_MSI`), or when a client certificate, a secret or OIDC lacks `ARM_TENANT_ID` or `ARM_CLIENT_ID`: there the provider moves on to the next way, often the Azure CLI, and would plan as another identity. It also stops when `ARM_USE_CLI=false` leaves no way to sign in at all.
+
+`ARM_USE_OIDC`, `ARM_USE_AKS_WORKLOAD_IDENTITY`, `ARM_USE_MSI` and `ARM_USE_CLI` are booleans, read as the azurerm provider reads them: `true`, `True`, `TRUE`, `t`, `T` or `1` turns the method on; `false`, `False`, `FALSE`, `f`, `F` or `0` turns it off, as does empty or unset, except for `ARM_USE_CLI`, which is on unless set to false; any other value, such as `yes`, stops the run with an error.
 
 `ARM_AUXILIARY_TENANT_IDS` names up to three more tenants the credential may get tokens for, separated by `;`. `ARM_ENVIRONMENT` picks the cloud: `public` (the default), `usgovernment` or `china`, or `stack` for a cloud such as Azure Stack Hub whose endpoints `ARM_METADATA_HOSTNAME` serves.
 
