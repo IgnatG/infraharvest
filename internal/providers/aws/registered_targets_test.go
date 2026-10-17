@@ -50,6 +50,9 @@ func registeredTargetsAPI(t *testing.T, autoScaling string, ecsCalls *int) func(
 			if recordJSONField(call, "cluster") != recordEcsARN+"cluster/apps" {
 				t.Errorf("ListServices of %s", call.Body)
 			}
+			if !strings.Contains(call.Body, `"maxResults":100`) {
+				t.Errorf("ListServices without pages of 100: %s", call.Body)
+			}
 			return `{"serviceArns":["` + recordEcsARN + `service/apps/api"]}`
 		case "DescribeServices":
 			*ecsCalls++

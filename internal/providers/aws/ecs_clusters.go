@@ -59,11 +59,16 @@ func (g *EcsLister) listClusters(client *ecs.Client) error {
 // describes.
 const ecsDescribeServicesLimit = 10
 
-// listServices records the services of the cluster clusterARN, describing
-// them ten at a time. An error is logged and ends the cluster's services:
-// the cluster stays.
+// ecsListServicesPageSize is the most services one ListServices call
+// answers with; without it, ECS answers ten at a time.
+const ecsListServicesPageSize = 100
+
+// listServices records the services of the cluster clusterARN, listing
+// them ecsListServicesPageSize to a page and describing them ten at a time.
+// An error is logged and ends the cluster's services: the cluster stays.
 func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName string) {
-	p := ecs.NewListServicesPaginator(client, &ecs.ListServicesInput{Cluster: aws.String(clusterARN)}, stopOnDuplicateToken)
+	input := &ecs.ListServicesInput{Cluster: aws.String(clusterARN), MaxResults: aws.Int32(ecsListServicesPageSize)}
+	p := ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {

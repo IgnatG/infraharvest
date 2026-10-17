@@ -27,7 +27,7 @@ func recordEcsTaskDefinition(family, arn string) recordedResource {
 }
 
 // The lister lists clusters across pages, each by ARN and named after its
-// name, followed by its services across pages, each page described ten at a
+// name, followed by its services across pages of 100, each page described ten at a
 // time for their task definitions; services whose description fails, or
 // that the description leaves out, are left out. Then the latest revision
 // of each task definition family, across pages, in no particular order.
@@ -43,6 +43,9 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 			}
 			return fmt.Sprintf(`{"clusterArns":["%scluster/apps"],"nextToken":%q}`, recordEcsARN, nextPageToken)
 		case "ListServices":
+			if !strings.Contains(call.Body, `"maxResults":100`) {
+				t.Errorf("services listed without pages of 100: %s", call.Body)
+			}
 			switch {
 			case cluster == recordEcsARN+"cluster/apps" && recordSecondPage(call):
 				return `{"serviceArns":["` + recordEcsARN + `service/apps/api"]}`
