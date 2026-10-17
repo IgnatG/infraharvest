@@ -49,7 +49,8 @@ updates:
     cooldown:
       default-days: 7
 
-  # The documentation site's build (docs/requirements.txt).
+  # The documentation site's build: docs/requirements.in, compiled with
+  # hashes into docs/requirements.txt.
   - package-ecosystem: pip
     directory: /docs
     schedule:
