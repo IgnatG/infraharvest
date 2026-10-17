@@ -35,6 +35,8 @@ var retryDelay = 500 * time.Millisecond
 // base is the rate limiter's transport, so that each retry is paced too.
 type retryTransport struct {
 	base http.RoundTripper
+	// delay replaces retryDelay when set.
+	delay time.Duration
 }
 
 func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -54,7 +56,11 @@ func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if !replayable || attempt == retryAttempts || req.Context().Err() != nil || !retryable(resp, err) {
 			return resp, err
 		}
-		wait, ok := retryWait(attempt, resp)
+		delay := t.delay
+		if delay == 0 {
+			delay = retryDelay
+		}
+		wait, ok := retryWait(attempt, resp, delay)
 		if !ok {
 			return resp, err
 		}
@@ -91,13 +97,13 @@ func retryable(resp *http.Response, err error) bool {
 }
 
 // retryWait is how long to wait after attempt (1 for the first) before
-// the next: retryDelay doubled for each attempt before, up to
+// the next: delay doubled for each attempt before, up to
 // retryMaxDelay, half of it fixed and half random, so that parallel
 // listings don't retry in step; or the answer's Retry-After, in seconds
 // or as a date, when it asks for longer. It is false when Retry-After asks
 // for longer than retryMaxDelay.
-func retryWait(attempt int, resp *http.Response) (time.Duration, bool) {
-	wait := min(retryDelay<<(attempt-1), retryMaxDelay)
+func retryWait(attempt int, resp *http.Response, delay time.Duration) (time.Duration, bool) {
+	wait := min(delay<<(attempt-1), retryMaxDelay)
 	if half := wait / 2; half > 0 {
 		wait = half + rand.N(half)
 	}
