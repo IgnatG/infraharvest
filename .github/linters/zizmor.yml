@@ -6,15 +6,9 @@
 # listed is a real finding to fix in the workflow.
 rules:
   # cla.yml needs pull_request_target to write the signature store and set
-  # the status check on fork pull requests. It has no checkout step, so the
-  # pull request's code never runs with the elevated token, and its only
-  # action is pinned by SHA.
+  # the status on fork pull requests. It has no checkout step, so the pull
+  # request's code never runs with the elevated token, and its only action
+  # (actions/github-script, with an inline script) is pinned by SHA.
   dangerous-triggers:
-    ignore:
-      - cla.yml
-  # contributor-assistant/github-action is archived upstream. Accepted for
-  # now: pinned at v2.6.1 with only the scoped token. A standing TODO to move
-  # to a maintained CLA check, not a verdict that the finding is wrong.
-  archived-uses:
     ignore:
       - cla.yml
