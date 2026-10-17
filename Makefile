@@ -27,8 +27,13 @@ GH_REPO ?= IgnatG/infraharvest
 # run of WORKFLOW on REF.
 RUN ?=
 WORKFLOW ?= remote
-# The artifact ci-download fetches: golden, or go-mod from ci-tidy.
+# The artifact ci-download fetches: golden, go-mod from ci-tidy or bench from
+# ci-bench.
 NAME ?= golden
+# The benchmarks ci-bench runs, as go test -bench takes them, and the commit
+# it compares them with, if any.
+BENCH ?= .
+BASE ?=
 
 # The golden tests to rewrite: the catalogue's, unless PKG is given.
 GOLDEN_PKG := $(if $(filter command line environment,$(origin PKG)),$(PKG),./internal/catalogue)
@@ -39,7 +44,7 @@ GO_TAGS := $(if $(TAGS),-tags $(TAGS))
 LINT_TAGS := $(if $(TAGS),--build-tags $(TAGS))
 
 .PHONY: help hooks tools fast staged fmt lint vet test golden \
-  ci-check ci-golden ci-tidy ci-lint ci-watch ci-download
+  ci-check ci-golden ci-tidy ci-bench ci-lint ci-watch ci-download
 
 ##@ Fast checks (no build)
 
@@ -128,6 +133,9 @@ ci-golden: ## Rewrite the golden files of PKG on GitHub (remote workflow, task g
 
 ci-tidy: ## go mod tidy on GitHub (remote workflow, task tidy); then ci-download NAME=go-mod
 	$(call dispatch,remote,-f task=tidy)
+
+ci-bench: ## Benchmarks BENCH of PKG on GitHub, with CPU profiles, compared with BASE if set (remote workflow, task bench)
+	$(call dispatch,remote,-f task=bench -f bench="$(BENCH)" -f base="$(BASE)" $(if $(filter command line environment,$(origin PKG)),-f packages="$(PKG)"))
 
 ci-lint: ## Every linter, golangci-lint included, on the whole repository on GitHub (megalinter workflow)
 	$(call dispatch,megalinter,)
