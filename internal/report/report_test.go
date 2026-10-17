@@ -316,3 +316,18 @@ func TestSkippedChecks(t *testing.T) {
 		t.Errorf("report:\n%s", md)
 	}
 }
+
+// Failures are of every part of the import, not only of services that
+// couldn't be listed, and the report says so.
+func TestMarkdownFailures(t *testing.T) {
+	r := &Report{Failures: []string{"account 111122223333: assume role: access denied", "service s3: access denied"}}
+	md := r.Markdown()
+	if strings.Contains(md, "Failed services") || !strings.Contains(md, "## Failures") {
+		t.Errorf("markdown:\n%s", md)
+	}
+	for _, f := range r.Failures {
+		if !strings.Contains(md, f) {
+			t.Errorf("markdown misses %q:\n%s", f, md)
+		}
+	}
+}

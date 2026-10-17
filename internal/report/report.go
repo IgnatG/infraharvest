@@ -669,7 +669,7 @@ func (r *Report) Markdown() string {
 	}
 	section("Skipped checks", "These checks couldn't run on these directories, so they checked nothing. They don't fail the import.", skippedChecks)
 	section("Failed directories", "Nothing in these directories was imported.", dirErrors)
-	section("Failed services", "These services couldn't be listed.", failures)
+	section("Failures", "These parts of the import couldn't run, or ran only in part: services that couldn't be listed, accounts or projects that couldn't be reached, tags or default selections that couldn't be read, and what stopped the run.", failures)
 	return b.String()
 }
 
