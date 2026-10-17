@@ -158,8 +158,9 @@ resource "aws_ecs_task_definition" "legacy" {
 	for _, want := range []string{
 		`value = var.aws_ecs_task_definition_app_db_password`,
 		`value = "8080"`,
-		// A JSON string keeps its text, with the value read in place.
-		`\"value\":\"${var.aws_ecs_task_definition_legacy_api_token}\"`,
+		// A JSON string keeps its text, with the value read in place,
+		// JSON-encoded.
+		`\"value\":${jsonencode(var.aws_ecs_task_definition_legacy_api_token)}`,
 	} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("missing %q in:\n%s", want, generated)
@@ -504,4 +505,54 @@ func TestScriptSecret(t *testing.T) {
 			t.Errorf("scriptSecret(%q): got secret %v, want %v", script, got, want)
 		}
 	}
+}
+
+// A value a JSON string repeats becomes one variable, read wherever the
+// value was.
+func TestLiteralSecretsRepeatedInAJSONString(t *testing.T) {
+	token := fakeSecret("token")
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
+  family                = "legacy"
+  container_definitions = "[{\"environment\":[{\"name\":\"API_TOKEN\",\"value\":\"`+token+`\"},{\"name\":\"OLD_API_TOKEN\",\"value\":\"`+token+`\"}],\"name\":\"web\"}]"
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(secrets) != 1 || secrets[0].Variable != "aws_ecs_task_definition_legacy_api_token" {
+		t.Errorf("want one variable, got %+v", secrets)
+	}
+	if n := strings.Count(readFile(t, dir, GeneratedFileName), "${jsonencode(var.aws_ecs_task_definition_legacy_api_token)}"); n != 2 {
+		t.Errorf("the variable is read %d times, want 2", n)
+	}
+	assertNotWritten(t, dir, token)
+}
+
+// A value jsonencode would write otherwise than the string has it can't
+// be read in place without changing the plan: the whole string moves.
+func TestLiteralSecretsJSONEncodedOtherwise(t *testing.T) {
+	token := fakeSecret("amp")[:32] + "&" + fakeSecret("amp")[32:]
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
+  family                = "legacy"
+  container_definitions = "[{\"environment\":[{\"name\":\"API_TOKEN\",\"value\":\"`+token+`\"}],\"name\":\"web\"}]"
+}
+`)
+
+	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(secrets) != 1 {
+		t.Fatalf("want one variable, got %+v", secrets)
+	}
+	if generated := readFile(t, dir, GeneratedFileName); strings.Contains(generated, "jsonencode(") {
+		t.Errorf("the value is read in place:\n%s", generated)
+	}
+	assertNotWritten(t, dir, token)
 }

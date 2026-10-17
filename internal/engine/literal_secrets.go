@@ -691,8 +691,9 @@ func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 // resources of the file at path into a new sensitive variable, named after
 // the resource and the key the value goes by, other than the variables in
 // taken, and rewrites the file. A value inside the JSON document of a
-// string is replaced in the string (as "${var.name}") where the JSON needs
-// no escaping for it; otherwise the whole string moves into the variable.
+// string is replaced in the string (as ${jsonencode(var.name)}) where
+// jsonencode writes it as the string has it; otherwise the whole string
+// moves into the variable.
 // It returns the variables, with the values, which infraharvest's own plans
 // need (see secretValues), and warnings about tags named after AWS access
 // key IDs.
@@ -758,7 +759,11 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 				if !inPlace {
 					break
 				}
-				inPlace = !strings.ContainsAny(f.value, "\"\\$%") && !strings.ContainsFunc(f.value, unicode.IsControl) &&
+				// The value must be in the text as it is, and jsonencode
+				// must write it as the text has it, so that the plan
+				// stays the same: jsonencode escapes <, >, & and the
+				// Unicode line separators.
+				inPlace = !strings.ContainsAny(f.value, "\"\\$%<>&\u2028\u2029") && !strings.ContainsFunc(f.value, unicode.IsControl) &&
 					strings.Contains(text, `\"`+f.value+`\"`)
 			}
 			if !inPlace {
@@ -768,9 +773,18 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: whole.outer, key: whole.outerKey, value: stringLiteral(literal), ty: cty.String})
 				continue
 			}
+			// jsonencode writes the quotes and escapes what the variable
+			// is set to, which may need it where the value found doesn't.
+			// A value the string repeats is one variable: replacing it
+			// replaces every occurrence.
+			byValue := map[string]bool{}
 			for _, f := range inJSON[literal] {
+				if byValue[f.value] {
+					continue
+				}
+				byValue[f.value] = true
 				v := name(address, f.key)
-				text = strings.ReplaceAll(text, `\"`+f.value+`\"`, `\"${var.`+v+`}\"`)
+				text = strings.ReplaceAll(text, `\"`+f.value+`\"`, `${jsonencode(var.`+v+`)}`)
 				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: f.attribute, key: f.key, value: f.value, ty: cty.String})
 			}
 			edits = append(edits, edit{start, end, text})
