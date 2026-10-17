@@ -79,8 +79,13 @@ func TestAzureRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
-	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
-		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, coverage.Failures)
+	// floci-az has no Resource Graph, so the tags can't be read: that
+	// failure, and only that one, is the emulator's.
+	failures := slices.DeleteFunc(slices.Clone(coverage.Failures), func(f string) bool {
+		return strings.HasPrefix(f, "tags:") && strings.Contains(f, "Resource Graph")
+	})
+	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(failures) != 0 {
+		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, failures)
 	}
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {

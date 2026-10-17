@@ -5,6 +5,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"runtime"
@@ -192,7 +193,10 @@ func TestWithTagAttributes(t *testing.T) {
 // Tags the listers record in their attributes count too.
 func TestReadTagsFromAttributes(t *testing.T) {
 	r := harvest.Record("id-1", "one", "fake_thing", "fake", map[string]string{"tags.%": "1", "tags.team": "data"})
-	tags := readTags(t.Context(), &taggingProvider{}, map[string][]harvest.Resource{"good": {r}})
+	tags, err := readTags(t.Context(), &taggingProvider{}, map[string][]harvest.Resource{"good": {r}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := tags[tagKey(r)]; got["team"] != "data" || got["env"] != "dev" {
 		t.Errorf("tags: %v, want team from the attributes and env from the provider", got)
 	}
@@ -227,5 +231,32 @@ func TestInventoryOfAnotherScope(t *testing.T) {
 	}
 	if n := countingListed.Load(); n != 1 {
 		t.Errorf("listed %d services, want the inventory of eu-west-1 not reused for eu-west-2", n)
+	}
+}
+
+// failingTagsProvider can't read tags.
+type failingTagsProvider struct {
+	fakeProvider
+}
+
+func (p *failingTagsProvider) Tags(context.Context, []harvest.Resource) (map[string]map[string]string, error) {
+	return nil, errors.New("tag:GetResources denied")
+}
+
+// Tags that can't be read fail the call, which goes on with what it has,
+// and an import that reuses the inventory fails the same way.
+func TestTagsThatFailToRead(t *testing.T) {
+	out := t.TempDir()
+	args := []string{"eu-west-2", "default"}
+	listed, failures, err := listResources(t.Context(), &failingTagsProvider{}, Options{Discover: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.resources["good"]) != 1 || len(failures) != 1 || !strings.HasPrefix(failures[0].Error(), tagsFailure) || !strings.Contains(failures[0].Error(), "denied") {
+		t.Fatalf("listed %v, failures %v", listed.resources, failures)
+	}
+	_, failures, err = listResources(t.Context(), &listingProvider{t: t}, Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, args, "fake/1/eu-west-2")
+	if err != nil || len(failures) != 1 || !strings.HasPrefix(failures[0].Error(), tagsFailure) {
+		t.Errorf("reused: failures %v, %v", failures, err)
 	}
 }

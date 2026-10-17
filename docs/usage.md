@@ -62,7 +62,7 @@ infraharvest discover aws --services='*' --skip=iam,organization --regions=eu-we
 
 `infraharvest services <provider>` prints a provider's services, and the [services reference](reference/services.md) gives the Terraform types each one lists. A service name the provider doesn't have fails like a service that can't be listed. Azure's opt-in services list what `resource_graph` lists already, so they are listed only when `--services` names them: each lists one kind of resource through Resource Manager, such as `virtual_network` (see [Azure](azure.md)).
 
-Services are listed several at a time (`--list-parallel`, 4 by default). One that fails, or takes longer than `--list-timeout` (30 minutes by default), is left out of the output and reported, and the run exits with 1, or with 3 under `--allow-partial` (see [Exit codes](output.md#exit-codes)). One that listed but failed on a part, such as `route53` when the records of a hosted zone fail to list, keeps what it listed, and is reported and sets the exit code the same way.
+Services are listed several at a time (`--list-parallel`, 4 by default). One that fails, or takes longer than `--list-timeout` (30 minutes by default), is left out of the output and reported, and the run exits with 1, or with 3 under `--allow-partial` (see [Exit codes](output.md#exit-codes)). One that listed but failed on a part, such as `route53` when the records of a hosted zone fail to list, keeps what it listed, and is reported and sets the exit code the same way. So do tags that fail to read, as when `tag:GetResources` is denied: selection rules by tag, owner detection, `{env}` layouts and the report's counts by tag would miss them, so the run goes on with what it has but doesn't pass as complete.
 
 ## Filtering
 
