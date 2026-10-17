@@ -5,6 +5,7 @@ package aws
 
 import (
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -63,7 +64,9 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 
 // listListeners records the listeners of the load balancer lbARN by ARN,
 // named after their protocol and port (see listenerName), each followed by
-// its rules and its extra certificates. An error is
+// its rules and its extra certificates, asked for only where the listener's
+// protocol can have them (see listenerHasRules and
+// listenerHasCertificates). An error is
 // logged; the load balancer stays, without the listeners not yet read.
 func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string) {
 	input := &elasticloadbalancingv2.DescribeListenersInput{LoadBalancerArn: aws.String(lbARN)}
@@ -77,10 +80,34 @@ func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN s
 		for _, listener := range page.Listeners {
 			arn, name := aws.ToString(listener.ListenerArn), listenerName(listener)
 			g.Resources = append(g.Resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
-			g.listListenerRules(client, arn, name)
-			g.listListenerCertificates(client, listener, name)
+			if listenerHasRules(listener) {
+				g.listListenerRules(client, arn, name)
+			}
+			if listenerHasCertificates(listener) {
+				g.listListenerCertificates(client, listener, name)
+			}
 		}
 	}
+}
+
+// layer4Protocols are the protocols of the listeners of network and
+// gateway load balancers, which have no rules but their default one.
+var layer4Protocols = []types.ProtocolEnum{
+	types.ProtocolEnumTcp, types.ProtocolEnumTls, types.ProtocolEnumUdp, types.ProtocolEnumTcpUdp, types.ProtocolEnumGeneve,
+}
+
+// listenerHasRules reports whether listener can have rules beyond its
+// default one, so that they are worth asking for: any listener but one of
+// layer4Protocols. A listener without a protocol is asked.
+func listenerHasRules(listener types.Listener) bool {
+	return !slices.Contains(layer4Protocols, listener.Protocol)
+}
+
+// listenerHasCertificates reports whether listener can have certificates,
+// so that they are worth asking for: an HTTPS or TLS listener, which always
+// has a default one, or any listener the answer gives certificates.
+func listenerHasCertificates(listener types.Listener) bool {
+	return listener.Protocol == types.ProtocolEnumHttps || listener.Protocol == types.ProtocolEnumTls || len(listener.Certificates) > 0
 }
 
 // listListenerRules records the rules of the listener listenerARN by ARN,
