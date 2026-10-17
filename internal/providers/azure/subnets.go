@@ -74,7 +74,7 @@ func (az *SubnetLister) List() error {
 		if policy.ID == nil || policy.Name == nil {
 			continue
 		}
-		az.recordBare(*policy.ID, *policy.Name, "azurerm_subnet_service_endpoint_storage_policy")
+		az.recordTagged(*policy.ID, *policy.Name, "azurerm_subnet_service_endpoint_storage_policy", policy.Tags)
 	}
 	return nil
 }

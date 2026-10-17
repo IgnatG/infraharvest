@@ -29,7 +29,6 @@ var (
 	_ harvest.ProviderWithDefaultTags       = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
-	_ harvest.ProviderWithTags              = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
 )
 
@@ -44,6 +43,8 @@ func TestCapabilitiesNotImplemented(t *testing.T) {
 		"TerraformEnv":        implements[harvest.ProviderWithTerraformEnv](p),
 		"RegistrySource":      implements[harvest.ProviderWithRegistrySource](p),
 		"DefaultTagsArgument": implements[harvest.ProviderWithDefaultTagsArgument](p),
+		// The listers record the tags themselves, from their answers.
+		"Tags": implements[harvest.ProviderWithTags](p),
 	} {
 		if has {
 			t.Errorf("Provider has %s", name)

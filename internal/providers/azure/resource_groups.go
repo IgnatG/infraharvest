@@ -47,7 +47,7 @@ func (az *ResourceGroupLister) List() error {
 		if group.ID == nil || group.Name == nil {
 			continue
 		}
-		az.recordBare(*group.ID, *group.Name, "azurerm_resource_group")
+		az.recordTagged(*group.ID, *group.Name, "azurerm_resource_group", group.Tags)
 	}
 	return nil
 }

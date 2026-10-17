@@ -71,7 +71,7 @@ infraharvest discover azure --services=resource_group,virtual_network,subnet,net
 
 ## Tags
 
-Tags come from Resource Graph, in one query for the subscription or resource group, for the selection file's rules, the picker and the report. Child resources Resource Graph doesn't index, such as subnets, have no tags of their own. azurerm has no provider-wide tags, so tags all resources of a root share become `local.tags`, which each resource sets, merged with its own; `hidden-` tags, which Azure and the portal set, stay on the resources.
+Tags come with the listing, for the selection file's rules, the picker and the report: `resource_graph` reads them from the rows Resource Graph returns, and the Resource Manager services from their list responses, so reading them takes no request of its own. Child resources such as subnets have no tags of their own. azurerm has no provider-wide tags, so tags all resources of a root share become `local.tags`, which each resource sets, merged with its own; `hidden-` tags, which Azure and the portal set, stay on the resources.
 
 ## Filtering
 
