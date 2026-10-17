@@ -5,6 +5,7 @@ package google
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -47,8 +48,8 @@ var (
 	limited     *http.Client
 )
 
-// limitedClient is a client, with the application default credentials for
-// every Google Cloud API, that sends each API's requests through
+// limitedClient is a client, with the credentials the Terraform provider
+// would use (see credentialOptions) for every Google Cloud API, that sends each API's requests through
 // ratelimit.Default, and sends again those Google throttles or fails for
 // the time being (see retryTransport). Every project shares it: Google
 // charges most quotas to the credentials' quota project, not to the
@@ -63,7 +64,13 @@ func limitedClient(ctx context.Context) *http.Client {
 		// whose listing may end first, and its token source keeps the
 		// context it was made with to refresh tokens: so it keeps ctx's
 		// values but not its cancellation or deadline.
-		client, _, err := htransport.NewClient(context.WithoutCancel(ctx), option.WithScopes("https://www.googleapis.com/auth/cloud-platform"))
+		ctx := context.WithoutCancel(ctx)
+		opts, err := credentialOptions(ctx)
+		if err != nil {
+			log.Printf("google: the credentials the environment names can't be used: %v", err)
+			opts = []option.ClientOption{option.WithTokenSource(failingTokenSource{err: fmt.Errorf("google: %w", err)})}
+		}
+		client, _, err := htransport.NewClient(ctx, opts...)
 		if err != nil {
 			log.Printf("google: no default credentials for a rate-limited client: %v", err)
 			return
