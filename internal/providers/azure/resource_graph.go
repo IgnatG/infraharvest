@@ -143,9 +143,11 @@ func (g *ResourceGraphLister) List() error {
 		return err
 	}
 	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
-	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources)
-	if err != nil {
-		return err
+	// A partial failure keeps the data sources that were listed, and the
+	// service fails in part (see childListFailures).
+	sources, sourceTypes, sourceErr := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources)
+	if sourceErr != nil && !harvest.IsPartial(sourceErr) {
+		return sourceErr
 	}
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
@@ -156,7 +158,8 @@ func (g *ResourceGraphLister) List() error {
 	if g.Verbose() {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}
-	return childErr
+	// Both are partial or nil; joined, they are partial only as wrapped.
+	return harvest.Partial(errors.Join(childErr, sourceErr))
 }
 
 // childListParallel is how many child resource lists azlist has in flight:
