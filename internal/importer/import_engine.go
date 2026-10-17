@@ -191,6 +191,35 @@ func Interrupted(ctx context.Context, err error) error {
 // importInto imports into run. It returns an error only if the import
 // couldn't run; what couldn't be imported goes into run.
 func importInto(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
+	c, err := listCall(ctx, run, provider, options, args)
+	if err != nil || c == nil {
+		return err
+	}
+	return c.generate(ctx, c.byDir)
+}
+
+// listedCall is an Import call whose resources are listed, selected and
+// grouped into roots, ready to generate (see listCall): the calls of one
+// scope are all listed before any generates, so that each root refers to
+// the roots of the scope's other calls (see ImportCalls).
+type listedCall struct {
+	run      *Run
+	provider harvest.Provider
+	options  Options
+	scope    string
+	// byDir are the imports of each root the call generates.
+	byDir map[string][]engine.Import
+	// opts are the engine's options, without the other roots.
+	opts               engine.Options
+	root               *rootFiles
+	binary             engine.Binary
+	execPath, cacheDir string
+}
+
+// listCall lists, selects and groups into roots what one Import call
+// imports into run (see importInto), recording what it found into run.
+// It returns nil, with no error, for discover, which generates nothing.
+func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) (*listedCall, error) {
 	if !run.used {
 		// Should the import fail before it gets as far as the report, the
 		// run still writes one there, with the failure (see Run.finish).
@@ -201,13 +230,13 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	// Before the provider signs in: its clients take the rate.
 	ratelimit.SetDefault(options.RateLimit)
 	if err := provider.Init(ctx, args); err != nil {
-		return err
+		return nil, err
 	}
 	// The catalogue comes before the services: an overlay can add some,
 	// such as an AWS cloud_control entry of a new service.
 	cat, err := providerCatalogue(provider, options.Catalogue)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if p, ok := provider.(harvest.ProviderWithCatalogue); ok {
 		p.SetCatalogue(cat)
@@ -219,14 +248,14 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	importID := importIDFunc(cat)
 	listed, failures, err := listResources(ctx, provider, options, args, scope)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defaults, err := excludedByDefault(ctx, provider, cat, listed)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
 	}
 	if defaults, err = excludeManaged(ctx, run, options, listed.resources, defaults, importID); err != nil {
-		return err
+		return nil, err
 	}
 	if !options.IncludeOwned {
 		defaults = excludeOwned(listed, defaults)
@@ -237,24 +266,24 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.failures = append(run.failures, failures...)
 		run.addDiscovered(listed, defaults, scope, importID)
 		run.cover(scope, options)
-		return nil
+		return nil, nil
 	}
 	chosen, err := run.selectionFile(options.Selection)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, importID)
 	if options.Layout, err = rootLayout(ctx, provider, withEnvLayout(options.Layout, options.EnvTags)); err != nil {
-		return err
+		return nil, err
 	}
 
 	cacheDir, err := infraharvestCacheDir()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	execPath, err := binary.Find(ctx, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var moduleAdapters []adapters.Adapter
 	var newerModules []report.ModuleVersion
@@ -270,7 +299,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	}
 	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider), constraints)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	moduleAdapters = withoutModules(moduleAdapters, root.refused)
 	var unusedModules []report.UnusedModule
@@ -278,7 +307,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		unusedModules = append(unusedModules, report.UnusedModule{Source: c.module, Version: c.version, Accepts: c.constraint.String()})
 	}
 	if err := writeGitignore(options.Out); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Children follow their parent: only selected resources have them.
@@ -339,18 +368,27 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		// What an earlier import put in another root stays there.
 		held, err := heldElsewhere(options.Out, byDir)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		run.leaveOutHeld(byDir, held)
 	}
+	return &listedCall{run: run, provider: provider, options: options, scope: scope, byDir: byDir, opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
+}
+
+// generate generates the call's roots into its run, each referring to the
+// others of roots, the roots of every call of the scope by directory (see
+// withOtherRoots). It returns an error only if the import couldn't run;
+// what couldn't be imported goes into the run.
+func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Import) error {
+	run, provider, options, byDir, opts, root, binary := c.run, c.provider, c.options, c.byDir, c.opts, c.root, c.binary
+	execPath, cacheDir := c.execPath, c.cacheDir
+	// What the call records is counted in its own scope.
+	run.scope, run.options = c.scope, options
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
-	// The roots earlier calls of the account generated count as other
-	// roots too, as the global root does for the regional ones.
-	roots := withEarlierRoots(byDir, run.earlierRoots(scope))
 	for _, dir := range dirs {
 		dirOpts := withOtherRoots(opts, roots, dir, options.Out)
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
@@ -401,9 +439,6 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 					return err
 				}
 			}
-			if err == nil {
-				run.recordRoot(scope, dir, byDir[dir])
-			}
 			if err == nil && addedResult == nil {
 				continue // nothing new
 			}
@@ -436,9 +471,6 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			}
 		}
 		run.addDirectory(dir, byDir[dir], result, err)
-		if err == nil && result != nil {
-			run.recordRoot(scope, dir, result.Imported)
-		}
 		if err == nil && run.backend != nil {
 			// After the checks, which run on a local working directory: the
 			// import never needs access to the state backend.

@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -105,15 +104,24 @@ func TestGroupAWSResources(t *testing.T) {
 }
 
 // importAWSAccounts imports accounts as the aws command plans them, with
-// importAccount in place of importer.Import.
+// importAccount in place of each Import call, in order, stopping at the
+// first that fails.
 func importAWSAccounts(ctx context.Context, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
 	options.Accounts = accounts
 	p, err := planAWS(ctx, options)
 	if err != nil {
 		return err
 	}
-	return p.run(ctx, options, newAWSProvider, func(ctx context.Context, _ harvest.Provider, o importer.Options, _ []string) error {
-		return importAccount(ctx, o)
+	return p.run(ctx, options, newAWSProvider, func(ctx context.Context, calls []importer.Call) error {
+		for _, c := range calls {
+			if c.Provider == nil {
+				return errors.New("a call without a provider")
+			}
+			if err := importAccount(ctx, c.Options); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

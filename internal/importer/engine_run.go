@@ -54,9 +54,6 @@ type Run struct {
 	modules []config.Module
 	// shared is what the run and its children work out once.
 	shared *shared
-	// roots are the roots the run's calls generated, which later calls
-	// of the same account refer to (see recordRoot).
-	roots callRoots
 	// OpenPicker opens the picker on the selection file discover writes,
 	// when run in a terminal (see pick).
 	OpenPicker bool
