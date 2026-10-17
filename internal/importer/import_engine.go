@@ -242,6 +242,15 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		p.SetCatalogue(cat)
 	}
 	options.cat = cat
+	if !options.Discover {
+		// Discover lists every type, so that the selection file can include
+		// any; an import needn't list what it leaves out anyway.
+		chosen, err := run.selectionFile(options.Selection)
+		if err != nil {
+			return nil, err
+		}
+		options.unwanted = unwantedTypes(cat, chosen)
+	}
 	options = ResolveServices(provider, options)
 	scope := discoveryScope(ctx, provider)
 	run.scope = scope

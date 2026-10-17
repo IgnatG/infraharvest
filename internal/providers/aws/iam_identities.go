@@ -163,6 +163,10 @@ func (g *IamLister) addUsers(client *iam.Client, users []iamtypes.UserDetail) er
 				"groups.0": group,
 			})
 		}
+		// One call per user, for keys the default selection leaves out.
+		if !g.wants("aws_iam_access_key") {
+			continue
+		}
 		if err := g.listUserAccessKeys(client, name); err != nil {
 			if !iamGone(err) {
 				return fmt.Errorf("access keys of user %s: %w", name, err)

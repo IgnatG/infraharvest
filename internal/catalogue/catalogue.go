@@ -585,6 +585,19 @@ func (c *Catalogue) ImportID(typ, id string, attributes map[string]string) (stri
 	return "", false, fmt.Sprintf("missing a field of every import ID template: %s", templateList(e.ImportID))
 }
 
+// SkippedWhole returns the types whose every resource the default
+// selection leaves out, by a skip rule with all, sorted.
+func (c *Catalogue) SkippedWhole() []string {
+	var types []string
+	for typ, e := range c.entries {
+		if typ != AllTypes && slices.ContainsFunc(e.Skip, func(r SkipRule) bool { return r.All }) {
+			types = append(types, typ)
+		}
+	}
+	sort.Strings(types)
+	return types
+}
+
 // Skipped returns why the default selection leaves out a resource of typ,
 // or "" if it doesn't: the type's rules first, then those for every type.
 func (c *Catalogue) Skipped(typ, id string, attributes map[string]string) string {

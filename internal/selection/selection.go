@@ -145,6 +145,24 @@ func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]st
 	return Decision{Reason: "excluded by the selection file's defaults"}
 }
 
+// MayInclude reports whether f may include a resource of resourceType
+// whatever the default selection says: an entry of the type includes one,
+// or a rule includes resources of the type, or of any type. It looks only
+// at types, so it may say a type is included that no resource of it is.
+func (f *File) MayInclude(resourceType string) bool {
+	for _, r := range f.Resources {
+		if r.Include && r.Type == resourceType {
+			return true
+		}
+	}
+	for _, rule := range f.Rules {
+		if rule.Include != nil && rule.Include.Type.match(resourceType) {
+			return true
+		}
+	}
+	return false
+}
+
 // ByRule returns the decision of the last rule that matches the resource
 // of resourceType with id, name and tags, and whether one does.
 func (f *File) ByRule(resourceType, id, name string, tags map[string]string) (Decision, bool) {
