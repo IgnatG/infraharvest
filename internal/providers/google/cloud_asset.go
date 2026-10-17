@@ -319,6 +319,37 @@ func rootLocation(r *cloudasset.ResourceSearchResult) string {
 	return r.Location
 }
 
+// PartialTypes names the types the import of the provider's region lists
+// in part, through the catalogue's inventory entries: in a region, those
+// of withNetworkTypes, which the import of global takes wherever they
+// are; and those of the asset types the search rejected (see
+// rejectedTypes), which it didn't look for.
+func (p *Provider) PartialTypes() []string {
+	var assetTypes []string
+	if p.region.Name != "" {
+		assetTypes = append(assetTypes, withNetworkTypes...)
+	}
+	endpoint := rejectedKey("")
+	rejectedTypes.Lock()
+	for key := range rejectedTypes.byKey {
+		if assetType, ok := strings.CutPrefix(key, endpoint); ok {
+			assetTypes = append(assetTypes, assetType)
+		}
+	}
+	rejectedTypes.Unlock()
+	if len(assetTypes) == 0 || p.catalogue == nil {
+		return nil
+	}
+	var types []string
+	for _, typ := range p.catalogue.Types() {
+		e, ok := p.catalogue.Entry(typ)
+		if ok && e.Inventory != nil && slices.ContainsFunc(assetTypes, func(t string) bool { return strings.EqualFold(t, e.Inventory.Type) }) {
+			types = append(types, typ)
+		}
+	}
+	return types
+}
+
 // regional matches the location of a resource in a region or zone, such
 // as us-central1 or us-central1-a, rather than global or a multi-region
 // such as us or nam4.

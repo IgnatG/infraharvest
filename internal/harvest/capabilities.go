@@ -150,3 +150,14 @@ type ProviderWithConcurrentListing interface {
 type ProviderWithTerraformEnv interface {
 	TerraformEnv(ctx context.Context) (map[string]string, error)
 }
+
+// ProviderWithPartialTypes is a provider whose listing of its scope can
+// leave out resources of some types that are still there: those it lists
+// in another scope, such as the subnetworks of a Google Cloud region, which
+// the import of global lists with their networks, or where something that
+// can change puts them, and those it couldn't look for. An incremental
+// import doesn't take a resource of those types that the listing didn't
+// find for one deleted. PartialTypes is asked after the listing.
+type ProviderWithPartialTypes interface {
+	PartialTypes() []string
+}

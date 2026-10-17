@@ -60,7 +60,11 @@ type Run struct {
 	// scope is where the provider call being imported lists (see
 	// discoveryScope); the report counts by it.
 	scope string
-	used  bool
+	// here is what that call's listing found, for an incremental import
+	// to tell what the roots have that is no longer in the cloud (see
+	// listedHere); nil when it can't tell.
+	here *listedHere
+	used bool
 }
 
 // shared is what a run and its children (see Run.child) work out once for
