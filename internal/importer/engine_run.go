@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -69,6 +70,25 @@ type shared struct {
 	// managed is the state --managed-state names, by its sources as
 	// resolved (see managedState).
 	managed map[string]managed.Resources
+
+	// own are the adapters of the organisation's own modules, of every
+	// provider, once fetched (see ownAdapters).
+	ownMu      sync.Mutex
+	own        []adapters.Adapter
+	ownFetched bool
+}
+
+// ownAdapters returns the adapters of the organisation's modules (see
+// fetchAdapters), fetching them with the engine at execPath on first use
+// only: every Import call of the command, in every account, uses the same
+// modules.
+func (s *shared) ownAdapters(ctx context.Context, execPath string, modules []config.Module) []adapters.Adapter {
+	s.ownMu.Lock()
+	defer s.ownMu.Unlock()
+	if !s.ownFetched {
+		s.own, s.ownFetched = fetchAdapters(ctx, execPath, modules), true
+	}
+	return s.own
 }
 
 // managedState returns the managed resources of the state in sources,

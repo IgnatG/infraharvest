@@ -186,7 +186,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		}
 		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Name()), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
 		// The organisation's own modules come first.
-		own := applicableAdapters(catalogueAdapters(ctx, execPath, run.modules, provider.Name()), selected)
+		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, run.modules), provider.Name()), selected)
 		moduleAdapters = append(own, moduleAdapters...)
 	}
 	root, err := rootConfig(ctx, http.DefaultClient, binary.Registry, "", execPath, engineProvider(provider), constraints)
