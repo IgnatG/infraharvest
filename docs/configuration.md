@@ -20,9 +20,17 @@ modules:                 # your own modules, before the curated ones (see Module
   - source: git::https://github.com/acme/terraform-modules.git//bucket?ref=v1.4.0
 ```
 
-A setting is named after its flag, without the dashes. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one filter per item for `id`, `tag` and `where`, which the command line takes once per filter, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]`.
+A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one filter per item for `id`, `tag` and `where`, which the command line takes once per filter, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]`.
 
-Each root gets a `backend.tf` with its own state key (`imported/aws/<account>/<region>/terraform.tfstate`). S3 state is locked with S3's own lock file (`use_lockfile = true`), not DynamoDB. infraharvest writes `backend.tf` after checking the root, so importing never needs access to the state bucket.
+Each root gets a `backend.tf` with its own state key, made of the prefix and the root's path under `--out` (`imported/aws/<account>/<region>/terraform.tfstate` above). The backends take:
+
+| Backend | Required | Optional | State of each root |
+|---|---|---|---|
+| `s3` | `bucket`, `region` | `key_prefix`, `kms_key_id` | `key = "<key_prefix>/<root path>/terraform.tfstate"`, encrypted |
+| `azurerm` | `resource_group_name`, `storage_account_name`, `container_name` | `key_prefix` | `key = "<key_prefix>/<root path>/terraform.tfstate"` |
+| `gcs` | `bucket` | `prefix` | `prefix = "<prefix>/<root path>"` |
+
+S3 state is locked with S3's own lock file (`use_lockfile = true`), not DynamoDB. infraharvest writes `backend.tf` after checking the root, so importing never needs access to the state bucket. Without a `backend`, the roots get no `backend.tf` and keep local state (see [Applying the roots](output.md#applying-the-roots)). `--managed-state=backend` reads the state of the backend configured here, so that an import run again leaves out what the roots already manage (see [Usage](usage.md#choosing-what-to-import)).
 
 If the storage doesn't exist yet, `infraharvest bootstrap --config infraharvest.yaml` writes a root into `<out>/bootstrap` that creates it: an S3 bucket, an Azure storage account and container, or a Cloud Storage bucket. The storage is versioned, encrypted, not public, reachable only over TLS, and protected from `terraform destroy`. Apply it once, with rights to create storage, before planning the generated roots.
 

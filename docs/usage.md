@@ -109,3 +109,43 @@ An `--id` applies to its own type only: the first example keeps every subnet, an
 | `api_gateway` | `--tag owner=payments` |
 
 A REST API left out by a filter takes its stages, resources, methods and the rest with it. To choose resources by tag on any service, use the selection file's rules instead (see [Choosing what to import](#choosing-what-to-import)), which match the tags discover reads.
+
+## Day to day
+
+Once the roots are applied (see [Applying the roots](output.md#applying-the-roots)), an import is something you run again:
+
+| To | Use |
+|---|---|
+| Add new resources to the roots | `discover` again, review what it marks `new`, then `import` with `--selection` and `--incremental`; once a root's `imports.tf` is deleted, add `--managed-state` (see [Choosing what to import](#choosing-what-to-import)) |
+| Finish a run that failed part way | The same command with `--resume`: roots generated from the same resources and options are kept, the others generated again |
+| Import what `discover` just listed, without listing again | `--reuse-inventory`, with the same `--out`, services and filters |
+| Check roots after editing them | `infraharvest verify [output-directory]`, before deleting `imports.tf` (see [Verification gate](output.md#verification-gate)) |
+| See what changed in the cloud since applying | `terraform plan` in the root |
+| Print the report again | `infraharvest report [output-directory]`, with `--format json` for JSON |
+| Use the result in a script | `--format json` prints the report on stdout, and logs go to stderr; the exit code says whether the import is complete (see [Exit codes](output.md#exit-codes)) |
+| Keep what imported when something fails | `--allow-partial`: what failed is left out and reported, and the run exits 3 instead of 1 |
+| Import faster | `--parallel` for accounts, subscriptions, projects and regions, `--list-parallel` for services (see [Running in parallel](#running-in-parallel)) |
+| Split roots by environment | `--env-tags=Environment`, or `{env}` in `--layout` (see [Layout](output.md#layout)) |
+| Choose what becomes a module call | `--modules`: `registry` (the default), `latest-untested`, `local` or `none`; your own modules go in the [configuration file](configuration.md) (see [Modules](modules.md)) |
+| Import less | `--services` and `--skip`, then `--id`, `--tag` and `--where` (see [Filtering](#filtering)) |
+| Run on a schedule | The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md), which can open a pull request with the result |
+| Let an AI agent prepare a selection | `infraharvest mcp` (see [AI agents](mcp.md)) |
+
+## Options that go together
+
+| Options | Rule |
+|---|---|
+| `--selection`, `--all` | `import` needs exactly one of them |
+| `discover` with `--all` | Refused: `discover` lists everything, and its `--selection` names the file it writes (default `selection.yaml`) |
+| `--services`, `--skip` | `--services` is required, on the command line or in the configuration file; `--skip` leaves services out of it. Both must name services the provider has, or `*` |
+| `--incremental` with `--resume` | A root whose import didn't finish is generated again, then added to; with `--incremental` alone, such a root is reported as failed |
+| `--incremental` with `--managed-state` | A root's import blocks, or the checkpoint in `<out>/.infraharvest` of the import that generated it, say what it has; with neither, `--managed-state` is required |
+| `--managed-state=backend` | Needs a configuration file with an `s3`, `gcs` or `azurerm` backend |
+| `--reuse-inventory` | For `import`: takes what `discover` saved into the same `--out`, if it lists the services with the same `--id`, `--tag` and `--where`, for the same account and region; otherwise it lists again |
+| `--layout` | Starts with `{out}/`, and uses only `{out}`, `{provider}`, `{account}`, `{region}`, `{service}` and `{env}` |
+| `--layout` with several scopes | Must contain `{account}`: on AWS with `--accounts` or `--organization`, on Azure with more than one subscription, on Google Cloud with more than one project (or `{provider}/{service}` there) |
+| `--env-tags` with `--layout` | A layout of your own needs `{env}`; `{env}` without `--env-tags` reads `Environment`, `environment`, `Env` or `env` |
+| AWS `--accounts`, `--organization` | One or the other; with either, `--assume-role` must contain `{account}` |
+| Azure `--subscriptions`, `--management-group` | Combine, and without either the import covers `ARM_SUBSCRIPTION_ID`; `--resource-group` narrows each subscription to that group |
+| Google Cloud `--projects`, `--organization`, `--folders` | Combine; at least one is required |
+| `--allow-partial` | Turns exit code 1 into 3; an import that can't run still exits 2 |

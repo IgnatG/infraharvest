@@ -15,14 +15,121 @@ Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at 
 
 - [Quickstart](docs/quickstart.md): list, choose, import and plan, on AWS, Azure or Google Cloud.
 - [Install](docs/install.md): releases, the container image, the install script, Go.
-- [Usage](docs/usage.md): commands, choosing what to import, services and filters.
+- [Usage](docs/usage.md): commands, choosing what to import, services and filters, day-to-day runs, and which options go together.
 - [Configuration](docs/configuration.md): the configuration file and the state backend.
-- [Output](docs/output.md): what each root holds, how the configuration is tidied, the report and the verification gate.
+- [Output](docs/output.md): what each root holds, applying it, how the configuration is tidied, the report and the verification gate.
 - [Modules](docs/modules.md): the curated modules clusters of resources move into, your own modules, and generated local modules.
 - [Permissions](docs/permissions.md): read-only access for AWS, Azure and Google Cloud.
 - [Troubleshooting](docs/troubleshooting.md): what an error message or exit code means, and what to do.
 - [GitHub Action](action/README.md): scheduled imports that open a pull request.
 - [AI agents (MCP)](docs/mcp.md) · [Catalogue](docs/catalogue.md) · [Command-line reference](docs/reference/cli.md)
+
+## Install
+
+On Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell once cosign is there ([Install](docs/install.md#in-a-cloud-shell) shows how):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+```
+
+The script installs the latest release into `~/.local/bin`, after checking its [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) signature and its checksum. The other ways are in [Install](docs/install.md):
+
+- a [release](https://github.com/IgnatG/infraharvest/releases) archive for Linux, macOS or Windows, on amd64 or arm64: on Windows, use the zip;
+- the container image `ghcr.io/ignatg/infraharvest`, with Terraform and OpenTofu included;
+- `go install github.com/IgnatG/infraharvest@latest`, with Go 1.27 or later;
+- the [GitHub Action](action/README.md), in a workflow.
+
+infraharvest needs Terraform 1.5 or later, which it downloads if there is none on `PATH`, or OpenTofu 1.6 or later with `--engine=tofu`. It also needs credentials that can read the resources: the [permission templates](docs/permissions.md) grant read-only access on each cloud. `infraharvest version` checks the install.
+
+## Import
+
+The steps are the same on every cloud:
+
+1. `infraharvest discover <provider>` lists the resources into `selection.yaml`, and opens the picker on it in a terminal. By default it leaves out what the cloud creates itself and what another tool manages, with the reason.
+2. Review `selection.yaml`: each resource has `include: true` or `false`. `infraharvest pick --selection selection.yaml` opens the picker again.
+3. `infraharvest import <provider>`, with the same flags and `--selection=selection.yaml`, writes a root for each account (subscription, project) and region under `infraharvest-out/`, and a report in `infraharvest-out/report/`.
+
+`--all` in place of `--selection` imports everything the default selection includes, without a file. See the [Quickstart](docs/quickstart.md) and [Usage](docs/usage.md).
+
+### AWS
+
+```sh
+infraharvest discover aws --profile prod --services=vpc,subnet,sg,s3 --regions=eu-west-2,us-east-1
+infraharvest import aws --profile prod --services=vpc,subnet,sg,s3 --regions=eu-west-2,us-east-1 --selection=selection.yaml
+```
+
+For several accounts, add `--accounts=111111111111,222222222222` or `--organization`: each account is reached through the role `--assume-role` names. See [AWS](docs/aws.md).
+
+### Azure
+
+```sh
+export ARM_SUBSCRIPTION_ID=<subscription ID>
+infraharvest discover azure --services=resource_graph --resource-group=web
+infraharvest import azure --services=resource_graph --resource-group=web --selection=selection.yaml
+```
+
+Without `--resource-group`, the import covers the whole subscription. For several, use `--subscriptions=<ID>,<ID>` or `--management-group=<group ID>`. See [Azure](docs/azure.md).
+
+### Google Cloud
+
+```sh
+infraharvest discover google --services='*' --projects=my-project --regions=global,europe-west2
+infraharvest import google --services='*' --projects=my-project --regions=global,europe-west2 --selection=selection.yaml
+```
+
+`--regions` is `global` by default; import `global` with your regions. For several projects, use `--projects=<ID>,<ID>`, `--organization=<organization ID>` or `--folders=<folder ID>,<folder ID>`. See [Google Cloud](docs/google.md).
+
+## Apply the generated roots
+
+infraharvest writes configuration and no state. Each root holds the generated configuration and `imports.tf`, with one `import` block per resource. You don't create or edit a state file first: the first `terraform apply` writes it.
+
+```sh
+cd infraharvest-out/aws/123456789012/eu-west-2
+terraform init    # the backend in backend.tf, or local state without one
+terraform plan    # imports every resource, changes nothing
+terraform apply   # writes the resources into the state, changes nothing in the cloud
+rm imports.tf     # the resources are in the state
+```
+
+- **State:** a `backend` (`s3`, `azurerm` or `gcs`) in the [configuration file](docs/configuration.md) gives each root a `backend.tf` with a state key of its own, and `infraharvest bootstrap --config <file>` writes a root that creates the storage. Without one, each root keeps local state in `terraform.tfstate`.
+- **Secrets:** infraharvest never writes a secret value. Each secret becomes a `sensitive` variable in `variables.tf`, without a default: set it before planning, from your secret store or with `TF_VAR_<name>`. The root's README lists them.
+- **Resources another state manages:** import with `--managed-state` pointing at that state, and they are left out, so no resource ends up in two states.
+- **`rejected.hcl`:** what Terraform couldn't import, with its errors. Terraform doesn't load it: fix a resource and move its blocks back, or leave it out.
+
+See [Applying the roots](docs/output.md#applying-the-roots).
+
+## Day to day
+
+| To | Use |
+|---|---|
+| Add new resources to the roots | `discover` again (it marks them `new`), review them, then `import` with `--selection` and `--incremental`; add `--managed-state` once `imports.tf` is deleted |
+| Finish a run that failed part way | The same command with `--resume` |
+| Import what `discover` just listed | `--reuse-inventory`, instead of listing again |
+| Check roots after editing them | `infraharvest verify`, before deleting `imports.tf` |
+| Print the report again | `infraharvest report`, with `--format json` for JSON |
+| Import faster | `--parallel` for accounts and regions (default 1), `--list-parallel` for services (default 4) |
+| Lay out the roots | `--layout`, and `--env-tags` for roots per environment |
+| Choose modules | `--modules`: `registry` (the default), `latest-untested`, `local` or `none`; your own modules in the configuration file |
+| Import less | `--services`, `--skip`, `--id`, `--tag`, `--where` |
+| Accept a partial import | `--allow-partial` |
+| Script it | `--format json`: the report on stdout, logs on stderr |
+| Run it in CI | The [GitHub Action](action/README.md) |
+| Use it from an AI agent | `infraharvest mcp` (see [AI agents](docs/mcp.md)) |
+
+The exit code is 0 when everything was imported, 1 when something wasn't (3 with `--allow-partial`), 2 when the import couldn't run, and 130 or 143 when it was interrupted or terminated (see [Troubleshooting](docs/troubleshooting.md#exit-codes)). [Day to day](docs/usage.md#day-to-day) has more.
+
+## Options that go together
+
+- `import` needs `--selection` or `--all`, not both; `discover` refuses `--all`.
+- `--services` is required, on the command line or in the configuration file.
+- `--incremental` with `--resume` generates a root whose import didn't finish again, then adds to it.
+- `--incremental` finds what a root has from its import blocks or its checkpoint; without either, pass `--managed-state`.
+- `--managed-state=backend` needs a backend in the configuration file.
+- A `--layout` of your own starts with `{out}/`, contains `{account}` for several accounts, subscriptions or projects (on AWS, with any `--accounts` or `--organization`), and `{env}` with `--env-tags`.
+- On AWS, `--accounts` or `--organization`, not both, and `--assume-role` with `{account}`.
+- Azure's `--subscriptions` and `--management-group`, and Google Cloud's `--projects`, `--organization` and `--folders`, add up.
+
+See [Options that go together](docs/usage.md#options-that-go-together) for the full list.
 
 ## How it works
 
@@ -33,32 +140,6 @@ Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at 
 5.  It runs the verification gate on every root and writes a report.
 
 infraharvest reads the cloud and writes files; it never applies anything, and writes no state. `terraform apply` on a generated root records the imported resources in state without changing them.
-
-## Installation
-
-With the install script, for Linux, macOS and cloud shells:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
-```
-
-The install script verifies the release's signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), which AWS CloudShell, Azure Cloud Shell and Google Cloud Shell don't include: [Install](docs/install.md#in-a-cloud-shell) shows how to add it there. There is also a [release](https://github.com/IgnatG/infraharvest/releases) archive for each platform (signed with cosign), the container image `ghcr.io/ignatg/infraharvest` (with Terraform and OpenTofu included), and, with Go 1.27 or later:
-
-```sh
-go install github.com/IgnatG/infraharvest@latest
-```
-
-infraharvest needs Terraform 1.5 or later, which it downloads if there is none on `PATH`, or OpenTofu 1.6 or later. See [Install](docs/install.md) for verifying a release, the image, and building from source.
-
-## Quickstart
-
-```sh
-infraharvest discover aws --services=vpc,subnet,sg,s3 --regions=eu-west-2    # writes selection.yaml to review
-infraharvest import aws --services=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
-cd infraharvest-out/aws/<account>/eu-west-2 && terraform init && terraform plan   # imports, changes nothing
-```
-
-See the [Quickstart](docs/quickstart.md) for Azure and Google Cloud.
 
 ## Supported providers
 
