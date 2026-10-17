@@ -630,7 +630,8 @@ var incrementalTypes = []string{"aws_sqs_queue", "aws_subnet"}
 // incrementalTypes, then imports again with --incremental: the second
 // import adds those resources to the roots, in a file of their own,
 // referring to what the roots have, and changes nothing else. A third adds
-// nothing.
+// nothing. Then a queue it adds and deletes is reported gone (see
+// checkNoLongerInCloud).
 func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, pluginCache, selectionFile string, created []*tfjson.StateResource) {
 	t.Helper()
 	f, err := selection.Load(selectionFile)
@@ -673,6 +674,10 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 	if inRoot == 0 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
 		t.Errorf("coverage.json of --incremental: %d in the roots already, %+v, failures %v", inRoot, coverage.Totals, coverage.Failures)
 	}
+	// Everything the roots have is still there.
+	if len(coverage.NotInCloud) != 0 {
+		t.Errorf("--incremental reports what the emulator has as no longer in the cloud: %+v", coverage.NotInCloud)
+	}
 	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {
 			if !c.Passed && (c.Name != engine.CheckPlan || !emulatorGapsOnly(c.Details)) {
@@ -702,4 +707,5 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 	for name := range addedConfiguration(t, after, outputFiles(t, out)) {
 		t.Errorf("--incremental with nothing new wrote to %s", name)
 	}
+	checkNoLongerInCloud(ctx, t, engineName, execPath, selectionFile, out)
 }
