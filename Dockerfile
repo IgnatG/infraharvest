@@ -19,7 +19,7 @@ RUN mkdir /work
 
 # Non-root, with CA certificates and git. The layers change least often
 # first: the engines, then infraharvest itself.
-FROM cgr.dev/chainguard/git:latest@sha256:22bafc6d2e0bdb6522aafb8e1cfd6ddd2de8c1225e91200ffbf2d94a61c1ad27
+FROM cgr.dev/chainguard/git:latest@sha256:18afdd1e0664e63f72ceb771c3ac0f3631bbc6b2e6c1ddc540682d938f94d292
 ARG TARGETPLATFORM
 COPY --link --from=terraform /bin/terraform /usr/local/bin/terraform
 COPY --link --from=terraform /usr/share/doc/terraform/LICENSE.txt /usr/share/doc/terraform/LICENSE.txt
