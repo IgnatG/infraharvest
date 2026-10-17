@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -308,5 +311,74 @@ func TestCheckOptionsKnowsTheServicesOfTheOverlay(t *testing.T) {
 	}
 	if err := CheckOptions(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}}); err == nil || !strings.Contains(err.Error(), "has no service ivs") {
 		t.Errorf("without the overlay: got %v, want the service unknown", err)
+	}
+}
+
+// childrenProvider is fakeProvider with a child for each resource but
+// those named "lone", which fails; the first resources answer last. It
+// counts how many are asked at once.
+type childrenProvider struct {
+	fakeProvider
+	mu            sync.Mutex
+	running, most int
+}
+
+func (p *childrenProvider) ChildImports(_ context.Context, r harvest.Resource) ([]harvest.Resource, error) {
+	p.mu.Lock()
+	p.running++
+	p.most = max(p.most, p.running)
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.running--
+		p.mu.Unlock()
+	}()
+	n, _ := strconv.Atoi(strings.TrimPrefix(r.Observed.ID, "id-"))
+	time.Sleep(time.Duration(10-n) * time.Millisecond)
+	if r.RawName == "lone" {
+		return nil, errors.New("access denied")
+	}
+	return []harvest.Resource{harvest.RecordBare(r.Observed.ID, r.RawName, "fake_child", "fake")}, nil
+}
+
+// Resources are asked for their children up to parallel at once, and
+// each service has its resources, then their children, in their order,
+// whatever order the answers come in; failures come in the order of the
+// services, by name, and of their resources.
+func TestWithChildImportsAsksInParallelAndKeepsTheOrder(t *testing.T) {
+	p := &childrenProvider{}
+	byService := map[string][]harvest.Resource{
+		"b": {harvest.RecordBare("id-3", "lone", "fake_thing", "fake"), harvest.RecordBare("id-4", "four", "fake_thing", "fake")},
+		"a": {harvest.RecordBare("id-0", "zero", "fake_thing", "fake"), harvest.RecordBare("id-1", "lone", "fake_thing", "fake"), harvest.RecordBare("id-2", "two", "fake_thing", "fake")},
+	}
+
+	all, parents, failures := withChildImports(t.Context(), p, byService, 2)
+
+	ids := func(resources []harvest.Resource) []string {
+		var got []string
+		for _, r := range resources {
+			got = append(got, r.Address.Type+" "+r.Observed.ID)
+		}
+		return got
+	}
+	for service, want := range map[string][]string{
+		"a": {"fake_thing id-0", "fake_thing id-1", "fake_thing id-2", "fake_child id-0", "fake_child id-2"},
+		"b": {"fake_thing id-3", "fake_thing id-4", "fake_child id-4"},
+	} {
+		if got := ids(all[service]); !slices.Equal(got, want) {
+			t.Errorf("%s: got %v, want %v", service, got, want)
+		}
+	}
+	if parents["fake_child id-2"] != "fake_thing id-2" {
+		t.Errorf("parents %v", parents)
+	}
+	if len(failures) != 2 || !strings.HasPrefix(failures[0].Error(), "a: fake_thing id-1") || !strings.HasPrefix(failures[1].Error(), "b: fake_thing id-3") {
+		t.Errorf("failures %v, want id-1's then id-3's", failures)
+	}
+	if p.most > 2 || p.most < 1 {
+		t.Errorf("%d asked at once, want at most 2", p.most)
+	}
+	if len(byService["a"]) != 3 {
+		t.Error("the resources given were changed")
 	}
 }
