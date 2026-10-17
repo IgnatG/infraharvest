@@ -246,7 +246,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	run.report.TagKeys = options.ReportTags
 	// Each call adds what it selected: another region's may hold the
 	// provider back, or find other modules.
-	run.report.Manifest.Add(report.Manifest{
+	run.report.Add(report.Manifest{
 		Tool:     report.Component{Name: "infraharvest", Version: version.Version},
 		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
 		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version, HeldBack: root.heldBack},

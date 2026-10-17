@@ -306,7 +306,7 @@ func (r *Report) AddListed(l Listed) {
 // directories, exclusions, failures and discovered counts by scope, and its
 // manifest if r has none yet. Finish then counts the whole.
 func (r *Report) Merge(other *Report) {
-	r.Manifest.Add(other.Manifest)
+	r.Add(other.Manifest)
 	r.Directories = append(r.Directories, other.Directories...)
 	r.Excluded = append(r.Excluded, other.Excluded...)
 	r.Failures = append(r.Failures, other.Failures...)

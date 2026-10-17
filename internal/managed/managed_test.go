@@ -321,7 +321,13 @@ func TestParseAll(t *testing.T) {
 		content[key] = stateOf("shared")
 	}
 	content["roots/05.tfstate"] = nil // no state yet
-	get := func(_ context.Context, key string) ([]byte, error) { return content[key], nil }
+	get := func(_ context.Context, key string) ([]byte, error) {
+		body, ok := content[key]
+		if !ok {
+			return nil, fmt.Errorf("no such key %s", key)
+		}
+		return body, nil
+	}
 	r := Resources{}
 	if err := r.parseAll(context.Background(), keys, get, "s3://acme/"); err != nil {
 		t.Fatal(err)
