@@ -507,10 +507,11 @@ func copyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
 // replacement instead (see renameIn).
 type prefixRename struct{ search, replacement []string }
 
-// renameAll applies renames to body and its nested blocks, in order.
-func renameAll(body *hclwrite.Body, renames []prefixRename) {
-	for _, rn := range renames {
-		renameIn(body, rn.search, rn.replacement)
+// renameAll applies renames to body and its nested blocks, in order: those
+// byStart, their index (see indexRenames), finds in body.
+func renameAll(body *hclwrite.Body, renames []prefixRename, byStart renameIndex) {
+	for _, i := range byStart.in(body) {
+		renameIn(body, renames[i].search, renames[i].replacement)
 	}
 }
 
@@ -720,15 +721,16 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 			calls = append(calls, callBlock)
 		}
 	}
+	byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
 	for _, r := range resources {
 		if movedBlocks[r.write] {
 			body.RemoveBlock(r.write)
 			continue
 		}
-		renameAll(r.write.Body(), renames)
+		renameAll(r.write.Body(), renames, byStart)
 	}
 	for _, callBlock := range calls {
-		renameAll(callBlock.Body(), renames)
+		renameAll(callBlock.Body(), renames, byStart)
 		body.AppendNewline()
 		body.AppendBlock(callBlock)
 	}

@@ -96,40 +96,56 @@ func benchBodies(b *testing.B, src []byte) []*hclwrite.Block {
 	return f.Body().Blocks()
 }
 
-func BenchmarkReplaceAllReferences(b *testing.B) {
-	src := benchGenerated(benchResources)
+// benchReferenceRenames returns the renames writeCalls makes when the VPCs
+// of benchGenerated(n) move into module calls.
+func benchReferenceRenames(tb testing.TB, n int) []referenceRename {
 	var renames []referenceRename
-	for i, vpc := range benchVPCs(benchResources) {
+	for i, vpc := range benchVPCs(n) {
 		typ, name, _ := strings.Cut(vpc, ".")
 		for _, attr := range []string{"id", "arn", "cidr_block"} {
 			replacement, err := outputTokens(fmt.Sprintf("vpc_%d", i), "vpc_"+attr)
 			if err != nil {
-				b.Fatal(err)
+				tb.Fatal(err)
 			}
 			renames = append(renames, referenceRename{[]string{typ, name, attr}, replacement})
 		}
 	}
+	return renames
+}
+
+// benchPrefixRenames returns the renames rewriteRoot makes when the VPCs
+// of benchGenerated(n) move into module calls.
+func benchPrefixRenames(n int) []prefixRename {
+	var renames []prefixRename
+	for i, vpc := range benchVPCs(n) {
+		typ, name, _ := strings.Cut(vpc, ".")
+		for _, attr := range moduleOutputs {
+			renames = append(renames, prefixRename{[]string{typ, name, attr}, []string{"module", fmt.Sprintf("vpc_%d", i), "vpc_" + attr}})
+		}
+	}
+	return renames
+}
+
+func BenchmarkReplaceAllReferences(b *testing.B) {
+	src := benchGenerated(benchResources)
+	renames := benchReferenceRenames(b, benchResources)
 	b.ReportAllocs()
 	for b.Loop() {
+		byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
 		for _, block := range benchBodies(b, src) {
-			replaceAllReferences(block.Body(), renames)
+			replaceAllReferences(block.Body(), renames, byStart)
 		}
 	}
 }
 
 func BenchmarkRenameAll(b *testing.B) {
 	src := benchGenerated(benchResources)
-	var renames []prefixRename
-	for i, vpc := range benchVPCs(benchResources) {
-		typ, name, _ := strings.Cut(vpc, ".")
-		for _, attr := range moduleOutputs {
-			renames = append(renames, prefixRename{[]string{typ, name, attr}, []string{"module", fmt.Sprintf("vpc_%d", i), "vpc_" + attr}})
-		}
-	}
+	renames := benchPrefixRenames(benchResources)
 	b.ReportAllocs()
 	for b.Loop() {
+		byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
 		for _, block := range benchBodies(b, src) {
-			renameAll(block.Body(), renames)
+			renameAll(block.Body(), renames, byStart)
 		}
 	}
 }

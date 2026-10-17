@@ -682,12 +682,13 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 			renames = append(renames, referenceRename{strings.Split(reference, "."), hclwrite.TokensForValue(cty.StringVal(v))})
 		}
 	}
+	byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
 	for _, r := range generated.resources() {
 		if moved[r.address] {
 			body.RemoveBlock(r.write)
 			continue
 		}
-		replaceAllReferences(r.write.Body(), renames)
+		replaceAllReferences(r.write.Body(), renames, byStart)
 	}
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
@@ -713,7 +714,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 			}
 			block.Body().SetAttributeRaw(arg.Name, arg.Value)
 		}
-		replaceAllReferences(block.Body(), renames)
+		replaceAllReferences(block.Body(), renames, byStart)
 		body.AppendNewline()
 		body.AppendBlock(block)
 	}
@@ -915,11 +916,66 @@ type referenceRename struct {
 }
 
 // replaceAllReferences applies renames to body and its nested blocks, in
-// order.
-func replaceAllReferences(body *hclwrite.Body, renames []referenceRename) {
-	for _, rn := range renames {
-		replaceReferences(body, rn.search, rn.replacement)
+// order: those byStart, their index (see indexRenames), finds in body.
+func replaceAllReferences(body *hclwrite.Body, renames []referenceRename, byStart renameIndex) {
+	for _, i := range byStart.in(body) {
+		replaceReferences(body, renames[i].search, renames[i].replacement)
 	}
+}
+
+// renameIndex is a list of renames by the first two steps of what they
+// search for, aws_vpc.main for aws_vpc.main.id, so that a body is handed
+// only the renames of the references it has: a root's renames are for
+// every resource moved into a module, and each resource refers to a few.
+// The renames whose search has fewer steps are under "".
+type renameIndex map[string][]int
+
+// indexRenames indexes n renames, whose searches search returns.
+func indexRenames(n int, search func(i int) []string) renameIndex {
+	idx := renameIndex{}
+	for i := range n {
+		key := ""
+		if s := search(i); len(s) >= 2 {
+			key = s[0] + "." + s[1]
+		}
+		idx[key] = append(idx[key], i)
+	}
+	return idx
+}
+
+// in returns the indexes, in order, of the renames that may have something
+// to replace in body and its nested blocks: those whose search begins with
+// two steps a reference in body begins with, an identifier that doesn't
+// follow a dot, a dot and an identifier, as spliceTraversal and
+// RenameVariablePrefix match them. A rename's replacement never begins
+// with what another searches for, a resource type, so the references
+// body has before the renames are those it has between them.
+func (idx renameIndex) in(body *hclwrite.Body) []int {
+	found := slices.Clone(idx[""])
+	var visit func(body *hclwrite.Body)
+	seen := map[string]bool{}
+	visit = func(body *hclwrite.Body) {
+		for _, attr := range body.Attributes() {
+			tokens := attr.Expr().BuildTokens(nil)
+			for i := 0; i+2 < len(tokens); i++ {
+				if tokens[i].Type != hclsyntax.TokenIdent || (i > 0 && tokens[i-1].Type == hclsyntax.TokenDot) ||
+					tokens[i+1].Type != hclsyntax.TokenDot || tokens[i+2].Type != hclsyntax.TokenIdent {
+					continue
+				}
+				key := string(tokens[i].Bytes) + "." + string(tokens[i+2].Bytes)
+				if !seen[key] {
+					seen[key] = true
+					found = append(found, idx[key]...)
+				}
+			}
+		}
+		for _, b := range body.Blocks() {
+			visit(b.Body())
+		}
+	}
+	visit(body)
+	slices.Sort(found)
+	return found
 }
 
 // replaceReferences replaces, in body and its nested blocks, the start of
