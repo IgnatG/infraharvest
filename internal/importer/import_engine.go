@@ -206,6 +206,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	failures = append(failures, childFailures...)
 	opts := engineOptions(provider, cat, root)
 	opts.IncludeOwned = options.IncludeOwned
+	opts.CommandTimeout = options.EngineTimeout
 	opts.KeepOwned = keptOwned(selected, listed, importID)
 	opts.External = leftOut
 	opts.Adapters, opts.ModulesDir = moduleOptions(options.Modules, options.Out, moduleAdapters)

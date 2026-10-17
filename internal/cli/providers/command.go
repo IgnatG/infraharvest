@@ -168,6 +168,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see "+DocsURL+"catalogue/)")
 	flags.StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks")
 	flags.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
+	flags.DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit)")
 
 	// Which resources to import, and how earlier runs count.
 	flags.StringVar(&options.Selection, "selection", "", "selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")

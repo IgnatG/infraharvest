@@ -42,6 +42,10 @@ A service fails with the cloud's denial in its message, `service <name>: ...`, a
 
 `service <name>: listing took longer than --list-timeout 30m0s; its resources may be incomplete` means the service didn't finish listing one account and region, subscription or project in time. Raise `--list-timeout` (`0` for no limit), name fewer `--services`, or on AWS skip services a region doesn't use with [`--resource-explorer`](aws.md#resource-explorer).
 
+## A Terraform command took too long
+
+`terraform plan: timed out after 1h0m0s` (or `terraform init: ...`, `terraform validate: ...`) means one Terraform or OpenTofu command of a root ran longer than `--engine-timeout`, one hour by default. The command is stopped and that root fails; with `--parallel`, the other accounts, subscriptions or projects carry on. A provider retrying an endpoint it can't reach, or a module download that stalls, are the usual causes: run with `TF_LOG=debug` to see which. For a very large root, raise `--engine-timeout` (`0` for no limit). `infraharvest verify` takes the flag too.
+
 ## AWS: Resource Explorer isn't set up
 
 With `--resource-explorer`, a log line such as `aws: Resource Explorer can't rule out services in eu-west-2: no index; listing every service` isn't an error: infraharvest lists every service in that region, as it does without the flag, which only takes longer. The reason after the region says what is missing:

@@ -28,6 +28,9 @@ const (
 	DefaultListTimeout = 30 * time.Minute
 	// DefaultListParallel is how many services of one scope list at once.
 	DefaultListParallel = 4
+	// DefaultEngineTimeout is how long one Terraform or OpenTofu command may
+	// run, such as one plan of a root.
+	DefaultEngineTimeout = time.Hour
 )
 
 // Options is what one Import call imports, and how. The provider commands
@@ -80,6 +83,9 @@ type Options struct {
 	Engine string
 	// TerraformPath is the engine's binary; empty finds or installs it.
 	TerraformPath string
+	// EngineTimeout bounds each command of the engine, such as one plan of
+	// a root; 0 means no limit.
+	EngineTimeout time.Duration
 
 	// Which resources to import, and how to treat earlier runs.
 
@@ -158,9 +164,9 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // unknown --engine, --format or --modules, a filter that doesn't parse,
 // an import that says neither --selection nor --all, --services or --skip
 // names provider has no service of, a --layout checkLayout rejects, a
-// negative --rate-limit, --list-timeout, --list-parallel or --parallel,
-// and the selection file, catalogue and managed state sources it can tell
-// are wrong (see checkSources).
+// negative --rate-limit, --list-timeout, --list-parallel, --parallel or
+// --engine-timeout, and the selection file, catalogue and managed state
+// sources it can tell are wrong (see checkSources).
 // Checked once, they fail the command the same way however many scopes
 // it covers, instead of failing each scope and reading as a partial
 // import.
@@ -203,6 +209,7 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 		{"--list-timeout", options.ListTimeout < 0},
 		{"--list-parallel", options.ListParallel < 0},
 		{"--parallel", options.Parallel < 0},
+		{"--engine-timeout", options.EngineTimeout < 0},
 	} {
 		if f.negative {
 			return fmt.Errorf("%s can't be negative", f.flag)

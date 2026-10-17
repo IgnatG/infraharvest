@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -189,6 +190,11 @@ type Options struct {
 	// a prefix most of their names share, and main for the only resource of
 	// a type. Without it, labels are the names as Label writes them.
 	TidyLabels bool
+	// CommandTimeout bounds each Terraform command Generate, Add and
+	// Verify run, such as a plan whose provider retries an unreachable
+	// endpoint: a command still running then is stopped, and fails the
+	// root. 0 means no limit.
+	CommandTimeout time.Duration
 
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
@@ -228,7 +234,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// Several steps need the providers' schemas: read them once per init.
 	// No plan shows the secret values Generate finds (see
 	// redactingTerraform).
-	redacting := &redactingTerraform{Terraform: tf}
+	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
 	imports = labelled(imports, opts.Taken, opts.TidyLabels)
 	importsHCL, err := ImportsFile(imports)

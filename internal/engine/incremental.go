@@ -202,6 +202,7 @@ func literalLocal(files []*hclFile, name string) (map[string]string, bool) {
 // to its releases (see pinnedToLock), so that the additions are generated
 // with the provider releases root runs.
 func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
+	rootTF = withTimeout(rootTF, opts.CommandTimeout)
 	lock, err := os.ReadFile(filepath.Join(staging, LockFileName))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err

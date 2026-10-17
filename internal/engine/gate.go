@@ -810,6 +810,7 @@ func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOp
 // Secret variables need values, from TF_VAR_ environment variables or a
 // .auto.tfvars file; opts.Omit and opts.StateOnly are the provider's.
 func Verify(ctx context.Context, tf Terraform, dir string, opts Options) (Gate, error) {
+	tf = withTimeout(tf, opts.CommandTimeout)
 	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
