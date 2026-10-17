@@ -292,9 +292,9 @@ func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
 	}
 }
 
-// A resource that plans differently a second time keeps all its
-// constants, so that the plans stay few.
-func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
+// A resource that plans differently a second time, for another argument,
+// keeps the arguments behind each difference and leaves the rest out.
+func TestStripDefaultsRetriesTheRestOfAResourceBlamedTwice(t *testing.T) {
 	t.Parallel()
 	dir, changes := roleRoot(t, `resource "aws_role" "a" {
   alpha = "a"
@@ -312,11 +312,49 @@ func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
 	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{alpha, beta, importedPlan("aws_role.a")}}
 
 	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`alpha = "a"`, `beta = "b"`, `name = "app"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "gamma") {
+		t.Errorf("generated.tf still has gamma:\n%s", got)
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
+	}
+}
+
+// A resource that keeps planning differently keeps all its constants in
+// the last round but one, so that the plans stay few.
+func TestStripDefaultsKeepsEverythingOfAResourceInTheLastRounds(t *testing.T) {
+	t.Parallel()
+	dir, changes := roleRoot(t, `resource "aws_role" "a" {
+  alpha       = "a"
+  beta        = "b"
+  description = "d"
+  gamma       = 1
+  name        = "app"
+  path        = "/"
+}
+`)
+	differs := func(attribute string, value any) *tfjson.Plan {
+		return &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+			resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{attribute: value}, map[string]any{attribute: nil}),
+		}}
+	}
+	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{differs("alpha", "a"), differs("beta", "b"), differs("description", "d"), differs("gamma", 1)}}
+
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := squashed(readFile(t, dir, GeneratedFileName))
-	for _, want := range []string{`alpha = "a"`, `beta = "b"`, "gamma = 1"} {
+	for _, want := range []string{`alpha = "a"`, `beta = "b"`, `description = "d"`, "gamma = 1", `path = "/"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
 		}
@@ -324,7 +362,139 @@ func TestStripDefaultsKeepsEverythingOfAResourceBlamedTwice(t *testing.T) {
 	if stripped {
 		t.Error("nothing was left out, yet stripDefaults reports a change")
 	}
-	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
+	if calls := strings.Join(tf.calls, ","); calls != "schema"+strings.Repeat(",validate,plan,show", 4) {
+		t.Errorf("calls: %s", calls)
+	}
+}
+
+// Checks a provider makes when it plans come one at a time, such as a
+// metric alarm's comparison_operator, then evaluation_periods: after the
+// arguments the first error names, the second keeps the resource's
+// settings, and its empty and zero values still go.
+func TestStripDefaultsKeepsSettingsWhenThePlanRejectsAgain(t *testing.T) {
+	t.Parallel()
+	dir, changes := roleRoot(t, `resource "aws_role" "a" {
+  alpha                = "a"
+  beta                 = "b"
+  description          = ""
+  gamma                = 1
+  max_session_duration = 0
+  name                 = "app"
+}
+`)
+	tf := &fakeTerraform{
+		dir:     dir,
+		schemas: roleSchemas,
+		plans: []fakePlan{
+			{diags: []tfjson.Diagnostic{errorAt(1, "alpha is required for this role", "")}},
+			{diags: []tfjson.Diagnostic{errorAt(1, "beta is required for this role", "")}},
+		},
+		showns: []*tfjson.Plan{importedPlan("aws_role.a")},
+	}
+
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`alpha = "a"`, `beta = "b"`, "gamma = 1", `name = "app"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	for _, gone := range []string{"description", "max_session_duration"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("generated.tf still has %s:\n%s", gone, got)
+		}
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,validate,plan,validate,plan,show" {
+		t.Errorf("calls: %s", calls)
+	}
+}
+
+var lambdaSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+	"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+		"aws_lambda_function": {Block: &tfjson.SchemaBlock{
+			Attributes: map[string]*tfjson.SchemaAttribute{
+				"filename":      {AttributeType: cty.String, Optional: true},
+				"function_name": {AttributeType: cty.String, Required: true},
+				"handler":       {AttributeType: cty.String, Optional: true},
+				"image_uri":     {AttributeType: cty.String, Optional: true},
+				"layers":        {AttributeType: cty.List(cty.String), Optional: true},
+				"memory_size":   {AttributeType: cty.Number, Optional: true},
+				"package_type":  {AttributeType: cty.String, Optional: true},
+				"role":          {AttributeType: cty.String, Required: true},
+				"runtime":       {AttributeType: cty.String, Optional: true},
+				"s3_bucket":     {AttributeType: cty.String, Optional: true},
+				"skip_destroy":  {AttributeType: cty.Bool, Optional: true},
+				"timeout":       {AttributeType: cty.Number, Optional: true},
+			},
+			NestedBlocks: map[string]*tfjson.SchemaBlockType{"ephemeral_storage": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+				"size": {AttributeType: cty.Number, Optional: true, Computed: true},
+			}}}},
+		}},
+	}},
+}}
+
+// An error of the plan that validation doesn't see, such as the AWS
+// provider's "handler and runtime must be set when PackageType is Zip",
+// keeps the arguments it names, and the resource's other defaults still
+// go. Before, a Lambda function kept every constant: memory_size = 128,
+// timeout = 3, layers = [] and the rest.
+func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
+  filename      = "lambda/a.zip"
+  function_name = "a"
+  handler       = "index.handler"
+  layers        = []
+  memory_size   = 128
+  package_type  = "Zip"
+  role          = "app-role"
+  runtime       = "nodejs22.x"
+  skip_destroy  = false
+  timeout       = 3
+  ephemeral_storage {
+    size = 512
+  }
+  lifecycle {
+    ignore_changes = [filename]
+  }
+}
+`)
+	imports, err := ImportsFile([]Import{{Type: "aws_lambda_function", Name: "a", ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, dir, ImportsFileName, string(imports))
+	changes := map[string]string{"aws_lambda_function.a": changeSignature(resourceChange("aws_lambda_function.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	alternatives := errorAt(1, "Invalid combination of arguments", `"filename": one of `+"`filename,image_uri,s3_bucket`"+` must be specified`)
+	tf := &fakeTerraform{
+		dir:         dir,
+		schemas:     lambdaSchemas,
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{alternatives}}},
+		plans:       []fakePlan{{diags: []tfjson.Diagnostic{errorAt(1, "handler and runtime must be set when PackageType is Zip", "")}}},
+		showns:      []*tfjson.Plan{importedPlan("aws_lambda_function.a")},
+	}
+	rules := defaultRules{defaults: map[string][]string{"aws_lambda_function": {"ephemeral_storage.size=512", "memory_size=128", "package_type=Zip", "timeout=3"}}}
+
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, rules)
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	for _, want := range []string{`filename = "lambda/a.zip"`, `handler = "index.handler"`, `runtime = "nodejs22.x"`, `role = "app-role"`, "ignore_changes = [filename]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated.tf misses %q:\n%s", want, got)
+		}
+	}
+	for _, gone := range []string{"layers", "memory_size", "package_type", "skip_destroy", "timeout", "ephemeral_storage"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("generated.tf still has %s:\n%s", gone, got)
+		}
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,validate,plan,validate,plan,show" {
 		t.Errorf("calls: %s", calls)
 	}
 }
