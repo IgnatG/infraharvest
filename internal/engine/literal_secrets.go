@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -770,24 +769,15 @@ func (s *secretValues) remove() {
 }
 
 // redact replaces the secret values in s, such as a diagnostic that quotes
-// the value it rejects, with "(sensitive value)".
+// the value it rejects, with "(sensitive value)", in the escaped forms text
+// quotes them in too (see textForms).
 func redact(s string, secrets []Secret) string {
-	for _, secret := range secrets {
-		if len(secret.value) >= minSecretLength {
-			s = strings.ReplaceAll(s, secret.value, "(sensitive value)")
-		}
-	}
-	return s
+	return redactText(s, textForms(knownValues(secrets)))
 }
 
 // redactBytes is redact for file content.
 func redactBytes(b []byte, secrets []Secret) []byte {
-	for _, secret := range secrets {
-		if len(secret.value) >= minSecretLength {
-			b = bytes.ReplaceAll(b, []byte(secret.value), []byte("(sensitive value)"))
-		}
-	}
-	return b
+	return []byte(redact(string(b), secrets))
 }
 
 // scanLiteralSecrets returns, for a .tf or .hcl file, a finding for each

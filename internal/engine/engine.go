@@ -226,7 +226,10 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		}
 	}
 	// Several steps need the providers' schemas: read them once per init.
-	tf = &schemaCache{Terraform: tf}
+	// No plan shows the secret values Generate finds (see
+	// redactingTerraform).
+	redacting := &redactingTerraform{Terraform: tf}
+	tf = &schemaCache{Terraform: redacting}
 	imports = labelled(imports, opts.Taken, opts.TidyLabels)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
@@ -308,6 +311,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	if len(literal) > 0 {
+		redacting.hide(literal)
 		if opts.secretValues, err = newSecretValues(); err != nil {
 			return nil, err
 		}
@@ -499,7 +503,13 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
 	}
-	return result, WriteReadme(dir, result)
+	// The README shows the gate's details, which come from plans that had
+	// the secret values: the gate couldn't scan it, so it is scanned here.
+	redactResult(result, literal)
+	if err := WriteReadme(dir, result); err != nil {
+		return result, err
+	}
+	return result, checkReadme(dir, result, knownValues(literal))
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors

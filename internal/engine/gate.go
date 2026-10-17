@@ -493,35 +493,64 @@ func sortedKeys[V any](m map[string]V) []string {
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
 	err := walkOutputAndModules(dir, func(rel string, content string) {
-		for _, v := range sensitive {
-			if strings.Contains(content, v) {
-				check.Passed = false
-				check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
-				break
-			}
-		}
-		for _, name := range secretPatternNames {
-			if secretPatterns[name].MatchString(content) {
-				check.Passed = false
-				check.Details = append(check.Details, rel+": looks like it contains a "+name)
-			}
-		}
-		if awsKeyPair(content) {
-			check.Passed = false
-			check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
-		}
-		for _, name := range providerCredentials(rel, content) {
-			check.Passed = false
-			check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
-		}
-		// What Generate moves into variables, should any remain or come
-		// back with an edit.
-		if findings := scanLiteralSecrets(rel, content); len(findings) > 0 {
-			check.Passed = false
-			check.Details = append(check.Details, findings...)
-		}
+		scanFile(&check, sensitive, rel, content)
 	})
 	return check, err
+}
+
+// scanFile runs scanSecrets' checks on one file, rel, adding what it finds
+// to check.
+func scanFile(check *Check, sensitive []string, rel, content string) {
+	for _, v := range sensitive {
+		if strings.Contains(content, v) {
+			check.Passed = false
+			check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
+			break
+		}
+	}
+	for _, name := range secretPatternNames {
+		if secretPatterns[name].MatchString(content) {
+			check.Passed = false
+			check.Details = append(check.Details, rel+": looks like it contains a "+name)
+		}
+	}
+	if awsKeyPair(content) {
+		check.Passed = false
+		check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
+	}
+	for _, name := range providerCredentials(rel, content) {
+		check.Passed = false
+		check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
+	}
+	// What Generate moves into variables, should any remain or come
+	// back with an edit.
+	if findings := scanLiteralSecrets(rel, content); len(findings) > 0 {
+		check.Passed = false
+		check.Details = append(check.Details, findings...)
+	}
+}
+
+// checkReadme runs scanSecrets' checks on the README Generate wrote after
+// the gate ran, which the gate couldn't see, with values the secret values
+// no file may contain. Should the README hold one, G6 fails and the README
+// is written again to say so.
+func checkReadme(dir string, result *Result, values []string) error {
+	content, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	if err != nil {
+		return err
+	}
+	found := Check{Passed: true}
+	scanFile(&found, values, ReadmeFileName, string(content))
+	if found.Passed {
+		return nil
+	}
+	for i, c := range result.Gate {
+		if c.Name == CheckSecrets {
+			result.Gate[i].Passed = false
+			result.Gate[i].Details = append(result.Gate[i].Details, found.Details...)
+		}
+	}
+	return WriteReadme(dir, result)
 }
 
 // providerCredentials returns the credential arguments the provider blocks
