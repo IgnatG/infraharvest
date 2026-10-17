@@ -6,6 +6,7 @@ package aws
 import (
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -269,5 +270,90 @@ func TestExcludedByDefaultEKSNodeGroups(t *testing.T) {
 	}
 	if !reflect.DeepEqual(excluded, want) {
 		t.Errorf("got %v, want %v", excluded, want)
+	}
+}
+
+// recordStacksAPI answers CloudFormation with one stack, app, that manages
+// the bucket app-assets, counting the ListStacks calls.
+func recordStacksAPI(t *testing.T, calls *atomic.Int32) func(apiCall) string {
+	const ns = `xmlns="http://cloudformation.amazonaws.com/doc/2010-05-15/"`
+	return func(call apiCall) string {
+		switch call.Op {
+		case "ListStacks":
+			calls.Add(1)
+			return `<ListStacksResponse ` + ns + `><ListStacksResult><StackSummaries>` +
+				`<member><StackId>arn:aws:cloudformation:us-east-1:123456789012:stack/app/1</StackId><StackName>app</StackName><StackStatus>CREATE_COMPLETE</StackStatus><CreationTime>2026-01-01T00:00:00Z</CreationTime></member>` +
+				`</StackSummaries></ListStacksResult></ListStacksResponse>`
+		case "ListStackResources":
+			return `<ListStackResourcesResponse ` + ns + `><ListStackResourcesResult><StackResourceSummaries>` +
+				`<member><LogicalResourceId>Assets</LogicalResourceId><PhysicalResourceId>app-assets</PhysicalResourceId><ResourceType>AWS::S3::Bucket</ResourceType><ResourceStatus>CREATE_COMPLETE</ResourceStatus><LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>` +
+				`</StackResourceSummaries></ListStackResourcesResult></ListStackResourcesResponse>`
+		case "DescribeRegions":
+			return `<DescribeRegionsResponse ` + ec2NS + `><regionInfo>` +
+				`<item><regionName>eu-west-1</regionName></item><item><regionName>eu-west-2</regionName></item><item><regionName>us-east-1</regionName></item>` +
+				`</regionInfo></DescribeRegionsResponse>`
+		}
+		t.Errorf("unexpected call %s", call.Op)
+		return ""
+	}
+}
+
+// The global call scans every enabled region's stacks, several at once,
+// and merges what they manage.
+func TestCloudFormationManagedScansEveryRegion(t *testing.T) {
+	var calls atomic.Int32
+	useFakeAPI(t, recordStacksAPI(t, &calls))
+	p := &Provider{region: GlobalPseudoRegion}
+
+	managed, err := p.cloudFormationManaged(t.Context(), *testConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if calls.Load() != 3 {
+		t.Errorf("ListStacks called %d times, want once for each of 3 regions", calls.Load())
+	}
+	if !reflect.DeepEqual(managed, map[string]string{"app-assets": "app"}) {
+		t.Errorf("managed %v", managed)
+	}
+}
+
+// A region scanned lately with the same credentials isn't scanned again, so
+// an import's regional calls reuse what its global call scanned; another
+// region, or other credentials, are scanned.
+func TestRegionStacksAreScannedOnce(t *testing.T) {
+	t.Cleanup(func() {
+		stackScansMu.Lock()
+		stackScans = map[stackScanKey]stackScan{}
+		stackScansMu.Unlock()
+	})
+	var calls atomic.Int32
+	config := aws.Config{
+		Region:      "us-east-1",
+		Credentials: aws.NewCredentialsCache(aws.AnonymousCredentials{}),
+		HTTPClient:  &fakeAPI{handle: recordStacksAPI(t, &calls)},
+		Retryer:     func() aws.Retryer { return aws.NopRetryer{} },
+	}
+
+	for _, region := range []string{"eu-west-1", "eu-west-1", "eu-west-2"} {
+		managed, err := regionStacks(t.Context(), config, region)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if managed["app-assets"] != "app" {
+			t.Errorf("%s: managed %v", region, managed)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Errorf("ListStacks called %d times, want once for each of 2 regions", calls.Load())
+	}
+
+	other := config
+	other.Credentials = aws.NewCredentialsCache(aws.AnonymousCredentials{})
+	if _, err := regionStacks(t.Context(), other, "eu-west-1"); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 3 {
+		t.Errorf("other credentials reused another's scan: %d ListStacks calls, want 3", calls.Load())
 	}
 }
