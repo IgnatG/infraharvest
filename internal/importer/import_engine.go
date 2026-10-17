@@ -345,8 +345,11 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
+	// The roots earlier calls of the account generated count as other
+	// roots too, as the global root does for the regional ones.
+	roots := withEarlierRoots(byDir, run.earlierRoots(scope))
 	for _, dir := range dirs {
-		dirOpts := withOtherRoots(opts, byDir, dir, options.Out)
+		dirOpts := withOtherRoots(opts, roots, dir, options.Out)
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
 			return err
@@ -395,6 +398,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 					return err
 				}
 			}
+			if err == nil {
+				run.recordRoot(scope, dir, byDir[dir])
+			}
 			if err == nil && addedResult == nil {
 				continue // nothing new
 			}
@@ -427,6 +433,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			}
 		}
 		run.addDirectory(dir, byDir[dir], result, err)
+		if err == nil && result != nil {
+			run.recordRoot(scope, dir, result.Imported)
+		}
 		if err == nil && run.backend != nil {
 			// After the checks, which run on a local working directory: the
 			// import never needs access to the state backend.
