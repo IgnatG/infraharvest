@@ -4,7 +4,9 @@
 package google
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // fakeInstances answers the project acme-prod's aggregated instance list
@@ -224,7 +227,8 @@ func TestCloudAssetListsNoInstancesWithoutBoth(t *testing.T) {
 // When the instances can't be listed, or a zone can't be reached, every
 // disk may be a boot disk: each records that it isn't known, and the
 // catalogue leaves it out by default, while the rest of the listing
-// stands. A failed list isn't kept: the next import lists again.
+// stands and the listing fails in part. The failure is kept: the next
+// import of the project doesn't list again.
 func TestCloudAssetBootDisksUnknown(t *testing.T) {
 	unreachable := []map[string]any{{
 		"zones/us-central1-a": bootDiskPages[0]["zones/us-central1-a"],
@@ -237,32 +241,53 @@ func TestCloudAssetBootDisksUnknown(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets, perPage: 500}, instances)
 			cat := catalogue.MustBuiltin("google")
-			got := listAssetsIn(t, nil, "us-central1")
-			if len(got) != len(bootDiskAssets) {
-				t.Fatalf("got %v", byID(got))
+			for range 2 {
+				g := assetLister(t, nil, "us-central1")
+				err := g.List()
+				if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "acme-prod") {
+					t.Fatalf("error %v, want a partial one naming the project", err)
+				}
+				if len(g.Resources) != len(bootDiskAssets) {
+					t.Fatalf("got %v", byID(g.Resources))
+				}
+				for _, r := range g.Resources {
+					a := r.Observed.Attributes
+					disk := strings.Contains(r.Observed.ID, "/disks/")
+					if (a[bootDiskAttribute] == "unknown") != disk || a[bootDiskOfAttribute] != "" {
+						t.Errorf("%s: attributes %v", r.Observed.ID, a)
+					}
+					if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, a) != ""; skipped != disk {
+						t.Errorf("%s: left out by default %v", r.Observed.ID, skipped)
+					}
+				}
 			}
-			for _, r := range got {
-				a := r.Observed.Attributes
-				disk := strings.Contains(r.Observed.ID, "/disks/")
-				if (a[bootDiskAttribute] == "unknown") != disk || a[bootDiskOfAttribute] != "" {
-					t.Errorf("%s: attributes %v", r.Observed.ID, a)
-				}
-				if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, a) != ""; skipped != disk {
-					t.Errorf("%s: left out by default %v", r.Observed.ID, skipped)
-				}
+			if instances.requests() != 1 {
+				t.Errorf("got %d instance lists, want 1", instances.requests())
 			}
 		})
 	}
+}
 
-	instances := &fakeInstances{pages: bootDiskPages, fail: 1}
-	computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets, perPage: 500}, instances)
-	listAssetsIn(t, nil, "us-central1")
-	again := byID(listAssetsIn(t, nil, "us-central1"))
-	if a := again["projects/acme-prod/zones/us-central1-a/disks/web"].Observed.Attributes; a[bootDiskAttribute] != "true" {
-		t.Errorf("after a failure: attributes %v", a)
+// A project's list that fails is kept, unless its context ended.
+func TestProjectListsKeepFailures(t *testing.T) {
+	var lists projectLists[int]
+	calls := 0
+	denied := errors.New("denied")
+	for range 2 {
+		if _, err := lists.once("acme-prod", func() (int, error) { calls++; return 0, denied }); !errors.Is(err, denied) {
+			t.Errorf("error %v, want %v", err, denied)
+		}
 	}
-	if a := again["projects/acme-prod/zones/us-central1-a/disks/data"].Observed.Attributes; a[bootDiskAttribute] != "" {
-		t.Errorf("after a failure, the data disk: attributes %v", a)
+	if calls != 1 {
+		t.Errorf("a failure: listed %d times, want once", calls)
+	}
+	for range 2 {
+		if _, err := lists.once("acme-dev", func() (int, error) { calls++; return 0, context.Canceled }); !errors.Is(err, context.Canceled) {
+			t.Errorf("error %v, want %v", err, context.Canceled)
+		}
+	}
+	if calls != 3 {
+		t.Errorf("a cancelled list: listed %d times, want twice", calls-1)
 	}
 }
 

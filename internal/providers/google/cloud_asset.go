@@ -50,6 +50,10 @@ type CloudAssetLister struct {
 // its regions made (see searchOnce), and keeps what is in the import's
 // region, with the disks that are instances' boot disks and the node pools
 // of Autopilot clusters marked (see markBootDisks and markAutopilotPools).
+// When the instances or the clusters can't be listed to mark them, the
+// listing fails in part (see harvest.Partial): it keeps every resource,
+// and the disks or node pools it couldn't tell about are left out by
+// default.
 func (g *CloudAssetLister) List() error {
 	cat := g.catalogue()
 	types := g.Types(cat)
@@ -69,14 +73,17 @@ func (g *CloudAssetLister) List() error {
 	}
 	region, _ := g.Settings()["region"].(compute.Region)
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
-	if err := markBootDisks(ctx, g.Provider(), project, results, resources); err != nil {
-		return err
-	}
-	if err := markAutopilotPools(ctx, g.Provider(), project, results, resources); err != nil {
-		return err
+	var unmarked []error
+	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markBootDisks, markAutopilotPools} {
+		if err := mark(ctx, project, results, resources); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			unmarked = append(unmarked, err)
+		}
 	}
 	g.Resources = resources
-	return nil
+	return harvest.Partial(errors.Join(unmarked...))
 }
 
 // Types returns the Terraform types the lister lists, sorted: those of

@@ -5,8 +5,8 @@ package google
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
 	"os"
 	"slices"
 	"strings"
@@ -51,10 +51,11 @@ const bootDiskFields = "items/*/instances(name,disks(source,boot)),items/*/warni
 // attaches by its source. Only a project whose search found instances has
 // its instances' disks listed, once (see bootDisksOnce), and only for an
 // import that lists disks: the import of global lists none. If they can't
-// be, that is logged, and each disk records asset.boot_disk=unknown, which
-// the catalogue leaves out by default too, as it may be a boot disk. The
-// error is the context's, when it ends.
-func markBootDisks(ctx context.Context, provider, project string, results []*cloudasset.ResourceSearchResult, resources []harvest.Resource) error {
+// be, each disk records asset.boot_disk=unknown, which the catalogue
+// leaves out by default too, as it may be a boot disk, and the error says
+// so, for the listing to fail in part (see harvest.Partial). The error is
+// the context's, when it ends.
+func markBootDisks(ctx context.Context, project string, results []*cloudasset.ResourceSearchResult, resources []harvest.Resource) error {
 	instances, disks := map[string]bool{}, map[string]bool{}
 	for _, r := range results {
 		if strings.Contains(strings.ToUpper(r.State), "DELET") {
@@ -72,11 +73,8 @@ func markBootDisks(ctx context.Context, provider, project string, results []*clo
 		return nil
 	}
 	boot, err := bootDisksOnce(ctx, project)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		log.Printf("%s: cloud_asset: the disks of project %s's instances can't be listed, so its disks, which may be their boot disks, are left out by default: %v", provider, project, err)
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	for _, r := range resources {
 		if !disks[r.Observed.ID] {
@@ -90,6 +88,9 @@ func markBootDisks(ctx context.Context, provider, project string, results []*clo
 			r.Observed.Attributes[bootDiskAttribute] = "true"
 			r.Observed.Attributes[bootDiskOfAttribute] = instance
 		}
+	}
+	if err != nil {
+		return fmt.Errorf("the disks of project %s's instances can't be listed, so its disks, which may be their boot disks, are left out by default: %w", project, err)
 	}
 	return nil
 }
@@ -163,18 +164,21 @@ type projectLists[T any] struct {
 	byKey map[string]*projectList[T]
 }
 
-// projectList is one project's list: its value once it has succeeded. mu
-// is held while it runs, so that an import that wants it meanwhile waits
-// for it rather than listing too.
+// projectList is one project's list: its value, or its error, once it
+// has been made. mu is held while it runs, so that an import that wants
+// it meanwhile waits for it rather than listing too.
 type projectList[T any] struct {
 	mu    sync.Mutex
 	done  bool
 	value T
+	err   error
 }
 
 // once returns what list returns for project, calling it only the first
-// time the process asks. A list that fails isn't kept, so the next import
-// lists again.
+// time the process asks. A list that fails is kept too, so that the
+// imports of the project's other regions don't make the failing call
+// again, each after its retries (see retryTransport): only one that its
+// context ended is not, so the next import lists again.
 func (l *projectLists[T]) once(project string, list func() (T, error)) (T, error) {
 	key := os.Getenv(EndpointEnv) + "\x00" + project
 	l.mu.Lock()
@@ -191,15 +195,15 @@ func (l *projectLists[T]) once(project string, list func() (T, error)) (T, error
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.done {
-		return p.value, nil
+		return p.value, p.err
 	}
 	value, err := list()
-	if err != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		var zero T
 		return zero, err
 	}
-	p.value, p.done = value, true
-	return value, nil
+	p.value, p.err, p.done = value, err, true
+	return value, err
 }
 
 // forget drops every list kept, for tests.

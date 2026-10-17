@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // fakeClusters answers the list of the project acme-prod's GKE clusters
@@ -152,8 +154,9 @@ func TestCloudAssetListsNoClustersWithoutNodePools(t *testing.T) {
 
 // When the clusters can't be listed, or a zone's can't, GKE may manage
 // any node pool: each records that it isn't known, and the catalogue
-// leaves it out by default, while the rest of the listing stands. A
-// failed list isn't kept: the next import lists again.
+// leaves it out by default, while the rest of the listing stands and
+// the listing fails in part. The failure is kept: the next import of the
+// project doesn't list again.
 func TestCloudAssetAutopilotUnknown(t *testing.T) {
 	missing := map[string]any{"clusters": autopilotClusters["clusters"], "missingZones": []string{"us-central1-f"}}
 	for name, clusters := range map[string]*fakeClusters{
@@ -163,32 +166,30 @@ func TestCloudAssetAutopilotUnknown(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clustersAndAssets(t, &fakeAssetSearch{results: autopilotAssets, perPage: 500}, clusters)
 			cat := catalogue.MustBuiltin("google")
-			got := listAssetsIn(t, nil, "us-central1")
-			if len(got) != 4 {
-				t.Fatalf("got %v", byID(got))
+			for range 2 {
+				g := assetLister(t, nil, "us-central1")
+				err := g.List()
+				if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "acme-prod") {
+					t.Fatalf("error %v, want a partial one naming the project", err)
+				}
+				if len(g.Resources) != 4 {
+					t.Fatalf("got %v", byID(g.Resources))
+				}
+				for _, r := range g.Resources {
+					a := r.Observed.Attributes
+					pool := r.Address.Type == "google_container_node_pool"
+					if (a[parentAutopilotAttribute] == "unknown") != pool {
+						t.Errorf("%s: attributes %v", r.Observed.ID, a)
+					}
+					if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, a) != ""; skipped != pool {
+						t.Errorf("%s: left out by default %v", r.Observed.ID, skipped)
+					}
+				}
 			}
-			for _, r := range got {
-				a := r.Observed.Attributes
-				pool := r.Address.Type == "google_container_node_pool"
-				if (a[parentAutopilotAttribute] == "unknown") != pool {
-					t.Errorf("%s: attributes %v", r.Observed.ID, a)
-				}
-				if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, a) != ""; skipped != pool {
-					t.Errorf("%s: left out by default %v", r.Observed.ID, skipped)
-				}
+			if clusters.requests() != 1 {
+				t.Errorf("got %d cluster lists, want 1", clusters.requests())
 			}
 		})
-	}
-
-	clusters := &fakeClusters{response: autopilotClusters, fail: 1}
-	clustersAndAssets(t, &fakeAssetSearch{results: autopilotAssets, perPage: 500}, clusters)
-	listAssetsIn(t, nil, "us-central1")
-	again := byID(listAssetsIn(t, nil, "us-central1"))
-	if a := again["projects/acme-prod/zones/us-central1-a/clusters/dev/nodePools/default-pool"].Observed.Attributes; a[parentAutopilotAttribute] != "true" {
-		t.Errorf("after a failure, the Autopilot cluster's pool: attributes %v", a)
-	}
-	if a := again["projects/acme-prod/locations/us-central1/clusters/prod/nodePools/batch"].Observed.Attributes; a[parentAutopilotAttribute] != "" {
-		t.Errorf("after a failure, the Standard cluster's pool: attributes %v", a)
 	}
 }
 
