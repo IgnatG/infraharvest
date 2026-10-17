@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
@@ -108,5 +109,23 @@ func TestProviderBlockPinsTheAccountAndRegion(t *testing.T) {
 	after := config()
 	if after["region"] != "eu-west-2" || !reflect.DeepEqual(after["allowed_account_ids"], []string{"123456789012"}) {
 		t.Errorf("after Scope: %v", after)
+	}
+}
+
+// A global cluster is listed in its primary cluster's region only, and
+// the queues by SQS_PREFIX when it is set: absent from one region's
+// listing, they may still be there.
+func TestPartialTypes(t *testing.T) {
+	// Restored when the test ends.
+	t.Setenv("SQS_PREFIX", "")
+	if err := os.Unsetenv("SQS_PREFIX"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := (Provider{}).PartialTypes(), []string{"aws_rds_global_cluster"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	t.Setenv("SQS_PREFIX", "app-")
+	if got, want := (Provider{}).PartialTypes(), []string{"aws_rds_global_cluster", "aws_sqs_queue"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("with SQS_PREFIX: got %v, want %v", got, want)
 	}
 }

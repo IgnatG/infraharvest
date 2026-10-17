@@ -545,3 +545,29 @@ func TestGlobalNamesTheOtherRegions(t *testing.T) {
 		t.Errorf("log %q, want %q", logged.String(), want)
 	}
 }
+
+// A region's import lists the subnetworks in part, as the import of
+// global takes them wherever they are, and any import lists in part the
+// types of the asset types the search rejected where it went.
+func TestCloudAssetPartialTypes(t *testing.T) {
+	t.Setenv(EndpointEnv, "http://127.0.0.1:1")
+	forgetSearches(t)
+	cat := catalogue.MustBuiltin("google")
+	global := &Provider{catalogue: cat}
+	regional := &Provider{catalogue: cat, region: compute.Region{Name: "us-central1"}}
+
+	if got := global.PartialTypes(); len(got) != 0 {
+		t.Errorf("global: got %v, want none", got)
+	}
+	if got, want := regional.PartialTypes(), []string{"google_compute_subnetwork"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a region: got %v, want %v", got, want)
+	}
+
+	rejectedTypes.Lock()
+	rejectedTypes.byKey[rejectedKey("pubsub.googleapis.com/Topic")] = true
+	rejectedTypes.byKey["http://elsewhere\x00compute.googleapis.com/Network"] = true
+	rejectedTypes.Unlock()
+	if got, want := global.PartialTypes(), []string{"google_pubsub_topic"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("global, with a rejected asset type: got %v, want %v", got, want)
+	}
+}

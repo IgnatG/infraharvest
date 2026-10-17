@@ -67,6 +67,9 @@ type record struct {
 type listing struct {
 	resources map[string][]harvest.Resource
 	tags      map[string]map[string]string
+	// saved is whether the resources come from what discover saved (see
+	// listResources) rather than from listing them now.
+	saved bool
 }
 
 // tagKey is how listing.tags and ProviderWithTags key a resource.
@@ -217,7 +220,9 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 					}
 				}
 			}
-			return listingOf(inv.Records, options.Services), failures, nil
+			listed := listingOf(inv.Records, options.Services)
+			listed.saved = true
+			return listed, failures, nil
 		}
 		log.Printf("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(options.Services, ","))
 	}

@@ -167,6 +167,10 @@ type Result struct {
 	// Files are the files the configuration is in besides generated.tf,
 	// with Options.SplitFiles.
 	Files []string `json:",omitempty"`
+	// NotInCloud are the resources of the root an incremental import added
+	// to that its listing found no longer in the cloud, for the README; a
+	// checkpoint doesn't keep them, as the next run looks again.
+	NotInCloud []Import `json:"-"`
 }
 
 // Options configure Generate.

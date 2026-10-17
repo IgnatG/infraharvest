@@ -336,6 +336,11 @@ type ImportResult struct {
 	SkippedChecks []string `json:"skipped_checks,omitempty"`
 	Failures      []string `json:"failures,omitempty"`
 	Report        string   `json:"report"`
+	// NotInCloud are the resources the roots have that an incremental
+	// import didn't find in the cloud, where it listed everything of their
+	// type: deleted since, for the user to remove from the roots or create
+	// again.
+	NotInCloud []report.NotInCloud `json:"not_in_cloud,omitempty"`
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
@@ -438,9 +443,13 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		SkippedChecks: r.SkippedChecks(),
 		Failures:      r.Failures,
 		Report:        filepath.Join(in.Out, report.Dir, "report.md"),
+		NotInCloud:    r.NotInCloud,
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
+	if n := len(r.NotInCloud); n > 0 {
+		text += fmt.Sprintf(" %d resources the roots have are no longer in the cloud (see not_in_cloud and the report): their next plan would create them again.", n)
+	}
 	if stopped(code) {
 		text = "The import was stopped before it finished. " + text
 	}

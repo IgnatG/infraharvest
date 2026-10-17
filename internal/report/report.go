@@ -153,6 +153,10 @@ type Coverage struct {
 	Excluded    []Excluded    `json:"excluded,omitempty"`
 	Failures    []string      `json:"failures,omitempty"`
 	Totals      CoverageTotal `json:"totals"`
+	// NotInCloud are the resources of roots an incremental import added to
+	// that its listing didn't find, though it listed everything of their
+	// type where they were: they have been deleted since.
+	NotInCloud []NotInCloud `json:"not_in_cloud,omitempty"`
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
@@ -276,6 +280,16 @@ type Excluded struct {
 	Scope  string `json:"scope,omitempty"`
 }
 
+// NotInCloud is a resource a root has, by its address in the root, that
+// is no longer in the cloud: Path is the root's, relative to the output
+// directory, with forward slashes, and Scope where it was looked for.
+type NotInCloud struct {
+	Path    string `json:"path"`
+	Address string `json:"address"`
+	ID      string `json:"id"`
+	Scope   string `json:"scope,omitempty"`
+}
+
 // Skipped counts resources of a type infraharvest doesn't import.
 type Skipped struct {
 	Type   string `json:"type"`
@@ -315,6 +329,7 @@ func (r *Report) Merge(other *Report) {
 	r.Add(other.Manifest)
 	r.Directories = append(r.Directories, other.Directories...)
 	r.Excluded = append(r.Excluded, other.Excluded...)
+	r.NotInCloud = append(r.NotInCloud, other.NotInCloud...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.listed = append(r.listed, other.listed...)
 	if len(r.TagKeys) == 0 {
@@ -338,6 +353,19 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		}
 		return r.Excluded[i].ID < r.Excluded[j].ID
 	})
+	// Calls of one account and region that list the same service look
+	// in the same roots.
+	sort.Slice(r.NotInCloud, func(i, j int) bool {
+		a, b := r.NotInCloud[i], r.NotInCloud[j]
+		if a.Path != b.Path {
+			return a.Path < b.Path
+		}
+		if a.Address != b.Address {
+			return a.Address < b.Address
+		}
+		return a.ID < b.ID
+	})
+	r.NotInCloud = slices.Compact(r.NotInCloud)
 	sort.Strings(r.Failures)
 
 	byType := map[string]*CoverageTotal{}
@@ -677,6 +705,11 @@ func (r *Report) Markdown() string {
 	section("Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", leftOut)
 	section("Secrets to set", "Set these variables before planning, from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`: infraharvest never writes secret values into its output.", secrets)
 	section("Warnings", "Look at these before using the configuration.", warnings)
+	var gone []string
+	for _, g := range r.NotInCloud {
+		gone = append(gone, fmt.Sprintf("- `%s` `%s` in `%s`", g.Address, g.ID, g.Path))
+	}
+	section("No longer in the cloud", "The roots have these resources, but the import didn't find them, though it listed every resource of their type where they were: they have been deleted since, and the next plan of the root would create them again. Delete each one's import block, if the root's `imports.tf` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again. The import changed nothing the roots have.", gone)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string

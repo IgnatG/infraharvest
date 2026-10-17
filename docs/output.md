@@ -20,7 +20,7 @@ Each output directory gets:
 | `.terraform.lock.hcl` | The provider version, the same for every directory of one import |
 | `rejected.hcl` | Only if some resources couldn't be imported: their `import` block and generated configuration, under the errors Terraform reported. Terraform doesn't load this file. Fix a resource and move its import block into `imports.tf` and its resource into the configuration, or leave it out. A resource that reads secret variables names them: declare them in `variables.tf` when you move it back. Rejected resources make the import exit non-zero unless `--allow-partial` is set |
 
-Each directory also gets a `README.md` with what was imported and the steps left to take, and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource labels are described under [Resource labels](#resource-labels).
+Each directory also gets a `README.md` with what was imported and the steps left to take (with what it has that is no longer in the cloud, when `--incremental` adds to it), and the output directory gets a `.gitignore` for state, plans, `.terraform/` and `.tfvars` files, unless it already has one. Resource labels are described under [Resource labels](#resource-labels).
 
 ## Applying the roots
 
@@ -136,7 +136,7 @@ The `report/` directory of the output records the import:
 
 | File | Contents |
 |---|---|
-| `coverage.json` | What the listers found, by type and directory, and what became of it: imported, left out (with Terraform's errors), not importable, or lost to a failed directory or service. Also the secret variables to set |
+| `coverage.json` | What the listers found, by type and directory, and what became of it: imported, left out (with Terraform's errors), not importable, or lost to a failed directory or service. Also the secret variables to set, and, after `--incremental`, what the roots have that is no longer in the cloud (`not_in_cloud`, see [Choosing what to import](usage.md#choosing-what-to-import)) |
 | `manifest.json` | The versions used: infraharvest, Terraform or OpenTofu, and the provider (constraint and locked version) |
 | `report.md` | The same, for people |
 
