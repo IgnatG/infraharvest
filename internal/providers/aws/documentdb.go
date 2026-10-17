@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/docdb"
+	"github.com/aws/aws-sdk-go-v2/service/docdb/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -43,11 +44,15 @@ func (g *DocDBLister) List() error {
 
 // listClusters adds each DocumentDB cluster as an aws_docdb_cluster,
 // followed by its member instances as aws_docdb_cluster_instance, all by
-// identifier. The clusters of other engines are left out. It returns the
-// subnet groups the clusters use, in the order first used.
+// identifier. Only the DocumentDB clusters are asked for, by an engine
+// filter, and the clusters of other engines an answer still has are left
+// out. It returns the subnet groups the clusters use, in the order first
+// used.
 func (g *DocDBLister) listClusters(ctx context.Context, client *docdb.Client) ([]string, error) {
 	var subnetGroups []string
-	p := docdb.NewDescribeDBClustersPaginator(client, &docdb.DescribeDBClustersInput{}, stopOnDuplicateToken)
+	p := docdb.NewDescribeDBClustersPaginator(client, &docdb.DescribeDBClustersInput{
+		Filters: []types.Filter{{Name: aws.String("engine"), Values: []string{docdbEngine}}},
+	}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		if err != nil {
