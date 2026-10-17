@@ -83,6 +83,9 @@ func TestSecurityGroupRulesAreResources(t *testing.T) {
 	if got := resources[0].Observed.Attributes[eksClusterTag]; got != "apps" {
 		t.Errorf("sg-1 %s = %q, want apps", eksClusterTag, got)
 	}
+	if got := resources[0].Observed.Attributes["group_name"]; got != "web" {
+		t.Errorf("sg-1 group_name = %q, want web", got)
+	}
 	ingress := resources[1].Observed.Attributes
 	if ingress["tags.Name"] != "https" || ingress["security_group_id"] != "sg-1" {
 		t.Errorf("sgr-1 attributes: got %v, want tags.Name https and security_group_id sg-1", ingress)

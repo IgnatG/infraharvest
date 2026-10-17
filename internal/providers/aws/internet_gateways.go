@@ -15,7 +15,8 @@ import (
 // Only gateways attached to a VPC are listed, whatever the state of the
 // attachment; a gateway with no attachment at all is left out. The gateway
 // attached to the default VPC is listed too, and ExcludedByDefault leaves it
-// out of the selection later.
+// out of the selection later. Each records the VPC it is attached to, the
+// first if there are more, as vpc_id.
 type IgwLister struct {
 	Service
 }
@@ -40,7 +41,9 @@ func (g *IgwLister) List() error {
 				continue
 			}
 			id := aws.ToString(gateway.InternetGatewayId)
-			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_internet_gateway", "aws"))
+			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_internet_gateway", "aws", map[string]string{
+				"vpc_id": aws.ToString(gateway.Attachments[0].VpcId),
+			}))
 		}
 	}
 	return nil
