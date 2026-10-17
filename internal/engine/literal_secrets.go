@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -309,17 +310,25 @@ func secretsInJSONString(e *hclsyntax.TemplateExpr, value, path, key string) []f
 // Credential formats (see credentialFormat) are secrets anywhere. A value
 // whose key names a secret (see secretKeyName), or that looks random
 // enough to be one (see highEntropy), is a secret only where freeForm says
-// the key is a name someone chose, and only if it isn't plainly something
-// else (see plainValue).
+// the key is a name someone chose. A value whose key names a secret is one
+// unless it holds no secret at all (see noSecret): spaces and digits don't
+// make it plain, as a passphrase or a PIN has them. Any other value must
+// also not be plainly something else (see plainValue).
 func secretReason(key, value string, freeForm bool) string {
 	if name := credentialFormat(value); name != "" {
 		return "looks like a " + name
 	}
-	if !freeForm || plainValue(value) {
+	if !freeForm {
 		return ""
 	}
 	if secretKeyName(key) {
+		if noSecret(value) {
+			return ""
+		}
 		return "its name says it is a secret"
+	}
+	if plainValue(value) {
+		return ""
 	}
 	if !hashLikeKey(key) && highEntropy(value) {
 		return "looks like a random key or token"
@@ -334,6 +343,9 @@ var literalSecretPatterns = map[string]*regexp.Regexp{
 	"Azure shared access key":         regexp.MustCompile(`SharedAccessKey=[A-Za-z0-9+/=]{20,}`),
 	"Azure SAS token":                 regexp.MustCompile(`[?&]sig=[A-Za-z0-9%+/=]{20,}`),
 	"Slack webhook":                   regexp.MustCompile(`^https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}`),
+	"Discord webhook":                 regexp.MustCompile(`^https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}`),
+	"Microsoft Teams webhook":         regexp.MustCompile(`^https://([A-Za-z0-9-]+\.webhook|outlook)\.office(365)?\.com/webhook(b2)?/\S{20,}`),
+	"Zapier webhook":                  regexp.MustCompile(`^https://hooks\.zapier\.com/hooks/catch/[0-9]+/[A-Za-z0-9]+`),
 	"GitHub fine-grained token":       regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`),
 	"GitLab token":                    regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}\b`),
 	"npm token":                       regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`),
@@ -344,9 +356,35 @@ var literalSecretPatterns = map[string]*regexp.Regexp{
 
 var literalSecretPatternNames = sortedKeys(literalSecretPatterns)
 
+// authorizationPattern matches the value of an Authorization header with
+// the Basic or Bearer scheme.
+var authorizationPattern = regexp.MustCompile(`^(?i)(basic|bearer)\s+([A-Za-z0-9._~+/-]+=*)$`)
+
+// authorizationHeader reports whether value is an Authorization header's
+// credentials, as a scheduler job or an uptime check sends them: Basic with
+// the base64 of user:password, or Bearer with a token of 16 or more
+// characters that has digits or mixes upper and lower case, which the
+// words of a description don't.
+func authorizationHeader(value string) bool {
+	m := authorizationPattern.FindStringSubmatch(strings.TrimSpace(value))
+	if m == nil {
+		return false
+	}
+	token := m[2]
+	if strings.EqualFold(m[1], "basic") {
+		decoded, err := base64.StdEncoding.DecodeString(token)
+		return err == nil && strings.Contains(string(decoded), ":")
+	}
+	return len(token) >= 16 && (strings.ContainsAny(token, "0123456789") ||
+		(strings.ContainsAny(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && strings.ContainsAny(token, "abcdefghijklmnopqrstuvwxyz")))
+}
+
 // credentialFormat returns the name of the credential format value has,
 // such as a private key, or "".
 func credentialFormat(value string) string {
+	if authorizationHeader(value) {
+		return "credential in an Authorization header"
+	}
 	for _, name := range secretPatternNames {
 		if secretPatterns[name].MatchString(value) {
 			return name
@@ -375,23 +413,31 @@ var plainWords = map[string]bool{
 	"none": true, "null": true, "nil": true, "undefined": true, "default": true, "required": true, "optional": true,
 }
 
-// plainValue reports whether value is plainly not a secret: too short to
-// be one, a number or a setting, an ARN, a reference to a secret kept
-// elsewhere (Key Vault, Secrets Manager, Secret Manager), a URL without
-// credentials, a path, or text with spaces.
+// plainValue reports whether value is plainly not a secret: one that holds
+// none (see noSecret), a number, or text with spaces.
 func plainValue(value string) bool {
 	v := strings.TrimSpace(value)
+	if noSecret(v) || strings.ContainsAny(v, " \t\r\n") {
+		return true
+	}
+	_, err := strconv.ParseFloat(v, 64)
+	return err == nil
+}
+
+// noSecret reports whether value holds no secret, whatever it goes by: too
+// short to be one, a setting, an ARN, a reference to a secret kept
+// elsewhere (Key Vault, Secrets Manager, Secret Manager), a path, or a URL
+// without credentials.
+func noSecret(value string) bool {
+	v := strings.TrimSpace(value)
 	switch {
-	case len(v) < minSecretLength, plainWords[strings.ToLower(v)], strings.ContainsAny(v, " \t\r\n"):
+	case len(v) < minSecretLength, plainWords[strings.ToLower(v)]:
 		return true
 	case strings.HasPrefix(v, "arn:"), strings.HasPrefix(v, "@Microsoft.KeyVault("), strings.HasPrefix(v, "{{resolve:"):
 		return true
 	case strings.HasPrefix(v, "projects/") && strings.Contains(v, "/secrets/"):
 		return true
 	case pathPattern.MatchString(v) && !strings.ContainsAny(v, "+="):
-		return true
-	}
-	if _, err := strconv.ParseFloat(v, 64); err == nil {
 		return true
 	}
 	if urlPattern.MatchString(v) {
@@ -448,7 +494,7 @@ func keyWords(key string) []string {
 var secretKeyParts = []string{
 	"SECRET", "TOKEN", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "APIKEY", "PRIVATEKEY", "ACCESSKEY",
 	"SIGNINGKEY", "ENCRYPTIONKEY", "MASTERKEY", "ACCOUNTKEY", "SHAREDKEY", "AUTHKEY", "HMACKEY", "LICENSEKEY",
-	"CONNECTIONSTRING", "CONNSTR",
+	"CONNECTIONSTRING", "CONNSTR", "AUTHORIZATION", "BEARER", "COOKIE",
 }
 
 // secretKeyWords are words that name a secret on their own: DB_PASS,
@@ -466,7 +512,8 @@ var identifierWords = map[string]bool{
 	"REF": true, "LOCATION": true, "DOMAIN": true, "DOMAINS": true, "FORMAT": true, "MODE": true, "USER": true,
 	"USERNAME": true, "ISSUER": true, "AUDIENCE": true, "SCOPE": true, "SCOPES": true, "UNITS": true, "VALIDITY": true,
 	"LIFETIME": true, "DURATION": true, "COUNT": true, "SIZE": true, "LIMIT": true, "POLICY": true, "ROTATION": true,
-	"PROVIDER": true, "STORE": true, "VAULT": true,
+	"PROVIDER": true, "STORE": true, "VAULT": true, "SECONDS": true, "MINUTES": true, "HOURS": true, "DAYS": true,
+	"INTERVAL": true, "AGE": true, "RETRIES": true, "BEHAVIOR": true, "BEHAVIOUR": true,
 }
 
 // secretKeyName reports whether key names a secret, such as API_SECRET,

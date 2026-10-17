@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -290,7 +291,28 @@ func TestSecretReason(t *testing.T) {
 		{"SIGNING", secret, true, true},                                                        // random enough to be a key
 		{"X", "ghp_" + strings.Repeat("a1", 18), false, true},                                  // a token format, anywhere
 		{"DATABASE_URL", "postgres://app:" + "pw123456@db:5432/app", true, true},
+		// A key that names a secret: spaces and digits don't make the
+		// value plain.
+		{"DB_PASSWORD", "correct horse battery staple", true, true},
+		{"DB_PASSWORD", "12345678", true, true},
+		{"PIN_SECRET", "84629137", true, true},
+		{"Authorization", "Bearer " + secret[:24], true, true},
+		{"Cookie", "session=" + secret[:24], true, true},
+		// Authorization headers and webhook URLs that carry a token, under
+		// any key.
+		{"headers", "Bearer " + secret[:24], false, true},
+		{"X", "Basic " + base64.StdEncoding.EncodeToString([]byte("user:pa55word")), true, true},
+		{"WEBHOOK_URL", "https://discord.com/api/webhooks/123456789012345678/" + secret[:40], true, true},
+		{"WEBHOOK_URL", "https://contoso.webhook.office.com/webhookb2/" + secret[:36] + "/IncomingWebhook/" + secret[:32], true, true},
+		{"WEBHOOK_URL", "https://hooks.zapier.com/hooks/catch/123456/" + secret[:8], true, true},
 		// Not secrets.
+		{"DB_PASSWORD", "{{resolve:secretsmanager:prod/db:SecretString:password}}", true, false},
+		{"TOKEN_TTL_SECONDS", "86400000", true, false},
+		{"DB_PASSWORD", "disabled", true, false},
+		{"API_TOKEN", "https://vault.example.com/v1/secret/api", true, false},
+		{"description", "Basic authentication for the admin pages", true, false},
+		{"X", "Bearer authentication", true, false},
+		{"WEBHOOK_URL", "https://discord.com/channels/1234", true, false},
 		{"API_SECRET_ARN", "arn:aws:secretsmanager:eu-west-2:123456789012:secret:api", true, false},
 		{"TOKEN_URL", "https://login.example.com/oauth2/token", true, false},
 		{"AWS_ACCESS_KEY_ID", "AKIA" + "EXAMPLE" + "EXAMPLE12", true, false},
