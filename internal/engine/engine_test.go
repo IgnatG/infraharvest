@@ -855,3 +855,23 @@ func TestBinaryFind(t *testing.T) {
 		}
 	})
 }
+
+func TestMergeEnv(t *testing.T) {
+	base := map[string]string{"Path": `C:\bin`, "TF_DATA_DIR": "/shared", "tf_log": "trace", "TF_VAR_name": "x", "HOME": "/home/me"}
+	over := map[string]string{"PATH": `C:\tools`, "AWS_REGION": "eu-west-1"}
+
+	got := mergeEnv(base, over, true)
+	want := map[string]string{"PATH": `C:\tools`, "TF_LOG": "trace", "TF_VAR_name": "x", "HOME": "/home/me", "AWS_REGION": "eu-west-1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("case-insensitive: got %v, want %v", got, want)
+	}
+
+	got = mergeEnv(base, over, false)
+	want = map[string]string{"Path": `C:\bin`, "PATH": `C:\tools`, "tf_log": "trace", "TF_VAR_name": "x", "HOME": "/home/me", "AWS_REGION": "eu-west-1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("case-sensitive: got %v, want %v", got, want)
+	}
+	if _, ok := base["TF_DATA_DIR"]; !ok {
+		t.Error("base changed")
+	}
+}

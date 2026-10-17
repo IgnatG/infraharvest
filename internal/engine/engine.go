@@ -17,6 +17,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -72,9 +73,7 @@ func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (
 	}
 	// SetEnv replaces the inherited environment and rejects variables that
 	// tfexec manages itself (TF_LOG, TF_CLI_ARGS, ...), so drop those.
-	all := environ()
-	maps.Copy(all, env)
-	all = tfexec.CleanEnv(all)
+	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
 	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
 	if err := tf.SetEnv(all); err != nil {
 		return nil, err
@@ -712,4 +711,47 @@ func sameFiles(dir string, files map[string][]byte) (bool, error) {
 		return false, err
 	}
 	return maps.EqualFunc(now, files, bytes.Equal), nil
+}
+
+// mergeEnv returns the environment base with over on top, for Terraform.
+// Without TF_DATA_DIR: Terraform then keeps its working data in each
+// root's .terraform, where the engine reads it, such as the modules init
+// installed, and roots generating in parallel don't share one. Where
+// variable names are case-insensitive (foldCase), as on Windows, a
+// variable of over replaces base's of any case, so that Terraform doesn't
+// get both, and the names of TF_ variables but input variables are upper
+// case, so that tfexec.CleanEnv, which matches names exactly, finds those
+// it manages.
+func mergeEnv(base, over map[string]string, foldCase bool) map[string]string {
+	key := func(name string) string { return name }
+	if foldCase {
+		key = strings.ToUpper
+	}
+	all := make(map[string]string, len(base)+len(over))
+	names := map[string]string{} // by key, the name all has the variable under
+	set := func(name, value string) {
+		if old, ok := names[key(name)]; ok {
+			delete(all, old)
+		}
+		names[key(name)] = name
+		all[name] = value
+	}
+	for name, value := range base {
+		set(name, value)
+	}
+	for name, value := range over {
+		set(name, value)
+	}
+	if name, ok := names[key("TF_DATA_DIR")]; ok {
+		delete(all, name)
+	}
+	if foldCase {
+		for name, value := range maps.Clone(all) {
+			if upper := strings.ToUpper(name); upper != name && strings.HasPrefix(upper, "TF_") && !strings.HasPrefix(upper, "TF_VAR_") {
+				delete(all, name)
+				all[upper] = value
+			}
+		}
+	}
+	return all
 }
