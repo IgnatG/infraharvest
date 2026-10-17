@@ -185,8 +185,11 @@ type fakeTerraform struct {
 	initErr     error
 	onInit      func() // called by Init, if set
 	calls       []string
-	// varFiles has the content of the var files plans were given, by path.
-	varFiles map[string]string
+	// secretsTemp, when set, is the temporary directory (TMPDIR) the test
+	// gave the engine: plans given a var file record the content of the
+	// engine's secret var files under it in varFiles, by path.
+	secretsTemp string
+	varFiles    map[string]string
 	// generatingMode is the directory's mode when generated.tf was
 	// written.
 	generatingMode os.FileMode
@@ -203,16 +206,23 @@ func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
 func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
 	f.calls = append(f.calls, "plan")
 	for _, opt := range opts {
-		if v, ok := opt.(*tfexec.VarFileOption); ok {
-			path := reflect.ValueOf(v).Elem().FieldByName("path").String()
-			content, err := os.ReadFile(path)
+		// The engine's var file is the one in the temporary directory
+		// the test set: tfexec.VarFileOption keeps its path unexported.
+		if _, ok := opt.(*tfexec.VarFileOption); ok && f.secretsTemp != "" {
+			paths, err := filepath.Glob(filepath.Join(f.secretsTemp, secretValuesPattern+"*", secretValuesFile))
 			if err != nil {
 				return false, err
 			}
-			if f.varFiles == nil {
-				f.varFiles = map[string]string{}
+			for _, path := range paths {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return false, err
+				}
+				if f.varFiles == nil {
+					f.varFiles = map[string]string{}
+				}
+				f.varFiles[path] = string(content)
 			}
-			f.varFiles[path] = string(content)
 		}
 		if _, ok := opt.(*tfexec.GenerateConfigOutOption); ok {
 			if info, err := os.Stat(f.dir); err == nil {

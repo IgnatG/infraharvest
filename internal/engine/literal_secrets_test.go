@@ -51,8 +51,14 @@ func assertNotWritten(t *testing.T, dir string, values ...string) {
 // provider doesn't mark map values sensitive, so Terraform generated them.
 func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 	dir := t.TempDir()
+	// The engine writes the secrets' var file under the temporary
+	// directory, which the fake then reads it from.
+	secretsTemp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, secretsTemp)
+	}
 	secret := fakeSecret("webhook")
-	tf := &fakeTerraform{dir: dir, generated: `resource "aws_lambda_function" "api" {
+	tf := &fakeTerraform{dir: dir, secretsTemp: secretsTemp, generated: `resource "aws_lambda_function" "api" {
   function_name = "api"
   role          = "arn:aws:iam::123456789012:role/api"
   environment {
