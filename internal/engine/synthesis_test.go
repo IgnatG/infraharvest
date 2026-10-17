@@ -697,3 +697,48 @@ resource "aws_s3_bucket_versioning" "other" {
 		t.Error("a cluster on the default configuration shares another")
 	}
 }
+
+// The references between a root's resources are read once, for every
+// anchor and trial to look up: who refers to whom, and from where.
+func TestIndexReferences(t *testing.T) {
+	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
+  bucket = "logs"
+}
+
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  versioning_configuration {
+    status = var.status
+  }
+}
+
+resource "aws_s3_bucket_policy" "logs" {
+  bucket = aws_s3_bucket.logs.bucket
+  policy = aws_s3_bucket_versioning.logs.id
+}
+`)
+	resources := f.resources()
+	refs := indexReferences(resources)
+
+	var referring []string
+	for _, r := range refs.referrers("aws_s3_bucket.logs", resources) {
+		referring = append(referring, r.address)
+	}
+	if got, want := strings.Join(referring, ","), "aws_s3_bucket_versioning.logs,aws_s3_bucket_policy.logs"; got != want {
+		t.Errorf("referrers: got %s, want %s", got, want)
+	}
+	if !refs.refers["aws_s3_bucket_policy.logs"]["aws_s3_bucket_versioning.logs"] || refs.refers["aws_s3_bucket.logs"]["aws_s3_bucket_policy.logs"] {
+		t.Errorf("refers: %v", refs.refers)
+	}
+	if len(refs.incoming["aws_s3_bucket_versioning.logs"]) != 1 || refs.incoming["aws_s3_bucket_versioning.logs"][0].from != "aws_s3_bucket_policy.logs" {
+		t.Errorf("incoming: %+v", refs.incoming["aws_s3_bucket_versioning.logs"])
+	}
+	// Linked either way, and not to what it has no reference with.
+	bucket := resources[:1]
+	if !refs.linked("aws_s3_bucket_versioning.logs", bucket) || !refs.linked("aws_s3_bucket.logs", resources[1:2]) {
+		t.Error("versioning and bucket not linked")
+	}
+	if refs.linked("aws_s3_bucket_policy.logs", resources[1:1]) {
+		t.Error("linked to an empty cluster")
+	}
+}
