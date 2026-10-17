@@ -177,7 +177,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 				keepAll(removed, rc.Address, keep)
 				continue
 			}
-			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), keep)
+			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
 		}
 		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
 			return true, &shownPlan{plan: p, summary: summary}, nil
@@ -308,20 +308,61 @@ func keepAll(removed []defaultCandidate, address string, keep map[string]bool) {
 	}
 }
 
-// keepChanged keeps the constant candidates of address behind changed:
-// those under a newly changed top-level argument, or all of them if none
-// is. Nulls never count: Terraform treats null as an omitted argument.
-func keepChanged(removed []defaultCandidate, address string, changed []string, keep map[string]bool) {
+// keepChanged keeps the constant candidates of address behind changed,
+// the newly changed top-level arguments: under each, those on the path of
+// an attribute the plan changes (see changedPaths), or all of them if
+// none is, so that a cache behaviour whose grpc_config block changes
+// keeps that block, not its compress = false too; and all of the
+// resource's if none is under changed. Nulls never count: Terraform
+// treats null as an omitted argument.
+func keepChanged(removed []defaultCandidate, address string, changed, paths []string, keep map[string]bool) {
 	matched := false
-	for _, c := range removed {
-		if !c.null && c.address == address && slices.Contains(changed, c.path[0]) {
-			keep[c.key()] = true
-			matched = true
+	for _, top := range changed {
+		var under []defaultCandidate
+		onPath := false
+		for _, c := range removed {
+			if c.null || c.address != address || c.path[0] != top {
+				continue
+			}
+			under = append(under, c)
+			if onChangedPath(strings.Join(c.path, "."), paths) {
+				keep[c.key()] = true
+				onPath = true
+			}
+		}
+		if len(under) == 0 {
+			continue
+		}
+		matched = true
+		if !onPath {
+			for _, c := range under {
+				keep[c.key()] = true
+			}
 		}
 	}
 	if !matched {
 		keepAll(removed, address, keep)
 	}
+}
+
+// changedPaths returns the paths, without indexes, of the attributes a
+// resource's planned change changes, down to nested blocks, such as
+// default_cache_behavior.grpc_config.enabled.
+func changedPaths(rc *tfjson.ResourceChange) []string {
+	var paths []string
+	for _, l := range changedLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown) {
+		paths = append(paths, withoutIndexes(l.path))
+	}
+	return paths
+}
+
+// onChangedPath reports whether the argument or block at path is one of
+// paths, holds one, or is in one, such as a block whose whole list
+// changes.
+func onChangedPath(path string, paths []string) bool {
+	return slices.ContainsFunc(paths, func(p string) bool {
+		return p == path || strings.HasPrefix(p, path+".") || strings.HasPrefix(path, p+".")
+	})
 }
 
 // newlyChanged returns the attributes a change signature, now, changes

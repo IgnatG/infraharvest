@@ -634,3 +634,47 @@ resource "google_storage_bucket" "b" {
 		}
 	}
 }
+
+// A difference in a nested block keeps what is on its path, not the rest
+// of the top-level block it is in; a difference no candidate is on keeps
+// all of that top-level block's, and one under no candidate's top-level
+// argument all of the resource's.
+func TestKeepChangedFollowsNestedPaths(t *testing.T) {
+	t.Parallel()
+	candidate := func(path ...string) defaultCandidate {
+		return defaultCandidate{address: "aws_cloudfront_distribution.a", path: path}
+	}
+	removed := []defaultCandidate{
+		candidate("default_cache_behavior", "compress"),
+		candidate("default_cache_behavior", "min_ttl"),
+		candidate("default_cache_behavior", "grpc_config"),
+		candidate("origin", "connection_attempts"),
+		candidate("retain_on_delete"),
+	}
+	kept := func(changed, paths []string) []string {
+		keep := map[string]bool{}
+		keepChanged(removed, "aws_cloudfront_distribution.a", changed, paths, keep)
+		var got []string
+		for _, c := range removed {
+			if keep[c.key()] {
+				got = append(got, strings.Join(c.path, "."))
+			}
+		}
+		return got
+	}
+	for _, tc := range []struct {
+		name          string
+		changed, path []string
+		want          string
+	}{
+		{"nested block", []string{"default_cache_behavior"}, []string{"default_cache_behavior.grpc_config.enabled"}, "default_cache_behavior.grpc_config"},
+		{"nested argument", []string{"default_cache_behavior"}, []string{"default_cache_behavior.min_ttl"}, "default_cache_behavior.min_ttl"},
+		{"whole block", []string{"default_cache_behavior"}, []string{"default_cache_behavior"}, "default_cache_behavior.compress,default_cache_behavior.min_ttl,default_cache_behavior.grpc_config"},
+		{"no candidate on the path", []string{"default_cache_behavior"}, []string{"default_cache_behavior.target_origin_id"}, "default_cache_behavior.compress,default_cache_behavior.min_ttl,default_cache_behavior.grpc_config"},
+		{"no candidate under it", []string{"enabled"}, []string{"enabled"}, "default_cache_behavior.compress,default_cache_behavior.min_ttl,default_cache_behavior.grpc_config,origin.connection_attempts,retain_on_delete"},
+	} {
+		if got := strings.Join(kept(tc.changed, tc.path), ","); got != tc.want {
+			t.Errorf("%s: kept %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}
