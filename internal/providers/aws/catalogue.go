@@ -15,9 +15,10 @@ func awsCatalogue() *catalogue.Catalogue {
 
 // SetCatalogue takes the catalogue of the import, the built-in one with
 // the --catalogue overlay merged in, for what the provider reads from the
-// catalogue once services are listed: import IDs, ARNs and children (see
-// catalogue). The Cloud Control services, which are known before the
-// overlay is loaded, come from the built-in catalogue.
+// catalogue: the Cloud Control services (see cloudControl), and, once
+// services are listed, import IDs, ARNs and children (see catalogue). The
+// importer sets it before it resolves the services, and on the provider
+// of each service it lists.
 func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
 	p.cat = c
 }

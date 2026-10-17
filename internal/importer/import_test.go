@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -253,5 +254,59 @@ func TestCheckOptions(t *testing.T) {
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%+v: got %v, want %q", tc.options, err, tc.want)
 		}
+	}
+}
+
+// catalogueProvider is fakeProvider, named aws, that takes the catalogue
+// of the import, and has the service ivs only once given one.
+type catalogueProvider struct {
+	fakeProvider
+	cat *catalogue.Catalogue
+}
+
+func (*catalogueProvider) Name() string { return "aws" }
+
+func (p *catalogueProvider) SetCatalogue(c *catalogue.Catalogue) { p.cat = c }
+
+func (p *catalogueProvider) Services() map[string]harvest.Lister {
+	services := map[string]harvest.Lister{"vpc": nil}
+	if p.cat != nil {
+		services["ivs"] = nil
+	}
+	return services
+}
+
+// The provider of each service listed, new for the service, is given the
+// catalogue of the import, overlay and all, before it makes the service's
+// lister.
+func TestListServicesGivesEachServiceTheCatalogue(t *testing.T) {
+	cat := catalogue.MustBuiltin("aws")
+	registry := harvest.NewRegistry(&catalogueProvider{})
+
+	if _, err := listServices(t.Context(), registry, Options{Services: []string{"good", "partial"}, cat: cat}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Providers) != 2 {
+		t.Fatalf("want a provider per service, got %d", len(registry.Providers))
+	}
+	for provider := range registry.Providers {
+		if got := provider.(*catalogueProvider).cat; got != cat {
+			t.Errorf("a service's provider has catalogue %p, want %p", got, cat)
+		}
+	}
+}
+
+// A service an overlay adds is known when --services is checked.
+func TestCheckOptionsKnowsTheServicesOfTheOverlay(t *testing.T) {
+	dir := t.TempDir()
+	overlay := "provider: aws\nservice: ivs\ntypes:\n  aws_ivs_channel:\n    cloud_control: { type: \"AWS::IVS::Channel\", identifier: Arn }\n"
+	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckOptions(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}, Catalogue: dir}); err != nil {
+		t.Errorf("with the overlay: %v", err)
+	}
+	if err := CheckOptions(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}}); err == nil || !strings.Contains(err.Error(), "has no service ivs") {
+		t.Errorf("without the overlay: got %v, want the service unknown", err)
 	}
 }

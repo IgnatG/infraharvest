@@ -99,14 +99,15 @@ func (p Provider) ProviderBlock() map[string]interface{} {
 
 // Services returns a new lister, wrapped in a guardedLister,
 // for every service: those of serviceTable, and one Cloud Control
-// lister per service of the catalogue's cloud_control entries, which
-// takes the place of a lister of the same name.
-func (*Provider) Services() map[string]harvest.Lister {
+// lister per service of the cloud_control entries of the catalogue of the
+// import (see SetCatalogue), which takes the place of a lister of the same
+// name.
+func (p *Provider) Services() map[string]harvest.Lister {
 	supported := make(map[string]harvest.Lister, len(serviceTable))
 	for _, s := range serviceTable {
 		supported[s.name] = &guardedLister{lister: s.newLister()}
 	}
-	for name, types := range cloudControlServices() {
+	for name, types := range p.cloudControl() {
 		supported[name] = &guardedLister{lister: &CloudControlLister{types: types}}
 	}
 	return supported
@@ -116,8 +117,8 @@ func (*Provider) Services() map[string]harvest.Lister {
 // the service called name, as Services has it, or nil when there is no
 // such service: a Cloud Control service takes the place of a lister of the
 // same name.
-func newServiceLister(name string) harvest.Lister {
-	if types, ok := cloudControlServices()[name]; ok {
+func (p *Provider) newServiceLister(name string) harvest.Lister {
+	if types, ok := p.cloudControl()[name]; ok {
 		return &guardedLister{lister: &CloudControlLister{types: types}}
 	}
 	for _, s := range serviceTable {
@@ -143,7 +144,7 @@ func (*Provider) OptInServices() []string {
 // with a new lister, and passes it the provider's settings. Only that
 // service's lister is made (see newServiceLister).
 func (p *Provider) Select(name string, verbose bool) error {
-	service := newServiceLister(name)
+	service := p.newServiceLister(name)
 	if service == nil {
 		return errors.New("not a service of aws; \"infraharvest services aws\" lists them")
 	}

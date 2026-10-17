@@ -192,9 +192,8 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err := provider.Init(ctx, args); err != nil {
 		return err
 	}
-	options = ResolveServices(provider, options)
-	scope := discoveryScope(ctx, provider)
-	run.scope = scope
+	// The catalogue comes before the services: an overlay can add some,
+	// such as an AWS cloud_control entry of a new service.
 	cat, err := providerCatalogue(provider, options.Catalogue)
 	if err != nil {
 		return err
@@ -202,6 +201,10 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if p, ok := provider.(harvest.ProviderWithCatalogue); ok {
 		p.SetCatalogue(cat)
 	}
+	options.cat = cat
+	options = ResolveServices(provider, options)
+	scope := discoveryScope(ctx, provider)
+	run.scope = scope
 	importID := importIDFunc(cat)
 	listed, failures, err := listResources(ctx, provider, options, args, scope)
 	if err != nil {
