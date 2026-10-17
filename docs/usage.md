@@ -66,6 +66,25 @@ infraharvest discover aws --services='*' --skip=iam,organization --regions=eu-we
 
 Services are listed several at a time (`--list-parallel`, 4 by default). One that fails, or takes longer than `--list-timeout` (30 minutes by default), is left out of the output and reported, and the run exits with 1, or with 3 under `--allow-partial` (see [Exit codes](output.md#exit-codes)). One that listed but failed on a part, such as `route53` when the records of a hosted zone fail to list, keeps what it listed, and is reported and sets the exit code the same way. So do tags that fail to read, as when `tag:GetResources` is denied: selection rules by tag, owner detection, `{env}` layouts and the report's counts by tag would miss them, so the run goes on with what it has but doesn't pass as complete.
 
+## Running in parallel
+
+Two flags set how much of an import runs at once:
+
+| Flag | Default | What runs at once |
+|---|---|---|
+| `--list-parallel` | `4` | the services listed for one account and region, subscription or project |
+| `--parallel` | `1` | the accounts, subscriptions or projects, and their regions, imported together; the limit counts all of them, so `--parallel 4` never runs more than four at once |
+
+`--parallel` stays at 1 by default because each account, subscription, project or region it runs at once has a Terraform of its own, with its provider loaded, so memory use grows with it. Listing is quick next to generating: in an AWS region, listing takes seconds and generating its roots takes minutes. So the time `--parallel` saves is close to the generate time of every region or account beyond the first, which makes it worth raising for an import of many regions or accounts:
+
+```sh
+infraharvest import aws --services='*' --regions=eu-west-1,eu-west-2,us-east-1 --all --parallel 3
+```
+
+Start at 2 to 4 and watch the machine's memory, more on a large machine. The global services and those only in us-east-1 (AWS) and a project's first region (Google) are still imported first, on their own, as the other regions refer to them. The output is the same whichever `--parallel` is set, and the report keeps the order of `--regions`.
+
+Lower `--list-parallel` when an API throttles the listing, as the requests of every service listed at once count towards the same limits.
+
 ## Filtering
 
 `--id`, `--tag` and `--where` keep only some of what the services list. Each can be given several times, and the selection file and the picker still decide among what passes. Values are separated by commas.

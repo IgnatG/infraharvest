@@ -46,7 +46,7 @@ The import covers the subscription `ARM_SUBSCRIPTION_ID` names, unless one of th
 - `--subscriptions` takes subscription IDs.
 - `--management-group` takes a management group ID, and adds every subscription under it, in its child groups too, that isn't disabled or deleted. Resource Graph finds them, with Reader (or `Microsoft.Management/managementGroups/read`) on the group.
 
-Each subscription goes into roots of its own, so with several, a custom `--layout` must contain `{account}`. `--parallel` imports that many subscriptions at once, each with its own Terraform, and a subscription that fails is reported while the run goes on to the next.
+Each subscription goes into roots of its own, so with several, a custom `--layout` must contain `{account}`. `--parallel` imports that many subscriptions at once, each with its own Terraform (see [Running in parallel](usage.md#running-in-parallel)), and a subscription that fails is reported while the run goes on to the next.
 
 `--resource-group` (`-g`) narrows the import to one resource group. Resources of a subscription span locations, so roots are split by resource group rather than by region: `<out>/azure/<subscription>/<resource group>/`, or `.../<subscription>/all/` for the whole subscription.
 
