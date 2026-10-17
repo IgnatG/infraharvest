@@ -14,6 +14,8 @@ A test whose emulator or sandbox isn't set up skips. CI sets `INFRAHARVEST_E2E_R
 
 Two more tests import the same resources: `TestAWSSelection` imports again from the selection file `infraharvest discover aws` writes, which must give the same files as `--all` byte for byte, and `TestAWSIncremental` adds what a selection left out with `--incremental`. CI runs each on a runner of its own; run in one process, they share the resources the first one creates.
 
+Two tests create resources of their own, in accounts no other test uses, and share a runner in CI: [`TestAWSParallelAccounts`](accounts_test.go) imports two accounts at once (`--accounts`, `--parallel=2`), and [`TestAWSParallelRegions`](regions_test.go) imports the global services and two regions of an account ([`testdata/aws-regions`](testdata/aws-regions/main.tf): a role and a log group in each region) twice, with `--parallel=1` and `--parallel=2`. The log must show the two regions listing or generating at the same time only with `--parallel=2` (from `aws: importing resources in region …` to `aws: listed resources in region …`, and from `aws: generating the roots in region …` to `aws: generated the roots in region …`), both imports must write the same files, and every root must plan as imports with no changes.
+
 Run them locally (needs Docker and Terraform >= 1.5; compiling uses a few GB of RAM):
 
 ```sh
