@@ -13,3 +13,24 @@ types:
       # The default key policy, which lets the account's IAM policies grant
       # access to the key.
       - 'policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}'
+  aws_kms_external_key:
+    # A key whose material was imported (Origin EXTERNAL).
+    arn: { service: kms, resource_type: "key" }
+    data_source: { type: aws_kms_key, argument: key_id }
+    omit:
+      # The default key policy, as for aws_kms_key.
+      - 'policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}'
+  aws_kms_replica_external_key:
+    # A multi-Region replica key whose material was imported.
+    arn: { service: kms, resource_type: "key" }
+    data_source: { type: aws_kms_key, argument: key_id }
+    omit:
+      # The default key policy, as for aws_kms_key.
+      - 'policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}'
+  aws_kms_replica_key:
+    # A multi-Region replica key whose material KMS made.
+    arn: { service: kms, resource_type: "key" }
+    data_source: { type: aws_kms_key, argument: key_id }
+    omit:
+      # The default key policy, as for aws_kms_key.
+      - 'policy={"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:{*}:iam::{*}:root"},"Action":"kms:*","Resource":"*"}]}'

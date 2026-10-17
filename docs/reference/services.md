@@ -66,7 +66,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `igw` | `aws_internet_gateway` |
 | `iot` | `aws_iot_role_alias`, `aws_iot_thing`, `aws_iot_thing_type`, `aws_iot_topic_rule` |
 | `kinesis` | `aws_kinesis_stream` |
-| `kms` | `aws_kms_alias`, `aws_kms_key` |
+| `kms` | `aws_kms_alias`, `aws_kms_external_key`, `aws_kms_key`, `aws_kms_replica_external_key`, `aws_kms_replica_key` |
 | `lambda` | `aws_lambda_event_source_mapping`, `aws_lambda_function`, `aws_lambda_function_event_invoke_config`, `aws_lambda_layer_version`, `aws_lambda_permission` |
 | `logs` | `aws_cloudwatch_log_group` |
 | `media_package` | `aws_media_package_channel` |

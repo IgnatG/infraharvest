@@ -70,8 +70,9 @@ type kmsLister struct {
 	keys map[string]*types.KeyMetadata
 }
 
-// addKeys records every listable key as an aws_kms_key, imported by its ID,
-// which it also records as the key_id attribute, followed by its grants.
+// addKeys records every listable key, imported by its ID, which it also
+// records as the key_id attribute, followed by its grants. The key's type
+// comes from the metadata already described (see kmsKeyType).
 // A key is named after its alias, in names by key ID, or else its ID.
 func (l *kmsLister) addKeys(names map[string]string) error {
 	pages := kms.NewListKeysPaginator(l.svc, &kms.ListKeysInput{}, stopOnDuplicateToken)
@@ -87,7 +88,7 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 			}
 			id := aws.ToString(key.KeyId)
 			name := cmp.Or(names[id], id)
-			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, "aws_kms_key", "aws",
+			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(metadata), "aws",
 				map[string]string{"key_id": id}))
 			l.addGrants(id, name)
 		}
@@ -171,6 +172,28 @@ func (l *kmsLister) describe(keyID string) *types.KeyMetadata {
 	}
 	l.keys[keyID] = key.KeyMetadata
 	return key.KeyMetadata
+}
+
+// kmsKeyType returns the Terraform type of a key with metadata: Terraform
+// has one for each origin of the key material and for a multi-Region
+// replica, and aws_kms_key, which takes only keys whose material KMS made
+// and that aren't replicas, refuses to read the others. A replica key is an
+// aws_kms_replica_key, or an aws_kms_replica_external_key when its
+// material was imported; another key with imported material is an
+// aws_kms_external_key.
+func kmsKeyType(metadata *types.KeyMetadata) string {
+	replica := metadata.MultiRegionConfiguration != nil &&
+		metadata.MultiRegionConfiguration.MultiRegionKeyType == types.MultiRegionKeyTypeReplica
+	external := metadata.Origin == types.OriginTypeExternal
+	switch {
+	case replica && external:
+		return "aws_kms_replica_external_key"
+	case replica:
+		return "aws_kms_replica_key"
+	case external:
+		return "aws_kms_external_key"
+	}
+	return "aws_kms_key"
 }
 
 // kmsKeyListable reports whether a key with metadata is one to list: a
