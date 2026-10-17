@@ -20,10 +20,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -92,6 +94,11 @@ type tools struct {
 // has to be under it as written and where it leads, so a symbolic link
 // under the root to somewhere else doesn't take it out.
 func (t *tools) within(what, path string) error {
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		// Such as a newline, which could make the confirmation the user is
+		// shown say something else.
+		return fmt.Errorf("%s %q has a control character", what, path)
+	}
 	root, err := filepath.Abs(t.root)
 	if err != nil {
 		return err
@@ -346,16 +353,16 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	message := fmt.Sprintf("Import the %d resources that %s includes (%d excluded) into Terraform configuration in %s? infraharvest reads %s and writes files; it never applies anything.",
+	message := fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never applies anything.",
 		summary.Included, in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	if in.Incremental {
-		message = fmt.Sprintf("Add the resources that %s includes (%d excluded) and that the roots in %s don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
+		message = fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	}
 	state := confirmationState(args, content)
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {
-			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", strings.Join(args, " "))), nil, nil
+			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", shellJoin(args))), nil, nil
 		}
 		t.issue(state)
 		return &mcp.CallToolResult{
@@ -569,6 +576,9 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 	if len(s.Services) == 0 {
 		return nil, errors.New("services is required")
 	}
+	if err := checkScopeValues(s); err != nil {
+		return nil, err
+	}
 	args := []string{command, s.Provider, "--services=" + strings.Join(s.Services, ",")}
 	var errs []error
 	for _, f := range scopeFields {
@@ -589,6 +599,51 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 		return nil, err
 	}
 	return args, nil
+}
+
+// namePattern is what a service or a region is named like: vpc, s3,
+// resource_graph, eu-west-2, global, or * for all.
+var namePattern = regexp.MustCompile(`^[A-Za-z0-9_*.-]+$`)
+
+// checkScopeValues rejects a service or region that isn't named like one,
+// and any value with a control character, such as a newline, which could
+// make the confirmation the user is shown say something else.
+func checkScopeValues(s Scope) error {
+	for _, v := range append(slices.Clone(s.Services), s.Regions...) {
+		if !namePattern.MatchString(v) {
+			return fmt.Errorf("%q isn't a service or a region", v)
+		}
+	}
+	values := []string{s.Profile, s.Organization, s.ManagementGroup, s.ResourceGroup}
+	for _, list := range [][]string{s.Accounts, s.Projects, s.Folders, s.Subscriptions} {
+		values = append(values, list...)
+	}
+	for _, v := range values {
+		if strings.ContainsFunc(v, unicode.IsControl) {
+			return fmt.Errorf("%q has a control character", v)
+		}
+	}
+	return nil
+}
+
+// shellJoin joins args into a command line a POSIX shell reads back as
+// args: each argument with anything but letters, digits and -_.,:/=@+ in
+// it is single-quoted, so a path with a space or a ; stays one argument.
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = shellQuote(a)
+	}
+	return strings.Join(quoted, " ")
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_.,:/=@+-]+$`)
+
+func shellQuote(s string) string {
+	if shellSafe.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // scopeText says what an import reads, for the user to confirm: the

@@ -6,6 +6,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -659,5 +660,62 @@ func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
 	}
 	if len(runner.runs) != 1 {
 		t.Errorf("runs: %v, want one", runner.runs)
+	}
+}
+
+// The command a user is told to run reads back as the same arguments, and
+// what the agent sends can't make the confirmation say something else.
+func TestValuesShownToTheUser(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"import", "aws", "--services=vpc,s3", "--out=gen"}, "import aws --services=vpc,s3 --out=gen"},
+		{[]string{"--selection=my dir/sel.yaml"}, "'--selection=my dir/sel.yaml'"},
+		{[]string{"--out=gen;curl x|sh"}, "'--out=gen;curl x|sh'"},
+		{[]string{"--profile=it's"}, `'--profile=it'"'"'s'`},
+	} {
+		if got := shellJoin(tc.args); got != tc.want {
+			t.Errorf("shellJoin(%q): got %s, want %s", tc.args, got, tc.want)
+		}
+	}
+
+	for name, scope := range map[string]Scope{
+		"a service with a space":    {Provider: "aws", Services: []string{"vpc; rm"}},
+		"a region with a newline":   {Provider: "aws", Services: []string{"vpc"}, Regions: []string{"eu-west-2\nand nothing else"}},
+		"a profile with a newline":  {Provider: "aws", Services: []string{"vpc"}, Profile: "prod\nImport nothing"},
+		"a project with a carriage": {Provider: "google", Services: []string{"iam"}, Projects: []string{"one\r"}},
+	} {
+		if _, err := scopeArgs("import", scope); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	dir := t.TempDir()
+	tools := &tools{run: (&fakeRunner{}).run, root: dir}
+	if err := tools.within("out", filepath.Join(dir, "gen\nInto nothing")); err == nil || !strings.Contains(err.Error(), "control character") {
+		t.Errorf("a path with a newline: got %v", err)
+	}
+}
+
+// The confirmation quotes the paths the agent chose.
+func TestConfirmationQuotesPaths(t *testing.T) {
+	runner := &fakeRunner{}
+	var asked string
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = req.Params.Message
+		return &mcp.ElicitResult{Action: "decline"}, nil
+	})
+	path := filepath.Join(dir, "my selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "gen")
+	call(t, session, "import", importArgs(path, out))
+	for _, want := range []string{fmt.Sprintf("%q includes", path), fmt.Sprintf("in %q?", out)} {
+		if !strings.Contains(asked, want) {
+			t.Errorf("confirmation %q misses %s", asked, want)
+		}
 	}
 }
