@@ -87,11 +87,17 @@ if [ "${INFRAHARVEST_SKIP_SIGNATURE:-}" = 1 ] && [ "${INFRAHARVEST_REQUIRE_SIGNA
   echo "INFRAHARVEST_SKIP_SIGNATURE=1: not verifying the release's signature, checking the checksum only." >&2
 elif command -v cosign > /dev/null 2>&1; then
   fetch "$base/$sums.sigstore.json" "$tmp/$sums.sigstore.json"
-  cosign verify-blob \
+  # cosign's own output says why a verification failed: a bad signature,
+  # but also a cosign too old for the bundle format, or no network access to
+  # the Sigstore trust root.
+  if ! cosign verify-blob \
     --certificate-identity "https://github.com/$repo/.github/workflows/release.yml@refs/heads/main" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --bundle "$tmp/$sums.sigstore.json" "$tmp/$sums" > /dev/null 2>&1 ||
-    fail "the checksum file's signature doesn't verify: not installing"
+    --bundle "$tmp/$sums.sigstore.json" "$tmp/$sums" > "$tmp/cosign.log" 2>&1; then
+    cat "$tmp/cosign.log" >&2
+    cosign_version=$(cosign version 2> /dev/null | sed -n 's/^GitVersion: *//p' | head -n 1)
+    fail "the checksum file's signature doesn't verify (cosign ${cosign_version:-of unknown version}; its output is above): not installing. The release is signed with cosign v3: an older cosign may not read its bundle, and verifying needs network access to the Sigstore services"
+  fi
   echo "Verified the release's signature."
 else
   fail "cosign isn't installed, so the release's signature can't be verified: not installing. Install cosign (https://docs.sigstore.dev/cosign/system_config/installation/), or set INFRAHARVEST_SKIP_SIGNATURE=1 to check only the checksum"
