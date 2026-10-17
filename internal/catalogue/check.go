@@ -113,6 +113,12 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	if l := e.Lifecycle; l != nil && (!l.CreateBeforeDestroy || strings.TrimSpace(l.Reason) == "") {
 		fail("lifecycle: set create_before_destroy: true, with a reason")
 	}
+	if p := e.Placeholder; p != nil {
+		errs = append(errs, checkPlaceholder(p)...)
+	}
+	if len(e.Remove) > 0 {
+		fail("remove: only an overlay of a built-in entry takes remove")
+	}
 	for _, list := range defaults {
 		seen := map[string]bool{}
 		for _, entry := range list.names {
@@ -167,6 +173,8 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	}
 	if d := e.DataSource; d != nil && (!identifier.MatchString(d.Type) || !identifier.MatchString(d.Argument)) {
 		fail("data_source: want a type and an argument")
+	} else if d != nil && !strings.HasPrefix(d.Type, c.Provider+"_") {
+		fail("data_source: %s isn't a %s data source", d.Type, c.Provider)
 	}
 	if a := e.ARN; a != nil && (a.Service == "" || strings.ContainsAny(a.Service+a.ResourceType, ":/ ")) {
 		fail("arn: want an ARN's service and resource type")
@@ -213,6 +221,34 @@ func (c *Catalogue) checkInventory() []error {
 					errs = append(errs, fmt.Errorf("%s: %s: inventory: %s is %s too; give each a name pattern that tells them apart", c.sources[a], a, ia.Type, b))
 				}
 			}
+		}
+	}
+	return errs
+}
+
+// placeholderReference is an {argument} in a placeholder value, which
+// the engine replaces with the value of one of the resource's arguments.
+var placeholderReference = regexp.MustCompile(`\{[a-z0-9_]+\}`)
+
+// checkPlaceholder reports what's wrong with a placeholder, as the
+// catalogue's schema does for the built-in files: an overlay is checked
+// by this alone. Without set, the placeholder would ignore changes and set
+// nothing, so the plan would fail on the missing argument.
+func checkPlaceholder(p *Placeholder) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	if len(p.OneOf) == 0 || len(p.Set) == 0 || len(p.Ignore) == 0 || strings.TrimSpace(p.Reason) == "" {
+		fail("placeholder: set one_of, set, ignore and a reason")
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.Set)) {
+		value := p.Set[name]
+		switch {
+		case !identifier.MatchString(name):
+			fail("placeholder.set: %q isn't an argument name", name)
+		case value == "":
+			fail("placeholder.set: %s: empty value", name)
+		case strings.ContainsAny(placeholderReference.ReplaceAllString(value, ""), "{}"):
+			fail("placeholder.set: %s: %q: want {argument} for an argument's value, with an argument name between the braces", name, value)
 		}
 	}
 	return errs

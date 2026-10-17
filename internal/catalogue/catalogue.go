@@ -111,6 +111,23 @@ type Entry struct {
 	// such as create_before_destroy for what others refer to while it is
 	// replaced.
 	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty"`
+	// Remove, in an overlay of a built-in entry, clears these of its
+	// fields, which an overlay can't clear by setting them: data_source,
+	// arn, cloud_control, inventory, placeholder and lifecycle.
+	Remove []string `yaml:"remove,omitempty"`
+}
+
+// removable are the fields an overlay's remove clears, by name.
+var removable = map[string]struct {
+	set   func(*Entry) bool
+	clear func(*Entry)
+}{
+	"data_source":   {func(e *Entry) bool { return e.DataSource != nil }, func(e *Entry) { e.DataSource = nil }},
+	"arn":           {func(e *Entry) bool { return e.ARN != nil }, func(e *Entry) { e.ARN = nil }},
+	"cloud_control": {func(e *Entry) bool { return e.CloudControl != nil }, func(e *Entry) { e.CloudControl = nil }},
+	"inventory":     {func(e *Entry) bool { return e.Inventory != nil }, func(e *Entry) { e.Inventory = nil }},
+	"placeholder":   {func(e *Entry) bool { return e.Placeholder != nil }, func(e *Entry) { e.Placeholder = nil }},
+	"lifecycle":     {func(e *Entry) bool { return e.Lifecycle != nil }, func(e *Entry) { e.Lifecycle = nil }},
 }
 
 // Lifecycle is lifecycle settings for every resource of a type, with the
@@ -271,14 +288,18 @@ func Load(provider, dir string) (*Catalogue, error) {
 		return base, nil
 	}
 	merged := base.clone()
+	var errs []error
 	for typ, e := range overlay.entries {
 		merged.sources[typ] = filepath.Join(dir, overlay.sources[typ])
 		if existing, ok := merged.entries[typ]; ok {
+			for _, err := range checkRemove(e) {
+				errs = append(errs, fmt.Errorf("%s: %s: %w", merged.sources[typ], typ, err))
+			}
 			e = existing.merge(e)
 		}
 		merged.entries[typ] = e
 	}
-	if err := merged.check(); err != nil {
+	if err := errors.Join(append(errs, merged.check())...); err != nil {
 		return nil, fmt.Errorf("catalogue %s: %w", dir, err)
 	}
 	return merged, nil
@@ -721,7 +742,34 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	if overlay.Lifecycle != nil {
 		merged.Lifecycle = overlay.Lifecycle
 	}
+	for _, name := range overlay.Remove {
+		if field, ok := removable[name]; ok {
+			field.clear(&merged)
+		}
+	}
+	merged.Remove = nil
 	return &merged
+}
+
+// checkRemove reports what's wrong with an overlay entry's remove: a name
+// that isn't a removable field, one named twice, or one the entry sets
+// too.
+func checkRemove(overlay *Entry) []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, name := range overlay.Remove {
+		field, ok := removable[name]
+		switch {
+		case !ok:
+			errs = append(errs, fmt.Errorf("remove: %q: want %s", name, strings.Join(slices.Sorted(maps.Keys(removable)), ", ")))
+		case seen[name]:
+			errs = append(errs, fmt.Errorf("remove: %s twice", name))
+		case field.set(overlay):
+			errs = append(errs, fmt.Errorf("remove: %s is set too", name))
+		}
+		seen[name] = true
+	}
+	return errs
 }
 
 // MustBuiltin returns the provider's built-in catalogue, and panics if it

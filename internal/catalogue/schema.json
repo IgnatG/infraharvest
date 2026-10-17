@@ -147,6 +147,12 @@
             "reason": { "type": "string", "minLength": 1 }
           }
         },
+        "remove": {
+          "description": "In a --catalogue overlay of a built-in entry: the built-in fields to clear, which an overlay can't clear by setting them. The built-in files don't take it.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["arn", "cloud_control", "data_source", "inventory", "lifecycle", "placeholder"] }
+        },
         "data_source": {
           "description": "The data source that reads one resource by its import ID.",
           "type": "object",

@@ -258,6 +258,13 @@ func TestCheckRejects(t *testing.T) {
 		"cloud control service":   "provider: aws\ntypes:\n  aws_x:\n    cloud_control: { type: \"AWS::X::Y\", identifier: Id }\n",
 		"unknown field":           "provider: aws\ntypes:\n  aws_x:\n    imports: x\n",
 		"bad filter":              "provider: aws\ntypes:\n  aws_x:\n    import_id: \"{id|upper:x}\"\n",
+		"placeholder without set": "provider: aws\ntypes:\n  aws_x:\n    placeholder: { one_of: [a], ignore: [a], reason: r }\n",
+		"placeholder reason":      "provider: aws\ntypes:\n  aws_x:\n    placeholder: { one_of: [a], set: { a: x }, ignore: [a] }\n",
+		"placeholder argument":    "provider: aws\ntypes:\n  aws_x:\n    placeholder: { one_of: [a], set: { Foo-Bar: x }, ignore: [a], reason: r }\n",
+		"placeholder empty value": "provider: aws\ntypes:\n  aws_x:\n    placeholder: { one_of: [a], set: { a: \"\" }, ignore: [a], reason: r }\n",
+		"placeholder reference":   "provider: aws\ntypes:\n  aws_x:\n    placeholder: { one_of: [a], set: { a: \"x/{Name}.zip\" }, ignore: [a], reason: r }\n",
+		"data source provider":    "provider: aws\ntypes:\n  aws_x:\n    data_source: { type: google_x, argument: id }\n",
+		"remove outside overlays": "provider: aws\ntypes:\n  aws_x:\n    remove: [placeholder]\n",
 	} {
 		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
 			t.Errorf("%s: want an error for\n%s", name, file)
@@ -351,6 +358,47 @@ types:
 	write(t, empty, "README.md", "notes")
 	if _, err := Load("aws", empty); err == nil || !strings.Contains(err.Error(), "no .yaml or .yml files") {
 		t.Errorf("a directory without catalogue files: want an error, got %v", err)
+	}
+}
+
+// An overlay's remove clears built-in fields it can't clear by setting
+// them, and is checked.
+func TestLoadOverlayRemoves(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "aws.yaml", `
+provider: aws
+types:
+  aws_lambda_function:
+    remove: [placeholder]
+  aws_iam_role:
+    remove: [data_source, arn]
+`)
+	c, err := Load("aws", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Placeholders()["aws_lambda_function"]; ok {
+		t.Error("removed placeholder: still there")
+	}
+	role, _ := c.Entry("aws_iam_role")
+	if role.DataSource != nil || role.ARN != nil || len(role.Remove) != 0 {
+		t.Errorf("removed data_source and arn: got %+v", role)
+	}
+	if builtin, _ := MustBuiltin("aws").Entry("aws_iam_role"); builtin.DataSource == nil {
+		t.Error("the overlay changed the built-in catalogue")
+	}
+
+	for name, overlay := range map[string]string{
+		"unknown field": "provider: aws\ntypes:\n  aws_iam_role:\n    remove: [omit]\n",
+		"twice":         "provider: aws\ntypes:\n  aws_iam_role:\n    remove: [arn, arn]\n",
+		"set too":       "provider: aws\ntypes:\n  aws_iam_role:\n    remove: [arn]\n    arn: { service: iam, resource_type: role }\n",
+		"new type":      "provider: aws\ntypes:\n  aws_widget:\n    remove: [arn]\n",
+	} {
+		bad := t.TempDir()
+		write(t, bad, "aws.yaml", overlay)
+		if _, err := Load("aws", bad); err == nil || !strings.Contains(err.Error(), "remove") {
+			t.Errorf("%s: want an error about remove, got %v", name, err)
+		}
 	}
 }
 
