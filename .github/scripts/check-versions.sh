@@ -5,9 +5,10 @@
 # Checks that the workflows test with the engines the release image ships
 # and agree on the scanners they install. The Dockerfile's
 # hashicorp/terraform and opentofu/opentofu tags, which Dependabot bumps,
-# are the source: every workflow's TERRAFORM_VERSION and TOFU_VERSION must
-# match them, and every setup-tflint tflint_version and setup-trivy version
-# must match the others.
+# are the source: the shared setup action (.github/actions/setup-engines)
+# and any workflow that still sets a Terraform or OpenTofu version of its
+# own must match them, and every setup-tflint tflint_version and
+# setup-trivy version must match the others.
 #
 # Usage: check-versions.sh (from the repository's root)
 set -euo pipefail
@@ -24,6 +25,9 @@ tofu=$(sed -nE 's/^FROM ghcr\.io\/opentofu\/opentofu:([0-9][^-@ ]*).*/\1/p' Dock
 [ -n "$tofu" ] || fail "Dockerfile: no opentofu/opentofu tag found"
 echo "Dockerfile: Terraform $terraform, OpenTofu $tofu"
 
+files=(.github/workflows/*.yml .github/actions/*/action.yml)
+action=.github/actions/setup-engines/action.yml
+
 # same <what> <want> <file:line:value>...: each value must be <want>, or,
 # with no <want>, the first value.
 same() {
@@ -38,14 +42,25 @@ same() {
   done
 }
 
-mapfile -t found < <(grep -nE '^\s*TERRAFORM_VERSION: ' .github/workflows/*.yml | sed -E 's/:\s*TERRAFORM_VERSION: */:/')
-same TERRAFORM_VERSION "$terraform" "${found[@]}"
-mapfile -t found < <(grep -nE '^\s*TOFU_VERSION: ' .github/workflows/*.yml | sed -E 's/:\s*TOFU_VERSION: */:/')
-same TOFU_VERSION "$tofu" "${found[@]}"
-mapfile -t found < <(grep -nE '^\s*tflint_version: ' .github/workflows/*.yml | sed -E 's/:\s*tflint_version: */:/')
-same "the tflint version" "" "${found[@]}"
+# found <key>: file:line:value for each literal "<key>: value" in the
+# workflows and actions; values taken from an expression are left out.
+found() {
+  grep -nE "^\s*$1: " "${files[@]}" | sed -E "s/:\s*$1: */:/" | grep -v ':[$]{{' || true
+}
+
+# The setup action must name both engines, or the checks below pass on
+# nothing.
+grep -qE '^\s*terraform_version: [0-9]' "$action" || fail "$action: no terraform_version found"
+grep -qE '^\s*tofu_version: [0-9]' "$action" || fail "$action: no tofu_version found"
+
+mapfile -t entries < <(found TERRAFORM_VERSION; found terraform_version)
+same "the Terraform version" "$terraform" "${entries[@]}"
+mapfile -t entries < <(found TOFU_VERSION; found tofu_version)
+same "the OpenTofu version" "$tofu" "${entries[@]}"
+mapfile -t entries < <(found tflint_version)
+same "the tflint version" "" "${entries[@]}"
 # The version input on the line after each setup-trivy.
-mapfile -t found < <(grep -nE -A2 'aquasecurity/setup-trivy@' .github/workflows/*.yml | sed -nE 's/^(.*)-([0-9]+)-\s*version: */\1:\2:/p')
-same "the trivy version" "" "${found[@]}"
+mapfile -t entries < <(grep -nE -A2 'aquasecurity/setup-trivy@' "${files[@]}" | sed -nE 's/^(.*)-([0-9]+)-\s*version: */\1:\2:/p')
+same "the trivy version" "" "${entries[@]}"
 
 exit "$status"
