@@ -384,3 +384,19 @@ func TestLocalSource(t *testing.T) {
 		}
 	}
 }
+
+// A generated module is laid out as it is written, before other roots can
+// see it.
+func TestModularizeLaysOutTheModule(t *testing.T) {
+	dir, modulesDir := moduleRoot(t, twoBuckets)
+
+	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	if err != nil || !changed || len(created) != 1 {
+		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
+	}
+
+	main := readFile(t, created[0], "main.tf")
+	if out, ok := layout([]byte(main)); !ok || string(out) != main {
+		t.Errorf("main.tf isn't laid out:\n%s", main)
+	}
+}

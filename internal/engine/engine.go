@@ -499,7 +499,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := typeLiteralsOf(ctx, tf, dir); err != nil {
 		return nil, err
 	}
-	if err := layoutDir(dir, opts.ModulesDir); err != nil {
+	if err := layoutDir(dir); err != nil {
 		return nil, err
 	}
 	if err := requireMinimumVersion(dir); err != nil {

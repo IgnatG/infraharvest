@@ -18,20 +18,14 @@ import (
 )
 
 // layoutDir lays out the resource and data blocks of the .tf files of
-// dir, and of the generated local modules under modulesDir if it is set,
-// as HashiCorp's style guide does (see layoutBody). The layout changes
-// nothing Terraform reads, so no plan checks it.
-func layoutDir(dir, modulesDir string) error {
+// dir as HashiCorp's style guide does (see layoutBody). The layout changes
+// nothing Terraform reads, so no plan checks it. Generated local modules
+// are laid out as they are written (see writeModule): the modules
+// directory is shared with the roots generating in parallel.
+func layoutDir(dir string) error {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
 	if err != nil {
 		return err
-	}
-	if modulesDir != "" {
-		modules, err := filepath.Glob(filepath.Join(modulesDir, "*", "main.tf"))
-		if err != nil {
-			return err
-		}
-		paths = append(paths, modules...)
 	}
 	for _, path := range paths {
 		if _, err := layoutFile(path); err != nil {

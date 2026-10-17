@@ -622,7 +622,7 @@ func moduleOutputsFile(g *moduleGroup) []byte {
 }
 
 // writeModule writes a group's module: main.tf, variables.tf, outputs.tf,
-// versions.tf and a README.
+// versions.tf and a README, with main.tf laid out (see layout).
 func writeModule(path string, g *moduleGroup, versions []byte) error {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
@@ -643,9 +643,15 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 	for _, o := range g.outputs {
 		fmt.Fprintf(&readme, "- `%s`\n", o)
 	}
+	// Laid out here, before holdModule moves it into place, where other
+	// roots may be reading or removing modules (see layoutDir).
+	main := g.main
+	if out, ok := layout(main); ok {
+		main = out
+	}
 
 	for name, content := range map[string][]byte{
-		"main.tf":        g.main,
+		"main.tf":        main,
 		"variables.tf":   g.variables,
 		"outputs.tf":     g.outputsFile,
 		"README.md":      []byte(readme.String()),
