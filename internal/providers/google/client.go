@@ -25,15 +25,16 @@ import (
 const EndpointEnv = "INFRAHARVEST_GOOGLE_ENDPOINT"
 
 // clientOptions are the options of every Google REST API client: a client
-// whose requests to each API go through ratelimit.Default (see
-// limitedClient), or, with EndpointEnv set, one that sends each
+// whose requests to each API go through ratelimit.Default and are sent
+// again when throttled or failed for the time being (see limitedClient
+// and retryTransport), or, with EndpointEnv set, one that sends each
 // googleapis.com request to the emulator, keeping its path, such as
 // /compute/v1/projects/.... ctx is the context of the call that needs a
 // client, which the first one finds the credentials with (see
 // limitedClient).
 func clientOptions(ctx context.Context) []option.ClientOption {
 	if target := emulator(); target != nil {
-		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: ratelimit.Default().Transport(emulatorTransport{target: target})})}
+		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: ratelimit.Default().Transport(emulatorTransport{target: target})}})}
 	}
 	if client := limitedClient(ctx); client != nil {
 		return []option.ClientOption{option.WithHTTPClient(client)}
@@ -48,7 +49,8 @@ var (
 
 // limitedClient is a client, with the application default credentials for
 // every Google Cloud API, that sends each API's requests through
-// ratelimit.Default: Google's quotas are per API and project. It is nil
+// ratelimit.Default, and sends again those Google throttles or fails for
+// the time being (see retryTransport). It is nil
 // if there are no credentials; each API client then looks for them itself
 // and fails the same way. The first call finds the credentials with ctx.
 func limitedClient(ctx context.Context) *http.Client {
@@ -63,7 +65,7 @@ func limitedClient(ctx context.Context) *http.Client {
 			log.Printf("google: no default credentials for a rate-limited client: %v", err)
 			return
 		}
-		client.Transport = ratelimit.Default().Transport(client.Transport)
+		client.Transport = retryTransport{base: ratelimit.Default().Transport(client.Transport)}
 		limited = client
 	})
 	return limited

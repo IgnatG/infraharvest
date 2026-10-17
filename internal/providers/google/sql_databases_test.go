@@ -201,7 +201,7 @@ func TestCloudSQLListsAgainAfterAFailure(t *testing.T) {
 		failing = false
 		mu.Unlock()
 		if f {
-			http.Error(w, `{"error": {"message": "failed"}}`, http.StatusInternalServerError)
+			http.Error(w, `{"error": {"message": "failed"}}`, http.StatusForbidden)
 			return
 		}
 		server.Config.Handler.ServeHTTP(w, r)
