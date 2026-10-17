@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -196,7 +195,7 @@ func (h *HCPTerraform) fetch(ctx context.Context, u, what, accept string) ([]byt
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %s", what, resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+	body, err := readState(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
 	}

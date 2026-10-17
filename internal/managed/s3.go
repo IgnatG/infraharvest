@@ -5,7 +5,6 @@ package managed
 
 import (
 	"context"
-	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -57,5 +56,5 @@ func (s *S3) Get(ctx context.Context, bucket, key string) ([]byte, error) {
 		return nil, err
 	}
 	defer out.Body.Close()
-	return io.ReadAll(out.Body)
+	return readState(out.Body)
 }

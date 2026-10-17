@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
@@ -339,7 +340,7 @@ func (r Resources) loadLocal(source string) error {
 		return err
 	}
 	if !info.IsDir() {
-		content, err := os.ReadFile(source)
+		content, err := readStateFile(source)
 		if err != nil {
 			return err
 		}
@@ -357,7 +358,7 @@ func (r Resources) loadLocal(source string) error {
 			return nil
 		}
 		found++
-		content, err := os.ReadFile(path)
+		content, err := readStateFile(path)
 		if err != nil {
 			return err
 		}
@@ -367,6 +368,34 @@ func (r Resources) loadLocal(source string) error {
 		return errors.New("no .tfstate file in the directory, outside .terraform")
 	}
 	return err
+}
+
+// stateSizeLimit is the most bytes one state may take: state is read whole
+// into memory, and an object that big under a prefix is most likely not
+// state.
+var stateSizeLimit int64 = 512 << 20
+
+// readState reads one state from r, failing rather than cutting it off if
+// it takes more than stateSizeLimit.
+func readState(r io.Reader) ([]byte, error) {
+	content, err := io.ReadAll(io.LimitReader(r, stateSizeLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(content)) > stateSizeLimit {
+		return nil, fmt.Errorf("state is larger than %d MiB, the most infraharvest reads", stateSizeLimit>>20)
+	}
+	return content, nil
+}
+
+// readStateFile reads the state file at path (see readState).
+func readStateFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return readState(f)
 }
 
 // Parse adds the managed resources of a state file found at where, in

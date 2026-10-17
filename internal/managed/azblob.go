@@ -5,7 +5,6 @@ package managed
 
 import (
 	"context"
-	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -93,5 +92,5 @@ func (a *AzureBlob) Get(ctx context.Context, container, name string) ([]byte, er
 		return nil, withoutURL(err)
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return readState(resp.Body)
 }

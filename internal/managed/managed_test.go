@@ -283,3 +283,26 @@ func TestLoadReadsAzureWorkspaces(t *testing.T) {
 		t.Error("an S3 object named like an azurerm workspace isn't state")
 	}
 }
+
+// A state larger than the limit fails, saying so, rather than being cut
+// off into a JSON error.
+func TestReadStateLimit(t *testing.T) {
+	limit := stateSizeLimit
+	defer func() { stateSizeLimit = limit }()
+	stateSizeLimit = 4 << 20
+
+	content, err := readState(strings.NewReader(strings.Repeat("x", 4<<20)))
+	if err != nil || len(content) != 4<<20 {
+		t.Errorf("at the limit: %d bytes, %v", len(content), err)
+	}
+	if _, err := readState(strings.NewReader(strings.Repeat("x", 4<<20+1))); err == nil || !strings.Contains(err.Error(), "larger than 4 MiB") {
+		t.Errorf("over the limit: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "big.tfstate")
+	if err := os.WriteFile(path, []byte(strings.Repeat(" ", 4<<20+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(context.Background(), []string{path}, Stores{}); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("a local state over the limit: %v", err)
+	}
+}
