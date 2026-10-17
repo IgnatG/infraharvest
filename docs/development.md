@@ -195,7 +195,7 @@ The `release` workflow publishes a release from `main`: it runs the tests in a j
 | `gofmt -s`, import grouping | pre-commit hook, `make fast` | `megalinter` (golangci-lint's formatters) |
 | Licence headers, names, `reuse lint`, a single root commit | pre-commit hook, `make fast` (not `reuse lint` or the root commit) | `tests` (`repository`) |
 | Shell scripts, workflows | pre-commit hook (shellcheck, actionlint) | `megalinter` (shellcheck, actionlint, zizmor) |
-| Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee), `docs` (strict MkDocs build) |
+| Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee on links within the repository), `links` (external links, not required), `docs` (strict MkDocs build) |
 | YAML, JSON, Dockerfile, Terraform, secrets, vulnerable dependencies | none | `megalinter` |
 | Commit message | `commit-msg` hook | the pull request title, at review |
 | golangci-lint | `make lint` (compiles) | `megalinter` on every pull request; `make ci-lint` on a branch |
