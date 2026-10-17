@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -110,20 +111,24 @@ func TestInitAllServicesResourcesKeepsAPartialListing(t *testing.T) {
 	}
 }
 
+// The clock is virtual (synctest), so the good service finishes within the
+// deadline however loaded the runner.
 func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
-	registry := harvest.NewRegistry(&fakeProvider{})
-	options := Options{Services: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
+	synctest.Test(t, func(t *testing.T) {
+		registry := harvest.NewRegistry(&fakeProvider{})
+		options := Options{Services: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
 
-	failures, err := listServices(t.Context(), registry, options, nil)
-	if err != nil {
-		t.Fatalf("a slow service must not abort the run: %v", err)
-	}
-	if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms") {
-		t.Errorf("want the slow service reported, got %v", failures)
-	}
-	if got := len(registry.Resources); got != 1 {
-		t.Errorf("want the good service's resource only, got %d resources", got)
-	}
+		failures, err := listServices(t.Context(), registry, options, nil)
+		if err != nil {
+			t.Fatalf("a slow service must not abort the run: %v", err)
+		}
+		if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms") {
+			t.Errorf("want the slow service reported, got %v", failures)
+		}
+		if got := len(registry.Resources); got != 1 {
+			t.Errorf("want the good service's resource only, got %d resources", got)
+		}
+	})
 }
 
 // An interrupt stops listing.
