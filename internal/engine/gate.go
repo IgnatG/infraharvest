@@ -366,32 +366,48 @@ func changedAttributes(before, after, afterUnknown any) []string {
 
 // sensitiveValues returns the string values the plan marks sensitive in
 // the imported objects: what must never be written into a file. A value
-// that is also the whole of an attribute the plan doesn't mark sensitive is
-// left out: it is public already, such as an SSM parameter (whose value
-// the provider always marks sensitive) holding a region name, and so is a
-// value publicSensitive says isn't secret, such as a String parameter's.
+// publicSensitive says isn't secret, such as a String parameter's, is left
+// out, and so is one that is also the whole of an attribute the plan
+// doesn't mark sensitive, where it plainly isn't a secret (see
+// structural), such as an SSM parameter (whose value the provider always
+// marks sensitive) holding a region name.
 func sensitiveValues(p *tfjson.Plan) []string {
 	if p == nil {
 		return nil
 	}
-	seen, public := map[string]bool{}, map[string]bool{}
+	seen, public, notSecret := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, rc := range p.ResourceChanges {
 		if rc.Change != nil {
 			collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
 			collectPublic(rc.Change.Before, rc.Change.BeforeSensitive, public)
 			if v, ok := publicValue(rc); ok {
-				public[v] = true
+				notSecret[v] = true
 			}
 		}
 	}
 	values := make([]string, 0, len(seen))
 	for v := range seen {
-		if !public[v] {
+		if !notSecret[v] && (!public[v] || !structural(v)) {
 			values = append(values, v)
 		}
 	}
 	sort.Strings(values)
 	return values
+}
+
+// identifierLike is what names and IDs look like: lower-case words and
+// digits joined by dashes, such as eu-west-2, vpc-0abc1234 or app-prod.
+var identifierLike = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)+$`)
+
+// structural reports whether a value the plan marks sensitive somewhere
+// is plainly not a secret where another attribute holds it in the open:
+// it holds none (see noSecret), it is a number or text with spaces, or it
+// looks like a region, a name or an ID. A value that could be a password
+// or a token, with upper case, punctuation or the randomness of a key,
+// stays a secret even then, as a copy of a secret in an attribute the
+// provider doesn't mark is the leak G6 is for.
+func structural(v string) bool {
+	return plainValue(v) || identifierLike.MatchString(v)
 }
 
 // collectPublic adds the strings in value that mask doesn't mark sensitive.

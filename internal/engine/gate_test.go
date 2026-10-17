@@ -144,10 +144,20 @@ func TestSensitiveValuesLeavesOutPublicOnes(t *testing.T) {
 			Before:          map[string]any{"name": "/app/key", "value": "k3y-value-1", "tags": map[string]any{"Note": "k3y-value"}},
 			BeforeSensitive: map[string]any{"value": true},
 		}},
+		// A secret's value copied into a function's environment, where the
+		// provider doesn't mark it: the copy is the leak, so the value
+		// stays in.
+		{Change: &tfjson.Change{
+			Before:          map[string]any{"secret_string": "Pa55-W0rd!db"},
+			BeforeSensitive: map[string]any{"secret_string": true},
+		}},
+		{Change: &tfjson.Change{
+			Before: map[string]any{"environment": []any{map[string]any{"variables": map[string]any{"DB_PW": "Pa55-W0rd!db"}}}},
+		}},
 	}}
 
 	// k3y-value is only part of the secret: still left in.
-	if got, want := sensitiveValues(p), []string{"k3y-value-1"}; !reflect.DeepEqual(got, want) {
+	if got, want := sensitiveValues(p), []string{"Pa55-W0rd!db", "k3y-value-1"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
