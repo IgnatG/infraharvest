@@ -8,7 +8,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 
 ## AWS
 
-`infraharvest import aws` has 96 services, and 3 opt-in.
+`infraharvest import aws` has 97 services, and 3 opt-in.
 
 | Service | Terraform types |
 |---|---|
@@ -41,7 +41,8 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `datapipeline` | `aws_datapipeline_pipeline` |
 | `devicefarm` | `aws_devicefarm_project` |
 | `docdb` | `aws_docdb_cluster`, `aws_docdb_cluster_instance`, `aws_docdb_cluster_parameter_group`, `aws_docdb_subnet_group` |
-| `dx` | `aws_dx_connection`, `aws_dx_gateway`, `aws_dx_private_virtual_interface`, `aws_dx_public_virtual_interface`, `aws_dx_transit_virtual_interface` |
+| `dx` | `aws_dx_connection`, `aws_dx_private_virtual_interface`, `aws_dx_public_virtual_interface`, `aws_dx_transit_virtual_interface` |
+| `dx_gateway` | `aws_dx_gateway` |
 | `dynamodb` | `aws_dynamodb_table` |
 | `ebs` | `aws_ebs_volume`, `aws_volume_attachment` |
 | `ec2_instance` | `aws_instance` |
