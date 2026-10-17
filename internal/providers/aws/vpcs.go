@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"strconv"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -11,8 +13,9 @@ import (
 
 // VpcLister lists the VPCs of a region as aws_vpc, each by its ID.
 //
-// The default VPC is listed like any other; ExcludedByDefault leaves it out
-// of the selection later, because AWS creates one in every region.
+// The default VPC is listed like any other, recording is_default "true"
+// (and other VPCs "false"); ExcludedByDefault leaves it out of the
+// selection later, because AWS creates one in every region.
 type VpcLister struct {
 	Service
 }
@@ -34,7 +37,9 @@ func (g *VpcLister) List() error {
 		}
 		for _, vpc := range page.Vpcs {
 			id := aws.ToString(vpc.VpcId)
-			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_vpc", "aws", ownerAttributes(vpc.OwnerId)))
+			attributes := ownerAttributes(vpc.OwnerId)
+			attributes["is_default"] = strconv.FormatBool(aws.ToBool(vpc.IsDefault))
+			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_vpc", "aws", attributes))
 		}
 	}
 	return nil

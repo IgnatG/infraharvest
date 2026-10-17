@@ -32,9 +32,9 @@ func TestRecordSubnetListsSubnets(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_subnet", "subnet-a", "subnet-a", nil},
-		recordedResource{"aws_subnet", "subnet-b", "subnet-b", nil},
-		recordedResource{"aws_subnet", "subnet-default-a", "subnet-default-a", nil},
+		recordedResource{"aws_subnet", "subnet-a", "subnet-a", map[string]string{"vpc_id": "vpc-1"}},
+		recordedResource{"aws_subnet", "subnet-b", "subnet-b", map[string]string{"vpc_id": "vpc-1"}},
+		recordedResource{"aws_subnet", "subnet-default-a", "subnet-default-a", map[string]string{"vpc_id": "vpc-default"}},
 	)
 }
 

@@ -12,8 +12,9 @@ import (
 // SubnetLister lists the subnets of a region as aws_subnet, each by its
 // ID.
 //
-// Default subnets are listed too; ExcludedByDefault leaves them out of the
-// selection later, together with the default VPC they belong to.
+// Each records the VPC it is in as vpc_id. Default subnets are listed too;
+// ExcludedByDefault leaves them out of the selection later, together with
+// the default VPC they belong to.
 type SubnetLister struct {
 	Service
 }
@@ -35,8 +36,16 @@ func (g *SubnetLister) List() error {
 		}
 		for _, subnet := range page.Subnets {
 			id := aws.ToString(subnet.SubnetId)
-			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_subnet", "aws", ownerAttributes(subnet.OwnerId)))
+			g.Resources = append(g.Resources, harvest.Record(id, id, "aws_subnet", "aws", subnetAttributes(subnet.OwnerId, subnet.VpcId)))
 		}
 	}
 	return nil
+}
+
+// subnetAttributes are the attributes a subnet records: its owner, as
+// ownerAttributes gives, and the VPC it is in, as vpc_id.
+func subnetAttributes(owner, vpc *string) map[string]string {
+	attributes := ownerAttributes(owner)
+	attributes["vpc_id"] = aws.ToString(vpc)
+	return attributes
 }

@@ -13,9 +13,10 @@ import (
 )
 
 // RouteTableLister lists the route tables of a region as aws_route_table,
-// each by its ID (named as routeTableName says), recording main "true"
-// for a VPC's main route table and as_created "true" for one as AWS
-// creates it (see asCreated), and followed by its associations:
+// each by its ID (named as routeTableName says), recording its VPC as
+// vpc_id, main "true" for a VPC's main route table and as_created "true"
+// for one as AWS creates it (see asCreated), and followed by its
+// associations:
 //
 //   - the association that makes a table its VPC's main route table, as
 //     aws_main_route_table_association named after the VPC (the catalogue
@@ -59,6 +60,7 @@ func routeTableResources(table *types.RouteTable) []harvest.Resource {
 	resources := []harvest.Resource{
 		harvest.RecordBare(tableID, routeTableName(table), "aws_route_table", "aws"),
 	}
+	resources[0].Observed.Attributes["vpc_id"] = aws.ToString(table.VpcId)
 	if slices.ContainsFunc(table.Associations, func(a types.RouteTableAssociation) bool { return aws.ToBool(a.Main) }) {
 		resources[0].Observed.Attributes["main"] = "true"
 		if asCreated(table) {

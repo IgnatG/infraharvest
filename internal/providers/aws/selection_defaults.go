@@ -82,7 +82,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 	if !network || p.region == GlobalPseudoRegion {
 		return excluded, stacksErr
 	}
-	defaults, err := p.defaultNetwork(ctx, config)
+	defaults, err := p.defaultNetwork(ctx, config, resources)
 	err = errors.Join(stacksErr, err)
 	eksGroups := map[string]bool{}
 	for _, r := range resources {
@@ -231,75 +231,153 @@ func (p *Provider) config(ctx context.Context) (aws.Config, error) {
 	return service.sdkConfig()
 }
 
-func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config) (defaultNetwork, error) {
+// defaultNetwork finds which of resources are part of the default network.
+// It works it out from what the listers recorded: a VPC's is_default, the
+// vpc_id of a subnet, route table or internet gateway, and a security
+// group's group_name, AWS reserving the name default for the group it
+// creates with every VPC. It asks AWS only for what that leaves open: the
+// default VPCs, when a VPC or the VPC of a part wasn't listed with them,
+// the parts of the default VPCs, when a part wasn't listed with its VPC,
+// and the default security groups, when a group, or the group of a rule,
+// wasn't listed with its name.
+func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config, resources []harvest.Resource) (defaultNetwork, error) {
 	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}, securityGroups: map[string]bool{}}
+	listedVPCs := map[string]bool{}
+	listedGroups := map[string]bool{}
+	var describeVPCs, describeParts, describeGroups bool
+	for _, r := range resources {
+		attributes := r.Observed.Attributes
+		switch r.Address.Type {
+		case "aws_vpc":
+			value, ok := attributes["is_default"]
+			if !ok {
+				describeVPCs = true
+				continue
+			}
+			listedVPCs[r.Observed.ID] = true
+			if value == "true" {
+				d.vpcs[r.Observed.ID] = true
+			}
+		case "aws_security_group":
+			name, ok := attributes["group_name"]
+			if !ok {
+				describeGroups = true
+				continue
+			}
+			listedGroups[r.Observed.ID] = true
+			if name == "default" {
+				d.securityGroups[r.Observed.ID] = true
+			}
+		}
+	}
+	// pending has, by part, the VPC it is in, of the parts whose VPC
+	// wasn't listed with is_default.
+	pending := map[string]string{}
+	for _, r := range resources {
+		attributes := r.Observed.Attributes
+		switch r.Address.Type {
+		case "aws_subnet", "aws_route_table", "aws_internet_gateway":
+			vpc, ok := attributes["vpc_id"]
+			switch {
+			case !ok:
+				describeParts = true
+			case vpc == "":
+				// In no VPC, so not in a default one.
+			case listedVPCs[vpc]:
+				if d.vpcs[vpc] {
+					d.parts[r.Observed.ID] = true
+				}
+			default:
+				pending[r.Observed.ID] = vpc
+				describeVPCs = true
+			}
+		case "aws_security_group_rule", "aws_vpc_security_group_ingress_rule", "aws_vpc_security_group_egress_rule":
+			if !listedGroups[attributes["security_group_id"]] {
+				describeGroups = true
+			}
+		}
+	}
+
 	svc := ec2.NewFromConfig(config)
 	var errs []error
-
-	vpcs := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{Filters: []ec2types.Filter{ec2Filter("is-default", "true")}}, stopOnDuplicateToken)
-	for vpcs.HasMorePages() {
-		page, err := vpcs.NextPage(ctx)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("default VPCs: %w", err))
-			break
-		}
-		for _, v := range page.Vpcs {
-			d.vpcs[aws.ToString(v.VpcId)] = true
-		}
-	}
-	defaultVPCs := make([]string, 0, len(d.vpcs))
-	for id := range d.vpcs {
-		defaultVPCs = append(defaultVPCs, id)
-	}
-
-	if len(defaultVPCs) > 0 {
-		subnets := ec2.NewDescribeSubnetsPaginator(svc, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", defaultVPCs...)}}, stopOnDuplicateToken)
-		for subnets.HasMorePages() {
-			page, err := subnets.NextPage(ctx)
+	if describeVPCs || describeParts {
+		vpcs := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{Filters: []ec2types.Filter{ec2Filter("is-default", "true")}}, stopOnDuplicateToken)
+		var described []string
+		for vpcs.HasMorePages() {
+			page, err := vpcs.NextPage(ctx)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("default subnets: %w", err))
+				errs = append(errs, fmt.Errorf("default VPCs: %w", err))
 				break
 			}
-			for _, s := range page.Subnets {
-				d.parts[aws.ToString(s.SubnetId)] = true
+			for _, v := range page.Vpcs {
+				id := aws.ToString(v.VpcId)
+				d.vpcs[id] = true
+				described = append(described, id)
 			}
 		}
-		tables := ec2.NewDescribeRouteTablesPaginator(svc, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", defaultVPCs...)}}, stopOnDuplicateToken)
-		for tables.HasMorePages() {
-			page, err := tables.NextPage(ctx)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("default route tables: %w", err))
-				break
-			}
-			for _, t := range page.RouteTables {
-				d.parts[aws.ToString(t.RouteTableId)] = true
+		for part, vpc := range pending {
+			if d.vpcs[vpc] {
+				d.parts[part] = true
 			}
 		}
-		gateways := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{ec2Filter("attachment.vpc-id", defaultVPCs...)}}, stopOnDuplicateToken)
-		for gateways.HasMorePages() {
-			page, err := gateways.NextPage(ctx)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("default internet gateways: %w", err))
-				break
-			}
-			for _, g := range page.InternetGateways {
-				d.parts[aws.ToString(g.InternetGatewayId)] = true
-			}
+		if describeParts && len(described) > 0 {
+			errs = append(errs, d.describeParts(ctx, svc, described))
 		}
 	}
-
-	groups := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{ec2Filter("group-name", "default")}}, stopOnDuplicateToken)
-	for groups.HasMorePages() {
-		page, err := groups.NextPage(ctx)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("default security groups: %w", err))
-			break
-		}
-		for _, g := range page.SecurityGroups {
-			d.securityGroups[aws.ToString(g.GroupId)] = true
+	if describeGroups {
+		groups := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{ec2Filter("group-name", "default")}}, stopOnDuplicateToken)
+		for groups.HasMorePages() {
+			page, err := groups.NextPage(ctx)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("default security groups: %w", err))
+				break
+			}
+			for _, g := range page.SecurityGroups {
+				d.securityGroups[aws.ToString(g.GroupId)] = true
+			}
 		}
 	}
 	return d, errors.Join(errs...)
+}
+
+// describeParts adds to d.parts the subnets, route tables and internet
+// gateways of the default VPCs vpcs.
+func (d defaultNetwork) describeParts(ctx context.Context, svc *ec2.Client, vpcs []string) error {
+	var errs []error
+	subnets := ec2.NewDescribeSubnetsPaginator(svc, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", vpcs...)}}, stopOnDuplicateToken)
+	for subnets.HasMorePages() {
+		page, err := subnets.NextPage(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("default subnets: %w", err))
+			break
+		}
+		for _, s := range page.Subnets {
+			d.parts[aws.ToString(s.SubnetId)] = true
+		}
+	}
+	tables := ec2.NewDescribeRouteTablesPaginator(svc, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", vpcs...)}}, stopOnDuplicateToken)
+	for tables.HasMorePages() {
+		page, err := tables.NextPage(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("default route tables: %w", err))
+			break
+		}
+		for _, t := range page.RouteTables {
+			d.parts[aws.ToString(t.RouteTableId)] = true
+		}
+	}
+	gateways := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{ec2Filter("attachment.vpc-id", vpcs...)}}, stopOnDuplicateToken)
+	for gateways.HasMorePages() {
+		page, err := gateways.NextPage(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("default internet gateways: %w", err))
+			break
+		}
+		for _, g := range page.InternetGateways {
+			d.parts[aws.ToString(g.InternetGatewayId)] = true
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func ec2Filter(name string, values ...string) ec2types.Filter {

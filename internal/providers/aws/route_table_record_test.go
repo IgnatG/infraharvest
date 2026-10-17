@@ -52,15 +52,15 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_route_table", "rtb-main", "vpc-1 main", map[string]string{"main": "true"}},
+		recordedResource{"aws_route_table", "rtb-main", "vpc-1 main", map[string]string{"main": "true", "vpc_id": "vpc-1"}},
 		recordedResource{"aws_main_route_table_association", "rtbassoc-main", "vpc-1", map[string]string{
 			"vpc_id": "vpc-1", "route_table_id": "rtb-main"}},
 		recordedResource{"aws_route_table_association", "rtbassoc-a", "subnet-a", map[string]string{
 			"subnet_id": "subnet-a", "route_table_id": "rtb-main"}},
-		recordedResource{"aws_route_table", "rtb-edge", "rtb-edge", nil},
+		recordedResource{"aws_route_table", "rtb-edge", "rtb-edge", map[string]string{"vpc_id": "vpc-1"}},
 		recordedResource{"aws_route_table_association", "rtbassoc-igw", "igw-1", map[string]string{
 			"gateway_id": "igw-1", "route_table_id": "rtb-edge"}},
-		recordedResource{"aws_route_table", "rtb-lonely", "rtb-lonely", nil},
+		recordedResource{"aws_route_table", "rtb-lonely", "rtb-lonely", map[string]string{"vpc_id": "vpc-2"}},
 	)
 }
 
@@ -98,9 +98,9 @@ func TestRecordRouteTableMarksMainTablesAsCreated(t *testing.T) {
 		}
 	}
 	want := map[string]map[string]string{
-		"rtb-new":         {"main": "true", "as_created": "true"},
-		"rtb-tagged":      {"main": "true"},
-		"rtb-propagating": {"main": "true"},
+		"rtb-new":         {"main": "true", "as_created": "true", "vpc_id": "vpc-1"},
+		"rtb-tagged":      {"main": "true", "vpc_id": "vpc-1"},
+		"rtb-propagating": {"main": "true", "vpc_id": "vpc-1"},
 	}
 	for id, attributes := range want {
 		if !maps.Equal(got[id], attributes) {

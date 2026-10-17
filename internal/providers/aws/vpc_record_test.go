@@ -32,8 +32,8 @@ func TestRecordVpcListsVpcs(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_vpc", "vpc-1", "vpc-1", nil},
-		recordedResource{"aws_vpc", "vpc-default", "vpc-default", nil},
+		recordedResource{"aws_vpc", "vpc-1", "vpc-1", map[string]string{"is_default": "false"}},
+		recordedResource{"aws_vpc", "vpc-default", "vpc-default", map[string]string{"is_default": "true"}},
 	)
 }
 

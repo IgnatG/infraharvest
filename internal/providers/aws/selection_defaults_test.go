@@ -84,6 +84,91 @@ func TestExcludedByDefault(t *testing.T) {
 	}
 }
 
+// With what the listers record, the default network is worked out from
+// the listing, without asking AWS again: the VPCs' is_default, the parts'
+// vpc_id and the security groups' group_name.
+func TestExcludedByDefaultFromTheListing(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListStacks" {
+			return noStacks
+		}
+		t.Errorf("unexpected call %s", call.Op)
+		return ""
+	})
+	p := &Provider{region: "us-east-1"}
+	resources := []harvest.Resource{
+		harvest.Record("vpc-default", "vpc-default", "aws_vpc", "aws", map[string]string{"is_default": "true"}),
+		harvest.Record("vpc-0abc1234", "main", "aws_vpc", "aws", map[string]string{"is_default": "false"}),
+		harvest.Record("subnet-default-a", "a", "aws_subnet", "aws", map[string]string{"vpc_id": "vpc-default"}),
+		harvest.Record("subnet-0own", "b", "aws_subnet", "aws", map[string]string{"vpc_id": "vpc-0abc1234"}),
+		harvest.Record("rtb-default", "main", "aws_route_table", "aws", map[string]string{"vpc_id": "vpc-default", "main": "true"}),
+		harvest.Record("rtb-0own", "rtb-0own", "aws_route_table", "aws", map[string]string{"vpc_id": "vpc-0abc1234"}),
+		harvest.Record("igw-default", "igw-default", "aws_internet_gateway", "aws", map[string]string{"vpc_id": "vpc-default"}),
+		harvest.Record("sg-default-own", "default", "aws_security_group", "aws", map[string]string{"group_name": "default"}),
+		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
+		harvest.Record("sg-0own", "web", "aws_security_group", "aws", map[string]string{"group_name": "web"}),
+		harvest.Record("sgr-2", "web_egress_all", "aws_vpc_security_group_egress_rule", "aws", map[string]string{"security_group_id": "sg-0own"}),
+	}
+
+	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"aws_vpc vpc-default":                       reasonDefaultVPC,
+		"aws_subnet subnet-default-a":               reasonDefaultNetwork,
+		"aws_route_table rtb-default":               reasonDefaultNetwork,
+		"aws_internet_gateway igw-default":          reasonDefaultNetwork,
+		"aws_security_group sg-default-own":         reasonDefaultSG,
+		"aws_vpc_security_group_ingress_rule sgr-1": reasonDefaultSG,
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+}
+
+// What the listing leaves open is asked for, and only that: a subnet
+// whose VPC wasn't listed takes the default VPCs, not the parts of the
+// default network, and a rule whose group wasn't listed takes the default
+// security groups.
+func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
+	var ops []string
+	useFakeAPI(t, func(call apiCall) string {
+		switch call.Op {
+		case "DescribeVpcs", "DescribeSecurityGroups":
+			ops = append(ops, call.Op)
+			return defaultNetworkAPI(call)
+		case "ListStacks":
+			return noStacks
+		}
+		t.Errorf("unexpected call %s", call.Op)
+		return ""
+	})
+	p := &Provider{region: "us-east-1"}
+	resources := []harvest.Resource{
+		harvest.Record("subnet-default-a", "a", "aws_subnet", "aws", map[string]string{"vpc_id": "vpc-default"}),
+		harvest.Record("subnet-0own", "b", "aws_subnet", "aws", map[string]string{"vpc_id": "vpc-0abc1234"}),
+		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
+	}
+
+	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"aws_subnet subnet-default-a":               reasonDefaultNetwork,
+		"aws_vpc_security_group_ingress_rule sgr-1": reasonDefaultSG,
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+	if !reflect.DeepEqual(ops, []string{"DescribeVpcs", "DescribeSecurityGroups"}) {
+		t.Errorf("asked %v, want the default VPCs and security groups only", ops)
+	}
+}
+
 // Global services have no network to ask about; their stacks are in every
 // enabled region.
 func TestExcludedByDefaultGlobal(t *testing.T) {

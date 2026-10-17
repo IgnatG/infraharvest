@@ -62,7 +62,8 @@ func (g *SecurityLister) List() error {
 // A group without a VPC is an EC2-Classic one, which the VPC types can't
 // manage, so it is left out with its rules. Groups and rules record their
 // tags as tags.<key> attributes, which the default selection reads (see
-// eksClusterTag), and rules record the group they belong to as
+// eksClusterTag), groups their name as group_name, by which it tells a
+// VPC's default group, and rules record the group they belong to as
 // security_group_id, by which the default selection leaves out the rules
 // of the groups it leaves out.
 func (g SecurityLister) createResources(groups []ec2types.SecurityGroup, rules []ec2types.SecurityGroupRule) []harvest.Resource {
@@ -75,7 +76,9 @@ func (g SecurityLister) createResources(groups []ec2types.SecurityGroup, rules [
 		id := aws.ToString(group.GroupId)
 		name := aws.ToString(group.GroupName)
 		groupNames[id] = name
-		resources = append(resources, harvest.Record(id, strings.TrimSpace(name), "aws_security_group", "aws", tagAttributes(group.Tags)))
+		attributes := tagAttributes(group.Tags)
+		attributes["group_name"] = name
+		resources = append(resources, harvest.Record(id, strings.TrimSpace(name), "aws_security_group", "aws", attributes))
 	}
 	for _, rule := range rules {
 		groupID := aws.ToString(rule.GroupId)

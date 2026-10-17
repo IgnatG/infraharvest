@@ -36,8 +36,8 @@ func TestRecordIgwListsAttachedGateways(t *testing.T) {
 	}
 
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_internet_gateway", "igw-main", "igw-main", nil},
-		recordedResource{"aws_internet_gateway", "igw-detaching", "igw-detaching", nil},
+		recordedResource{"aws_internet_gateway", "igw-main", "igw-main", map[string]string{"vpc_id": "vpc-1"}},
+		recordedResource{"aws_internet_gateway", "igw-detaching", "igw-detaching", map[string]string{"vpc_id": "vpc-2"}},
 	)
 }
 
