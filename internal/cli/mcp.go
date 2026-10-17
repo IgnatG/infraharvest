@@ -12,12 +12,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -60,6 +62,23 @@ func newMCPCmd() *cobra.Command {
 	return cmd
 }
 
+// childEnv returns env, the server's environment, without the variables
+// that profile a run (see importer.StartProfiles): a tool's child would
+// write its profiles over the server's, at the same paths, and over those
+// of the other children running at the same time.
+func childEnv(env []string) []string {
+	kept := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case importer.CPUProfileEnv, importer.MemProfileEnv, importer.GoroutineLeakProfileEnv:
+			continue
+		}
+		kept = append(kept, kv)
+	}
+	return kept
+}
+
 // childWaitDelay is how long a tool's child process has to stop once
 // interrupted before it is killed.
 const childWaitDelay = 30 * time.Second
@@ -70,6 +89,7 @@ func execRunner(binary string) mcpserver.Runner {
 	return func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
 		var stdout, stderr bytes.Buffer
 		c := exec.CommandContext(ctx, binary, args...)
+		c.Env = childEnv(os.Environ())
 		// An interrupt lets the child stop as on Ctrl+C, removing the
 		// secrets it holds outside the output; Windows can't send one, so
 		// the child is killed there, as it is after childWaitDelay.

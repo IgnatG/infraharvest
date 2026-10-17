@@ -33,3 +33,12 @@ func TestExecRunnerKilled(t *testing.T) {
 		t.Errorf("got code %d, %v; want %v", code, err, context.DeadlineExceeded)
 	}
 }
+
+// A tool's child doesn't profile itself into the server's profile files.
+func TestChildEnvLeavesOutProfiles(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "INFRAHARVEST_CPU_PROFILE=cpu.out", "INFRAHARVEST_MEM_PROFILE=mem.out", "INFRAHARVEST_GOROUTINELEAK_PROFILE=leak.out", "AWS_PROFILE=prod"}
+	got := childEnv(env)
+	if len(got) != 2 || got[0] != "PATH=/usr/bin" || got[1] != "AWS_PROFILE=prod" {
+		t.Errorf("child environment: %v", got)
+	}
+}
