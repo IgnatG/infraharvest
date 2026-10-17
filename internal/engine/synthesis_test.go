@@ -6,7 +6,9 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -227,20 +229,164 @@ func TestSynthesizeWithoutTheModules(t *testing.T) {
 	}
 }
 
-// An error the plan can't pin on one call takes them all back.
+// callsTerraform plans as planFor says for the module calls the root has
+// when it plans, by name; the plans show no change.
+func callsTerraform(t *testing.T, dir string, planFor func(calls map[string]bool) fakePlan) *fakeTerraform {
+	t.Helper()
+	tf := &fakeTerraform{dir: dir}
+	tf.onPlan = func() {
+		f, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls := map[string]bool{}
+		for _, b := range f.syntax.Blocks {
+			if b.Type == "module" && len(b.Labels) == 1 {
+				calls[b.Labels[0]] = true
+			}
+		}
+		tf.plans = []fakePlan{planFor(calls)}
+	}
+	return tf
+}
+
+func planCount(tf *fakeTerraform) int {
+	n := 0
+	for _, c := range tf.calls {
+		if c == "plan" {
+			n++
+		}
+	}
+	return n
+}
+
+var cycle = []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}
+
+// An error the plan can't pin on one call is found by planning the calls
+// apart: the call it comes with is declined with it, and the other kept.
 func TestSynthesizeOnAPlanError(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
-	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
+	tf := callsTerraform(t, dir, func(calls map[string]bool) fakePlan {
+		if calls["state"] {
+			return fakePlan{diags: cycle}
+		}
+		return fakePlan{}
+	})
 
 	declined, _, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, rootChanges(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(declined) != 2 || declined[1].Declined != "plan error: Cycle" {
+	if len(declined) != 1 || declined[0].Declined != "plan error: Cycle" || strings.Join(declined[0].Resources, ",") != "aws_s3_bucket.state,aws_s3_bucket_versioning.state" {
 		t.Errorf("declined: %+v", declined)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
-		t.Errorf("generated.tf not restored:\n%s", got)
+	// Both calls failed and logs alone didn't: state isn't planned alone.
+	if got := strings.Join(tf.calls, ","); got != "init,plan,plan,show" {
+		t.Errorf("calls: %s", got)
+	}
+	root := readFile(t, dir, GeneratedFileName)
+	if !strings.Contains(root, `module "logs" {`) || !strings.Contains(root, `resource "aws_s3_bucket" "state" {`) || strings.Contains(root, `module "state"`) {
+		t.Errorf("want logs moved and state kept:\n%s", root)
+	}
+}
+
+// bucketRoot is a root of n buckets, b0 on, and their planned changes in
+// it: imports with no change.
+func bucketRoot(n int) (string, map[string]string) {
+	var blocks []string
+	changes := map[string]string{}
+	for i := range n {
+		name := fmt.Sprintf("b%d", i)
+		blocks = append(blocks, fmt.Sprintf("resource \"aws_s3_bucket\" %q {\n  bucket = %q\n}\n", name, name))
+		changes["aws_s3_bucket."+name] = changeSignature(resourceChange("x.aws_s3_bucket."+name, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+	}
+	return strings.Join(blocks, "\n"), changes
+}
+
+// A failure the plan can't pin on a call declines only the calls it comes
+// with, with its reason, found by planning half of the calls at a time;
+// the others are kept, and the plans paid stay few.
+func TestSynthesizeFindsTheCallsAPlanFailsFor(t *testing.T) {
+	const n = 8
+	failsWith := func(bad ...string) func(map[string]bool) fakePlan {
+		return func(calls map[string]bool) fakePlan {
+			for _, b := range bad {
+				if calls[b] {
+					return fakePlan{diags: cycle}
+				}
+			}
+			return fakePlan{}
+		}
+	}
+	var all []string
+	for i := range n {
+		all = append(all, fmt.Sprintf("b%d", i))
+	}
+	for _, tc := range []struct {
+		name     string
+		planFor  func(map[string]bool) fakePlan
+		declined []string
+		reason   string
+		// maxPlans is one plan, and two for each halving down to each
+		// call declined, or each group planned once for every call.
+		maxPlans int
+	}{
+		{"one bad call", failsWith("b5"), []string{"b5"}, "plan error: Cycle", 1 + 2*3},
+		{"two bad calls", failsWith("b1", "b6"), []string{"b1", "b6"}, "plan error: Cycle", 1 + 2*2*3},
+		{"every call bad", failsWith(all...), all, "plan error: Cycle", 2*n - 1},
+		{"a combination", func(calls map[string]bool) fakePlan {
+			if calls["b2"] && calls["b5"] {
+				return fakePlan{summary: changeSummary{Change: 1}}
+			}
+			return fakePlan{}
+		}, []string{"b5"}, "the plan changed outside the module calls", 1 + 2*3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, changes := bucketRoot(n)
+			dir, _ := moduleRoot(t, root)
+			tf := callsTerraform(t, dir, tc.planFor)
+
+			declined, summary, _, err := synthesize(context.Background(), tf, dir, Options{Adapters: []adapters.Adapter{testAdapter}}, changeSummary{}, changes, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, d := range declined {
+				if d.Declined != tc.reason {
+					t.Errorf("%v declined with %q, want %q", d.Resources, d.Declined, tc.reason)
+				}
+				got = append(got, strings.Join(d.Resources, ","))
+			}
+			var want []string
+			for _, b := range tc.declined {
+				want = append(want, "aws_s3_bucket."+b)
+			}
+			if strings.Join(got, " ") != strings.Join(want, " ") {
+				t.Errorf("declined %v, want %v", got, want)
+			}
+			if summary != (changeSummary{}) {
+				t.Errorf("summary: %+v", summary)
+			}
+			if plans := planCount(tf); plans > tc.maxPlans {
+				t.Errorf("%d plans, want at most %d", plans, tc.maxPlans)
+			}
+			generated := readFile(t, dir, GeneratedFileName)
+			if len(tc.declined) == n {
+				if generated != root {
+					t.Errorf("generated.tf not restored:\n%s", generated)
+				}
+				return
+			}
+			for _, b := range all {
+				called := strings.Contains(generated, fmt.Sprintf("module %q {", b))
+				if kept := !strings.Contains(generated, fmt.Sprintf("resource \"aws_s3_bucket\" %q {", b)); called != kept {
+					t.Errorf("%s is both a call and a resource, or neither:\n%s", b, generated)
+				}
+				if isDeclined := slices.Contains(tc.declined, b); called == isDeclined {
+					t.Errorf("%s called: %v, declined: %v:\n%s", b, called, declined, generated)
+				}
+			}
+		})
 	}
 }
 

@@ -2,7 +2,7 @@
 
 ## Curated modules
 
-Clusters of resources that a curated public module can manage move into a call of that module, at an exact version. For each cluster, infraharvest maps the generated configuration onto the module's inputs. It declines a cluster when the module can't express one of its settings, rather than drop the setting. It then plans, and takes back any call whose resources would plan differently than they did in the root, or for which the module would create anything else. The root README and the report list each call, and each cluster that stayed in the root with the reason. These modules are mapped so far:
+Clusters of resources that a curated public module can manage move into a call of that module, at an exact version. For each cluster, infraharvest maps the generated configuration onto the module's inputs. It declines a cluster when the module can't express one of its settings, rather than drop the setting. It then plans, and takes back any call whose resources would plan differently than they did in the root, or for which the module would create anything else. When the plan fails in a way it can't pin on one call, with an error about none of them or totals that don't match ("the plan changed outside the module calls"), it plans again with half of the calls, the others held back, and keeps halving until only the calls that cause it are declined, with that reason; the others stay. These extra plans are paid only when the plan fails. The root README and the report list each call, and each cluster that stayed in the root with the reason. These modules are mapped so far:
 
 | Resources | Module |
 |---|---|

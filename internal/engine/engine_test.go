@@ -184,6 +184,7 @@ type fakeTerraform struct {
 	showns      []*tfjson.Plan // returned by successive ShowPlanFile calls
 	initErr     error
 	onInit      func() // called by Init, if set
+	onPlan      func() // called by PlanJSON before it takes a plan, if set
 	calls       []string
 	// secretsTemp, when set, is the temporary directory (TMPDIR) the test
 	// gave the engine: plans given a var file record the content of the
@@ -205,6 +206,9 @@ func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
 
 func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
 	f.calls = append(f.calls, "plan")
+	if f.onPlan != nil {
+		f.onPlan()
+	}
 	for _, opt := range opts {
 		// The engine's var file is the one in the temporary directory
 		// the test set: tfexec.VarFileOption keeps its path unexported.
