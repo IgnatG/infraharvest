@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -31,9 +32,34 @@ func TestManagementLockListsTheScope(t *testing.T) {
 		if !reflect.DeepEqual(transport.paths, []string{wantPath}) {
 			t.Errorf("resource group %q: requested %v, want %s", resourceGroup, transport.paths, wantPath)
 		}
-		want := []listedResource{{Type: "azurerm_management_lock", ID: lock, Name: "keep"}}
+		want := []listedResource{{Type: "azurerm_management_lock", ID: lock, Name: "keep", Attributes: map[string]string{"name": "keep", "resource_group_name": "rg1"}}}
 		if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
 			t.Errorf("resource group %q: got %+v, want %+v", resourceGroup, got, want)
+		}
+	}
+}
+
+// A lock records its name and the resource group of what it locks, so
+// that the catalogue leaves out the lock Azure Backup puts on a storage
+// account, and locks in groups the default selection leaves out.
+func TestLockAttributes(t *testing.T) {
+	cat := catalogue.MustBuiltin("azurerm")
+	for _, tc := range []struct {
+		id, name string
+		want     map[string]string
+		skipped  bool
+	}{
+		{"/subscriptions/sub/providers/Microsoft.Authorization/locks/all", "all", map[string]string{"name": "all"}, false},
+		{"/subscriptions/sub/resourcegroups/app/providers/Microsoft.Storage/storageAccounts/data/providers/Microsoft.Authorization/locks/AzureBackupProtectionLock", "AzureBackupProtectionLock", map[string]string{"name": "AzureBackupProtectionLock", "resource_group_name": "app"}, true},
+		{"/subscriptions/sub/resourceGroups/DefaultResourceGroup-WEU/providers/Microsoft.OperationalInsights/workspaces/w/providers/Microsoft.Authorization/locks/keep", "keep", map[string]string{"name": "keep", "resource_group_name": "DefaultResourceGroup-WEU"}, true},
+		{"/subscriptions/sub/resourceGroups/app/providers/Microsoft.Authorization/locks/keep", "keep", map[string]string{"name": "keep", "resource_group_name": "app"}, false},
+	} {
+		got := lockAttributes(tc.id, tc.name)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.id, got, tc.want)
+		}
+		if skipped := cat.Skipped("azurerm_management_lock", tc.id, got) != ""; skipped != tc.skipped {
+			t.Errorf("%s: left out by default %v, want %v", tc.id, skipped, tc.skipped)
 		}
 	}
 }

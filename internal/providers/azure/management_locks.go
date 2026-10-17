@@ -4,13 +4,21 @@
 package azure
 
 import (
+	"strings"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armlocks"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // ManagementLockLister lists management locks as azurerm_management_lock:
 // those in --resource-group when it is set, else every lock in the
 // subscription. Locks are extension resources (Microsoft.Authorization/locks)
 // that Resource Graph doesn't index, so resource_graph can't list them.
+// Each records its name and the resource group of what it locks (see
+// lockAttributes), so that the catalogue's rules leave out the locks Azure
+// Backup adds and those on what is in a group they leave out, such as a
+// DefaultResourceGroup-<region>.
 type ManagementLockLister struct {
 	Service
 }
@@ -44,7 +52,22 @@ func (az *ManagementLockLister) List() error {
 		if lock.ID == nil || lock.Name == nil {
 			continue
 		}
-		az.recordBare(*lock.ID, *lock.Name, "azurerm_management_lock")
+		az.Resources = append(az.Resources, harvest.Record(*lock.ID, *lock.Name, "azurerm_management_lock", az.Provider(), lockAttributes(*lock.ID, *lock.Name)))
 	}
 	return nil
+}
+
+// lockAttributes records a lock's name, and the resource group its ID is
+// under, the lock's scope's, as resource_group_name: none for a lock on
+// the subscription.
+func lockAttributes(id, name string) map[string]string {
+	attributes := map[string]string{"name": name}
+	segments := strings.Split(id, "/")
+	for i := 0; i+1 < len(segments); i++ {
+		if strings.EqualFold(segments[i], "resourceGroups") && segments[i+1] != "" {
+			attributes["resource_group_name"] = segments[i+1]
+			break
+		}
+	}
+	return attributes
 }
