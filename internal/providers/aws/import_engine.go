@@ -19,7 +19,9 @@ func (Provider) DefaultTags() (attribute, block, reservedPrefix string) {
 }
 
 // Scope names the account and region this import covers, for the output
-// layout: global for global services such as IAM.
+// layout: global for global services such as IAM. It remembers the
+// account, and the region the SDK resolved for ProfileRegion, for the
+// provider block (see ProviderBlock).
 func (p *Provider) Scope(ctx context.Context) (account, region string, err error) {
 	service := &Service{}
 	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
@@ -38,8 +40,10 @@ func (p *Provider) Scope(ctx context.Context) (account, region string, err error
 		region = "global"
 	case ProfileRegion:
 		region = config.Region
+		p.resolvedRegion = config.Region
 	}
-	return aws.ToString(id), region, nil
+	p.account = aws.ToString(id)
+	return p.account, region, nil
 }
 
 // TerraformEnv gives Terraform the credentials infraharvest lists with, as
@@ -49,7 +53,7 @@ func (p *Provider) Scope(ctx context.Context) (account, region string, err error
 // provider block assumes the role itself (see ProviderBlock). Each call
 // returns them fresh, so a long import never hands Terraform expired ones.
 // Without --regions, it also gives the region the profile or environment
-// resolves to, which the provider block then leaves out.
+// resolves to, which the provider block names too once Scope has run.
 func (p *Provider) TerraformEnv(ctx context.Context) (map[string]string, error) {
 	service := &Service{}
 	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})

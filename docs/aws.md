@@ -12,7 +12,7 @@ infraharvest signs in the way the AWS CLI and SDKs do. `--profile` names a profi
 
 When a profile assumes a role that needs an MFA code, infraharvest asks for it on the terminal, once for every region of the import: the regions of one profile and role share the credentials, and the role is assumed once. Terraform gets the credentials infraharvest resolved, through `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, fresh for each root, so it never has to resolve an SSO session or ask for a code itself. Run `terraform plan` on the generated roots later with credentials of your own.
 
-The account is the one `sts:GetCallerIdentity` returns, asked once for each set of credentials. Throttled calls back off and retry, up to 10 attempts in the SDK's adaptive retry mode; `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override that. `--rate-limit` caps the requests a second to each API and account. `--verbose` logs the headers of each request and response, never the bodies, with the signature, session token and cookies redacted.
+The account is the one `sts:GetCallerIdentity` returns, asked once for each set of credentials. Each root's provider block names its region, the default one the import resolved when `--regions` isn't set, and the account in `allowed_account_ids`, so that a later plan with other credentials or another default region fails rather than reading other resources. Throttled calls back off and retry, up to 10 attempts in the SDK's adaptive retry mode; `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override that. `--rate-limit` caps the requests a second to each API and account. `--verbose` logs the headers of each request and response, never the bodies, with the signature, session token and cookies redacted.
 
 ## Permissions
 

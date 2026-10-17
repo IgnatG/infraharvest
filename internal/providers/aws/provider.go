@@ -26,6 +26,10 @@ type Provider struct {
 	profile string
 	// roleARN is the role to assume before listing, "" for none.
 	roleARN string
+	// account and resolvedRegion are the account the import covers and,
+	// for ProfileRegion, the region the SDK resolved, once Scope has found
+	// them; the provider block pins both.
+	account, resolvedRegion string
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
@@ -57,18 +61,28 @@ func (*Provider) ConcurrentListing() bool {
 }
 
 // ProviderBlock returns the provider "aws" block: the region, us-east-1
-// for the global services and none for ProfileRegion, where Terraform resolves
-// the same default region as the listing did; and the role to assume, if
-// any.
+// for the global services and, for ProfileRegion, the region the listing
+// resolved; the account the import covers, as the only one of
+// allowed_account_ids, so that a later plan with other credentials fails
+// rather than reading another account's resources; and the role to assume,
+// if any. The account and the resolved region are known once Scope has run,
+// as it does before the configuration is generated; before that, they are
+// left out, and for ProfileRegion Terraform resolves the same default
+// region as the listing did.
 func (p Provider) ProviderBlock() map[string]interface{} {
 	config := map[string]interface{}{}
 	switch p.region {
 	case ProfileRegion:
-		// Terraform resolves the same default region as the listing.
+		if p.resolvedRegion != "" {
+			config["region"] = p.resolvedRegion
+		}
 	case GlobalPseudoRegion:
 		config["region"] = GlobalHomeRegion
 	default:
 		config["region"] = p.region
+	}
+	if p.account != "" {
+		config["allowed_account_ids"] = []string{p.account}
 	}
 	if p.roleARN != "" {
 		config["assume_role"] = map[string]interface{}{"role_arn": p.roleARN}

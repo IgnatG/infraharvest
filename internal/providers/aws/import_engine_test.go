@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -70,5 +71,42 @@ func TestProviderBlockAssumesTheRole(t *testing.T) {
 	}
 	if _, ok := single.ProviderBlock()["provider"].(map[string]interface{})["aws"].(map[string]interface{})["assume_role"]; ok {
 		t.Error("assume_role without a role")
+	}
+}
+
+// Once Scope has found them, the provider block pins the account, as the
+// only one allowed, and, without --regions, the region the SDK resolved, so
+// that a later plan with other credentials or another default region
+// doesn't read other resources. Before, it pins neither.
+func TestProviderBlockPinsTheAccountAndRegion(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "GetCallerIdentity" {
+			return recordCallerIdentity
+		}
+		return recordUnexpected(t, call)
+	})
+	testConfig.Region = "eu-west-2"
+	p := &Provider{}
+	if err := p.Init(t.Context(), []string{ProfileRegion, "default"}); err != nil {
+		t.Fatal(err)
+	}
+	config := func() map[string]interface{} {
+		return p.ProviderBlock()["provider"].(map[string]interface{})["aws"].(map[string]interface{})
+	}
+	if before := config(); before["region"] != nil || before["allowed_account_ids"] != nil {
+		t.Errorf("before Scope: %v", before)
+	}
+
+	account, region, err := p.Scope(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if account != "123456789012" || region != "eu-west-2" {
+		t.Errorf("scope %s, %s", account, region)
+	}
+	after := config()
+	if after["region"] != "eu-west-2" || !reflect.DeepEqual(after["allowed_account_ids"], []string{"123456789012"}) {
+		t.Errorf("after Scope: %v", after)
 	}
 }
