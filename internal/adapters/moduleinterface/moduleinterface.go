@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
@@ -24,6 +25,9 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 )
@@ -43,9 +47,14 @@ type Interface struct {
 	Outputs   []string            `json:"outputs"`
 }
 
-// Variable is a module variable.
+// Variable is a module variable: whether it is required, its type
+// constraint as written (white space collapsed), and its default as JSON,
+// when the default is a value without references or function calls. An
+// interface read before types and defaults were recorded has neither.
 type Variable struct {
-	Required bool `json:"required"`
+	Required bool            `json:"required"`
+	Type     string          `json:"type,omitempty"`
+	Default  json.RawMessage `json:"default,omitempty"`
 }
 
 // Client reads modules from a registry.
@@ -205,8 +214,7 @@ func Read(r io.Reader, subdir string) (*Interface, error) {
 		for _, b := range f.Body.(*hclsyntax.Body).Blocks {
 			switch {
 			case b.Type == "variable" && len(b.Labels) == 1:
-				_, hasDefault := b.Body.Attributes["default"]
-				iface.Variables[b.Labels[0]] = Variable{Required: !hasDefault}
+				iface.Variables[b.Labels[0]] = readVariable(b.Body, src)
 			case b.Type == "output" && len(b.Labels) == 1:
 				iface.Outputs = append(iface.Outputs, b.Labels[0])
 			}
@@ -219,9 +227,34 @@ func Read(r io.Reader, subdir string) (*Interface, error) {
 	return iface, nil
 }
 
+// readVariable reads a variable block, from the file src.
+func readVariable(body *hclsyntax.Body, src []byte) Variable {
+	v := Variable{Required: true}
+	if attr, ok := body.Attributes["type"]; ok {
+		v.Type = strings.Join(strings.Fields(string(attr.Expr.Range().SliceBytes(src))), " ")
+	}
+	attr, ok := body.Attributes["default"]
+	if !ok {
+		return v
+	}
+	v.Required = false
+	if len(attr.Expr.Variables()) > 0 {
+		return v
+	}
+	value, diags := attr.Expr.Value(nil)
+	if diags.HasErrors() || value.IsNull() || !value.IsWhollyKnown() {
+		return v
+	}
+	if raw, err := ctyjson.Marshal(value, value.Type()); err == nil {
+		v.Default = raw
+	}
+	return v
+}
+
 // Check returns how an adapter doesn't fit a module interface: inputs the
 // module has no variable for, required variables the adapter never sets,
-// and outputs the module doesn't have.
+// outputs the module doesn't have, and defaults (see Adapter.Defaults)
+// that aren't the ones the interface records.
 func Check(a adapters.Adapter, iface *Interface) []string {
 	var problems []string
 	for _, input := range a.Inputs {
@@ -244,5 +277,49 @@ func Check(a adapters.Adapter, iface *Interface) []string {
 			problems = append(problems, fmt.Sprintf("no output %q", output))
 		}
 	}
+	// A call leaves out what equals an adapter's default: a default the
+	// module doesn't have would leave out a setting it needs.
+	for _, input := range slices.Sorted(maps.Keys(a.Defaults)) {
+		if v, ok := iface.Variables[input]; ok && v.Default != nil && !sameDefault(a.Defaults[input], v.Default) {
+			problems = append(problems, fmt.Sprintf("the adapter's default for %q isn't the module's, %s", input, v.Default))
+		}
+	}
 	return problems
+}
+
+// sameDefault reports whether want, an adapter's default, is the default
+// recorded as raw, converted to want's type as Adapter.IsDefault converts
+// what a call sets.
+func sameDefault(want cty.Value, raw json.RawMessage) bool {
+	ty, err := ctyjson.ImpliedType(raw)
+	if err != nil {
+		return false
+	}
+	v, err := ctyjson.Unmarshal(raw, ty)
+	if err != nil {
+		return false
+	}
+	converted, err := convert.Convert(v, want.Type())
+	if err != nil {
+		return false
+	}
+	equal := converted.Equals(want)
+	return equal.IsKnown() && equal.True()
+}
+
+// TypeChanges returns the inputs whose variable's type constraint differs
+// between two interfaces of a module, such as a pinned version's and the
+// newest release's: an adapter can fit both by name and still set a value
+// the newer one no longer takes. Variables without a recorded type in
+// either are left out.
+func TypeChanges(pinned, newer *Interface, inputs []string) []string {
+	var changes []string
+	for _, input := range slices.Sorted(slices.Values(inputs)) {
+		old, ok := pinned.Variables[input]
+		now, found := newer.Variables[input]
+		if ok && found && old.Type != "" && now.Type != "" && old.Type != now.Type {
+			changes = append(changes, fmt.Sprintf("%q is %s, was %s", input, now.Type, old.Type))
+		}
+	}
+	return changes
 }

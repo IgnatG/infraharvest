@@ -7,11 +7,14 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 )
@@ -73,7 +76,7 @@ func TestClient(t *testing.T) {
 	want := &Interface{
 		Source:    "acme/thing/aws",
 		Version:   "1.2.0",
-		Variables: map[string]Variable{"name": {Required: true}, "tags": {}},
+		Variables: map[string]Variable{"name": {Required: true, Type: "string"}, "tags": {Type: "map(string)", Default: json.RawMessage(`{}`)}},
 		Outputs:   []string{"id"},
 	}
 	if !reflect.DeepEqual(iface, want) {
@@ -116,5 +119,97 @@ func TestReadRefusesAnOversizedFile(t *testing.T) {
 	_, err := Read(bytes.NewReader(archive), "")
 	if err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Fatalf("Read() error = %v, want one saying the file is too large", err)
+	}
+}
+
+// Read records each variable's type as written and its default when it is
+// a plain value; a default with references or function calls, or null,
+// isn't recorded.
+func TestReadRecordsTypesAndDefaults(t *testing.T) {
+	archive := moduleArchive(t, map[string]string{
+		"terraform-aws-thing-abc123/variables.tf": `variable "mtu" {
+  type    = number
+  default = 0
+}
+variable "mode" {
+  default = "LEGACY"
+}
+variable "rules" {
+  type = list(object({
+    name = string
+  }))
+  default = []
+}
+variable "computed" {
+  type    = string
+  default = upper("x")
+}
+variable "none" {
+  type    = string
+  default = null
+}
+`,
+	})
+	iface, err := Read(bytes.NewReader(archive), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Variable{
+		"mtu":      {Type: "number", Default: json.RawMessage(`0`)},
+		"mode":     {Default: json.RawMessage(`"LEGACY"`)},
+		"rules":    {Type: "list(object({ name = string }))", Default: json.RawMessage(`[]`)},
+		"computed": {Type: "string"},
+		"none":     {Type: "string"},
+	}
+	if !reflect.DeepEqual(iface.Variables, want) {
+		t.Errorf("variables: got %+v, want %+v", iface.Variables, want)
+	}
+}
+
+// Check reports an adapter default that isn't the recorded one, compared
+// in the adapter's type, and leaves alone a variable whose default wasn't
+// recorded.
+func TestCheckDefaults(t *testing.T) {
+	iface := &Interface{Variables: map[string]Variable{
+		"mtu":    {Type: "number", Default: json.RawMessage(`0`)},
+		"mode":   {Type: "string", Default: json.RawMessage(`"LEGACY"`)},
+		"flag":   {Type: "string", Default: json.RawMessage(`"true"`)},
+		"rules":  {Default: json.RawMessage(`[]`)},
+		"region": {Type: "string"},
+	}}
+	a := adapters.Adapter{
+		Inputs: []string{"flag", "mode", "mtu", "region", "rules"},
+		Defaults: map[string]cty.Value{
+			"mtu":    cty.NumberIntVal(1460),
+			"mode":   cty.StringVal("LEGACY"),
+			"flag":   cty.True,
+			"rules":  cty.ListValEmpty(cty.String),
+			"region": cty.StringVal("eu"),
+		},
+	}
+	want := []string{`the adapter's default for "mtu" isn't the module's, 0`}
+	if got := Check(a, iface); !reflect.DeepEqual(got, want) {
+		t.Errorf("problems: got %q, want %q", got, want)
+	}
+}
+
+// TypeChanges names the inputs whose type changed, and leaves out those
+// without a recorded type and the variables the adapter doesn't set.
+func TestTypeChanges(t *testing.T) {
+	pinned := &Interface{Variables: map[string]Variable{
+		"tags":    {Type: "map(string)"},
+		"mtu":     {Type: "number"},
+		"rules":   {},
+		"ignored": {Type: "string"},
+	}}
+	newer := &Interface{Variables: map[string]Variable{
+		"tags":    {Type: "map(any)"},
+		"mtu":     {Type: "number"},
+		"rules":   {Type: "list(string)"},
+		"ignored": {Type: "bool"},
+	}}
+	want := []string{`"tags" is map(any), was map(string)`}
+	if got := TypeChanges(pinned, newer, []string{"tags", "mtu", "rules", "gone"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("changes: got %q, want %q", got, want)
 	}
 }

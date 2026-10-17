@@ -84,18 +84,53 @@ func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapt
 		return err
 	}
 	line := fmt.Sprintf("- `%s`: the adapter pins %s, the newest release is %s.", a.Source, a.Version, latest)
-	if problems := moduleinterface.Check(a, iface); len(problems) > 0 {
+	var changes []string
+	// The pinned snapshot, if it records types, tells what changed.
+	if pinned, err := readSnapshot(a); err == nil {
+		changes = moduleinterface.TypeChanges(pinned, iface, a.Inputs)
+	}
+	problems := moduleinterface.Check(a, iface)
+	if len(problems) > 0 {
 		line += fmt.Sprintf(" The adapter doesn't fit it: %s.", strings.Join(problems, "; "))
-	} else {
-		line += " The adapter fits its interface's names: pin it, refresh the snapshot with `go run ./internal/adapters/cmd/adaptercheck -write` (or the adapters workflow with write on the branch), check the adapter's Defaults against the new variables.tf, and let the e2e test confirm the plans."
+	}
+	if len(changes) > 0 {
+		line += fmt.Sprintf(" Variables the adapter sets changed type: %s; check what its Map sets them to.", strings.Join(changes, "; "))
+	}
+	if len(problems) == 0 && len(changes) == 0 {
+		line += " The adapter fits its interface's names and recorded defaults: pin it, refresh the snapshot with `go run ./internal/adapters/cmd/adaptercheck -write` (or the adapters workflow with write on the branch), check the adapter's Defaults against the new variables.tf, and let the e2e test confirm the plans."
 	}
 	fmt.Println(line)
 	return nil
 }
 
-// writeSnapshot writes the interface of the version an adapter pins to
-// internal/adapters/testdata/interfaces/<provider>/<module name>.json, or
-// <submodule name>.json.
+// snapshotPath is where the interface of the version an adapter pins is
+// kept: internal/adapters/testdata/interfaces/<provider>/<module name>.json,
+// or <submodule name>.json.
+func snapshotPath(a adapters.Adapter) string {
+	module, subdir := moduleinterface.SplitSource(a.Source)
+	parts := strings.Split(module, "/")
+	name := parts[1]
+	if subdir != "" {
+		name = path.Base(subdir)
+	}
+	return filepath.Join("internal", "adapters", "testdata", "interfaces", parts[len(parts)-1], name+".json")
+}
+
+// readSnapshot reads the interface snapshot of the version an adapter pins.
+func readSnapshot(a adapters.Adapter) (*moduleinterface.Interface, error) {
+	content, err := os.ReadFile(snapshotPath(a))
+	if err != nil {
+		return nil, err
+	}
+	var iface moduleinterface.Interface
+	if err := json.Unmarshal(content, &iface); err != nil {
+		return nil, err
+	}
+	return &iface, nil
+}
+
+// writeSnapshot writes the interface of the version an adapter pins to its
+// snapshotPath.
 func writeSnapshot(ctx context.Context, client *moduleinterface.Client, a adapters.Adapter) error {
 	iface, err := client.Fetch(ctx, a.Source, a.Version)
 	if err != nil {
@@ -105,17 +140,10 @@ func writeSnapshot(ctx context.Context, client *moduleinterface.Client, a adapte
 	if err != nil {
 		return err
 	}
-	module, subdir := moduleinterface.SplitSource(a.Source)
-	name := strings.Split(module, "/")[1]
-	if subdir != "" {
-		name = path.Base(subdir)
-	}
-	parts := strings.Split(module, "/")
-	dir := filepath.Join("internal", "adapters", "testdata", "interfaces", parts[len(parts)-1])
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	file := snapshotPath(a)
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return err
 	}
-	file := filepath.Join(dir, name+".json")
 	log.Printf("writing %s", file)
 	return os.WriteFile(file, append(content, '\n'), 0o644)
 }
