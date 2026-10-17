@@ -550,13 +550,6 @@ func (c *Catalogue) DataSources() map[string]DataSource {
 	return sources
 }
 
-// HasImportRules reports whether the catalogue decides how typ imports:
-// with templates, or not at all.
-func (c *Catalogue) HasImportRules(typ string) bool {
-	e, ok := c.entries[typ]
-	return ok && (len(e.ImportID) > 0 || e.NotImportable != "")
-}
-
 // ImportID returns the ID Terraform imports a resource of typ with, from
 // the ID its lister recorded and its attributes. It returns false, with
 // the reason, when Terraform can't import it: the type isn't importable,
