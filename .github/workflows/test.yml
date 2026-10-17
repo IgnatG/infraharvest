@@ -531,6 +531,43 @@ jobs:
     - name: Policy JSON
       run: jq empty permissions/aws/deny-data-reads.json
 
+  # The built-in catalogue's types, arguments, nested blocks and defaults
+  # must be in the schemas of the providers' newest releases, the ones
+  # generated roots pin: a rename in the provider would otherwise leave an
+  # omit or a default doing nothing.
+  catalogue-schemas:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: ./.github/actions/setup-engines
+      with:
+        engine: terraform
+    - name: Provider schemas
+      run: |
+        dir="$RUNNER_TEMP/schemas"
+        mkdir -p "$dir/root"
+        printf '%s\n' 'terraform {' '  required_providers {' \
+          '    aws     = { source = "hashicorp/aws" }' \
+          '    azurerm = { source = "hashicorp/azurerm" }' \
+          '    google  = { source = "hashicorp/google" }' '  }' '}' > "$dir/root/main.tf"
+        terraform -chdir="$dir/root" init -backend=false -input=false
+        terraform -chdir="$dir/root" providers schema -json > "$dir/schemas.json"
+        terraform -chdir="$dir/root" version -json > "$dir/versions.json"
+        jq -r '.provider_selections | to_entries[] | "\(.key) \(.value)"' "$dir/versions.json"
+        echo "INFRAHARVEST_PROVIDER_SCHEMAS=$dir" >> "$GITHUB_ENV"
+    - name: Check the catalogue against them
+      run: go test -run '^TestCatalogueMatchesProviderSchemas$' -v ./internal/catalogue/
+
   # `-tags minimal,<provider>` builds only the named providers; check the
   # registry works with none and with one.
   build-tags:
@@ -624,7 +661,7 @@ jobs:
   # or were skipped. Not the fuzzing, which can find an input a pull request
   # didn't bring: it reports on its own.
   checks:
-    needs: [changes, test-windows, test-macos, govulncheck, engine-integration, permissions, build-tags, cross]
+    needs: [changes, test-windows, test-macos, govulncheck, engine-integration, permissions, catalogue-schemas, build-tags, cross]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
