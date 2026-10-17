@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -40,7 +43,7 @@ func newMCPCmd() *cobra.Command {
 					return err
 				}
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return mcpserver.New(version.Version, root, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
 		},
@@ -49,12 +52,26 @@ func newMCPCmd() *cobra.Command {
 	return cmd
 }
 
+// childWaitDelay is how long a tool's child process has to stop once
+// interrupted before it is killed.
+const childWaitDelay = 30 * time.Second
+
 // execRunner runs binary with the tool's arguments. Its standard output
 // is the protocol's, so the tools never write to it directly.
 func execRunner(binary string) mcpserver.Runner {
 	return func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
 		var stdout, stderr bytes.Buffer
 		c := exec.CommandContext(ctx, binary, args...)
+		// An interrupt lets the child stop as on Ctrl+C, removing the
+		// secrets it holds outside the output; Windows can't send one, so
+		// the child is killed there, as it is after childWaitDelay.
+		c.Cancel = func() error {
+			if runtime.GOOS == "windows" {
+				return c.Process.Kill()
+			}
+			return c.Process.Signal(os.Interrupt)
+		}
+		c.WaitDelay = childWaitDelay
 		c.Stdout, c.Stderr = &stdout, &stderr
 		err := c.Run()
 		if ctx.Err() != nil {

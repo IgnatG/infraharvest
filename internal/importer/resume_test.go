@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -106,5 +107,82 @@ func TestClearGenerated(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != want {
 			t.Errorf("%s: exists=%v, want %v", name, err == nil, want)
 		}
+	}
+}
+
+// A root is only generated into a directory an import wrote, or one
+// without .tf files; --resume clears only what an import wrote.
+func TestClaimRoot(t *testing.T) {
+	out := t.TempDir()
+	write := func(dir string, names ...string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range names {
+			if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	exists := func(path string) bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}
+
+	// An unrelated root keeps its files, with or without --resume.
+	unrelated := filepath.Join(out, "aws", "111", "eu-west-2")
+	write(unrelated, "main.tf", engine.VariablesFileName, engine.ReadmeFileName)
+	for _, resume := range []bool{false, true} {
+		err := claimRoot(out, unrelated, "fp", resume)
+		if err == nil || !strings.Contains(err.Error(), unrelated) || !strings.Contains(err.Error(), "main.tf") {
+			t.Errorf("resume=%v: want an error naming the directory and main.tf, got %v", resume, err)
+		}
+	}
+	for _, name := range []string{"main.tf", engine.VariablesFileName, engine.ReadmeFileName} {
+		if !exists(filepath.Join(unrelated, name)) {
+			t.Errorf("%s was removed from the unrelated root", name)
+		}
+	}
+	if exists(checkpointPath(out, unrelated)) {
+		t.Error("the unrelated root got a checkpoint")
+	}
+
+	// A new root is claimed: its checkpoint records that it started, which
+	// --resume doesn't take as a generated root.
+	fresh := filepath.Join(out, "aws", "222", "eu-west-2")
+	if err := claimRoot(out, fresh, "fp", false); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(checkpointPath(out, fresh)) {
+		t.Fatal("no checkpoint for the new root")
+	}
+	write(fresh, engine.ImportsFileName, engine.VersionsFileName, engine.GeneratedFileName)
+	if got, err := resumed(out, fresh, "fp"); err != nil || got != nil {
+		t.Errorf("resumed a root that didn't finish: %v, %v", got, err)
+	}
+
+	// --resume clears what the import wrote there, and only that.
+	write(fresh, engine.VariablesFileName, engine.ReadmeFileName, "notes.md")
+	if err := claimRoot(out, fresh, "fp", true); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{engine.ImportsFileName: false, engine.GeneratedFileName: false, engine.VariablesFileName: false, engine.ReadmeFileName: false, "notes.md": true} {
+		if got := exists(filepath.Join(fresh, name)); got != want {
+			t.Errorf("after --resume, %s: exists=%v, want %v", name, got, want)
+		}
+	}
+
+	// Without --resume, an earlier run's checkpoint stays as it is.
+	done := &engine.Result{Files: []string{"network.tf"}}
+	if err := saveCheckpoint(out, fresh, "earlier", done); err != nil {
+		t.Fatal(err)
+	}
+	if err := claimRoot(out, fresh, "fp", false); err != nil {
+		t.Fatal(err)
+	}
+	write(fresh, engine.ImportsFileName, engine.VersionsFileName, "network.tf")
+	if got, err := resumed(out, fresh, "earlier"); err != nil || !reflect.DeepEqual(got, done) {
+		t.Errorf("the earlier checkpoint changed: %+v, %v", got, err)
 	}
 }

@@ -5,8 +5,10 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -51,9 +53,15 @@ var resourceManagerServices = []string{
 // import ID, reading what the ID alone can't say, as between a function
 // app and a web app, from what the listing returned, and asking Resource
 // Manager only for what it didn't (see graphResources and newLookup).
-// Resources another resource manages (managedBy), such as an AKS
-// cluster's nodes, are left out; the catalogue's skip rules leave out
-// what Azure creates itself, such as NetworkWatcherRG.
+// The catalogue's skip rules leave out what another resource manages
+// (managedBy), such as an AKS cluster's nodes or a virtual machine's OS
+// disk, but not a data disk attached to a machine, and what Azure creates
+// itself, such as NetworkWatcherRG and its network watchers. What is in a
+// group they leave out whole is listed without its child resources (see
+// inSkippedGroup). A child list that fails such that resources may be
+// missing, such as one refused or throttled, fails the service in part
+// (see childListFailures): what was listed is imported, and the failure
+// is reported.
 type ResourceGraphLister struct {
 	Service
 }
@@ -92,45 +100,69 @@ func (g *ResourceGraphLister) List() error {
 		clientOptions = *options
 	}
 	// The resource groups come from graphResourceGroups, in one query:
-	// azlist would GET each group that holds a resource.
+	// azlist would GET each group that holds a resource. Resources with a
+	// managedBy are listed too: azlist would drop every attached disk,
+	// whose managedBy is its virtual machine, while aztft imports the
+	// machine's data disk attachments, which need the disks. The
+	// catalogue's skip rules leave out what another resource owns (see
+	// graphAttributes).
 	lister, err := azlist.NewLister(azlist.Option{
 		SubscriptionId: subscriptionID,
 		Cred:           credential,
 		ClientOpt:      clientOptions,
 		Recursive:      true,
+		IncludeManaged: true,
 	})
 	if err != nil {
 		return err
 	}
 	withoutWorkspaceDataSources(lister.ARMSchemaTree)
-	result, err := lister.ListByQuery(g.Context(), predicate)
-	if err != nil {
-		return err
-	}
-	for _, e := range result.Errors {
-		// Child resource types a resource doesn't have, or the caller
-		// can't read: the rest are listed.
-		log.Printf("azurerm: resource_graph: %v", e)
-	}
 	groups, err := graphResourceGroups(g.Context(), credential, &clientOptions, subscriptionID, predicate)
 	if err != nil {
 		return err
 	}
-	found := withResourceGroups(result.Resources, groups)
-	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, found)
+	rows, err := lister.ListResourcesByQuery(g.Context(), predicate)
+	if err != nil {
+		return err
+	}
+	cat := g.catalogue()
+	// What is in a group the default selection leaves out whole, such as
+	// an AKS cluster's MC_* group, is listed, so that it can be selected,
+	// but without its child resources, and the data sources of its
+	// workspaces, which would take requests for what is left out anyway.
+	// Naming the group with --resource-group lists them all.
+	managedGroups := managedResourceGroups(groups)
+	var parents, alone []azlist.AzureResource
+	for _, res := range rows {
+		if resourceGroup == "" && inSkippedGroup(res, managedGroups, cat) {
+			alone = append(alone, res)
+		} else {
+			parents = append(parents, res)
+		}
+	}
+	result, err := lister.ListRemaining(g.Context(), parents)
+	if err != nil {
+		return err
+	}
+	childErr := childListFailures(result.Errors)
+	if err := g.Context().Err(); err != nil {
+		return err
+	}
+	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
+	sources, sourceTypes, err := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources)
 	if err != nil {
 		return err
 	}
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
-	g.Resources = graphResources(found, g.catalogue(), knownTypes(sourceTypes, query))
+	g.Resources = graphResources(found, cat, knownTypes(sourceTypes, query))
 	if err := g.Context().Err(); err != nil {
 		return err
 	}
 	if g.Verbose() {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}
-	return nil
+	return childErr
 }
 
 // resourceGroupsQuery lists the resource groups that predicate (see
@@ -200,6 +232,82 @@ func withResourceGroups(listed, groups []azlist.AzureResource) []azlist.AzureRes
 	return listed
 }
 
+// inSkippedGroup reports whether the catalogue's rules for every type
+// leave out res and anything under it for the resource group it is in
+// alone, whatever its name, type or tags: as they leave out what is in a
+// group another resource manages, such as an AKS cluster's MC_* group, or
+// in a DefaultResourceGroup-<region>. managedGroups are the managed
+// groups (see managedResourceGroups). The rules are asked about an ID
+// under res, so a rule for res's own ID alone doesn't count.
+func inSkippedGroup(res azlist.AzureResource, managedGroups map[string]string, cat *catalogue.Catalogue) bool {
+	rg, ok := res.Id.RootScope().(*armid.ResourceGroup)
+	if !ok {
+		return false
+	}
+	attributes := map[string]string{"resource_group_name": rg.Name}
+	if by := managedGroups[strings.ToUpper(rg.String())]; by != "" {
+		attributes["resource_group_managed_by"] = by
+	}
+	return cat.Skipped(catalogue.AllTypes, res.Id.String()+"/", attributes) != ""
+}
+
+// byID sorts resources by ID, as azlist returns them, and returns them.
+func byID(resources []azlist.AzureResource) []azlist.AzureResource {
+	slices.SortFunc(resources, func(a, b azlist.AzureResource) int {
+		return strings.Compare(a.Id.String(), b.Id.String())
+	})
+	return resources
+}
+
+// listStatus is the HTTP status of a failed list in the message of an
+// azlist.ListError, as the Azure SDK's ResponseError writes it.
+var listStatus = regexp.MustCompile(`RESPONSE (\d{3}):`)
+
+// shapeErrors start the messages of the azlist.ListErrors for an item of
+// a list that it couldn't read, such as one without an ID: azurerm has no
+// type to import those by either.
+var shapeErrors = []string{"marshalling ", "unmarshalling ", "no resource id found", "resource id is not a string", "parsing resource id "}
+
+// childListFailures returns, joined as a partial error (see
+// harvest.Partial), the failures among the child resource lists azlist
+// reports that leave the listing incomplete, so that the service fails in
+// part, keeping what it listed, rather than leaving resources out unseen:
+// a list refused (401, 403), throttled (429), timed out (408) or failed
+// by Resource Manager (5xx), or that got no answer at all. azlist leaves
+// out the 404s of resources without children of a type; the other
+// answers, such as 400 or 409 for a child type a resource's SKU or state
+// doesn't have, 405 and 501 for types that can't be listed, and items it
+// couldn't read, are logged, as nothing was left out that could be
+// imported.
+func childListFailures(errs []azlist.ListError) error {
+	var failures []error
+	for _, e := range errs {
+		if childListFailed(e) {
+			failures = append(failures, fmt.Errorf("azurerm: resource_graph: %w", e))
+		} else {
+			log.Printf("azurerm: resource_graph: %v", e)
+		}
+	}
+	return harvest.Partial(errors.Join(failures...))
+}
+
+// childListFailed reports whether e left resources out (see
+// childListFailures).
+func childListFailed(e azlist.ListError) bool {
+	m := listStatus.FindStringSubmatch(e.Message)
+	if m == nil {
+		return !slices.ContainsFunc(shapeErrors, func(prefix string) bool { return strings.HasPrefix(e.Message, prefix) })
+	}
+	status, _ := strconv.Atoi(m[1])
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return true
+	case http.StatusNotImplemented:
+		return false
+	}
+	return status >= http.StatusInternalServerError
+}
+
 // queryType maps an Azure resource ID to its azurerm types and import IDs,
 // and says whether the match is exact (see aztft.QueryTypeAndId).
 type queryType func(id string) (types []aztft.Type, ids []string, exact bool, err error)
@@ -217,13 +325,13 @@ type queryType func(id string) (types []aztft.Type, ids []string, exact bool, er
 // report. Resources azurerm has no type for, or several it can't choose
 // between, are logged and left out.
 func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, query queryType) []harvest.Resource {
-	managedGroups := managedResourceGroups(listed)
+	owners := listedOwners{groups: managedResourceGroups(listed), osDisks: machineOSDisks(listed)}
 	attributes := make([]map[string]string, len(listed))
 	mapped := make([][]harvest.Resource, len(listed))
 	var lookups []int
 	for i, res := range listed {
 		id := res.Id.String()
-		attributes[i] = graphAttributes(res, managedGroups)
+		attributes[i] = graphAttributes(res, owners)
 		switch types := cat.FromInventory(res.Id.TypeString(), id); len(types) {
 		case 0:
 		case 1:
@@ -266,25 +374,117 @@ func managedResourceGroups(listed []azlist.AzureResource) map[string]string {
 	return groups
 }
 
+// The Resource Manager types of a virtual machine, a managed disk and a
+// network interface.
+const (
+	virtualMachineType   = "Microsoft.Compute/virtualMachines"
+	managedDiskType      = "Microsoft.Compute/disks"
+	networkInterfaceType = "Microsoft.Network/networkInterfaces"
+)
+
+// machineOSDisks returns the listed virtual machines whose OS disk is a
+// managed disk, by upper-case ID, with the upper-case ID of that disk,
+// as the machine's storageProfile names it.
+func machineOSDisks(listed []azlist.AzureResource) map[string]string {
+	disks := map[string]string{}
+	for _, res := range listed {
+		if !strings.EqualFold(res.Id.TypeString(), virtualMachineType) {
+			continue
+		}
+		if disk := nestedString(res.Properties, "properties", "storageProfile", "osDisk", "managedDisk", "id"); disk != "" {
+			disks[strings.ToUpper(res.Id.String())] = strings.ToUpper(disk)
+		}
+	}
+	return disks
+}
+
+// nestedString returns the string at path in properties, or "" where
+// there is none.
+func nestedString(properties map[string]interface{}, path ...string) string {
+	for _, key := range path[:len(path)-1] {
+		properties, _ = properties[key].(map[string]interface{})
+	}
+	s, _ := properties[path[len(path)-1]].(string)
+	return s
+}
+
+// listedOwners is what graphAttributes reads of the other listed
+// resources: the resource groups another resource manages, with what
+// manages each (see managedResourceGroups), and the OS disks of virtual
+// machines (see machineOSDisks).
+type listedOwners struct {
+	groups  map[string]string
+	osDisks map[string]string
+}
+
 // graphAttributes records what the catalogue's skip rules and import ID
 // templates may use: the resource's name, the resource group it is in
-// (or is), what manages that resource group (or the resource, for a
-// resource group), and its tags, as Terraform flattens them,
-// tags.<key>.
-func graphAttributes(res azlist.AzureResource, managedGroups map[string]string) map[string]string {
+// (or is), what manages that resource group (or the resource:
+// managed_by), and its tags, as Terraform flattens them, tags.<key>.
+//
+// A managed disk's managedBy is the virtual machine it is attached to. Of
+// the machine's OS disk, which the machine's os_disk block manages, it is
+// recorded as managed_by, with os_disk_of; of a data disk, which is a
+// resource of its own that an azurerm_virtual_machine_data_disk_attachment
+// attaches, as attached_to, not managed_by.
+func graphAttributes(res azlist.AzureResource, owners listedOwners) map[string]string {
 	attributes := tagAttributes(res.Properties["tags"])
 	attributes["name"] = lastSegment(res.Id.String())
 	if rg, ok := res.Id.RootScope().(*armid.ResourceGroup); ok {
 		attributes["resource_group_name"] = rg.Name
-		if by := managedGroups[strings.ToUpper(rg.String())]; by != "" {
+		if by := owners.groups[strings.ToUpper(rg.String())]; by != "" {
 			attributes["resource_group_managed_by"] = by
 		}
 	}
 	if by, _ := res.Properties["managedBy"].(string); by != "" {
-		attributes["managed_by"] = by
+		switch diskRole(res, by, owners.osDisks) {
+		case dataDisk:
+			attributes["attached_to"] = by
+		case osDisk:
+			attributes["managed_by"] = by
+			attributes["os_disk_of"] = by
+		default:
+			attributes["managed_by"] = by
+		}
 	}
 	builtInAttributes(res, attributes)
 	return attributes
+}
+
+// diskKind is what a managed disk is to the virtual machine that its
+// managedBy names.
+type diskKind int
+
+const (
+	notMachineDisk diskKind = iota
+	osDisk
+	dataDisk
+)
+
+// diskRole tells whether res is the OS disk or a data disk of the
+// virtual machine by, its managedBy: from the machine's storageProfile
+// when the machine was listed with one (osDisks, see machineOSDisks),
+// else from the disk's osType, which only an OS disk has. It returns
+// notMachineDisk for a resource that isn't a managed disk, or one that
+// something other than a virtual machine manages.
+func diskRole(res azlist.AzureResource, by string, osDisks map[string]string) diskKind {
+	if !strings.EqualFold(res.Id.TypeString(), managedDiskType) {
+		return notMachineDisk
+	}
+	machine, err := armid.ParseResourceId(by)
+	if err != nil || !strings.EqualFold(machine.TypeString(), virtualMachineType) {
+		return notMachineDisk
+	}
+	if disk, ok := osDisks[strings.ToUpper(machine.String())]; ok {
+		if disk == strings.ToUpper(res.Id.String()) {
+			return osDisk
+		}
+		return dataDisk
+	}
+	if nestedString(res.Properties, "properties", "osType") != "" {
+		return osDisk
+	}
+	return dataDisk
 }
 
 // The Resource Manager types of a Log Analytics workspace's tables and
@@ -310,10 +510,24 @@ const (
 //     <solution>(<workspace>)_..., such as the LogManagement searches
 //     every workspace has: the solution, and from_solution "true".
 //
+// and what tells a resource another one creates and deletes with itself:
+//
+//   - of a network interface: the private endpoint (private_endpoint) or
+//     Private Link service (private_link_service) that created it.
+//
 // Other resources get nothing.
 func builtInAttributes(res azlist.AzureResource, attributes map[string]string) {
 	properties, _ := res.Properties["properties"].(map[string]interface{})
 	switch typ := res.Id.TypeString(); {
+	case strings.EqualFold(typ, networkInterfaceType):
+		for property, attribute := range map[string]string{
+			"privateEndpoint":    "private_endpoint",
+			"privateLinkService": "private_link_service",
+		} {
+			if id := nestedString(properties, property, "id"); id != "" {
+				attributes[attribute] = id
+			}
+		}
 	case strings.EqualFold(typ, workspaceTableType):
 		if schema, ok := properties["schema"].(map[string]interface{}); ok {
 			if tableType, ok := schema["tableType"].(string); ok {

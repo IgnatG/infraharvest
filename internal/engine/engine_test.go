@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -185,6 +186,9 @@ type fakeTerraform struct {
 	calls       []string
 	// varFiles has the content of the var files plans were given, by path.
 	varFiles map[string]string
+	// generatingMode is the directory's mode when generated.tf was
+	// written.
+	generatingMode os.FileMode
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
@@ -207,6 +211,9 @@ func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.
 			f.varFiles[path] = string(content)
 		}
 		if _, ok := opt.(*tfexec.GenerateConfigOutOption); ok {
+			if info, err := os.Stat(f.dir); err == nil {
+				f.generatingMode = info.Mode().Perm()
+			}
 			content := f.generated
 			if content == "" {
 				// As Terraform does: a block for each import, already as
@@ -394,6 +401,39 @@ func TestNewTerraformCreatesDirs(t *testing.T) {
 		if info, err := os.Stat(d); err != nil || !info.IsDir() {
 			t.Errorf("%s not created: %v", d, err)
 		}
+	}
+}
+
+// The directory is private while Terraform writes generated.tf, which
+// holds secrets until Generate moves them into variables, and has its
+// mode back once they are.
+func TestGenerateKeepsTheDirectoryPrivateWhileSecretsAreInIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no permission bits for directories")
+	}
+	dir := filepath.Join(t.TempDir(), "aws", "sqs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := map[string][]byte{VersionsFileName: []byte("# versions\n"), ProvidersFileName: []byte("# providers\n")}
+	tf := &fakeTerraform{dir: dir}
+
+	if _, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}}, Options{Config: config}); err != nil {
+		t.Fatal(err)
+	}
+
+	if tf.generatingMode != 0o700 {
+		t.Errorf("directory mode while generating: %v, want 0700", tf.generatingMode)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("directory mode after generating: %v, want 0755", info.Mode().Perm())
 	}
 }
 

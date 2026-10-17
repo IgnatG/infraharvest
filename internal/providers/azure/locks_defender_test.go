@@ -65,12 +65,14 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 			lister:  func() harvest.Lister { return &SecurityCenterSubscriptionPricingLister{} },
 			path:    pricings,
 			body: armList(
-				armItem(pricings+"/VirtualMachines", "VirtualMachines", `{"pricingTier":"Standard"}`),
+				armItem(pricings+"/VirtualMachines", "VirtualMachines", `{"pricingTier":"Standard","subPlan":"P2","deprecated":false}`),
 				armItem(pricings+"/StorageAccounts", "StorageAccounts", `{"pricingTier":"Free"}`),
+				armItem(pricings+"/Dns", "Dns", `{"pricingTier":"Free","deprecated":true}`),
 				`{"id":"`+pricings+`/Nameless"}`),
 			want: []listedResource{
-				{Type: "azurerm_security_center_subscription_pricing", ID: pricings + "/VirtualMachines", Name: "VirtualMachines"},
-				{Type: "azurerm_security_center_subscription_pricing", ID: pricings + "/StorageAccounts", Name: "StorageAccounts"},
+				{Type: "azurerm_security_center_subscription_pricing", ID: pricings + "/VirtualMachines", Name: "VirtualMachines", Attributes: map[string]string{"tier": "Standard", "subplan": "P2", "deprecated": "false"}},
+				{Type: "azurerm_security_center_subscription_pricing", ID: pricings + "/StorageAccounts", Name: "StorageAccounts", Attributes: map[string]string{"tier": "Free"}},
+				{Type: "azurerm_security_center_subscription_pricing", ID: pricings + "/Dns", Name: "Dns", Attributes: map[string]string{"tier": "Free", "deprecated": "true"}},
 			},
 		},
 	} {

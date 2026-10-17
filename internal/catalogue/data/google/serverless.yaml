@@ -17,6 +17,9 @@ types:
         attributes: { asset.environment: GEN_1 }
   google_cloud_run_v2_service:
     inventory: { type: run.googleapis.com/Service }
+    skip:
+      - reason: the service a 2nd gen function runs on, which Cloud Functions creates and deletes with the function, and google_cloudfunctions2_function imports
+        attributes: { labels.goog-managed-by: cloudfunctions }
   google_cloud_tasks_queue:
     inventory: { type: cloudtasks.googleapis.com/Queue }
   google_secret_manager_secret:

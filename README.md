@@ -20,6 +20,7 @@ Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at 
 - [Output](docs/output.md): what each root holds, how the configuration is tidied, the report and the verification gate.
 - [Modules](docs/modules.md): the curated modules clusters of resources move into, your own modules, and generated local modules.
 - [Permissions](docs/permissions.md): read-only access for AWS, Azure and Google Cloud.
+- [Troubleshooting](docs/troubleshooting.md): what an error message or exit code means, and what to do.
 - [GitHub Action](action/README.md): scheduled imports that open a pull request.
 - [AI agents (MCP)](docs/mcp.md) · [Catalogue](docs/catalogue.md) · [Command-line reference](docs/reference/cli.md)
 

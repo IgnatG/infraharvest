@@ -12,7 +12,7 @@ infraharvest signs in the way the AWS CLI and SDKs do. `--profile` names a profi
 
 When a profile assumes a role that needs an MFA code, infraharvest asks for it on the terminal. Terraform gets the credentials infraharvest resolved, through `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, fresh for each root, so it never has to resolve an SSO session or ask for a code itself. Run `terraform plan` on the generated roots later with credentials of your own.
 
-The account is the one `sts:GetCallerIdentity` returns. Throttled calls back off and retry, up to 10 attempts in the SDK's adaptive retry mode; `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override that. `--rate-limit` caps the requests a second to each API and account. `--verbose` logs the headers of each request and response, never the bodies.
+The account is the one `sts:GetCallerIdentity` returns. Throttled calls back off and retry, up to 10 attempts in the SDK's adaptive retry mode; `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` override that. `--rate-limit` caps the requests a second to each API and account. `--verbose` logs the headers of each request and response, never the bodies, with the signature, session token and cookies redacted.
 
 ## Permissions
 
@@ -22,7 +22,9 @@ Read-only access is enough: the AWS-managed `ReadOnlyAccess` policy, with an exp
 
 Without `--regions`, the import covers the region the profile or the environment sets (`AWS_REGION`, the profile's `region`). With it, each region is imported in turn into roots of its own: `<out>/aws/<account>/<region>/`.
 
-Global services are imported once, not per region, into `<out>/aws/<account>/global/`, with the provider's region set to `us-east-1`: `budgets`, `cloudfront`, `ecrpublic`, `iam`, `organization`, `route53` and `waf`. `wafv2_cloudfront`, the web ACLs that CloudFront uses, exists only in `us-east-1` and is imported there. A service AWS doesn't offer in a region is skipped there, with a log message.
+Global services are imported once, not per region, into `<out>/aws/<account>/global/`, with the provider's region set to `us-east-1`: `budgets`, `cloudfront`, `ecrpublic`, `iam`, `organization`, `route53` and `waf`. `wafv2_cloudfront`, the web ACLs that CloudFront uses, exists only in `us-east-1` and is imported there, with the regional services when `--regions` includes `us-east-1`. A custom `--layout` without `{region}` still gets `global/`, `us-east-1/` and each region's directory added when a run would otherwise put several of them in one root. A service AWS doesn't offer in a region is skipped there, with a log message.
+
+`route53` lists each hosted zone with its records, then the health checks. When the records of a zone, or the health checks, fail to list, what was listed is imported all the same and the service is reported as failed, so the import exits 1, or 3 with `--allow-partial`; when the zones themselves fail to list, nothing of `route53` is imported.
 
 ## Several accounts
 

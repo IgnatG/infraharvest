@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/NetworkWatcherRG/providers/Microsoft.Network/networkWatchers/NetworkWatcher_eastus", "name": "networkwatcher_eastus", "attributes": {"name": "NetworkWatcher_eastus", "resource_group_name": "NetworkWatcherRG"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-net/providers/Microsoft.Network/networkWatchers/watcher", "name": "watcher", "attributes": {"name": "watcher", "resource_group_name": "rg-net"}}
+]}

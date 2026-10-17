@@ -24,27 +24,37 @@ type Route53Lister struct {
 
 // List lists the zones with their records, then the health checks. A
 // zone whose records fail to list doesn't stop the other zones or the
-// health checks; the errors are returned together, so the listing reads
-// as incomplete rather than as a zone with no records.
+// health checks: once the zones are listed, the errors of their records
+// and of the health checks are returned together as a partial error (see
+// harvest.Partial), so what was listed is imported and the listing reads
+// as incomplete rather than as a zone with no records. A zone list that
+// fails fails the service.
 func (g *Route53Lister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
 	}
 	client := route53.NewFromConfig(config)
-	return errors.Join(g.listHostedZones(client), g.listHealthChecks(client))
+	recordsErr, err := g.listHostedZones(client)
+	checksErr := g.listHealthChecks(client)
+	if err != nil {
+		return errors.Join(err, recordsErr, checksErr)
+	}
+	return harvest.Partial(errors.Join(recordsErr, checksErr))
 }
 
 // listHostedZones records every hosted zone by its ID without the
 // "/hostedzone/" prefix, named after its domain, each followed by its
-// records. The zone's domain is recorded with its trailing dot.
-func (g *Route53Lister) listHostedZones(client *route53.Client) error {
+// records. The zone's domain is recorded with its trailing dot. It returns
+// the errors of the zones whose records failed to list, joined, and the
+// error of the zone list.
+func (g *Route53Lister) listHostedZones(client *route53.Client) (recordsErr, listErr error) {
 	var errs []error
 	p := route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			return errors.Join(append(errs, fmt.Errorf("route53: hosted zones: %w", err))...)
+			return errors.Join(errs...), fmt.Errorf("route53: hosted zones: %w", err)
 		}
 		for _, zone := range page.HostedZones {
 			zoneID := strings.TrimPrefix(aws.ToString(zone.Id), "/hostedzone/")
@@ -56,7 +66,7 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) error {
 			errs = append(errs, g.listRecords(client, zoneID, domain))
 		}
 	}
-	return errors.Join(errs...)
+	return errors.Join(errs...), nil
 }
 
 // recordPosition is where a page of record sets starts: Route 53 pages

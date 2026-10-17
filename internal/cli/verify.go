@@ -6,6 +6,7 @@ package cli
 import (
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func newVerifyCmd() *cobra.Command {
-	options := importer.VerifyOptions{Provider: providers.New}
+	options := importer.VerifyOptions{Provider: providers.New, Names: providers.Names()}
 	cmd := &cobra.Command{
 		Use:   "verify [output-directory]",
 		Short: "Check generated roots again: format, validate, plan, standards, scanners, secrets, determinism",
@@ -31,7 +32,7 @@ func newVerifyCmd() *cobra.Command {
 			if len(args) == 1 {
 				options.Out = args[0]
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return importer.Verify(ctx, options, cmd.OutOrStdout())
 		},

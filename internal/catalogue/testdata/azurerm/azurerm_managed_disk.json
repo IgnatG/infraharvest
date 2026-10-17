@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/disks/vm1_OsDisk_1", "name": "vm1_osdisk_1", "attributes": {"name": "vm1_OsDisk_1", "resource_group_name": "rg-app", "managed_by": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1", "os_disk_of": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/disks/vm1-data", "name": "vm1_data", "attributes": {"name": "vm1-data", "resource_group_name": "rg-app", "attached_to": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm1"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Compute/disks/spare", "name": "spare", "attributes": {"name": "spare", "resource_group_name": "rg-app"}}
+]}

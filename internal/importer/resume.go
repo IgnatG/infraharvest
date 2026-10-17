@@ -8,11 +8,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -161,4 +163,93 @@ func clearGenerated(out, dir string) error {
 		}
 	}
 	return nil
+}
+
+// claimRoot gets dir ready for generating a root from fp. A directory no
+// checkpoint under out says an import wrote must hold no .tf files, so
+// that an unrelated root is never overwritten. With resume, what a
+// previous run generated in dir is removed (see clearGenerated). Last, a
+// checkpoint without a result records that the root's generation started,
+// so that a later run knows the files are infraharvest's even if this one
+// fails, and that the root isn't complete (see unfinishedRoot).
+func claimRoot(out, dir, fp string, resume bool) error {
+	owned, err := fileExists(checkpointPath(out, dir))
+	if err != nil {
+		return err
+	}
+	switch {
+	case owned && !resume:
+		// Generate refuses a root an earlier run left; its checkpoint stays
+		// as it is.
+		return nil
+	case owned:
+		if err := clearGenerated(out, dir); err != nil {
+			return err
+		}
+	default:
+		paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+		if err != nil {
+			return err
+		}
+		if len(paths) > 0 {
+			names := make([]string, 0, len(paths))
+			for _, path := range paths {
+				names = append(names, filepath.Base(path))
+			}
+			return fmt.Errorf("%s already holds %s, which no import by infraharvest wrote: use an empty output directory, or --incremental to add to a root an import generated", dir, strings.Join(names, ", "))
+		}
+	}
+	return saveCheckpoint(out, dir, fp, nil)
+}
+
+// readCheckpoint returns the checkpoint of dir under out; nil if there is
+// none.
+func readCheckpoint(out, dir string) (*checkpoint, error) {
+	path := checkpointPath(out, dir)
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var c checkpoint
+	if err := json.Unmarshal(content, &c); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &c, nil
+}
+
+// unfinishedRoot reports whether dir is what an import that didn't finish
+// generating it left: its checkpoint records that the generation started
+// (see claimRoot) and no result or, without a checkpoint, the root has
+// generated.tf but not the README written last.
+func unfinishedRoot(out, dir string) (bool, error) {
+	c, err := readCheckpoint(out, dir)
+	if err != nil {
+		return false, err
+	}
+	if c != nil {
+		return c.Result == nil, nil
+	}
+	return unfinishedFiles(dir)
+}
+
+// unfinishedFiles reports whether dir has generated.tf but no README.
+func unfinishedFiles(dir string) (bool, error) {
+	generated, err := fileExists(filepath.Join(dir, engine.GeneratedFileName))
+	if err != nil || !generated {
+		return false, err
+	}
+	readme, err := fileExists(filepath.Join(dir, engine.ReadmeFileName))
+	return !readme, err
+}
+
+// fileExists reports whether path exists.
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }

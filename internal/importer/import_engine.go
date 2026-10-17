@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 
 	goversion "github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -57,6 +58,26 @@ const (
 	ModulesNone = "none"
 )
 
+// modulesFromRegistry reports whether --modules mode tries curated public
+// modules, and the organisation's own, before generated local ones.
+func modulesFromRegistry(mode string) bool {
+	return mode == "" || mode == ModulesRegistry || mode == ModulesLatestUntested
+}
+
+// moduleOptions returns the engine's module options for --modules mode:
+// the adapters of the modules resolved for it, and the directory, under
+// out, of the generated local modules. ModulesLocal generates local modules
+// only; ModulesNone keeps every resource in the root, with neither.
+func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapters []adapters.Adapter, modulesDir string) {
+	switch {
+	case modulesFromRegistry(mode):
+		return resolved, filepath.Join(out, engine.ModulesDirName)
+	case mode == ModulesLocal:
+		return nil, filepath.Join(out, engine.ModulesDirName)
+	}
+	return nil, ""
+}
+
 // engineBinary is the binary --engine runs.
 func engineBinary(name string) engine.Binary {
 	if name == EngineTofu {
@@ -92,8 +113,13 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 // importInto imports into run. It returns an error only if the import
 // couldn't run; what couldn't be imported goes into run.
 func importInto(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
+	if !run.used {
+		// Should the import fail before it gets as far as the report, the
+		// run still writes one there, with the failure (see Run.finish).
+		run.options = options
+	}
 	binary := engineBinary(options.Engine)
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Before the provider signs in: its clients take the rate.
@@ -153,7 +179,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	var moduleAdapters []adapters.Adapter
 	var newerModules []report.ModuleVersion
 	var constraints []moduleConstraint
-	if options.Modules == "" || options.Modules == ModulesRegistry || options.Modules == ModulesLatestUntested {
+	if modulesFromRegistry(options.Modules) {
 		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Name()), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
 		// The organisation's own modules come first.
 		own := applicableAdapters(catalogueAdapters(ctx, execPath, run.modules, provider.Name()), selected)
@@ -179,13 +205,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	opts.IncludeOwned = options.IncludeOwned
 	opts.KeepOwned = keptOwned(selected, listed, importID)
 	opts.External = leftOut
-	switch options.Modules {
-	case "", ModulesRegistry, ModulesLatestUntested:
-		opts.Adapters = moduleAdapters
-		opts.ModulesDir = filepath.Join(options.Out, engine.ModulesDirName)
-	case ModulesLocal:
-		opts.ModulesDir = filepath.Join(options.Out, engine.ModulesDirName)
-	}
+	opts.Adapters, opts.ModulesDir = moduleOptions(options.Modules, options.Out, moduleAdapters)
 	envOf := func(harvest.Resource) string { return "" }
 	if strings.Contains(options.Layout, "{env}") {
 		keys := options.EnvTags
@@ -257,6 +277,15 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			if incremental, err = engine.HasConfiguration(dir); err != nil {
 				return err
 			}
+			if incremental && options.Resume {
+				// With --resume, a root whose import didn't finish is
+				// generated again rather than added to (see addToRoot).
+				unfinished, err := unfinishedRoot(options.Out, dir)
+				if err != nil {
+					return err
+				}
+				incremental = !unfinished
+			}
 		}
 		switch {
 		case result != nil:
@@ -280,11 +309,11 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 			run.addDirectory(dir, added, addedResult, err)
 			continue
 		default:
-			if options.Resume {
-				// What changed is generated again, from scratch.
-				if err := clearGenerated(options.Out, dir); err != nil {
-					return err
-				}
+			// With --resume, what changed is generated again, from scratch;
+			// a directory no import wrote is left alone.
+			if err := claimRoot(options.Out, dir, fp, options.Resume); err != nil {
+				run.addDirectory(dir, byDir[dir], nil, err)
+				continue
 			}
 			log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
 			result, err = generateDir(ctx, dir, tr, byDir[dir], dirOpts, &run.lock)
@@ -399,7 +428,7 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		log.Printf("%s: %s", dir, w)
 	}
 	for _, c := range result.Gate {
-		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Details: c.Details})
+		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 		if !c.Passed {
 			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
 		}

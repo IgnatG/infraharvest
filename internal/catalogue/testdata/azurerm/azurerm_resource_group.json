@@ -1,0 +1,7 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/NetworkWatcherRG", "name": "networkwatcherrg", "attributes": {"name": "NetworkWatcherRG", "resource_group_name": "NetworkWatcherRG"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/MC_rg-aks_aks_eastus", "name": "mc_rg_aks_aks_eastus", "attributes": {"name": "MC_rg-aks_aks_eastus", "resource_group_name": "MC_rg-aks_aks_eastus", "managed_by": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/AzureBackupRG_eastus_1", "name": "azurebackuprg_eastus_1", "attributes": {"name": "AzureBackupRG_eastus_1", "resource_group_name": "AzureBackupRG_eastus_1"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/DefaultResourceGroup-EUS", "name": "defaultresourcegroup_eus", "attributes": {"name": "DefaultResourceGroup-EUS", "resource_group_name": "DefaultResourceGroup-EUS"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app", "name": "rg_app", "attributes": {"name": "rg-app", "resource_group_name": "rg-app"}}
+]}

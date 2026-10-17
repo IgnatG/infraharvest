@@ -5,6 +5,8 @@ package engine
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -230,6 +232,58 @@ func TestScanNondeterminism(t *testing.T) {
 
 	if check.Passed || len(check.Details) != 1 || !strings.Contains(check.Details[0], "timestamp(") {
 		t.Errorf("got %+v", check)
+	}
+}
+
+// The secrets and determinism checks cover the shared local modules a root
+// calls, and those they call, outside the root's directory; modules it
+// doesn't call aren't its to check.
+func TestScansCoverCalledModules(t *testing.T) {
+	out := t.TempDir()
+	root, vpc, subnet, unused := filepath.Join(out, "aws", "eu-west-2"), filepath.Join(out, "modules", "vpc"), filepath.Join(out, "modules", "subnet"), filepath.Join(out, "modules", "unused")
+	for _, d := range []string{root, vpc, subnet, unused} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeConfig(t, root, GeneratedFileName, `module "vpc" {
+  source = "../../modules/vpc"
+}
+
+module "missing" {
+  source = "../../modules/missing"
+}
+`)
+	writeConfig(t, vpc, "main.tf", `module "subnet" {
+  source = "../subnet"
+}
+
+resource "aws_ssm_parameter" "a" {
+  value = timestamp()
+}
+`)
+	writeConfig(t, subnet, "main.tf", `resource "aws_ssm_parameter" "b" {
+  value = "s3cr3t-value"
+}
+`)
+	writeConfig(t, unused, "main.tf", `resource "aws_ssm_parameter" "c" {
+  value = uuid()
+}
+`)
+
+	secrets, err := scanSecrets(root, []string{"s3cr3t-value"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets.Passed || !strings.Contains(strings.Join(secrets.Details, "\n"), "../../modules/subnet/main.tf: contains a value the provider marks sensitive") {
+		t.Errorf("secrets: %+v", secrets)
+	}
+	determinism, err := scanNondeterminism(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"../../modules/vpc/main.tf: calls timestamp("}; determinism.Passed || !reflect.DeepEqual(determinism.Details, want) {
+		t.Errorf("determinism: %+v, want %v", determinism, want)
 	}
 }
 

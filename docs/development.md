@@ -51,7 +51,7 @@ package providers
 
 Contributors put their own name and the year the file was created. `scripts/check-headers.sh` fails when a tracked Go file lacks the `SPDX-License-Identifier` line: the `repository` job of the `tests` workflow runs it on every pull request, and the pre-commit hook on the staged files, where it also checks that a new file starts with both lines. `make fast-headers` runs it on every file.
 
-New shell scripts, workflows, YAML files and Makefiles carry the same two lines as comments, after the `#!` line in a script (`scripts/fast-checks.sh`, `Makefile`). Some existing ones have none, such as most workflows, `install.sh`, `.goreleaser.yaml` and the `Dockerfile`; add it when you next change one. Markdown, JSON and data files carry none. A file without a header is covered by `REUSE.toml`, which gives it the same copyright and licence, and the `repository` job of the `tests` workflow (`.github/workflows/test.yml`) runs [`reuse lint`](https://reuse.software/) on every pull request. Text that quotes a licence line without being one, such as the header examples on this page, goes between `REUSE-IgnoreStart` and `REUSE-IgnoreEnd` comments.
+New shell scripts, workflows, YAML files and Makefiles carry the same two lines as comments, after the `#!` line in a script (`scripts/fast-checks.sh`, `Makefile`). Some existing ones have none, such as most workflows, `install.sh`, `.goreleaser.yaml` and the `Dockerfile`; add it when you next change one. Markdown, JSON and data files carry none. A file without a header is covered by `REUSE.toml`, which gives it the same copyright and licence, and the `repository` job of the `tests` workflow (`.github/workflows/test.yml`) runs [`reuse lint`](https://github.com/fsfe/reuse-tool) on every pull request. Text that quotes a licence line without being one, such as the header examples on this page, goes between `REUSE-IgnoreStart` and `REUSE-IgnoreEnd` comments.
 
 ## Names
 
@@ -158,7 +158,7 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 - Every new module adds to a build that is already heavy: prefer the standard library and the SDKs already in `go.mod`, and say in the pull request why a new one is worth it.
 - After changing imports or `go.mod`, run `go mod tidy` on GitHub: `make ci-tidy`, or push a branch named `tidy/<anything>`, then `make ci-download RUN=<id> NAME=go-mod` and commit `go.mod` and `go.sum`. The `tests` workflow fails when they aren't tidy.
 - GitHub Actions are pinned to a full commit SHA with the version in a trailing comment, and tools downloaded in workflows to a version and a SHA-256 digest. Dependabot proposes updates weekly.
-- `govulncheck` runs on the built binary; a finding fails unless `.github/govulncheck-allowlist.txt` covers it, with the reason.
+- `govulncheck` runs on the built binary on each pull request, and in the `govulncheck` workflow after each merge to `main` and weekly; a finding fails unless `.github/govulncheck-allowlist.txt` covers it, with the reason.
 
 ## Markdown
 

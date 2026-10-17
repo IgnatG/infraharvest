@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -22,6 +23,7 @@ func TestGeneratedRoots(t *testing.T) {
 		"aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
 		"aws/111122223333/global/" + engine.ProvidersFileName,
 		"aws/111122223333/eu-west-2/.terraform/modules/state/" + engine.ProvidersFileName,
+		CheckpointDir + "/incremental/aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
 		engine.ModulesDirName + "/s3_bucket_0123abcd/main.tf",
 		"report/report.md",
 	} {
@@ -56,14 +58,14 @@ func TestVerifyOutputWithoutRoots(t *testing.T) {
 
 func TestWriteVerified(t *testing.T) {
 	results := []verifiedRoot{
-		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}}},
+		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}, {Name: engine.CheckScanners, Passed: true, Skipped: true}}},
 		{Path: "aws/1/global", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}, {Name: engine.CheckPlan, Details: []string{"aws_iam_role.a: update"}}}},
 	}
 	var b bytes.Buffer
 	if err := writeVerified(&b, results, FormatText); err != nil {
 		t.Fatal(err)
 	}
-	if want := "aws/1/eu-west-2: passed\naws/1/global: failed G3 plan\n"; b.String() != want {
+	if want := "aws/1/eu-west-2: passed; skipped G5 scanners\naws/1/global: failed G3 plan\n"; b.String() != want {
 		t.Errorf("got %q, want %q", b.String(), want)
 	}
 }
@@ -91,5 +93,52 @@ func TestPrintReport(t *testing.T) {
 	}
 	if err := PrintReport(t.TempDir(), FormatText, &md); err == nil {
 		t.Error("want an error without a report")
+	}
+}
+
+// namedProvider is a provider of the given Terraform provider name.
+type namedProvider struct {
+	fakeProvider
+	name string
+}
+
+func (p *namedProvider) Name() string { return p.name }
+
+// A root's provider comes from the provider blocks it configures, so roots
+// per environment (envs/<env>/aws/...) and layouts without {provider}
+// first keep their catalogue's omit and state-only rules; without
+// providers.tf, from the first directory of the path that names one.
+func TestRootProvider(t *testing.T) {
+	out := t.TempDir()
+	byCommand := map[string]string{"aws": "aws", "azure": "azurerm", "google": "google"}
+	options := VerifyOptions{Names: []string{"aws", "azure", "google"}, Provider: func(name string) harvest.Provider {
+		if tf, ok := byCommand[name]; ok {
+			return &namedProvider{name: tf}
+		}
+		return nil
+	}}
+	for dir, tc := range map[string]struct{ providers, want string }{
+		"envs/prod/azure/1/all":       {`provider "azurerm" {` + "\n  features {}\n}\n", "azurerm"},
+		"envs/aws/google/p/global":    {`provider "google-beta" {}` + "\n", "google"},
+		"111122223333/eu-west-2":      {`provider "aws" {}` + "\n" + `provider "aws" {` + "\n  alias = \"untagged\"\n}\n", "aws"},
+		"envs/staging/aws/1/global":   {"", "aws"},
+		"envs/staging/other/1/global": {"", ""},
+	} {
+		root := filepath.Join(out, filepath.FromSlash(dir))
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if tc.providers != "" {
+			if err := os.WriteFile(filepath.Join(root, engine.ProvidersFileName), []byte(tc.providers), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := ""
+		if p := rootProvider(out, root, options); p != nil {
+			got = p.Name()
+		}
+		if got != tc.want {
+			t.Errorf("%s: got provider %q, want %q", dir, got, tc.want)
+		}
 	}
 }

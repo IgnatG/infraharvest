@@ -94,8 +94,11 @@ func readmeFile(result *Result) []byte {
 		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
 		for _, c := range result.Gate {
 			status := "passed"
-			if !c.Passed {
+			switch {
+			case !c.Passed:
 				status = "**failed**"
+			case c.Skipped:
+				status = "skipped"
 			}
 			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
 		}

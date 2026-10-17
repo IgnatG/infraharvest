@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -298,6 +299,7 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 		listed(t, app, nil),
 		listed(t, app+"/providers/Microsoft.Network/virtualNetworks/net1", nil),
 		listed(t, sub+"/resourceGroups/DefaultResourceGroup-EUS/providers/Microsoft.OperationalInsights/workspaces/DefaultWorkspace-1-EUS", nil),
+		listed(t, sub+"/resourceGroups/AzureBackupRG_eastus_1", nil),
 	}
 	cat := catalogue.MustBuiltin("azurerm")
 	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
@@ -325,6 +327,219 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 				t.Errorf("node resource group: %v", a)
 			}
 		}
+	}
+	// What Azure Backup puts in its group, and what Defender for Cloud,
+	// Azure Policy and AKS add to a user's groups, by the names they give.
+	for _, tc := range []struct{ typ, id string }{
+		{"azurerm_virtual_machine_restore_point_collection", sub + "/resourceGroups/AzureBackupRG_eastus_1/providers/Microsoft.Compute/restorePointCollections/AzureBackup_vm1_123"},
+		{"azurerm_virtual_machine_extension", app + "/providers/Microsoft.Compute/virtualMachines/vm1/extensions/MDE.Linux"},
+		{"azurerm_virtual_machine_extension", app + "/providers/Microsoft.Compute/virtualMachines/vm1/extensions/AzurePolicyforWindows"},
+		{"azurerm_monitor_data_collection_rule", app + "/providers/Microsoft.Insights/dataCollectionRules/MSCI-eastus-aks"},
+		{"azurerm_monitor_data_collection_endpoint", app + "/providers/Microsoft.Insights/dataCollectionEndpoints/MSProm-eastus-aks"},
+		{"azurerm_monitor_alert_prometheus_rule_group", app + "/providers/Microsoft.AlertsManagement/prometheusRuleGroups/KubernetesRecordingRulesRuleGroup-aks"},
+		{"azurerm_log_analytics_solution", app + "/providers/Microsoft.OperationsManagement/solutions/SecurityCenterFree(logs)"},
+		{"azurerm_log_analytics_solution", app + "/providers/Microsoft.OperationsManagement/solutions/ContainerInsights(logs)"},
+	} {
+		rid, err := armid.ParseResourceId(tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := graphAttributes(azlist.AzureResource{Id: rid}, listedOwners{})
+		if reason := cat.Skipped(tc.typ, tc.id, a); reason == "" {
+			t.Errorf("%s %s (%v): not skipped", tc.typ, tc.id, a)
+		}
+	}
+	// A user's flow logs and connection monitors in NetworkWatcherRG are
+	// kept, and so are their children listed.
+	watcher := watchers + "/providers/Microsoft.Network/networkWatchers/NetworkWatcher_eastus"
+	for _, tc := range []struct{ typ, id string }{
+		{"azurerm_network_watcher_flow_log", watcher + "/flowLogs/vnet-flows"},
+		{"azurerm_network_connection_monitor", watcher + "/connectionMonitors/app-latency"},
+	} {
+		rid, err := armid.ParseResourceId(tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := graphAttributes(azlist.AzureResource{Id: rid}, listedOwners{})
+		if reason := cat.Skipped(tc.typ, tc.id, a); reason != "" {
+			t.Errorf("%s %s (%v): skipped %q", tc.typ, tc.id, a, reason)
+		}
+	}
+	if inSkippedGroup(listed(t, watcher, nil), nil, cat) {
+		t.Error("a network watcher's flow logs and connection monitors aren't listed")
+	}
+}
+
+// A disk's managedBy is the virtual machine it is attached to. The
+// machine's OS disk, which its os_disk block manages, is left out, told
+// apart by the machine's storageProfile, or by the disk's osType when the
+// machine isn't listed; a data disk, which the machine's data disk
+// attachment needs, is kept. Before, azlist dropped every attached disk.
+func TestGraphResourcesKeepsAttachedDataDisks(t *testing.T) {
+	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app"
+	vm := rg + "/providers/Microsoft.Compute/virtualMachines/vm1"
+	other := rg + "/providers/Microsoft.Compute/virtualMachines/vm2"
+	disks := rg + "/providers/Microsoft.Compute/disks/"
+	disk := func(by, osType string) map[string]interface{} {
+		properties := map[string]interface{}{}
+		if osType != "" {
+			properties["osType"] = osType
+		}
+		return map[string]interface{}{"managedBy": by, "properties": properties}
+	}
+	listedResources := []azlist.AzureResource{
+		listed(t, vm, map[string]interface{}{"properties": map[string]interface{}{"storageProfile": map[string]interface{}{
+			"osDisk": map[string]interface{}{"managedDisk": map[string]interface{}{"id": strings.ToUpper(disks + "vm1-os")}},
+		}}}),
+		listed(t, disks+"vm1-os", disk(vm, "Linux")),
+		// A data disk made from an OS disk's snapshot keeps its osType.
+		listed(t, disks+"vm1-data", disk(vm, "Linux")),
+		// vm2 isn't listed: the osType tells.
+		listed(t, disks+"vm2-os", disk(other, "Windows")),
+		listed(t, disks+"vm2-data", disk(other, "")),
+		listed(t, disks+"spare", disk("", "")),
+	}
+	cat := catalogue.MustBuiltin("azurerm")
+	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
+		rid, _ := armid.ParseResourceId(id)
+		typ := "azurerm_managed_disk"
+		if strings.Contains(id, "/virtualMachines/") {
+			typ = "azurerm_linux_virtual_machine"
+		}
+		return []aztft.Type{{AzureId: rid, TFType: typ}}, []string{id}, true, nil
+	})
+	if len(resources) != len(listedResources) {
+		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(listedResources), resources)
+	}
+	skipped := map[string]bool{disks + "vm1-os": true, disks + "vm2-os": true}
+	for _, r := range resources {
+		reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
+		if skipped[r.Observed.ID] != (reason != "") {
+			t.Errorf("%s (%v): skipped %q", r.Observed.ID, r.Observed.Attributes, reason)
+		}
+		a := r.Observed.Attributes
+		switch r.Observed.ID {
+		case disks + "vm1-os":
+			if a["os_disk_of"] != vm || a["managed_by"] != vm {
+				t.Errorf("OS disk: %v", a)
+			}
+		case disks + "vm1-data":
+			if _, ok := a["managed_by"]; ok || a["attached_to"] != vm {
+				t.Errorf("data disk: %v", a)
+			}
+		}
+	}
+}
+
+// The network interface of a private endpoint or a Private Link service
+// is recorded with it and left out: the endpoint or service creates and
+// deletes it. A virtual machine's interface is kept.
+func TestGraphResourcesSkipsPrivateEndpointInterfaces(t *testing.T) {
+	const network = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Network"
+	endpoint := network + "/privateEndpoints/pe-blob"
+	service := network + "/privateLinkServices/pls-app"
+	nic := func(property, id string) map[string]interface{} {
+		properties := map[string]interface{}{"ipConfigurations": []interface{}{}}
+		if property != "" {
+			properties[property] = map[string]interface{}{"id": id}
+		}
+		return map[string]interface{}{"properties": properties}
+	}
+	listedResources := []azlist.AzureResource{
+		listed(t, network+"/networkInterfaces/pe-blob.nic.1", nic("privateEndpoint", endpoint)),
+		listed(t, network+"/networkInterfaces/pls-app.nic.1", nic("privateLinkService", service)),
+		listed(t, network+"/networkInterfaces/vm1-nic", nic("", "")),
+	}
+	cat := catalogue.MustBuiltin("azurerm")
+	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
+		rid, _ := armid.ParseResourceId(id)
+		return []aztft.Type{{AzureId: rid, TFType: "azurerm_network_interface"}}, []string{id}, true, nil
+	})
+	want := map[string]map[string]string{
+		network + "/networkInterfaces/pe-blob.nic.1": {"private_endpoint": endpoint},
+		network + "/networkInterfaces/pls-app.nic.1": {"private_link_service": service},
+		network + "/networkInterfaces/vm1-nic":       nil,
+	}
+	if len(resources) != len(want) {
+		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(want), resources)
+	}
+	for _, r := range resources {
+		owners, ok := want[r.Observed.ID]
+		if !ok {
+			t.Errorf("unexpected %s", r.Observed.ID)
+			continue
+		}
+		for k, v := range owners {
+			if r.Observed.Attributes[k] != v {
+				t.Errorf("%s: %s = %q, want %q", r.Observed.ID, k, r.Observed.Attributes[k], v)
+			}
+		}
+		if reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); (owners != nil) != (reason != "") {
+			t.Errorf("%s (%v): skipped %q", r.Observed.ID, r.Observed.Attributes, reason)
+		}
+	}
+}
+
+// What is in a group the built-in rules leave out whole is listed without
+// its child resources; what is in any other group, or is left out for
+// itself alone, has them listed.
+func TestInSkippedGroup(t *testing.T) {
+	const sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
+	aks := sub + "/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"
+	nodes := sub + "/resourceGroups/MC_rg-aks_aks_eastus"
+	managed := map[string]string{strings.ToUpper(nodes): aks}
+	cat := catalogue.MustBuiltin("azurerm")
+	for id, want := range map[string]bool{
+		nodes + "/providers/Microsoft.Network/virtualNetworks/aks-vnet":                                                      true,
+		sub + "/resourceGroups/DefaultResourceGroup-EUS/providers/Microsoft.OperationalInsights/workspaces/DefaultWorkspace": true,
+		sub + "/resourceGroups/rg-app/providers/Microsoft.Network/virtualNetworks/net1":                                      false,
+		// Left out by its name, not its group: its children are listed.
+		sub + "/resourceGroups/rg-app/providers/Microsoft.Insights/actionGroups/Application Insights Smart Detection": false,
+		sub + "/resourceGroups/rg-app": false,
+	} {
+		if got := inSkippedGroup(listed(t, id, nil), managed, cat); got != want {
+			t.Errorf("%s: got %v, want %v", id, got, want)
+		}
+	}
+}
+
+// A child list that was refused, throttled or failed by Resource Manager,
+// or got no answer, fails the service in part, as resources were left
+// out, and what was listed is kept; one for a child type a resource
+// doesn't have, or an item azlist couldn't read, is only logged.
+func TestChildListFailures(t *testing.T) {
+	response := func(status int, text string) string {
+		return "GET https://management.azure.com/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/app/config\n" +
+			"--------------------------------------------------------------------------------\n" +
+			"RESPONSE " + strconv.Itoa(status) + ": " + text + "\nERROR CODE: X\n"
+	}
+	for message, failed := range map[string]bool{
+		response(403, "403 Forbidden"):                                    true,
+		response(401, "401 Unauthorized"):                                 true,
+		response(429, "429 Too Many Requests"):                            true,
+		response(500, "500 Internal Server Error"):                        true,
+		response(503, "503 Service Unavailable"):                          true,
+		"Get \"https://management.azure.com/...\": dial tcp: i/o timeout": true,
+		response(400, "400 Bad Request"):                                  false,
+		response(409, "409 Conflict"):                                     false,
+		response(405, "405 Method Not Allowed"):                           false,
+		response(501, "501 Not Implemented"):                              false,
+		"no resource id found in response: {}":                            false,
+	} {
+		e := azlist.ListError{Endpoint: "/X/CONFIG", Version: "2024-04-01", Message: message}
+		if got := childListFailed(e); got != failed {
+			t.Errorf("%q: failed %v, want %v", message, got, failed)
+		}
+	}
+
+	if err := childListFailures([]azlist.ListError{{Endpoint: "/A", Message: response(400, "400 Bad Request")}}); err != nil {
+		t.Errorf("a child type a resource doesn't have: %v", err)
+	}
+	forbidden := azlist.ListError{Endpoint: "/B", Message: response(403, "403 Forbidden")}
+	err := childListFailures([]azlist.ListError{{Endpoint: "/A", Message: response(400, "400 Bad Request")}, forbidden})
+	var listErr azlist.ListError
+	if !harvest.IsPartial(err) || !errors.As(err, &listErr) || listErr.Endpoint != "/B" {
+		t.Errorf("got %v, want the refused list as a partial error", err)
 	}
 }
 

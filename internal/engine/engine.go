@@ -235,6 +235,17 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	// Terraform writes every value the provider doesn't mark sensitive
+	// into generated.tf, secrets among them, and with the mode it chooses.
+	// The directory stays private until those secrets are moved out of
+	// the file below; should Generate fail before that, it stays so.
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, err
+	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
 	for name, content := range opts.Config {
 		files[name] = content
@@ -308,6 +319,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
+	if err := os.Chmod(dir, info.Mode()&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
+		return nil, err
+	}
 	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
 		if diags, _, err = plan(ctx, tf, opts.secretValues.options()...); err != nil {
 			return nil, fmt.Errorf("terraform plan: %w", err)
@@ -320,7 +334,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	for round := 0; ; round++ {
 		errs, err := unresolved("terraform plan", dir, diags)
 		if err != nil {
-			return nil, err
+			// Errors can quote the values they reject, as below.
+			return nil, errors.New(redact(err.Error(), literal))
 		}
 		if len(errs) == 0 {
 			break
@@ -330,7 +345,8 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			for _, ds := range errs {
 				all = append(all, ds...)
 			}
-			return nil, fmt.Errorf("terraform plan: %w", diagnosticsError(all))
+			// Errors can quote the values they reject, as below.
+			return nil, fmt.Errorf("terraform plan: %s", redact(diagnosticsError(all).Error(), literal))
 		}
 		// Terraform writes generated.tf even when the configuration it
 		// generated is invalid. Repair it once; leave out what is left.

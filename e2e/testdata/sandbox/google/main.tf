@@ -1,7 +1,8 @@
 # Resources the Google Cloud sandbox test (sandbox_google_test.go) creates
 # in a real project before importing them: what floci-gcp can't cover,
 # such as real Cloud Asset Inventory search results, Cloud DNS zones and
-# record sets, and a Cloud Router, and whether the read-only template
+# record sets, a Cloud Router and a 2nd gen function, with what Google
+# creates for it, and whether the read-only template
 # (permissions/google) grants enough. The project and its APIs come from
 # the sandbox bootstrap (testdata/sandbox/google-bootstrap), which lets
 # the fixture service account manage these kinds of resources: nothing
@@ -14,6 +15,10 @@ terraform {
     google = {
       source  = "hashicorp/google"
       version = "~> 8.0"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.7"
     }
     random = {
       source  = "hashicorp/random"
@@ -39,7 +44,7 @@ variable "project" {
 }
 
 variable "region" {
-  description = "Where the regional resources are: the subnetworks, the router and the bucket."
+  description = "Where the regional resources are: the subnetworks, the router, the bucket and the function."
   type        = string
   default     = "europe-west2"
 }
@@ -121,7 +126,8 @@ resource "google_compute_router" "main" {
   }
 }
 
-# An empty bucket costs nothing.
+# A bucket that holds nothing but the function's few hundred bytes of
+# source costs nothing.
 resource "google_storage_bucket" "data" {
   name                        = local.name
   location                    = upper(var.region)
@@ -173,4 +179,66 @@ resource "google_service_account" "app" {
   account_id   = local.name
   display_name = local.name
   description  = "infraharvest sandbox: the import must find this service account."
+}
+
+# A 2nd gen function from a zip of inline code, in the bucket above: the
+# default selection must leave out the Cloud Run service it runs on and
+# the gcf-v2-sources-<project number>-<region> bucket Cloud Functions
+# copies its source to. Cloud Build builds it, as the bootstrap's
+# infraharvest-ci-function, into the gcf-artifacts repository Cloud
+# Functions creates in the region, and it runs as that account too, with
+# no instances while it isn't called, which it never is: it costs nothing
+# idle. Destroying it deletes the Cloud Run service; the sources bucket
+# and the repository, which hold a few kilobytes and megabytes, stay for
+# the next run.
+#
+# Its name is the same for every run, of either engine: Cloud Asset
+# Inventory syncs functions every 7 hours, so it still lists one an
+# earlier run deleted, which the import could only fail to import, unless
+# it is this run's.
+data "archive_file" "function" {
+  type        = "zip"
+  output_path = "${path.module}/function.zip"
+  source {
+    content  = "def hello(request):\n    return \"ok\"\n"
+    filename = "main.py"
+  }
+}
+
+resource "google_storage_bucket_object" "function" {
+  name   = "function-${data.archive_file.function.output_md5}.zip"
+  bucket = google_storage_bucket.data.name
+  source = data.archive_file.function.output_path
+}
+
+locals {
+  function_account = "infraharvest-ci-function@${var.project}.iam.gserviceaccount.com"
+}
+
+resource "google_cloudfunctions2_function" "app" {
+  name        = "ih-sbx-function"
+  location    = var.region
+  description = "infraharvest sandbox"
+  labels      = local.labels
+
+  build_config {
+    runtime         = "python312"
+    entry_point     = "hello"
+    service_account = "projects/${var.project}/serviceAccounts/${local.function_account}"
+
+    source {
+      storage_source {
+        bucket = google_storage_bucket.data.name
+        object = google_storage_bucket_object.function.name
+      }
+    }
+  }
+
+  service_config {
+    available_memory      = "128Mi"
+    min_instance_count    = 0
+    max_instance_count    = 1
+    ingress_settings      = "ALLOW_INTERNAL_ONLY"
+    service_account_email = local.function_account
+  }
 }

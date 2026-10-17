@@ -147,10 +147,27 @@ func TestAWSCalls(t *testing.T) {
 
 	options.Regions = []string{"eu-west-1", "eu-west-2"}
 	check("regions", awsCalls(options), []want{
-		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount},
-		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount},
+		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
+		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount + "us-east-1/"},
 		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
 		{[]string{"eu-west-2", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-2/"},
+	})
+
+	// Global services, and those only in us-east-1, have a root of their
+	// own beside a single region's.
+	options.Regions = []string{"eu-west-1"}
+	check("one region and global services", awsCalls(options), []want{
+		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
+		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount + "us-east-1/"},
+		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
+	})
+
+	// In us-east-1, those only there are imported with the regional ones.
+	options.Regions = []string{"us-east-1", "eu-west-1"}
+	check("us-east-1 among the regions", awsCalls(options), []want{
+		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
+		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"vpc", "wafv2_cloudfront"}, options.Regions, byAccount + "us-east-1/"},
+		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
 	})
 
 	options.Regions = []string{"eu-west-1"}

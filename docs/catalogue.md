@@ -124,7 +124,7 @@ For Google, the catalogue is the whole mapping: what has no entry isn't imported
 
 ## Overriding entries
 
-`--catalogue <directory>` on `import`, `discover` and `verify` reads the `.yaml` files in the directory on top of the built-in catalogue. An entry for a type the catalogue already has replaces only the fields it sets, so `skip: []` drops the built-in skip rules and `import_id` replaces the templates. Entries for new types add to it. Files for other providers are ignored. Use this to fix an import ID or add a skip rule without waiting for a release; please also open an issue or a pull request, so everyone gets the fix.
+`--catalogue <directory>` on `import`, `discover` and `verify` reads the `.yaml` and `.yml` files in the directory on top of the built-in catalogue. An entry for a type the catalogue already has replaces only the fields it sets, so `skip: []` drops the built-in skip rules and `import_id` replaces the templates. Entries for new types add to it. Files for the other providers (`aws`, `azurerm` and `google`) are ignored; a file with any other `provider:`, or a directory without catalogue files, is an error. Use this to fix an import ID or add a skip rule without waiting for a release; please also open an issue or a pull request, so everyone gets the fix.
 
 ```yaml
 # my-catalogue/aws.yaml

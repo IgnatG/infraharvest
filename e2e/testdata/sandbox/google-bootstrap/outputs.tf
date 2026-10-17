@@ -18,6 +18,11 @@ output "fixture_service_account" {
   value       = google_service_account.fixture.email
 }
 
+output "function_service_account" {
+  description = "The email of infraharvest-ci-function, which the estate builds and runs its function as, by this name."
+  value       = google_service_account.function.email
+}
+
 output "readonly_service_account" {
   description = "The email of infraharvest-ci-readonly: GOOGLE_READONLY_SERVICE_ACCOUNT."
   value       = google_service_account.readonly.email

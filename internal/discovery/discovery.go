@@ -23,7 +23,8 @@ type Discoverer interface {
 	// Name is the service's name, as failures name it.
 	Name() string
 	// Discover lists the service's resources. Every API call it makes
-	// takes ctx, with its deadline and cancellation.
+	// takes ctx, with its deadline and cancellation. With a partial error
+	// (see harvest.Partial) it returns what it listed too.
 	Discover(ctx context.Context) ([]harvest.Resource, error)
 }
 
@@ -43,7 +44,9 @@ type Options struct {
 type Result struct {
 	Name      string
 	Resources []harvest.Resource
-	// Err is why the discoverer failed: what it found is left out.
+	// Err is why the discoverer failed: what it found is left out, unless
+	// Err is partial (see harvest.IsPartial), when Resources holds what it
+	// listed.
 	Err error
 }
 
@@ -51,8 +54,10 @@ type Result struct {
 // within opts.Timeout, and returns their results in the discoverers'
 // order. A discoverer whose deadline passed fails with ErrDeadline, also
 // if it returned no error, as listers that log a failed call and go on
-// do. Once ctx is done List starts no more discoverers, waits for those
-// running, and returns ctx's error.
+// do, or a partial one, and what it found is left out. A discoverer that
+// fails with a partial error keeps what it found. Once ctx is done List
+// starts no more discoverers, waits for those running, and returns ctx's
+// error.
 func List(ctx context.Context, discoverers []Discoverer, opts Options) ([]Result, error) {
 	parallel := max(opts.Parallel, 1)
 	results := make([]Result, len(discoverers))
@@ -98,8 +103,8 @@ func discover(ctx context.Context, d Discoverer, timeout time.Duration) Result {
 	if ctx.Err() == nil && listCtx.Err() != nil {
 		err = ErrDeadline
 	}
-	if err != nil {
+	if err != nil && !harvest.IsPartial(err) {
 		return Result{Name: d.Name(), Err: err}
 	}
-	return Result{Name: d.Name(), Resources: resources}
+	return Result{Name: d.Name(), Resources: resources, Err: err}
 }

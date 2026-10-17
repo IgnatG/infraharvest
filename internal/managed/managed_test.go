@@ -176,3 +176,39 @@ func TestParseRejectsVersion3(t *testing.T) {
 		t.Errorf("resources: %v", r)
 	}
 }
+
+// A source that holds no state fails, naming it, rather than leaving out
+// nothing as if no resource were managed: a directory without .tfstate
+// files (outside .terraform), a prefix without .tfstate objects, and a
+// workspace pattern that matches no workspace.
+func TestLoadRejectsSourcesWithoutState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".terraform"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(dir, "main.tf"):                         "not state",
+		filepath.Join(dir, ".terraform", "terraform.tfstate"): `{"version": 4}`,
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bucket := fakeStore{"roots/notes.txt": "not state", "other/terraform.tfstate": `{"version": 4}`}
+	stores := Stores{
+		S3:           func(context.Context, string, string) (ObjectStore, error) { return bucket, nil },
+		GCS:          func(context.Context) (ObjectStore, error) { return bucket, nil },
+		AzureBlob:    func(context.Context, string) (ObjectStore, error) { return containerStore{"tfstate", bucket}, nil },
+		HCPTerraform: func(context.Context, string) (ObjectStore, error) { return fakeWorkspaces{"app-prod": nil}, nil },
+	}
+	for _, source := range []string{dir, "s3://acme-state/roots/", "gs://acme-gcs/roots/", "https://acmestate.blob.core.windows.net/tfstate/roots/", "tfc://acme/network-*"} {
+		_, err := Load(context.Background(), []string{source}, stores)
+		if err == nil || !strings.Contains(err.Error(), "state "+source+": no ") {
+			t.Errorf("%s: want an error saying it holds no state, got %v", source, err)
+		}
+	}
+	// A workspace with no state yet is there, and manages nothing.
+	if _, err := Load(context.Background(), []string{"tfc://acme/app-*"}, stores); err != nil {
+		t.Errorf("a workspace without state: %v", err)
+	}
+}

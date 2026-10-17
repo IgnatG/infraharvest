@@ -1,0 +1,5 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationsManagement/solutions/SecurityCenterFree(logs)", "name": "security_center_free", "attributes": {"name": "SecurityCenterFree(logs)", "resource_group_name": "rg-logs"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationsManagement/solutions/ContainerInsights(logs)", "name": "container_insights", "attributes": {"name": "ContainerInsights(logs)", "resource_group_name": "rg-logs"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationsManagement/solutions/Updates(logs)", "name": "updates", "attributes": {"name": "Updates(logs)", "resource_group_name": "rg-logs"}}
+]}

@@ -2,9 +2,12 @@
 # What Azure creates itself, which the default selection leaves out. The
 # resource_graph service records each resource's name, its resource group
 # (resource_group_name; a resource group's own name) and what manages the
-# group (resource_group_managed_by) or the resource (managed_by), and of
-# a Log Analytics workspace's tables and saved searches what tells the
-# built-in ones apart (see builtInAttributes in
+# group (resource_group_managed_by) or the resource (managed_by; of a
+# virtual machine's OS disk, os_disk_of too, while a data disk attached to
+# a machine gets attached_to instead, see graphAttributes), and of a Log
+# Analytics workspace's tables and saved searches what tells the built-in
+# ones apart, and the private endpoint or Private Link service a network
+# interface belongs to (see builtInAttributes in
 # internal/providers/azure/resource_graph.go). Azure names ignore case, so
 # the rules do too.
 provider: azurerm
@@ -15,18 +18,82 @@ types:
       - reason: in a resource group another resource manages, such as an AKS cluster's node resource group (MC_*); that resource creates and deletes what is in it
         ignore_case: true
         attribute_prefixes: { resource_group_managed_by: [/subscriptions/] }
-      - reason: another resource manages it, such as the node resource group (MC_*) an AKS cluster creates and deletes
+      - reason: another resource manages it (managedBy), such as the node resource group (MC_*) an AKS cluster creates and deletes, or a managed application's resource group
         ignore_case: true
         attribute_prefixes: { managed_by: [/subscriptions/] }
-      - reason: in NetworkWatcherRG, which Azure creates with a network watcher per region when a virtual network is created
-        ignore_case: true
-        attributes: { resource_group_name: NetworkWatcherRG }
       - reason: in a DefaultResourceGroup-<region>, which Azure creates for default Log Analytics workspaces (Container insights, Defender for Cloud)
         ignore_case: true
         attribute_prefixes: { resource_group_name: [DefaultResourceGroup-] }
       - reason: in a cloud-shell-storage-<region> resource group, which Cloud Shell creates for its file share
         ignore_case: true
         attribute_prefixes: { resource_group_name: [cloud-shell-storage-] }
+      - reason: in an AzureBackupRG_<region>_<n> resource group, which Azure Backup creates for the restore point collections of the virtual machines it backs up; select it to import it
+        ignore_case: true
+        attribute_prefixes: { resource_group_name: [AzureBackupRG_] }
+  # NetworkWatcherRG and its network watchers, one per region, are Azure's;
+  # the flow logs, connection monitors and anything else a user puts in
+  # the group are theirs, and imported.
+  azurerm_resource_group:
+    skip:
+      - reason: NetworkWatcherRG, which Azure creates to hold a network watcher per region when a virtual network is created
+        ignore_case: true
+        attributes: { resource_group_name: NetworkWatcherRG }
+  azurerm_network_watcher:
+    skip:
+      - reason: a network watcher in NetworkWatcherRG, which Azure creates for the region when a virtual network is created; its flow logs and connection monitors are imported
+        ignore_case: true
+        attributes: { resource_group_name: NetworkWatcherRG }
+  azurerm_monitor_data_collection_rule:
+    skip:
+      - reason: the data collection rule AKS creates when Container insights (MSCI-<region>-<cluster>) or managed Prometheus (MSProm-<region>-<cluster>) is enabled on a cluster; select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [MSCI-, MSProm-] }
+  azurerm_monitor_data_collection_endpoint:
+    skip:
+      - reason: the data collection endpoint AKS creates when managed Prometheus is enabled on a cluster (MSProm-<region>-<cluster>); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [MSProm-] }
+  azurerm_monitor_alert_prometheus_rule_group:
+    skip:
+      - reason: a recording rule group AKS creates when managed Prometheus is enabled on a cluster, such as NodeRecordingRulesRuleGroup-<cluster>; select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [NodeRecordingRulesRuleGroup-, KubernetesRecordingRulesRuleGroup-, NodeAndKubernetesRecordingRulesRuleGroup-, UXRecordingRulesRuleGroup] }
+  azurerm_log_analytics_solution:
+    skip:
+      - reason: the solution Microsoft Defender for Cloud (SecurityCenterFree) or AKS Container insights (ContainerInsights) adds to a Log Analytics workspace; select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: ["SecurityCenterFree(", "ContainerInsights("] }
+  azurerm_virtual_machine_extension:
+    # The names the extensions are installed under, whole: Defender for
+    # Cloud and Azure Policy name them so on every machine they reach.
+    skip:
+      - reason: an extension Microsoft Defender for Cloud installs on the virtual machine (Defender for Endpoint, MDE.*, or its security agent); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [MDE.Linux, MDE.Windows, AzureSecurityLinuxAgent, AzureSecurityWindowsAgent] }
+      - reason: the guest configuration extension Azure Policy installs on the virtual machine (AzurePolicyforLinux, AzurePolicyforWindows); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [AzurePolicyforLinux, AzurePolicyforWindows] }
+  azurerm_managed_disk:
+    skip:
+      - reason: the OS disk of a virtual machine, which the machine's os_disk block creates and manages; a data disk attached to a machine is imported
+        ignore_case: true
+        attribute_prefixes: { os_disk_of: [/subscriptions/] }
+  azurerm_network_interface:
+    skip:
+      - reason: the network interface Azure creates for a private endpoint, which the endpoint creates and deletes with itself
+        ignore_case: true
+        attribute_prefixes: { private_endpoint: [/subscriptions/] }
+      - reason: the network interface Azure creates for a Private Link service, which the service creates and deletes with itself
+        ignore_case: true
+        attribute_prefixes: { private_link_service: [/subscriptions/] }
+  azurerm_security_center_subscription_pricing:
+    service: security_center_subscription_pricing
+    # Every subscription has every plan, on Free until Defender for Cloud
+    # is turned on for it; the lister records each plan's tier.
+    skip:
+      - reason: a Microsoft Defender for Cloud plan left on the Free tier, as every subscription has each plan; select it to import it
+        ignore_case: true
+        attributes: { tier: Free }
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource

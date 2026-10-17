@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 func TestCheckFailures(t *testing.T) {
@@ -78,6 +81,31 @@ func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
 	}
 }
 
+// A service that lists in part keeps what it listed, and fails the import
+// all the same.
+func TestInitAllServicesResourcesKeepsAPartialListing(t *testing.T) {
+	registry := harvest.NewRegistry(&fakeProvider{})
+	options := Options{Services: []string{"good", "partial", "bad"}}
+
+	failures, err := listServices(t.Context(), registry, options, nil)
+	if err != nil {
+		t.Fatalf("a partial listing must not abort the run: %v", err)
+	}
+	if len(failures) != 2 || !strings.Contains(failures[0].Error(), "service partial: a zone's records: access denied") || !strings.Contains(failures[1].Error(), "service bad") {
+		t.Errorf("want failures for services partial and bad, got %v", failures)
+	}
+	byService := registry.ByService()
+	if got := byService["partial"]; len(got) != 1 || got[0].Observed.ID != "id-2" {
+		t.Errorf("want the partial service's resource kept, got %v", got)
+	}
+	if _, ok := byService["bad"]; ok {
+		t.Error("failed service should be removed from the registry")
+	}
+	if got := len(registry.Resources); got != 2 {
+		t.Errorf("want the good and the partial services' resources, got %d resources", got)
+	}
+}
+
 func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 	registry := harvest.NewRegistry(&fakeProvider{})
 	options := Options{Services: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
@@ -107,7 +135,8 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 }
 
 // fakeProvider lists one resource per service, fails for service "bad",
-// and lists service "slow" until its context is done.
+// lists one and fails in part for service "partial", and lists service
+// "slow" until its context is done.
 type fakeProvider struct {
 	harvest.Provider
 	service *fakeService
@@ -132,6 +161,9 @@ func (s *fakeService) List() error {
 	switch s.Name() {
 	case "bad":
 		return errors.New("access denied")
+	case "partial":
+		s.Resources = []harvest.Resource{harvest.RecordBare("id-2", "two", "fake_thing", "fake")}
+		return harvest.Partial(errors.New("a zone's records: access denied"))
 	case "slow":
 		// Like listers that log a failed call and go on.
 		<-s.Context().Done()
@@ -153,10 +185,30 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 }
 
 // What no Import call could do fails the command once, before any scope:
-// an unknown service or engine, or an import that says neither
-// --selection nor --all.
+// an unknown service or engine, an import that says neither --selection
+// nor --all, a selection file or catalogue that doesn't load, a
+// managed state source that doesn't parse or isn't there, a --layout
+// that leads out of --out, has a placeholder nothing fills in, or no
+// {env} for --env-tags, and a negative number of a flag that counts.
 func TestCheckOptions(t *testing.T) {
 	p := &servicesProvider{}
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	goodSelection := write("selection.yaml", fmt.Sprintf("version: %d\n", selection.Version))
+	badSelection := write("old.yaml", "version: 99\n")
+	missing := filepath.Join(dir, "missing")
+	write("catalogue/broken.yaml", "types: [\n")
+	state := write("state/a.tfstate", `{"version": 4}`)
 	for _, tc := range []struct {
 		options Options
 		want    string
@@ -167,6 +219,31 @@ func TestCheckOptions(t *testing.T) {
 		{Options{All: true, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
 		{Options{All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
 		{Options{Services: []string{"vpc"}}, "selection"},
+		{Options{Selection: goodSelection}, ""},
+		{Options{Selection: badSelection}, "--selection: " + badSelection + ": version 99"},
+		{Options{Selection: missing}, "--selection"},
+		{Options{Discover: true, Selection: missing}, ""},
+		{Options{All: true, Catalogue: filepath.Join(dir, "catalogue")}, "--catalogue"},
+		{Options{All: true, ManagedState: []string{state, filepath.Dir(state), "backend", "s3://bucket/prefix", "tfc://org/app-*"}}, ""},
+		{Options{All: true, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
+		{Options{All: true, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
+		{Options{All: true, ManagedState: []string{missing}}, "--managed-state: state " + missing},
+		{Options{All: true, Layout: "{out}/{provider}/{account}/{region}/{service}/{env}/"}, ""},
+		{Options{All: true, Layout: `{out}\{provider}\`}, ""},
+		{Options{All: true, Layout: "{out}"}, ""},
+		{Options{All: true, Layout: "{out}/{project}/"}, "unknown placeholder {project}"},
+		{Options{All: true, Layout: "{provider}/{account}/"}, "must start with {out}/"},
+		{Options{All: true, Layout: "/srv/roots/{provider}/"}, "must start with {out}/"},
+		{Options{All: true, Layout: "{out}-{provider}/"}, "must start with {out}/"},
+		{Options{All: true, Layout: "{out}/../{provider}/"}, "leads out of --out"},
+		{Options{All: true, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
+		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
+		{Options{All: true, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
+		{Options{All: true, RateLimit: -1}, "--rate-limit can't be negative"},
+		{Options{All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
+		{Options{All: true, ListParallel: -1}, "--list-parallel can't be negative"},
+		{Options{All: true, Parallel: -2}, "--parallel can't be negative"},
 	} {
 		err := CheckOptions(p, tc.options)
 		switch {

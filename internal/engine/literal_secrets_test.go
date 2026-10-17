@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeSecret makes a 64-character hex secret from seed, like the Lambda
@@ -376,5 +377,40 @@ func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
 
 	if check.Passed || len(check.Details) != 1 || !strings.Contains(check.Details[0], "generated.tf: environment.variables.API_SECRET of resource.aws_lambda_function.api holds a secret value") {
 		t.Errorf("want G6 to fail on the secret, got %+v", check)
+	}
+}
+
+// The secrets a run killed before it could remove them go once they are a
+// day old; those of a run still going, and other directories, stay.
+func TestRemoveStaleSecretValues(t *testing.T) {
+	parent := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	mkdir := func(name string, modified time.Time) string {
+		t.Helper()
+		dir := filepath.Join(parent, name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, secretValuesFile)
+		if err := os.WriteFile(path, []byte(`{"db_password": "x"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{path, dir} {
+			if err := os.Chtimes(p, modified, modified); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	stale := mkdir(secretValuesPattern+"1", old)
+	current := mkdir(secretValuesPattern+"2", time.Now())
+	other := mkdir("other-1", old)
+
+	removeStaleSecretValues(parent, time.Now().Add(-staleSecretsAge))
+
+	for dir, want := range map[string]bool{stale: false, current: true, other: true} {
+		if _, err := os.Stat(dir); (err == nil) != want {
+			t.Errorf("%s: exists=%v, want %v", filepath.Base(dir), err == nil, want)
+		}
 	}
 }

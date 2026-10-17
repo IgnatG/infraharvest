@@ -35,6 +35,10 @@ const (
 type Check struct {
 	Name   string
 	Passed bool
+	// Skipped checks couldn't run, such as the scanners check with no
+	// scanner installed: they checked nothing, so they are shown as
+	// skipped, but they don't fail the gate, so Passed is set too.
+	Skipped bool
 	// Details explain a failure, or note what a pass allowed.
 	Details []string
 	// Changes are the changes a plan check found, for CheckPlan.
@@ -480,14 +484,15 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-// scanSecrets checks every file Generate wrote into dir for the plan's
+// scanSecrets checks every file Generate wrote into dir, and into the
+// local modules it calls (see walkOutputAndModules), for the plan's
 // sensitive values and the secret values Generate found, for credential
 // formats, for provider blocks that set a credential argument to a
 // constant (see IsCredentialArgument), and for any secret value written in
 // the configuration (see scanLiteralSecrets).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
-	err := walkOutput(dir, func(rel string, content string) {
+	err := walkOutputAndModules(dir, func(rel string, content string) {
 		for _, v := range sensitive {
 			if strings.Contains(content, v) {
 				check.Passed = false
@@ -561,12 +566,13 @@ func parseBody(rel, content string) (*hclsyntax.Body, bool) {
 // nondeterministic are functions whose results differ between runs.
 var nondeterministic = map[string]bool{"timestamp": true, "plantimestamp": true, "uuid": true, "uuidv5": true, "bcrypt": true}
 
-// scanNondeterminism checks the configuration Generate wrote calls no
+// scanNondeterminism checks the configuration Generate wrote, with the
+// local modules it calls (see walkOutputAndModules), calls no
 // function whose result differs between runs, so that importing an
 // unchanged estate again gives the same files.
 func scanNondeterminism(dir string) (Check, error) {
 	check := Check{Name: CheckDeterminism, Passed: true}
-	err := walkOutput(dir, func(rel string, content string) {
+	err := walkOutputAndModules(dir, func(rel string, content string) {
 		for _, call := range nondeterministicCalls(rel, content) {
 			check.Passed = false
 			check.Details = append(check.Details, rel+": calls "+call+"(")
@@ -623,6 +629,98 @@ func walkOutput(dir string, visit func(rel, content string)) error {
 		visit(filepath.ToSlash(rel), string(content))
 		return nil
 	})
+}
+
+// walkOutputAndModules is walkOutput on dir and then on each local module
+// it calls outside it (see calledModules), such as the shared modules
+// under the output directory's modules directory. The files of a module
+// are named by their path relative to dir, as in ../../modules/vpc/main.tf.
+func walkOutputAndModules(dir string, visit func(rel, content string)) error {
+	if err := walkOutput(dir, visit); err != nil {
+		return err
+	}
+	modules, err := calledModules(dir)
+	if err != nil {
+		return err
+	}
+	for _, m := range modules {
+		err := walkOutput(m, func(path, content string) {
+			visit(rel(dir, filepath.Join(m, filepath.FromSlash(path))), content)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// calledModules returns the directories of the local modules that dir's
+// configuration calls, and that those call in turn, other than those under
+// dir, which walkOutput covers already; sorted. A call whose source isn't
+// a constant local path, or whose directory doesn't exist, is skipped, as
+// is a file that doesn't parse: validate (G2) reports those.
+func calledModules(dir string) ([]string, error) {
+	seen := map[string]bool{}
+	var walk func(d string) error
+	walk = func(d string) error {
+		paths, err := filepath.Glob(filepath.Join(d, "*.tf"))
+		if err != nil {
+			return err
+		}
+		sort.Strings(paths)
+		for _, path := range paths {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			body, ok := parseBody(path, string(content))
+			if !ok {
+				continue
+			}
+			for _, b := range body.Blocks {
+				m := localModuleDir(d, b)
+				if m == "" || seen[m] {
+					continue
+				}
+				if info, err := os.Stat(m); err != nil || !info.IsDir() {
+					continue
+				}
+				seen[m] = true
+				if err := walk(m); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(dir); err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for m := range seen {
+		if r := rel(dir, m); r == ".." || strings.HasPrefix(r, "../") {
+			dirs = append(dirs, m)
+		}
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// localModuleDir returns the directory a module block in dir calls when
+// its source is a local path, such as "../../modules/vpc", or "".
+func localModuleDir(dir string, b *hclsyntax.Block) string {
+	if b.Type != "module" {
+		return ""
+	}
+	attr, ok := b.Body.Attributes["source"]
+	if !ok {
+		return ""
+	}
+	source, ok := constantString(attr.Expr)
+	if !ok || (!strings.HasPrefix(source, "./") && !strings.HasPrefix(source, "../")) {
+		return ""
+	}
+	return filepath.Join(dir, filepath.FromSlash(source))
 }
 
 // showPlanWithSummary plans with vars into a plan file and returns it as

@@ -31,8 +31,8 @@ const cloudAssetService = "cloud_asset"
 
 // searchReadMask is what a search returns of each resource: what the
 // catalogue maps it with, what its import ID is built from, and its
-// labels.
-const searchReadMask = "name,assetType,project,displayName,location,labels,state,additionalAttributes,parentFullResourceName"
+// labels and description, which tell what created some of it.
+const searchReadMask = "name,assetType,project,displayName,description,location,labels,state,additionalAttributes,parentFullResourceName"
 
 // CloudAssetLister lists the resources of the project that Cloud Asset
 // Inventory finds, of the asset types the catalogue's inventory entries
@@ -48,7 +48,8 @@ type CloudAssetLister struct {
 
 // List searches the project, or takes the search an import of another of
 // its regions made (see searchOnce), and keeps what is in the import's
-// region.
+// region, with the disks that are instances' boot disks and the node pools
+// of Autopilot clusters marked (see markBootDisks and markAutopilotPools).
 func (g *CloudAssetLister) List() error {
 	cat := g.catalogue()
 	types := g.Types(cat)
@@ -67,7 +68,14 @@ func (g *CloudAssetLister) List() error {
 		return err
 	}
 	region, _ := g.Settings()["region"].(compute.Region)
-	g.Resources = assetResources(results, cat, g.Provider(), project, region.Name)
+	resources := assetResources(results, cat, g.Provider(), project, region.Name)
+	if err := markBootDisks(ctx, g.Provider(), project, results, resources); err != nil {
+		return err
+	}
+	if err := markAutopilotPools(ctx, g.Provider(), project, results, resources); err != nil {
+		return err
+	}
+	g.Resources = resources
 	return nil
 }
 
@@ -197,6 +205,15 @@ func isBadRequest(err error) bool {
 // catalogue maps to no type, or to several, is logged and left out, as is
 // one being deleted.
 func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.Catalogue, provider, projectID, region string) []harvest.Resource {
+	// The labels of every resource found, wherever it is, by its full
+	// name: a resource's parent, such as a node pool's cluster, is in the
+	// same location but may be another import's to take.
+	labels := map[string]map[string]string{}
+	for _, r := range results {
+		if len(r.Labels) > 0 {
+			labels[r.Name] = r.Labels
+		}
+	}
 	var resources []harvest.Resource
 	elsewhere := 0
 	for _, r := range results {
@@ -218,7 +235,7 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 			continue
 		}
 		id := assetID(r.Name, r.Project, projectID)
-		resources = append(resources, harvest.Record(id, assetName(r.DisplayName, id), types[0], provider, assetAttributes(r, id, projectID)))
+		resources = append(resources, harvest.Record(id, assetName(r.DisplayName, id), types[0], provider, assetAttributes(r, id, projectID, labels[r.ParentFullResourceName])))
 	}
 	if elsewhere > 0 {
 		where := "the global import"
@@ -284,11 +301,14 @@ func assetID(fullName, assetProject, projectID string) string {
 
 // assetAttributes records what the catalogue's import ID templates and
 // skip rules use, as asset.<field>: the project's ID, the resource's
-// location, its display name, the last segment of its ID (name), its
+// location, its display name and description, the last segment of its
+// ID (name), its
 // parent's ID and the searchable attributes the search returns with it,
 // such as a service account's email, in snake case. Its labels go in as
-// labels.<key>, for selection rules.
-func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string) map[string]string {
+// labels.<key>, for selection rules, and its parent's, which the search
+// found too, as asset.parent_labels.<key>: a node pool has none of its
+// own, and its cluster's tell what created it.
+func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string, parentLabels map[string]string) map[string]string {
 	attributes := map[string]string{
 		"asset.project": projectID,
 		"asset.name":    lastSegment(id),
@@ -300,6 +320,7 @@ func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string) m
 	}
 	set("location", r.Location)
 	set("display_name", r.DisplayName)
+	set("description", r.Description)
 	if r.ParentFullResourceName != "" {
 		set("parent", assetID(r.ParentFullResourceName, r.Project, projectID))
 	}
@@ -313,6 +334,9 @@ func assetAttributes(r *cloudasset.ResourceSearchResult, id, projectID string) m
 	}
 	for k, v := range r.Labels {
 		attributes["labels."+k] = v
+	}
+	for k, v := range parentLabels {
+		attributes["asset.parent_labels."+k] = v
 	}
 	return attributes
 }

@@ -133,3 +133,56 @@ func TestPreviouslyOwned(t *testing.T) {
 		t.Errorf("no checkpoint: got %v, want none", got)
 	}
 }
+
+// A root whose import didn't finish isn't added to: its generation
+// started and has no result, or, without a checkpoint, it has Terraform's
+// generated.tf but no README. Every import fails, so the root is reported.
+func TestAddToRootRefusesAnUnfinishedRoot(t *testing.T) {
+	imports := []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}
+	write := func(dir string, names ...string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range names {
+			content := []byte("resource \"aws_vpc\" \"main\" {}\n")
+			if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	out := t.TempDir()
+	started := filepath.Join(out, "aws", "111")
+	write(started, engine.ImportsFileName, engine.GeneratedFileName, engine.ReadmeFileName)
+	if err := saveCheckpoint(out, started, "fp", nil); err != nil {
+		t.Fatal(err)
+	}
+	raw := filepath.Join(out, "aws", "222")
+	write(raw, engine.ImportsFileName, engine.GeneratedFileName)
+
+	r := &Run{options: Options{Out: out}}
+	for _, dir := range []string{started, raw} {
+		failed, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
+		if err == nil || !strings.Contains(err.Error(), "didn't finish") || result != nil || holds != nil {
+			t.Errorf("%s: want an unfinished root's error, got result=%v holds=%v err=%v", dir, result, holds, err)
+		}
+		if !reflect.DeepEqual(failed, imports) {
+			t.Errorf("%s: failed: got %v, want every import", dir, failed)
+		}
+	}
+
+	// A root generated in full, or with its README, is complete.
+	done := filepath.Join(out, "aws", "333")
+	write(done, engine.ImportsFileName, "network.tf")
+	if err := saveCheckpoint(out, done, "fp", &engine.Result{Files: []string{"network.tf"}}); err != nil {
+		t.Fatal(err)
+	}
+	withReadme := filepath.Join(out, "aws", "444")
+	write(withReadme, engine.ImportsFileName, engine.GeneratedFileName, engine.ReadmeFileName)
+	for _, dir := range []string{done, withReadme} {
+		if unfinished, err := unfinishedRoot(out, dir); err != nil || unfinished {
+			t.Errorf("%s: unfinished=%v, %v; want a complete root", dir, unfinished, err)
+		}
+	}
+}

@@ -53,6 +53,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -77,13 +78,15 @@ jobs:
     - name: Test
       run: go test ./...
 
-  # Accounts and projects import in parallel (--parallel): the run state
-  # they share, under the race detector. Two providers keep the build
-  # small.
+  # Accounts and projects import in parallel (--parallel), and listers,
+  # discovery and the engine run concurrent work of their own: the state
+  # they share, under the race detector. Two providers keep the CLI's build
+  # small; the provider packages build on their own.
   race:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -98,7 +101,10 @@ jobs:
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Race
-      run: go test -race -tags minimal,aws,google ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
+      run: >-
+        go test -race -tags minimal,aws,google
+        ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
+        ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
 
   # A required check: passes when go test and race passed, or were skipped.
   test:
@@ -115,11 +121,14 @@ jobs:
         jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<< "$NEEDS" > /dev/null
 
   # Windows runners are slow to compile all providers, so test the packages
-  # with OS-specific behaviour (file modes, paths, home directory lookup).
+  # with OS-specific behaviour (file modes, paths, home directory lookup,
+  # output and selection files, the MCP server's path checks). The
+  # CLI builds with two providers, as in the race job.
   test-windows:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -130,12 +139,18 @@ jobs:
         go-version-file: go.mod
         cache: true
     - name: Test
-      run: go test ./internal/engine/... ./internal/harvest/... ./internal/fsutil/... ./internal/managed/... ./internal/providers/aws/... ./internal/providers/azure/...
+      run: >-
+        go test
+        ./internal/engine/... ./internal/harvest/... ./internal/fsutil/... ./internal/managed/... ./internal/providers/aws/... ./internal/providers/azure/...
+        ./internal/importer/... ./internal/config/... ./internal/selection/... ./internal/mcpserver/...
+    - name: Test the CLI
+      run: go test -tags minimal,aws,google ./internal/cli/...
 
   govulncheck:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -159,12 +174,54 @@ jobs:
     - name: govulncheck
       run: .github/scripts/govulncheck-gate.sh ./infraharvest
 
+  # Fuzzes the parsers of what people and clouds hand infraharvest (state,
+  # selection files, filters) and the secret detectors, briefly: go test
+  # ./... runs only their seed inputs. go test fuzzes one target at a time.
+  # A failing input is uploaded; commit it under the package's
+  # testdata/fuzz to keep it as a seed.
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Fuzz
+      run: |
+        while read -r target pkg; do
+          echo "::group::$target ($pkg)"
+          go test -run='^$' -fuzz="^$target\$" -fuzztime=30s "$pkg"
+          echo "::endgroup::"
+        done <<'EOF'
+        FuzzSecretsInJSONString ./internal/engine/
+        FuzzSecretsInHCL ./internal/engine/
+        FuzzLiteralSecrets ./internal/engine/
+        FuzzParse ./internal/managed/
+        FuzzLoad ./internal/selection/
+        FuzzParseFilters ./internal/harvest/
+        EOF
+    - name: Upload the failing inputs
+      if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: fuzz-failures
+        path: internal/**/testdata/fuzz/
+        if-no-files-found: ignore
+
   # Runs the Terraform engine end to end against real Terraform and the
   # random provider (no cloud credentials needed).
   engine-integration:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -396,6 +453,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -424,6 +482,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -458,6 +517,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -485,7 +545,8 @@ jobs:
       run: go vet ./...
 
   # A required check: passes when the other Go and Terraform checks passed,
-  # or were skipped.
+  # or were skipped. Not the fuzzing, which can find an input a pull request
+  # didn't bring: it reports on its own.
   checks:
     needs: [changes, test-windows, govulncheck, engine-integration, permissions, build-tags, darwin]
     if: always()
@@ -507,6 +568,7 @@ jobs:
   repository:
     name: licences and names
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:

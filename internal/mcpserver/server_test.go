@@ -405,6 +405,34 @@ func TestImportChecksWhatWasConfirmed(t *testing.T) {
 	}
 }
 
+// A selection file changed after the user was asked isn't imported, even
+// when it includes and excludes as many resources as before.
+func TestImportChecksTheConfirmedSelection(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "selection.yaml")
+	session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		swapped := &selection.File{Version: selection.Version, Resources: []selection.Resource{
+			{Type: "aws_subnet", ID: "subnet-1", Include: true},
+			{Type: "aws_vpc", ID: "vpc-default", Include: true},
+			{Type: "aws_vpc", ID: "vpc-1", Reason: "excluded after the user was asked"},
+		}}
+		return &mcp.ElicitResult{Action: "accept"}, swapped.Save(path)
+	})
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+
+	res, text := call(t, session, "import", importArgs(path, filepath.Join(dir, "generated")))
+
+	if !res.IsError || !strings.Contains(text, "didn't confirm") {
+		t.Errorf("want the import refused, got %s", text)
+	}
+	if len(runner.runs) != 0 {
+		t.Errorf("imported a selection the user didn't confirm: %v", runner.runs)
+	}
+}
+
 // The tools read and write files under the root only: an agent may not
 // write a selection file or configuration, or read a report, anywhere
 // else on the machine.
@@ -444,6 +472,27 @@ func TestFilesStayUnderRoot(t *testing.T) {
 	}
 	if len(runner.runs) != 0 {
 		t.Errorf("ran with files outside the root: %v", runner.runs)
+	}
+
+	// A symbolic link under the root doesn't lead out of it, nor does a
+	// ".." after one.
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Logf("no symbolic links here: %v", err)
+	} else {
+		for name, path := range map[string]string{
+			"through a link":   filepath.Join(link, "selection.yaml"),
+			"up from a link":   link + string(filepath.Separator) + ".." + string(filepath.Separator) + "selection.yaml",
+			"into a link":      link,
+			"a new file there": filepath.Join(link, "new", "selection.yaml"),
+		} {
+			if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: path}); err == nil || !strings.Contains(err.Error(), "must be under") {
+				t.Errorf("discover %s: got %v, want the path rejected", name, err)
+			}
+		}
+		if len(runner.runs) != 0 {
+			t.Errorf("ran with files outside the root: %v", runner.runs)
+		}
 	}
 
 	// Under the root, relative to it or not, is fine.

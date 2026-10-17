@@ -1,4 +1,5 @@
 {"resources": [
   {"id": "projects/acme-prod/zones/us-central1-a/instanceGroups/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "us-central1-a"}},
-  {"id": "projects/acme-prod/zones/us-central1-a/instanceGroups/gke-prod-default-pool-1a2b3c4d-grp", "name": "gke_prod_default_pool_1a2b3c4d_grp", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d-grp", "asset.location": "us-central1-a"}}
+  {"id": "projects/acme-prod/zones/us-central1-a/instanceGroups/gke-prod-default-pool-1a2b3c4d-grp", "name": "gke_prod_default_pool_1a2b3c4d_grp", "attributes": {"asset.project": "acme-prod", "asset.name": "gke-prod-default-pool-1a2b3c4d-grp", "asset.location": "us-central1-a"}},
+  {"id": "projects/acme-prod/zones/us-central1-a/instanceGroups/k8s-ig--0a1b2c3d4e5f6a7b", "name": "k8s_ig__0a1b2c3d4e5f6a7b", "attributes": {"asset.project": "acme-prod", "asset.name": "k8s-ig--0a1b2c3d4e5f6a7b", "asset.location": "us-central1-a"}}
 ]}

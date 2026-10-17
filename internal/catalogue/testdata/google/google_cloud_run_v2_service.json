@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/locations/us-central1/services/web", "name": "web", "attributes": {"asset.project": "acme-prod", "asset.name": "web", "asset.location": "us-central1", "labels.team": "web"}},
+  {"id": "projects/acme-prod/locations/us-central1/services/thumbnail", "name": "thumbnail", "attributes": {"asset.project": "acme-prod", "asset.name": "thumbnail", "asset.location": "us-central1", "labels.goog-managed-by": "cloudfunctions"}}
+]}
