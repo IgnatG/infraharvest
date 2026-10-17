@@ -430,7 +430,7 @@ resource "aws_iam_role" "app" {
 func TestSameFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "# a\n")
-	before, err := dirFiles(dir)
+	before, err := rootFileContents(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

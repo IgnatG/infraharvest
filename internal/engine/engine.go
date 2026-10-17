@@ -334,7 +334,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		}
 		diags, last, planned = ds, nil, nil
 		if len(ds) == 0 && p != nil {
-			if planned, err = dirFiles(dir); err != nil {
+			if planned, err = rootFileContents(dir); err != nil {
 				return err
 			}
 			last = &shownPlan{plan: p, summary: summary}
@@ -666,10 +666,10 @@ func environ() map[string]string {
 	return env
 }
 
-// dirFiles returns the content of the regular files directly in dir, by
+// rootFileContents returns the content of the regular files directly in dir, by
 // name: the configuration a plan of dir reads, but for the providers and
 // modules init installs.
-func dirFiles(dir string) (map[string][]byte, error) {
+func rootFileContents(dir string) (map[string][]byte, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -689,9 +689,9 @@ func dirFiles(dir string) (map[string][]byte, error) {
 }
 
 // sameFiles reports whether the regular files directly in dir are those
-// of files, with the same content (see dirFiles).
+// of files, with the same content (see rootFileContents).
 func sameFiles(dir string, files map[string][]byte) (bool, error) {
-	now, err := dirFiles(dir)
+	now, err := rootFileContents(dir)
 	if err != nil {
 		return false, err
 	}

@@ -433,11 +433,11 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 	return trials, declined, nil
 }
 
-// referenceIndex has the references between the resources of a root,
+// clusterReferences has the references between the resources of a root,
 // read once: mapClusters asks about them for every anchor and every
 // trial, and walking every resource's body each time made building
 // clusters quadratic in the resources of a root.
-type referenceIndex struct {
+type clusterReferences struct {
 	// refers has, by address, the resources each resource refers to.
 	refers map[string]map[string]bool
 	// incoming has, by address, the references to each resource, in the
@@ -455,8 +455,8 @@ type reference struct {
 
 // indexReferences reads the references of resources (see
 // referencedAddresses and allTraversals).
-func indexReferences(resources []resourceBlock) referenceIndex {
-	idx := referenceIndex{refers: map[string]map[string]bool{}, incoming: map[string][]reference{}, position: map[string]int{}}
+func indexReferences(resources []resourceBlock) clusterReferences {
+	idx := clusterReferences{refers: map[string]map[string]bool{}, incoming: map[string][]reference{}, position: map[string]int{}}
 	for i, r := range resources {
 		idx.position[r.address] = i
 		refers := map[string]bool{}
@@ -475,7 +475,7 @@ func indexReferences(resources []resourceBlock) referenceIndex {
 
 // referrers returns the resources of resources, those of the root in
 // their order, that refer to the resource at address, in that order.
-func (idx referenceIndex) referrers(address string, resources []resourceBlock) []resourceBlock {
+func (idx clusterReferences) referrers(address string, resources []resourceBlock) []resourceBlock {
 	var referring []resourceBlock
 	// incoming has the references of each resource next to each other.
 	for _, ref := range idx.incoming[address] {
@@ -489,7 +489,7 @@ func (idx referenceIndex) referrers(address string, resources []resourceBlock) [
 
 // linked reports whether the resource at address refers to one of
 // cluster, or one of cluster refers to it.
-func (idx referenceIndex) linked(address string, cluster []resourceBlock) bool {
+func (idx clusterReferences) linked(address string, cluster []resourceBlock) bool {
 	for _, b := range cluster {
 		if idx.refers[address][b.address] || idx.refers[b.address][address] {
 			return true
@@ -517,7 +517,7 @@ func uniqueName(base string, used map[string]bool) string {
 // references to the module's outputs or, for a string the module has no
 // output for, its imported value in values (see trial.literals), or "".
 // refs has the references of the root's resources.
-func unfollowable(t *trial, refs referenceIndex, values map[string]map[string]any) string {
+func unfollowable(t *trial, refs clusterReferences, values map[string]map[string]any) string {
 	members := t.members()
 	var traversals []hcl.Traversal
 	// Only the references to members matter: those from the resources
