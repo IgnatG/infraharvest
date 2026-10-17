@@ -44,7 +44,8 @@ type Call struct {
 // others; then the rest, options.Parallel at a time, over every scope of
 // the command (see shared.callSlots). Each call records into a run of its
 // own (see Run.child), merged into the command's run in the order of
-// calls, so the report doesn't depend on which finished first. The first
+// calls, so the report doesn't depend on which finished first; each logs
+// when it starts and finishes listing, and generating its roots. The first
 // call that fails stops the others, and its error is the scope's; nothing
 // is generated after a call fails to list.
 func ImportCalls(ctx context.Context, calls []Call) error {
@@ -98,8 +99,15 @@ func ImportCalls(ctx context.Context, calls []Call) error {
 
 // logWhere logs what the call covers, if Where says.
 func (c Call) logWhere() {
+	c.logStep("importing resources")
+}
+
+// logStep logs that the call got to step, such as "listed resources", in
+// what it covers, if Where says: with calls running at once, the log
+// tells when each starts and finishes listing and generating.
+func (c Call) logStep(step string) {
 	if c.Where != "" {
-		log.Printf("%s: importing resources in %s", c.Provider.Name(), c.Where)
+		log.Printf("%s: %s in %s", c.Provider.Name(), step, c.Where)
 	}
 }
 
@@ -153,6 +161,9 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 		calls[i].logWhere()
 		var err error
 		listed[i], err = steps.list(ctx, runs[i], calls[i])
+		if err == nil {
+			calls[i].logStep("listed resources")
+		}
 		return err
 	})
 	if err != nil || options.Discover {
@@ -176,9 +187,17 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 		if runs[i].lock == nil {
 			runs[i].lock = seed
 		}
+		// A call that found nothing has no roots to log.
+		roots := len(listed[i].byDir) > 0
+		if roots {
+			calls[i].logStep("generating the roots")
+		}
 		err := steps.generate(ctx, listed[i], scopeRoots(byDirs, i))
 		if i < lead && seed == nil {
 			seed = runs[i].lock
+		}
+		if err == nil && roots {
+			calls[i].logStep("generated the roots")
 		}
 		return err
 	})

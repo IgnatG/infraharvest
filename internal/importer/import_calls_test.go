@@ -4,8 +4,10 @@
 package importer
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -117,6 +119,40 @@ func TestImportCallsListAllThenGenerate(t *testing.T) {
 	}
 	if run.discovered["aws_vpc"] != 3 || len(run.report.Scopes) != 3 || !run.used || string(run.lock) != "lock of global" {
 		t.Errorf("discovered %v, scopes %v, used %v, lock %q", run.discovered, run.report.Scopes, run.used, run.lock)
+	}
+}
+
+// Each call logs when it starts and finishes listing and generating, by
+// what it covers.
+func TestImportCallsLogSteps(t *testing.T) {
+	var logged bytes.Buffer
+	writer, flags := log.Writer(), log.Flags()
+	log.SetOutput(&logged)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
+	calls := fakeCalls(Options{Out: "out", All: true}, "global", "eu-west-1")
+	for i, where := range []string{"the default region", "region eu-west-1"} {
+		calls[i].Provider, calls[i].Where = &namedProvider{name: "aws"}, where
+	}
+	calls[0].First = true
+	if err := importCalls(t.Context(), NewRun(), calls, newFakeSteps().steps()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"aws: importing resources in the default region",
+		"aws: listed resources in the default region",
+		"aws: importing resources in region eu-west-1",
+		"aws: listed resources in region eu-west-1",
+		"aws: generating the roots in the default region",
+		"aws: generated the roots in the default region",
+		"aws: generating the roots in region eu-west-1",
+		"aws: generated the roots in region eu-west-1",
+	}
+	if got := strings.Split(strings.TrimSpace(logged.String()), "\n"); !slices.Equal(got, want) {
+		t.Errorf("logged\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
