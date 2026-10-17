@@ -118,11 +118,11 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 			}))
 	case signInWithManagedIdentity:
 		if cfg.msiEndpoint != "" {
-			return &msiEndpointCredential{
+			return cacheTokens(&msiEndpointCredential{
 				endpoint: cfg.msiEndpoint,
 				clientID: cfg.clientID,
 				client:   &http.Client{Timeout: signInHTTPTimeout},
-			}, nil
+			}), nil
 		}
 		msiOptions := &azidentity.ManagedIdentityCredentialOptions{ClientOptions: options}
 		if cfg.clientID != "" {
@@ -132,10 +132,16 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 		}
 		return asCredential(azidentity.NewManagedIdentityCredential(msiOptions))
 	}
-	return asCredential(azidentity.NewAzureCLICredential(&azidentity.AzureCLICredentialOptions{
+	// The Azure CLI and ARM_MSI_ENDPOINT credentials keep no tokens, unlike
+	// azidentity's others, so they are kept here (see cachedCredential).
+	cli, err := azidentity.NewAzureCLICredential(&azidentity.AzureCLICredentialOptions{
 		TenantID:                   cfg.tenantID,
 		AdditionallyAllowedTenants: cfg.auxiliaryTenants,
-	}))
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cacheTokens(cli), nil
 }
 
 // asCredential returns a constructor's credential as an interface, and a
@@ -238,7 +244,8 @@ type msiEndpointCredential struct {
 }
 
 // GetToken asks the endpoint for a token for the one resource the scope
-// names. azcore's bearer token policy caches the token until it expires.
+// names. newCredential keeps its tokens (see cachedCredential): azcore
+// keeps them only in each client's bearer token policy.
 func (c *msiEndpointCredential) GetToken(ctx context.Context, options policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	if len(options.Scopes) != 1 {
 		return azcore.AccessToken{}, fmt.Errorf("a managed identity token is for one scope, not %d", len(options.Scopes))
