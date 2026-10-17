@@ -310,7 +310,8 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 			return nil, errors.New("--managed-state=backend needs an S3, GCS or azurerm backend in the configuration file")
 		}
 	}
-	state, err := managed.Load(ctx, resolved, managed.DefaultStores)
+	// Every account and region of the command reads the same state.
+	state, err := run.shared.managedState(ctx, resolved, managed.DefaultStores)
 	if err != nil {
 		return nil, err
 	}

@@ -380,3 +380,31 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 		t.Errorf("a filtered discover dropped entries: %+v", updated.Resources)
 	}
 }
+
+// The state --managed-state names is read once per command: the other
+// Import calls, and the accounts imported alongside, reuse it.
+func TestExcludeManagedReadsStateOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terraform.tfstate")
+	content := `{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "old-archive"}}]}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := NewRun()
+	options := Options{ManagedState: []string{path}}
+	if _, err := excludeManaged(t.Context(), run, options, listedForSelection, nil, importIDForSelection); err != nil {
+		t.Fatal(err)
+	}
+	// Gone now: a second read would fail.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []*Run{run, run.child()} {
+		defaults, err := excludeManaged(t.Context(), r, options, listedForSelection, nil, importIDForSelection)
+		if err != nil {
+			t.Fatalf("the state was read again: %v", err)
+		}
+		if _, ok := defaults["aws_s3_bucket old-archive"]; !ok {
+			t.Errorf("defaults: %v", defaults)
+		}
+	}
+}

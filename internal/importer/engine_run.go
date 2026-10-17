@@ -4,16 +4,20 @@
 package importer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/spf13/pflag"
 
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -46,6 +50,8 @@ type Run struct {
 	backend *config.Backend
 	// modules are the organisation's own modules, if configured.
 	modules []config.Module
+	// shared is what the run and its children work out once.
+	shared *shared
 	// OpenPicker opens the picker on the selection file discover writes,
 	// when run in a terminal (see pick).
 	OpenPicker bool
@@ -55,12 +61,42 @@ type Run struct {
 	used  bool
 }
 
+// shared is what a run and its children (see Run.child) work out once for
+// the whole command, whichever needs it first: the Import calls of every
+// account and region read the same input.
+type shared struct {
+	mu sync.Mutex
+	// managed is the state --managed-state names, by its sources as
+	// resolved (see managedState).
+	managed map[string]managed.Resources
+}
+
+// managedState returns the managed resources of the state in sources,
+// resolved (see excludeManaged), loading them on first use only.
+func (s *shared) managedState(ctx context.Context, sources []string, stores managed.Stores) (managed.Resources, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := strings.Join(sources, "\n")
+	if state, ok := s.managed[key]; ok {
+		return state, nil
+	}
+	state, err := managed.Load(ctx, sources, stores)
+	if err != nil {
+		return nil, err
+	}
+	if s.managed == nil {
+		s.managed = map[string]managed.Resources{}
+	}
+	s.managed[key] = state
+	return state, nil
+}
+
 // activeRun is the run of the provider command being executed, if any.
 // A process runs one command at a time.
 var activeRun *Run
 
 func NewRun() *Run {
-	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}}
+	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}, shared: &shared{}}
 }
 
 // recordFailure records that part of the command couldn't run, such as one
@@ -140,7 +176,7 @@ func couldNotRun(err, writeErr error) error {
 // everything else to itself until r merges it.
 func (r *Run) child() *Run {
 	c := NewRun()
-	c.selection, c.backend, c.lock, c.modules = r.selection, r.backend, r.lock, r.modules
+	c.selection, c.backend, c.lock, c.modules, c.shared = r.selection, r.backend, r.lock, r.modules, r.shared
 	return c
 }
 
