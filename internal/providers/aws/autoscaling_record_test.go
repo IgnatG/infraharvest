@@ -3,14 +3,17 @@
 
 package aws
 
-import "testing"
+import (
+	"maps"
+	"testing"
+)
 
 const recordAutoScalingNS = "http://autoscaling.amazonaws.com/doc/2011-01-01/"
 
 // The lister lists, across pages and in this order, Auto Scaling groups by
-// name with fixed attributes, launch configurations by name, with
-// user_data_base64 set to "=" when they have user data, and EC2 launch
-// templates by ID, named after their name.
+// name with fixed attributes and their tags, launch configurations by name,
+// with user_data_base64 set to "=" when they have user data, and EC2 launch
+// templates by ID, named after their name, with their tags.
 func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 	useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
@@ -22,6 +25,7 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 			}
 			return recordQuery(call.Op, recordAutoScalingNS, `<AutoScalingGroups><member>
 				<AutoScalingGroupName>web</AutoScalingGroupName><MinSize>2</MinSize><MaxSize>6</MaxSize>
+				<Tags><member><ResourceId>web</ResourceId><ResourceType>auto-scaling-group</ResourceType><Key>eks:nodegroup-name</Key><Value>workers</Value><PropagateAtLaunch>true</PropagateAtLaunch></member></Tags>
 				</member></AutoScalingGroups><NextToken>`+nextPageToken+`</NextToken>`)
 		case "DescribeLaunchConfigurations":
 			if recordSecondPage(call) {
@@ -40,6 +44,7 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 			}
 			return recordEC2(call.Op, `<launchTemplates><item>
 				<launchTemplateId>lt-0a1</launchTemplateId><launchTemplateName>web</launchTemplateName>
+				<tagSet><item><key>eks:nodegroup-name</key><value>workers</value></item></tagSet>
 				</item></launchTemplates><nextToken>`+nextPageToken+`</nextToken>`)
 		}
 		return recordUnexpected(t, call)
@@ -55,12 +60,14 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 		"metrics_granularity":       "1Minute",
 		"wait_for_capacity_timeout": "10m",
 	}
+	webAttributes := maps.Clone(groupAttributes)
+	webAttributes["tags.eks:nodegroup-name"] = "workers"
 	assertRecorded(t, g.Resources,
-		recordedResource{"aws_autoscaling_group", "web", "web", groupAttributes},
+		recordedResource{"aws_autoscaling_group", "web", "web", webAttributes},
 		recordedResource{"aws_autoscaling_group", "batch", "batch", groupAttributes},
 		recordedResource{"aws_launch_configuration", "web-v3", "web-v3", map[string]string{"user_data_base64": "="}},
 		recordedResource{"aws_launch_configuration", "batch-v1", "batch-v1", nil},
-		recordedResource{"aws_launch_template", "lt-0a1", "web", nil},
+		recordedResource{"aws_launch_template", "lt-0a1", "web", map[string]string{"tags.eks:nodegroup-name": "workers"}},
 		recordedResource{"aws_launch_template", "lt-0b2", "batch", nil},
 	)
 }

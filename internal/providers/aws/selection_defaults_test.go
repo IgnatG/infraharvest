@@ -236,3 +236,38 @@ func TestExcludedByDefaultServiceGrants(t *testing.T) {
 		t.Errorf("got %v, want %v", excluded, want)
 	}
 }
+
+// The Auto Scaling groups and launch templates EKS creates for a managed
+// node group, which the auto_scaling lister records with their tags, are
+// left out, naming the node group, without asking AWS more than for the
+// stacks; others stay, a launch template tagged only with the cluster
+// included.
+func TestExcludedByDefaultEKSNodeGroups(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListStacks" {
+			return noStacks
+		}
+		return recordUnexpected(t, call)
+	})
+	p := &Provider{region: "eu-west-2"}
+	nodeGroup := map[string]string{"tags.eks:cluster-name": "prod", "tags.eks:nodegroup-name": "workers"}
+
+	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+		harvest.Record("eks-workers-1a2b", "eks-workers-1a2b", "aws_autoscaling_group", "aws", nodeGroup),
+		harvest.Record("lt-eks", "eks-1a2b", "aws_launch_template", "aws", nodeGroup),
+		harvest.Record("web", "web", "aws_autoscaling_group", "aws", map[string]string{"tags.Name": "web"}),
+		harvest.Record("lt-web", "web", "aws_launch_template", "aws", map[string]string{"tags.eks:cluster-name": "prod"}),
+		harvest.Record("arn:aws:eks:eu-west-2:123456789012:nodegroup/prod/workers/1a2b", "workers", "aws_eks_node_group", "aws", nodeGroup),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"aws_autoscaling_group eks-workers-1a2b": reasonEKSNodeGroup("workers"),
+		"aws_launch_template lt-eks":             reasonEKSNodeGroup("workers"),
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+}
