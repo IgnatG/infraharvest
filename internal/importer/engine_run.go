@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -35,6 +36,12 @@ type Run struct {
 	selection *selection.File
 	// listed are the resources discover lists into a selection file.
 	listed []selection.Resource
+	// covered are the services discover listed, by scope and service (see
+	// coverKey), and filtered is whether it listed with --id, --tag or
+	// --where: the selection file drops only the entries of what discover
+	// listed in full (see covers).
+	covered  map[string]bool
+	filtered bool
 	// backend is the state backend of the generated roots, if configured.
 	backend *config.Backend
 	// modules are the organisation's own modules, if configured.
@@ -53,7 +60,7 @@ type Run struct {
 var activeRun *Run
 
 func NewRun() *Run {
-	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}}
+	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}}
 }
 
 // recordFailure records that part of the command couldn't run, such as one
@@ -158,6 +165,8 @@ func (r *Run) merge(child *Run) {
 	}
 	r.failures = append(r.failures, child.failures...)
 	r.listed = append(r.listed, child.listed...)
+	maps.Copy(r.covered, child.covered)
+	r.filtered = r.filtered || child.filtered
 	if r.lock == nil {
 		r.lock = child.lock
 	}

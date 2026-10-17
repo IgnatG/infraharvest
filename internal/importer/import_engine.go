@@ -157,6 +157,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 		run.options = options
 		run.failures = append(run.failures, failures...)
 		run.addDiscovered(listed, defaults, scope, importID)
+		run.cover(scope, options)
 		return nil
 	}
 	chosen, err := run.selectionFile(options.Selection)

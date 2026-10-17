@@ -172,7 +172,7 @@ func (r *Run) selectResources(listed listing, defaults map[string]string, f *sel
 // selection file discover writes, in scope (see discoveryScope), included
 // unless the provider's defaults exclude them.
 func (r *Run) addDiscovered(listed listing, defaults map[string]string, scope string, importID func(harvest.Resource) (string, bool)) {
-	for _, resources := range listed.resources {
+	for service, resources := range listed.resources {
 		for _, res := range resources {
 			id, importable := importID(res)
 			if !importable {
@@ -184,6 +184,7 @@ func (r *Run) addDiscovered(listed listing, defaults map[string]string, scope st
 				ID:      id,
 				Name:    res.RawName,
 				Scope:   scope,
+				Service: service,
 				Tags:    listed.tagsOf(res),
 				Include: reason == "",
 				Reason:  reason,
@@ -200,8 +201,45 @@ func (r *Run) selectionPath() string {
 	return r.options.Selection
 }
 
-// writeSelection writes what discover listed; with partial set, as after a
-// failed listing, it keeps the entries of the file it didn't list.
+// coverKey is how Run.covered keys a service listed in scope.
+func coverKey(scope, service string) string {
+	return scope + "\n" + service
+}
+
+// cover records that discover listed options.Services in scope, and
+// whether it listed them with filters (see covers).
+func (r *Run) cover(scope string, options Options) {
+	for _, service := range options.Services {
+		r.covered[coverKey(scope, service)] = true
+	}
+	r.filtered = r.filtered || len(options.filterArgs()) > 0
+}
+
+// covers returns a func that reports whether discover listed everything
+// that would list an entry of the selection file, so that one it no longer
+// found is gone: its service in its scope, listed without filters, or for
+// an entry written before entries named their service, its type in its
+// scope. With partial set, as after a failed listing, it covers none: what
+// didn't list may be only what failed.
+func (r *Run) covers(partial bool) func(selection.Resource) bool {
+	if partial || r.filtered {
+		return func(selection.Resource) bool { return false }
+	}
+	types := map[string]bool{}
+	for _, l := range r.listed {
+		types[coverKey(l.Scope, l.Type)] = true
+	}
+	return func(e selection.Resource) bool {
+		if e.Service != "" {
+			return r.covered[coverKey(e.Scope, e.Service)]
+		}
+		return types[coverKey(e.Scope, e.Type)]
+	}
+}
+
+// writeSelection writes what discover listed; it keeps the entries of the
+// file in what it didn't list (see covers), with partial set, as after a
+// failed listing, all of them.
 func (r *Run) writeSelection(partial bool) error {
 	path := r.selectionPath()
 	f, err := selection.Load(path)
@@ -209,7 +247,7 @@ func (r *Run) writeSelection(partial bool) error {
 	case errors.Is(err, fs.ErrNotExist):
 		// Merge lists each resource once; nothing is new in a first file.
 		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
-		f.Merge(r.listed, false)
+		f.Merge(r.listed, nil)
 		for i := range f.Resources {
 			f.Resources[i].New = false
 		}
@@ -217,11 +255,14 @@ func (r *Run) writeSelection(partial bool) error {
 		return err
 	default:
 		// Running discover again: keep the decisions people made.
-		added, dropped := f.Merge(r.listed, partial)
-		if partial {
+		added, dropped := f.Merge(r.listed, r.covers(partial))
+		switch {
+		case partial:
 			log.Printf("updated %s: %d new resources marked new: true for review; the listing failed in part, so the entries it didn't find stay", path, added)
-		} else {
-			log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped", path, added, dropped)
+		case r.filtered:
+			log.Printf("updated %s: %d new resources marked new: true for review; listed with filters, so the entries it didn't find stay", path, added)
+		default:
+			log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped; entries of what it didn't list stay", path, added, dropped)
 		}
 	}
 	if err := f.Save(path); err != nil {
