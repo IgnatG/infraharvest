@@ -691,3 +691,12 @@ func TestGraphNameOfAssociations(t *testing.T) {
 		t.Errorf("subnet: got %q, want app", got)
 	}
 }
+
+// azlist lists child resources childListParallel at a time, not one per
+// CPU, recursively and with managed resources.
+func TestListerOption(t *testing.T) {
+	opt := listerOption("00000000-0000-0000-0000-000000000001", nil, arm.ClientOptions{})
+	if opt.Parallelism != childListParallel || !opt.Recursive || !opt.IncludeManaged || opt.SubscriptionId != "00000000-0000-0000-0000-000000000001" {
+		t.Errorf("option %+v", opt)
+	}
+}

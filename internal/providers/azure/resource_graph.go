@@ -106,13 +106,7 @@ func (g *ResourceGraphLister) List() error {
 	// machine's data disk attachments, which need the disks. The
 	// catalogue's skip rules leave out what another resource owns (see
 	// graphAttributes).
-	lister, err := azlist.NewLister(azlist.Option{
-		SubscriptionId: subscriptionID,
-		Cred:           credential,
-		ClientOpt:      clientOptions,
-		Recursive:      true,
-		IncludeManaged: true,
-	})
+	lister, err := azlist.NewLister(listerOption(subscriptionID, credential, clientOptions))
 	if err != nil {
 		return err
 	}
@@ -163,6 +157,25 @@ func (g *ResourceGraphLister) List() error {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}
 	return childErr
+}
+
+// childListParallel is how many child resource lists azlist has in flight:
+// near the rate limit of a subscription, whatever the machine's CPUs, which
+// azlist would take, leaving a 2-CPU runner far below the limit and
+// starting dozens of waiting workers on a large one.
+const childListParallel = 16
+
+// listerOption is how resource_graph lists through azlist: recursively,
+// with managed resources too, childListParallel lists at once.
+func listerOption(subscriptionID string, credential azcore.TokenCredential, clientOptions arm.ClientOptions) azlist.Option {
+	return azlist.Option{
+		SubscriptionId: subscriptionID,
+		Cred:           credential,
+		ClientOpt:      clientOptions,
+		Parallelism:    childListParallel,
+		Recursive:      true,
+		IncludeManaged: true,
+	}
 }
 
 // resourceGroupsQuery lists the resource groups that predicate (see
