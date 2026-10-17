@@ -258,3 +258,28 @@ func TestLookupMatchesCaseAndAliases(t *testing.T) {
 		}
 	}
 }
+
+// The azurerm backend keeps a workspace's state at <key>env:<workspace>,
+// which is read too; in a bucket, such a name isn't state.
+func TestLoadReadsAzureWorkspaces(t *testing.T) {
+	staging := `{"version": 4, "resources": [{"mode": "managed", "type": "azurerm_resource_group", "instances": [{"attributes": {"id": "/subscriptions/1/resourceGroups/staging"}}]}]}`
+	blobs := fakeStore{
+		"prod/terraform.tfstate":            `{"version": 4, "resources": []}`,
+		"prod/terraform.tfstateenv:staging": staging,
+		"prod/terraform.tfstate.backup":     "not state",
+	}
+	stores := Stores{
+		AzureBlob: func(context.Context, string) (ObjectStore, error) { return containerStore{"tfstate", blobs}, nil },
+	}
+	r, err := Load(context.Background(), []string{"https://acmestate.blob.core.windows.net/tfstate/prod/"}, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	where, ok := r.Lookup("azurerm_resource_group", "/subscriptions/1/resourceGroups/staging")
+	if !ok || where != "https://acmestate.blob.core.windows.net/tfstate/prod/terraform.tfstateenv:staging" {
+		t.Errorf("the staging workspace's state: %q, %v", where, ok)
+	}
+	if isStateObject("s3", "prod/terraform.tfstateenv:staging") {
+		t.Error("an S3 object named like an azurerm workspace isn't state")
+	}
+}

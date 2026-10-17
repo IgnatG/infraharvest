@@ -265,7 +265,7 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	}
 	found := 0
 	for _, key := range keys {
-		if !strings.HasSuffix(key, ".tfstate") {
+		if !isStateObject(o.url.Scheme, key) {
 			continue
 		}
 		found++
@@ -281,6 +281,14 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 		return errors.New("no .tfstate object under the prefix")
 	}
 	return nil
+}
+
+// isStateObject reports whether the object at key, in a store of scheme
+// (s3, gs or https for Blob Storage), is state: a *.tfstate object, or in
+// Blob Storage, where the azurerm backend keeps the state of a workspace
+// other than default at <key>env:<workspace>, one of those.
+func isStateObject(scheme, key string) bool {
+	return strings.HasSuffix(key, ".tfstate") || (scheme == "https" && strings.Contains(key, ".tfstateenv:"))
 }
 
 // loadWorkspaces reads the current state of the workspaces a
