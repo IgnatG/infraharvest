@@ -80,6 +80,7 @@ make ci-lint                                   # MegaLinter, golangci-lint inclu
 make ci-check PKG=./internal/engine/...        # go vet and go test, on ubuntu-latest
 make ci-check PKG=./internal/fsutil/... RUNNER=windows-latest
 make ci-watch RUN=<run-id>                     # follow a run until it ends
+make ci-bench BENCH=ScanSecrets BASE=<sha>     # benchmarks with CPU profiles, compared with a commit
 ```
 
 Without `make`, the same with `gh`:

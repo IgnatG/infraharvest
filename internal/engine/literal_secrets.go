@@ -36,7 +36,7 @@ import (
 // container's env. The functions below find the secrets among those values,
 // by the name they go by and by their shape, so that Generate moves them
 // into sensitive variables (see literalSecretsToVariables) and the
-// verification gate fails on any that remains (see scanLiteralSecrets).
+// verification gate fails on any that remains (see literalSecrets).
 
 // foundSecret is a secret value written in a string literal of the
 // configuration.
@@ -919,13 +919,14 @@ func redactBytes(b []byte, secrets []Secret) []byte {
 	return []byte(redact(string(b), secrets))
 }
 
-// scanLiteralSecrets returns, for a .tf or .hcl file, a finding for each
+// literalSecrets returns, for a .tf or .hcl file, a finding for each
 // secret value secretsInBody finds in any of its blocks.
-func scanLiteralSecrets(rel, content string) []string {
+func literalSecrets(f *parsedFile) []string {
+	rel := f.rel
 	if !strings.HasSuffix(rel, ".tf") && !strings.HasSuffix(rel, ".hcl") {
 		return nil
 	}
-	body, ok := parseBody(rel, content)
+	body, ok := f.body()
 	if !ok {
 		return nil
 	}

@@ -12,7 +12,7 @@ import (
 // scopeRoots returns the roots the Import calls of one scope generate,
 // the imports of each call's roots by directory (see listedCall), as call
 // own sees them: its own roots with those of every other call, so that
-// each refers to the others (see withOtherRoots), the regional roots of an
+// each refers to the others (see otherRoots), the regional roots of an
 // AWS account to its global root and the global root to the regional ones.
 // A directory of call own is its own, whatever another call puts there.
 func scopeRoots(byDirs []map[string][]engine.Import, own int) map[string][]engine.Import {

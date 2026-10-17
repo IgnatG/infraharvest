@@ -20,6 +20,14 @@ name: remote
 #   tidy    runs go mod tidy and uploads go.mod and go.sum as the artifact
 #           go-mod; pushing a branch named tidy/<anything> does the same:
 #             gh workflow run remote --ref <branch> -f task=tidy
+#   bench   runs the benchmarks bench matches in each of the packages (the
+#           default ./internal/engine ./internal/importer), count times,
+#           with a CPU profile per package, and puts the profile's top
+#           functions in the job summary. With base, a commit that has the
+#           same benchmarks, it runs them there too and compares the two
+#           with benchstat. It uploads the results and profiles as the
+#           artifact bench:
+#             gh workflow run remote --ref <branch> -f task=bench -f bench=ScanSecrets -f base=<sha>
 #
 # Download an artifact from the repository's root, then review and commit
 # it:
@@ -32,10 +40,10 @@ on:
       task:
         description: What to run
         type: choice
-        options: [check, golden, tidy]
+        options: [check, golden, tidy, bench]
         default: check
       packages:
-        description: Space-separated Go package patterns (default ./... for check, ./internal/catalogue for golden; tidy takes none)
+        description: Space-separated Go package patterns (default ./... for check, ./internal/catalogue for golden, ./internal/engine ./internal/importer for bench; tidy takes none)
         type: string
         required: false
         default: ""
@@ -44,6 +52,21 @@ on:
         type: choice
         options: [ubuntu-latest, windows-latest, macos-latest]
         default: ubuntu-latest
+      bench:
+        description: For bench, the benchmarks to run, as go test -bench takes them
+        type: string
+        required: false
+        default: "."
+      count:
+        description: For bench, how many times to run each benchmark (benchstat wants at least 6)
+        type: string
+        required: false
+        default: "10"
+      base:
+        description: For bench, a commit to compare with (full or short SHA)
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -66,13 +89,36 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || (startsWith(github.ref, 'refs/heads/golden/') && 'golden' || 'tidy') }}
           PACKAGES: ${{ inputs.packages }}
+          BENCH: ${{ inputs.bench }}
+          COUNT: ${{ inputs.count }}
+          BASE: ${{ inputs.base }}
         run: |
           case $TASK in
             check) PACKAGES=${PACKAGES:-./...} ;;
             golden) PACKAGES=${PACKAGES:-./internal/catalogue} ;;
             tidy) PACKAGES= ;;
-            *) echo "::error::unknown task '$TASK': use check, golden or tidy"; exit 1 ;;
+            bench) PACKAGES=${PACKAGES:-./internal/engine ./internal/importer} ;;
+            *) echo "::error::unknown task '$TASK': use check, golden, tidy or bench"; exit 1 ;;
           esac
+          if [ "$TASK" = bench ]; then
+            if ! [[ "${COUNT:-10}" =~ ^[1-9][0-9]?$ ]]; then
+              echo "::error::count must be a number from 1 to 99"
+              exit 1
+            fi
+            if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^[0-9a-f]{7,40}$ ]]; then
+              echo "::error::base must be a commit SHA"
+              exit 1
+            fi
+            if [[ "${BENCH:-.}" == -* ]]; then
+              echo "::error::bench may not start with '-'"
+              exit 1
+            fi
+            {
+              echo "BENCH=${BENCH:-.}"
+              echo "COUNT=${COUNT:-10}"
+              echo "BASE=$BASE"
+            } >> "$GITHUB_ENV"
+          fi
           for package in $PACKAGES; do
             if ! [[ "$package" =~ ^[A-Za-z0-9_.][A-Za-z0-9_./-]*$ ]]; then
               echo "::error::package pattern '$package' may contain only letters, digits, '_', '.', '/' and '-', and may not start with '-'"
@@ -117,6 +163,53 @@ jobs:
             **/testdata/**/*.golden.*
             docs/reference/*.md
           retention-days: 1
+
+      - name: Benchmark
+        if: env.TASK == 'bench'
+        # One go test per package, so that each gets a CPU profile.
+        run: |
+          mkdir -p bench
+          for package in $PACKAGES; do
+            name=$(echo "$package" | tr -c 'A-Za-z0-9\n' _)
+            go test -run '^$' -bench "$BENCH" -benchmem -count "$COUNT" -cpuprofile "bench/cpu$name.out" "$package" | tee -a bench/head.txt
+            if [ -s "bench/cpu$name.out" ]; then
+              {
+                echo "### CPU profile of $package"
+                echo '```'
+                go tool pprof -top -nodecount=25 "bench/cpu$name.out" 2>/dev/null
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.TASK == 'bench' && env.BASE != ''
+        with:
+          ref: ${{ env.BASE }}
+          path: base
+          persist-credentials: false
+      - name: Benchmark the base
+        if: env.TASK == 'bench' && env.BASE != ''
+        working-directory: base
+        run: |
+          for package in $PACKAGES; do
+            go test -run '^$' -bench "$BENCH" -benchmem -count "$COUNT" "$package" | tee -a ../bench/base.txt
+          done
+      - name: Compare
+        if: env.TASK == 'bench' && env.BASE != ''
+        run: |
+          go run golang.org/x/perf/cmd/benchstat@v0.0.0-20260929162123-406019bb8b68 base=bench/base.txt head=bench/head.txt | tee bench/benchstat.txt
+          {
+            echo "### benchstat, $BASE against ${GITHUB_SHA::12}"
+            echo '```'
+            cat bench/benchstat.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.TASK == 'bench'
+        with:
+          name: bench
+          path: bench/
+          retention-days: 7
 
       - name: go mod tidy
         if: env.TASK == 'tidy'

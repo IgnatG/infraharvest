@@ -503,6 +503,18 @@ func copyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
 	return copied, nil
 }
 
+// prefixRename makes the references that begin with search begin with
+// replacement instead (see renameIn).
+type prefixRename struct{ search, replacement []string }
+
+// renameAll applies renames to body and its nested blocks, in order: those
+// byStart, their index (see indexRenames), finds in body.
+func renameAll(body *hclwrite.Body, renames []prefixRename, byStart renameIndex) {
+	for _, i := range byStart.in(body) {
+		renameIn(body, renames[i].search, renames[i].replacement)
+	}
+}
+
 // renameIn renames references with prefix search to replacement, in body
 // and its nested blocks.
 func renameIn(body *hclwrite.Body, search, replacement []string) {
@@ -676,8 +688,7 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 	resources := generated.resources()
 	movedBlocks := map[*hclwrite.Block]bool{}
 	importTo := map[string][]string{}
-	type rename struct{ search, replacement []string }
-	var renames []rename
+	var renames []prefixRename
 	var calls []*hclwrite.Block
 	used := map[string]bool{}
 	for _, g := range groups {
@@ -695,7 +706,7 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 				importTo[m.address] = []string{"module", call, resourceTypeOf(m.address), c.slots[i]}
 				typ, name, _ := strings.Cut(m.address, ".")
 				for _, attr := range moduleOutputs {
-					renames = append(renames, rename{[]string{typ, name, attr}, []string{"module", call, outputName(c.slots[i], attr)}})
+					renames = append(renames, prefixRename{[]string{typ, name, attr}, []string{"module", call, outputName(c.slots[i], attr)}})
 				}
 			}
 			callBlock := hclwrite.NewBlock("module", []string{call})
@@ -710,19 +721,16 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 			calls = append(calls, callBlock)
 		}
 	}
+	byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
 	for _, r := range resources {
 		if movedBlocks[r.write] {
 			body.RemoveBlock(r.write)
 			continue
 		}
-		for _, rn := range renames {
-			renameIn(r.write.Body(), rn.search, rn.replacement)
-		}
+		renameAll(r.write.Body(), renames, byStart)
 	}
 	for _, callBlock := range calls {
-		for _, rn := range renames {
-			renameIn(callBlock.Body(), rn.search, rn.replacement)
-		}
+		renameAll(callBlock.Body(), renames, byStart)
 		body.AppendNewline()
 		body.AppendBlock(callBlock)
 	}

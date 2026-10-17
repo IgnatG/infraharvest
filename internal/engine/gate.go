@@ -515,24 +515,77 @@ func sortedKeys[V any](m map[string]V) []string {
 // sensitive values and the secret values Generate found, for credential
 // formats, for provider blocks that set a credential argument to a
 // constant (see IsCredentialArgument), and for any secret value written in
-// the configuration (see scanLiteralSecrets).
+// the configuration (see literalSecrets).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
+	values := newValueMatcher(sensitive)
 	err := walkOutputAndModules(dir, func(rel string, content string) {
-		scanFile(&check, sensitive, rel, content)
+		scanFile(&check, values, rel, content)
 	})
 	return check, err
 }
 
+// valueMatcher finds whether a text holds any of a set of values, in one
+// pass over the text however many values there are: each run of
+// minSecretLength bytes of the text is looked up among the values' first
+// bytes, and only the values that start so are compared. A root may have
+// thousands of sensitive values, and a strings.Contains for each would read
+// every file that many times.
+type valueMatcher struct {
+	byPrefix map[uint64][]string
+	// short are the values shorter than minSecretLength, compared one by
+	// one.
+	short []string
+}
+
+func newValueMatcher(values []string) valueMatcher {
+	m := valueMatcher{byPrefix: map[uint64][]string{}}
+	for _, v := range values {
+		if len(v) < minSecretLength {
+			m.short = append(m.short, v)
+			continue
+		}
+		key := prefixKey(v)
+		m.byPrefix[key] = append(m.byPrefix[key], v)
+	}
+	return m
+}
+
+// prefixKey packs the first minSecretLength bytes of s into a number.
+func prefixKey(s string) uint64 {
+	var key uint64
+	for i := range minSecretLength {
+		key = key<<8 | uint64(s[i])
+	}
+	return key
+}
+
+// in reports whether content holds one of the values.
+func (m valueMatcher) in(content string) bool {
+	for _, v := range m.short {
+		if strings.Contains(content, v) {
+			return true
+		}
+	}
+	if len(m.byPrefix) == 0 {
+		return false
+	}
+	for i := 0; i+minSecretLength <= len(content); i++ {
+		for _, v := range m.byPrefix[prefixKey(content[i:])] {
+			if strings.HasPrefix(content[i:], v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // scanFile runs scanSecrets' checks on one file, rel, adding what it finds
 // to check.
-func scanFile(check *Check, sensitive []string, rel, content string) {
-	for _, v := range sensitive {
-		if strings.Contains(content, v) {
-			check.Passed = false
-			check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
-			break
-		}
+func scanFile(check *Check, sensitive valueMatcher, rel, content string) {
+	if sensitive.in(content) {
+		check.Passed = false
+		check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
 	}
 	for _, name := range secretPatternNames {
 		if secretPatterns[name].MatchString(content) {
@@ -544,13 +597,16 @@ func scanFile(check *Check, sensitive []string, rel, content string) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
 	}
-	for _, name := range providerCredentials(rel, content) {
+	// Parsed once for the checks below: parsing is most of what a scan
+	// costs.
+	parsed := &parsedFile{rel: rel, content: content}
+	for _, name := range providerCredentials(parsed) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
 	}
 	// What Generate moves into variables, should any remain or come
 	// back with an edit.
-	if findings := scanLiteralSecrets(rel, content); len(findings) > 0 {
+	if findings := literalSecrets(parsed); len(findings) > 0 {
 		check.Passed = false
 		check.Details = append(check.Details, findings...)
 	}
@@ -566,7 +622,7 @@ func checkReadme(dir string, result *Result, values []string) error {
 		return err
 	}
 	found := Check{Passed: true}
-	scanFile(&found, values, ReadmeFileName, string(content))
+	scanFile(&found, newValueMatcher(values), ReadmeFileName, string(content))
 	if found.Passed {
 		return nil
 	}
@@ -581,11 +637,11 @@ func checkReadme(dir string, result *Result, values []string) error {
 
 // providerCredentials returns the credential arguments the provider blocks
 // of a .tf file set to constants, sorted, as "provider.argument".
-func providerCredentials(rel, content string) []string {
-	if !strings.HasSuffix(rel, ".tf") {
+func providerCredentials(f *parsedFile) []string {
+	if !strings.HasSuffix(f.rel, ".tf") {
 		return nil
 	}
-	body, ok := parseBody(rel, content)
+	body, ok := f.body()
 	if !ok {
 		return nil
 	}
@@ -605,6 +661,23 @@ func providerCredentials(rel, content string) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// parsedFile is a file of the output, rel, parsed the first time a check
+// asks for its body (see parseBody).
+type parsedFile struct {
+	rel, content string
+	parsed       bool
+	syntax       *hclsyntax.Body
+	ok           bool
+}
+
+func (f *parsedFile) body() (*hclsyntax.Body, bool) {
+	if !f.parsed {
+		f.parsed = true
+		f.syntax, f.ok = parseBody(f.rel, f.content)
+	}
+	return f.syntax, f.ok
 }
 
 // parseBody parses a .tf file's content; a file that doesn't parse has
