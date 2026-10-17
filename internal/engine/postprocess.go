@@ -39,12 +39,13 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // configuration doesn't plan even so, only the literal lift is made,
 // checked by validation. Last, clusters of resources move into modules:
 // curated ones first (see synthesize), whose list outputs then replace
-// the lists of all their elements (see collapseOutputLists), then, once
-// the resources left in the root no longer repeat what the provider sets
-// (see omitInherited), generated local ones (see liftModules). It returns
-// the clusters it didn't move into a curated module, with why. planned, if
-// set, is a plan of the configuration as it is, with the same variables,
-// which it starts from instead of planning.
+// the lists of all their elements (see collapseOutputLists) and whose
+// calls refer to the project the root manages (see referToProjects),
+// then, once the resources left in the root no longer repeat what the
+// provider sets (see omitInherited), generated local ones (see
+// liftModules). It returns the clusters it didn't move into a curated
+// module, with why. planned, if set, is a plan of the configuration as it
+// is, with the same variables, which it starts from instead of planning.
 func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, secrets []Secret, planned *shownPlan) ([]ModuleCall, error) {
 	vars := append(placeholders(secrets), opts.secretValues.options()...)
 	baseline, values, changes, err := replanValues(ctx, tf, vars, planned)
@@ -143,6 +144,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
 			}})
 		}
+		after = append(after, tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return referToProjects(dir) }})
 	}
 	// After the curated modules, whose calls take the project from the
 	// resources; checked like the steps above.
