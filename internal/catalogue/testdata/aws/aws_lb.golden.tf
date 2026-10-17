@@ -5,7 +5,7 @@ import {
   id = "arn:aws:elasticloadbalancing:eu-west-2:123456789012:loadbalancer/app/web/0123456789abcdef"
 }
 
-# Left out where the plan stays the same, as the default: enable_prefix_for_ipv6_source_nat=off, ip_address_type=ipv4
+# Left out where the plan stays the same, as the default: enable_prefix_for_ipv6_source_nat=off, internal=false, ip_address_type=ipv4
 
 # Generated configuration, without the arguments the catalogue omits:
 resource "aws_lb" "web" {

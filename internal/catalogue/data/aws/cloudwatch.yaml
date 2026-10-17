@@ -10,6 +10,9 @@ types:
     defaults: [event_bus_name=default, state=ENABLED]
   aws_cloudwatch_metric_alarm:
     arn: { service: cloudwatch, resource_type: "alarm" }
+    # What AWS gives an alarm that doesn't set them: actions on, and
+    # missing data treated as missing.
+    defaults: [actions_enabled=true, treat_missing_data=missing]
     skip:
       - reason: an alarm a target tracking scaling policy creates and manages
         id_prefixes: [TargetTracking-]
