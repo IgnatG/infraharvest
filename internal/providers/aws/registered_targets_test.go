@@ -179,3 +179,55 @@ func TestExcludedByDefaultRegisteredTargetsReturnsErrors(t *testing.T) {
 		t.Errorf("got %v, want %v", excluded, want)
 	}
 }
+
+// The target groups the listed Auto Scaling groups and ECS services
+// recorded are claimed without a call: when they claim every listed target
+// group, neither Auto Scaling nor ECS is asked.
+func TestExcludedByDefaultRegisteredTargetsFromListed(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListStacks" {
+			return noStacks
+		}
+		return recordUnexpected(t, call)
+	})
+	p := &Provider{region: "us-east-1"}
+	group := map[string]string{}
+	recordTargetGroups(group, []string{recordTargetGroupARN + "asg/1", ""})
+	service := map[string]string{"cluster": "apps", "name": "api"}
+	recordTargetGroups(service, []string{recordTargetGroupARN + "ecs/1", recordTargetGroupARN + "alt/1"})
+	resources := []harvest.Resource{
+		harvest.Record("web", "web", "aws_autoscaling_group", "aws", group),
+		harvest.Record(recordEcsARN+"service/apps/api", "apps_api", "aws_ecs_service", "aws", service),
+		targetAttachment("asg", "i-1"),
+		targetAttachment("ecs", "10.0.0.1"),
+		targetAttachment("alt", "10.0.0.2"),
+	}
+
+	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		targetAttachmentType + " " + resources[2].Observed.ID: reasonRegisteredTarget("Auto Scaling group web"),
+		targetAttachmentType + " " + resources[3].Observed.ID: reasonRegisteredTarget("ECS service apps/api"),
+		targetAttachmentType + " " + resources[4].Observed.ID: reasonRegisteredTarget("ECS service apps/api"),
+	}
+	if !reflect.DeepEqual(excluded, want) {
+		t.Errorf("got %v, want %v", excluded, want)
+	}
+}
+
+// What recordTargetGroups records, recordedTargetGroups reads back, in
+// order and without the empty ones.
+func TestRecordedTargetGroups(t *testing.T) {
+	t.Parallel()
+	attributes := map[string]string{"name": "api"}
+	recordTargetGroups(attributes, []string{"a", "", "b"})
+	if got := recordedTargetGroups(attributes); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("got %v", got)
+	}
+	if got := recordedTargetGroups(map[string]string{}); got != nil {
+		t.Errorf("none recorded: got %v", got)
+	}
+}

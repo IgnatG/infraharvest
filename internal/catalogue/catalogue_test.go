@@ -708,3 +708,16 @@ func TestOmitInNestedBlocks(t *testing.T) {
 		}
 	}
 }
+
+// The types the default selection leaves out whole are those with a skip
+// rule for all of them.
+func TestSkippedWhole(t *testing.T) {
+	t.Parallel()
+	got := MustBuiltin("aws").SkippedWhole()
+	if !slices.Contains(got, "aws_iam_access_key") || slices.Contains(got, "aws_iam_role") {
+		t.Errorf("got %v", got)
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("not sorted: %v", got)
+	}
+}

@@ -273,3 +273,25 @@ func TestRecordIamAsksForFullPages(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// An import that leaves access keys out whatever is listed doesn't ask for
+// them, user by user.
+func TestRecordIamSkipsUnwantedAccessKeys(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		switch call.Op {
+		case "GetAccountAuthorizationDetails":
+			return recordIamDetails(call, `<UserDetailList>`+recordIamUser("bob", "AIDABOB", "")+`</UserDetailList>`, "")
+		case "ListInstanceProfiles":
+			return recordIamList(call, "InstanceProfiles", "", "")
+		}
+		return recordUnexpected(t, call)
+	})
+	p := &Provider{}
+	p.SetUnwantedTypes([]string{"aws_iam_access_key"})
+	g := p.withUnwanted(&IamLister{}).(*IamLister)
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+	assertRecorded(t, g.Resources, recordedResource{"aws_iam_user", "bob", "bob", map[string]string{"force_destroy": "false"}})
+}

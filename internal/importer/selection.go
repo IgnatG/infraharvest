@@ -75,6 +75,27 @@ func excludedByDefault(ctx context.Context, provider harvest.Provider, cat *cata
 	return excluded, err
 }
 
+// unwantedTypes returns the types an import with the selection file f, nil
+// for --all, leaves out whatever is listed: those the catalogue's default
+// selection leaves out whole (see catalogue.Catalogue.SkippedWhole), unless
+// f may include them (see selection.File.MayInclude).
+func unwantedTypes(cat *catalogue.Catalogue, f *selection.File) []string {
+	var types []string
+	for _, typ := range cat.SkippedWhole() {
+		if f == nil || !f.MayInclude(typ) {
+			types = append(types, typ)
+		}
+	}
+	return types
+}
+
+// unwantedTypesSetter is a provider whose listers can skip the calls that
+// list only resources of types the import leaves out (see unwantedTypes),
+// such as an AWS IAM user's access keys.
+type unwantedTypesSetter interface {
+	SetUnwantedTypes(types []string)
+}
+
 // withTagAttributes returns r with tags among its attributes, as
 // tags.<key>, in a copy: what the lister recorded stays as it is, and a
 // tag the lister recorded itself wins over the listed one. Without tags,

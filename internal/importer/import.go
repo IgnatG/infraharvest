@@ -155,6 +155,10 @@ type Options struct {
 	// --catalogue overlay merged in, once importInto has loaded it; the
 	// provider of each service listed is given it (see listServices).
 	cat *catalogue.Catalogue
+	// unwanted are the types the import leaves out whatever is listed (see
+	// unwantedTypes), whose listing the provider of each service listed may
+	// skip (see listServices).
+	unwanted []string
 	// tools are what the call reaches outside the process through; nil
 	// uses the real ones (see callTools).
 	tools *callTools
@@ -391,6 +395,9 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 		// import's provider has, before it makes the service's lister.
 		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && options.cat != nil {
 			p.SetCatalogue(options.cat)
+		}
+		if p, ok := serviceProvider.(unwantedTypesSetter); ok && len(options.unwanted) > 0 {
+			p.SetUnwantedTypes(options.unwanted)
 		}
 		discoverers = append(discoverers, discovery.Service(service, serviceProvider, options.Verbose, filters))
 	}

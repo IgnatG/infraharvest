@@ -47,7 +47,9 @@ func (g *AutoScalingLister) List() error {
 
 // listGroups records every Auto Scaling group by name, with its tags as
 // tags.<key>, which the answer has already: those of an EKS managed node
-// group tell that EKS manages it (see excludeEKSNodeGroups).
+// group tell that EKS manages it (see excludeEKSNodeGroups), and
+// the target groups it registers its instances in (see
+// targetGroupsAttribute).
 func (g *AutoScalingLister) listGroups(client *autoscaling.Client) error {
 	p := autoscaling.NewDescribeAutoScalingGroupsPaginator(client, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -61,6 +63,7 @@ func (g *AutoScalingLister) listGroups(client *autoscaling.Client) error {
 			for _, tag := range group.Tags {
 				attributes["tags."+aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 			}
+			recordTargetGroups(attributes, autoScalingGroupTargetGroups(group))
 			g.Resources = append(g.Resources, harvest.Record(name, name, "aws_autoscaling_group", "aws", attributes))
 		}
 	}

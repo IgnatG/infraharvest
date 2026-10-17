@@ -11,6 +11,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -405,6 +406,22 @@ func TestExcludeManagedReadsStateOnce(t *testing.T) {
 		}
 		if _, ok := defaults["aws_s3_bucket old-archive"]; !ok {
 			t.Errorf("defaults: %v", defaults)
+		}
+	}
+}
+
+// With --all, the types the default selection leaves out whole are
+// unwanted; a selection file that includes one wants it again.
+func TestUnwantedTypes(t *testing.T) {
+	t.Parallel()
+	cat := catalogue.MustBuiltin("aws")
+	if got := unwantedTypes(cat, nil); !reflect.DeepEqual(got, cat.SkippedWhole()) || len(got) == 0 {
+		t.Errorf("--all: got %v, want %v", got, cat.SkippedWhole())
+	}
+	f := &selection.File{Resources: []selection.Resource{{Type: "aws_iam_access_key", ID: "AKIA1", Include: true}}}
+	for _, typ := range unwantedTypes(cat, f) {
+		if typ == "aws_iam_access_key" {
+			t.Error("the selection file includes an access key, which is still unwanted")
 		}
 	}
 }

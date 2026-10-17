@@ -420,3 +420,28 @@ func TestPatternsMatch(t *testing.T) {
 		}
 	}
 }
+
+// A file may include a type an entry of it includes, or a rule includes
+// by type or for every type; an excluding entry or rule includes nothing.
+func TestMayInclude(t *testing.T) {
+	t.Parallel()
+	f := &File{
+		Resources: []Resource{
+			{Type: "aws_iam_access_key", ID: "AKIA1", Include: false},
+			{Type: "aws_s3_bucket", ID: "logs", Include: true},
+		},
+		Rules: []Rule{
+			{Include: &Match{Type: Patterns{"aws_sqs_*"}}},
+			{Exclude: &Match{Type: Patterns{"aws_iam_*"}}},
+		},
+	}
+	for typ, want := range map[string]bool{"aws_iam_access_key": false, "aws_s3_bucket": true, "aws_sqs_queue": true, "aws_sns_topic": false} {
+		if got := f.MayInclude(typ); got != want {
+			t.Errorf("%s: got %v, want %v", typ, got, want)
+		}
+	}
+	every := &File{Rules: []Rule{{Include: &Match{Tags: map[string]Patterns{"team": {"data"}}}}}}
+	if !every.MayInclude("aws_iam_access_key") {
+		t.Error("a rule for every type doesn't include access keys")
+	}
+}
