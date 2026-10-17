@@ -52,6 +52,9 @@ jobs:
   run:
     name: ${{ github.event_name == 'workflow_dispatch' && inputs.task || (startsWith(github.ref, 'refs/heads/golden/') && 'golden' || 'tidy') }}
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'check' && inputs.os || 'ubuntu-latest' }}
+    # A cold macOS or Windows build of every package takes about 40
+    # minutes.
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
