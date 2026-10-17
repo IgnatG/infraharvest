@@ -114,6 +114,9 @@ type Options struct {
 	// ReuseInventory imports from what discover listed, instead of listing
 	// again.
 	ReuseInventory bool
+	// ForceUnlock writes to Out even when another run holds its lock, or
+	// the lock can't be taken (see lockOutput).
+	ForceUnlock bool
 
 	// Where the provider lists: read by the provider commands only.
 

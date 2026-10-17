@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -76,6 +77,13 @@ type shared struct {
 	ownMu      sync.Mutex
 	own        []adapters.Adapter
 	ownFetched bool
+
+	// outLock is the output directory's lock, which outLocked says the
+	// command has taken, held until the run finishes (see Run.lockOut). It
+	// is nil when --force-unlock went on without it.
+	outMu     sync.Mutex
+	outLock   *filelock.Lock
+	outLocked bool
 }
 
 // ownAdapters returns the adapters of the organisation's modules (see
@@ -136,10 +144,16 @@ func (r *Run) recordFailure(options Options, err error) {
 // (see checkFailures). A run no import used returns err as is, after
 // writing a report that records err if the import that failed had an
 // output directory, so that an earlier run's report isn't taken for this
-// one's.
+// one's. It writes only holding the output directory's lock, and
+// releases it (see lockOut): a run that couldn't take it writes nothing
+// into another run's output.
 func (r *Run) finish(err error) error {
+	defer r.unlockOut()
 	if !r.used && (err == nil || r.options.Out == "" || r.options.Discover) {
 		return err
+	}
+	if lockErr := r.lockOut(r.options); lockErr != nil {
+		return couldNotRun(err, lockErr)
 	}
 	if r.options.Discover {
 		// After a failure, what didn't list may be only what failed.

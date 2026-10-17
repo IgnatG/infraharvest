@@ -106,7 +106,15 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 		run = NewRun()
 		ctx, stop := InterruptContext(ctx)
 		defer stop()
+		if err := run.lockOut(options); err != nil {
+			return run.finish(err)
+		}
 		return run.finish(Interrupted(ctx, importInto(ctx, run, provider, options, args)))
+	}
+	// Before the call records anything: a run that can't take the lock
+	// writes nothing into the output (see Run.finish).
+	if err := run.lockOut(options); err != nil {
+		return err
 	}
 	return importInto(ctx, run, provider, options, args)
 }

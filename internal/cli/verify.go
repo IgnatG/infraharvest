@@ -38,5 +38,6 @@ func newVerifyCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit)")
 	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a summary; json prints each root's checks as JSON")
 	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue (see "+providers.DocsURL+"catalogue/)")
+	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "verify even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }

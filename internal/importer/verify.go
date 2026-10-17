@@ -51,6 +51,14 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if len(roots) == 0 {
 		return fmt.Errorf("no generated roots in %s", out)
 	}
+	// Its inits and plans write into the roots, as an import does.
+	lock, err := lockOutput(out, options.ForceUnlock)
+	if err != nil {
+		return err
+	}
+	if lock != nil {
+		defer func() { _ = lock.Unlock() }()
+	}
 	binary := engineBinary(engineName)
 	cacheDir, err := infraharvestCacheDir()
 	if err != nil {
@@ -167,6 +175,7 @@ type VerifyOptions struct {
 	EngineTimeout time.Duration // how long each engine command may run; 0 means no limit
 	Format        string        // FormatText or FormatJSON
 	Catalogue     string        // directory of catalogue files the import used, if any
+	ForceUnlock   bool          // verify even when another run holds the output directory's lock
 	// Provider returns a new provider of the given name, or nil when it
 	// isn't compiled in: each root's catalogue comes from its provider.
 	Provider func(name string) harvest.Provider
