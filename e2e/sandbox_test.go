@@ -30,7 +30,7 @@ import (
 // with vars, such as its suffix, which tells its names apart from other
 // runs'.
 type sandboxEstate struct {
-	tf   *tfexec.Terraform
+	tf   *engine.Runner
 	vars []string
 }
 
