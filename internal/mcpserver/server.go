@@ -45,7 +45,7 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 
 1. Call discover to list a provider's resources into a selection file. Each resource is marked included or not, with the reason for exclusions.
 2. Edit the selection file if the user wants a different selection, and show it to them.
-3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them.
+3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them. To generate those roots again from scratch, set regenerate instead.
 4. Call report to read what was imported, what was left out and why, and the results of the checks.`
 
 // New returns the server, which runs infraharvest with run. The tools read
@@ -66,8 +66,9 @@ func New(version, root string, run Runner) *mcp.Server {
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
 		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + scopeHelp,
-		// Not idempotent: the same import again is refused, or with
-		// incremental adds what is new since.
+		// Not idempotent: the same import again is refused, with
+		// incremental adds what is new since, or with regenerate writes
+		// the roots again.
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.importSelection)
 	mcp.AddTool(server, &mcp.Tool{
@@ -323,6 +324,8 @@ type ImportInput struct {
 	Engine    string `json:"engine,omitempty" jsonschema:"terraform (the default) or tofu"`
 	// Incremental adds to the roots Out already has (--incremental).
 	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, in files of their own, without changing what they have; needed to import into an output directory again"`
+	// Regenerate generates the roots Out already has again (--regenerate).
+	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch; a root whose resources would get other addresses is left as it was and reported as failed"`
 }
 
 // ImportResult is what an import did.
@@ -351,6 +354,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Selection == "" || in.Out == "" {
 		return nil, nil, errors.New("selection and out are required")
 	}
+	if in.Incremental && in.Regenerate {
+		return nil, nil, errors.New("set incremental or regenerate, not both")
+	}
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
@@ -370,6 +376,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	args = append(args, "--engine="+engine, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
 	if in.Incremental {
 		args = append(args, "--incremental")
+	}
+	if in.Regenerate {
+		args = append(args, "--regenerate")
 	}
 	// The selection file is read once: the user confirms these bytes, and the
 	// import reads them from a private copy, so a file the agent changes in
@@ -398,6 +407,10 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Incremental {
 		message = fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
+	}
+	if in.Regenerate {
+		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again; a root whose resources would get other addresses is left as it was. infraharvest reads %s and writes files; it never applies anything.",
+			in.Out, summary.Included, in.Selection, summary.Excluded, scopeText(in.Scope))
 	}
 	state := confirmationState(args, content)
 	if len(req.Params.InputResponses) == 0 {

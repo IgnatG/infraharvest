@@ -221,6 +221,43 @@ func TestImportIncremental(t *testing.T) {
 	}
 }
 
+// An import with regenerate writes the roots the output directory has
+// again, and the user is told so; it doesn't go with incremental.
+func TestImportRegenerate(t *testing.T) {
+	runner := &fakeRunner{}
+	var asked string
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = req.Params.Message
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	args := importArgs(path, filepath.Join(dir, "generated"))
+	args["regenerate"] = true
+
+	if res, text := call(t, session, "import", args); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if !strings.Contains(asked, "again, from scratch") || !strings.Contains(asked, "left as it was") {
+		t.Errorf("confirmation %q doesn't say the import writes the roots again", asked)
+	}
+	if len(runner.runs) != 1 || !slices.Contains(runner.runs[0], "--regenerate") || slices.Contains(runner.runs[0], "--incremental") {
+		t.Errorf("runs: %v, want --regenerate", runner.runs)
+	}
+
+	tools := &tools{run: runner.run, root: dir}
+	in := ImportInput{Scope: Scope{Provider: "aws", Services: []string{"vpc"}}, Selection: path, Out: filepath.Join(dir, "generated"), Incremental: true, Regenerate: true}
+	if _, _, err := tools.importSelection(t.Context(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}, in); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Errorf("with incremental too: want an error, got %v", err)
+	}
+	if len(runner.runs) != 1 {
+		t.Errorf("imported with incremental and regenerate: %v", runner.runs)
+	}
+}
+
 func TestImportNeedsTheUser(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
