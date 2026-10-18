@@ -65,12 +65,18 @@ func HasConfiguration(dir string) (bool, error) {
 	return false, nil
 }
 
-// rootNames returns the names files use (see Names).
+// rootNames returns the names files use (see Names), with those that
+// moved and removed blocks take resources from: a plan rejects a moved
+// block from an address the configuration declares.
 func rootNames(files []*hclFile) Names {
 	names := Names{}
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
 			switch {
+			case b.Type == "moved" || b.Type == "removed":
+				if from, ok := movedFrom(b); ok {
+					names[from] = true
+				}
 			case b.Type == "resource" && len(b.Labels) == 2:
 				names[b.Labels[0]+"."+b.Labels[1]] = true
 			case b.Type == "data" && len(b.Labels) == 2:
@@ -362,7 +368,8 @@ func sortExternal(list []External) {
 // to it (see Add): r's resources and added's, in the files of both, with
 // added's checks. Its addresses are both's, unless r, as from an older
 // release, recorded none for what it imports: InferredAddresses and the
-// root's import blocks then tell all of them, not only added's.
+// root's import blocks then tell all of them, not only added's. Its moves
+// are r's: Add leaves moves.tf as it is.
 func (r *Result) With(added *Result) *Result {
 	if r == nil {
 		return added
@@ -389,6 +396,7 @@ func (r *Result) With(added *Result) *Result {
 		Gate:      added.Gate,
 		Files:     files,
 		Addresses: addresses,
+		Moves:     r.Moves,
 	}
 }
 

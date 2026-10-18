@@ -21,7 +21,7 @@ import (
 // resources, which no Import.File may name.
 var reservedFiles = []string{
 	GeneratedFileName, ImportsFileName, VersionsFileName, ProvidersFileName, VariablesFileName,
-	LocalsFileName, DataFileName, "backend.tf", "outputs.tf", "main.tf",
+	LocalsFileName, DataFileName, MovesFileName, "backend.tf", "outputs.tf", "main.tf",
 }
 
 // blockFiles returns the file each block goes in, by address: each

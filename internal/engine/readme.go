@@ -66,20 +66,31 @@ func readmeFile(result *Result) []byte {
 		b.WriteString("\n")
 		step++
 	}
+	planned := "Every resource should be planned for import,"
+	if len(result.Moves) > 0 {
+		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves (see Moves),", MovesFileName)
+	}
 	if stateOnlyUpdates(result.Gate) {
 		// Such as Google Cloud labels, which an import leaves out of state.
-		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. Every resource should be planned for import, with no changes but the updates the checks below list: to arguments the provider keeps only in state, which the import leaves unset.\n", step)
+		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. %s with no changes but the updates the checks below list: to arguments the provider keeps only in state, which the import leaves unset.\n", step, planned)
 	} else {
-		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. Every resource should be planned for import, with no changes.\n", step)
+		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. %s with no changes.\n", step, planned)
 	}
 	fmt.Fprintf(&b, "%d. Run `terraform apply` to record the resources in state. It changes nothing in the cloud.\n", step+1)
-	fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, ImportsFileName)
+	if len(result.Moves) > 0 {
+		fmt.Fprintf(&b, "%d. Delete `%s` and `%s`: the import and moved blocks have done their job.\n", step+2, ImportsFileName, MovesFileName)
+	} else {
+		fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, ImportsFileName)
+	}
 
 	if len(result.Rejected) > 0 {
 		fmt.Fprintf(&b, "\n## Left out\n\nTerraform couldn't import these resources, or generate valid configuration for them. `%s` has their blocks and errors: fix them and move the import blocks into `%s` and the resources into the configuration, or leave the resources out.\n\n", RejectedFileName, ImportsFileName)
 		for _, r := range result.Rejected {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
+	}
+	if len(result.Moves) > 0 {
+		b.WriteString(movesSection(result.Moves))
 	}
 	if len(result.NotInCloud) > 0 {
 		b.WriteString(notInCloudSection(result.NotInCloud))
@@ -171,6 +182,18 @@ func notInCloudSection(gone []Import) string {
 	fmt.Fprintf(&b, "\n## No longer in the cloud\n\nThe incremental import that last added to this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan would create them again, and fails while `%s` still has their import blocks. Delete each one's import block, if `%s` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again.\n\n", ImportsFileName, ImportsFileName)
 	for _, g := range gone {
 		fmt.Fprintf(&b, "- `%s.%s` (`%s`)\n", g.Type, g.Name, g.ID)
+	}
+	return b.String()
+}
+
+// movesSection lists what moves.tf moves: the resources of a root
+// generated again at other addresses than before, from where its state
+// has them.
+func movesSection(moved []Move) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## Moves\n\nThese resources have other addresses than when this root was generated before. The moved blocks in `%s` move them in state, so the plan shows each as moved rather than destroyed and created again.\n\n| From | To |\n|---|---|\n", MovesFileName)
+	for _, m := range moved {
+		fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
 	}
 	return b.String()
 }

@@ -62,6 +62,10 @@ type fakeEngine struct {
 	// label, if set, gives the label of each resource the root imports,
 	// for its address; its name otherwise.
 	label func(engine.Import) string
+	// moves, if set, moves each resource of the root the engine options
+	// say an earlier import generated that is at another address now, as
+	// the engine does.
+	moves bool
 }
 
 func (f *fakeEngine) tools() *callTools {
@@ -105,6 +109,20 @@ func (f *fakeEngine) tools() *callTools {
 					label = f.label(imp)
 				}
 				result.Addresses = append(result.Addresses, engine.Managed{Type: imp.Type, ID: imp.ID, Address: imp.Type + "." + label})
+			}
+			if f.moves && opts.Previous != nil {
+				for _, p := range opts.Previous.Addresses {
+					for _, m := range result.Addresses {
+						if m.Type == p.Type && m.ID == p.ID && m.Address != p.Address {
+							result.Moves = append(result.Moves, engine.Move{From: p.Address, To: m.Address})
+						}
+					}
+				}
+				if len(result.Moves) > 0 {
+					if err := os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644); err != nil {
+						return nil, err
+					}
+				}
 			}
 			return result, nil
 		},
@@ -379,5 +397,62 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 	slices.Sort(excluded)
 	if !slices.Equal(excluded, []string{"id-alpha", "id-beta"}) {
 		t.Errorf("left out as held elsewhere: %v", excluded)
+	}
+}
+
+// With --regenerate, a root whose resources get other addresses is
+// generated again with moved blocks for them, from where the engine is
+// told they were, rather than refused.
+func TestListCallRegeneratesRootsWithMoves(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
+	alpha := filepath.Join(out, "fake", "alpha")
+
+	f := &fakeEngine{moves: true, label: func(imp engine.Import) string {
+		if imp.ID == "id-alpha" {
+			return "renamed"
+		}
+		return imp.Name
+	}}
+	options := pathOptions(out, f, "alpha", "beta")
+	options.Regenerate = true
+	run := importPath(t, options)
+	if len(run.failures) != 0 {
+		t.Fatalf("failures %v, want both roots generated again", run.failures)
+	}
+	previous := f.opts["alpha"].Previous
+	if previous == nil || !reflect.DeepEqual(previous.Addresses, []engine.Managed{{Type: "fake_thing", ID: "id-alpha", Address: "fake_thing.alpha"}}) {
+		t.Fatalf("alpha's previous root: %+v", previous)
+	}
+	if label := previous.Labels[engine.External{Type: "fake_thing", ID: "id-alpha"}]; label != "alpha" {
+		t.Errorf("alpha's previous label: %q", label)
+	}
+	c, err := readCheckpoint(out, alpha)
+	if err != nil || c == nil || c.Result == nil {
+		t.Fatalf("alpha's checkpoint: %+v, %v", c, err)
+	}
+	if want := []engine.Move{{From: "fake_thing.alpha", To: "fake_thing.renamed"}}; !reflect.DeepEqual(c.Result.Moves, want) {
+		t.Errorf("alpha's moves: %+v, want %+v", c.Result.Moves, want)
+	}
+}
+
+// After the root is applied, and its README says to delete imports.tf
+// and moves.tf, --resume still skips it while nothing changed.
+func TestListCallResumesAnAppliedRoot(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha"))
+	if err := os.Remove(filepath.Join(out, "fake", "alpha", engine.ImportsFileName)); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &fakeEngine{}
+	options := pathOptions(out, f, "alpha")
+	options.Resume = true
+	run := importPath(t, options)
+	if len(f.generated) != 0 || len(run.failures) != 0 {
+		t.Errorf("generated %v, failures %v, want the applied root skipped", f.generated, run.failures)
+	}
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha"}) {
+		t.Errorf("reported directories %v", got)
 	}
 }

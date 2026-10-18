@@ -88,26 +88,63 @@ func InferredAddresses(result *Result) []Managed {
 }
 
 // Readdressed returns what now, the resources a root imports once
-// generated again, has at another address than previous had it, as
-// "<from> is now <to>", sorted. A resource of previous now doesn't have,
-// such as one deleted in the cloud since, isn't readdressed; nor is one
-// previous has only the module call of (see Managed.Unverified) that
-// now has in that call.
-func Readdressed(previous, now []Managed) []string {
+// generated again, has at another address than previous had it, but for
+// those moved moves there, as "<from> is now <to>", sorted. A resource of
+// previous now doesn't have, such as one deleted in the cloud since,
+// isn't readdressed; nor is one previous has only the module call of
+// (see Managed.Unverified) that now has in that call.
+func Readdressed(previous, now []Managed, moved []Move) []string {
 	at := map[External]string{}
 	for _, m := range now {
 		at[External{Type: m.Type, ID: m.ID}] = m.Address
 	}
+	follows := map[Move]bool{}
+	for _, m := range moved {
+		follows[m] = true
+	}
 	var changed []string
 	for _, p := range previous {
 		to, ok := at[External{Type: p.Type, ID: p.ID}]
-		if !ok || to == p.Address {
+		if !ok || to == p.Address || follows[Move{From: p.Address, To: to}] {
 			continue
 		}
-		if p.Unverified && strings.Count(p.Address, ".") == 1 && strings.HasPrefix(p.Address, "module.") && strings.HasPrefix(to, p.Address+".") {
+		if p.Unverified && isModuleCall(p.Address) && strings.HasPrefix(to, p.Address+".") {
 			continue
 		}
 		changed = append(changed, fmt.Sprintf("%s is now %s", p.Address, to))
+	}
+	sort.Strings(changed)
+	return changed
+}
+
+// Retyped returns the resources of previous that now, the resources a
+// root imports once generated again, has as another type with the same
+// import ID, such as an aws_alb that is an aws_lb now, as "<from> is now
+// <to>, of another type", sorted. No moved block can follow that: a plan
+// would replace the resource. A resource of both types in both, such as
+// a bucket and its versioning, which share an ID, isn't retyped.
+func Retyped(previous, now []Managed) []string {
+	had := map[External]bool{}
+	for _, p := range previous {
+		had[External{Type: p.Type, ID: p.ID}] = true
+	}
+	byID := map[string][]Managed{}
+	stays := map[External]bool{}
+	for _, m := range now {
+		key := External{Type: m.Type, ID: m.ID}
+		stays[key] = true
+		if !had[key] {
+			byID[m.ID] = append(byID[m.ID], m)
+		}
+	}
+	var changed []string
+	for _, p := range previous {
+		if stays[External{Type: p.Type, ID: p.ID}] {
+			continue
+		}
+		for _, m := range byID[p.ID] {
+			changed = append(changed, fmt.Sprintf("%s is now %s, of another type", p.Address, m.Address))
+		}
 	}
 	sort.Strings(changed)
 	return changed

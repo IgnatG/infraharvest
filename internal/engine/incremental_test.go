@@ -854,3 +854,32 @@ func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
 		t.Errorf("the caller's options changed:\n%s", got)
 	}
 }
+
+// What moved and removed blocks take resources from is a name of the
+// root, which an incremental import gives nothing it adds: Terraform
+// rejects a moved block from an address the configuration declares.
+func TestRootNamesHaveWhatMovedBlocksMoveFrom(t *testing.T) {
+	t.Parallel()
+	f := writeConfig(t, t.TempDir(), MovesFileName, `moved {
+  from = aws_s3_bucket.logs
+  to   = module.logs.aws_s3_bucket.this[0]
+}
+
+moved {
+  from = aws_subnet.a["x"]
+  to   = aws_subnet.private
+}
+
+removed {
+  from = module.old
+
+  lifecycle {
+    destroy = false
+  }
+}
+`)
+	want := Names{"aws_s3_bucket.logs": true, "aws_subnet.a": true, "module.old": true}
+	if got := rootNames([]*hclFile{f}); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

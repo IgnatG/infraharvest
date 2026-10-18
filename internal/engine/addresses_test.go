@@ -91,11 +91,37 @@ func TestReaddressed(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "state", Address: "aws_s3_bucket.state"},
 	}
 	want := []string{"aws_sqs_queue.main is now aws_sqs_queue.jobs", "module.state is now aws_s3_bucket.state"}
-	if got := Readdressed(previous, now); !reflect.DeepEqual(got, want) {
+	if got := Readdressed(previous, now, nil); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if got := Readdressed(previous, previous); len(got) != 0 {
+	if got := Readdressed(previous, previous, nil); len(got) != 0 {
 		t.Errorf("the same addresses: %q", got)
+	}
+	// A moved block follows a resource to its new address.
+	moved := []Move{{From: "aws_sqs_queue.main", To: "aws_sqs_queue.jobs"}}
+	if got, want := Readdressed(previous, now, moved), []string{"module.state is now aws_s3_bucket.state"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("with moved blocks: got %q, want %q", got, want)
+	}
+}
+
+// A resource now of another type with the same import ID is retyped; one
+// that shares its ID with a resource of another type in both isn't.
+func TestRetyped(t *testing.T) {
+	t.Parallel()
+	previous := []Managed{
+		{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"},
+		{Type: "aws_s3_bucket", ID: "logs", Address: "aws_s3_bucket.logs"},
+		{Type: "aws_s3_bucket_versioning", ID: "logs", Address: "aws_s3_bucket_versioning.logs"},
+		{Type: "aws_sqs_queue", ID: "gone", Address: "aws_sqs_queue.gone"},
+	}
+	now := []Managed{
+		{Type: "aws_lb", ID: "arn:lb", Address: "aws_lb.web"},
+		{Type: "aws_s3_bucket", ID: "logs", Address: "aws_s3_bucket.logs"},
+		{Type: "aws_s3_bucket_versioning", ID: "logs", Address: "aws_s3_bucket_versioning.logs"},
+	}
+	want := []string{"aws_alb.web is now aws_lb.web, of another type"}
+	if got := Retyped(previous, now); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

@@ -65,7 +65,7 @@ infraharvest discover aws
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed |
+| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed |
 | `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
@@ -111,7 +111,7 @@ infraharvest discover azure
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed |
+| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `-g`, `--resource-group` |  | resource group to import (default: the whole subscription) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
@@ -160,7 +160,7 @@ infraharvest discover google
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--projects` |  | projects to import |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed |
+| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed |
 | `--regions` | `[global]` | regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
@@ -219,7 +219,7 @@ infraharvest import aws
 | `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed |
+| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed |
 | `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
@@ -264,7 +264,7 @@ infraharvest import azure
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed |
+| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `-g`, `--resource-group` |  | resource group to import (default: the whole subscription) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
@@ -312,7 +312,7 @@ infraharvest import google
 | `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--projects` |  | projects to import |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
-| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed |
+| `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed |
 | `--regions` | `[global]` | regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
