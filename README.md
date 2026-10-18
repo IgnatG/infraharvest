@@ -104,6 +104,7 @@ See [Applying the roots](docs/output.md#applying-the-roots).
 |---|---|
 | Add new resources to the roots | `discover` again (it marks them `new`), review them, then `import` with `--selection` and `--incremental`; add `--managed-state` once `imports.tf` is deleted |
 | Finish a run that failed part way | The same command with `--resume` |
+| Generate the roots again | `--regenerate`; a root whose resources would move is left as it was |
 | Import what `discover` just listed | `--reuse-inventory`, instead of listing again |
 | Check roots after editing them | `infraharvest verify`, before deleting `imports.tf` |
 | Print the report again | `infraharvest report`, with `--format json` for JSON |
@@ -123,6 +124,7 @@ The exit code is 0 when everything was imported, 1 when something wasn't (3 with
 - `import` needs `--selection` or `--all`, not both; `discover` refuses `--all`.
 - `--services` is required, on the command line or in the configuration file.
 - `--incremental` with `--resume` generates a root whose import didn't finish again, then adds to it.
+- `--regenerate` or `--incremental`, not both; without either, an import into a root an earlier import finished is refused.
 - `--incremental` finds what a root has from its import blocks or its checkpoint; without either, pass `--managed-state`.
 - `--managed-state=backend` needs a backend in the configuration file.
 - A `--layout` of your own starts with `{out}/`, contains `{account}` for several accounts, subscriptions or projects (on AWS, with any `--accounts` or `--organization`), and `{env}` with `--env-tags`.

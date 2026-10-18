@@ -107,8 +107,11 @@ type Options struct {
 	// AllowPartial accepts output some services or resources are missing
 	// from.
 	AllowPartial bool
-	// Resume skips the roots a previous, identical run generated.
+	// Resume skips the roots a previous, identical run generated, and
+	// generates again those a previous run didn't finish.
 	Resume bool
+	// Regenerate generates again the roots earlier runs generated.
+	Regenerate bool
 	// Incremental adds what is new to roots earlier runs generated.
 	Incremental bool
 	// ReuseInventory imports from what discover listed, instead of listing

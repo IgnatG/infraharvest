@@ -93,3 +93,31 @@ func TestLayout(t *testing.T) {
 		t.Errorf("layout from the configuration file: %q, want %q", got.Layout, byService)
 	}
 }
+
+// --regenerate is a flag of its own, and a setting of the configuration
+// file; --resume doesn't set it.
+func TestRegenerate(t *testing.T) {
+	config := writeConfig(t, "version: 1\nsettings:\n  regenerate: true\nproviders:\n  fake:\n    services: [vpc]\n")
+	for name, tc := range map[string]struct {
+		args               []string
+		regenerate, resume bool
+	}{
+		"flag":    {[]string{"--services", "vpc", "--regenerate"}, true, false},
+		"resume":  {[]string{"--services", "vpc", "--resume"}, false, true},
+		"both":    {[]string{"--services", "vpc", "--resume", "--regenerate"}, true, true},
+		"setting": {[]string{"--config", config}, true, false},
+		"neither": {[]string{"--services", "vpc"}, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got importer.Options
+			cmd := fakeProviderCommand(func(o importer.Options) error { got = o; return nil })
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got.Regenerate != tc.regenerate || got.Resume != tc.resume {
+				t.Errorf("regenerate=%v resume=%v, want %v and %v", got.Regenerate, got.Resume, tc.regenerate, tc.resume)
+			}
+		})
+	}
+}

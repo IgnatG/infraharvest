@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -58,6 +59,9 @@ type fakeEngine struct {
 	// fail is the error generating a root whose directory ends in it
 	// returns, if set.
 	fail string
+	// label, if set, gives the label of each resource the root imports,
+	// for its address; its name otherwise.
+	label func(engine.Import) string
 }
 
 func (f *fakeEngine) tools() *callTools {
@@ -94,7 +98,15 @@ func (f *fakeEngine) tools() *callTools {
 					return nil, err
 				}
 			}
-			return &engine.Result{Imported: imports}, nil
+			result := &engine.Result{Imported: imports}
+			for _, imp := range imports {
+				label := imp.Name
+				if f.label != nil {
+					label = f.label(imp)
+				}
+				result.Addresses = append(result.Addresses, engine.Managed{Type: imp.Type, ID: imp.ID, Address: imp.Type + "." + label})
+			}
+			return result, nil
 		},
 	}
 }
@@ -236,13 +248,79 @@ func TestListCallResumes(t *testing.T) {
 		t.Errorf("resumed roots report what they import: %+v", d)
 	}
 
-	// Another root changes what alpha and beta may refer to.
+	// Another root changes what alpha and beta may refer to: --resume
+	// generates only the new root, as the others may be in use.
 	f = &fakeEngine{}
 	options = pathOptions(out, f, "alpha", "beta", "gamma")
 	options.Resume = true
-	importPath(t, options)
-	if !slices.Equal(f.generated, []string{"alpha", "beta", "gamma"}) {
-		t.Errorf("generated %v, want every root again", f.generated)
+	run = importPath(t, options)
+	if !slices.Equal(f.generated, []string{"gamma"}) {
+		t.Errorf("generated %v, want the new root only", f.generated)
+	}
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha (failed)", "fake/beta (failed)", "fake/gamma"}) {
+		t.Errorf("reported directories %v", got)
+	}
+	if len(run.failures) != 2 || !strings.Contains(run.failures[0].Error(), "--regenerate") {
+		t.Errorf("failures %v, want the roots in use refused", run.failures)
+	}
+
+	// --regenerate generates every root again.
+	f = &fakeEngine{}
+	options = pathOptions(out, f, "alpha", "beta", "gamma")
+	options.Regenerate = true
+	run = importPath(t, options)
+	if !slices.Equal(f.generated, []string{"alpha", "beta", "gamma"}) || len(run.failures) != 0 {
+		t.Errorf("generated %v, failures %v, want every root again", f.generated, run.failures)
+	}
+}
+
+// An import into roots an earlier import generated is refused without
+// --regenerate or --incremental. --regenerate generates them again, but
+// for a root whose resources get other addresses, which is left as it
+// was and reported as failed.
+func TestListCallRegeneratesRootsWhoseAddressesStay(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
+	alpha := filepath.Join(out, "fake", "alpha")
+	before, err := readCheckpoint(out, alpha)
+	if err != nil || before == nil || len(before.Result.Addresses) != 1 {
+		t.Fatalf("alpha's checkpoint: %+v, %v", before, err)
+	}
+
+	f := &fakeEngine{}
+	run := importPath(t, pathOptions(out, f, "alpha", "beta"))
+	if len(f.generated) != 0 {
+		t.Errorf("generated %v without a flag", f.generated)
+	}
+	if len(run.failures) != 2 {
+		t.Fatalf("failures %v, want both roots refused", run.failures)
+	}
+	for _, err := range run.failures {
+		if !strings.Contains(err.Error(), "--regenerate") || !strings.Contains(err.Error(), "--incremental") {
+			t.Errorf("failure %v doesn't name --regenerate and --incremental", err)
+		}
+	}
+
+	f = &fakeEngine{label: func(imp engine.Import) string {
+		if imp.ID == "id-alpha" {
+			return "renamed"
+		}
+		return imp.Name
+	}}
+	options := pathOptions(out, f, "alpha", "beta")
+	options.Regenerate = true
+	run = importPath(t, options)
+	if !slices.Equal(f.generated, []string{"alpha", "beta"}) {
+		t.Errorf("generated %v, want both roots again", f.generated)
+	}
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha (failed)", "fake/beta"}) {
+		t.Errorf("reported directories %v", got)
+	}
+	if len(run.failures) != 1 || !strings.Contains(run.failures[0].Error(), "is now fake_thing.renamed") {
+		t.Errorf("failures %v, want alpha refused with its new address", run.failures)
+	}
+	if after, err := readCheckpoint(out, alpha); err != nil || !reflect.DeepEqual(after, before) {
+		t.Errorf("alpha's checkpoint: %+v, %v, want it as it was, %+v", after, err, before)
 	}
 }
 
