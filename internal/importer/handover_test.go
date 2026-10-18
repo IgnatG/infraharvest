@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -334,4 +335,170 @@ func readFileIn(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return string(content)
+}
+
+// A root that hands resources over is generated after the roots they go
+// to, unless those hand resources over to it too.
+func TestHandoversOrderRootsAfterWhereTheirResourcesGo(t *testing.T) {
+	out := t.TempDir()
+	a, b, c := filepath.Join(out, "fake", "a"), filepath.Join(out, "fake", "b"), filepath.Join(out, "fake", "c")
+	earlierRoot(t, out, a, thing("x", "fake_thing.x"), thing("y", "fake_thing.y"))
+	call := regenerating(out, map[string][]engine.Import{a: {thingImport("y")}, b: {thingImport("z")}, c: {thingImport("x")}})
+	if err := planHandovers(out, []*listedCall{call}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := call.handovers.order([]string{a, b, c}), []string{b, c, a}; !slices.Equal(got, want) {
+		t.Errorf("order %v, want %v", got, want)
+	}
+	var none *handovers
+	if got := none.order([]string{a, b}); !slices.Equal(got, []string{a, b}) {
+		t.Errorf("order without handovers %v", got)
+	}
+}
+
+// halfHandedOver plans the handover of fake_thing.a from old to next, as
+// TestPlanHandoversBetweenRootsOfTheRun does, and returns the call.
+func halfHandedOver(t *testing.T) (c *listedCall, old, next string) {
+	t.Helper()
+	out := t.TempDir()
+	old, next = filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
+	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
+	c = regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {thingImport("a")}})
+	if err := planHandovers(out, []*listedCall{c}); err != nil {
+		t.Fatal(err)
+	}
+	return c, old, next
+}
+
+// A root that fails after the root it hands a resource over to imported
+// it leaves the resource in both: the run warns, and says so in the
+// report, with the root that failed.
+func TestWarnIncompleteWhenTheRootALeavesFails(t *testing.T) {
+	c, old, next := halfHandedOver(t)
+	h := c.handovers
+	h.record(next, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "a", Root: "fake/old", From: "fake_thing.a", To: "fake_thing.a"}}}, nil)
+	h.record(old, &engine.Result{Removed: h.removalsOf(old)}, errors.New("plan failed"))
+
+	warnIncomplete(c.run, []*listedCall{c})
+	got := c.run.report.IncompleteHandovers
+	if len(got) != 1 {
+		t.Fatalf("incomplete handovers %+v, want one", got)
+	}
+	want := report.Move{Type: "fake_thing", ID: "a", FromRoot: "fake/old", From: "fake_thing.a", ToRoot: "fake/next", To: "fake_thing.a"}
+	if got[0].Move != want || got[0].FailedRoot != "fake/old" || !strings.Contains(got[0].Warning, "generate fake/old again with --regenerate before applying either root") {
+		t.Errorf("incomplete handover %+v", got[0])
+	}
+	if md := c.run.report.Markdown(); !strings.Contains(md, "## Handovers not finished") || !strings.Contains(md, "- `fake_thing.a` from `fake/old` to `fake/next`: ") {
+		t.Errorf("report.md:\n%s", md)
+	}
+}
+
+// A root that fails after the root that hands a resource over to it was
+// generated with its removed block leaves the resource in neither, once
+// that is applied: the run warns not to apply it.
+func TestWarnIncompleteWhenTheRootAGoesToFails(t *testing.T) {
+	c, old, next := halfHandedOver(t)
+	h := c.handovers
+	h.record(old, &engine.Result{Removed: h.removalsOf(old)}, nil)
+	h.record(next, nil, errors.New("plan failed"))
+
+	warnIncomplete(c.run, []*listedCall{c})
+	got := c.run.report.IncompleteHandovers
+	if len(got) != 1 || got[0].FailedRoot != "fake/next" || got[0].To != "" || !strings.Contains(got[0].Warning, "don't apply fake/old until fake/next") {
+		t.Errorf("incomplete handovers %+v", got)
+	}
+}
+
+// A handover both roots finished, or both failed, is complete: the
+// resource is in one root.
+func TestWarnIncompleteOnlyForHalfAHandover(t *testing.T) {
+	for name, failed := range map[string]bool{"finished": false, "both failed": true} {
+		t.Run(name, func(t *testing.T) {
+			c, old, next := halfHandedOver(t)
+			h := c.handovers
+			var err error
+			if failed {
+				err = errors.New("plan failed")
+			}
+			h.record(old, &engine.Result{Removed: h.removalsOf(old)}, err)
+			h.record(next, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "a", To: "fake_thing.a"}}}, err)
+			warnIncomplete(c.run, []*listedCall{c})
+			if got := c.run.report.IncompleteHandovers; len(got) != 0 {
+				t.Errorf("incomplete handovers %+v", got)
+			}
+		})
+	}
+}
+
+// A root whose resource goes to a root generated before it that didn't
+// import it, as it rejected it, is left as it was.
+func TestRefuseUnreceived(t *testing.T) {
+	c, old, next := halfHandedOver(t)
+	h := c.handovers
+	if err := h.refuseUnreceived(old); err != nil {
+		t.Fatalf("refused before next is generated: %v", err)
+	}
+	h.record(next, &engine.Result{}, nil)
+	if err := h.refuseUnreceived(old); err == nil || !strings.Contains(err.Error(), "fake_thing.a goes to fake/next, which didn't import it") {
+		t.Errorf("old's refusal: %v", err)
+	}
+}
+
+// With --regenerate, a root whose resource goes to a root that fails is
+// generated after it, and left as it was: its state keeps the resource,
+// and nothing is half handed over.
+func TestListCallRegenerateLeavesARootAsItWasWhenWhereItsResourceGoesFails(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	first := pathOptions(out, &fakeEngine{}, "zeta", "all")
+	first.Layout = "{out}/{provider}/all/"
+	importPath(t, first)
+	all := filepath.Join(out, "fake", "all")
+
+	f := &fakeEngine{fail: "zeta"}
+	options := pathOptions(out, f, "zeta", "all")
+	options.Regenerate = true
+	run := importPath(t, options)
+
+	if !slices.Equal(f.generated, []string{"zeta"}) {
+		t.Errorf("generated %v, want zeta, and all left as it was", f.generated)
+	}
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/all (failed)", "fake/zeta (failed)"}) {
+		t.Errorf("reported directories %v", got)
+	}
+	for _, d := range run.report.Directories {
+		if d.Path == "fake/all" && !strings.Contains(d.Error, "fake_thing.zeta goes to fake/zeta, which didn't import it") {
+			t.Errorf("all's error: %s", d.Error)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(all, engine.GeneratedFileName)); err != nil {
+		t.Errorf("all isn't left as it was: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(all, engine.MovesFileName)); err == nil {
+		t.Errorf("all has a %s", engine.MovesFileName)
+	}
+	if len(run.report.Departed) != 0 || len(run.report.IncompleteHandovers) != 0 {
+		t.Errorf("departed %+v, incomplete %+v", run.report.Departed, run.report.IncompleteHandovers)
+	}
+}
+
+// With --regenerate, a root that fails after the root its resource goes
+// to imported it is reported as leaving the resource in both.
+func TestListCallRegenerateWarnsWhenTheRootAResourceLeavesFails(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	first := pathOptions(out, &fakeEngine{}, "zeta", "all")
+	first.Layout = "{out}/{provider}/all/"
+	importPath(t, first)
+
+	f := &fakeEngine{fail: "all"}
+	options := pathOptions(out, f, "zeta", "all")
+	options.Regenerate = true
+	run := importPath(t, options)
+
+	if !slices.Equal(f.generated, []string{"zeta", "all"}) {
+		t.Errorf("generated %v, want zeta, then all", f.generated)
+	}
+	got := run.report.IncompleteHandovers
+	if len(got) != 1 || got[0].ID != "id-zeta" || got[0].FromRoot != "fake/all" || got[0].ToRoot != "fake/zeta" || got[0].FailedRoot != "fake/all" {
+		t.Errorf("incomplete handovers %+v", got)
+	}
 }

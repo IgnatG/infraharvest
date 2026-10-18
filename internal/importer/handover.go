@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -23,11 +24,197 @@ import (
 // it generates (see planHandovers), by root directory: the removed blocks
 // a root gets for the resources it had that now go to other roots, the
 // resources a root imports that other roots hand over, and the roots left
-// as they were, with why.
+// as they were, with why. Once generated, each root's result is recorded
+// (see record), nil for a root that failed, to tell what a root that
+// failed left half done (see warnIncomplete).
 type handovers struct {
+	out      string
 	removals map[string][]engine.Removal
 	arrivals map[string][]engine.Arrival
 	refused  map[string]error
+	// mu guards generated, as the calls of a scope may generate their
+	// roots at once.
+	mu        sync.Mutex
+	generated map[string]*engine.Result
+}
+
+// record records what generating the root in dir gave: result, or
+// nothing, with err, if it failed.
+func (h *handovers) record(dir string, result *engine.Result, err error) {
+	if h == nil {
+		return
+	}
+	if err != nil {
+		result = nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.generated[filepath.Clean(dir)] = result
+}
+
+// dirOf returns the directory of root, relative to the output directory.
+func (h *handovers) dirOf(root string) string {
+	return filepath.Join(h.out, filepath.FromSlash(root))
+}
+
+// order returns dirs, the roots a call generates, sorted, in the order
+// to generate them: each root that hands resources over after the roots
+// of dirs they go to, unless those hand resources over to it too, so
+// that it can be left as it was should one of them not import what it
+// hands over (see unreceived).
+func (h *handovers) order(dirs []string) []string {
+	if h == nil || len(h.removals) == 0 {
+		return dirs
+	}
+	in := map[string]bool{}
+	for _, dir := range dirs {
+		in[filepath.Clean(dir)] = true
+	}
+	done := map[string]bool{}
+	ordered := make([]string, 0, len(dirs))
+	for len(ordered) < len(dirs) {
+		next := ""
+		for _, dir := range dirs {
+			if done[filepath.Clean(dir)] {
+				continue
+			}
+			if next == "" {
+				next = dir // should the roots left hand over to each other
+			}
+			ready := true
+			for _, r := range h.removalsOf(dir) {
+				for _, d := range r.Resources {
+					if to := h.dirOf(d.Root); in[to] && !done[to] {
+						ready = false
+					}
+				}
+			}
+			if ready {
+				next = dir
+				break
+			}
+		}
+		done[filepath.Clean(next)] = true
+		ordered = append(ordered, next)
+	}
+	return ordered
+}
+
+// unreceived returns what the root in dir would hand over to roots
+// generated before it that didn't import it, as they failed or left it
+// out: its removed blocks would make its state forget what no root
+// imports.
+func (h *handovers) unreceived(dir string) []engine.Departure {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var missing []engine.Departure
+	for _, r := range h.removalsOf(dir) {
+		for _, d := range r.Resources {
+			if result, done := h.generated[h.dirOf(d.Root)]; done && arrivalOf(result, d) == nil {
+				missing = append(missing, d)
+			}
+		}
+	}
+	return missing
+}
+
+// refuseUnreceived returns why the root in dir is left as it was when it
+// would hand over what roots generated before it didn't import (see
+// unreceived); nil if it isn't.
+func (h *handovers) refuseUnreceived(dir string) error {
+	missing := h.unreceived(dir)
+	if len(missing) == 0 {
+		return nil
+	}
+	var why []string
+	for _, d := range missing {
+		why = append(why, fmt.Sprintf("%s goes to %s, which didn't import it", d.Address, d.Root))
+	}
+	return fmt.Errorf("generating %s again would hand %d of its resources over to roots that didn't import them, and its state would forget them, so it is left as it was: %s", dir, len(missing), strings.Join(why, "; "))
+}
+
+// arrivalOf returns how result, a root's, imports d, which another root
+// hands over; nil if it doesn't, or the root failed.
+func arrivalOf(result *engine.Result, d engine.Departure) *engine.Arrival {
+	if result == nil {
+		return nil
+	}
+	for i, a := range result.Arrived {
+		if a.Type == d.Type && a.ID == d.ID {
+			return &result.Arrived[i]
+		}
+	}
+	return nil
+}
+
+// removes says whether result, a root's, has a removed block that hands
+// d over; false if the root failed.
+func removes(result *engine.Result, d engine.Departure) bool {
+	if result == nil {
+		return false
+	}
+	for _, r := range result.Removed {
+		for _, had := range r.Resources {
+			if had.Type == d.Type && had.ID == d.ID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// incomplete returns the handovers one of whose roots didn't finish, as
+// it failed, or wasn't generated: the root a resource leaves, whose
+// state still has it, while the root it goes to imports it; or the root
+// it goes to, which didn't import it, while the removed block of the
+// root it leaves would make that root's state forget it. Applied, the
+// first would leave the resource in both roots' states, and the second
+// in neither. A handover both roots failed leaves the resource where it
+// was.
+func (h *handovers) incomplete() []report.IncompleteHandover {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var incomplete []report.IncompleteHandover
+	for _, dir := range sortedDirs(h.removals) {
+		from := relativePath(h.out, dir)
+		for _, r := range h.removals[dir] {
+			for _, d := range r.Resources {
+				left := removes(h.generated[dir], d)
+				arrival := arrivalOf(h.generated[h.dirOf(d.Root)], d)
+				m := report.Move{Type: d.Type, ID: d.ID, FromRoot: from, From: d.Address, ToRoot: d.Root}
+				switch {
+				case arrival != nil && !left:
+					m.To = arrival.To
+					incomplete = append(incomplete, report.IncompleteHandover{Move: m, FailedRoot: from, Warning: fmt.Sprintf("%s imports it, but %s failed, and its state still has it: generate %s again with --regenerate before applying either root", d.Root, from, from)})
+				case arrival == nil && left:
+					incomplete = append(incomplete, report.IncompleteHandover{Move: m, FailedRoot: d.Root, Warning: fmt.Sprintf("the removed block of %s makes its state forget it, but %s, where it goes, didn't import it: don't apply %s until %s, generated again with --regenerate, imports it", from, d.Root, from, d.Root)})
+				}
+			}
+		}
+	}
+	return incomplete
+}
+
+// warnIncomplete warns of each handover of calls, those of one scope,
+// that one of its roots didn't finish (see handovers.incomplete), and
+// records it into run.
+func warnIncomplete(run *Run, calls []*listedCall) {
+	for _, c := range calls {
+		if c == nil || c.handovers == nil {
+			continue
+		}
+		for _, i := range c.handovers.incomplete() {
+			log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
+			run.report.IncompleteHandovers = append(run.report.IncompleteHandovers, i)
+		}
+		return // the calls share their handovers
+	}
 }
 
 // removalsOf returns the removed blocks the root in dir gets; none
@@ -104,7 +291,7 @@ func planHandovers(out string, calls []*listedCall) error {
 	if err != nil {
 		return err
 	}
-	h := &handovers{removals: map[string][]engine.Removal{}, arrivals: map[string][]engine.Arrival{}, refused: map[string]error{}}
+	h := &handovers{out: out, removals: map[string][]engine.Removal{}, arrivals: map[string][]engine.Arrival{}, refused: map[string]error{}, generated: map[string]*engine.Result{}}
 	// What stays in the root it was in, by type and import ID, with that
 	// root relative to out.
 	stays := map[engine.External]string{}

@@ -168,6 +168,9 @@ type Coverage struct {
 	// hand over to other roots with removed blocks, which import them.
 	Moved    []Move `json:"moved,omitempty"`
 	Departed []Move `json:"departed,omitempty"`
+	// IncompleteHandovers are the resources handed over between roots
+	// whose handover one of the roots didn't finish, as it failed.
+	IncompleteHandovers []IncompleteHandover `json:"incomplete_handovers,omitempty"`
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
@@ -316,6 +319,18 @@ type Move struct {
 	To       string `json:"to,omitempty"`
 }
 
+// IncompleteHandover is a resource handed over from one root to another
+// whose handover one of them didn't finish, as it failed: FailedRoot is
+// FromRoot, whose state still has the resource, which ToRoot imports, so
+// both roots have it; or ToRoot, which didn't import it, so that applying
+// FromRoot's removed block would leave it in neither. Warning says what
+// to do.
+type IncompleteHandover struct {
+	Move
+	FailedRoot string `json:"failed_root"`
+	Warning    string `json:"warning"`
+}
+
 // AddArrival records a resource a root imports that another root hands
 // over: Finish sets the address it has there on the departure that
 // matches it.
@@ -365,6 +380,7 @@ func (r *Report) Merge(other *Report) {
 	r.NotInCloud = append(r.NotInCloud, other.NotInCloud...)
 	r.Moved = append(r.Moved, other.Moved...)
 	r.Departed = append(r.Departed, other.Departed...)
+	r.IncompleteHandovers = append(r.IncompleteHandovers, other.IncompleteHandovers...)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.listed = append(r.listed, other.listed...)
@@ -407,6 +423,13 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	sortMoves(r.Departed)
 	r.Moved = slices.Compact(r.Moved)
 	r.Departed = slices.Compact(r.Departed)
+	sort.Slice(r.IncompleteHandovers, func(i, j int) bool {
+		a, b := r.IncompleteHandovers[i], r.IncompleteHandovers[j]
+		if a.FromRoot != b.FromRoot {
+			return a.FromRoot < b.FromRoot
+		}
+		return a.From < b.From
+	})
 	sort.Strings(r.Failures)
 
 	byType := map[string]*CoverageTotal{}
@@ -794,6 +817,11 @@ func (r *Report) Markdown() string {
 	}
 	section("Moved", "Generated again, these roots have these resources at other addresses: their moved blocks, in `moves.tf`, move them in state, so their next plans destroy nothing.", movedLines)
 	section("Handed over", "These resources go to other roots now. The removed blocks in `moves.tf` of the roots they were in make those roots' states forget them, without destroying them, and the roots they go to import them. Apply the root each was in first, then the root it goes to.", departedLines)
+	var incompleteLines []string
+	for _, h := range r.IncompleteHandovers {
+		incompleteLines = append(incompleteLines, fmt.Sprintf("- `%s` from `%s` to `%s`: %s", h.From, h.FromRoot, h.ToRoot, h.Warning))
+	}
+	section("Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", incompleteLines)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string

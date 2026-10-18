@@ -37,6 +37,12 @@ variable "extra" {
   default     = false
 }
 
+variable "extra_name" {
+  description = "A Name tag for the extra log group, which gives it another address when the roots are generated again."
+  type        = string
+  default     = ""
+}
+
 variable "run_id" {
   description = "The CI run that applies the estate, if any. Every resource is tagged with it, so the run's last sweep finds what the run left, and nothing else."
   type        = string
@@ -473,7 +479,7 @@ resource "aws_cloudwatch_log_group" "extra" {
   count             = var.extra ? 1 : 0
   name              = "/${local.name}/extra"
   retention_in_days = 1
-  tags              = local.tags
+  tags              = var.extra_name == "" ? local.tags : merge(local.tags, { Name = var.extra_name })
 }
 
 resource "aws_route53_zone" "internal" {

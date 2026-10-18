@@ -349,6 +349,9 @@ type ImportResult struct {
 	// must be applied after them.
 	Moved    []report.Move `json:"moved,omitempty"`
 	Departed []report.Move `json:"departed,omitempty"`
+	// IncompleteHandovers are the handovers one of whose roots failed,
+	// with what to do before applying either root.
+	IncompleteHandovers []report.IncompleteHandover `json:"incomplete_handovers,omitempty"`
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
@@ -464,6 +467,8 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		NotInCloud:    r.NotInCloud,
 		Moved:         r.Moved,
 		Departed:      r.Departed,
+
+		IncompleteHandovers: r.IncompleteHandovers,
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
@@ -472,6 +477,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 	if n := len(r.Departed); n > 0 {
 		text += fmt.Sprintf(" %d resources go to other roots (see departed and the report): apply the root each was in before the root it goes to.", n)
+	}
+	if n := len(r.IncompleteHandovers); n > 0 {
+		text += fmt.Sprintf(" %d handovers between roots aren't finished, as one of their roots failed (see incomplete_handovers and the report): do what each says before applying either root.", n)
 	}
 	if stopped(code) {
 		text = "The import was stopped before it finished. " + text
