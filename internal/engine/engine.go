@@ -175,6 +175,12 @@ type Result struct {
 	// whose resources have other addresses than before (see
 	// Options.Previous).
 	Moves []Move `json:",omitempty"`
+	// Removed are the removed blocks of moves.tf, for a root generated
+	// again that hands resources over to other roots (see
+	// Previous.Removed), and Arrived the resources it imports that other
+	// roots hand over (see Options.Arrivals).
+	Removed []Removal `json:",omitempty"`
+	Arrived []Arrival `json:",omitempty"`
 	// Unmoved are the resources of such a root at other addresses that no
 	// moved block can follow, with why; a checkpoint doesn't keep them.
 	Unmoved []string `json:"-"`
@@ -273,6 +279,9 @@ type Options struct {
 	// moved block into moves.tf for each that gets another address (see
 	// moves).
 	Previous *Previous
+	// Arrivals are the resources the root imports that other roots of the
+	// output hand over (see Removal), for its README.
+	Arrivals []Arrival
 	// CommandTimeout bounds each Terraform command Generate, Add and
 	// Verify run, such as a plan whose provider retries an unreachable
 	// endpoint: a command still running then is stopped, and fails the
@@ -584,16 +593,18 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := layoutDir(dir); err != nil {
 		return nil, err
 	}
-	if err := requireMinimumVersion(dir); err != nil {
-		return nil, err
-	}
 	if result.Addresses, err = ImportedAddresses(dir); err != nil {
 		return nil, err
 	}
 	// Last, once the addresses are final: the gate's plans read the moved
-	// blocks too.
+	// and removed blocks too, and they may need a later release.
 	result.Moves, result.Unmoved = moves(opts.Previous, result.Addresses, callSources(result.Modules))
-	if err := writeMoves(dir, result.Moves); err != nil {
+	result.Removed = removals(opts.Previous, result.Addresses)
+	result.Arrived = arrived(opts.Arrivals, result.Addresses)
+	if err := writeMoves(dir, result.Moves, result.Removed); err != nil {
+		return nil, err
+	}
+	if err := requireMinimumVersion(dir); err != nil {
 		return nil, err
 	}
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {

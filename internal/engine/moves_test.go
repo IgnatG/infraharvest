@@ -257,7 +257,7 @@ func TestWriteAndReadMoves(t *testing.T) {
 		{From: "aws_subnet.a", To: `module.subnets.aws_subnet.this["a"]`},
 		{From: "aws_s3_bucket.logs", To: "module.logs.aws_s3_bucket.this[0]"},
 	}
-	if err := writeMoves(dir, moved); err != nil {
+	if err := writeMoves(dir, moved, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := `moved {
@@ -280,7 +280,7 @@ moved {
 	if want := []Move{moved[1], moved[0]}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %+v, want %+v", got, want)
 	}
-	if err := writeMoves(dir, nil); err != nil || exists(filepath.Join(dir, MovesFileName)) {
+	if err := writeMoves(dir, nil, nil); err != nil || exists(filepath.Join(dir, MovesFileName)) {
 		t.Errorf("without moves: %v, want moves.tf removed", err)
 	}
 }

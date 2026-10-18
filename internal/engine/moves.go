@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -19,12 +20,102 @@ import (
 
 // MovesFileName holds the moved blocks of a root generated again: a plan
 // on the root's state then shows each resource at another address than
-// before as moved, rather than destroyed and created there.
+// before as moved, rather than destroyed and created there. It also holds
+// the removed blocks of the resources the root hands over to other roots
+// (see Removal).
 const MovesFileName = "moves.tf"
 
 // Move is a moved block: the resource at From is at To now.
 type Move struct {
 	From, To string
+}
+
+// Removal is a removed block, with destroy = false: the root's state
+// forgets the resource or module call at From, without destroying it, as
+// another root of the output imports what it has (see Arrival).
+type Removal struct {
+	From string
+	// Resources are what From has, each with the root it goes to; none
+	// for a removed block of moves.tf whose resources no checkpoint says.
+	Resources []Departure `json:",omitempty"`
+}
+
+// Departure is a resource a root hands over to another root: Address is
+// where the root has it, and Root the other root, relative to the output
+// directory, with forward slashes.
+type Departure struct {
+	Type, ID      string
+	Address, Root string
+}
+
+// Arrival is a resource a root imports that another root hands over (see
+// Removal): Root is that root, relative to the output directory, with
+// forward slashes, From where it has the resource, and To where this root
+// imports it, once Generate has generated it.
+type Arrival struct {
+	Type, ID       string
+	Root, From, To string
+}
+
+// RemovedFrom returns what a removed block takes to forget the resource
+// at address: the resource without its instance key, as aws_subnet.a for
+// aws_subnet.a[0], or, for one in a module call, the call, as module.vpc
+// for module.vpc.aws_subnet.a[0]. A removed block takes no instance keys.
+func RemovedFrom(address string) string {
+	if rest, ok := strings.CutPrefix(address, "module."); ok {
+		name, _, _ := strings.Cut(rest, ".")
+		if i := strings.IndexByte(name, '['); i >= 0 {
+			name = name[:i]
+		}
+		return "module." + name
+	}
+	if i := strings.IndexByte(address, '['); i >= 0 {
+		return address[:i]
+	}
+	return address
+}
+
+// removals returns the removed blocks of a root generated again, given
+// now, where its resources are: previous's own removed blocks, but for
+// those whose resource or module call it has again, which it would forget
+// otherwise.
+func removals(previous *Previous, now []Managed) []Removal {
+	if previous == nil {
+		return nil
+	}
+	declared := map[string]bool{}
+	for _, m := range now {
+		declared[RemovedFrom(m.Address)] = true
+	}
+	var removed []Removal
+	seen := map[string]bool{}
+	for _, r := range previous.Removed {
+		if declared[r.From] || seen[r.From] {
+			continue
+		}
+		seen[r.From] = true
+		removed = append(removed, r)
+	}
+	sort.Slice(removed, func(i, j int) bool { return removed[i].From < removed[j].From })
+	return removed
+}
+
+// arrived returns the arrivals of arrivals the root imports, by now,
+// where it imports its resources, with where that is.
+func arrived(arrivals []Arrival, now []Managed) []Arrival {
+	at := map[External]string{}
+	for _, m := range now {
+		at[External{Type: m.Type, ID: m.ID}] = m.Address
+	}
+	var got []Arrival
+	for _, a := range arrivals {
+		if to, ok := at[External{Type: a.Type, ID: a.ID}]; ok {
+			a.To = to
+			got = append(got, a)
+		}
+	}
+	sort.Slice(got, func(i, j int) bool { return got[i].To < got[j].To })
+	return got
 }
 
 // Previous is what an earlier import generated in a root Generate
@@ -40,6 +131,10 @@ type Previous struct {
 	// not have applied yet: Generate keeps them, and its own moves follow
 	// on from them.
 	Moved []Move
+	// Removed are the removed blocks the root gets: those of its moves.tf,
+	// which a plan may not have applied yet either, and those of the
+	// resources it now hands over to other roots.
+	Removed []Removal
 }
 
 // labels returns the label p says each resource had, by type and import
@@ -62,18 +157,30 @@ func (p *Previous) labels() map[External]string {
 
 // reserved returns the resource addresses of the root, as type.label,
 // that a resource Generate labels may take only if it is the one given:
-// those p's resources had, each for itself, and those p's moved blocks
-// name, for none.
+// those p's resources had, each for itself, and those p's moved and
+// removed blocks name, for none.
 func (p *Previous) reserved() map[string]External {
 	if p == nil {
 		return nil
 	}
 	reserved := map[string]External{}
+	var named []string
 	for _, m := range p.Moved {
-		for _, address := range []string{m.From, m.To} {
-			if typ, label, ok := rootResource(address); ok {
-				reserved[typ+"."+label] = External{}
-			}
+		named = append(named, m.From, m.To)
+	}
+	for _, r := range p.Removed {
+		named = append(named, r.From)
+	}
+	for _, address := range named {
+		if typ, label, ok := rootResource(address); ok {
+			reserved[typ+"."+label] = External{}
+		}
+	}
+	// A resource a removed block hands over that comes back keeps its
+	// address, and the block goes (see removals).
+	for _, r := range p.Removed {
+		if typ, label, ok := rootResource(r.From); ok && len(r.Resources) == 1 && r.Resources[0].Address == r.From {
+			reserved[typ+"."+label] = External{Type: r.Resources[0].Type, ID: r.Resources[0].ID}
 		}
 	}
 	for _, m := range p.Addresses {
@@ -236,10 +343,11 @@ func sortMoves(moved []Move) {
 }
 
 // writeMoves writes moved into dir's moves.tf, sorted by where they move
-// to; it removes the file if there are none.
-func writeMoves(dir string, moved []Move) error {
+// to, then removed, sorted by what they remove, each with destroy =
+// false; it removes the file if there are none.
+func writeMoves(dir string, moved []Move, removed []Removal) error {
 	path := filepath.Join(dir, MovesFileName)
-	if len(moved) == 0 {
+	if len(moved) == 0 && len(removed) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -253,6 +361,17 @@ func writeMoves(dir string, moved []Move) error {
 			b.WriteString("\n")
 		}
 		fmt.Fprintf(&b, "moved {\n  from = %s\n  to = %s\n}\n", m.From, m.To)
+	}
+	froms := make([]string, 0, len(removed))
+	for _, r := range removed {
+		froms = append(froms, r.From)
+	}
+	sort.Strings(froms)
+	for i, from := range slices.Compact(froms) {
+		if i > 0 || len(sorted) > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "removed {\n  from = %s\n\n  lifecycle {\n    destroy = false\n  }\n}\n", from)
 	}
 	content := hclwrite.Format([]byte(b.String()))
 	if _, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos); diags.HasErrors() {
@@ -283,6 +402,24 @@ func ReadMoves(dir string) ([]Move, error) {
 	return moved, nil
 }
 
+// ReadRemoved returns the removed blocks of dir's moves.tf, by what they
+// remove; none if dir has no moves.tf.
+func ReadRemoved(dir string) ([]Removal, error) {
+	f, err := loadOptionalHCL(filepath.Join(dir, MovesFileName))
+	if err != nil || f == nil {
+		return nil, err
+	}
+	var removed []Removal
+	for _, b := range f.syntax.Blocks {
+		from, ok := b.Body.Attributes["from"]
+		if b.Type != "removed" || !ok {
+			continue
+		}
+		removed = append(removed, Removal{From: strings.TrimSpace(string(from.Expr.Range().SliceBytes(f.src)))})
+	}
+	return removed, nil
+}
+
 // movedFrom returns the name of the root (see Names) that b, a moved or
 // removed block, takes a resource from: type.label for a resource of the
 // root, or module.name for one in a module call.
@@ -303,4 +440,42 @@ func movedFrom(b *hclsyntax.Block) (string, bool) {
 		return "module." + next.Name, true
 	}
 	return traversal.RootName() + "." + next.Name, true
+}
+
+// Vacate writes the root in dir that an earlier import generated, all of
+// whose resources go to other roots now (see Removal): opts.Config, such
+// as versions.tf and providers.tf, moves.tf with the removed blocks of
+// opts.Previous, and a README that says to apply the root before the
+// roots they go to. A plan of it then forgets them, and destroys
+// nothing. It runs no Terraform: the gate is the moves check (see
+// checkMoves). It fails if opts.Previous has no removed blocks, or still
+// moves resources.
+func Vacate(dir string, opts Options) (*Result, error) {
+	if opts.Previous == nil || len(opts.Previous.Removed) == 0 {
+		return nil, errors.New("no resources to hand over")
+	}
+	if len(opts.Previous.Moved) > 0 {
+		return nil, fmt.Errorf("%s still moves resources: plan and apply the root, and delete %s, before generating it again", MovesFileName, MovesFileName)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	for name, content := range opts.Config {
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	result := &Result{Removed: removals(opts.Previous, nil)}
+	if err := writeMoves(dir, nil, result.Removed); err != nil {
+		return nil, err
+	}
+	if err := requireMinimumVersion(dir); err != nil {
+		return nil, err
+	}
+	check, err := checkMoves(dir)
+	if err != nil {
+		return nil, err
+	}
+	result.Gate = Gate{check}
+	return result, WriteReadme(dir, result)
 }

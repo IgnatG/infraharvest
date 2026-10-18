@@ -397,6 +397,8 @@ func (r *Result) With(added *Result) *Result {
 		Files:     files,
 		Addresses: addresses,
 		Moves:     r.Moves,
+		Removed:   r.Removed,
+		Arrived:   r.Arrived,
 	}
 }
 
