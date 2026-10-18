@@ -1,14 +1,23 @@
-# Lists what the sandbox runs may have left in each cloud, without creating
-# or deleting anything: resources still carrying a sandbox tag or name, and
-# in AWS the kinds that cost the most while they exist (running instances,
-# NAT gateways, Elastic IPs, load balancers, databases, Redshift, ElastiCache
-# and EKS clusters), tagged or not. Runs only when started by hand, and
-# only after a reviewer of the sandbox environment approves it. It prints
-# names and IDs only, to the run's summary.
+# Lists what the sandbox runs may have left in each cloud: resources still
+# carrying a sandbox tag or name, and in AWS the kinds that cost the most
+# while they exist (running instances, NAT gateways, Elastic IPs, load
+# balancers, databases, Redshift, ElastiCache and EKS clusters), tagged or
+# not, with the month's cost so far where the identity may read it. With
+# delete set, it then deletes what AWS still holds with a sandbox tag: the
+# sweep's kinds, ECS services, clusters and task definitions, VPC
+# endpoints, and KMS keys, which are scheduled for deletion after the
+# shortest wait, 7 days. Runs only when started by hand, and only after a
+# reviewer of the sandbox environment approves it. It prints names and IDs
+# only, to the run's summary.
 name: sandbox-leftovers
 
 on:
   workflow_dispatch:
+    inputs:
+      delete:
+        description: Delete what AWS still holds with a sandbox tag
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -17,14 +26,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
+      contents: read
       id-token: write # OpenID Connect, for the roles
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
     steps:
-    # The fixture role, which can list what the estate holds; only list and
-    # describe calls follow.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    # The fixture role, which can list and delete what the estate holds.
     - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
       with:
         role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
@@ -67,6 +79,96 @@ jobs:
         if [ "$found" -eq 0 ]; then
           echo "Nothing left." | tee -a "$GITHUB_STEP_SUMMARY"
         fi
+    # One Cost Explorer call, which AWS charges a cent for; skipped with a
+    # note when the role may not read costs.
+    - name: Cost this month
+      if: ${{ !cancelled() }}
+      run: |
+        start=$(date -u +%Y-%m-01)
+        end=$(date -u -d tomorrow +%Y-%m-%d)
+        {
+          echo "### Cost from $start (USD, unblended)"
+          if ! aws ce get-cost-and-usage --region us-east-1 --time-period "Start=$start,End=$end" \
+            --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE --output json |
+            jq -r '[.ResultsByTime[].Groups[] | {s: .Keys[0], c: (.Metrics.UnblendedCost.Amount | tonumber)}]
+              | group_by(.s) | map({s: .[0].s, c: (map(.c) | add)}) | sort_by(-.c)
+              | (map(.c) | add | "- total: \(. * 100 | round / 100)"), (.[] | select(.c >= 0.01) | "- \(.s): \(.c * 100 | round / 100)")'; then
+            echo "The role may not read costs."
+          fi
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+    - name: Delete
+      if: ${{ inputs.delete }}
+      env:
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        try() {
+          if ! "$@" > /dev/null; then
+            echo "failed: $*"
+          fi
+        }
+        regions=$(printf '%s\n' "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1 | sort -u)
+        # What every earlier run left with its run tag: instances, NAT
+        # gateways, Elastic IPs, databases, clusters, load balancers,
+        # streams, functions and buckets.
+        # shellcheck disable=SC2086
+        .github/scripts/sandbox-aws-sweep.sh $regions
+        for region in $regions; do
+          echo "== $region"
+          clusters=()
+          while read -r arn; do
+            IFS=: read -r _ _ service _ _ resource <<< "$arn"
+            case "$service:$resource" in
+              ecs:service/*)
+                IFS=/ read -r _ cluster name <<< "$resource"
+                echo "deleting ECS service $cluster/$name"
+                try aws ecs delete-service --region "$region" --cluster "$cluster" --service "$name" --force
+                ;;
+              ecs:cluster/*) clusters+=("${resource#cluster/}") ;;
+              ecs:task-definition/*)
+                status=$(aws ecs describe-task-definition --region "$region" --task-definition "$arn" \
+                  --query 'taskDefinition.status' --output text 2> /dev/null)
+                case "$status" in
+                  ACTIVE)
+                    try aws ecs deregister-task-definition --region "$region" --task-definition "$arn"
+                    try aws ecs delete-task-definitions --region "$region" --task-definitions "$arn"
+                    ;;
+                  INACTIVE) try aws ecs delete-task-definitions --region "$region" --task-definitions "$arn" ;;
+                esac
+                ;;
+              kms:key/*)
+                state=$(aws kms describe-key --region "$region" --key-id "$arn" \
+                  --query 'KeyMetadata.[KeyManager,KeyState]' --output text 2> /dev/null)
+                echo "KMS key ${resource#key/}: $state"
+                case "$state" in
+                  CUSTOMER*Enabled | CUSTOMER*Disabled)
+                    try aws kms schedule-key-deletion --region "$region" --key-id "$arn" --pending-window-in-days 7
+                    ;;
+                esac
+                ;;
+              ec2:vpc-endpoint/*)
+                state=$(aws ec2 describe-vpc-endpoints --region "$region" --vpc-endpoint-ids "${resource#vpc-endpoint/}" \
+                  --query 'VpcEndpoints[].State' --output text 2> /dev/null)
+                if [ -n "$state" ] && [ "$state" != deleted ]; then
+                  echo "deleting VPC endpoint ${resource#vpc-endpoint/} ($state)"
+                  try aws ec2 delete-vpc-endpoints --region "$region" --vpc-endpoint-ids "${resource#vpc-endpoint/}"
+                fi
+                ;;
+            esac
+          done < <(aws resourcegroupstaggingapi get-resources --region "$region" --tag-filters Key=infraharvest-sandbox \
+            --query 'ResourceTagMappingList[].ResourceARN' --output text | tr '\t' '\n' | sed '/^$/d')
+          # A cluster goes once its services have.
+          for cluster in "${clusters[@]}"; do
+            status=$(aws ecs describe-clusters --region "$region" --clusters "$cluster" \
+              --query 'clusters[].status' --output text 2> /dev/null)
+            if [ "$status" = ACTIVE ]; then
+              echo "deleting ECS cluster $cluster"
+              for _ in $(seq 30); do
+                aws ecs delete-cluster --region "$region" --cluster "$cluster" > /dev/null 2>&1 && break
+                sleep 10
+              done
+            fi
+          done
+        done
 
   azure:
     runs-on: ubuntu-latest
@@ -74,6 +176,9 @@ jobs:
     permissions:
       id-token: write # OpenID Connect, for the roles
     timeout-minutes: 15
+    env:
+      SUBSCRIPTION: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
     steps:
     - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
       with:
@@ -81,9 +186,6 @@ jobs:
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     - name: Leftovers
-      env:
-        SUBSCRIPTION: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-        GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
       run: |
         echo "## Azure" >> "$GITHUB_STEP_SUMMARY"
         left=$(az resource list --subscription "$SUBSCRIPTION" -g "$GROUP" --query '[].id' -o tsv)
@@ -92,6 +194,28 @@ jobs:
         else
           echo "Nothing left in $GROUP." | tee -a "$GITHUB_STEP_SUMMARY"
         fi
+    # The month's cost so far, by service, from Cost Management: for the
+    # subscription when the identity may read it, else for the group.
+    - name: Cost this month
+      if: ${{ !cancelled() }}
+      run: |
+        body='{"type":"ActualCost","timeframe":"MonthToDate","dataset":{"granularity":"None",
+          "aggregation":{"cost":{"name":"Cost","function":"Sum"}},
+          "grouping":[{"type":"Dimension","name":"ServiceName"}]}}'
+        {
+          for scope in "subscriptions/$SUBSCRIPTION" "subscriptions/$SUBSCRIPTION/resourceGroups/$GROUP"; do
+            if out=$(az rest --method post --body "$body" \
+              --url "https://management.azure.com/$scope/providers/Microsoft.CostManagement/query?api-version=2023-03-01" 2> /dev/null); then
+              echo "### Cost this month, ${scope##*/} (by service)"
+              jq -r '.properties as $p | ($p.columns | map(.name)) as $c
+                | [$p.rows[] | {s: .[($c | index("ServiceName"))], c: .[($c | index("Cost"))], u: .[($c | index("Currency"))]}]
+                | sort_by(-.c) | (map(.c) | add // 0 | "- total: \(. * 100 | round / 100)"),
+                  (.[] | select(.c >= 0.01) | "- \(.s): \(.c * 100 | round / 100) \(.u)")' <<< "$out"
+              exit 0
+            fi
+          done
+          echo "The identity may not read costs."
+        } | tee -a "$GITHUB_STEP_SUMMARY"
 
   google:
     runs-on: ubuntu-latest
@@ -99,6 +223,8 @@ jobs:
     permissions:
       id-token: write # OpenID Connect, for the roles
     timeout-minutes: 15
+    env:
+      PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
     steps:
     - id: readonly
       uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -112,7 +238,6 @@ jobs:
     - name: Leftovers
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
-        PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
       run: |
         echo "## Google Cloud" >> "$GITHUB_STEP_SUMMARY"
         left=$(gcloud asset search-all-resources --scope "projects/$PROJECT" \
@@ -122,3 +247,16 @@ jobs:
         else
           echo "Nothing left in the project." | tee -a "$GITHUB_STEP_SUMMARY"
         fi
+    # Google Cloud has no API for costs (only a billing export to
+    # BigQuery): this says only whether the project is billed; its costs are
+    # in the console's billing report.
+    - name: Billing
+      if: ${{ !cancelled() }}
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
+      run: |
+        {
+          echo "### Billing"
+          gcloud billing projects describe "$PROJECT" --format 'value(billingEnabled)' 2> /dev/null ||
+            echo "The account may not read the project's billing."
+        } | tee -a "$GITHUB_STEP_SUMMARY"
