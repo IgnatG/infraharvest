@@ -75,3 +75,11 @@ func releaseModules(root string) error {
 	delete(moduleRefs.byRoot, root)
 	return errors.Join(errs...)
 }
+
+// ReleaseModules ends the use the root in dir makes of the generated
+// modules it holds, such as when what Generate wrote there is put back as
+// it was, and removes each this process wrote that no other root calls
+// now (see releaseModules).
+func ReleaseModules(dir string) error {
+	return releaseModules(dir)
+}

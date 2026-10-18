@@ -304,7 +304,8 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 // and import ID, puts in another root of the run, by its path, and
 // resources of imports it leaves out, such as those its plan rejected.
 // Applied on the root's state, its next plan would destroy them, and
-// create those at other addresses. The root is put back as it was. A
+// create those at other addresses. The root is put back as it was, without
+// the generated modules it took up (see engine.ReleaseModules). A
 // resource the run no longer imports at all, such as one deleted in the
 // cloud since, isn't counted. Until moved and removed blocks are written
 // for them, such a root can't be generated again.
@@ -333,10 +334,15 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 	}
 	sort.Strings(changed)
 	err := fmt.Errorf("generating %s again would move or leave out %d of its resources, which a plan on its state would destroy, and create where they move to, so it is left as it was: %s", dir, len(changed), strings.Join(changed, ", "))
+	return errors.Join(err, c.putBack(dir))
+}
+
+// putBack puts the claimed root in dir back as it was before it was
+// generated again, without the generated modules it took up since.
+func (c *claim) putBack(dir string) error {
+	err := engine.ReleaseModules(dir)
 	if c.backup != nil {
-		if restoreErr := c.backup.restore(); restoreErr != nil {
-			return errors.Join(err, restoreErr)
-		}
+		err = errors.Join(err, c.backup.restore())
 	}
 	return err
 }
