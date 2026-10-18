@@ -65,12 +65,18 @@ func HasConfiguration(dir string) (bool, error) {
 	return false, nil
 }
 
-// rootNames returns the names files use (see Names).
+// rootNames returns the names files use (see Names), with those that
+// moved and removed blocks take resources from: a plan rejects a moved
+// block from an address the configuration declares.
 func rootNames(files []*hclFile) Names {
 	names := Names{}
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
 			switch {
+			case b.Type == "moved" || b.Type == "removed":
+				if from, ok := movedFrom(b); ok {
+					names[from] = true
+				}
 			case b.Type == "resource" && len(b.Labels) == 2:
 				names[b.Labels[0]+"."+b.Labels[1]] = true
 			case b.Type == "data" && len(b.Labels) == 2:
