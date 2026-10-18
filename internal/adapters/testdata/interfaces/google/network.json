@@ -132,5 +132,25 @@
     "subnets_regions",
     "subnets_secondary_ranges",
     "subnets_self_links"
+  ],
+  "providers": {
+    "google": {
+      "source": "hashicorp/google",
+      "version": "\u003e= 4.64, \u003c 9"
+    },
+    "google-beta": {
+      "source": "hashicorp/google-beta",
+      "version": "\u003e= 4.64, \u003c 9"
+    }
+  },
+  "resources": [
+    "module.firewall_rules.google_compute_firewall.rules",
+    "module.firewall_rules.google_compute_firewall.rules_ingress_egress",
+    "module.private_service_access.google_compute_global_address.private_ip_address",
+    "module.private_service_access.google_service_networking_connection.private_vpc_connection",
+    "module.routes.google_compute_route.route",
+    "module.subnets.google_compute_subnetwork.subnetwork",
+    "module.vpc.google_compute_network.network",
+    "module.vpc.google_compute_shared_vpc_host_project.shared_vpc_host"
   ]
 }

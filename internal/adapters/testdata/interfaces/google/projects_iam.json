@@ -27,5 +27,15 @@
     "members",
     "projects",
     "roles"
+  ],
+  "providers": {
+    "google": {
+      "source": "hashicorp/google",
+      "version": "\u003e= 3.53, \u003c 9"
+    }
+  },
+  "resources": [
+    "google_project_iam_binding.project_iam_authoritative",
+    "google_project_iam_member.project_iam_additive"
   ]
 }

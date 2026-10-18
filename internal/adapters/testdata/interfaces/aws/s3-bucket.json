@@ -390,5 +390,45 @@
     "s3_bucket_website_endpoint",
     "s3_directory_bucket_arn",
     "s3_directory_bucket_name"
+  ],
+  "providers": {
+    "aws": {
+      "source": "hashicorp/aws",
+      "version": "\u003e= 6.44"
+    }
+  },
+  "resources": [
+    "aws_s3_bucket.this",
+    "aws_s3_bucket_accelerate_configuration.this",
+    "aws_s3_bucket_acl.this",
+    "aws_s3_bucket_analytics_configuration.this",
+    "aws_s3_bucket_cors_configuration.this",
+    "aws_s3_bucket_intelligent_tiering_configuration.this",
+    "aws_s3_bucket_inventory.this",
+    "aws_s3_bucket_lifecycle_configuration.this",
+    "aws_s3_bucket_logging.this",
+    "aws_s3_bucket_metadata_configuration.this",
+    "aws_s3_bucket_metric.this",
+    "aws_s3_bucket_object_lock_configuration.this",
+    "aws_s3_bucket_ownership_controls.this",
+    "aws_s3_bucket_policy.this",
+    "aws_s3_bucket_public_access_block.this",
+    "aws_s3_bucket_replication_configuration.this",
+    "aws_s3_bucket_request_payment_configuration.this",
+    "aws_s3_bucket_server_side_encryption_configuration.this",
+    "aws_s3_bucket_versioning.this",
+    "aws_s3_bucket_website_configuration.this",
+    "aws_s3_directory_bucket.this",
+    "module.s3_file_system.aws_iam_role.this",
+    "module.s3_file_system.aws_iam_role_policy.this",
+    "module.s3_file_system.aws_iam_role_policy_attachment.this",
+    "module.s3_file_system.aws_s3files_access_point.this",
+    "module.s3_file_system.aws_s3files_file_system.this",
+    "module.s3_file_system.aws_s3files_file_system_policy.this",
+    "module.s3_file_system.aws_s3files_mount_target.this",
+    "module.s3_file_system.aws_s3files_synchronization_configuration.this",
+    "module.s3_file_system.aws_security_group.this",
+    "module.s3_file_system.aws_vpc_security_group_egress_rule.this",
+    "module.s3_file_system.aws_vpc_security_group_ingress_rule.this"
   ]
 }

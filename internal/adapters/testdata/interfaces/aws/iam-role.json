@@ -160,5 +160,17 @@
     "instance_profile_unique_id",
     "name",
     "unique_id"
+  ],
+  "providers": {
+    "aws": {
+      "source": "hashicorp/aws",
+      "version": "\u003e= 6.28"
+    }
+  },
+  "resources": [
+    "aws_iam_instance_profile.this",
+    "aws_iam_role.this",
+    "aws_iam_role_policy.inline",
+    "aws_iam_role_policy_attachment.this"
   ]
 }

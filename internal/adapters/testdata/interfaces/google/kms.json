@@ -104,5 +104,19 @@
     "keyring_name",
     "keyring_resource",
     "keys"
+  ],
+  "providers": {
+    "google": {
+      "source": "hashicorp/google",
+      "version": "\u003e= 5.31.0, \u003c 9"
+    }
+  },
+  "resources": [
+    "google_kms_crypto_key.key",
+    "google_kms_crypto_key.key_ephemeral",
+    "google_kms_crypto_key_iam_binding.decrypters",
+    "google_kms_crypto_key_iam_binding.encrypters",
+    "google_kms_crypto_key_iam_binding.owners",
+    "google_kms_key_ring.key_ring"
   ]
 }

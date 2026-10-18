@@ -49,5 +49,31 @@
     "resource_id",
     "resource_name",
     "tenant_id"
+  ],
+  "providers": {
+    "azapi": {
+      "source": "Azure/azapi",
+      "version": "~\u003e 2.12"
+    },
+    "azurerm": {
+      "source": "hashicorp/azurerm",
+      "version": "\u003e= 4.60.0, \u003c 5.0.0"
+    },
+    "modtm": {
+      "source": "azure/modtm",
+      "version": "~\u003e 0.3"
+    },
+    "random": {
+      "source": "hashicorp/random",
+      "version": "~\u003e 3.5"
+    }
+  },
+  "resources": [
+    "azurerm_federated_identity_credential.this",
+    "azurerm_management_lock.this",
+    "azurerm_role_assignment.this",
+    "azurerm_user_assigned_identity.this",
+    "modtm_telemetry.telemetry",
+    "random_uuid.telemetry"
   ]
 }
