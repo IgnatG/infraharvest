@@ -76,12 +76,14 @@ jobs:
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     # What an earlier run may have left: the resource group holds nothing
-    # between runs.
+    # between runs. What it holds is swept at the end of the run.
     - name: Leftovers
+      id: leftovers
       run: |
         left=$(az resource list --subscription "$ARM_SUBSCRIPTION_ID" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
         if [ -n "$left" ]; then
           echo "::warning::Resources in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $left"
+          echo "found=true" >> "$GITHUB_OUTPUT"
         fi
     - name: Round trip
       env:
@@ -115,19 +117,20 @@ jobs:
     # The CLI's first sign-in may have run out by now: its federated token
     # lasts minutes, its access token an hour.
     - name: Azure CLI as the fixture identity, again
-      if: failure() || cancelled()
+      if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
       uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
       with:
         client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     # When the run failed, deletes what Terraform's state doesn't hold,
-    # such as a resource whose creation failed half-way: the locks first,
-    # which would stop the rest, then every resource of the run, tagged
-    # infraharvest-sandbox=<engine>, a few rounds over, as some can only go
-    # once what uses them has. The resource group itself stays.
+    # such as a resource whose creation failed half-way, and what an earlier
+    # run left: the locks first, which would stop the rest, then every
+    # resource tagged infraharvest-sandbox, whichever engine's run made it
+    # (runs never overlap), a few rounds over, as some can only go once what
+    # uses them has. The resource group itself stays.
     - name: Sweep the resource group
-      if: failure() || cancelled()
+      if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
       run: |
         sub=(--subscription "$ARM_SUBSCRIPTION_ID")
         locks=$(az lock list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
@@ -136,7 +139,7 @@ jobs:
             az lock delete "${sub[@]}" --ids "$lock" || true
           fi
         done <<< "$locks"
-        query="[?tags.\"infraharvest-sandbox\"=='$E2E_ENGINE'].id"
+        query="[?tags.\"infraharvest-sandbox\" != null].id"
         for _ in 1 2 3; do
           ids=$(az resource list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query "$query" -o tsv)
           if [ -z "$ids" ]; then
