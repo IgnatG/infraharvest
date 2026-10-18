@@ -101,6 +101,9 @@ jobs:
       env:
         RUN_ID: ${{ github.run_id }}
       run: |
+        # Not -e: a lookup of what is already gone fails, and mustn't stop
+        # the rest.
+        set +e
         try() {
           if ! "$@" > /dev/null; then
             echo "failed: $*"
