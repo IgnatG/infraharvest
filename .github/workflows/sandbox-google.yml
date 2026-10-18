@@ -85,8 +85,10 @@ jobs:
     # What an earlier run may have left: the project holds nothing named
     # after the sandbox between runs. One search, as the read-only account,
     # with the gcloud CLI of the runner image; it may still list what an
-    # earlier run deleted minutes ago.
+    # earlier run deleted minutes ago. What it finds is swept at the end of
+    # the run.
     - name: Leftovers
+      id: leftovers
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
       run: |
@@ -98,6 +100,7 @@ jobs:
           --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
         if [ -n "$left" ]; then
           echo "::warning::Sandbox resources in $SANDBOX_GOOGLE_PROJECT before the run: $left"
+          echo "found=true" >> "$GITHUB_OUTPUT"
         fi
     - name: Round trip
       env:
@@ -131,22 +134,23 @@ jobs:
           exit 1
         fi
     # When the run failed, deletes what Terraform's state doesn't hold,
-    # such as a resource whose creation failed half-way: every resource of
-    # the run's engine, as the fixture service account. Networks,
-    # subnetworks, firewall rules, routers and service accounts take no
-    # labels, so the sweep finds everything by name, ih-sbx-<engine>-,
+    # such as a resource whose creation failed half-way, and what an earlier
+    # run left: every resource of a sandbox estate, whichever engine's run
+    # made it (runs never overlap), as the fixture service account.
+    # Networks, subnetworks, firewall rules, routers and service accounts
+    # take no labels, so the sweep finds everything by name, ih-sbx-<engine>-,
     # which the estate gives every resource but its function, ih-sbx-function,
     # and deletes what uses others first: the function, the zones' record
     # sets, the zones, the subscriptions and topics, the buckets, the
     # instances and their disks, then the network's firewall rules,
     # routers and subnetworks, the network, and the service account.
     - name: Sweep the project
-      if: failure() || cancelled()
+      if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
       run: |
-        prefix="ih-sbx-$E2E_ENGINE-"
+        prefix="ih-sbx-"
         named="name ~ '^$prefix'"
         q=(--quiet)
         functions=$(gcloud functions list --filter "name ~ '/functions/ih-sbx-'" --format 'value(name.basename(),name.segment(3))')
