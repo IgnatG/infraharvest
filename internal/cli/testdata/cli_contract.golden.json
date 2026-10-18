@@ -213,6 +213,13 @@
         "persistent": true
       },
       {
+        "name": "regenerate",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "regions",
         "type": "stringSlice",
         "default": "[]",
@@ -425,6 +432,13 @@
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regenerate",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -659,6 +673,13 @@
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regenerate",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -906,6 +927,13 @@
         "persistent": true
       },
       {
+        "name": "regenerate",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "regions",
         "type": "stringSlice",
         "default": "[]",
@@ -1118,6 +1146,13 @@
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regenerate",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -1352,6 +1387,13 @@
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
+        "persistent": true
+      },
+      {
+        "name": "regenerate",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
