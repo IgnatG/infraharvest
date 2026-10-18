@@ -15,11 +15,11 @@ import (
 // removed blocks (G8).
 const CheckMoves = "G8 moves"
 
-// blockAddress is the address a moved or removed block names, as in
+// refactorAddress is the address a moved or removed block names, as in
 // module.vpc.aws_subnet.a[0]: the module calls it is in, without their
 // instance keys, and the resource's type and label, both empty for a
 // module call.
-type blockAddress struct {
+type refactorAddress struct {
 	text       string
 	modules    []string
 	typ, label string
@@ -29,7 +29,7 @@ type blockAddress struct {
 
 // resource returns the resource or module call a names, without instance
 // keys, as module.vpc.aws_subnet.a or module.vpc.
-func (a blockAddress) resource() string {
+func (a refactorAddress) resource() string {
 	parts := append([]string(nil), a.modules...)
 	if a.typ != "" {
 		parts = append(parts, a.typ+"."+a.label)
@@ -37,14 +37,14 @@ func (a blockAddress) resource() string {
 	return strings.Join(parts, ".")
 }
 
-// parseBlockAddress returns the address attr, the from or to of a moved
+// parseRefactorAddress returns the address attr, the from or to of a moved
 // or removed block in src, names; false if it names none.
-func parseBlockAddress(attr *hclsyntax.Attribute, src []byte) (blockAddress, bool) {
+func parseRefactorAddress(attr *hclsyntax.Attribute, src []byte) (refactorAddress, bool) {
 	traversal, diags := hcl.AbsTraversalForExpr(attr.Expr)
 	if diags.HasErrors() {
-		return blockAddress{}, false
+		return refactorAddress{}, false
 	}
-	a := blockAddress{text: strings.TrimSpace(string(attr.Expr.Range().SliceBytes(src)))}
+	a := refactorAddress{text: strings.TrimSpace(string(attr.Expr.Range().SliceBytes(src)))}
 	var names []string
 	for i, step := range traversal {
 		switch s := step.(type) {
@@ -57,7 +57,7 @@ func parseBlockAddress(attr *hclsyntax.Attribute, src []byte) (blockAddress, boo
 				a.keyed = true
 			}
 		default:
-			return blockAddress{}, false
+			return refactorAddress{}, false
 		}
 	}
 	for len(names) >= 2 && names[0] == "module" {
@@ -71,7 +71,7 @@ func parseBlockAddress(attr *hclsyntax.Attribute, src []byte) (blockAddress, boo
 		a.typ, a.label = names[0], names[1]
 		return a, true
 	}
-	return blockAddress{}, false
+	return refactorAddress{}, false
 }
 
 // checkMoves checks the moved and removed blocks of the root in dir: each
@@ -103,7 +103,7 @@ func checkMoves(dir string) (Check, error) {
 	}
 	// declares reports whether the root declares what a names: the
 	// resource, or the module call a is in or is.
-	declares := func(a blockAddress) bool {
+	declares := func(a refactorAddress) bool {
 		if len(a.modules) > 0 {
 			return declared[a.modules[0]]
 		}
@@ -113,7 +113,7 @@ func checkMoves(dir string) (Check, error) {
 	// a moved or removed block, names: a resource of the root, or a module
 	// call. Of a resource in a module call the root still makes, only the
 	// module can tell.
-	stillDeclared := func(a blockAddress) bool {
+	stillDeclared := func(a refactorAddress) bool {
 		switch {
 		case len(a.modules) == 0:
 			return declared[a.typ+"."+a.label]
@@ -137,7 +137,7 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: %s block has no from", where(b), b.Type)
 				continue
 			}
-			from, ok := parseBlockAddress(fromAttr, f.src)
+			from, ok := parseRefactorAddress(fromAttr, f.src)
 			if !ok {
 				fail("%s: %s block's from isn't an address", where(b), b.Type)
 				continue
@@ -157,7 +157,7 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: moved block has no to", where(b))
 				continue
 			}
-			to, ok := parseBlockAddress(toAttr, f.src)
+			to, ok := parseRefactorAddress(toAttr, f.src)
 			if !ok {
 				fail("%s: moved block's to isn't an address", where(b))
 				continue
