@@ -326,8 +326,9 @@ jobs:
   # import testdata/aws-options in an account of their own many times
   # over, run on two more: those of the output (layout, modules, verify)
   # and those of what is imported (report, filters, exit codes). The
-  # other tests (TestAWSParallelAccounts and TestAWSParallelRegions, which
-  # create their resources in other accounts) share a last one.
+  # other tests (TestAWSParallelAccounts, TestAWSParallelRegions and
+  # TestAWSRegenerateMoves, which create their resources in other
+  # accounts) share a last one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
