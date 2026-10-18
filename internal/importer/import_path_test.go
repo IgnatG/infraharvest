@@ -381,3 +381,24 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 		t.Errorf("left out as held elsewhere: %v", excluded)
 	}
 }
+
+// After the root is applied, and its README says to delete imports.tf,
+// --resume still skips it while nothing changed.
+func TestListCallResumesAnAppliedRoot(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha"))
+	if err := os.Remove(filepath.Join(out, "fake", "alpha", engine.ImportsFileName)); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &fakeEngine{}
+	options := pathOptions(out, f, "alpha")
+	options.Resume = true
+	run := importPath(t, options)
+	if len(f.generated) != 0 || len(run.failures) != 0 {
+		t.Errorf("generated %v, failures %v, want the applied root skipped", f.generated, run.failures)
+	}
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha"}) {
+		t.Errorf("reported directories %v", got)
+	}
+}

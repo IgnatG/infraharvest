@@ -90,6 +90,8 @@ func checkpointPath(out, dir string) string {
 
 // resumed returns the result a checkpoint recorded for dir, if it has the
 // same fingerprint and the root's files are still there; nil otherwise.
+// Those are its configuration and versions.tf, but not imports.tf: once the
+// root is applied, its README says to delete it.
 func resumed(out, dir, fp string) (*engine.Result, error) {
 	content, err := os.ReadFile(checkpointPath(out, dir))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -102,7 +104,7 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 	if err := json.Unmarshal(content, &c); err != nil || c.Fingerprint != fp || c.Result == nil {
 		return nil, nil // an unreadable checkpoint means generating again
 	}
-	for _, name := range append([]string{engine.ImportsFileName, engine.VersionsFileName}, configurationFiles(c.Result)...) {
+	for _, name := range append([]string{engine.VersionsFileName}, configurationFiles(c.Result)...) {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			return nil, nil // a missing file means generating again
 		}
