@@ -248,7 +248,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if !options.Discover {
 		// Discover lists every type, so that the selection file can include
 		// any; an import needn't list what it leaves out anyway.
-		chosen, err := run.selectionFile(options.Selection)
+		chosen, err := run.selectionFile(options)
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +282,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		run.cover(scope, options)
 		return nil, nil
 	}
-	chosen, err := run.selectionFile(options.Selection)
+	chosen, err := run.selectionFile(options)
 	if err != nil {
 		return nil, err
 	}

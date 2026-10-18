@@ -149,6 +149,66 @@ func TestSelectResourcesRulesBeforeDefaults(t *testing.T) {
 	}
 }
 
+// A rule doesn't include an unlisted resource the defaults leave out
+// because another tool manages it: only its entry or --include-owned does.
+// An exclude rule still excludes it.
+func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
+	const stack = "managed by CloudFormation stack app"
+	listed := map[string][]harvest.Resource{"s3": {
+		harvest.RecordBare("stack-bucket", "stack-bucket", "aws_s3_bucket", "aws"),
+		harvest.RecordBare("kept-bucket", "kept-bucket", "aws_s3_bucket", "aws"),
+		harvest.RecordBare("app-bucket", "app-bucket", "aws_s3_bucket", "aws"),
+	}}
+	defaults := map[string]string{"aws_s3_bucket stack-bucket": stack, "aws_s3_bucket kept-bucket": stack}
+	file := func(rule selection.Rule, includeOwned bool) *selection.File {
+		return &selection.File{
+			Version:      selection.Version,
+			Rules:        []selection.Rule{rule},
+			Resources:    []selection.Resource{{Type: "aws_s3_bucket", ID: "kept-bucket", Include: true}},
+			IncludeOwned: includeOwned,
+		}
+	}
+	include := selection.Rule{Include: &selection.Match{Type: selection.Patterns{"aws_s3_bucket"}}}
+	exclude := selection.Rule{Exclude: &selection.Match{Type: selection.Patterns{"aws_s3_bucket"}}}
+
+	run := NewRun()
+	selected, _ := run.selectResources(listing{resources: listed}, defaults, file(include, false), "", importIDForSelection)
+	if want := []string{"app-bucket", "kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
+		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
+	}
+	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "stack-bucket", Reason: stack}}; !reflect.DeepEqual(run.report.Excluded, want) {
+		t.Errorf("excluded %+v, want %+v", run.report.Excluded, want)
+	}
+
+	run = NewRun()
+	selected, _ = run.selectResources(listing{resources: listed}, defaults, file(include, true), "", importIDForSelection)
+	if want := []string{"app-bucket", "kept-bucket", "stack-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
+		t.Errorf("with --include-owned: selected %v, want %v", selectedIDs(selected), want)
+	}
+
+	run = NewRun()
+	selected, _ = run.selectResources(listing{resources: listed}, defaults, file(exclude, false), "", importIDForSelection)
+	if want := []string{"kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
+		t.Errorf("with an exclude rule: selected %v, want %v", selectedIDs(selected), want)
+	}
+}
+
+// --include-owned lets the selection file's rules include what another
+// tool manages.
+func TestSelectionFileIncludeOwned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	if err := os.WriteFile(path, []byte("version: 1\ndefaults:\n  include: true\nresources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := NewRun().selectionFile(Options{Selection: path, IncludeOwned: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.IncludeOwned {
+		t.Error("the file's rules may not include what another tool manages")
+	}
+}
+
 // A resource listed twice, such as by two Import calls of one command,
 // gets one entry, and nothing is new in a first file.
 func TestDiscoverWritesEachResourceOnce(t *testing.T) {

@@ -129,7 +129,7 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 	}
 	if !options.Discover {
 		// Loaded before the calls share it.
-		if _, err := run.selectionFile(options.Selection); err != nil {
+		if _, err := run.selectionFile(options); err != nil {
 			return err
 		}
 	}
