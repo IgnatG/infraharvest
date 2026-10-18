@@ -7,7 +7,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"path"
 	"strings"
 	"testing"
@@ -88,14 +87,4 @@ func createQueue(ctx context.Context, t *testing.T, svc *sqs.Client, name string
 		_, _ = svc.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: awssdk.String(url)})
 	})
 	return url
-}
-
-// coverageOf returns the coverage.json of the import into out.
-func coverageOf(t *testing.T, out string) report.Report {
-	t.Helper()
-	var coverage report.Report
-	if err := json.Unmarshal([]byte(outputFiles(t, out)[report.Dir+"/coverage.json"]), &coverage); err != nil {
-		t.Fatal(err)
-	}
-	return coverage
 }
