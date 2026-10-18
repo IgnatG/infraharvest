@@ -40,7 +40,6 @@ func TestDriftFlags(t *testing.T) {
 }
 
 func TestDriftRejectsBadFlags(t *testing.T) {
-	t.Parallel()
 	for name, args := range map[string][]string{
 		"--format":   {"--format", "yaml"},
 		"--parallel": {"--parallel", "0"},
@@ -49,12 +48,11 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 		"arguments":  {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			cmd := NewCmdRoot()
+			cmd := newDriftCmd()
 			var out bytes.Buffer
 			cmd.SetOut(&out)
 			cmd.SetErr(&out)
-			cmd.SetArgs(append([]string{"drift", t.TempDir()}, args...))
+			cmd.SetArgs(append([]string{t.TempDir()}, args...))
 			err := cmd.Execute()
 			if err == nil {
 				t.Fatal("drift ran")
@@ -67,10 +65,9 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 }
 
 func TestDriftWithoutRoots(t *testing.T) {
-	t.Parallel()
-	cmd := NewCmdRoot()
+	cmd := newDriftCmd()
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"drift", t.TempDir()})
+	cmd.SetArgs([]string{t.TempDir()})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "no generated roots") {
 		t.Errorf("got %v, want no generated roots", err)
 	}
