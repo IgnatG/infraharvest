@@ -185,6 +185,9 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 	// share it (see generateDir). Only the calls that go one at a time set
 	// it, before the others start.
 	seed := run.lock
+	// Once every root is generated, or the calls stopped: what a root that
+	// failed left half handed over.
+	defer warnIncomplete(run, listed)
 	return eachCall(ctx, slots, len(calls), lead, options.Parallel, name, func(ctx context.Context, i int) error {
 		if listed[i] == nil {
 			return nil

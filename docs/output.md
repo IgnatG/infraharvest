@@ -47,6 +47,8 @@ With `--regenerate`, a resource can go from one root to another, such as when `-
 
 Apply the root the resource leaves first: its plan says Terraform will forget the resource, not destroy it, and its apply removes it from that root's state. Then plan and apply the root it goes to, which imports it. Applied first, the new root would import a resource the old root's state still has, and both would manage it.
 
+A handover can fail halfway, when one of the two roots fails. Where it can, the run generates the root a resource goes to first: if it doesn't import the resource, the root the resource leaves is left as it was, so it keeps the resource. If the root the resource leaves fails after the new root imported it, both roots now have it: generate the failed root again with `--regenerate` before applying either. If the two roots are generated the other way round, as when each hands resources over to the other, or the run generates them at the same time, and the new root fails, the old root's `removed` block would make its state forget a resource no root imports: don't apply the old root until the new root, generated again, imports it. The run warns of each such resource, and the report and `coverage.json` (`incomplete_handovers`) list them, with the root that failed.
+
 `removed` blocks with `lifecycle` need Terraform 1.7 or OpenTofu 1.10, so a root that has them requires 1.10.
 
 ## What stays yours

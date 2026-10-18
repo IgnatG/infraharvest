@@ -198,7 +198,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
 		return err
 	}
-	return c.generate(ctx, c.byDir)
+	err = c.generate(ctx, c.byDir)
+	warnIncomplete(run, []*listedCall{c})
+	return err
 }
 
 // listedCall is an Import call whose resources are listed, selected and
@@ -418,9 +420,11 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
+	dirs = c.handovers.order(dirs)
 	others := newOtherRoots(opts, roots, options.Out)
 	for _, dir := range dirs {
 		if err := c.handovers.refusal(dir); err != nil {
+			c.handovers.record(dir, nil, err)
 			run.addDirectory(dir, byDir[dir], nil, err)
 			continue
 		}
@@ -484,8 +488,16 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			// didn't finish; a directory no import wrote is left alone. With
 			// --incremental, a root gets here only if it has no resources or,
 			// with --resume, its import didn't finish.
+			// A root that would hand over what a root generated before it
+			// didn't import is left as it was, still holding it.
+			if err = c.handovers.refuseUnreceived(dir); err != nil {
+				c.handovers.record(dir, nil, err)
+				run.addDirectory(dir, byDir[dir], nil, err)
+				continue
+			}
 			var claimed *claim
 			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental); err != nil {
+				c.handovers.record(dir, nil, err)
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue
 			}
@@ -524,6 +536,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 				}
 			}
 		}
+		c.handovers.record(dir, result, err)
 		run.addDirectory(dir, byDir[dir], result, err)
 		if err == nil && run.backend != nil {
 			// After the checks, which run on a local working directory: the

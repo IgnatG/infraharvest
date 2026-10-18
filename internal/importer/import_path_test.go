@@ -179,6 +179,7 @@ func importPath(t *testing.T, options Options) *Run {
 	if err := c.generate(t.Context(), c.byDir); err != nil {
 		t.Fatal(err)
 	}
+	warnIncomplete(run, []*listedCall{c})
 	return run
 }
 
