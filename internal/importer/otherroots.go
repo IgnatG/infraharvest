@@ -6,7 +6,7 @@ package importer
 import (
 	"maps"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
 )
 
 // scopeRoots returns the roots the Import calls of one scope generate,

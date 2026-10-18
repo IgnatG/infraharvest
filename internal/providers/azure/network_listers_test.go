@@ -14,7 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // routedTransport answers each request with the body registered for its

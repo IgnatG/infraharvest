@@ -10,7 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // DefaultTags describes the provider's default_tags: tags it applies to

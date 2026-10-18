@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // LambdaLister lists the region's Lambda functions with their

@@ -4,7 +4,7 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // serviceScope says where a service is listed.

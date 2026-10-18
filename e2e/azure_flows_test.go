@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // azureRoot is the root the Azure tests' imports generate, for the

@@ -11,11 +11,11 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 func TestCheckSelectionOptions(t *testing.T) {

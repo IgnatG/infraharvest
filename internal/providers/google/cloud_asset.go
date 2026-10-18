@@ -20,8 +20,8 @@ import (
 	"google.golang.org/api/cloudasset/v1"
 	"google.golang.org/api/googleapi"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // cloudAssetService lists through Cloud Asset Inventory every type the

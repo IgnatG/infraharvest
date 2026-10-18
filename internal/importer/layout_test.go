@@ -6,7 +6,7 @@ package importer
 import (
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
 )
 
 func TestConfigFile(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // TestGoogleDrift imports testdata/google, applies the roots into local

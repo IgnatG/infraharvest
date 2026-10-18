@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/IgnatG/infraharvest/internal/version"
+	"github.com/infraharvest/infraharvest-cli/internal/version"
 )
 
 var versionCmd = &cobra.Command{

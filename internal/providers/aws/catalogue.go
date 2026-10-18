@@ -4,8 +4,8 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // awsCatalogue is what the built-in catalogue knows about AWS types.

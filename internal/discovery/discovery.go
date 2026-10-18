@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // Discoverer lists the resources of one service in one scope.

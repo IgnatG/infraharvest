@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/api/compute/v1"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // The project's IAM members, one per member of each binding, a

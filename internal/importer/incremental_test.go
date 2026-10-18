@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // The staging directory is always its own directory under the output's

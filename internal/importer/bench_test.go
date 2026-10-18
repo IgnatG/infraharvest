@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
 )
 
 // BenchmarkOtherRoots is what generate does for each root of a call before

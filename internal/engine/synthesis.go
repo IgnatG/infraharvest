@@ -21,7 +21,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
 )
 
 // ModuleCall is a module call Generate made, or a cluster of resources it

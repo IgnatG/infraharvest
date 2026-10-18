@@ -21,10 +21,10 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
-	"github.com/IgnatG/infraharvest/internal/config"
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/config"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // verifiedRoot is one root's gate results, as --format json prints them.

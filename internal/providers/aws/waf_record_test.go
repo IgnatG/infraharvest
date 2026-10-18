@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // recordWafOps are the WAF Classic list operations, in the order the WAF and

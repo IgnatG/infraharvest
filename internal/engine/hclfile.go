@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
 )
 
 // hclFile is a configuration file parsed twice: as an editable tree, and as

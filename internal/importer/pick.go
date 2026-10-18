@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/IgnatG/infraharvest/internal/picker"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/picker"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // errNoTerminal is returned when the picker can't run.

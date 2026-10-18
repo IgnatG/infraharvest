@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/ratelimit"
 )
 
 // DocsURL is the address of the documentation site, which flag help points

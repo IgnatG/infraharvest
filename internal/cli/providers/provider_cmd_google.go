@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/providers/google"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/providers/google"
 )
 
 func init() {

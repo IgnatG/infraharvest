@@ -6,10 +6,10 @@ package aws
 import (
 	"errors"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/efs"
 	"github.com/aws/aws-sdk-go-v2/service/efs/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // EfsLister lists the service "efs": the EFS file systems, each with its

@@ -16,8 +16,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // driftOutput writes an output directory with a root at each of rels.

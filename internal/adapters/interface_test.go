@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/adapters/moduleinterface"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters/moduleinterface"
 )
 
 // TestAdaptersMatchModuleInterfaces checks every adapter against the

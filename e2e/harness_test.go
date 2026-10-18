@@ -25,9 +25,9 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
 )
 
 // seed applies testdata/<fixture> and returns the resources it created.

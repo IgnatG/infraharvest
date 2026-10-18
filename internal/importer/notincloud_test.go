@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // partialProvider is a provider that lists types in part (see

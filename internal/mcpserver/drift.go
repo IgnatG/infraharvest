@@ -17,9 +17,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // driftExitHelp says what the drift tools' exit codes mean, for their

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // importInto in discover mode runs the whole listing, as a command does:

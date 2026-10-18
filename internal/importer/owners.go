@@ -6,10 +6,10 @@ package importer
 import (
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // includeOwnedHint ends the reason a resource another tool owns is left

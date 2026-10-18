@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // optionsSkipReason is the reason of the skip rule in

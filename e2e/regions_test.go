@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/cli"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // regionsAccount is the account testdata/aws-regions creates its

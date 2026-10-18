@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/api/cloudresourcemanager/v1"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // iamService lists the project's IAM members.

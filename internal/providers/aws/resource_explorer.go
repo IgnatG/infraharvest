@@ -19,7 +19,7 @@ import (
 	retypes "github.com/aws/aws-sdk-go-v2/service/resourceexplorer2/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // explorerTypes maps the services Resource Explorer may rule out to the

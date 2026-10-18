@@ -15,8 +15,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // fakeRunner records the arguments of each run, and writes a selection

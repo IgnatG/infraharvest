@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // s3Answers are fake S3 answers by query parameter (?versioning, ...):

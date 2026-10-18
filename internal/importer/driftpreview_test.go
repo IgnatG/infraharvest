@@ -6,9 +6,9 @@ package importer
 import (
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // A preview decides the changes a detection found as the run with the

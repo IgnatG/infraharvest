@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // Call is one of the Import calls that cover a scope (see ImportCalls):

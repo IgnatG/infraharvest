@@ -36,9 +36,9 @@ import (
 
 	"github.com/hashicorp/go-version"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/adapters/moduleinterface"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters/moduleinterface"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
 )
 
 func main() {

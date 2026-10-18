@@ -6,7 +6,7 @@ package harvest
 import (
 	"context"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
 )
 
 // The interfaces in this file are capabilities a Provider may have

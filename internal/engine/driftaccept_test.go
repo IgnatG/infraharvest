@@ -15,7 +15,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
 )
 
 // acceptRoot writes files as a root at aws/123/eu-west-2 of an output

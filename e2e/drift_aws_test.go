@@ -15,8 +15,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // driftAccount is the account testdata/aws-drift creates its resources

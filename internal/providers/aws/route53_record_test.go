@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 const recordRoute53NS = `xmlns="https://route53.amazonaws.com/doc/2013-04-01/"`

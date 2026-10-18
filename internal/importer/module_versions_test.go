@@ -11,8 +11,8 @@ import (
 
 	goversion "github.com/hashicorp/go-version"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 func TestResolveAdapters(t *testing.T) {

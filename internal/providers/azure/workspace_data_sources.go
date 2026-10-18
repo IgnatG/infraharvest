@@ -18,7 +18,7 @@ import (
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // workspaceType is the Resource Manager type of a Log Analytics workspace.

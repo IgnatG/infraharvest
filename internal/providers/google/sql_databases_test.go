@@ -15,7 +15,7 @@ import (
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/sqladmin/v1"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // sqlAdmin serves the SQL Admin API's instance and database lists: two

@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 func TestImportID(t *testing.T) {

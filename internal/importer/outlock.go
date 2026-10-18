@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/infraharvest/infraharvest-cli/internal/filelock"
 )
 
 // outputLockPath is the file in the output directory out whose lock a run

@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // Route53Lister lists the global service "route53": the hosted zones,

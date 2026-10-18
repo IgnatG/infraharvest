@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
 )
 
 // Each call of a scope sees the roots of every other call, before and

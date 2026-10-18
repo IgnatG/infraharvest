@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
 )
 
 func sample() *Report {

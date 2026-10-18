@@ -16,12 +16,12 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/config"
-	"github.com/IgnatG/infraharvest/internal/filelock"
-	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/config"
+	"github.com/infraharvest/infraharvest-cli/internal/filelock"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // Run collects what the Import calls of one command do, so the

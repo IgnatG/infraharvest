@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
 )
 
 func TestDriftFlags(t *testing.T) {

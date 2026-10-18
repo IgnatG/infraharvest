@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 func PrintReport(out, format string, w io.Writer) error {

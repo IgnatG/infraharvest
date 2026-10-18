@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // One run at a time holds an output directory's lock: another is refused,

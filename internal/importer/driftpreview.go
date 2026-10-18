@@ -4,8 +4,8 @@
 package importer
 
 import (
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // DriftPreview counts what a decisions file and rules would decide of the

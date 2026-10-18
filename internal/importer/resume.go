@@ -16,9 +16,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/version"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/version"
 )
 
 // CheckpointDir holds, in the output directory, a checkpoint of each root

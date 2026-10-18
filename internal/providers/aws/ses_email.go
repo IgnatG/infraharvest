@@ -4,10 +4,10 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/ses/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // SesLister lists the service "ses": the SES (v1) domain and email

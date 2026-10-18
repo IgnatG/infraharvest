@@ -25,7 +25,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
 )
 
 // Files the engine writes into each output directory.

@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // InRootReason is why an incremental import leaves out a resource: the

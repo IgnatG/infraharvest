@@ -4,9 +4,9 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // SubnetLister lists the subnets of a region as aws_subnet, each by its

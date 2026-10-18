@@ -16,7 +16,7 @@ import (
 
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
 )
 
 // moduleArchive is a tar.gz of a module repository at a commit.

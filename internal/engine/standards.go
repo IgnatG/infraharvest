@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
 )
 
 // CheckStandards is the verification gate's built-in standards check (G4).

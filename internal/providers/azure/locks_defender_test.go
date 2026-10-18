@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // Locks are listed in --resource-group when it is set, else in the whole

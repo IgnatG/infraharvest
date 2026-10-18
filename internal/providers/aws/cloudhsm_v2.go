@@ -4,10 +4,10 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudhsmv2"
 	"github.com/aws/aws-sdk-go-v2/service/cloudhsmv2/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // CloudHsmLister lists the service "cloudhsm": the CloudHSM v2 clusters,

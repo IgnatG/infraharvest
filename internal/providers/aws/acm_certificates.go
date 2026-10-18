@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
 	"github.com/aws/aws-sdk-go-v2/service/acm/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // ACMLister lists the service "acm": the ACM certificates.

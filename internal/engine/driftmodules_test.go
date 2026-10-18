@@ -14,7 +14,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
 )
 
 // A generated module of a bucket and its versioning, as modularize

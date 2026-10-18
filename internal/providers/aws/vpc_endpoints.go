@@ -7,10 +7,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // VpcEndpointLister lists the VPC endpoints of a region as

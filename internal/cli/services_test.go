@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/cli/providers"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
 )
 
 // infraharvest services <provider> prints the provider's services, one

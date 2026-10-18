@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
 )
 
 // cloudFormationTypes are the Terraform types a resource of a

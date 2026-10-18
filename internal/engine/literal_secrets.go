@@ -26,7 +26,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
 )
 
 // Terraform writes into the configuration it generates every value the

@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
 )
 
 // decideDrift sets each change's decision, from accept (nil keeps them

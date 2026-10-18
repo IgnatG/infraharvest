@@ -6,9 +6,9 @@ package aws
 import (
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/securityhub"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // SecurityhubLister lists the Security Hub account, its member

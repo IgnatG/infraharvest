@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // fakeClusters answers the list of the project acme-prod's GKE clusters

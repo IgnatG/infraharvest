@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/api/compute/v1"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
 )
 
 // The keys of the settings Provider.Select passes each lister, written

@@ -8,7 +8,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
 )
 
 // The settings Select passes come back as they went in, the catalogue

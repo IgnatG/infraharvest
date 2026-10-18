@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/importer"
-	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	awsprovider "github.com/infraharvest/infraharvest-cli/internal/providers/aws"
 )
 
 // DefaultAssumeRole is the role --accounts and --organization assume in

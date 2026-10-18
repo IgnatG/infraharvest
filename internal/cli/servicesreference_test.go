@@ -18,10 +18,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/cli/providers"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
 )
 
 // The services reference, docs/reference/services.md, lists each
@@ -35,7 +35,7 @@ const servicesReference = "../../docs/reference/services.md"
 
 // modulePath is the module's import path, which the import paths of the
 // provider packages start with.
-const modulePath = "github.com/IgnatG/infraharvest/"
+const modulePath = "github.com/infraharvest/infraharvest-cli/"
 
 // providerTitles are the headings of referenceProviders on the page; a
 // provider without one is headed by its name.

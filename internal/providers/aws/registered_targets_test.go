@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 const recordTargetGroupARN = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/"

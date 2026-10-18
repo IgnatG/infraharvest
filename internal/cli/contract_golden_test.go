@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/infraharvest/infraharvest-cli/internal/cli/providers"
 )
 
 // cliContract records the command-line contract: every command, how it

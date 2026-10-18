@@ -13,7 +13,7 @@ import (
 	"google.golang.org/api/container/v1"
 	"google.golang.org/api/googleapi"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // nodePoolAssetType is the asset type of a GKE node pool, which the

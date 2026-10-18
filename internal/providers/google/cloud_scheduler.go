@@ -12,7 +12,7 @@ import (
 	"google.golang.org/api/cloudscheduler/v1"
 	"google.golang.org/api/googleapi"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // schedulerJobType is the Terraform type of a Cloud Scheduler job.

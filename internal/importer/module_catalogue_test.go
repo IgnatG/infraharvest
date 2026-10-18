@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/infraharvest/infraharvest-cli/internal/config"
 )
 
 func TestInstalledModule(t *testing.T) {

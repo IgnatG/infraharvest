@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
 )
 
 func TestCheckpoints(t *testing.T) {

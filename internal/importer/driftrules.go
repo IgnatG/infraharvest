@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // DriftRule decides, for the changes it matches, whether to accept the

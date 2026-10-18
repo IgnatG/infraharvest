@@ -12,7 +12,7 @@ import (
 
 	"google.golang.org/api/compute/v1"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 func newSchedulerJobs(t *testing.T, region string) *SchedulerJobsLister {

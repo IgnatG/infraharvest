@@ -20,8 +20,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/managed"
 )
 
 // SchemaVersion is the version of the JSON documents. It changes only

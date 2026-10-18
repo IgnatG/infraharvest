@@ -19,8 +19,8 @@ import (
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 func TestGraphPredicate(t *testing.T) {

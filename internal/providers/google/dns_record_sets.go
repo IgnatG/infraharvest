@@ -12,7 +12,7 @@ import (
 
 	"google.golang.org/api/dns/v1"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // dnsService lists the record sets of the project's Cloud DNS zones.

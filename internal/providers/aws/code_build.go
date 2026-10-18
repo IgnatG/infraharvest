@@ -6,7 +6,7 @@ package aws
 import (
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // CodeBuildLister lists the region's CodeBuild projects.

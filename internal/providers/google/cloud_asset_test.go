@@ -20,8 +20,8 @@ import (
 	"google.golang.org/api/cloudasset/v1"
 	"google.golang.org/api/compute/v1"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 func TestAssetID(t *testing.T) {

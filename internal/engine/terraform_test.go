@@ -15,7 +15,7 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 
-	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/infraharvest/infraharvest-cli/internal/filelock"
 )
 
 // hangingTerraform is a Terraform whose plans and inits run until their

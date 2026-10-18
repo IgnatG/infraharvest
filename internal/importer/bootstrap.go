@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/infraharvest/infraharvest-cli/internal/config"
 )
 
 func WriteBootstrap(configFile, out string, w io.Writer) error {

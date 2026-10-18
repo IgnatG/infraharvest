@@ -9,7 +9,7 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // A part that failed makes the listing partial, naming the part; one whose

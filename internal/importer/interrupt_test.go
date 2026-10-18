@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // The first signal cancels the context with the signal as the cause, and

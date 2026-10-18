@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // recordDynamoDbTable answers DescribeTable for a table of no global table.

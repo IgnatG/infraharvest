@@ -84,7 +84,7 @@ fmt: ## gofmt -s and goimports the Go files changed since the last commit (rewri
 	@files=$$(git diff --name-only --diff-filter=ACMR HEAD -- '*.go'); \
 	if [ -z "$$files" ]; then echo "no Go file changed"; exit 0; fi; \
 	gofmt -s -w $$files; \
-	goimports -format-only -local github.com/IgnatG/infraharvest -w $$files; \
+	goimports -format-only -local github.com/infraharvest/infraharvest-cli -w $$files; \
 	printf 'formatted:\n%s\n' "$$files"
 
 ##@ Full checks (compile the module; CI runs them on every pull request)

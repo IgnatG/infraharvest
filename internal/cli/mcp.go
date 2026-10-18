@@ -19,9 +19,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/mcpserver"
-	"github.com/IgnatG/infraharvest/internal/version"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/mcpserver"
+	"github.com/infraharvest/infraharvest-cli/internal/version"
 )
 
 // newMCPCmd serves infraharvest to AI agents over MCP on stdin and stdout.

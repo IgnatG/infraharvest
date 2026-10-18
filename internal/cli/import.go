@@ -6,8 +6,8 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/cli/providers"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
 )
 
 // newImportCmd generates Terraform configuration for existing resources,

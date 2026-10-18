@@ -9,10 +9,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // Ec2Lister lists the EC2 instances of a region as aws_instance, each by

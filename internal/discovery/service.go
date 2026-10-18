@@ -8,7 +8,7 @@ import (
 	"log"
 	"runtime/pprof"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // Service is a provider's lister as a Discoverer: it lists into

@@ -6,7 +6,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/infraharvest/infraharvest-cli/internal/importer"
 )
 
 // newDiscoverCmd lists resources into a selection file, which people review

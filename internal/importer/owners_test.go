@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // Resources another state or tool manages are left out by default, with

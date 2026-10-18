@@ -24,7 +24,7 @@ import (
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // lookupParallel is how many resources resource_graph maps through aztft

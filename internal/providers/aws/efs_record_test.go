@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // recordEfsAPI answers EFS with two pages of file systems: fs-1 with two

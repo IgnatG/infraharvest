@@ -16,7 +16,7 @@ import (
 	"google.golang.org/api/option"
 	htransport "google.golang.org/api/transport/http"
 
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/infraharvest/infraharvest-cli/internal/ratelimit"
 )
 
 // EndpointEnv names the base URL of a Google Cloud emulator, such as

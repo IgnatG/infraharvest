@@ -17,9 +17,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/logging"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	ihlogging "github.com/IgnatG/infraharvest/internal/logging"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	ihlogging "github.com/infraharvest/infraharvest-cli/internal/logging"
+	"github.com/infraharvest/infraharvest-cli/internal/ratelimit"
 )
 
 // The keys of the settings each service gets (see Provider.serviceArgs),

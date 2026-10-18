@@ -22,7 +22,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/infraharvest/infraharvest-cli/internal/filelock"
 )
 
 // Binary describes an engine binary: Terraform or OpenTofu, which run the

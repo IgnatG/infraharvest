@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // partFailures gathers the errors of the parts of a listing that failed,

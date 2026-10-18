@@ -19,7 +19,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // inventoryVersion is the format of saved inventories. Version 1 kept the

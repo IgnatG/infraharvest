@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 const explorerViewARN = "arn:aws:resource-explorer-2:eu-west-2:123456789012:view/default/1111"

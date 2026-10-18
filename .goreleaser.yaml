@@ -14,7 +14,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X github.com/IgnatG/infraharvest/internal/version.Version=v{{ .Version }}
+      - -s -w -X github.com/infraharvest/infraharvest-cli/internal/version.Version=v{{ .Version }}
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     # Reproducible: the same commit gives the same binaries.
@@ -76,7 +76,7 @@ release:
     ```sh
     curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_VERSION={{ .Tag }} sh
     docker pull ghcr.io/ignatg/infraharvest:{{ .Tag }}
-    go install github.com/IgnatG/infraharvest/cmd/infraharvest@{{ .Tag }}
+    go install github.com/infraharvest/infraharvest-cli/cmd/infraharvest@{{ .Tag }}
     ```
 
     The install script verifies the release's signature with cosign, which cloud shells don't include: see [Install](https://ignatg.github.io/infraharvest/install/) for how to add it there, and for the other ways to install.
@@ -87,13 +87,13 @@ release:
 
     ```sh
     cosign verify-blob \
-      --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+      --certificate-identity "https://github.com/infraharvest/infraharvest-cli/.github/workflows/release.yml@refs/heads/main" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
       --bundle infraharvest_{{ .Version }}_SHA256SUMS.sigstore.json infraharvest_{{ .Version }}_SHA256SUMS
     sha256sum --check --ignore-missing infraharvest_{{ .Version }}_SHA256SUMS
 
     cosign verify ghcr.io/ignatg/infraharvest:{{ .Tag }} \
-      --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+      --certificate-identity "https://github.com/infraharvest/infraharvest-cli/.github/workflows/release.yml@refs/heads/main" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
 

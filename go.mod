@@ -1,4 +1,4 @@
-module github.com/IgnatG/infraharvest
+module github.com/infraharvest/infraharvest-cli
 
 go 1.27.0
 

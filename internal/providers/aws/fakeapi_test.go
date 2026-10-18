@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // apiCall is an AWS API request as seen by a fake handler.

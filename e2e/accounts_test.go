@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/cli"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // parallelAccounts are the accounts testdata/aws-accounts creates a queue

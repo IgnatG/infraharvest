@@ -6,7 +6,7 @@ package harvest
 import (
 	"io/fs"
 
-	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/infraharvest/infraharvest-cli/internal/fsutil"
 )
 
 // SecretFilePerm is the permission of output that can contain secrets, such

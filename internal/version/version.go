@@ -12,7 +12,7 @@ import "runtime/debug"
 //
 // Release builds set it with
 //
-//	-ldflags "-X github.com/IgnatG/infraharvest/internal/version.Version=v1.2.3"
+//	-ldflags "-X github.com/infraharvest/infraharvest-cli/internal/version.Version=v1.2.3"
 //
 // which only works on a package-level string variable whose initial value
 // is a constant, so it must stay one. A build that sets none takes the main

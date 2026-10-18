@@ -8,7 +8,7 @@ package e2e
 import (
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // TestAzureDrift imports testdata/azure, applies the root into a local

@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/api/sqladmin/v1"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // sqlDatabaseType is the Terraform type of a database in a Cloud SQL

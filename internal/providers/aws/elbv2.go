@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // AlbLister lists the service "alb": the Elastic Load Balancing v2 load

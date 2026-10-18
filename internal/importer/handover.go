@@ -16,8 +16,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // handovers are what a run with --regenerate hands over between the roots

@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/api/compute/v1"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/infraharvest/infraharvest-cli/internal/catalogue"
 )
 
 // A lister without a project fails, rather than listing project "" or

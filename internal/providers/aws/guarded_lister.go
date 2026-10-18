@@ -13,7 +13,7 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // guardedLister wraps the lister of every service of the provider. It

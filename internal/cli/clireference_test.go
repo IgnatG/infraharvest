@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/infraharvest/infraharvest-cli/internal/cli/providers"
 )
 
 // The CLI reference, docs/reference/cli.md, is generated from the commands

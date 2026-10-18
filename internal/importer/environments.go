@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/IgnatG/infraharvest/internal/config"
-	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/config"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
 )
 
 // sharedEnv is the environment of what no environment tag places, such as

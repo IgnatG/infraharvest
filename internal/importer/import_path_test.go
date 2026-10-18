@@ -16,8 +16,8 @@ import (
 
 	goversion "github.com/hashicorp/go-version"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/infraharvest/infraharvest-cli/internal/engine"
+	"github.com/infraharvest/infraharvest-cli/internal/harvest"
 )
 
 // rootsProvider lists, for each service, one fake_thing named after the

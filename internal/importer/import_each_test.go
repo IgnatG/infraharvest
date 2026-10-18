@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/infraharvest/infraharvest-cli/internal/report"
+	"github.com/infraharvest/infraharvest-cli/internal/selection"
 )
 
 // recordScope does what importInto does with a scope's run, in short.

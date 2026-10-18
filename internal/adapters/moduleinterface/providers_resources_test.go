@@ -14,7 +14,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/infraharvest/infraharvest-cli/internal/adapters"
 )
 
 // readFixture reads the interface of the module in testdata/<name>, packed
