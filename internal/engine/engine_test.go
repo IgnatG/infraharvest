@@ -404,6 +404,9 @@ func TestGenerate(t *testing.T) {
 	if got := readFile(t, dir, ImportsFileName); !strings.Contains(got, "to = aws_sqs_queue.orders_queue") {
 		t.Errorf("want the resource labelled orders_queue:\n%s", got)
 	}
+	if want := []Managed{{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.orders_queue"}}; !reflect.DeepEqual(result.Addresses, want) {
+		t.Errorf("addresses: got %+v, want %+v", result.Addresses, want)
+	}
 	readme := readFile(t, dir, ReadmeFileName)
 	for _, want := range []string{"| `aws_sqs_queue` | 1 |", "1. Run `terraform init` and `terraform plan`", "3. Delete `imports.tf`"} {
 		if !strings.Contains(readme, want) {
@@ -614,6 +617,9 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	}
 	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
+	}
+	if want := []Managed{{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.b"}}; !reflect.DeepEqual(result.Addresses, want) {
+		t.Errorf("addresses: got %+v, want those of what is imported, %+v", result.Addresses, want)
 	}
 	wantRejected := `# aws_sqs_queue.a was left out:
 #   Cannot import non-existent remote object

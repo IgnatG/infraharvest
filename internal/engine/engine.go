@@ -167,6 +167,10 @@ type Result struct {
 	// Files are the files the configuration is in besides generated.tf,
 	// with Options.SplitFiles.
 	Files []string `json:",omitempty"`
+	// Addresses are where the root's import blocks import each resource,
+	// as Generate finally wrote them, module calls included, so that a
+	// later run can tell which resources it would give other addresses.
+	Addresses []Managed `json:",omitempty"`
 	// NotInCloud are the resources of the root an incremental import added
 	// to that its listing found no longer in the cloud, for the README; a
 	// checkpoint doesn't keep them, as the next run looks again.
@@ -568,6 +572,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	if err := requireMinimumVersion(dir); err != nil {
+		return nil, err
+	}
+	if result.Addresses, err = ImportedAddresses(dir); err != nil {
 		return nil, err
 	}
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {

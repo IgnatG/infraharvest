@@ -360,10 +360,17 @@ func sortExternal(list []External) {
 
 // With returns what a root holds once an incremental import added added
 // to it (see Add): r's resources and added's, in the files of both, with
-// added's checks.
+// added's checks. Its addresses are both's, unless r, as from an older
+// release, recorded none for what it imports: InferredAddresses and the
+// root's import blocks then tell all of them, not only added's.
 func (r *Result) With(added *Result) *Result {
 	if r == nil {
 		return added
+	}
+	var addresses []Managed
+	if len(r.Addresses) > 0 || len(r.Imported) == 0 {
+		addresses = append(slices.Clone(r.Addresses), added.Addresses...)
+		sortManaged(addresses)
 	}
 	files := slices.Clone(r.Files)
 	for _, name := range added.Files {
@@ -373,14 +380,15 @@ func (r *Result) With(added *Result) *Result {
 	}
 	slices.Sort(files)
 	return &Result{
-		Imported: append(slices.Clone(r.Imported), added.Imported...),
-		Secrets:  append(slices.Clone(r.Secrets), added.Secrets...),
-		Rejected: append(slices.Clone(r.Rejected), added.Rejected...),
-		Owned:    append(slices.Clone(r.Owned), added.Owned...),
-		Modules:  append(slices.Clone(r.Modules), added.Modules...),
-		Warnings: append(slices.Clone(r.Warnings), added.Warnings...),
-		Gate:     added.Gate,
-		Files:    files,
+		Imported:  append(slices.Clone(r.Imported), added.Imported...),
+		Secrets:   append(slices.Clone(r.Secrets), added.Secrets...),
+		Rejected:  append(slices.Clone(r.Rejected), added.Rejected...),
+		Owned:     append(slices.Clone(r.Owned), added.Owned...),
+		Modules:   append(slices.Clone(r.Modules), added.Modules...),
+		Warnings:  append(slices.Clone(r.Warnings), added.Warnings...),
+		Gate:      added.Gate,
+		Files:     files,
+		Addresses: addresses,
 	}
 }
 
