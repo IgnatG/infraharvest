@@ -1,8 +1,13 @@
 name: adapters
 
 # Checks every night whether the modules the curated adapters pin have a
-# newer release, and whether each adapter fits it. Findings go into one
-# open issue labelled adapter-update, which the check keeps current.
+# newer release, whether each adapter fits it (its interface and the
+# resources the adapter maps onto), and whether it accepts the newest major
+# release of each provider the adapter uses. Findings go into one open
+# issue labelled adapter-update, which the check keeps current. A pinned
+# release that is the newest but accepts only an older major release of a
+# provider is a note in the run's summary, not an issue: there is nothing
+# to bump to yet.
 #
 # Run on a branch with write set (gh workflow run adapters --ref <branch>
 # -f write=true), it fetches the interface of each version the adapters
@@ -40,7 +45,7 @@ jobs:
       # the step once every adapter was checked: the report still goes out.
       - name: Check the adapters against the newest module releases
         id: check
-        run: go run ./internal/adapters/cmd/adaptercheck > "$RUNNER_TEMP/adapters.md"
+        run: go run ./internal/adapters/cmd/adaptercheck -notes "$RUNNER_TEMP/notes.md" > "$RUNNER_TEMP/adapters.md"
       - name: Report
         if: ${{ !cancelled() }}
         env:
@@ -50,6 +55,13 @@ jobs:
           if [[ "$CHECKED" != success && ! -s "$RUNNER_TEMP/adapters.md" ]]; then
             echo "::error::the check failed before it reported anything"
             exit 1
+          fi
+          if [[ -s "$RUNNER_TEMP/notes.md" ]]; then
+            {
+              echo "Pinned releases that aren't usable yet:"
+              echo
+              cat "$RUNNER_TEMP/notes.md"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label adapter-update --state open --json number --jq '.[0].number // empty')
           if [[ ! -s "$RUNNER_TEMP/adapters.md" ]]; then
@@ -63,6 +75,12 @@ jobs:
             echo "The nightly adapter check found newer releases of curated modules:"
             echo
             cat "$RUNNER_TEMP/adapters.md"
+            if [[ -s "$RUNNER_TEMP/notes.md" ]]; then
+              echo
+              echo "Pinned releases that aren't usable yet:"
+              echo
+              cat "$RUNNER_TEMP/notes.md"
+            fi
           } > "$RUNNER_TEMP/body.md"
           if [[ -n "$issue" ]]; then
             gh issue edit "$issue" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
