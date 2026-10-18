@@ -110,6 +110,24 @@ func (f *fakeEngine) tools() *callTools {
 				}
 				result.Addresses = append(result.Addresses, engine.Managed{Type: imp.Type, ID: imp.ID, Address: imp.Type + "." + label})
 			}
+			// As the engine does: what the root imports that other roots
+			// hand over, and the removed blocks it keeps.
+			for _, a := range opts.Arrivals {
+				for _, m := range result.Addresses {
+					if m.Type == a.Type && m.ID == a.ID {
+						a.To = m.Address
+						result.Arrived = append(result.Arrived, a)
+					}
+				}
+			}
+			if opts.Previous != nil {
+				result.Removed = opts.Previous.Removed
+			}
+			if len(result.Removed) > 0 {
+				if err := os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644); err != nil {
+					return nil, err
+				}
+			}
 			if f.moves && opts.Previous != nil {
 				for _, p := range opts.Previous.Addresses {
 					for _, m := range result.Addresses {
@@ -154,6 +172,9 @@ func importPath(t *testing.T, options Options) *Run {
 	}
 	if c == nil {
 		t.Fatal("no call listed")
+	}
+	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
+		t.Fatal(err)
 	}
 	if err := c.generate(t.Context(), c.byDir); err != nil {
 		t.Fatal(err)

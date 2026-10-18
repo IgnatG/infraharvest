@@ -191,8 +191,9 @@ func TestAddToRootRefusesAnUnfinishedRoot(t *testing.T) {
 // imports, naming that root: a subnetwork an earlier import put in its
 // region's root isn't imported again into the global root, where imports
 // now put subnetworks. The roots being imported, a root whose import
-// blocks are gone and what a root left out don't count, and a root left
-// with nothing to import is dropped.
+// blocks are gone but with no configuration left either, and what a root
+// left out don't count, and a root left with nothing to import is
+// dropped.
 func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	out := t.TempDir()
 	global := filepath.Join(out, "google", "acme", "global")
@@ -252,5 +253,30 @@ func TestHeldElsewhereWithoutCheckpoints(t *testing.T) {
 	held, err := heldElsewhere(out, map[string][]engine.Import{filepath.Join(out, "aws", "123"): nil})
 	if err != nil || len(held) != 0 {
 		t.Errorf("got %v, %v; want nothing", held, err)
+	}
+}
+
+// A root applied since, its import blocks deleted, still holds what its
+// checkpoint records.
+func TestHeldElsewhereCountsAnAppliedRoot(t *testing.T) {
+	out := t.TempDir()
+	applied, next := filepath.Join(out, "aws", "applied"), filepath.Join(out, "aws", "next")
+	queue := engine.Import{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/orders"}
+	if err := os.MkdirAll(applied, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(applied, engine.GeneratedFileName), []byte("# generated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := &engine.Result{Imported: []engine.Import{queue}, Addresses: []engine.Managed{{Type: queue.Type, ID: queue.ID, Address: "aws_sqs_queue.orders"}}}
+	if err := saveCheckpoint(out, applied, "fp", result); err != nil {
+		t.Fatal(err)
+	}
+	held, err := heldElsewhere(out, map[string][]engine.Import{next: {queue}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[engine.External]string{{Type: queue.Type, ID: queue.ID}: "aws/applied"}; !reflect.DeepEqual(held, want) {
+		t.Errorf("held: got %v, want %v", held, want)
 	}
 }

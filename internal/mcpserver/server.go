@@ -325,7 +325,7 @@ type ImportInput struct {
 	// Incremental adds to the roots Out already has (--incremental).
 	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, in files of their own, without changing what they have; needed to import into an output directory again"`
 	// Regenerate generates the roots Out already has again (--regenerate).
-	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was and reported as failed"`
+	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed"`
 }
 
 // ImportResult is what an import did.
@@ -344,6 +344,11 @@ type ImportResult struct {
 	// type: deleted since, for the user to remove from the roots or create
 	// again.
 	NotInCloud []report.NotInCloud `json:"not_in_cloud,omitempty"`
+	// Moved are the resources that roots generated again move to other
+	// addresses, and Departed those they hand over to other roots, which
+	// must be applied after them.
+	Moved    []report.Move `json:"moved,omitempty"`
+	Departed []report.Move `json:"departed,omitempty"`
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
@@ -409,7 +414,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	}
 	if in.Regenerate {
-		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses; a root whose resources would move to other roots, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
+		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
 			in.Out, summary.Included, in.Selection, summary.Excluded, scopeText(in.Scope))
 	}
 	state := confirmationState(args, content)
@@ -457,11 +462,16 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		Failures:      r.Failures,
 		Report:        filepath.Join(in.Out, report.Dir, "report.md"),
 		NotInCloud:    r.NotInCloud,
+		Moved:         r.Moved,
+		Departed:      r.Departed,
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
 	if n := len(r.NotInCloud); n > 0 {
 		text += fmt.Sprintf(" %d resources the roots have are no longer in the cloud (see not_in_cloud and the report): their next plan would create them again.", n)
+	}
+	if n := len(r.Departed); n > 0 {
+		text += fmt.Sprintf(" %d resources go to other roots (see departed and the report): apply the root each was in before the root it goes to.", n)
 	}
 	if stopped(code) {
 		text = "The import was stopped before it finished. " + text

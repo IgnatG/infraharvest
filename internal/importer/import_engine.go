@@ -195,6 +195,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err != nil || c == nil {
 		return err
 	}
+	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
+		return err
+	}
 	return c.generate(ctx, c.byDir)
 }
 
@@ -212,6 +215,9 @@ type listedCall struct {
 	here *listedHere
 	// byDir are the imports of each root the call generates.
 	byDir map[string][]engine.Import
+	// handovers are what the call's roots hand over to the other roots of
+	// the run, with --regenerate (see planHandovers).
+	handovers *handovers
 	// opts are the engine's options, without the other roots.
 	opts               engine.Options
 	root               *rootFiles
@@ -414,6 +420,10 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 	sort.Strings(dirs)
 	others := newOtherRoots(opts, roots, options.Out)
 	for _, dir := range dirs {
+		if err := c.handovers.refusal(dir); err != nil {
+			run.addDirectory(dir, byDir[dir], nil, err)
+			continue
+		}
 		dirOpts := others.of(dir)
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
@@ -479,7 +489,12 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue
 			}
-			log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
+			claimed.removed = append(claimed.removed, c.handovers.removalsOf(dir)...)
+			if len(byDir[dir]) == 0 {
+				log.Printf("%s: %s hands every resource it had over to other roots", provider.Name(), dir)
+			} else {
+				log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
+			}
 			// A root of another call may pin another provider release line
 			// (see rootConfig): its lock file seeds this root only if it
 			// meets this root's constraint.
@@ -491,7 +506,12 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			// What the root had keeps its addresses, or moves (see
 			// engine.Options.Previous); the fingerprint doesn't count it.
 			dirOpts.Previous = claimed.previousRoot()
-			result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
+			dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
+			if len(byDir[dir]) == 0 {
+				result, err = engine.Vacate(dir, dirOpts)
+			} else {
+				result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
+			}
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -633,6 +653,13 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	if len(result.Moves) > 0 {
 		log.Printf("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), engine.MovesFileName)
 	}
+	if len(result.Removed) > 0 {
+		log.Printf("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), engine.MovesFileName)
+	}
+	if len(result.Arrived) > 0 {
+		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))
+	}
+	r.recordMoves(reported.Path, result)
 	r.report.Directories = append(r.report.Directories, reported)
 }
 

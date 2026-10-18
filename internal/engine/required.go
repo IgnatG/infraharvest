@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/go-version"
@@ -24,20 +25,28 @@ import (
 var MinimumVersion = version.Must(version.NewVersion("1.5.0"))
 
 // features are the Terraform releases that brought what configuration may
-// use beyond MinimumVersion, each with how it shows in a file's blocks.
+// use beyond MinimumVersion, each with how it shows in a file's blocks,
+// and the OpenTofu release, where it came later. Both check
+// required_version against their own version, so a root that uses a
+// feature requires the later of the two.
 var features = []struct {
-	since string
-	uses  func(b *hclsyntax.Block) bool
+	since, tofu string
+	uses        func(b *hclsyntax.Block) bool
 }{
 	// Import blocks with for_each, and removed blocks.
-	{"1.7.0", func(b *hclsyntax.Block) bool {
+	{"1.7.0", "", func(b *hclsyntax.Block) bool {
 		_, forEach := b.Body.Attributes["for_each"]
 		return b.Type == "removed" || (b.Type == "import" && forEach)
 	}},
+	// Removed blocks with a lifecycle block, as destroy = false: OpenTofu
+	// took them from 1.10.
+	{"1.7.0", "1.10.0", func(b *hclsyntax.Block) bool {
+		return b.Type == "removed" && slices.ContainsFunc(b.Body.Blocks, func(l *hclsyntax.Block) bool { return l.Type == "lifecycle" })
+	}},
 	// Provider-defined functions.
-	{"1.8.0", func(b *hclsyntax.Block) bool { return callsProviderFunction(b.Body) }},
+	{"1.8.0", "", func(b *hclsyntax.Block) bool { return callsProviderFunction(b.Body) }},
 	// Ephemeral variables and resources.
-	{"1.10.0", func(b *hclsyntax.Block) bool {
+	{"1.10.0", "", func(b *hclsyntax.Block) bool {
 		if b.Type == "ephemeral" {
 			return true
 		}
@@ -49,19 +58,20 @@ var features = []struct {
 		return !diags.HasErrors() && v.Type() == cty.Bool && v.True()
 	}},
 	// Write-only arguments, such as an SSM parameter's value_wo.
-	{"1.11.0", func(b *hclsyntax.Block) bool { return b.Type == "resource" && setsWriteOnly(b.Body) }},
+	{"1.11.0", "", func(b *hclsyntax.Block) bool { return b.Type == "resource" && setsWriteOnly(b.Body) }},
 	// Import blocks by identity.
-	{"1.12.0", func(b *hclsyntax.Block) bool {
+	{"1.12.0", "", func(b *hclsyntax.Block) bool {
 		_, identity := b.Body.Attributes["identity"]
 		return b.Type == "import" && identity
 	}},
 }
 
 // requireMinimumVersion sets the required_version of the root in dir to
-// the oldest Terraform release its configuration works with: at least
-// MinimumVersion, the release that brought each feature it uses (see
-// features), and the lowest version each module it calls, as Terraform
-// installed them, requires. It stays within that release's major version.
+// the oldest release its configuration works with: at least
+// MinimumVersion, the release that brought each feature it uses, or
+// OpenTofu's where later (see features), and the lowest version each
+// module it calls, as Terraform installed them, requires. It stays
+// within that release's major version.
 func requireMinimumVersion(dir string) error {
 	files, err := configFiles(dir)
 	if err != nil {
@@ -78,6 +88,9 @@ func requireMinimumVersion(dir string) error {
 			for _, feature := range features {
 				if feature.uses(b) {
 					raise(version.Must(version.NewVersion(feature.since)))
+					if feature.tofu != "" {
+						raise(version.Must(version.NewVersion(feature.tofu)))
+					}
 				}
 			}
 		}

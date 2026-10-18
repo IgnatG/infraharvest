@@ -49,6 +49,9 @@ func readmeFile(result *Result) []byte {
 	sort.Strings(names)
 
 	var b strings.Builder
+	if total == 0 && len(result.Removed) > 0 {
+		return handedOverReadme(result)
+	}
 	b.WriteString("# Imported resources\n\n")
 	fmt.Fprintf(&b, "infraharvest generated this configuration for %d existing %s:\n\n", total, plural(total, "resource", "resources"))
 	b.WriteString("| Type | Count |\n|---|---|\n")
@@ -67,8 +70,13 @@ func readmeFile(result *Result) []byte {
 		step++
 	}
 	planned := "Every resource should be planned for import,"
-	if len(result.Moves) > 0 {
+	switch {
+	case len(result.Moves) > 0 && len(result.Removed) > 0:
+		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves, or as forgotten, not destroyed, for those it removes (see Moves),", MovesFileName)
+	case len(result.Moves) > 0:
 		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves (see Moves),", MovesFileName)
+	case len(result.Removed) > 0:
+		planned = fmt.Sprintf("Every resource should be planned for import, or as forgotten, not destroyed, for those `%s` removes (see Moves),", MovesFileName)
 	}
 	if stateOnlyUpdates(result.Gate) {
 		// Such as Google Cloud labels, which an import leaves out of state.
@@ -76,9 +84,18 @@ func readmeFile(result *Result) []byte {
 	} else {
 		fmt.Fprintf(&b, "%d. Run `terraform init` and `terraform plan`. %s with no changes.\n", step, planned)
 	}
-	fmt.Fprintf(&b, "%d. Run `terraform apply` to record the resources in state. It changes nothing in the cloud.\n", step+1)
-	if len(result.Moves) > 0 {
-		fmt.Fprintf(&b, "%d. Delete `%s` and `%s`: the import and moved blocks have done their job.\n", step+2, ImportsFileName, MovesFileName)
+	apply := "Run `terraform apply` to record the resources in state. It changes nothing in the cloud."
+	switch {
+	case len(result.Removed) > 0 && len(result.Arrived) > 0:
+		apply = "Run `terraform apply` to record the resources in state, after applying the roots the resources it imports come from, and before applying the roots those it removes go to (see Moves). It changes nothing in the cloud."
+	case len(result.Removed) > 0:
+		apply = "Run `terraform apply` to record the resources in state, before applying the roots those it removes go to (see Moves). It changes nothing in the cloud."
+	case len(result.Arrived) > 0:
+		apply = "Run `terraform apply` to record the resources in state, after applying the roots the resources it imports from other roots come from (see Moves). It changes nothing in the cloud."
+	}
+	fmt.Fprintf(&b, "%d. %s\n", step+1, apply)
+	if len(result.Moves) > 0 || len(result.Removed) > 0 {
+		fmt.Fprintf(&b, "%d. Delete `%s` and `%s`: the import, moved and removed blocks have done their job.\n", step+2, ImportsFileName, MovesFileName)
 	} else {
 		fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, ImportsFileName)
 	}
@@ -89,9 +106,7 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
 	}
-	if len(result.Moves) > 0 {
-		b.WriteString(movesSection(result.Moves))
-	}
+	b.WriteString(movesSection(result))
 	if len(result.NotInCloud) > 0 {
 		b.WriteString(notInCloudSection(result.NotInCloud))
 	}
@@ -104,9 +119,30 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- %s.\n", w)
 		}
 	}
-	if len(result.Gate) > 0 {
+	b.WriteString(checksSection(result.Gate))
+	return []byte(b.String())
+}
+
+// handedOverReadme describes a root whose resources all go to other roots
+// now (see Vacate): what is left to do is forget them.
+func handedOverReadme(result *Result) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest generated this root before. Its resources now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s` and `%s`.\n", VersionsFileName, ProvidersFileName, MovesFileName)
+	b.WriteString("\n## Next steps\n\n")
+	fmt.Fprintf(&b, "1. Run `terraform init` and `terraform plan`. Every resource the removed blocks in `%s` remove should be planned as forgotten, not destroyed, with no other changes.\n", MovesFileName)
+	b.WriteString("2. Run `terraform apply`, before applying the roots the resources go to (see Moves). It removes them from this root's state, and changes nothing in the cloud.\n")
+	fmt.Fprintf(&b, "3. Delete `%s`: the removed blocks have done their job, and the root manages nothing.\n", MovesFileName)
+	b.WriteString(movesSection(result))
+	b.WriteString(checksSection(result.Gate))
+	return []byte(b.String())
+}
+
+// checksSection lists the verification gate's checks, with their details.
+func checksSection(gate Gate) string {
+	var b strings.Builder
+	if len(gate) > 0 {
 		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
-		for _, c := range result.Gate {
+		for _, c := range gate {
 			status := "passed"
 			switch {
 			case !c.Passed:
@@ -117,7 +153,7 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
 		}
 		var details []string
-		for _, c := range result.Gate {
+		for _, c := range gate {
 			for _, d := range c.Details {
 				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
 			}
@@ -126,7 +162,7 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "\n%s\n", strings.Join(details, "\n"))
 		}
 	}
-	return []byte(b.String())
+	return b.String()
 }
 
 // stateOnlyUpdates reports whether the plan check passed with resources
@@ -188,12 +224,43 @@ func notInCloudSection(gone []Import) string {
 
 // movesSection lists what moves.tf moves: the resources of a root
 // generated again at other addresses than before, from where its state
-// has them.
-func movesSection(moved []Move) string {
+// has them; what its removed blocks hand over to other roots; and what
+// the root imports that other roots hand over, which must be applied
+// first. It is empty if there is none of these.
+func movesSection(result *Result) string {
+	if len(result.Moves) == 0 && len(result.Removed) == 0 && len(result.Arrived) == 0 {
+		return ""
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n## Moves\n\nThese resources have other addresses than when this root was generated before. The moved blocks in `%s` move them in state, so the plan shows each as moved rather than destroyed and created again.\n\n| From | To |\n|---|---|\n", MovesFileName)
-	for _, m := range moved {
-		fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
+	b.WriteString("\n## Moves\n")
+	if len(result.Moves) > 0 {
+		fmt.Fprintf(&b, "\nThese resources have other addresses than when this root was generated before. The moved blocks in `%s` move them in state, so the plan shows each as moved rather than destroyed and created again.\n\n| From | To |\n|---|---|\n", MovesFileName)
+		for _, m := range result.Moves {
+			fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
+		}
+	}
+	if len(result.Removed) > 0 {
+		fmt.Fprintf(&b, "\nThese resources go to other roots of the output now. The removed blocks in `%s` make this root's state forget them, without destroying them, and the other roots import them. Apply this root first, then the root each goes to: until then, both would manage it.\n\n| Removed | Goes to |\n|---|---|\n", MovesFileName)
+		for _, r := range result.Removed {
+			var roots []string
+			for _, d := range r.Resources {
+				if !slices.Contains(roots, d.Root) {
+					roots = append(roots, d.Root)
+				}
+			}
+			sort.Strings(roots)
+			to := "another root"
+			if len(roots) > 0 {
+				to = codeList(roots)
+			}
+			fmt.Fprintf(&b, "| `%s` | %s |\n", r.From, to)
+		}
+	}
+	if len(result.Arrived) > 0 {
+		b.WriteString("\nThese resources come from other roots of the output, whose removed blocks make their state forget them. Apply the root each comes from first, then this root, which imports it: until then, both would manage it.\n\n| Imported | Comes from | Was |\n|---|---|---|\n")
+		for _, a := range result.Arrived {
+			fmt.Fprintf(&b, "| `%s` | `%s` | `%s` |\n", a.To, a.Root, a.From)
+		}
 	}
 	return b.String()
 }
