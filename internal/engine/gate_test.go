@@ -330,7 +330,7 @@ func TestRunGate(t *testing.T) {
 	for _, c := range gate {
 		names = append(names, c.Name)
 	}
-	if want := []string{CheckFormat, CheckValidate, CheckPlan, CheckStandards, CheckScanners, CheckSecrets, CheckDeterminism}; !reflect.DeepEqual(names, want) {
+	if want := []string{CheckFormat, CheckValidate, CheckPlan, CheckStandards, CheckMoves, CheckScanners, CheckSecrets, CheckDeterminism}; !reflect.DeepEqual(names, want) {
 		t.Errorf("checks: got %v, want %v", names, want)
 	}
 	if !gate.Passed() {

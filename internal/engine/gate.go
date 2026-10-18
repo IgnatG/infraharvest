@@ -21,8 +21,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
-// Names of the verification gate's checks, numbered G1 to G7 (see also
-// CheckStandards and CheckScanners).
+// Names of the verification gate's checks, numbered G1 to G8 (see also
+// CheckStandards, CheckScanners and CheckMoves).
 const (
 	CheckFormat      = "G1 format"
 	CheckValidate    = "G2 validate"
@@ -78,7 +78,8 @@ func (g Gate) check(name string) Check {
 
 // runGate checks the directory as Generate leaves it: formatted, valid,
 // planning only imports, following the output standard (see
-// checkStandards), passing the installed scanners (see runScanners),
+// checkStandards), with moved and removed blocks Terraform accepts (see
+// checkMoves), passing the installed scanners (see runScanners),
 // without secret values in any file, and without functions that make
 // output differ between runs. Secret variables Terraform doesn't show get
 // placeholder values in the plan, so the arguments they set may change;
@@ -148,6 +149,10 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	if err != nil {
 		return nil, err
 	}
+	movesCheck, err := checkMoves(dir)
+	if err != nil {
+		return nil, err
+	}
 	// Secrets first: external scanners are other people's code, and some
 	// send what they scan elsewhere, so they never see a directory that
 	// holds a secret value.
@@ -159,7 +164,7 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 	if secretCheck.Passed {
 		scanners = runScanners(ctx, dir, opts.Scanners)
 	}
-	gate = append(gate, standards, scanners, secretCheck)
+	gate = append(gate, standards, movesCheck, scanners, secretCheck)
 
 	determinism, err := scanNondeterminism(dir)
 	if err != nil {
