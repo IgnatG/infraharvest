@@ -15,7 +15,7 @@ Each output directory gets:
 | `versions.tf` | `required_version` from the oldest Terraform release the configuration works with, within its major release: 1.5, which brought import blocks (`>= 1.5, < 2.0`), or the release a later feature it uses came with, such as write-only arguments (1.11), or the lowest version a module it calls requires. And the provider pinned to its newest minor release line (`~> 6.67`) |
 | `providers.tf` | The provider configuration |
 | `imports.tf` | One `import` block per resource. Delete it after the first `terraform apply` |
-| `moves.tf` | Only for a root generated again with `--regenerate` whose resources have other addresses than before: a `moved` block for each, from where the root's state has it. Delete it with `imports.tf` after `terraform apply` |
+| `moves.tf` | Only for a root generated again with `--regenerate` whose resources have other addresses than before: a `moved` block for each, from where the root's state has it. A resource that goes to another root of the run gets a `removed` block, with `destroy = false`, instead (see [Roots between which resources move](#roots-between-which-resources-move)). Delete it with `imports.tf` after `terraform apply` |
 | `network.tf`, `s3.tf`, `iam.tf`, ... | The configuration Terraform generated for the resources, a file per service: the network's resources (VPCs, subnets, route tables and their routes, gateways, security groups and their rules) together in `network.tf`, the others in their service's file. Where one inventory API lists every type (Azure Resource Graph, Google Cloud Asset Inventory), a family of types shares a file instead: every `azurerm_storage_*` type in `storage.tf`, `azurerm_key_vault_*` in `key_vault.tf`, `azurerm_log_analytics_*` in `log_analytics.tf`, Google's managed zones and record sets in `dns.tf`, `google_storage_*` in `gcs.tf`, `google_pubsub_*` in `pubsub.tf`, and service accounts, custom roles and the project's IAM members in `iam.tf`; a type of no family gets its own file, such as `backend_service.tf`. A module call goes with the first resource it took |
 | `variables.tf` | Only if there are secrets or values of other roots: a `sensitive` variable, with no default, for each secret value (see [Secrets](#secrets)). Set the variables before planning, from your secret store (AWS Secrets Manager, Azure Key Vault, Google Secret Manager) or with `TF_VAR_<name>`, keeping the values out of version control. Write-only arguments (`*_wo`) stay unset. Also a variable, with its value as the default, for each ID, ARN or DNS name of a resource another root manages that no data source reads (see [Tidying](#tidying)) |
 | `.terraform.lock.hcl` | The provider version, the same for every directory of one import |
@@ -33,13 +33,21 @@ infraharvest writes configuration and no state. You don't create or edit a state
 4. Run `terraform apply`. It writes the resources into the state and changes nothing in the cloud. Where the plan has no updates, read access is enough. The Google Cloud provider is the exception: it applies the updates of `labels` and `terraform_labels` by updating each labelled resource to the labels it already has, so apply with credentials that may update those resources, such as your deployment identity.
 5. Delete `imports.tf`, and `moves.tf` if the root has one: the resources are in the state, at their addresses.
 
-The roots can be applied in any order. What one root reads of another's resources, through a data source or a variable with a default (see [Tidying](#tidying)), already exists in the cloud. Roots that call generated local modules refer to `<out>/modules/` by a relative path, so keep the output directory together, as it is, when you commit it.
+The roots can be applied in any order, but for roots between which resources move (see below). What one root reads of another's resources, through a data source or a variable with a default (see [Tidying](#tidying)), already exists in the cloud. Roots that call generated local modules refer to `<out>/modules/` by a relative path, so keep the output directory together, as it is, when you commit it.
 
 Some resources need a decision first:
 
 - **Resources already in another state.** Import with `--managed-state` pointing at that state, and they are left out, so no resource ends up in two states (see [Choosing what to import](usage.md#choosing-what-to-import)). Importing them again into a new state would give them two owners.
 - **Rejected resources.** `rejected.hcl` holds what Terraform couldn't import or generate valid configuration for, with its errors. Terraform doesn't load the file, so the root plans and applies without them. Fix a resource and move its blocks into `imports.tf` and the configuration before applying, or leave it out.
 - **New resources later.** Run the import again with `--incremental` to add them to the roots (see [Usage](usage.md#choosing-what-to-import)). Once you have deleted a root's `imports.tf`, also pass `--managed-state`, such as `backend`, so that the import knows what the root has.
+
+### Roots between which resources move
+
+With `--regenerate`, a resource can go from one root to another, such as when `--env-tags` or `--layout` changes. If the run generates both roots, the root it leaves gets a `removed` block for it in `moves.tf`, with `destroy = false`, and the root it goes to imports it; if the run generates only the root it goes to, it stays where it is, and is left out of the other. A root left with no resources keeps only `versions.tf`, `providers.tf`, `moves.tf` and its README. Both READMEs list these resources under Moves, and so do the report and `coverage.json` (`departed`).
+
+Apply the root the resource leaves first: its plan says Terraform will forget the resource, not destroy it, and its apply removes it from that root's state. Then plan and apply the root it goes to, which imports it. Applied first, the new root would import a resource the old root's state still has, and both would manage it.
+
+`removed` blocks with `lifecycle` need Terraform 1.7 or OpenTofu 1.10, so a root that has them requires 1.10.
 
 ## What stays yours
 

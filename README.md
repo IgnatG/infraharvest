@@ -104,7 +104,7 @@ See [Applying the roots](docs/output.md#applying-the-roots).
 |---|---|
 | Add new resources to the roots | `discover` again (it marks them `new`), review them, then `import` with `--selection` and `--incremental`; add `--managed-state` once `imports.tf` is deleted |
 | Finish a run that failed part way | The same command with `--resume` |
-| Generate the roots again | `--regenerate`; resources at other addresses get moved blocks, and a root whose resources would move to other roots is left as it was |
+| Generate the roots again | `--regenerate`; resources at other addresses get moved blocks, and those that go to another root it generates get removed blocks: apply the root they leave first |
 | Import what `discover` just listed | `--reuse-inventory`, instead of listing again |
 | Check roots after editing them | `infraharvest verify`, before deleting `imports.tf` |
 | Print the report again | `infraharvest report`, with `--format json` for JSON |
