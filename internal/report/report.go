@@ -63,6 +63,9 @@ type Report struct {
 	// listed are the resources the listers found, with their tags, for
 	// the counts by tag (see AddListed).
 	listed []Listed
+	// arrived are the resources roots import that other roots hand over,
+	// which Finish matches with Departed (see AddArrival).
+	arrived []Move
 }
 
 // Manifest records the versions an import used.
@@ -157,6 +160,11 @@ type Coverage struct {
 	// that its listing didn't find, though it listed everything of their
 	// type where they were: they have been deleted since.
 	NotInCloud []NotInCloud `json:"not_in_cloud,omitempty"`
+	// Moved are the resources that roots generated again with --regenerate
+	// move to other addresses with moved blocks, and Departed those they
+	// hand over to other roots with removed blocks, which import them.
+	Moved    []Move `json:"moved,omitempty"`
+	Departed []Move `json:"departed,omitempty"`
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
@@ -290,6 +298,28 @@ type NotInCloud struct {
 	Scope   string `json:"scope,omitempty"`
 }
 
+// Move is a resource a moved block moves within a root, or that a
+// removed block of one root hands over to another, which imports it: its
+// type and import ID, the root it was in and its address there, and the
+// root it is in now and its address there. Roots are relative to the
+// output directory, with forward slashes. To is empty for a resource
+// handed over to a root that didn't import it.
+type Move struct {
+	Type     string `json:"type"`
+	ID       string `json:"id"`
+	FromRoot string `json:"from_root"`
+	From     string `json:"from"`
+	ToRoot   string `json:"to_root"`
+	To       string `json:"to,omitempty"`
+}
+
+// AddArrival records a resource a root imports that another root hands
+// over: Finish sets the address it has there on the departure that
+// matches it.
+func (r *Report) AddArrival(m Move) {
+	r.arrived = append(r.arrived, m)
+}
+
 // Skipped counts resources of a type infraharvest doesn't import.
 type Skipped struct {
 	Type   string `json:"type"`
@@ -330,6 +360,9 @@ func (r *Report) Merge(other *Report) {
 	r.Directories = append(r.Directories, other.Directories...)
 	r.Excluded = append(r.Excluded, other.Excluded...)
 	r.NotInCloud = append(r.NotInCloud, other.NotInCloud...)
+	r.Moved = append(r.Moved, other.Moved...)
+	r.Departed = append(r.Departed, other.Departed...)
+	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.listed = append(r.listed, other.listed...)
 	if len(r.TagKeys) == 0 {
@@ -366,6 +399,11 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		return a.ID < b.ID
 	})
 	r.NotInCloud = slices.Compact(r.NotInCloud)
+	r.matchArrivals()
+	sortMoves(r.Moved)
+	sortMoves(r.Departed)
+	r.Moved = slices.Compact(r.Moved)
+	r.Departed = slices.Compact(r.Departed)
 	sort.Strings(r.Failures)
 
 	byType := map[string]*CoverageTotal{}
@@ -458,6 +496,36 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	default:
 		r.ExitCode = ExitIncomplete
 	}
+}
+
+// matchArrivals sets on each departure the address the root it goes to
+// imports it at.
+func (r *Report) matchArrivals() {
+	key := func(m Move) Move { return Move{Type: m.Type, ID: m.ID, FromRoot: m.FromRoot, ToRoot: m.ToRoot} }
+	departed := map[Move]int{}
+	for i, d := range r.Departed {
+		departed[key(d)] = i
+	}
+	for _, a := range r.arrived {
+		if i, ok := departed[key(a)]; ok {
+			r.Departed[i].To = a.To
+		}
+	}
+	r.arrived = nil
+}
+
+// sortMoves sorts moves by the root and address they come from.
+func sortMoves(moves []Move) {
+	sort.Slice(moves, func(i, j int) bool {
+		a, b := moves[i], moves[j]
+		if a.FromRoot != b.FromRoot {
+			return a.FromRoot < b.FromRoot
+		}
+		if a.From != b.From {
+			return a.From < b.From
+		}
+		return a.ID < b.ID
+	})
 }
 
 // countByTag counts the listed resources by the value of each of TagKeys:
@@ -710,6 +778,19 @@ func (r *Report) Markdown() string {
 		gone = append(gone, fmt.Sprintf("- `%s` `%s` in `%s`", g.Address, g.ID, g.Path))
 	}
 	section("No longer in the cloud", "The roots have these resources, but the import didn't find them, though it listed every resource of their type where they were: they have been deleted since, and the next plan of the root would create them again. Delete each one's import block, if the root's `imports.tf` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again. The import changed nothing the roots have.", gone)
+	var movedLines, departedLines []string
+	for _, m := range r.Moved {
+		movedLines = append(movedLines, fmt.Sprintf("- `%s` to `%s` in `%s`", m.From, m.To, m.FromRoot))
+	}
+	for _, d := range r.Departed {
+		to := "`" + d.ToRoot + "`, which didn't import it"
+		if d.To != "" {
+			to = fmt.Sprintf("`%s` in `%s`", d.To, d.ToRoot)
+		}
+		departedLines = append(departedLines, fmt.Sprintf("- `%s` in `%s` to %s", d.From, d.FromRoot, to))
+	}
+	section("Moved", "Generated again, these roots have these resources at other addresses: their moved blocks, in `moves.tf`, move them in state, so their next plans destroy nothing.", movedLines)
+	section("Handed over", "These resources go to other roots now. The removed blocks in `moves.tf` of the roots they were in make those roots' states forget them, without destroying them, and the roots they go to import them. Apply the root each was in first, then the root it goes to.", departedLines)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string

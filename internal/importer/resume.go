@@ -41,6 +41,8 @@ type checkpoint struct {
 	// PendingMoves are the moved blocks the root's moves.tf had then,
 	// which the run removed with the rest.
 	PendingMoves []engine.Move `json:"pending_moves,omitempty"`
+	// PendingRemoved are the removed blocks it had then.
+	PendingRemoved []engine.Removal `json:"pending_removed,omitempty"`
 }
 
 // fingerprint identifies what a root is generated from: infraharvest's
@@ -94,8 +96,8 @@ func checkpointPath(out, dir string) string {
 // resumed returns the result a checkpoint recorded for dir, if it has the
 // same fingerprint and the root's files are still there; nil otherwise.
 // Those are its configuration and versions.tf, with imports.tf and, if
-// the result moves resources, moves.tf, or without both: once the root is
-// applied, its README says to delete them.
+// the result moves or removes resources, moves.tf, or without both: once
+// the root is applied, its README says to delete them.
 func resumed(out, dir, fp string) (*engine.Result, error) {
 	content, err := os.ReadFile(checkpointPath(out, dir))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -113,7 +115,7 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if imports && len(c.Result.Moves) > 0 {
+	if imports && (len(c.Result.Moves) > 0 || len(c.Result.Removed) > 0) {
 		names = append(names, engine.MovesFileName)
 	}
 	for _, name := range names {
@@ -204,6 +206,10 @@ type claim struct {
 	// engine.Previous).
 	labels map[engine.External]string
 	moved  []engine.Move
+	// removed are the removed blocks its moves.tf had, with those of the
+	// resources the root hands over to other roots now (see
+	// planHandovers).
+	removed []engine.Removal
 	// backup is the root as it was before, if it has previous, to put
 	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
@@ -213,10 +219,10 @@ type claim struct {
 // previousRoot returns what the earlier import generated in the root, for
 // generating it again; nil for a new root.
 func (c *claim) previousRoot() *engine.Previous {
-	if len(c.previous) == 0 && len(c.moved) == 0 {
+	if len(c.previous) == 0 && len(c.moved) == 0 && len(c.removed) == 0 {
 		return nil
 	}
-	return &engine.Previous{Addresses: c.previous, Labels: c.labels, Moved: c.moved}
+	return &engine.Previous{Addresses: c.previous, Labels: c.labels, Moved: c.moved, Removed: c.removed}
 }
 
 // claimRoot gets dir ready for generating a root from fp. A directory no
@@ -266,9 +272,12 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 		}
 		// A run that stopped while generating the root again removed
 		// moves.tf, and may have written another.
-		claimed.moved = c.PendingMoves
+		claimed.moved, claimed.removed = c.PendingMoves, c.PendingRemoved
 		if c.Result != nil {
 			if claimed.moved, err = engine.ReadMoves(dir); err != nil {
+				return nil, err
+			}
+			if claimed.removed, err = readRemoved(dir, c.Result); err != nil {
 				return nil, err
 			}
 			claimed.labels = map[engine.External]string{}
@@ -284,7 +293,7 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 	}
 	// Before anything is removed: the files to remove are the earlier
 	// result's, which this checkpoint replaces.
-	started := checkpoint{Fingerprint: fp, Pending: claimed.previous, PendingFiles: c.PendingFiles, PendingMoves: claimed.moved}
+	started := checkpoint{Fingerprint: fp, Pending: claimed.previous, PendingFiles: c.PendingFiles, PendingMoves: claimed.moved, PendingRemoved: claimed.removed}
 	if c.Result != nil {
 		started.PendingFiles = c.Result.Files
 	}
@@ -292,6 +301,23 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 		return nil, err
 	}
 	return claimed, clearGenerated(out, dir)
+}
+
+// readRemoved returns the removed blocks of dir's moves.tf, with what
+// result, the root's last, says each hands over.
+func readRemoved(dir string, result *engine.Result) ([]engine.Removal, error) {
+	removed, err := engine.ReadRemoved(dir)
+	if err != nil {
+		return nil, err
+	}
+	for i, r := range removed {
+		for _, had := range result.Removed {
+			if had.From == r.From {
+				removed[i].Resources = had.Resources
+			}
+		}
+	}
+	return removed, nil
 }
 
 // tfFiles returns the names of the .tf files of dir.
@@ -342,8 +368,9 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 // engine.Readdressed and engine.Result.Unmoved), resources of another
 // type now (see engine.Retyped), resources it no longer has that
 // elsewhere, by type and import ID, puts in another root of the run, by
-// its path, and resources of imports it leaves out, such as those its
-// plan rejected. Applied on the root's state, its next plan would
+// its path, unless a removed block of result hands them over (see
+// planHandovers), and resources of imports it leaves out, such as those
+// its plan rejected. Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
 // engine.ReleaseModules). A resource the run no longer imports at all,
@@ -359,10 +386,16 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 	for _, imp := range imports {
 		asked[engine.External{Type: imp.Type, ID: imp.ID}] = true
 	}
+	handed := map[engine.External]bool{}
+	for _, r := range result.Removed {
+		for _, d := range r.Resources {
+			handed[engine.External{Type: d.Type, ID: d.ID}] = true
+		}
+	}
 	for _, p := range c.previous {
 		key := engine.External{Type: p.Type, ID: p.ID}
 		switch root, ok := elsewhere[key]; {
-		case now[key]:
+		case now[key], handed[key]:
 		case ok:
 			changed = append(changed, fmt.Sprintf("%s is now in %s", p.Address, root))
 		case asked[key]:

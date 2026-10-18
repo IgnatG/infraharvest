@@ -169,6 +169,11 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 	if err != nil || options.Discover {
 		return err
 	}
+	// Before any root is generated: what goes from one to another is
+	// worked out from where the roots had their resources before.
+	if err := planHandovers(options.Out, listed); err != nil {
+		return err
+	}
 
 	byDirs := make([]map[string][]engine.Import, len(calls))
 	for i, c := range listed {
