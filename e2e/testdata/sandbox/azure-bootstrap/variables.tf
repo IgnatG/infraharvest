@@ -23,7 +23,7 @@ variable "github_repository" {
 variable "github_subject" {
   description = "The subject of the GitHub OIDC tokens the identities trust: the sandbox environment's jobs. The repository uses immutable subjects, with the owner's and the repository's IDs."
   type        = string
-  default     = "repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox"
+  default     = "repo:infraharvest@344325566/infraharvest-cli@1424291107:environment:sandbox"
 }
 
 variable "identity_resource_group" {

@@ -171,7 +171,7 @@ terraform apply -var "subscription_id=$(az account show --query id -o tsv)"
 terraform output -raw gh_commands
 ```
 
-`-var location=<region>` places the groups elsewhere than `uksouth` (some regions, such as `westeurope`, refuse new subscriptions). The identities trust tokens whose subject is `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...` sets another. Keep the state, which Cloud Shell keeps in your home directory, to change or destroy it later.
+`-var location=<region>` places the groups elsewhere than `uksouth` (some regions, such as `westeurope`, refuse new subscriptions). The identities trust tokens whose subject is `repo:infraharvest@344325566/infraharvest-cli@1424291107:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...` sets another. Keep the state, which Cloud Shell keeps in your home directory, to change or destroy it later.
 
 The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
 
@@ -211,7 +211,7 @@ terraform apply -var "project_id=$(gcloud config get-value project)"
 terraform output -raw gh_commands
 ```
 
-`-var region=<region>` creates the estate elsewhere than `europe-west2` (London). The service accounts trust tokens whose subject is `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...`, `-var github_repository_id=...` and `-var github_repository_owner_id=...` set others. A deleted pool keeps its ID for 30 days, so to create it again sooner, `-var pool_id=...` names another. Keep the state, which Cloud Shell keeps in your home directory (5 GB that persist between sessions), to change or destroy it later; Cloud Shell deletes a home directory that goes unused for 120 days.
+`-var region=<region>` creates the estate elsewhere than `europe-west2` (London). The service accounts trust tokens whose subject is `repo:infraharvest@344325566/infraharvest-cli@1424291107:environment:sandbox`, the repository's immutable subject for the environment; `-var github_subject=...`, `-var github_repository_id=...` and `-var github_repository_owner_id=...` set others. A deleted pool keeps its ID for 30 days, so to create it again sooner, `-var pool_id=...` names another. Keep the state, which Cloud Shell keeps in your home directory (5 GB that persist between sessions), to change or destroy it later; Cloud Shell deletes a home directory that goes unused for 120 days.
 
 The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
 

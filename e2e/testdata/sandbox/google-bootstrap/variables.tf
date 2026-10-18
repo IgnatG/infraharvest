@@ -23,19 +23,19 @@ variable "github_repository" {
 variable "github_repository_id" {
   description = "The repository's immutable numeric ID, which the workload identity provider requires: unlike its name, no other repository can take it."
   type        = string
-  default     = "1420684118"
+  default     = "1424291107"
 }
 
 variable "github_repository_owner_id" {
   description = "The immutable numeric ID of the repository's owner, which the workload identity provider requires."
   type        = string
-  default     = "6107088"
+  default     = "344325566"
 }
 
 variable "github_subject" {
   description = "The subject of the GitHub OIDC tokens the service accounts trust: the sandbox environment's jobs. The repository uses immutable subjects, with the owner's and the repository's IDs."
   type        = string
-  default     = "repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox"
+  default     = "repo:infraharvest@344325566/infraharvest-cli@1424291107:environment:sandbox"
 }
 
 variable "pool_id" {
