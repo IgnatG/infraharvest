@@ -1,0 +1,120 @@
+# Lists what the sandbox runs may have left in each cloud, without creating
+# or deleting anything: resources still carrying a sandbox tag or name, and
+# in AWS the kinds that cost the most while they exist (running instances,
+# NAT gateways, Elastic IPs, load balancers, databases, Redshift, ElastiCache
+# and EKS clusters), tagged or not. Runs only when started by hand, and
+# only after a reviewer of the sandbox environment approves it. It prints
+# names and IDs only, to the run's summary.
+name: sandbox-leftovers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OpenID Connect, for the roles
+
+jobs:
+  aws:
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 15
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
+    steps:
+    # The fixture role, which can list what the estate holds; only list and
+    # describe calls follow.
+    - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
+        role-session-name: infraharvest-leftovers-${{ github.run_id }}
+        aws-region: ${{ vars.AWS_REGION }}
+    - name: Leftovers
+      run: |
+        found=0
+        report() {
+          if [ -n "$2" ]; then
+            found=1
+            echo "- $1: $(tr '\t\n' '  ' <<< "$2")" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        echo "## AWS" >> "$GITHUB_STEP_SUMMARY"
+        # us-east-1 too, where the Tagging API lists CloudFront.
+        for region in $(printf '%s\n' "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1 | sort -u); do
+          echo "== $region"
+          for key in infraharvest-sandbox infraharvest-sandbox-run; do
+            report "$region, tagged $key" "$(aws resourcegroupstaggingapi get-resources --region "$region" \
+              --tag-filters "Key=$key" --query 'ResourceTagMappingList[].ResourceARN' --output text)"
+          done
+          report "$region, running instances" "$(aws ec2 describe-instances --region "$region" \
+            --filters Name=instance-state-name,Values=pending,running,stopping,stopped \
+            --query 'Reservations[].Instances[].InstanceId' --output text)"
+          report "$region, NAT gateways" "$(aws ec2 describe-nat-gateways --region "$region" \
+            --filter Name=state,Values=pending,available --query 'NatGateways[].NatGatewayId' --output text)"
+          report "$region, Elastic IPs" "$(aws ec2 describe-addresses --region "$region" \
+            --query 'Addresses[].AllocationId' --output text)"
+          report "$region, load balancers" "$(aws elbv2 describe-load-balancers --region "$region" \
+            --query 'LoadBalancers[].LoadBalancerName' --output text)"
+          report "$region, RDS instances" "$(aws rds describe-db-instances --region "$region" \
+            --query 'DBInstances[].DBInstanceIdentifier' --output text)"
+          report "$region, Redshift clusters" "$(aws redshift describe-clusters --region "$region" \
+            --query 'Clusters[].ClusterIdentifier' --output text)"
+          report "$region, ElastiCache replication groups" "$(aws elasticache describe-replication-groups \
+            --region "$region" --query 'ReplicationGroups[].ReplicationGroupId' --output text)"
+          report "$region, EKS clusters" "$(aws eks list-clusters --region "$region" --query 'clusters[]' --output text)"
+        done
+        if [ "$found" -eq 0 ]; then
+          echo "Nothing left." | tee -a "$GITHUB_STEP_SUMMARY"
+        fi
+
+  azure:
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 15
+    steps:
+    - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_READONLY_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    - name: Leftovers
+      env:
+        SUBSCRIPTION: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
+      run: |
+        echo "## Azure" >> "$GITHUB_STEP_SUMMARY"
+        left=$(az resource list --subscription "$SUBSCRIPTION" -g "$GROUP" --query '[].id' -o tsv)
+        if [ -n "$left" ]; then
+          echo "- in $GROUP: $(tr '\n' ' ' <<< "$left")" | tee -a "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Nothing left in $GROUP." | tee -a "$GITHUB_STEP_SUMMARY"
+        fi
+
+  google:
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 15
+    steps:
+    - id: readonly
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    # One search over every kind of resource in the project, kept to the
+    # sandbox's names; it may still list what a run deleted minutes ago.
+    - name: Leftovers
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
+        PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
+      run: |
+        echo "## Google Cloud" >> "$GITHUB_STEP_SUMMARY"
+        left=$(gcloud asset search-all-resources --scope "projects/$PROJECT" \
+          --format 'value(assetType,displayName)' | grep 'ih-sbx-' || true)
+        if [ -n "$left" ]; then
+          echo "- in the project: $(tr '\t\n' '  ' <<< "$left")" | tee -a "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Nothing left in the project." | tee -a "$GITHUB_STEP_SUMMARY"
+        fi
