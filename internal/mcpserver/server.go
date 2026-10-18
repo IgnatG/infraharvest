@@ -325,7 +325,7 @@ type ImportInput struct {
 	// Incremental adds to the roots Out already has (--incremental).
 	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, in files of their own, without changing what they have; needed to import into an output directory again"`
 	// Regenerate generates the roots Out already has again (--regenerate).
-	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch; a root whose resources would get other addresses is left as it was and reported as failed"`
+	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch; a root whose resources would move to other addresses or roots, or be left out, is left as it was and reported as failed"`
 }
 
 // ImportResult is what an import did.
@@ -409,7 +409,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	}
 	if in.Regenerate {
-		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again; a root whose resources would get other addresses is left as it was. infraharvest reads %s and writes files; it never applies anything.",
+		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again; a root whose resources would move to other addresses or roots, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
 			in.Out, summary.Included, in.Selection, summary.Excluded, scopeText(in.Scope))
 	}
 	state := confirmationState(args, content)
