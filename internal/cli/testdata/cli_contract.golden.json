@@ -756,6 +756,67 @@
     ]
   },
   {
+    "path": "infraharvest drift",
+    "use": "drift [output-directory]",
+    "run_e": true,
+    "run": false,
+    "args": "0,1",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "detailed-exitcode",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "engine",
+        "type": "string",
+        "default": "terraform",
+        "persistent": false
+      },
+      {
+        "name": "engine-timeout",
+        "type": "duration",
+        "default": "1h0m0s",
+        "persistent": false
+      },
+      {
+        "name": "force-unlock",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": false
+      },
+      {
+        "name": "root",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": false
+      },
+      {
+        "name": "terraform-path",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      }
+    ]
+  },
+  {
     "path": "infraharvest import",
     "use": "import",
     "run_e": false,

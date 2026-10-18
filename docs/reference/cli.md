@@ -173,6 +173,25 @@ infraharvest discover google
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
 | `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 
+## infraharvest drift
+
+Find what changed in the cloud since the generated roots were applied
+
+```
+infraharvest drift [output-directory] [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--detailed-exitcode` |  | exit with 4 when a change would be reverted by the next apply or can't be assessed, 0 when none |
+| `--engine` | `terraform` | terraform or tofu |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit) |
+| `--force-unlock` |  | check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock |
+| `--format` | `text` | text prints a line per root; json prints drift.json |
+| `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
+| `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |
+| `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
+
 ## infraharvest import
 
 Generate Terraform configuration for existing cloud resources
