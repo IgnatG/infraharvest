@@ -28,9 +28,13 @@ const DefaultSelectionFile = "selection.yaml"
 
 // checkSelectionOptions makes an import say what to import: a selection
 // file, or --all. An import without either could bring a whole account
-// under Terraform by accident.
+// under Terraform by accident. It also refuses --regenerate with
+// --incremental: one generates the roots again, the other only adds to
+// them.
 func checkSelectionOptions(options Options) error {
 	switch {
+	case options.Regenerate && options.Incremental:
+		return errors.New("use either --regenerate or --incremental")
 	case options.Discover:
 		if options.All {
 			return errors.New("discover lists everything; --all is for import")

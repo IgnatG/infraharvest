@@ -29,6 +29,9 @@ func TestCheckSelectionOptions(t *testing.T) {
 		{Options{}, false},
 		{Options{Selection: "selection.yaml", All: true}, false},
 		{Options{Discover: true, All: true}, false},
+		{Options{All: true, Regenerate: true}, true},
+		{Options{All: true, Regenerate: true, Resume: true}, true},
+		{Options{All: true, Regenerate: true, Incremental: true}, false},
 	} {
 		if err := checkSelectionOptions(tc.options); (err == nil) != tc.ok {
 			t.Errorf("%+v: got %v", tc.options, err)

@@ -31,6 +31,13 @@ const CheckpointDir = ".infraharvest"
 type checkpoint struct {
 	Fingerprint string         `json:"fingerprint"`
 	Result      *engine.Result `json:"result"`
+	// Pending are, while a run generates a root an earlier import
+	// generated again, where that import's resources were (see
+	// previousAddresses), and PendingFiles the files its configuration
+	// was in: the checkpoint has no result then, and a run interrupted on
+	// the way would otherwise lose them.
+	Pending      []engine.Managed `json:"pending,omitempty"`
+	PendingFiles []string         `json:"pending_files,omitempty"`
 }
 
 // fingerprint identifies what a root is generated from: infraharvest's
@@ -114,11 +121,16 @@ func configurationFiles(result *engine.Result) []string {
 
 // saveCheckpoint records that dir was generated from fp, with result.
 func saveCheckpoint(out, dir, fp string, result *engine.Result) error {
+	return writeCheckpoint(out, dir, checkpoint{Fingerprint: fp, Result: result})
+}
+
+// writeCheckpoint writes c as the checkpoint of dir under out.
+func writeCheckpoint(out, dir string, c checkpoint) error {
 	path := checkpointPath(out, dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	content, err := json.MarshalIndent(checkpoint{Fingerprint: fp, Result: result}, "", "  ")
+	content, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -141,8 +153,11 @@ func clearGenerated(out, dir string) error {
 	names := slices.Clone(generatedFiles)
 	if content, err := os.ReadFile(checkpointPath(out, dir)); err == nil {
 		var c checkpoint
-		if json.Unmarshal(content, &c) == nil && c.Result != nil {
-			names = append(names, c.Result.Files...)
+		if json.Unmarshal(content, &c) == nil {
+			names = append(names, c.PendingFiles...)
+			if c.Result != nil {
+				names = append(names, c.Result.Files...)
+			}
 		}
 	}
 	for _, name := range names {
@@ -165,41 +180,236 @@ func clearGenerated(out, dir string) error {
 	return nil
 }
 
+// claim is a root claimRoot got ready for generating.
+type claim struct {
+	// previous are where the earlier import that generated the root put
+	// its resources (see previousAddresses); none for a new root.
+	previous []engine.Managed
+	// backup is the root as it was before, if it has previous, to put
+	// back when generating it gives them other addresses (see
+	// refuseReaddressed).
+	backup *rootBackup
+}
+
 // claimRoot gets dir ready for generating a root from fp. A directory no
 // checkpoint under out says an import wrote must hold no .tf files, so
-// that an unrelated root is never overwritten. With resume, what a
-// previous run generated in dir is removed (see clearGenerated). Last, a
-// checkpoint without a result records that the root's generation started,
-// so that a later run knows the files are infraharvest's even if this one
-// fails, and that the root isn't complete (see unfinishedRoot).
-func claimRoot(out, dir, fp string, resume bool) error {
-	owned, err := fileExists(checkpointPath(out, dir))
+// that an unrelated root is never overwritten. A root an earlier import
+// generated, which may be in use, is generated again only with
+// regenerate or, if that import didn't finish, with resume, unless no .tf
+// file of it is left; else claimRoot refuses it. Generating it again
+// first records where its resources were (see previousAddresses) in its
+// checkpoint, then removes what the import generated (see
+// clearGenerated). The checkpoint then has no result: it records that
+// the root's generation started, so that a later run knows the files are
+// infraharvest's even if this one fails, and that the root isn't
+// complete (see unfinishedRoot).
+func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
+	names, err := tfFiles(dir)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	path := checkpointPath(out, dir)
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if len(names) > 0 {
+			return nil, fmt.Errorf("%s already holds %s, which no import by infraharvest wrote: use an empty output directory, or --incremental to add to a root an import generated", dir, strings.Join(names, ", "))
+		}
+		return &claim{}, saveCheckpoint(out, dir, fp, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var c checkpoint
+	readable := json.Unmarshal(content, &c) == nil
+	if !readable {
+		c = checkpoint{} // as of a root whose import didn't finish
+	}
+	finished := c.Result != nil
+	if len(names) > 0 && !regenerate && (finished || !resume) {
+		if finished {
+			return nil, fmt.Errorf("%s is a root an earlier import generated, which may be in use: pass --regenerate to generate it again, or --incremental to add what is new to it", dir)
+		}
+		return nil, fmt.Errorf("the import that generated %s didn't finish: pass --resume to generate it again", dir)
+	}
+	claimed := &claim{}
+	if readable {
+		if claimed.previous, err = previousAddresses(out, dir); err != nil {
+			return nil, err
+		}
+	}
+	if len(claimed.previous) > 0 {
+		if claimed.backup, err = backupRoot(dir, path, content); err != nil {
+			return nil, err
+		}
+	}
+	// Before anything is removed: the files to remove are the earlier
+	// result's, which this checkpoint replaces.
+	started := checkpoint{Fingerprint: fp, Pending: claimed.previous, PendingFiles: c.PendingFiles}
+	if c.Result != nil {
+		started.PendingFiles = c.Result.Files
+	}
+	if err := writeCheckpoint(out, dir, started); err != nil {
+		return nil, err
+	}
+	return claimed, clearGenerated(out, dir)
+}
+
+// tfFiles returns the names of the .tf files of dir.
+func tfFiles(dir string) ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(paths))
+	for _, path := range paths {
+		names = append(names, filepath.Base(path))
+	}
+	return names, nil
+}
+
+// previousAddresses returns where the earlier import that generated dir,
+// a root of out, put its resources, by type and import ID: what the
+// checkpoint of a run that stopped while generating the root again kept
+// (see checkpoint.Pending); else the addresses the checkpoint's result
+// records; else, for a result from an older release, where the root's
+// import blocks import; else, once they are deleted, what the result
+// says it imported, unverified (see engine.InferredAddresses). A root
+// whose import didn't finish has none. It makes no cloud call.
+func previousAddresses(out, dir string) ([]engine.Managed, error) {
+	c, err := readCheckpoint(out, dir)
+	if err != nil || c == nil {
+		return nil, err
 	}
 	switch {
-	case owned && !resume:
-		// Generate refuses a root an earlier run left; its checkpoint stays
-		// as it is.
-		return nil
-	case owned:
-		if err := clearGenerated(out, dir); err != nil {
-			return err
-		}
-	default:
-		paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
-		if err != nil {
-			return err
-		}
-		if len(paths) > 0 {
-			names := make([]string, 0, len(paths))
-			for _, path := range paths {
-				names = append(names, filepath.Base(path))
-			}
-			return fmt.Errorf("%s already holds %s, which no import by infraharvest wrote: use an empty output directory, or --incremental to add to a root an import generated", dir, strings.Join(names, ", "))
+	case len(c.Pending) > 0:
+		return c.Pending, nil
+	case c.Result == nil:
+		return nil, nil
+	case len(c.Result.Addresses) > 0:
+		return c.Result.Addresses, nil
+	}
+	imported, err := engine.ImportedAddresses(dir)
+	if err != nil || len(imported) > 0 {
+		return imported, err
+	}
+	return engine.InferredAddresses(c.Result), nil
+}
+
+// refuseReaddressed fails when result, of generating the claimed root
+// again from imports, would change what the root's state has, naming
+// what: resources of it at other addresses than before (see
+// engine.Readdressed), resources it no longer has that elsewhere, by type
+// and import ID, puts in another root of the run, by its path, and
+// resources of imports it leaves out, such as those its plan rejected.
+// Applied on the root's state, its next plan would destroy them, and
+// create those at other addresses. The root is put back as it was. A
+// resource the run no longer imports at all, such as one deleted in the
+// cloud since, isn't counted. Until moved and removed blocks are written
+// for them, such a root can't be generated again.
+func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []engine.Import, elsewhere map[engine.External]string) error {
+	changed := engine.Readdressed(c.previous, result.Addresses)
+	now := map[engine.External]bool{}
+	for _, m := range result.Addresses {
+		now[engine.External{Type: m.Type, ID: m.ID}] = true
+	}
+	asked := map[engine.External]bool{}
+	for _, imp := range imports {
+		asked[engine.External{Type: imp.Type, ID: imp.ID}] = true
+	}
+	for _, p := range c.previous {
+		key := engine.External{Type: p.Type, ID: p.ID}
+		switch root, ok := elsewhere[key]; {
+		case now[key]:
+		case ok:
+			changed = append(changed, fmt.Sprintf("%s is now in %s", p.Address, root))
+		case asked[key]:
+			changed = append(changed, p.Address+" is left out")
 		}
 	}
-	return saveCheckpoint(out, dir, fp, nil)
+	if len(changed) == 0 {
+		return nil
+	}
+	sort.Strings(changed)
+	err := fmt.Errorf("generating %s again would move or leave out %d of its resources, which a plan on its state would destroy, and create where they move to, so it is left as it was: %s", dir, len(changed), strings.Join(changed, ", "))
+	if c.backup != nil {
+		if restoreErr := c.backup.restore(); restoreErr != nil {
+			return errors.Join(err, restoreErr)
+		}
+	}
+	return err
+}
+
+// rootBackup is what a root had before it was generated again: the files
+// directly in its directory, and its checkpoint.
+type rootBackup struct {
+	dir   string
+	files map[string]savedFile
+	// checkpoint is the checkpoint's path, and content what it held.
+	checkpoint string
+	content    []byte
+}
+
+type savedFile struct {
+	content []byte
+	mode    fs.FileMode
+}
+
+// backupRoot returns what dir has, and its checkpoint at path, which
+// holds content.
+func backupRoot(dir, path string, content []byte) (*rootBackup, error) {
+	b := &rootBackup{dir: dir, files: map[string]savedFile{}, checkpoint: path, content: content}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return b, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return nil, err
+		}
+		saved, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		b.files[e.Name()] = savedFile{content: saved, mode: info.Mode().Perm()}
+	}
+	return b, nil
+}
+
+// restore puts the root back as b has it: the files written directly in
+// its directory since are removed, the others written back, and so is
+// the checkpoint.
+func (b *rootBackup) restore() error {
+	entries, err := os.ReadDir(b.dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, e := range entries {
+		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(b.dir, e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	names := make([]string, 0, len(b.files))
+	for name := range b.files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		f := b.files[name]
+		if err := fsutil.WriteFile(filepath.Join(b.dir, name), f.content, f.mode); err != nil {
+			return err
+		}
+	}
+	return fsutil.WriteFile(b.checkpoint, b.content, 0o644)
 }
 
 // readCheckpoint returns the checkpoint of dir under out; nil if there is

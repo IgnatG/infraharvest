@@ -469,9 +469,13 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			run.addDirectory(dir, added, addedResult, err)
 			continue
 		default:
-			// With --resume, what changed is generated again, from scratch;
-			// a directory no import wrote is left alone.
-			if err := claimRoot(options.Out, dir, fp, options.Resume); err != nil {
+			// A root an earlier import generated is generated again, from
+			// scratch, with --regenerate, or with --resume if that import
+			// didn't finish; a directory no import wrote is left alone. With
+			// --incremental, a root gets here only if it has no resources or,
+			// with --resume, its import didn't finish.
+			var claimed *claim
+			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental); err != nil {
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue
 			}
@@ -487,6 +491,9 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if err == nil && len(claimed.previous) > 0 {
+				err = claimed.refuseReaddressed(dir, result, byDir[dir], inOtherRoots(options.Out, roots, dir))
 			}
 			if err == nil {
 				if err := saveCheckpoint(options.Out, dir, fp, result); err != nil {
@@ -505,6 +512,22 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 	}
 	run.report.Provider.Version = engine.LockedVersion(run.lock, run.report.Provider.Source)
 	return nil
+}
+
+// inOtherRoots returns, by type and import ID, the root of roots other
+// than dir that each of their resources goes in, by its path relative to
+// out.
+func inOtherRoots(out string, roots map[string][]engine.Import, dir string) map[engine.External]string {
+	other := map[engine.External]string{}
+	for d, imports := range roots {
+		if d == dir {
+			continue
+		}
+		for _, imp := range imports {
+			other[engine.External{Type: imp.Type, ID: imp.ID}] = relativePath(out, d)
+		}
+	}
+	return other
 }
 
 // engineOptions configures engine.Generate for provider's directories,
