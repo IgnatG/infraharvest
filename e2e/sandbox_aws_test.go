@@ -80,7 +80,8 @@ func TestSandboxAWS(t *testing.T) {
 	checkModuleCalls(t, coverage)
 	checkRegions(t, coverage, state, s.region, secondRegion)
 
-	checkSandboxIncremental(ctx, t, s, estate, importSandbox, imported)
+	created := checkSandboxIncremental(ctx, t, s, estate, importSandbox, imported)
+	checkRegenerated(ctx, t, s, estate, importSandbox, created)
 }
 
 // TestSandboxAWSClusters creates testdata/sandbox/aws-clusters, a
@@ -522,7 +523,7 @@ func checkRegions(t *testing.T, coverage report.Report, created []*tfjson.StateR
 // as it was, reporting nothing the roots have as gone. Every root still
 // plans with no changes, importing what imported counts and the log
 // group, nothing twice.
-func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, imported map[string]int) {
+func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, imported map[string]int) []*tfjson.StateResource {
 	t.Helper()
 	out, region := s.out, s.region
 	before := outputFiles(t, out)
@@ -609,6 +610,149 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 		if got[typ] != want[typ] {
 			t.Errorf("%s: the roots import %d after --incremental, want %d", typ, got[typ], want[typ])
 		}
+	}
+	return created
+}
+
+// checkRegenerated does what a team does when a resource of applied
+// roots is renamed, and the roots are generated again: it applies the
+// root of region that --incremental added the extra log group to, in a
+// copy of the output, keeping its state, as the import's identity; gives
+// the log group a Name tag, which gives it another address; and imports
+// again with --regenerate. The root's moves.tf must move the log group
+// to its new address. Over the state the first apply left, the root
+// generated again must plan the log group as moved, creating and
+// destroying nothing, and once applied, plan no change. created is what
+// the estate had before.
+func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, created []*tfjson.StateResource) {
+	t.Helper()
+	out := s.out
+	logGroup := ""
+	for _, r := range created {
+		if r.Type == "aws_cloudwatch_log_group" && r.Name == "extra" {
+			logGroup, _ = r.AttributeValues["id"].(string)
+		}
+	}
+	coverage := readCoverage(t, out)
+	if len(coverage.Directories) != 1 || len(coverage.Directories[0].Imported) != 1 || coverage.Directories[0].Imported[0].ID != logGroup {
+		t.Fatalf("coverage.json of --incremental reports %+v, want only %s", coverage.Directories, logGroup)
+	}
+	rel, from := coverage.Directories[0].Path, coverage.Directories[0].Imported[0].Address
+
+	work := t.TempDir()
+	if err := copyOutput(out, work); err != nil {
+		t.Fatalf("copy %s: %v", out, err)
+	}
+	root := filepath.Join(work, filepath.FromSlash(rel))
+	applyPlanned(ctx, t, root, s.execPath, s.plugins, secretValues(t, filepath.Join(out, filepath.FromSlash(rel)), created))
+
+	// Only the log group's tags: the rest stays as the import found it.
+	created = estate.apply(ctx, t, tfexec.Var("extra=true"), tfexec.Var("extra_name=infraharvest-sandbox-renamed"), tfexec.Target("aws_cloudwatch_log_group.extra"))
+	run.must(ctx, t, "--regenerate")
+	coverage = readCoverage(t, out)
+	for _, f := range coverage.Failures {
+		t.Errorf("--regenerate: failure: %s", f)
+	}
+	for _, d := range coverage.Directories {
+		for _, c := range d.Checks {
+			if !c.Passed {
+				t.Errorf("--regenerate: %s: %s failed: %v", d.Path, c.Name, c.Details)
+			}
+		}
+	}
+	to := ""
+	for _, m := range coverage.Moved {
+		if m.ID == logGroup && m.FromRoot == rel && m.From == from {
+			to = m.To
+		}
+	}
+	if to == "" || to == from {
+		t.Fatalf("--regenerate doesn't move %s from %s in %s: moved %+v", logGroup, from, rel, coverage.Moved)
+	}
+	if len(coverage.Departed) != 0 {
+		t.Errorf("--regenerate hands resources over to other roots: %+v", coverage.Departed)
+	}
+
+	// The roots generated again, in place of the copy's, which keeps the
+	// root's state.
+	err := filepath.WalkDir(work, func(p string, d os.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir() && d.Name() == ".terraform":
+			return filepath.SkipDir
+		case !d.IsDir() && filepath.Ext(p) == ".tf":
+			return os.Remove(p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyOutput(out, work); err != nil {
+		t.Fatalf("copy %s: %v", out, err)
+	}
+	vars := secretValues(t, filepath.Join(out, filepath.FromSlash(rel)), created)
+	moved := false
+	for _, rc := range planned(ctx, t, root, s.execPath, s.plugins, vars).ResourceChanges {
+		switch {
+		case rc.Mode != tfjson.ManagedResourceMode:
+		case rc.Change.Actions.Create() || rc.Change.Actions.Delete() || rc.Change.Actions.Replace():
+			t.Errorf("%s generated again: %s is planned to %v", rel, rc.Address, rc.Change.Actions)
+		case rc.Address == to && rc.PreviousAddress == from:
+			moved = true
+		}
+	}
+	if !moved {
+		t.Errorf("%s generated again: the plan doesn't move %s to %s", rel, from, to)
+	}
+	applyPlanned(ctx, t, root, s.execPath, s.plugins, vars)
+	for _, rc := range planned(ctx, t, root, s.execPath, s.plugins, vars).ResourceChanges {
+		if rc.Mode == tfjson.ManagedResourceMode && (!rc.Change.Actions.NoOp() || rc.Change.Importing != nil || rc.PreviousAddress != "") {
+			t.Errorf("%s generated again, after the apply: %s is planned to %v", rel, rc.Address, rc.Change.Actions)
+		}
+	}
+}
+
+// planned initialises the root in dir and plans it with vars, on the
+// local state it has, as the process's identity, and returns the plan.
+func planned(ctx context.Context, t *testing.T, dir, execPath, plugins string, vars []tfexec.PlanOption) *tfjson.Plan {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+		t.Fatalf("%s: terraform init: %v", dir, err)
+	}
+	planFile := filepath.Join(t.TempDir(), "regenerated.tfplan")
+	if _, err := tf.Plan(ctx, append(vars, tfexec.Out(planFile))...); err != nil {
+		t.Fatalf("%s: terraform plan: %v", dir, err)
+	}
+	plan, err := tf.ShowPlanFile(ctx, planFile)
+	if err != nil {
+		t.Fatalf("%s: terraform show: %v", dir, err)
+	}
+	return plan
+}
+
+// applyPlanned plans the root in dir with vars and applies the plan into
+// its local state, as the process's identity.
+func applyPlanned(ctx context.Context, t *testing.T, dir, execPath, plugins string, vars []tfexec.PlanOption) {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+		t.Fatalf("%s: terraform init: %v", dir, err)
+	}
+	planFile := filepath.Join(t.TempDir(), "apply.tfplan")
+	if _, err := tf.Plan(ctx, append(vars, tfexec.Out(planFile))...); err != nil {
+		t.Fatalf("%s: terraform plan to apply: %v", dir, err)
+	}
+	if err := tf.Apply(ctx, tfexec.DirOrPlan(planFile)); err != nil {
+		t.Fatalf("%s: terraform apply: %v", dir, err)
 	}
 }
 
