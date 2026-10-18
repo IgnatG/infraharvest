@@ -37,7 +37,7 @@ The configuration is written for azurerm 5, with its argument names, such as a L
 
 ## Permissions
 
-The built-in **Reader** role on the subscriptions, or on a management group above them, is enough. The [`permissions/azure`](https://github.com/IgnatG/infraharvest/tree/main/permissions/azure) configuration assigns it; see [Permissions](permissions.md#azure).
+The built-in **Reader** role on the subscriptions, or on a management group above them, is enough. The [`permissions/azure`](https://github.com/infraharvest/infraharvest-cli/tree/main/permissions/azure) configuration assigns it; see [Permissions](permissions.md#azure).
 
 ## Subscriptions and resource groups
 

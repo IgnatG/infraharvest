@@ -40,7 +40,7 @@ A service fails with the cloud's denial in its message, `service <name>: ...`, a
 - Run as the principal the [permissions templates](permissions.md) grant: on AWS `ReadOnlyAccess` with the data-read deny, on Azure Reader, on Google Cloud `roles/viewer`, `roles/iam.securityReviewer` and `roles/cloudasset.viewer`.
 - On AWS, the templates deny `kms:Decrypt`, so SSM `SecureString` parameters fail to import by design (see [Permissions](permissions.md#aws)).
 - `--allow-partial` keeps everything else and exits 3; `--skip=<service>` leaves out a service you can't read.
-- If the templates should grant what was denied, please [open an issue](https://github.com/IgnatG/infraharvest/issues) with the resource type and the message.
+- If the templates should grant what was denied, please [open an issue](https://github.com/infraharvest/infraharvest-cli/issues) with the resource type and the message.
 
 ## A service took too long
 
@@ -110,4 +110,4 @@ infraharvest can list a local emulator instead of a cloud, as its end-to-end tes
 - **Google Cloud:** `INFRAHARVEST_GOOGLE_ENDPOINT=http://localhost:4588` sends the listers' calls to an emulator, without credentials. Point the Terraform provider there too, with its `GOOGLE_*_CUSTOM_ENDPOINT` variables.
 - **Azure:** `ARM_ENVIRONMENT=stack` with `ARM_METADATA_HOSTNAME` names an emulator as a custom cloud, which the host must trust the TLS certificate of. An emulator without Resource Graph needs the [services that list through Resource Manager](azure.md#services-to-name) instead of `--services='*'`.
 
-An emulator doesn't enforce permissions or return every attribute a cloud does, so an import that works there can still fail on a real account. The [end-to-end tests' README](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md) shows each setup and what each emulator lacks.
+An emulator doesn't enforce permissions or return every attribute a cloud does, so an import that works there can still fail on a real account. The [end-to-end tests' README](https://github.com/infraharvest/infraharvest-cli/blob/main/e2e/README.md) shows each setup and what each emulator lacks.

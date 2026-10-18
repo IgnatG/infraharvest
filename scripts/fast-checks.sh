@@ -19,7 +19,7 @@ set -euo pipefail
 MARKDOWNLINT_CLI2_VERSION=0.23.2
 # goimports puts this module's imports in a group of their own, after the
 # third-party ones.
-LOCAL_PREFIX=github.com/IgnatG/infraharvest
+LOCAL_PREFIX=github.com/infraharvest/infraharvest-cli
 CHECKS="gofmt goimports headers names shellcheck actionlint markdownlint"
 
 usage() {

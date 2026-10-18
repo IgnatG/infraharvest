@@ -1,12 +1,12 @@
 # Development
 
-How infraharvest's code is written: where things go, the conventions the code already follows, how it is tested, and how a change gets from a branch into `main`. [CONTRIBUTING.md](https://github.com/IgnatG/infraharvest/blob/main/CONTRIBUTING.md) covers setting up the tools; this page is the reference behind it. Where a rule has an example in the code, the path is given: read it before writing something similar.
+How infraharvest's code is written: where things go, the conventions the code already follows, how it is tested, and how a change gets from a branch into `main`. [CONTRIBUTING.md](https://github.com/infraharvest/infraharvest-cli/blob/main/CONTRIBUTING.md) covers setting up the tools; this page is the reference behind it. Where a rule has an example in the code, the path is given: read it before writing something similar.
 
 The module is large: three cloud SDKs, so compiling all of it takes several GB of RAM and minutes. Nothing here assumes you can. The fast checks never build the module, and the heavy ones (lint, vet, tests, golden files, `go mod tidy`) run on GitHub on demand (see [Checks](#checks)).
 
 ## Layout
 
-Everything but the command, `cmd/infraharvest`, is under `internal/`: infraharvest has no Go API for others to import. The command lives in `cmd/infraharvest` so that `go install github.com/IgnatG/infraharvest/cmd/infraharvest@latest` installs a binary named `infraharvest`. It only sets up logging and turns the outcome into the exit code.
+Everything but the command, `cmd/infraharvest`, is under `internal/`: infraharvest has no Go API for others to import. The command lives in `cmd/infraharvest` so that `go install github.com/infraharvest/infraharvest-cli/cmd/infraharvest@latest` installs a binary named `infraharvest`. It only sets up logging and turns the outcome into the exit code.
 
 | Package | What belongs there |
 |---|---|
@@ -22,7 +22,7 @@ Everything but the command, `cmd/infraharvest`, is under `internal/`: infraharve
 | `internal/selection`, `report`, `managed`, `config` | The selection file and its default rules, the report, the resources state already manages (S3, GCS, Azure Blob, HCP Terraform), and the configuration file. |
 | `internal/mcpserver`, `picker` | The MCP server for AI agents and the terminal picker. |
 | `internal/ratelimit`, `fsutil`, `version` | Small shared helpers: request rates per cloud API, atomic file writes, and the version a build reports (set at link time by release builds). |
-| `e2e/` | Round trips against cloud emulators, behind the `e2e` build tag ([e2e/README.md](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md)). |
+| `e2e/` | Round trips against cloud emulators, behind the `e2e` build tag ([e2e/README.md](https://github.com/infraharvest/infraharvest-cli/blob/main/e2e/README.md)). |
 | `permissions/`, `action/`, `docs/` | Read-only IAM templates, the GitHub Action, and this site. |
 
 Some rules about where code goes:
@@ -34,7 +34,7 @@ Some rules about where code goes:
 
 ## Licence headers
 
-infraharvest is licensed under AGPL-3.0-only ([LICENSE](https://github.com/IgnatG/infraharvest/blob/main/LICENSE)).
+infraharvest is licensed under AGPL-3.0-only ([LICENSE](https://github.com/infraharvest/infraharvest-cli/blob/main/LICENSE)).
 
 Every Go file starts with this header, then a blank line, then any build constraint, then the package's doc comment (`internal/cli/providers/provider_cmd_aws.go`):
 
@@ -144,11 +144,11 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 - Helpers call `t.Helper()`; tests restore what they change with `t.Cleanup`, and write files under `t.TempDir()`.
 - **Golden files** (`testdata/*.golden.*`) record output that is long or easier to review as a file: the catalogue's import blocks, the harvest core's behaviour, the command-line contract, and the generated references (`docs/reference/cli.md`, `docs/reference/services.md`). Tests take `-update` to rewrite them. Don't edit a golden file by hand: run the `golden` task of the `remote` workflow (`make ci-golden PKG=<package>`), download what it rewrote (`make ci-download RUN=<id>`), and review the diff before committing it.
 - **Characterization before a rewrite**: record what the code does today, in its own pull request, before changing how it does it (see [Rewriting code](#rewriting-code)).
-- The emulator round trips in `e2e/` must keep planning with no changes on both Terraform and OpenTofu. To cover a new service, add it to the emulator's fixture as [e2e/README.md](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md) describes.
+- The emulator round trips in `e2e/` must keep planning with no changes on both Terraform and OpenTofu. To cover a new service, add it to the emulator's fixture as [e2e/README.md](https://github.com/infraharvest/infraharvest-cli/blob/main/e2e/README.md) describes.
 
 ## Formatting and lint
 
-- `gofmt -s`, and imports in three groups: the standard library, third-party modules, then this module's packages (`internal/engine/engine.go`). The pre-commit hook checks the grouping with `goimports -local github.com/IgnatG/infraharvest`. CI doesn't check the third group yet: `.golangci.json` gives the `goimports` formatter no `local-prefixes`.
+- `gofmt -s`, and imports in three groups: the standard library, third-party modules, then this module's packages (`internal/engine/engine.go`). The pre-commit hook checks the grouping with `goimports -local github.com/infraharvest/infraharvest-cli`. CI doesn't check the third group yet: `.golangci.json` gives the `goimports` formatter no `local-prefixes`.
 - golangci-lint runs with `.golangci.json` (`gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
 - [MegaLinter](https://megalinter.io) runs every linter CI runs, in the `megalinter` workflow, and reports in one comment on the pull request and in the run's summary. `.mega-linter.yml` lists the linters and says why the others are off: golangci-lint, actionlint and zizmor (workflows), shellcheck, markdownlint, lychee (links), hadolint, editorconfig-checker, yamllint, v8r (schemas), jsonlint, checkov, osv-scanner, betterleaks and trufflehog. `make ci-lint` runs it on a branch; `npx mega-linter-runner --flavor go -e GOTOOLCHAIN=auto` runs it locally, with Docker.
 - Fix findings rather than silencing them. New code has no `//nolint`; the few there are mark legacy types due to be rewritten.

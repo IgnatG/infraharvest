@@ -4,35 +4,35 @@ infraharvest needs Terraform or OpenTofu to generate configuration. With the def
 
 ## From a release
 
-Each [release](https://github.com/IgnatG/infraharvest/releases) has archives for Linux, macOS and Windows on amd64 and arm64. It also has a checksum file, signed with [cosign](https://github.com/sigstore/cosign) from the release workflow (keyless, no long-lived key), SBOMs and build provenance. To verify a download, check the checksum file's signature, then the archive's checksum:
+Each [release](https://github.com/infraharvest/infraharvest-cli/releases) has archives for Linux, macOS and Windows on amd64 and arm64. It also has a checksum file, signed with [cosign](https://github.com/sigstore/cosign) from the release workflow (keyless, no long-lived key), SBOMs and build provenance. To verify a download, check the checksum file's signature, then the archive's checksum:
 
 ```sh
 VERSION=0.1.0
 cosign verify-blob \
-  --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+  --certificate-identity "https://github.com/infraharvest/infraharvest-cli/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --bundle "infraharvest_${VERSION}_SHA256SUMS.sigstore.json" "infraharvest_${VERSION}_SHA256SUMS"
 sha256sum --check --ignore-missing "infraharvest_${VERSION}_SHA256SUMS"
 ```
 
-The archives' build provenance is attested on GitHub; with the [GitHub CLI](https://cli.github.com/), `gh attestation verify "infraharvest_${VERSION}_linux_amd64.tar.gz" --repo IgnatG/infraharvest` checks it.
+The archives' build provenance is attested on GitHub; with the [GitHub CLI](https://cli.github.com/), `gh attestation verify "infraharvest_${VERSION}_linux_amd64.tar.gz" --repo infraharvest/infraharvest-cli` checks it.
 
 Each archive is named after the release, the system and the architecture, such as `infraharvest_0.1.0_linux_amd64.tar.gz` or `infraharvest_0.1.0_windows_amd64.zip`, and holds the `infraharvest` binary (`infraharvest.exe` on Windows) with the licence and the README. Extract it into a directory on your `PATH`. On Windows, which the install script doesn't cover, this, the container image and Go are the ways to install.
 
 ## Container image
 
-`ghcr.io/ignatg/infraharvest` (linux/amd64 and linux/arm64, signed with cosign) includes pinned Terraform and OpenTofu binaries, and git for registry modules. It runs as a non-root user in `/work`:
+`ghcr.io/infraharvest/infraharvest` (linux/amd64 and linux/arm64, signed with cosign) includes pinned Terraform and OpenTofu binaries, and git for registry modules. It runs as a non-root user in `/work`:
 
 ```sh
 docker run --rm -v "$PWD:/work" -v "$HOME/.aws:/home/git/.aws:ro" -e AWS_PROFILE \
-  ghcr.io/ignatg/infraharvest import aws --all --services=vpc --regions=eu-west-2
+  ghcr.io/infraharvest/infraharvest import aws --all --services=vpc --regions=eu-west-2
 ```
 
 The release workflow signs each image the same way as the checksum file. To verify an image before running it:
 
 ```sh
-cosign verify ghcr.io/ignatg/infraharvest:v0.1.0 \
-  --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+cosign verify ghcr.io/infraharvest/infraharvest:v0.1.0 \
+  --certificate-identity "https://github.com/infraharvest/infraharvest-cli/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -43,10 +43,10 @@ Each release is tagged `v<version>`; `latest` is the newest release that isn't a
 For Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell. It downloads a release, checks the release's signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), checks the archive against the signed checksum file, and installs the binary in `~/.local/bin`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/install.sh | sh
 ```
 
-It installs the latest release: GitHub never counts a prerelease as the latest. To install a given release, prereleases included, name it: `curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_VERSION=v0.1.0 sh`. `INFRAHARVEST_INSTALL_DIR` changes where the binary goes.
+It installs the latest release: GitHub never counts a prerelease as the latest. To install a given release, prereleases included, name it: `curl -fsSL https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/install.sh | INFRAHARVEST_VERSION=v0.1.0 sh`. `INFRAHARVEST_INSTALL_DIR` changes where the binary goes.
 
 ### In a cloud shell
 
@@ -57,28 +57,28 @@ mkdir -p ~/.local/bin
 curl -fsSLo ~/.local/bin/cosign "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
 chmod +x ~/.local/bin/cosign
 export PATH="$HOME/.local/bin:$PATH"
-curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/install.sh | sh
 ```
 
 `INFRAHARVEST_SKIP_SIGNATURE=1` installs without cosign, checking only the archive's checksum:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_SKIP_SIGNATURE=1 sh
+curl -fsSL https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/install.sh | INFRAHARVEST_SKIP_SIGNATURE=1 sh
 ```
 
 > **Warning:** without the signature, nothing shows that the release workflow built the archive: the checksum file comes from the same place as the archive, so whoever could replace one could replace the other. Use it only where you accept that, and prefer installing cosign.
 
 ## With Go
 
-`go install github.com/IgnatG/infraharvest/cmd/infraharvest@latest`, or `@v0.1.0` for a given release.
+`go install github.com/infraharvest/infraharvest-cli/cmd/infraharvest@latest`, or `@v0.1.0` for a given release.
 
 ## From source
 
 With the Go release `go.mod` names (Go fetches it if yours is older and `GOTOOLCHAIN` allows):
 
 ```sh
-git clone https://github.com/IgnatG/infraharvest.git
-cd infraharvest
+git clone https://github.com/infraharvest/infraharvest-cli.git
+cd infraharvest-cli
 go build -o infraharvest ./cmd/infraharvest
 ```
 
@@ -93,7 +93,7 @@ The other providers' commands are then missing from `import` and `discover`.
 
 ## In GitHub Actions
 
-The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md) installs a release, checks its signature and checksum, and runs an import: `uses: IgnatG/infraharvest/action@<commit SHA>` with `version: v0.1.0`.
+The [GitHub Action](https://github.com/infraharvest/infraharvest-cli/blob/main/action/README.md) installs a release, checks its signature and checksum, and runs an import: `uses: infraharvest/infraharvest-cli/action@<commit SHA>` with `version: v0.1.0`.
 
 ## Check the install
 

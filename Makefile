@@ -22,7 +22,7 @@ REF ?= $(shell git rev-parse --abbrev-ref HEAD)
 # (Not OS, which Windows sets in the environment.)
 RUNNER ?= ubuntu-latest
 # The repository the workflows run in, whatever the remotes are called.
-GH_REPO ?= IgnatG/infraharvest
+GH_REPO ?= infraharvest/infraharvest-cli
 # A workflow run's ID, for ci-watch and ci-download; empty means the latest
 # run of WORKFLOW on REF.
 RUN ?=

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/internal/catalogue/schema.json
 # A --catalogue overlay for TestAWSOptionsReport (options_input_test.go): a skip
 # rule that leaves the legacy topic of testdata/aws-options out of the
 # default selection.

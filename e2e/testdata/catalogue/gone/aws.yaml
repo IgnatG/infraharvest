@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/internal/catalogue/schema.json
 # A --catalogue overlay for TestAWSOptionsExitCodes (options_input_test.go): an
 # import ID that names no topic, so that Terraform can't import the
 # topics of testdata/aws-options and the import is partial.

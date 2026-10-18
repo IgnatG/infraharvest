@@ -163,8 +163,8 @@ Only one run, of either engine, runs at a time. Nothing in the estate bills by t
 [`testdata/sandbox/azure-bootstrap`](testdata/sandbox/azure-bootstrap/main.tf) creates what the workflow needs, once: the identities' resource group (`infraharvest-ci`) and the estate's (`infraharvest-sandbox`), the two identities with federated credentials that trust the `sandbox` environment's GitHub tokens, the fixture's roles on the estate's group, and the read-only identity's Reader role, through `permissions/azure` itself. It makes no app registration, so it needs no Entra ID role: an Owner of the subscription can apply it. In [Azure Cloud Shell](https://learn.microsoft.com/azure/cloud-shell/overview) (Bash), where Terraform and the Azure CLI are installed and signed in:
 
 ```sh
-git clone https://github.com/IgnatG/infraharvest.git
-cd infraharvest/e2e/testdata/sandbox/azure-bootstrap
+git clone https://github.com/infraharvest/infraharvest-cli.git
+cd infraharvest-cli/e2e/testdata/sandbox/azure-bootstrap
 az account set --subscription <subscription-id>
 terraform init
 terraform apply -var "subscription_id=$(az account show --query id -o tsv)"
@@ -176,7 +176,7 @@ terraform output -raw gh_commands
 The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
 
 ```sh
-gh workflow run sandbox-azure -R IgnatG/infraharvest -f engine=terraform
+gh workflow run sandbox-azure -R infraharvest/infraharvest-cli -f engine=terraform
 ```
 
 ## Google Cloud sandbox (a real project)
@@ -202,8 +202,8 @@ Destroying the function deletes the Cloud Run service with it, but Cloud Functio
 It needs a project of its own with billing enabled (Compute Engine and Cloud DNS need it), the Service Usage API enabled, as it is in new projects, and you an Owner of the project. Organization policies can get in the way: `iam.workloadIdentityPoolProviders` must allow the issuer `https://token.actions.githubusercontent.com`, domain restricted sharing (`iam.allowedPolicyMemberDomains`) can refuse the grants to the pool's `principal://` identity, and `gcp.resourceLocations` must allow the region. A policy against service account keys doesn't matter. In [Google Cloud Shell](https://cloud.google.com/shell/docs), where Terraform and the gcloud CLI are installed and signed in:
 
 ```sh
-git clone https://github.com/IgnatG/infraharvest.git
-cd infraharvest/e2e/testdata/sandbox/google-bootstrap
+git clone https://github.com/infraharvest/infraharvest-cli.git
+cd infraharvest-cli/e2e/testdata/sandbox/google-bootstrap
 gcloud config set project <project-id>
 gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com
 terraform init
@@ -216,7 +216,7 @@ terraform output -raw gh_commands
 The last command prints the `gh variable set` commands that set the environment's variables. Run them where `gh` is signed in as an administrator of the repository (in Cloud Shell, `gh auth login` first, then `terraform output -raw gh_commands | bash`), then start a run:
 
 ```sh
-gh workflow run sandbox-google -R IgnatG/infraharvest -f engine=terraform
+gh workflow run sandbox-google -R infraharvest/infraharvest-cli -f engine=terraform
 ```
 
 When the bootstrap changes, such as when the estate gains a kind of resource that needs another API or role, apply it again from the state you kept, in the same directory and as an Owner, before the next run: `git pull`, then `gcloud config set project <project-id>` (a new Cloud Shell session has no project set, and `gcloud config get-value project` would then give an empty `project_id`), then `terraform apply -var "project_id=$(gcloud config get-value project)"`, with any `-var` you set the first time. The variables of the environment change only if `terraform output -raw gh_commands` prints other values.

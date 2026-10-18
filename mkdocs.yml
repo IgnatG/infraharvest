@@ -2,8 +2,8 @@
 site_name: infraharvest
 site_description: Terraform configuration for the infrastructure you already have, checked to plan with no changes.
 site_url: https://ignatg.github.io/infraharvest/
-repo_url: https://github.com/IgnatG/infraharvest
-repo_name: IgnatG/infraharvest
+repo_url: https://github.com/infraharvest/infraharvest-cli
+repo_name: infraharvest/infraharvest-cli
 edit_uri: edit/main/docs/
 copyright: infraharvest is licensed under AGPL-3.0-only.
 strict: true

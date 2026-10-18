@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json",
+  "$id": "https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/internal/catalogue/schema.json",
   "title": "infraharvest catalogue file",
   "description": "What infraharvest knows about some of a Terraform provider's resource types. See docs/catalogue.md.",
   "type": "object",

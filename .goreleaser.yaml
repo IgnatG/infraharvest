@@ -45,7 +45,7 @@ signs:
 
 dockers_v2:
   - images:
-      - ghcr.io/ignatg/infraharvest
+      - ghcr.io/infraharvest/infraharvest
     tags:
       - "v{{ .Version }}"
       - "{{ if not .Prerelease }}latest{{ end }}"
@@ -74,8 +74,8 @@ release:
     ## Install
 
     ```sh
-    curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_VERSION={{ .Tag }} sh
-    docker pull ghcr.io/ignatg/infraharvest:{{ .Tag }}
+    curl -fsSL https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/install.sh | INFRAHARVEST_VERSION={{ .Tag }} sh
+    docker pull ghcr.io/infraharvest/infraharvest:{{ .Tag }}
     go install github.com/infraharvest/infraharvest-cli/cmd/infraharvest@{{ .Tag }}
     ```
 
@@ -92,7 +92,7 @@ release:
       --bundle infraharvest_{{ .Version }}_SHA256SUMS.sigstore.json infraharvest_{{ .Version }}_SHA256SUMS
     sha256sum --check --ignore-missing infraharvest_{{ .Version }}_SHA256SUMS
 
-    cosign verify ghcr.io/ignatg/infraharvest:{{ .Tag }} \
+    cosign verify ghcr.io/infraharvest/infraharvest:{{ .Tag }} \
       --certificate-identity "https://github.com/infraharvest/infraharvest-cli/.github/workflows/release.yml@refs/heads/main" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```

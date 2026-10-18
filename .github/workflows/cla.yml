@@ -65,7 +65,7 @@ jobs:
           script: |
             const phrase = 'I have read the CLA Document and I hereby sign the CLA';
             const store = { branch: 'cla-signatures', path: 'signatures/version1/cla.json' };
-            const documentURL = 'https://github.com/IgnatG/infraharvest/blob/main/CLA.md';
+            const documentURL = 'https://github.com/infraharvest/infraharvest-cli/blob/main/CLA.md';
             // Exact bot logins, not a *[bot] pattern, which would exempt any
             // GitHub App that pushes a commit.
             const bots = new Set(['dependabot[bot]', 'github-actions[bot]', 'coderabbitai[bot]']);

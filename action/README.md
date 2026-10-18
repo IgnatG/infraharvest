@@ -27,7 +27,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::123456789012:role/infraharvest-read-only
           aws-region: eu-west-2
-      - uses: IgnatG/infraharvest/action@<sha>
+      - uses: infraharvest/infraharvest-cli/action@<sha>
         with:
           version: v0.1.0
           provider: aws
@@ -49,7 +49,7 @@ GitHub starts no workflows for a pull request opened with the default `github.to
         with:
           app-id: ${{ vars.IMPORT_APP_ID }}
           private-key: ${{ secrets.IMPORT_APP_PRIVATE_KEY }}
-      - uses: IgnatG/infraharvest/action@<sha>
+      - uses: infraharvest/infraharvest-cli/action@<sha>
         with:
           # the inputs above, and:
           pull-request: "true"
@@ -125,7 +125,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::123456789012:role/infraharvest-drift
           aws-region: eu-west-2
-      - uses: IgnatG/infraharvest/action@<sha>
+      - uses: infraharvest/infraharvest-cli/action@<sha>
         id: infraharvest
         with:
           version: v0.1.0

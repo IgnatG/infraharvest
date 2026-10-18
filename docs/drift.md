@@ -209,7 +209,7 @@ Every plan runs with `-lock=false`. Taking the state's lock needs write access, 
 
 Applying the refresh to the private copy writes only its local state, but Terraform configures the provider again for it: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission; with Azure and Google Cloud, it signs in again. The credentials must still be valid then, after the refresh, and the cloud's sign-in endpoint reachable.
 
-The roles in [`permissions/`](https://github.com/IgnatG/infraharvest/tree/main/permissions) don't read the state: the AWS role denies `s3:GetObject` and `kms:Decrypt` everywhere, Azure's `Reader` has no data actions, and Google Cloud's `roles/viewer` doesn't read objects. What to grant for each backend, with policy snippets, is in the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift). For an azurerm backend, set `ARM_USE_AZUREAD=true`, so that the backend reads the state with your identity's token, with the **Storage Blob Data Reader** role, rather than with the storage account's access key.
+The roles in [`permissions/`](https://github.com/infraharvest/infraharvest-cli/tree/main/permissions) don't read the state: the AWS role denies `s3:GetObject` and `kms:Decrypt` everywhere, Azure's `Reader` has no data actions, and Google Cloud's `roles/viewer` doesn't read objects. What to grant for each backend, with policy snippets, is in the GitHub Action's [Permissions for drift](https://github.com/infraharvest/infraharvest-cli/blob/main/action/README.md#permissions-for-drift). For an azurerm backend, set `ARM_USE_AZUREAD=true`, so that the backend reads the state with your identity's token, with the **Storage Blob Data Reader** role, rather than with the storage account's access key.
 
 Set the root's secret variables with `TF_VAR_` environment variables or an `.auto.tfvars` file. A variable without a value gets a placeholder, and the report lists what it sets as `not_assessable`.
 
@@ -230,7 +230,7 @@ Changes written into the code, and those the code absorbs, exit 0. A root that c
 
 ## In GitHub Actions
 
-The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#drift) runs drift on a schedule with `drift: report` or `drift: accept`, before an import or on its own (`import: "false"`). It adds `drift.md` to the job summary, sets the `drift-found` output, and can open a pull request with the accepted edits and the decisions file, whose body is the reports. Exit code 4 (drift left) doesn't fail its step; 1 and 2 do.
+The [GitHub Action](https://github.com/infraharvest/infraharvest-cli/blob/main/action/README.md#drift) runs drift on a schedule with `drift: report` or `drift: accept`, before an import or on its own (`import: "false"`). It adds `drift.md` to the job summary, sets the `drift-found` output, and can open a pull request with the accepted edits and the decisions file, whose body is the reports. Exit code 4 (drift left) doesn't fail its step; 1 and 2 do.
 
 ## From an AI agent
 

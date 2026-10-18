@@ -21,4 +21,4 @@ infraharvest generates Terraform configuration for infrastructure that already e
 
 AWS, Azure and Google Cloud are the supported providers: inventory APIs, the catalogue, curated modules and end-to-end tests on an emulator for each.
 
-infraharvest is licensed under [AGPL-3.0-only](https://github.com/IgnatG/infraharvest/blob/main/LICENSE).
+infraharvest is licensed under [AGPL-3.0-only](https://github.com/infraharvest/infraharvest-cli/blob/main/LICENSE).

@@ -133,7 +133,7 @@ jobs:
           fi
       - name: Smoke-test the image
         run: |
-          images=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}')
+          images=$(docker images ghcr.io/infraharvest/infraharvest --format '{{.Repository}}:{{.Tag}}')
           image=$(printf '%s\n' "$images" | grep amd64 | head -n 1 || true)
           [ -n "$image" ] || image=$(printf '%s\n' "$images" | head -n 1)
           test -n "$image"

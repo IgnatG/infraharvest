@@ -17,7 +17,7 @@ variable "region" {
 variable "github_repository" {
   description = "The repository whose sandbox environment signs in as the service accounts, as owner/name, for the gh commands the outputs print."
   type        = string
-  default     = "IgnatG/infraharvest"
+  default     = "infraharvest/infraharvest-cli"
 }
 
 variable "github_repository_id" {

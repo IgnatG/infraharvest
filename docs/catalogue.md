@@ -11,7 +11,7 @@ The catalogue is what infraharvest knows about each Terraform resource type, kep
 - for AWS, where a type's ARNs name its resources (to find their tags), and the CloudFormation type of the types listed through Cloud Control;
 - the type a cloud's inventory API lists a resource type as: Azure Resource Graph, Google Cloud Asset Inventory.
 
-It is YAML, one file per provider and service under [`internal/catalogue/data/`](https://github.com/IgnatG/infraharvest/tree/main/internal/catalogue/data), built into the binary. A type the catalogue doesn't mention imports with the ID its lister found, and nothing else changes.
+It is YAML, one file per provider and service under [`internal/catalogue/data/`](https://github.com/infraharvest/infraharvest-cli/tree/main/internal/catalogue/data), built into the binary. A type the catalogue doesn't mention imports with the ID its lister found, and nothing else changes.
 
 ## Format
 
@@ -31,10 +31,10 @@ types:
     not_importable: Terraform can't import it; the VPC's main_route_table_id records the main route table.
 ```
 
-The comment on the first line lets editors with the YAML language server check files against [`internal/catalogue/schema.json`](https://github.com/IgnatG/infraharvest/blob/main/internal/catalogue/schema.json) as you type. The relative path works for the built-in files only; in a directory of your own for `--catalogue` (see [Overriding entries](#overriding-entries)), name the schema by its address instead:
+The comment on the first line lets editors with the YAML language server check files against [`internal/catalogue/schema.json`](https://github.com/infraharvest/infraharvest-cli/blob/main/internal/catalogue/schema.json) as you type. The relative path works for the built-in files only; in a directory of your own for `--catalogue` (see [Overriding entries](#overriding-entries)), name the schema by its address instead:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/internal/catalogue/schema.json
 ```
 
 | Field | Meaning |
@@ -138,7 +138,7 @@ types:
 
 ## Golden tests
 
-Each entry that changes what an import does (an import ID, a skip rule, children, a data source, arguments to omit or that only state holds, a placeholder, lifecycle settings, or `not_importable`) has a golden test in [`internal/catalogue/testdata/`](https://github.com/IgnatG/infraharvest/tree/main/internal/catalogue/testdata). So do these AWS and Google network, DNS, identity and key types, whatever their entries hold: `aws_vpc`, `aws_subnet`, `aws_internet_gateway`, `aws_nat_gateway`, `aws_route_table`, `aws_route_table_association`, `aws_main_route_table_association`, `aws_vpc_endpoint`, `aws_security_group`, `aws_security_group_rule`, `aws_vpc_security_group_ingress_rule`, `aws_vpc_security_group_egress_rule`, `aws_iam_role`, `aws_iam_policy`, `aws_iam_instance_profile`, `aws_iam_role_policy`, `aws_iam_role_policy_attachment`, `aws_route53_zone`, `aws_route53_record`, `aws_kms_key`, `aws_kms_alias`, `google_compute_network`, `google_compute_subnetwork`, `google_compute_firewall`, `google_compute_route`, `google_dns_managed_zone`, `google_service_account`, `google_project_iam_custom_role`, `google_kms_key_ring`, `google_kms_crypto_key`. The files are:
+Each entry that changes what an import does (an import ID, a skip rule, children, a data source, arguments to omit or that only state holds, a placeholder, lifecycle settings, or `not_importable`) has a golden test in [`internal/catalogue/testdata/`](https://github.com/infraharvest/infraharvest-cli/tree/main/internal/catalogue/testdata). So do these AWS and Google network, DNS, identity and key types, whatever their entries hold: `aws_vpc`, `aws_subnet`, `aws_internet_gateway`, `aws_nat_gateway`, `aws_route_table`, `aws_route_table_association`, `aws_main_route_table_association`, `aws_vpc_endpoint`, `aws_security_group`, `aws_security_group_rule`, `aws_vpc_security_group_ingress_rule`, `aws_vpc_security_group_egress_rule`, `aws_iam_role`, `aws_iam_policy`, `aws_iam_instance_profile`, `aws_iam_role_policy`, `aws_iam_role_policy_attachment`, `aws_route53_zone`, `aws_route53_record`, `aws_kms_key`, `aws_kms_alias`, `google_compute_network`, `google_compute_subnetwork`, `google_compute_firewall`, `google_compute_route`, `google_dns_managed_zone`, `google_service_account`, `google_project_iam_custom_role`, `google_kms_key_ring`, `google_kms_crypto_key`. The files are:
 
 - `<provider>/<type>.json` holds resources as a lister records them: `id`, `name` and `attributes`;
 - `<provider>/<type>.golden.tf` holds what the catalogue makes of them: the import blocks, the resources left out or not importable and why, the data sources, the children, and the arguments left out;

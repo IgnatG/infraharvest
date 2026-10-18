@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs infraharvest from a GitHub release, for example in a cloud shell:
 #
-#   curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/infraharvest/infraharvest-cli/main/install.sh | sh
 #
 # It checks that this repository's release workflow signed the release's
 # checksum file, with cosign, and the archive against that file. It needs
@@ -19,7 +19,7 @@
 
 set -eu
 
-repo="IgnatG/infraharvest"
+repo="infraharvest/infraharvest-cli"
 install_dir="${INFRAHARVEST_INSTALL_DIR:-$HOME/.local/bin}"
 
 fail() {
