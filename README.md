@@ -107,6 +107,7 @@ See [Applying the roots](docs/output.md#applying-the-roots).
 | Generate the roots again | `--regenerate`; resources at other addresses get moved blocks, and those that go to another root it generates get removed blocks: apply the root they leave first |
 | Import what `discover` just listed | `--reuse-inventory`, instead of listing again |
 | Check roots after editing them | `infraharvest verify`, before deleting `imports.tf` |
+| See what changed in the cloud since applying | `infraharvest drift`: which changes the next apply would revert (see [Drift](docs/drift.md)) |
 | Print the report again | `infraharvest report`, with `--format json` for JSON |
 | Import faster | `--parallel` for accounts and regions (default 1), `--list-parallel` for services (default 4) |
 | Lay out the roots | `--layout`, and `--env-tags` for roots per environment |
