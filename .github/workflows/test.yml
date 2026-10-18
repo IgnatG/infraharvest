@@ -75,7 +75,7 @@ jobs:
     # Build only the shipped binary; `go test ./...` compiles every package
     # anyway.
     - name: Build
-      run: go build -o infraharvest .
+      run: go build -o infraharvest ./cmd/infraharvest
     # Each package's statements its own tests run, for visibility: no
     # threshold. The total goes to the run's summary, the profile is
     # uploaded (go tool cover -html=coverage.out shows it). The tests run in
@@ -218,7 +218,7 @@ jobs:
       with:
         name: test
     - name: Build
-      run: go build -o infraharvest .
+      run: go build -o infraharvest ./cmd/infraharvest
     - name: Test
       run: go test ./...
     - name: Save the Go cache
@@ -249,7 +249,7 @@ jobs:
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Build
-      run: go build -o infraharvest .
+      run: go build -o infraharvest ./cmd/infraharvest
     # Binary mode checks the symbols compiled into the binary; source mode
     # needs more memory than a standard runner has for this module. Fails
     # unless .github/govulncheck-allowlist.txt covers every finding.
@@ -643,11 +643,11 @@ jobs:
     - name: No providers
       run: |
         go vet -tags minimal ./internal/cli/...
-        go build -tags minimal -o infraharvest-none .
+        go build -tags minimal -o infraharvest-none ./cmd/infraharvest
         ./infraharvest-none import --help
     - name: AWS only
       run: |
-        go build -tags minimal,aws -o infraharvest-aws .
+        go build -tags minimal,aws -o infraharvest-aws ./cmd/infraharvest
         ./infraharvest-aws import aws --help > /dev/null
         # import's help lists its provider subcommands, one per line.
         if ! ./infraharvest-aws import --help | grep -Eq '^ +aws +'; then

@@ -15,7 +15,7 @@ on:
       - internal/engine/drift*.go
       - internal/importer/**
       - internal/report/**
-      - main.go
+      - cmd/**
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
@@ -49,7 +49,7 @@ jobs:
       - name: Wait for free disk space
         run: .github/scripts/free-disk-space.sh wait
       - name: Build
-        run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
+        run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" ./cmd/infraharvest
       - uses: ./.github/actions/setup-engines
         with:
           engine: terraform

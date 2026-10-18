@@ -70,7 +70,7 @@ curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh
 
 ## With Go
 
-`go install github.com/IgnatG/infraharvest@latest`, or `@v0.1.0` for a given release.
+`go install github.com/IgnatG/infraharvest/cmd/infraharvest@latest`, or `@v0.1.0` for a given release.
 
 ## From source
 
@@ -79,14 +79,14 @@ With the Go release `go.mod` names (Go fetches it if yours is older and `GOTOOLC
 ```sh
 git clone https://github.com/IgnatG/infraharvest.git
 cd infraharvest
-go build -o infraharvest .
+go build -o infraharvest ./cmd/infraharvest
 ```
 
 A plain build has every provider. The module brings in three clouds' SDKs, so compiling all of it takes several GB of memory. To build only the providers you use, list them after the `minimal` tag (`aws`, `azure`, `google`):
 
 ```sh
-go build -tags minimal,aws -o infraharvest .          # AWS only
-go build -tags minimal,aws,google -o infraharvest .   # AWS and Google Cloud
+go build -tags minimal,aws -o infraharvest ./cmd/infraharvest          # AWS only
+go build -tags minimal,aws,google -o infraharvest ./cmd/infraharvest   # AWS and Google Cloud
 ```
 
 The other providers' commands are then missing from `import` and `discover`.

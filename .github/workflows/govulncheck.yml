@@ -42,7 +42,7 @@ jobs:
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
     - name: Build
-      run: go build -o infraharvest .
+      run: go build -o infraharvest ./cmd/infraharvest
     # Binary mode, as in the tests workflow: source mode needs more memory
     # than a standard runner has for this module.
     - name: govulncheck

@@ -36,7 +36,7 @@ The script installs the latest release into `~/.local/bin`, after checking its [
 
 - a [release](https://github.com/IgnatG/infraharvest/releases) archive for Linux, macOS or Windows, on amd64 or arm64: on Windows, use the zip;
 - the container image `ghcr.io/ignatg/infraharvest`, with Terraform and OpenTofu included;
-- `go install github.com/IgnatG/infraharvest@latest`, with Go 1.27 or later;
+- `go install github.com/IgnatG/infraharvest/cmd/infraharvest@latest`, with Go 1.27 or later;
 - the [GitHub Action](action/README.md), in a workflow.
 
 infraharvest needs Terraform 1.5 or later, which it downloads if there is none on `PATH`, or OpenTofu 1.6 or later with `--engine=tofu`. It also needs credentials that can read the resources: the [permission templates](docs/permissions.md) grant read-only access on each cloud. `infraharvest version` checks the install.

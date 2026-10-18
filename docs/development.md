@@ -6,7 +6,7 @@ The module is large: three cloud SDKs, so compiling all of it takes several GB o
 
 ## Layout
 
-Everything but `main.go` is under `internal/`: infraharvest has no Go API for others to import. `main.go` stays at the root so that `go install github.com/IgnatG/infraharvest@latest` keeps working, and only sets up logging and turns the outcome into the exit code.
+Everything but the command, `cmd/infraharvest`, is under `internal/`: infraharvest has no Go API for others to import. The command lives in `cmd/infraharvest` so that `go install github.com/IgnatG/infraharvest/cmd/infraharvest@latest` installs a binary named `infraharvest`. It only sets up logging and turns the outcome into the exit code.
 
 | Package | What belongs there |
 |---|---|

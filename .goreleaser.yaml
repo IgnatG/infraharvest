@@ -7,7 +7,7 @@ project_name: infraharvest
 
 builds:
   - id: infraharvest
-    main: .
+    main: ./cmd/infraharvest
     binary: infraharvest
     env:
       - CGO_ENABLED=0
@@ -76,7 +76,7 @@ release:
     ```sh
     curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_VERSION={{ .Tag }} sh
     docker pull ghcr.io/ignatg/infraharvest:{{ .Tag }}
-    go install github.com/IgnatG/infraharvest@{{ .Tag }}
+    go install github.com/IgnatG/infraharvest/cmd/infraharvest@{{ .Tag }}
     ```
 
     The install script verifies the release's signature with cosign, which cloud shells don't include: see [Install](https://ignatg.github.io/infraharvest/install/) for how to add it there, and for the other ways to install.
