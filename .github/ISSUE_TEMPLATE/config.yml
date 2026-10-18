@@ -10,7 +10,7 @@ contact_links:
       Report vulnerabilities privately, never in a public issue
       (see SECURITY.md).
   - name: Documentation
-    url: https://ignatg.github.io/infraharvest/
+    url: https://infraharvest.github.io/infraharvest-cli/
     about: >-
       Install, usage, configuration, output, modules, permissions and the
       catalogue.

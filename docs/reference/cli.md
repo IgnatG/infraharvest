@@ -44,14 +44,14 @@ infraharvest discover aws
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
 | `--assume-role` | `arn:aws:iam::{account}:role/infraharvest-readonly` | role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role |
-| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
-| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
@@ -68,16 +68,16 @@ infraharvest discover aws
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
-| `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
+| `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://infraharvest.github.io/infraharvest-cli/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
 | `-s`, `--services` |  | services to import, such as vpc,s3, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as vpc,s3 |
-| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
-| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 
 ## infraharvest discover azure
 
@@ -91,14 +91,14 @@ infraharvest discover azure
 |---|---|---|
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
-| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
-| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
@@ -120,10 +120,10 @@ infraharvest discover azure
 | `-s`, `--services` |  | services to import, such as resource_graph,management_lock, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as resource_graph,management_lock |
 | `--subscriptions` |  | subscription IDs to import, each into roots of its own (default ARM_SUBSCRIPTION_ID) |
-| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
-| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 
 ## infraharvest discover google
 
@@ -138,7 +138,7 @@ infraharvest discover google
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
 | `--beta` |  | generate configuration for the google-beta provider instead of google, for resources and arguments only it has |
-| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
@@ -146,7 +146,7 @@ infraharvest discover google
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
-| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
@@ -168,10 +168,10 @@ infraharvest discover google
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
 | `-s`, `--services` |  | services to import, such as cloud_asset,iam, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as cloud_asset,iam |
-| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
-| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 
 ## infraharvest drift
 
@@ -222,14 +222,14 @@ infraharvest import aws
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
 | `--assume-role` | `arn:aws:iam::{account}:role/infraharvest-readonly` | role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role |
-| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
-| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
@@ -245,16 +245,16 @@ infraharvest import aws
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
-| `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
+| `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://infraharvest.github.io/infraharvest-cli/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
 | `-s`, `--services` |  | services to import, such as vpc,s3, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as vpc,s3 |
-| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
-| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 
 ## infraharvest import azure
 
@@ -268,14 +268,14 @@ infraharvest import azure
 |---|---|---|
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
-| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
-| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
@@ -296,10 +296,10 @@ infraharvest import azure
 | `-s`, `--services` |  | services to import, such as resource_graph,management_lock, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as resource_graph,management_lock |
 | `--subscriptions` |  | subscription IDs to import, each into roots of its own (default ARM_SUBSCRIPTION_ID) |
-| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
-| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 
 ## infraharvest import google
 
@@ -314,7 +314,7 @@ infraharvest import google
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
 | `--beta` |  | generate configuration for the google-beta provider instead of google, for resources and arguments only it has |
-| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
@@ -322,7 +322,7 @@ infraharvest import google
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout |
-| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
 | `--layout` | `{out}/{provider}/{account}/{region}/` | directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags) |
@@ -343,10 +343,10 @@ infraharvest import google
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
 | `-s`, `--services` |  | services to import, such as cloud_asset,iam, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as cloud_asset,iam |
-| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--tag` |  | keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `-v`, `--verbose` |  | log more, such as the requests to the cloud's APIs |
-| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://ignatg.github.io/infraharvest/usage/#filtering) |
+| `--where` |  | keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see https://infraharvest.github.io/infraharvest-cli/usage/#filtering) |
 
 ## infraharvest mcp
 
@@ -402,7 +402,7 @@ infraharvest verify [output-directory] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--catalogue` |  | directory of catalogue files the import used to add to or override the built-in catalogue (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files the import used to add to or override the built-in catalogue (see https://infraharvest.github.io/infraharvest-cli/catalogue/) |
 | `--engine` | `terraform` | terraform or tofu |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit) |
 | `--force-unlock` |  | verify even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock |

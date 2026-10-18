@@ -12,7 +12,7 @@ body:
       value: >-
         `infraharvest services <provider>` lists the services each provider
         has, and the services reference
-        (https://ignatg.github.io/infraharvest/reference/services/) the
+        (https://infraharvest.github.io/infraharvest-cli/reference/services/) the
         Terraform resource types each one lists. Remove account,
         subscription and project IDs and resource names you don't want
         public.

@@ -20,7 +20,7 @@ import (
 // DocsURL is the address of the documentation site, which flag help points
 // to: a page's address is DocsURL followed by its name and a slash, such as
 // DocsURL + "usage/#filtering".
-const DocsURL = "https://ignatg.github.io/infraharvest/"
+const DocsURL = "https://infraharvest.github.io/infraharvest-cli/"
 
 // A provider command is described by a definition, which command turns
 // into the cobra command import and discover add. When the command runs,

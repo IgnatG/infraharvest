@@ -9,7 +9,7 @@ infraharvest generates Terraform configuration for infrastructure that already e
 - **Read-only:** it never applies anything and writes no state; least-privilege [permission templates](docs/permissions.md) for each cloud.
 - **AWS, Azure and Google Cloud**, with Terraform or OpenTofu, from the command line, a [GitHub Action](action/README.md) or an [AI agent over MCP](docs/mcp.md).
 
-Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at [ignatg.github.io/infraharvest](https://ignatg.github.io/infraharvest/).
+Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at [infraharvest.github.io/infraharvest-cli](https://infraharvest.github.io/infraharvest-cli/).
 
 ## Documentation
 

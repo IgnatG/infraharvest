@@ -79,7 +79,7 @@ release:
     go install github.com/infraharvest/infraharvest-cli/cmd/infraharvest@{{ .Tag }}
     ```
 
-    The install script verifies the release's signature with cosign, which cloud shells don't include: see [Install](https://ignatg.github.io/infraharvest/install/) for how to add it there, and for the other ways to install.
+    The install script verifies the release's signature with cosign, which cloud shells don't include: see [Install](https://infraharvest.github.io/infraharvest-cli/install/) for how to add it there, and for the other ways to install.
 
     ## Verify
 

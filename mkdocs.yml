@@ -1,7 +1,7 @@
 # The documentation site, built from docs/ (see .github/workflows/docs.yml).
 site_name: infraharvest
 site_description: Terraform configuration for the infrastructure you already have, checked to plan with no changes.
-site_url: https://ignatg.github.io/infraharvest/
+site_url: https://infraharvest.github.io/infraharvest-cli/
 repo_url: https://github.com/infraharvest/infraharvest-cli
 repo_name: infraharvest/infraharvest-cli
 edit_uri: edit/main/docs/
