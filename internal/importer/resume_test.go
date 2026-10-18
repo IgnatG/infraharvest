@@ -445,3 +445,111 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 		t.Errorf("%v names what the run doesn't import", err)
 	}
 }
+
+// A root whose result moves resources resumes with moves.tf beside
+// imports.tf, or, once applied, without both.
+func TestResumedRequiresMovesWithImports(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "888", "eu-west-2")
+	writeRoot(t, dir, engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName)
+	result := &engine.Result{Moves: []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}}
+	if err := saveCheckpoint(out, dir, "fp", result); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resumed(out, dir, "fp"); err != nil || got != nil {
+		t.Errorf("without moves.tf: %+v, %v, want the root generated again", got, err)
+	}
+	writeRoot(t, dir, engine.MovesFileName)
+	if got, err := resumed(out, dir, "fp"); err != nil || !reflect.DeepEqual(got, result) {
+		t.Errorf("with moves.tf: %+v, %v", got, err)
+	}
+	for _, name := range []string{engine.ImportsFileName, engine.MovesFileName} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := resumed(out, dir, "fp"); err != nil || !reflect.DeepEqual(got, result) {
+		t.Errorf("applied, without imports.tf and moves.tf: %+v, %v", got, err)
+	}
+}
+
+// Generating a root again takes the moved blocks of its moves.tf, and
+// the labels its resources had; its checkpoint keeps the blocks, which
+// the root no longer has, until the root is generated.
+func TestClaimRootKeepsTheMovesOfMovesTF(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "999", "eu-west-2")
+	writeRoot(t, dir, engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName)
+	moves := "moved {\n  from = aws_subnet.a\n  to   = aws_subnet.private\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte(moves), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := &engine.Result{
+		Imported:  []engine.Import{{Type: "aws_subnet", Name: "private", ID: "subnet-1"}},
+		Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}},
+	}
+	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
+		t.Fatal(err)
+	}
+	want := []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}
+
+	claimed, err := claimRoot(out, dir, "fp", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := claimed.previousRoot()
+	if previous == nil || !reflect.DeepEqual(previous.Moved, want) || previous.Labels[engine.External{Type: "aws_subnet", ID: "subnet-1"}] != "private" {
+		t.Fatalf("previous root: %+v", previous)
+	}
+	if exists(filepath.Join(dir, engine.MovesFileName)) {
+		t.Errorf("%s left in the root", engine.MovesFileName)
+	}
+
+	// A run that stopped on the way: the checkpoint still has them.
+	again, err := claimRoot(out, dir, "fp", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.previousRoot(); got == nil || !reflect.DeepEqual(got.Moved, want) || !reflect.DeepEqual(got.Addresses, done.Addresses) {
+		t.Errorf("after a run that stopped: %+v", got)
+	}
+}
+
+// With moved blocks for what moved, a root is still refused for what
+// leaves it, is of another type now, or the engine couldn't move.
+func TestRefuseReaddressedWithMoves(t *testing.T) {
+	claimed := &claim{previous: []engine.Managed{
+		{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"},
+		{Type: "aws_subnet", ID: "subnet-2", Address: "aws_subnet.b"},
+		{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"},
+	}}
+	result := &engine.Result{
+		Addresses: []engine.Managed{
+			{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"},
+			{Type: "aws_lb", ID: "arn:lb", Address: "aws_lb.web"},
+		},
+		Moves: []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}},
+	}
+	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2"}
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves}, nil, nil); err != nil {
+		t.Errorf("only what moved blocks follow: %v", err)
+	}
+
+	err := claimed.refuseReaddressed("root", result, nil, elsewhere)
+	if err == nil {
+		t.Fatal("want the root refused")
+	}
+	for _, want := range []string{"2 of its resources", "aws_subnet.b is now in envs/prod/aws/111/eu-west-2", "aws_alb.web is now aws_lb.web, of another type"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%v misses %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "aws_subnet.a") {
+		t.Errorf("%v names what a moved block follows", err)
+	}
+
+	result.Unmoved = []string{"the moves from aws_subnet.x come back to aws_subnet.x"}
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves, Unmoved: result.Unmoved}, nil, nil); err == nil || !strings.Contains(err.Error(), "come back") {
+		t.Errorf("with moves the engine couldn't write: %v", err)
+	}
+}

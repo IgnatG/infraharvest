@@ -171,6 +171,13 @@ type Result struct {
 	// as Generate finally wrote them, module calls included, so that a
 	// later run can tell which resources it would give other addresses.
 	Addresses []Managed `json:",omitempty"`
+	// Moves are the moved blocks of moves.tf, for a root generated again
+	// whose resources have other addresses than before (see
+	// Options.Previous).
+	Moves []Move `json:",omitempty"`
+	// Unmoved are the resources of such a root at other addresses that no
+	// moved block can follow, with why; a checkpoint doesn't keep them.
+	Unmoved []string `json:"-"`
 	// NotInCloud are the resources of the root an incremental import added
 	// to that its listing found no longer in the cloud, for the README; a
 	// checkpoint doesn't keep them, as the next run looks again.
@@ -260,6 +267,12 @@ type Options struct {
 	// a prefix most of their names share, and main for the only resource of
 	// a type. Without it, labels are the names as Label writes them.
 	TidyLabels bool
+	// Previous, if set, is what an earlier import generated in the root,
+	// which Generate generates again: each resource keeps its label while
+	// its name still gives it (see relabelled), and Generate writes a
+	// moved block into moves.tf for each that gets another address (see
+	// moves).
+	Previous *Previous
 	// CommandTimeout bounds each Terraform command Generate, Add and
 	// Verify run, such as a plan whose provider retries an unreachable
 	// endpoint: a command still running then is stopped, and fails the
@@ -306,7 +319,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// redactingTerraform).
 	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
-	imports = labelled(imports, opts.Taken, opts.TidyLabels)
+	imports = relabelled(imports, opts.Taken, opts.TidyLabels, opts.Previous)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err
@@ -575,6 +588,12 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	if result.Addresses, err = ImportedAddresses(dir); err != nil {
+		return nil, err
+	}
+	// Last, once the addresses are final: the gate's plans read the moved
+	// blocks too.
+	result.Moves, result.Unmoved = moves(opts.Previous, result.Addresses, callSources(result.Modules))
+	if err := writeMoves(dir, result.Moves); err != nil {
 		return nil, err
 	}
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {

@@ -362,7 +362,8 @@ func sortExternal(list []External) {
 // to it (see Add): r's resources and added's, in the files of both, with
 // added's checks. Its addresses are both's, unless r, as from an older
 // release, recorded none for what it imports: InferredAddresses and the
-// root's import blocks then tell all of them, not only added's.
+// root's import blocks then tell all of them, not only added's. Its moves
+// are r's: Add leaves moves.tf as it is.
 func (r *Result) With(added *Result) *Result {
 	if r == nil {
 		return added
@@ -389,6 +390,7 @@ func (r *Result) With(added *Result) *Result {
 		Gate:      added.Gate,
 		Files:     files,
 		Addresses: addresses,
+		Moves:     r.Moves,
 	}
 }
 

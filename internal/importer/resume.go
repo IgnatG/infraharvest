@@ -38,6 +38,9 @@ type checkpoint struct {
 	// the way would otherwise lose them.
 	Pending      []engine.Managed `json:"pending,omitempty"`
 	PendingFiles []string         `json:"pending_files,omitempty"`
+	// PendingMoves are the moved blocks the root's moves.tf had then,
+	// which the run removed with the rest.
+	PendingMoves []engine.Move `json:"pending_moves,omitempty"`
 }
 
 // fingerprint identifies what a root is generated from: infraharvest's
@@ -90,8 +93,9 @@ func checkpointPath(out, dir string) string {
 
 // resumed returns the result a checkpoint recorded for dir, if it has the
 // same fingerprint and the root's files are still there; nil otherwise.
-// Those are its configuration and versions.tf, but not imports.tf: once the
-// root is applied, its README says to delete it.
+// Those are its configuration and versions.tf, with imports.tf and, if
+// the result moves resources, moves.tf, or without both: once the root is
+// applied, its README says to delete them.
 func resumed(out, dir, fp string) (*engine.Result, error) {
 	content, err := os.ReadFile(checkpointPath(out, dir))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -104,7 +108,15 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 	if err := json.Unmarshal(content, &c); err != nil || c.Fingerprint != fp || c.Result == nil {
 		return nil, nil // an unreadable checkpoint means generating again
 	}
-	for _, name := range append([]string{engine.VersionsFileName}, configurationFiles(c.Result)...) {
+	names := append([]string{engine.VersionsFileName}, configurationFiles(c.Result)...)
+	imports, err := fileExists(filepath.Join(dir, engine.ImportsFileName))
+	if err != nil {
+		return nil, err
+	}
+	if imports && len(c.Result.Moves) > 0 {
+		names = append(names, engine.MovesFileName)
+	}
+	for _, name := range names {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			return nil, nil // a missing file means generating again
 		}
@@ -143,7 +155,7 @@ func writeCheckpoint(out, dir string, c checkpoint) error {
 // --resume removes before generating the root again.
 var generatedFiles = []string{
 	engine.GeneratedFileName, engine.ImportsFileName, engine.RejectedFileName, engine.LocalsFileName,
-	engine.VariablesFileName, engine.DataFileName, engine.ReadmeFileName, BackendFileName,
+	engine.VariablesFileName, engine.DataFileName, engine.ReadmeFileName, BackendFileName, engine.MovesFileName,
 }
 
 // clearGenerated removes what a previous run generated in dir, so that the
@@ -187,10 +199,24 @@ type claim struct {
 	// previous are where the earlier import that generated the root put
 	// its resources (see previousAddresses); none for a new root.
 	previous []engine.Managed
+	// labels are the labels that import gave them, by type and import
+	// ID, and moved the moved blocks its moves.tf had (see
+	// engine.Previous).
+	labels map[engine.External]string
+	moved  []engine.Move
 	// backup is the root as it was before, if it has previous, to put
-	// back when generating it gives them other addresses (see
+	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
 	backup *rootBackup
+}
+
+// previousRoot returns what the earlier import generated in the root, for
+// generating it again; nil for a new root.
+func (c *claim) previousRoot() *engine.Previous {
+	if len(c.previous) == 0 && len(c.moved) == 0 {
+		return nil
+	}
+	return &engine.Previous{Addresses: c.previous, Labels: c.labels, Moved: c.moved}
 }
 
 // claimRoot gets dir ready for generating a root from fp. A directory no
@@ -238,6 +264,18 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 		if claimed.previous, err = previousAddresses(out, dir); err != nil {
 			return nil, err
 		}
+		// A run that stopped while generating the root again removed
+		// moves.tf, and may have written another.
+		claimed.moved = c.PendingMoves
+		if c.Result != nil {
+			if claimed.moved, err = engine.ReadMoves(dir); err != nil {
+				return nil, err
+			}
+			claimed.labels = map[engine.External]string{}
+			for _, imp := range c.Result.Imported {
+				claimed.labels[engine.External{Type: imp.Type, ID: imp.ID}] = imp.Name
+			}
+		}
 	}
 	if len(claimed.previous) > 0 {
 		if claimed.backup, err = backupRoot(dir, path, content); err != nil {
@@ -246,7 +284,7 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 	}
 	// Before anything is removed: the files to remove are the earlier
 	// result's, which this checkpoint replaces.
-	started := checkpoint{Fingerprint: fp, Pending: claimed.previous, PendingFiles: c.PendingFiles}
+	started := checkpoint{Fingerprint: fp, Pending: claimed.previous, PendingFiles: c.PendingFiles, PendingMoves: claimed.moved}
 	if c.Result != nil {
 		started.PendingFiles = c.Result.Files
 	}
@@ -298,19 +336,21 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 }
 
 // refuseReaddressed fails when result, of generating the claimed root
-// again from imports, would change what the root's state has, naming
-// what: resources of it at other addresses than before (see
-// engine.Readdressed), resources it no longer has that elsewhere, by type
-// and import ID, puts in another root of the run, by its path, and
-// resources of imports it leaves out, such as those its plan rejected.
-// Applied on the root's state, its next plan would destroy them, and
-// create those at other addresses. The root is put back as it was, without
-// the generated modules it took up (see engine.ReleaseModules). A
-// resource the run no longer imports at all, such as one deleted in the
-// cloud since, isn't counted. Until moved and removed blocks are written
-// for them, such a root can't be generated again.
+// again from imports, would change what the root's state has in a way
+// no moved block of result follows, naming what: resources of it at
+// other addresses than before that result doesn't move (see
+// engine.Readdressed and engine.Result.Unmoved), resources of another
+// type now (see engine.Retyped), resources it no longer has that
+// elsewhere, by type and import ID, puts in another root of the run, by
+// its path, and resources of imports it leaves out, such as those its
+// plan rejected. Applied on the root's state, its next plan would
+// destroy them, and create them where they go. The root is put back as
+// it was, without the generated modules it took up (see
+// engine.ReleaseModules). A resource the run no longer imports at all,
+// such as one deleted in the cloud since, isn't counted.
 func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []engine.Import, elsewhere map[engine.External]string) error {
-	changed := engine.Readdressed(c.previous, result.Addresses)
+	changed := engine.Readdressed(c.previous, result.Addresses, result.Moves)
+	changed = append(changed, engine.Retyped(c.previous, result.Addresses)...)
 	now := map[engine.External]bool{}
 	for _, m := range result.Addresses {
 		now[engine.External{Type: m.Type, ID: m.ID}] = true
@@ -329,11 +369,11 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 			changed = append(changed, p.Address+" is left out")
 		}
 	}
-	if len(changed) == 0 {
+	if len(changed) == 0 && len(result.Unmoved) == 0 {
 		return nil
 	}
 	sort.Strings(changed)
-	err := fmt.Errorf("generating %s again would move or leave out %d of its resources, which a plan on its state would destroy, and create where they move to, so it is left as it was: %s", dir, len(changed), strings.Join(changed, ", "))
+	err := fmt.Errorf("generating %s again would move or leave out %d of its resources where no moved block can follow them, which a plan on its state would destroy, and create where they go, so it is left as it was: %s", dir, len(changed), strings.Join(append(changed, result.Unmoved...), "; "))
 	return errors.Join(err, c.putBack(dir))
 }
 

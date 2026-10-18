@@ -101,13 +101,43 @@ func (n Names) hasType(resourceType string) bool {
 // the order resources were listed in. Labels in taken are left to the
 // resources that have them.
 func labelled(imports []Import, taken Names, tidy bool) []Import {
+	return relabelled(imports, taken, tidy, nil)
+}
+
+// relabelled is labelled for a root generated again, which previous, if
+// set, says an earlier import generated: a resource keeps the label it
+// had where its name still gives it (see keepsLabel), so that adding or
+// removing others doesn't move it, and no other resource takes an address
+// previous reserves (see Previous.reserved), which another resource had
+// or a moved block names.
+func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []Import {
 	sorted := make([]Import, len(imports))
+	bases := map[External]string{}
 	for i, imp := range imports {
 		imp.Name = Label(imp.Name)
+		if tidy {
+			bases[External{Type: imp.Type, ID: imp.ID}] = withoutTypeWords(imp.Type, imp.Name)
+		} else {
+			bases[External{Type: imp.Type, ID: imp.ID}] = imp.Name
+		}
 		sorted[i] = imp
 	}
 	if tidy {
 		tidyLabels(sorted, taken)
+	}
+	reserved := previous.reserved()
+	free := func(imp Import, name string) bool {
+		owner, ok := reserved[imp.Type+"."+name]
+		return !ok || owner == External{Type: imp.Type, ID: imp.ID}
+	}
+	labels := previous.labels()
+	kept := map[External]bool{}
+	for i, imp := range sorted {
+		key := External{Type: imp.Type, ID: imp.ID}
+		if old, ok := labels[key]; ok && keepsLabel(old, bases[key], tidy) && !taken[imp.Type+"."+old] && free(imp, old) {
+			sorted[i].Name = old
+			kept[key] = true
+		}
 	}
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
@@ -127,9 +157,21 @@ func labelled(imports []Import, taken Names, tidy bool) []Import {
 	if used == nil {
 		used = Names{}
 	}
+	// The labels kept first, so that no other resource takes them.
+	for _, imp := range sorted {
+		key := External{Type: imp.Type, ID: imp.ID}
+		if kept[key] && used[imp.Type+"."+imp.Name] {
+			kept[key] = false
+		} else if kept[key] {
+			used[imp.Type+"."+imp.Name] = true
+		}
+	}
 	for i, imp := range sorted {
+		if kept[External{Type: imp.Type, ID: imp.ID}] {
+			continue
+		}
 		name := imp.Name
-		for n := 2; used[imp.Type+"."+name]; n++ {
+		for n := 2; used[imp.Type+"."+name] || !free(imp, name); n++ {
 			// Skip labels another resource has as its own.
 			if candidate := fmt.Sprintf("%s_%d", imp.Name, n); !own[imp.Type+"."+candidate] {
 				name = candidate
@@ -139,6 +181,26 @@ func labelled(imports []Import, taken Names, tidy bool) []Import {
 		sorted[i].Name = name
 	}
 	return sorted
+}
+
+// keepsLabel reports whether old, the label an earlier import gave a
+// resource, still fits it now that its name gives base (see relabelled):
+// old is base, or base without words a prefix took (see stripPrefix),
+// either with _2, _3, ... after it, or, with tidy, main, which says only
+// that the root had no other resource of the type. A label that doesn't
+// fit says the resource's name has changed, such as in the cloud.
+func keepsLabel(old, base string, tidy bool) bool {
+	if tidy && old == mainLabel {
+		return true
+	}
+	fits := func(label string) bool {
+		return label == base || strings.HasSuffix(base, "_"+label)
+	}
+	if fits(old) {
+		return true
+	}
+	i := strings.LastIndexByte(old, '_')
+	return i > 0 && isNumber(old[i+1:]) && fits(old[:i])
 }
 
 // mainLabel labels a resource whose type a root has no other of, as the

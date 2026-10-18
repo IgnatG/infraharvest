@@ -488,11 +488,14 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			if !lockMeets(run.lock, qualifiedSource(binary.Registry, root.provider.Source), root.provider.Version) {
 				lock = &own
 			}
+			// What the root had keeps its addresses, or moves (see
+			// engine.Options.Previous); the fingerprint doesn't count it.
+			dirOpts.Previous = claimed.previousRoot()
 			result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if err == nil && len(claimed.previous) > 0 {
+			if err == nil && dirOpts.Previous != nil {
 				err = claimed.refuseReaddressed(dir, result, byDir[dir], inOtherRoots(options.Out, roots, dir))
 			}
 			if err == nil {
@@ -626,6 +629,9 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	}
 	if len(result.Secrets) > 0 {
 		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)
+	}
+	if len(result.Moves) > 0 {
+		log.Printf("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), engine.MovesFileName)
 	}
 	r.report.Directories = append(r.report.Directories, reported)
 }
