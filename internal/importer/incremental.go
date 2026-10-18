@@ -7,9 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -175,53 +173,53 @@ const InOtherRootReason = "already in another root of the output"
 // root other than those of byDir: a resource goes into one root only, so
 // an incremental import leaves it out rather than import it again, as
 // when the root an import puts a type in has changed since the root that
-// has it was generated. Only roots that still have their import blocks
-// count, and only what they import: a resource one left out may be
-// generated in another. A checkpoint that can't be read is logged and
-// passed over.
+// has it was generated. Only roots that still have configuration count,
+// applied ones too, with their import blocks deleted, and only what the
+// checkpoint records them importing (see previousAddresses): a resource
+// one left out may be generated in another. A checkpoint that can't be
+// read is logged and passed over.
 func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.External]string, error) {
-	base := filepath.Join(out, CheckpointDir, "checkpoints")
-	if _, err := os.Stat(base); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+	dirs, err := checkpointDirs(out)
+	if err != nil {
+		return nil, err
 	}
 	own := map[string]bool{}
 	for dir := range byDir {
 		own[filepath.Clean(checkpointPath(out, dir))] = true
 	}
 	held := map[engine.External]string{}
-	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+	for _, dir := range dirs {
+		if own[filepath.Clean(checkpointPath(out, dir))] {
+			continue
+		}
+		names, err := tfFiles(dir)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if d.IsDir() || filepath.Ext(path) != ".json" || own[filepath.Clean(path)] {
-			return nil
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		dir := filepath.Join(out, strings.TrimSuffix(rel, ".json"))
-		if ok, err := fileExists(filepath.Join(dir, engine.ImportsFileName)); err != nil || !ok {
-			return err
+		if len(names) == 0 {
+			continue
 		}
 		c, err := readCheckpoint(out, dir)
 		if err != nil {
 			log.Printf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(out, dir), err)
-			return nil
+			continue
 		}
 		if c == nil || c.Result == nil {
-			return nil
+			continue
+		}
+		addresses, err := previousAddresses(out, dir)
+		if err != nil {
+			return nil, err
 		}
 		root := relativePath(out, dir)
-		for _, imp := range c.Result.Imported {
-			key := engine.External{Type: imp.Type, ID: imp.ID}
+		for _, m := range addresses {
+			key := engine.External{Type: m.Type, ID: m.ID}
 			if _, ok := held[key]; !ok {
 				held[key] = root
 			}
 		}
-		return nil
-	})
-	return held, err
+	}
+	return held, nil
 }
 
 // leaveOutHeld removes from byDir the imports of what another root holds
