@@ -27,8 +27,10 @@ const InRootReason = "already in the root"
 // addToRoot adds to dir, a root an earlier import generated, the resources
 // of imports it doesn't have yet (see engine.Existing and engine.Add),
 // generating them in a staging directory under the output's checkpoints.
-// It records the others as excluded, and returns the resources it added,
-// the result, and what the root then holds for its checkpoint. Neither
+// It records the others as excluded, and what the root has that is no
+// longer in the cloud (see listedHere.notInCloud), and returns the
+// resources it added, the result, and what the root then holds for its
+// checkpoint, with its README, which names what is gone too. Neither
 // result is set if nothing is new. On an error, the resources returned
 // are those the error failed: every one of imports until it knows which
 // are new.
@@ -51,6 +53,10 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if err != nil {
 		return imports, nil, nil, err
 	}
+	// What the root has that the listing didn't find, where it lists all
+	// there is, is gone: the root's next plan would create it again.
+	gone := r.here.notInCloud(existing)
+	r.recordNotInCloud(dir, gone)
 	if len(existing) == 0 && len(r.options.ManagedState) == 0 {
 		return imports, nil, nil, fmt.Errorf("%s has configuration, but neither its import blocks nor a checkpoint of the import that generated it say which resources it has: pass --managed-state with its state, so that the import leaves them out", dir)
 	}
@@ -102,6 +108,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	holds := previous.With(result)
 	if previous != nil {
 		// Without the earlier result, the root's README stays as it is.
+		holds.NotInCloud = gone
 		if err := engine.WriteReadme(dir, holds); err != nil {
 			return added, nil, nil, err
 		}

@@ -519,8 +519,9 @@ func checkRegions(t *testing.T, coverage report.Report, created []*tfjson.StateR
 // checkSandboxIncremental creates the estate's extra log group, then
 // imports into out again with --incremental: the import adds the log
 // group to the root of region, in a file of its own, and leaves the rest
-// as it was. Every root still plans with no changes, importing what
-// imported counts and the log group, nothing twice.
+// as it was, reporting nothing the roots have as gone. Every root still
+// plans with no changes, importing what imported counts and the log
+// group, nothing twice.
 func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, imported map[string]int) {
 	t.Helper()
 	out, region := s.out, s.region
@@ -577,6 +578,10 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 	}
 	if inRoot == 0 || len(coverage.Failures) != 0 {
 		t.Errorf("coverage.json of --incremental: %d in the roots already, failures %v", inRoot, coverage.Failures)
+	}
+	// The account has all the roots have: a listing of real AWS finds it.
+	if len(coverage.NotInCloud) != 0 {
+		t.Errorf("--incremental reports what the account has as no longer in the cloud: %+v", coverage.NotInCloud)
 	}
 	if len(coverage.Directories) != 1 || coverage.Directories[0].Path != root ||
 		len(coverage.Directories[0].Imported) != 1 || coverage.Directories[0].Imported[0].ID != logGroup {

@@ -51,3 +51,29 @@ func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
 		t.Errorf("got:\n%s", got)
 	}
 }
+
+// What an incremental import found gone is listed by address and import
+// ID, with what to do about it, and only when there is any.
+func TestReadmeFileListsWhatIsNoLongerInTheCloud(t *testing.T) {
+	t.Parallel()
+	result := &Result{
+		Imported:   []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "https://sqs.eu-west-2.amazonaws.com/123/jobs"}},
+		NotInCloud: []Import{{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs.eu-west-2.amazonaws.com/123/orders"}},
+	}
+
+	got := string(readmeFile(result))
+
+	for _, want := range []string{
+		"\n## No longer in the cloud\n\n",
+		"The next plan would create them again, and fails while `imports.tf` still has their import blocks.",
+		"delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again.\n\n",
+		"- `aws_sqs_queue.orders` (`https://sqs.eu-west-2.amazonaws.com/123/orders`)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(string(readmeFile(&Result{Imported: result.Imported})), "No longer in the cloud") {
+		t.Error("a root with nothing gone has the section")
+	}
+}

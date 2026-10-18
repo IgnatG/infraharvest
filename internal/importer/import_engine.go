@@ -207,6 +207,9 @@ type listedCall struct {
 	provider harvest.Provider
 	options  Options
 	scope    string
+	// here is what the call's listing found in its scope, if it can tell
+	// what is gone (see listedInScope); only for --incremental.
+	here *listedHere
 	// byDir are the imports of each root the call generates.
 	byDir map[string][]engine.Import
 	// opts are the engine's options, without the other roots.
@@ -259,6 +262,8 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if err != nil {
 		return nil, err
 	}
+	// What failed to list, before what failed after it.
+	listFailures := failures
 	defaults, err := excludedByDefault(ctx, provider, cat, listed)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
@@ -282,7 +287,8 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return nil, err
 	}
 	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, importID)
-	if options.Layout, err = rootLayout(ctx, provider, withEnvLayout(options.Layout, options.EnvTags)); err != nil {
+	pattern := withEnvLayout(options.Layout, options.EnvTags)
+	if options.Layout, err = rootLayout(ctx, provider, pattern); err != nil {
 		return nil, err
 	}
 
@@ -322,6 +328,13 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	// Children follow their parent: only selected resources have them.
 	resourcesByService, parents, childFailures := withChildImports(ctx, provider, selected, childParallel(provider, options))
 	failures = append(failures, childFailures...)
+	var here *listedHere
+	if options.Incremental {
+		var why string
+		if here, why = listedInScope(provider, cat, options, pattern, scope, listed, listFailures, resourcesByService, importID); here == nil {
+			log.Printf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
+		}
+	}
 	opts := engineOptions(provider, cat, root)
 	opts.IncludeOwned = options.IncludeOwned
 	opts.CommandTimeout = options.EngineTimeout
@@ -381,7 +394,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 		run.leaveOutHeld(byDir, held)
 	}
-	return &listedCall{run: run, provider: provider, options: options, scope: scope, byDir: byDir, opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
+	return &listedCall{run: run, provider: provider, options: options, scope: scope, here: here, byDir: byDir, opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
 }
 
 // generate generates the call's roots into its run, each referring to the
@@ -391,8 +404,9 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Import) error {
 	run, provider, options, byDir, opts, root, binary := c.run, c.provider, c.options, c.byDir, c.opts, c.root, c.binary
 	execPath, cacheDir := c.execPath, c.cacheDir
-	// What the call records is counted in its own scope.
-	run.scope, run.options = c.scope, options
+	// What the call records is counted in its own scope, and what its
+	// roots have is looked for in what it listed.
+	run.scope, run.options, run.here = c.scope, options, c.here
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)

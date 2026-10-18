@@ -81,6 +81,9 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
 	}
+	if len(result.NotInCloud) > 0 {
+		b.WriteString(notInCloudSection(result.NotInCloud))
+	}
 	if len(result.Modules) > 0 {
 		b.WriteString(modulesSection(result.Modules))
 	}
@@ -152,6 +155,22 @@ func modulesSection(calls []ModuleCall) string {
 		for _, c := range declined {
 			fmt.Fprintf(&b, "- %s (`%s` %s): %s\n", codeList(c.Resources), c.Source, c.Version, c.Declined)
 		}
+	}
+	return b.String()
+}
+
+// notInCloudSection lists the resources of the root that the incremental
+// import which added to it didn't find in the cloud, where it listed all
+// there is, with what to do about them: a plan would create them again,
+// and one with its import block still in imports.tf fails, as there is
+// nothing to import. infraharvest changes nothing the root has, so the
+// blocks stay for people to delete; a removed block wouldn't do, as it
+// only forgets what state has, and the resource isn't there to forget.
+func notInCloudSection(gone []Import) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## No longer in the cloud\n\nThe incremental import that last added to this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan would create them again, and fails while `%s` still has their import blocks. Delete each one's import block, if `%s` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again.\n\n", ImportsFileName, ImportsFileName)
+	for _, g := range gone {
+		fmt.Fprintf(&b, "- `%s.%s` (`%s`)\n", g.Type, g.Name, g.ID)
 	}
 	return b.String()
 }

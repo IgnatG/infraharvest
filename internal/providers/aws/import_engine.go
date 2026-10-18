@@ -6,6 +6,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -44,6 +45,19 @@ func (p *Provider) Scope(ctx context.Context) (account, region string, err error
 	}
 	p.account = aws.ToString(id)
 	return p.account, region, nil
+}
+
+// PartialTypes names the types a region's listing can leave out while
+// they exist: an Aurora global cluster is listed in the region of its
+// primary cluster only (see RDSLister.listGlobalClusters), which a
+// failover moves; and with SQS_PREFIX set, the queues are listed by
+// that prefix only (see SqsLister.List).
+func (Provider) PartialTypes() []string {
+	types := []string{"aws_rds_global_cluster"}
+	if _, ok := os.LookupEnv("SQS_PREFIX"); ok {
+		types = append(types, "aws_sqs_queue")
+	}
+	return types
 }
 
 // TerraformEnv gives Terraform the credentials infraharvest lists with, as

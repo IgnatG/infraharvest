@@ -360,3 +360,66 @@ func TestManifestAdd(t *testing.T) {
 		t.Errorf("provider %+v", m.Provider)
 	}
 }
+
+// What the roots have that is no longer in the cloud is listed once each,
+// sorted, in report.md, coverage.json and the JSON report, from every
+// part of the import, and makes the import neither incomplete nor
+// counted: it is information about the roots, not about what was listed.
+func TestNotInCloud(t *testing.T) {
+	t.Parallel()
+	orders := NotInCloud{Path: "aws/111111111111/eu-west-2", Address: "aws_sqs_queue.orders", ID: "https://sqs.eu-west-2.amazonaws.com/111111111111/orders", Scope: "aws/111111111111/eu-west-2"}
+	jobs := NotInCloud{Path: "aws/111111111111/eu-west-2", Address: "aws_sqs_queue.jobs", ID: "https://sqs.eu-west-2.amazonaws.com/111111111111/jobs", Scope: "aws/111111111111/eu-west-2"}
+	other := NotInCloud{Path: "aws/222222222222/eu-west-2", Address: "aws_sqs_queue.orders", ID: "https://sqs.eu-west-2.amazonaws.com/222222222222/orders", Scope: "aws/222222222222/eu-west-2"}
+	var r Report
+	r.Merge(&Report{Coverage: Coverage{NotInCloud: []NotInCloud{other, orders}}})
+	// Two calls of one account and region that list the same service look
+	// in the same root.
+	r.Merge(&Report{Coverage: Coverage{NotInCloud: []NotInCloud{orders, jobs}}})
+
+	r.Finish(nil, nil, false)
+
+	if want := []NotInCloud{jobs, orders, other}; !reflect.DeepEqual(r.NotInCloud, want) {
+		t.Errorf("not in the cloud:\ngot  %+v\nwant %+v", r.NotInCloud, want)
+	}
+	if r.ExitCode != ExitOK || r.Totals != (CoverageTotal{}) {
+		t.Errorf("exit code %d, totals %+v; want 0 and nothing counted", r.ExitCode, r.Totals)
+	}
+	md := r.Markdown()
+	for _, want := range []string{
+		"\n## No longer in the cloud\n\n",
+		"the next plan of the root would create them again. Delete each one's import block, if the root's `imports.tf` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again.",
+		"- `aws_sqs_queue.jobs` `https://sqs.eu-west-2.amazonaws.com/111111111111/jobs` in `aws/111111111111/eu-west-2`\n" +
+			"- `aws_sqs_queue.orders` `https://sqs.eu-west-2.amazonaws.com/111111111111/orders` in `aws/111111111111/eu-west-2`\n" +
+			"- `aws_sqs_queue.orders` `https://sqs.eu-west-2.amazonaws.com/222222222222/orders` in `aws/222222222222/eu-west-2`\n",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q in:\n%s", want, md)
+		}
+	}
+
+	dir := t.TempDir()
+	if err := r.WriteFiles(dir); err != nil {
+		t.Fatal(err)
+	}
+	read, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(read.NotInCloud, r.NotInCloud) {
+		t.Errorf("coverage.json: got %+v, want %+v", read.NotInCloud, r.NotInCloud)
+	}
+	var out bytes.Buffer
+	if err := r.WriteJSON(&out); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		NotInCloud []NotInCloud `json:"not_in_cloud"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil || !reflect.DeepEqual(got.NotInCloud, r.NotInCloud) {
+		t.Errorf("JSON report: got %+v, %v\n%s", got.NotInCloud, err, out.String())
+	}
+
+	if md := (&Report{}).Markdown(); strings.Contains(md, "No longer in the cloud") {
+		t.Errorf("a report with nothing gone has the section:\n%s", md)
+	}
+}
