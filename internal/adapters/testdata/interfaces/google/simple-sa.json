@@ -32,5 +32,15 @@
     "env_vars",
     "iam_email",
     "id"
+  ],
+  "providers": {
+    "google": {
+      "source": "hashicorp/google",
+      "version": "\u003e= 3.53, \u003c 9"
+    }
+  },
+  "resources": [
+    "google_project_iam_member.roles",
+    "google_service_account.sa"
   ]
 }

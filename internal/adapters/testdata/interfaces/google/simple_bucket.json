@@ -113,5 +113,15 @@
     "internal_kms_configuration",
     "name",
     "url"
+  ],
+  "providers": {
+    "google": {
+      "source": "hashicorp/google",
+      "version": "\u003e= 6.37.0, \u003c 9"
+    }
+  },
+  "resources": [
+    "google_storage_bucket.bucket",
+    "google_storage_bucket_iam_member.members"
   ]
 }
