@@ -148,6 +148,8 @@ The `report/` directory of the output records the import:
 | `coverage.json` | What the listers found, by type and directory, and what became of it: imported, left out (with Terraform's errors), not importable, or lost to a failed directory or service. Also the secret variables to set, and, after `--incremental`, what the roots have that is no longer in the cloud (`not_in_cloud`, see [Choosing what to import](usage.md#choosing-what-to-import)) |
 | `manifest.json` | The versions used: infraharvest, Terraform or OpenTofu, and the provider (constraint and locked version) |
 | `report.md` | The same, for people |
+| `drift.json` | Written by `infraharvest drift`, not by an import: what changed in the cloud since each root was applied, with each change's outcome (`reverts`, `absorbed` or `not_assessable`), the roots it couldn't check and why (`schema_version` 1; printed on stdout with `--format json`). See [Drift](drift.md) |
+| `drift.md` | The same, for people |
 
 With `--report-tags owner,team`, the report also counts what was discovered, imported and managed by the value of each tag key, including resources without the tag, so you can see which owners still have resources outside infrastructure as code. It counts the resources whose tags discover could read (see Choosing what to import). Reports hold no timestamps or absolute paths, so importing an unchanged estate produces the same files. With `--format json`, the whole report is also printed to stdout as one JSON document (`schema_version` 1); logs always go to stderr.
 
@@ -168,7 +170,7 @@ After generating a directory, infraharvest runs its verification gate on it and 
 
 A failed check counts like a resource that couldn't be imported (exit code 1, or 3 with `--allow-partial`).
 
-To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, initialising each without its backend, so it needs no access to the state; set secret variables first. Without the state, its plan relies on the import blocks, so run it before you delete `imports.tf`: on a root without them, the plan would create every resource. After `terraform apply`, a `terraform plan` of the root, with its state, shows what has changed in the cloud since. `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
+To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, initialising each without its backend, so it needs no access to the state; set secret variables first. Without the state, its plan relies on the import blocks, so run it before you delete `imports.tf`: on a root without them, the plan would create every resource. After `terraform apply`, `infraharvest drift [output-directory]` shows what has changed in the cloud since, with read access to the state (see [Drift](drift.md)). `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
 
 ## Exit codes
 
@@ -178,10 +180,13 @@ To check generated roots again, for example after editing them, run `infraharves
 | 1 | Something couldn't be imported, and `--allow-partial` isn't set |
 | 2 | The import couldn't run, for example without credentials or a Terraform binary |
 | 3 | Something couldn't be imported, `--allow-partial` is set, and the output has the rest |
+| 4 | `infraharvest drift --detailed-exitcode` only: drift found, a change the next apply would revert or that can't be assessed (see [Drift](drift.md#exit-codes)) |
 | 130 | The import was interrupted (Ctrl-C, SIGINT) |
 | 143 | The import was terminated (SIGTERM) |
 
-An import that can't run still writes its report, with the error and exit code 2, so that an earlier run's report isn't taken for its own. So does an interrupted or terminated one, with exit code 130 or 143, as a shell reports a process the signal ended; a second Ctrl-C stops the process at once, without a report. `infraharvest verify` exits with the same codes when interrupted.
+`infraharvest drift` exits 2 when a root couldn't be checked, and still writes `drift.json` and `drift.md` for the others.
+
+An import that can't run still writes its report, with the error and exit code 2, so that an earlier run's report isn't taken for its own. So does an interrupted or terminated one, with exit code 130 or 143, as a shell reports a process the signal ended; a second Ctrl-C stops the process at once, without a report. `infraharvest verify` and `infraharvest drift` exit with the same codes when interrupted.
 
 ## Repairs
 

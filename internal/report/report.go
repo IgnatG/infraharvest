@@ -41,6 +41,9 @@ const (
 	// ExitPartial: something couldn't be imported and --allow-partial is
 	// set; the output has the rest.
 	ExitPartial = 3
+	// ExitDrift: infraharvest drift --detailed-exitcode found drift (see
+	// Drift.DriftFound).
+	ExitDrift = 4
 	// ExitInterrupted: the import was interrupted (SIGINT, as by Ctrl-C).
 	// Like the codes a shell gives a process a signal ends, it is 128
 	// plus the signal's number.

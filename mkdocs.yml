@@ -61,6 +61,7 @@ nav:
       - Quickstart: quickstart.md
   - Guide:
       - Usage: usage.md
+      - Drift: drift.md
       - Configuration: configuration.md
       - Output: output.md
       - Modules: modules.md
