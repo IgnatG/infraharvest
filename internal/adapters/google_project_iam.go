@@ -29,6 +29,7 @@ var GoogleProjectIAM = Adapter{
 	Group:    grantProject,
 	Inputs:   []string{"bindings", "conditional_bindings", "projects"},
 	Outputs:  []string{"members", "projects", "roles"},
+	Targets:  []string{"google_project_iam_member.project_iam_additive"},
 	Map:      mapGoogleProjectIAM,
 }
 

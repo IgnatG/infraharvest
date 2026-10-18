@@ -4,6 +4,7 @@
 package adapters
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -47,6 +48,15 @@ func render(t *testing.T, a Adapter, call *Call) string {
 			if root := strings.FieldsFunc(output, func(r rune) bool { return r == '[' || r == '.' })[0]; !slices.Contains(a.Outputs, root) {
 				t.Errorf("output %q isn't in the adapter's Outputs", output)
 			}
+		}
+	}
+	targets := slices.Collect(maps.Values(call.Addresses))
+	for _, imported := range call.Imports {
+		targets = append(targets, imported.To)
+	}
+	for _, to := range targets {
+		if target, _, _ := strings.Cut(to, "["); !slices.Contains(a.Targets, target) {
+			t.Errorf("address %q isn't in the adapter's Targets", to)
 		}
 	}
 	return squash(string(hclwrite.Format(f.Bytes())))

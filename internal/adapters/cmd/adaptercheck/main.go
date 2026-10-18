@@ -4,13 +4,20 @@
 // Command adaptercheck checks the curated module adapters against module
 // versions. Run from the repository root.
 //
-//	go run ./internal/adapters/cmd/adaptercheck          # report newer module releases
-//	go run ./internal/adapters/cmd/adaptercheck -write   # refresh the pinned snapshots
+//	go run ./internal/adapters/cmd/adaptercheck                 # report newer module releases
+//	go run ./internal/adapters/cmd/adaptercheck -notes notes.md # and note pinned releases not usable yet
+//	go run ./internal/adapters/cmd/adaptercheck -write          # refresh the pinned snapshots
 //
 // The report, in Markdown, lists each adapter whose module has a newer
-// release, and whether the adapter fits that release's interface; it is
-// empty when every adapter pins the newest release. -write fetches the
-// interface of each pinned version into internal/adapters/testdata/interfaces.
+// release, whether the adapter fits that release's interface and the
+// resources it maps onto, and whether the release accepts the newest
+// major release of each provider the adapter uses; it is empty when every
+// adapter pins the newest release. The notes list each adapter that pins
+// its module's newest release when that release accepts only an older
+// major release of a provider, which an import doesn't call: there is
+// nothing to bump to, so the notes aren't part of the report. -write
+// fetches the interface of each pinned version into
+// internal/adapters/testdata/interfaces.
 package main
 
 import (
@@ -18,6 +25,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -26,19 +34,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-version"
+
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/adapters/moduleinterface"
+	"github.com/IgnatG/infraharvest/internal/engine"
 )
 
 func main() {
 	write := flag.Bool("write", false, "refresh the interface snapshots of the pinned versions")
+	notesFile := flag.String("notes", "", "write the notes on pinned releases not usable yet to this file, not standard error")
 	flag.Parse()
-	if err := run(*write); err != nil {
+	if err := run(*write, *notesFile); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(write bool) error {
+func run(write bool, notesFile string) error {
+	notes := io.Writer(os.Stderr)
+	if notesFile != "" {
+		f, err := os.Create(notesFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		notes = f
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
@@ -50,7 +71,7 @@ func run(write bool) error {
 			if write {
 				err = writeSnapshot(ctx, client, a)
 			} else {
-				err = check(ctx, client, a)
+				err = check(ctx, client, provider, a, notes)
 			}
 			// One module's registry or GitHub error mustn't hide what
 			// the others found: report it and go on.
@@ -70,16 +91,25 @@ func run(write bool) error {
 }
 
 // check prints a line when the module an adapter pins has a newer
-// release, saying whether the adapter fits that release's interface.
-func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapter) error {
+// release, saying whether the adapter fits that release's interface and
+// resources, and whether the release accepts the newest major release of
+// the providers the adapter uses: provider, the root's, and the adapter's
+// Providers. When the adapter pins the newest release, it writes a line
+// to notes instead if that release doesn't.
+func check(ctx context.Context, client *moduleinterface.Client, provider string, a adapters.Adapter, notes io.Writer) error {
 	latest, err := client.Latest(ctx, a.Source)
 	if err != nil {
 		return err
 	}
+	providers := append([]string{provider}, a.Providers...)
 	if latest == a.Version {
-		return nil
+		return checkPinned(ctx, client, a, providers, notes)
 	}
 	iface, err := client.Fetch(ctx, a.Source, latest)
+	if err != nil {
+		return err
+	}
+	held, err := moduleinterface.CheckProviders(iface, providers, newestRelease(ctx, client.HTTP))
 	if err != nil {
 		return err
 	}
@@ -90,17 +120,55 @@ func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapt
 		changes = moduleinterface.TypeChanges(pinned, iface, a.Inputs)
 	}
 	problems := moduleinterface.Check(a, iface)
+	problems = append(problems, moduleinterface.CheckResources(a.Targets, iface)...)
 	if len(problems) > 0 {
 		line += fmt.Sprintf(" The adapter doesn't fit it: %s.", strings.Join(problems, "; "))
 	}
 	if len(changes) > 0 {
 		line += fmt.Sprintf(" Variables the adapter sets changed type: %s; check what its Map sets them to.", strings.Join(changes, "; "))
 	}
-	if len(problems) == 0 && len(changes) == 0 {
-		line += " The adapter fits its interface's names and recorded defaults: pin it, refresh the snapshot with `go run ./internal/adapters/cmd/adaptercheck -write` (or the adapters workflow with write on the branch), check the adapter's Defaults against the new variables.tf, and let the e2e test confirm the plans."
+	if len(held) > 0 {
+		line += fmt.Sprintf(" The release isn't usable yet: %s; an import doesn't call a module that would hold the root a major release behind.", strings.Join(held, "; "))
+	}
+	switch {
+	case len(problems) > 0 || len(changes) > 0:
+	case len(held) > 0:
+		line += " The adapter fits its interface's names, recorded defaults and resources: pin a release once one accepts the newest major releases."
+	default:
+		line += " The adapter fits its interface's names, recorded defaults and resources, and the release accepts the newest major release of each provider the adapter uses: pin it, refresh the snapshot with `go run ./internal/adapters/cmd/adaptercheck -write` (or the adapters workflow with write on the branch), check the adapter's Defaults against the new variables.tf, and let the e2e test confirm the plans."
 	}
 	fmt.Println(line)
 	return nil
+}
+
+// checkPinned writes a line to notes when the release an adapter pins,
+// the newest, accepts no release of the newest major release line of one
+// of providers. The pinned snapshot has the release's providers, unless
+// it was written before they were recorded: then the release is read.
+func checkPinned(ctx context.Context, client *moduleinterface.Client, a adapters.Adapter, providers []string, notes io.Writer) error {
+	iface, err := readSnapshot(a)
+	if err != nil || iface.Providers == nil {
+		if iface, err = client.Fetch(ctx, a.Source, a.Version); err != nil {
+			return err
+		}
+	}
+	held, err := moduleinterface.CheckProviders(iface, providers, newestRelease(ctx, client.HTTP))
+	if err != nil {
+		return err
+	}
+	if len(held) > 0 {
+		_, err = fmt.Fprintf(notes, "- `%s`: the adapter pins %s, the newest release, which isn't usable yet: %s. An import leaves the resources it would take in the root until a release accepts the newest major releases.\n", a.Source, a.Version, strings.Join(held, "; "))
+	}
+	return err
+}
+
+// newestRelease looks providers' releases up in their registries, as the
+// import does when it pins the root's provider: each registry answer is
+// asked for once.
+func newestRelease(ctx context.Context, client *http.Client) moduleinterface.NewestRelease {
+	return func(source string, constraints []version.Constraints) (*version.Version, error) {
+		return engine.ProviderVersion(ctx, client, "", source, constraints)
+	}
 }
 
 // snapshotPath is where the interface of the version an adapter pins is

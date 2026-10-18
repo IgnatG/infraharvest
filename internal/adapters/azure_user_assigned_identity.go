@@ -28,9 +28,8 @@ import (
 // that accepts azurerm 5, or with --modules latest-untested once one is
 // out. A release that gets there by managing the identity as
 // azapi_resource, as AVM's network and storage modules do, keeps the
-// variables and outputs but not the resources the adapter maps onto:
-// the adaptercheck report would call it a fit, so check the release's
-// resources before bumping.
+// variables and outputs but not the resources the adapter maps onto
+// (Targets): the adaptercheck report says it doesn't fit.
 var AzureUserAssignedIdentity = Adapter{
 	Source:   "Azure/avm-res-managedidentity-userassignedidentity/azurerm",
 	Version:  "0.5.3",
@@ -43,6 +42,7 @@ var AzureUserAssignedIdentity = Adapter{
 	},
 	Outputs:   []string{"client_id", "principal_id", "resource", "resource_id", "resource_name", "tenant_id"},
 	Providers: []string{"azapi"},
+	Targets:   []string{"azurerm_federated_identity_credential.this", "azurerm_user_assigned_identity.this"},
 	Map:       mapAzureUserAssignedIdentity,
 }
 

@@ -32,6 +32,7 @@ var IAMRole = Adapter{
 		"source_trust_policy_documents", "tags", "use_name_prefix",
 	},
 	Outputs: []string{"arn", "instance_profile_arn", "instance_profile_id", "instance_profile_name", "instance_profile_unique_id", "name", "unique_id"},
+	Targets: []string{"aws_iam_instance_profile.this", "aws_iam_role.this", "aws_iam_role_policy.inline", "aws_iam_role_policy_attachment.this"},
 	Map:     mapIAMRole,
 	// The module's path and max_session_duration default to null, which
 	// the provider takes as a role at the root path, with sessions of up

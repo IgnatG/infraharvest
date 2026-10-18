@@ -14,7 +14,8 @@ import (
 )
 
 // TestAdaptersMatchModuleInterfaces checks every adapter against the
-// interface of the module version it pins, from testdata/interfaces (see
+// interface of the module version it pins, and its Targets against the
+// resources the version declares, from testdata/interfaces (see
 // internal/adapters/cmd/adaptercheck -write). Pinning a new version needs that
 // version's interface.
 func TestAdaptersMatchModuleInterfaces(t *testing.T) {
@@ -42,7 +43,14 @@ func TestAdaptersMatchModuleInterfaces(t *testing.T) {
 				t.Errorf("%s %s: no interface in testdata/interfaces", a.Source, a.Version)
 				continue
 			}
+			if len(a.Targets) == 0 {
+				t.Errorf("%s %s: the adapter declares no Targets", a.Source, a.Version)
+			}
 			for _, problem := range moduleinterface.Check(a, iface) {
+				t.Errorf("%s %s: %s", a.Source, a.Version, problem)
+			}
+			// A snapshot written before resources were recorded has none.
+			for _, problem := range moduleinterface.CheckResources(a.Targets, iface) {
 				t.Errorf("%s %s: %s", a.Source, a.Version, problem)
 			}
 		}

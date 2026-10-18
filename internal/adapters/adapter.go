@@ -50,6 +50,11 @@ type Adapter struct {
 	// output it can name, for the check against the module's interface.
 	Inputs  []string
 	Outputs []string
+	// Targets are the addresses inside the module, without instance
+	// keys, that Map puts resources at or imports them to, such as
+	// aws_s3_bucket.this or module.vpc.google_compute_network.network: a
+	// release that no longer declares one doesn't fit the adapter.
+	Targets []string
 	// Providers are the providers the module uses besides the root's, such
 	// as google-beta, which the root configures as its own provider: for
 	// the same project or subscription.

@@ -36,6 +36,7 @@ var GoogleNetwork = Adapter{
 	},
 	Outputs:   []string{"network_id", "network_name", "network_self_link", "subnets"},
 	Providers: []string{"google-beta"},
+	Targets:   []string{"module.firewall_rules.google_compute_firewall.rules", "module.subnets.google_compute_subnetwork.subnetwork", "module.vpc.google_compute_network.network"},
 	Map:       mapGoogleNetwork,
 	// The module's variables' defaults, from its variables.tf; its
 	// network_firewall_policy_enforcement_order defaults to null, which

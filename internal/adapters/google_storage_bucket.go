@@ -31,6 +31,7 @@ var GoogleStorageBucket = Adapter{
 		"versioning", "website",
 	},
 	Outputs: []string{"bucket", "name", "url"},
+	Targets: []string{"google_storage_bucket.bucket"},
 	Map:     mapGoogleStorageBucket,
 	// The module's variables' defaults, from its variables.tf.
 	Defaults: map[string]cty.Value{
