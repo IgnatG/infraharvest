@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // Version is the selection file format's version.
@@ -37,6 +38,9 @@ type File struct {
 	Rules []Rule `yaml:"rules,omitempty"`
 	// Resources decide the resources they list.
 	Resources []Resource `yaml:"resources"`
+	// IncludeOwned lets rules include what another Terraform state or tool
+	// manages (see Owned), as --include-owned does. It isn't saved.
+	IncludeOwned bool `yaml:"-"`
 
 	// byKey indexes Resources by scope, type and ID (see key); anyScope by
 	// type and ID only, for lookups that don't know the scope. indexMu
@@ -179,6 +183,20 @@ func (f *File) ByRule(resourceType, id, name string, tags map[string]string) (De
 	return decision, matched
 }
 
+// ByRuleFor returns the decision of the rules (see ByRule) for a resource
+// the file doesn't list, which the default selection excludes with reason
+// or includes if reason is "", and whether a rule decides it. A rule
+// doesn't include what another Terraform state or tool manages (see
+// Owned): that stays excluded with reason, unless IncludeOwned is set.
+// Only its entry includes it then.
+func (f *File) ByRuleFor(resourceType, id, name string, tags map[string]string, reason string) (Decision, bool) {
+	d, ok := f.ByRule(resourceType, id, name, tags)
+	if ok && d.Include && !f.IncludeOwned && Owned(reason) {
+		return Decision{Reason: reason}, true
+	}
+	return d, ok
+}
+
 func (m *Match) matches(resourceType, id, name string, tags map[string]string) bool {
 	if !m.Type.match(resourceType) || !m.ID.match(id) || !m.Name.match(name) {
 		return false
@@ -267,6 +285,10 @@ const header = `# infraharvest selection file: which listed resources to import.
 #   rules:
 #     - exclude: { type: aws_cloudwatch_log_group, id: "/aws/lambda/*" }
 #     - exclude: { tags: { env: dev } }
+#
+# A rule doesn't include what another Terraform state or tool manages, such
+# as what a CloudFormation stack does: only its entry, or --include-owned,
+# includes it.
 #
 # Running discover again updates this file: entries keep their decisions and
 # notes, resources no longer found where it listed are dropped (entries of
@@ -362,9 +384,9 @@ func (f *File) index() {
 // keep their decisions and notes, except that one included without a note
 // is excluded once Terraform manages the resource (listed's reason says
 // so), marked New for review. Listed resources it lacks are added with New
-// set: decided by f's rules if one matches, else excluded with listed's
-// reason if listed excludes them (the provider's defaults), else by f's
-// defaults. An entry no longer listed is dropped only if covered reports
+// set: decided by f's rules if one matches (see ByRuleFor), else excluded
+// with listed's reason if listed excludes them (the provider's defaults),
+// else by f's defaults. An entry no longer listed is dropped only if covered reports
 // that this run listed everything that would list it, such as its service
 // in its scope; any other stays with its decision, as an entry of another
 // region, account or service does, or of a listing that failed in part.
@@ -395,7 +417,7 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 			merged = append(merged, m)
 			continue
 		}
-		if d, ok := f.ByRule(l.Type, l.ID, l.Name, l.Tags); ok {
+		if d, ok := f.ByRuleFor(l.Type, l.ID, l.Name, l.Tags, l.Reason); ok {
 			l.Include, l.Reason = d.Include, d.Reason
 		} else if l.Include {
 			d := f.DecideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags)
@@ -424,4 +446,13 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 // resource (see managed.Reason).
 func isManaged(reason string) bool {
 	return strings.HasPrefix(reason, managed.Reason)
+}
+
+// Owned reports whether reason, why the default selection excludes a
+// resource, says another Terraform state or tool manages it: the state
+// --managed-state reads, its tags, or the CloudFormation stack that lists
+// it (see managed.Reason and report.OtherToolPrefix). What the cloud
+// creates and manages itself, such as a default VPC, isn't owned.
+func Owned(reason string) bool {
+	return isManaged(reason) || strings.HasPrefix(reason, report.OtherToolPrefix)
 }

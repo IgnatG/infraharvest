@@ -445,3 +445,84 @@ func TestMayInclude(t *testing.T) {
 		t.Error("a rule for every type doesn't include access keys")
 	}
 }
+
+// A rule doesn't include a new resource that another Terraform state or
+// tool manages: it stays excluded with its reason, unless its entry or
+// IncludeOwned includes it. What the cloud manages, such as a default
+// VPC, a rule includes; an exclude rule excludes all alike.
+func TestMergeRulesKeepOwnedOut(t *testing.T) {
+	t.Parallel()
+	prod := map[string]string{"Environment": "prod"}
+	stack := "managed by CloudFormation stack app"
+	pulumi := "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)"
+	terraform := managed.Reason + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)"
+	listed := []Resource{
+		{Type: "aws_s3_bucket", ID: "stack-bucket", Tags: prod, Reason: stack},
+		{Type: "aws_sqs_queue", ID: "pulumi-queue", Tags: prod, Reason: pulumi},
+		{Type: "aws_sns_topic", ID: "terraform-topic", Tags: prod, Reason: terraform},
+		{Type: "aws_vpc", ID: "vpc-default", Tags: prod, Reason: "default VPC"},
+		{Type: "aws_s3_bucket", ID: "app-bucket", Tags: prod, Include: true},
+		{Type: "aws_s3_bucket", ID: "kept", Tags: prod, Reason: stack},
+	}
+	include := []Rule{{Include: &Match{Tags: map[string]Patterns{"Environment": {"prod"}}}}}
+	newFile := func(rules []Rule, includeOwned bool) *File {
+		return &File{
+			Version:      Version,
+			Rules:        rules,
+			IncludeOwned: includeOwned,
+			Resources:    []Resource{{Type: "aws_s3_bucket", ID: "kept", Include: true, Note: "moving it here"}},
+		}
+	}
+	decisions := func(f *File) map[string]Resource {
+		f.Merge(listed, nil)
+		got := map[string]Resource{}
+		for _, r := range f.Resources {
+			got[r.ID] = r
+		}
+		return got
+	}
+	for _, tc := range []struct {
+		name  string
+		file  *File
+		want  map[string]bool
+		owned bool // whether excluded owned resources keep their reason
+	}{
+		{"include rule", newFile(include, false), map[string]bool{"stack-bucket": false, "pulumi-queue": false, "terraform-topic": false, "vpc-default": true, "app-bucket": true, "kept": true}, true},
+		{"include rule with IncludeOwned", newFile(include, true), map[string]bool{"stack-bucket": true, "pulumi-queue": true, "terraform-topic": true, "vpc-default": true, "app-bucket": true, "kept": true}, false},
+		{"exclude rule", newFile([]Rule{{Exclude: &Match{Tags: map[string]Patterns{"Environment": {"prod"}}}}}, false), map[string]bool{"stack-bucket": false, "pulumi-queue": false, "terraform-topic": false, "vpc-default": false, "app-bucket": false, "kept": true}, false},
+	} {
+		got := decisions(tc.file)
+		for id, include := range tc.want {
+			r := got[id]
+			if r.Include != include {
+				t.Errorf("%s: %s: got %+v, want include %v", tc.name, id, r, include)
+			}
+		}
+		if tc.owned {
+			for id, reason := range map[string]string{"stack-bucket": stack, "pulumi-queue": pulumi, "terraform-topic": terraform} {
+				if got[id].Reason != reason {
+					t.Errorf("%s: %s: reason %q, want %q", tc.name, id, got[id].Reason, reason)
+				}
+			}
+		}
+		if r := got["app-bucket"]; r.Include == (r.Reason != "") {
+			t.Errorf("%s: app-bucket: %+v", tc.name, r)
+		}
+	}
+}
+
+// Only what another Terraform state or tool manages is owned.
+func TestOwned(t *testing.T) {
+	t.Parallel()
+	for reason, want := range map[string]bool{
+		managed.Reason + " (prod.tfstate)":                                 true,
+		"managed by CloudFormation stack app":                              true,
+		"default VPC, which AWS creates in every region":                   false,
+		"shared by account 111122223333 through AWS RAM, which manages it": false,
+		"": false,
+	} {
+		if got := Owned(reason); got != want {
+			t.Errorf("%q: got %v, want %v", reason, got, want)
+		}
+	}
+}

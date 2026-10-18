@@ -115,16 +115,19 @@ func withTagAttributes(r harvest.Resource, tags map[string]string) harvest.Resou
 	return r
 }
 
-// selectionFile loads the selection file once per run; nil for --all.
-func (r *Run) selectionFile(path string) (*selection.File, error) {
-	if path == "" {
+// selectionFile loads the selection file options.Selection once per run;
+// nil for --all. With --include-owned, its rules may include what another
+// Terraform state or tool manages.
+func (r *Run) selectionFile(options Options) (*selection.File, error) {
+	if options.Selection == "" {
 		return nil, nil
 	}
 	if r.selection == nil {
-		f, err := selection.Load(path)
+		f, err := selection.Load(options.Selection)
 		if err != nil {
 			return nil, err
 		}
+		f.IncludeOwned = options.IncludeOwned
 		r.selection = f
 	}
 	return r.selection, nil
@@ -133,7 +136,9 @@ func (r *Run) selectionFile(path string) (*selection.File, error) {
 // selectResources keeps the listed resources to import and records the
 // others as excluded. A resource the selection file lists in scope (see
 // discoveryScope) follows it; one it doesn't list follows the file's
-// rules, then the provider's defaults, then the file's defaults. With no
+// rules, then the provider's defaults, then the file's defaults, except
+// that a rule doesn't include what the defaults leave out because another
+// Terraform state or tool manages it (see selection.File.ByRuleFor). With no
 // file (--all), the provider's defaults decide. It also returns the
 // resources it leaves out.
 func (r *Run) selectResources(listed listing, defaults map[string]string, f *selection.File, scope string, importID func(harvest.Resource) (string, bool)) (map[string][]harvest.Resource, []engine.External) {
@@ -156,7 +161,7 @@ func (r *Run) selectResources(listed listing, defaults map[string]string, f *sel
 			case f != nil && f.HasIn(scope, typ, id):
 				d = f.DecideIn(scope, typ, id, res.RawName, tags)
 			case f != nil:
-				ruled, ok := f.ByRule(typ, id, res.RawName, tags)
+				ruled, ok := f.ByRuleFor(typ, id, res.RawName, tags, reason)
 				switch {
 				case ok:
 					d = ruled
@@ -264,6 +269,9 @@ func (r *Run) covers(partial bool) func(selection.Resource) bool {
 func (r *Run) writeSelection(partial bool) error {
 	path := r.selectionPath()
 	f, err := selection.Load(path)
+	if f != nil {
+		f.IncludeOwned = r.options.IncludeOwned
+	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		// Merge lists each resource once; nothing is new in a first file.

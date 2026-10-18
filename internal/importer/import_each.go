@@ -46,7 +46,7 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 
 	if !options.Discover {
 		// Loaded before the scopes share it.
-		if _, err := run.selectionFile(options.Selection); err != nil {
+		if _, err := run.selectionFile(options); err != nil {
 			return err
 		}
 	}
