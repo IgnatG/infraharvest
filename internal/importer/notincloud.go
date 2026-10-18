@@ -118,12 +118,14 @@ func typesListedInFull(provider harvest.Provider, cat *catalogue.Catalogue, opti
 		}
 		switch {
 		case e.Inventory != nil && inventory:
-			types[typ] = true
+			// The inventory service maps the resources it lists to it.
 		case e.Service == "" || !slices.Contains(options.Services, e.Service):
-		case slices.Contains(inventoryServices, e.Service) && e.Inventory == nil:
-		default:
-			types[typ] = true
+			continue
+		case slices.Contains(inventoryServices, e.Service):
+			// Its service maps it one resource at a time.
+			continue
 		}
+		types[typ] = true
 	}
 	return types
 }
