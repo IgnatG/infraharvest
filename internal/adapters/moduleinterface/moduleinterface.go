@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package moduleinterface reads a registry module version's interface (its
-// variables and outputs) and checks adapters against it: the snapshots in
+// variables and outputs, the providers it requires and the resources it
+// declares) and checks adapters against it: the snapshots in
 // internal/adapters/testdata/interfaces, and the nightly check for newer versions.
 package moduleinterface
 
@@ -39,12 +40,31 @@ const RegistryURL = "https://registry.terraform.io"
 // of a module archive, well above any real one.
 const maxRead = 16 << 20
 
-// Interface is a module version's variables and outputs.
+// maxModule bounds the .tf files of a module archive read in all.
+const maxModule = 64 << 20
+
+// Interface is a module version's variables and outputs, the providers it
+// requires and the resources it declares.
 type Interface struct {
 	Source    string              `json:"source"`
 	Version   string              `json:"version"`
 	Variables map[string]Variable `json:"variables"`
 	Outputs   []string            `json:"outputs"`
+	// Providers are the providers the module requires, by the local name
+	// its terraform block's required_providers gives each. Resources are
+	// the addresses of the resources it declares, type.name, with those
+	// of the local modules it calls under module.<call>., such as
+	// module.vpc.google_compute_network.network. An interface read before
+	// they were recorded has neither.
+	Providers map[string]Provider `json:"providers,omitempty"`
+	Resources []string            `json:"resources,omitempty"`
+}
+
+// Provider is a provider a module requires: its source, if the module
+// names one, and its version constraint as written.
+type Provider struct {
+	Source  string `json:"source,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // Variable is a module variable: whether it is required, its type
@@ -176,16 +196,26 @@ func githubSource(location string) (owner, repo, ref string, err error) {
 	return parts[0], parts[1], ref, nil
 }
 
+// tfFile is a .tf file of a module archive.
+type tfFile struct {
+	name string
+	src  []byte
+}
+
 // Read reads the interface of a module from a tar.gz of its repository:
 // the .tf files of subdir, such as modules/iam-role, in the archive's one
-// top-level directory, or of that directory itself if subdir is "".
+// top-level directory, or of that directory itself if subdir is "", and
+// for its resources those of the local modules it calls.
 func Read(r io.Reader, subdir string) (*Interface, error) {
 	subdir = strings.Trim(subdir, "/")
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return nil, err
 	}
-	iface := &Interface{Variables: map[string]Variable{}}
+	// The .tf files by directory, relative to the top-level one: only
+	// the module's and those of the local modules it calls are parsed.
+	files := map[string][]tfFile{}
+	total := 0
 	tr := tar.NewReader(gz)
 	for {
 		h, err := tr.Next()
@@ -197,7 +227,7 @@ func Read(r io.Reader, subdir string) (*Interface, error) {
 		}
 		dir, name := path.Split(strings.TrimPrefix(h.Name, "./"))
 		top, rest, _ := strings.Cut(strings.Trim(dir, "/"), "/")
-		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(name, ".tf") || top == "" || rest != subdir {
+		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(name, ".tf") || top == "" {
 			continue
 		}
 		src, err := io.ReadAll(io.LimitReader(tr, maxRead+1))
@@ -207,24 +237,123 @@ func Read(r io.Reader, subdir string) (*Interface, error) {
 		if len(src) > maxRead {
 			return nil, fmt.Errorf("%s: larger than %d bytes", h.Name, maxRead)
 		}
-		f, diags := hclsyntax.ParseConfig(src, h.Name, hcl.InitialPos)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("%s: %w", h.Name, diags)
+		if total += len(src); total > maxModule {
+			return nil, fmt.Errorf("the archive's .tf files are larger than %d bytes", maxModule)
 		}
-		for _, b := range f.Body.(*hclsyntax.Body).Blocks {
-			switch {
-			case b.Type == "variable" && len(b.Labels) == 1:
-				iface.Variables[b.Labels[0]] = readVariable(b.Body, src)
-			case b.Type == "output" && len(b.Labels) == 1:
-				iface.Outputs = append(iface.Outputs, b.Labels[0])
-			}
-		}
+		files[rest] = append(files[rest], tfFile{name: h.Name, src: src})
+	}
+	iface := &Interface{Variables: map[string]Variable{}}
+	resources := map[string]bool{}
+	if err := readModule(files, subdir, "", iface, resources, map[string]bool{}); err != nil {
+		return nil, err
 	}
 	sort.Strings(iface.Outputs)
+	if len(resources) > 0 {
+		iface.Resources = slices.Sorted(maps.Keys(resources))
+	}
 	if len(iface.Variables) == 0 {
 		return nil, errors.New("no variables in the module")
 	}
 	return iface, nil
+}
+
+// readModule reads the module in dir, of files: its interface into iface,
+// unless iface is nil, and the addresses of its resources, and of those
+// of the local modules it calls, into resources, under prefix. stack has
+// the directories being read, so that a module calling itself ends.
+func readModule(files map[string][]tfFile, dir, prefix string, iface *Interface, resources, stack map[string]bool) error {
+	if stack[dir] {
+		return nil
+	}
+	stack[dir] = true
+	defer delete(stack, dir)
+	for _, file := range files[dir] {
+		f, diags := hclsyntax.ParseConfig(file.src, file.name, hcl.InitialPos)
+		if diags.HasErrors() {
+			return fmt.Errorf("%s: %w", file.name, diags)
+		}
+		for _, b := range f.Body.(*hclsyntax.Body).Blocks {
+			switch {
+			case b.Type == "resource" && len(b.Labels) == 2:
+				resources[prefix+b.Labels[0]+"."+b.Labels[1]] = true
+			case b.Type == "module" && len(b.Labels) == 1:
+				if called, ok := localSource(dir, b.Body); ok {
+					if err := readModule(files, called, prefix+"module."+b.Labels[0]+".", nil, resources, stack); err != nil {
+						return err
+					}
+				}
+			case iface == nil:
+			case b.Type == "variable" && len(b.Labels) == 1:
+				iface.Variables[b.Labels[0]] = readVariable(b.Body, file.src)
+			case b.Type == "output" && len(b.Labels) == 1:
+				iface.Outputs = append(iface.Outputs, b.Labels[0])
+			case b.Type == "terraform":
+				readRequiredProviders(b.Body, iface)
+			}
+		}
+	}
+	return nil
+}
+
+// localSource returns the directory a module call in dir calls, if its
+// source is a local path, such as ./modules/vpc.
+func localSource(dir string, body *hclsyntax.Body) (string, bool) {
+	attr, ok := body.Attributes["source"]
+	if !ok {
+		return "", false
+	}
+	source, ok := stringValue(attr.Expr)
+	if !ok || !strings.HasPrefix(source, "./") && !strings.HasPrefix(source, "../") {
+		return "", false
+	}
+	return path.Join(dir, source), true
+}
+
+// readRequiredProviders reads the required_providers of a terraform block
+// into iface: each provider's source and version, as plain strings, or a
+// version alone in the old form, a string.
+func readRequiredProviders(body *hclsyntax.Body, iface *Interface) {
+	for _, b := range body.Blocks {
+		if b.Type != "required_providers" {
+			continue
+		}
+		for name, attr := range b.Body.Attributes {
+			var p Provider
+			pairs, diags := hcl.ExprMap(attr.Expr)
+			if diags.HasErrors() {
+				p.Version, _ = stringValue(attr.Expr)
+			}
+			for _, kv := range pairs {
+				key, ok := stringValue(kv.Key)
+				if !ok {
+					continue
+				}
+				// configuration_aliases refers to providers: not a value.
+				value, ok := stringValue(kv.Value)
+				switch {
+				case !ok:
+				case key == "source":
+					p.Source = value
+				case key == "version":
+					p.Version = value
+				}
+			}
+			if iface.Providers == nil {
+				iface.Providers = map[string]Provider{}
+			}
+			iface.Providers[name] = p
+		}
+	}
+}
+
+// stringValue returns the value of an expression that is a string without
+// references or function calls.
+func stringValue(expr hcl.Expression) (string, bool) {
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
+		return "", false
+	}
+	return v.AsString(), true
 }
 
 // readVariable reads a variable block, from the file src.
@@ -322,4 +451,95 @@ func TypeChanges(pinned, newer *Interface, inputs []string) []string {
 		}
 	}
 	return changes
+}
+
+// NewestRelease returns the newest release of the provider at source that
+// every one of constraints accepts, or the newest of all with none, as
+// engine.ProviderVersion, which pins the root's provider, does.
+type NewestRelease func(source string, constraints []version.Constraints) (*version.Version, error)
+
+// CheckProviders returns, of the providers named (by the local names the
+// module's required_providers gives them), those the module accepts no
+// release of in the provider's newest major release line, with its
+// constraint: an import doesn't call a module that would hold the root a
+// major release behind. A provider the module doesn't require, or
+// requires without a version, accepts every release, as Terraform takes
+// it. The error is a provider whose releases couldn't be looked up.
+func CheckProviders(iface *Interface, names []string, newest NewestRelease) ([]string, error) {
+	var held []string
+	for _, name := range names {
+		p, ok := iface.Providers[name]
+		if !ok || strings.TrimSpace(p.Version) == "" {
+			continue
+		}
+		c, err := version.NewConstraint(p.Version)
+		if err != nil {
+			held = append(held, fmt.Sprintf("its constraint on %s, `%s`, doesn't parse", name, p.Version))
+			continue
+		}
+		source := p.Source
+		if source == "" {
+			source = "hashicorp/" + name
+		}
+		latest, err := newest(source, nil)
+		if err != nil {
+			return held, err
+		}
+		accepted, err := newest(source, []version.Constraints{c})
+		if err != nil || accepted.Segments()[0] != latest.Segments()[0] {
+			held = append(held, fmt.Sprintf("it accepts %s `%s` only, not %d.x, the newest major release (%s)", name, p.Version, latest.Segments()[0], latest))
+		}
+	}
+	return held, nil
+}
+
+// CheckResources returns the targets (see Adapter.Targets) a module
+// interface has no resource at, each with the resources of its type, or
+// else of its name, in the same module, that it may have become: such as
+// an azapi_resource where an azurerm resource was. An interface that
+// records no resources isn't checked.
+func CheckResources(targets []string, iface *Interface) []string {
+	if len(iface.Resources) == 0 {
+		return nil
+	}
+	var problems []string
+	for _, target := range targets {
+		if slices.Contains(iface.Resources, target) {
+			continue
+		}
+		module, typ, name := splitAddress(target)
+		var sameType, sameName []string
+		for _, r := range iface.Resources {
+			m, t, n := splitAddress(r)
+			switch {
+			case m != module:
+			case t == typ:
+				sameType = append(sameType, r)
+			case n == name:
+				sameName = append(sameName, r)
+			}
+		}
+		problem := fmt.Sprintf("no resource %s, which the adapter maps onto", target)
+		instead := sameType
+		if len(instead) == 0 {
+			instead = sameName
+		}
+		if len(instead) > 0 {
+			problem += fmt.Sprintf(" (the module has %s)", strings.Join(instead, ", "))
+		}
+		problems = append(problems, problem)
+	}
+	return problems
+}
+
+// splitAddress splits a resource address, such as
+// module.vpc.google_compute_network.network, into its module path
+// (module.vpc.), its type and its name.
+func splitAddress(address string) (module, typ, name string) {
+	i := strings.LastIndex(address, ".")
+	if i < 0 {
+		return "", address, ""
+	}
+	j := strings.LastIndex(address[:i], ".")
+	return address[:j+1], address[j+1 : i], address[i+1:]
 }
