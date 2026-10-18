@@ -58,6 +58,12 @@ var VPC = Adapter{
 		"public_subnets_cidr_blocks", "vpc_arn", "vpc_cidr_block", "vpc_enable_dns_hostnames",
 		"vpc_enable_dns_support", "vpc_id", "vpc_instance_tenancy", "vpc_main_route_table_id", "vpc_owner_id",
 	},
+	Targets: []string{
+		"aws_eip.nat", "aws_internet_gateway.this", "aws_nat_gateway.this", "aws_route.private_nat_gateway",
+		"aws_route.public_internet_gateway", "aws_route_table.private", "aws_route_table.public",
+		"aws_route_table_association.private", "aws_route_table_association.public", "aws_subnet.private",
+		"aws_subnet.public", "aws_vpc.this",
+	},
 	Map: mapVPC,
 	// The module's variables' defaults, from its variables.tf; its
 	// enable_network_address_usage_metrics defaults to null, which the

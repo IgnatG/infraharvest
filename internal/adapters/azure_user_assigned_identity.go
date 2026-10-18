@@ -43,6 +43,7 @@ var AzureUserAssignedIdentity = Adapter{
 	},
 	Outputs:   []string{"client_id", "principal_id", "resource", "resource_id", "resource_name", "tenant_id"},
 	Providers: []string{"azapi"},
+	Targets:   []string{"azurerm_federated_identity_credential.this", "azurerm_user_assigned_identity.this"},
 	Map:       mapAzureUserAssignedIdentity,
 }
 

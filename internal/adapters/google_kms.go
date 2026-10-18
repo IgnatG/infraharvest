@@ -31,6 +31,7 @@ var GoogleKMS = Adapter{
 		"project_id", "purpose", "skip_initial_version_creation",
 	},
 	Outputs: []string{"keyring", "keyring_name", "keys"},
+	Targets: []string{"google_kms_crypto_key.key", "google_kms_key_ring.key_ring"},
 	Map:     mapGoogleKMS,
 }
 

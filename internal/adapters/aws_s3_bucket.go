@@ -39,6 +39,11 @@ var S3Bucket = Adapter{
 		"s3_bucket_arn", "s3_bucket_bucket_domain_name", "s3_bucket_bucket_namespace",
 		"s3_bucket_bucket_regional_domain_name", "s3_bucket_hosted_zone_id", "s3_bucket_id", "s3_bucket_region",
 	},
+	Targets: []string{
+		"aws_s3_bucket.this", "aws_s3_bucket_lifecycle_configuration.this", "aws_s3_bucket_ownership_controls.this",
+		"aws_s3_bucket_policy.this", "aws_s3_bucket_public_access_block.this",
+		"aws_s3_bucket_server_side_encryption_configuration.this", "aws_s3_bucket_versioning.this",
+	},
 	Map: mapS3Bucket,
 	// The module's variables' defaults, from its variables.tf; its
 	// bucket_namespace defaults to null, which the provider takes as

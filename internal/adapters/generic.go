@@ -39,11 +39,13 @@ func Generic(source, version, dir string) (Adapter, error) {
 	}
 	a := Adapter{Source: source, Version: version, Anchor: m.anchor.typ}
 	for _, r := range m.resources {
+		a.Targets = append(a.Targets, r.typ+"."+r.name)
 		if r != m.anchor {
 			a.Members = append(a.Members, r.typ)
 		}
 	}
 	sort.Strings(a.Members)
+	sort.Strings(a.Targets)
 	for name := range m.variables {
 		a.Inputs = append(a.Inputs, name)
 	}

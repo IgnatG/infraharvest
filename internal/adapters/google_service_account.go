@@ -24,6 +24,7 @@ var GoogleServiceAccount = Adapter{
 	Repeated: []string{"google_project_iam_member"},
 	Inputs:   []string{"description", "display_name", "name", "project_id", "project_roles"},
 	Outputs:  []string{"email", "iam_email", "id"},
+	Targets:  []string{"google_project_iam_member.roles", "google_service_account.sa"},
 	Map:      mapGoogleServiceAccount,
 }
 
