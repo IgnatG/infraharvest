@@ -175,6 +175,10 @@ type Coverage struct {
 	// IncompleteHandovers are the resources handed over between roots
 	// whose handover one of the roots didn't finish, as it failed.
 	IncompleteHandovers []IncompleteHandover `json:"incomplete_handovers,omitempty"`
+	// KeptRoots are the roots earlier imports generated that keep their
+	// directories, and the resources in them, though the configuration
+	// file's environments would put those under envs/<env>/ now.
+	KeptRoots []KeptRoot `json:"kept_roots,omitempty"`
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
@@ -335,6 +339,45 @@ type IncompleteHandover struct {
 	Warning    string `json:"warning"`
 }
 
+// KeptRoot is a root an earlier import generated that keeps its
+// directory, as its state key comes from its path, though Environments,
+// those of its resources, would lay them out elsewhere now. Path is
+// relative to the output directory, with forward slashes, and Scope is
+// where its resources were listed.
+type KeptRoot struct {
+	Path         string   `json:"path"`
+	Environments []string `json:"environments"`
+	Scope        string   `json:"scope,omitempty"`
+}
+
+// mergeKeptRoots returns kept sorted by path, with the environments of
+// each root, of every call that kept it, together.
+func mergeKeptRoots(kept []KeptRoot) []KeptRoot {
+	if len(kept) == 0 {
+		return kept
+	}
+	byPath := map[string]int{}
+	var merged []KeptRoot
+	for _, k := range kept {
+		if i, ok := byPath[k.Path]; ok {
+			for _, env := range k.Environments {
+				if !slices.Contains(merged[i].Environments, env) {
+					merged[i].Environments = append(merged[i].Environments, env)
+				}
+			}
+			continue
+		}
+		k.Environments = slices.Clone(k.Environments)
+		byPath[k.Path] = len(merged)
+		merged = append(merged, k)
+	}
+	for i := range merged {
+		slices.Sort(merged[i].Environments)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Path < merged[j].Path })
+	return merged
+}
+
 // AddArrival records a resource a root imports that another root hands
 // over: Finish sets the address it has there on the departure that
 // matches it.
@@ -385,6 +428,7 @@ func (r *Report) Merge(other *Report) {
 	r.Moved = append(r.Moved, other.Moved...)
 	r.Departed = append(r.Departed, other.Departed...)
 	r.IncompleteHandovers = append(r.IncompleteHandovers, other.IncompleteHandovers...)
+	r.KeptRoots = append(r.KeptRoots, other.KeptRoots...)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.listed = append(r.listed, other.listed...)
@@ -435,6 +479,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		return a.From < b.From
 	})
 	sort.Strings(r.Failures)
+	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
 
 	byType := map[string]*CoverageTotal{}
 	count := func(t string) *CoverageTotal {
@@ -825,6 +870,11 @@ func (r *Report) Markdown() string {
 	for _, h := range r.IncompleteHandovers {
 		incompleteLines = append(incompleteLines, fmt.Sprintf("- `%s` from `%s` to `%s`: %s", h.From, h.FromRoot, h.ToRoot, h.Warning))
 	}
+	var keptLines []string
+	for _, k := range r.KeptRoots {
+		keptLines = append(keptLines, fmt.Sprintf("- `%s`, of %s", k.Path, strings.Join(k.Environments, ", ")))
+	}
+	section("Kept where they were", "An earlier import generated these roots, so they keep their directories, and the resources in them, though the configuration file's environments would put those under `envs/<env>/` now: a root's state key comes from its path. To lay them out by environment, import into a new `--out`.", keptLines)
 	section("Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", incompleteLines)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
