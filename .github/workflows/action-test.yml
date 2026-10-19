@@ -144,7 +144,8 @@ jobs:
           ! grep -q '"infraharvest-action"' <<< "$added"
       # Review the decisions file as a person would: accept the change.
       - name: Decide to accept the drift
-        run: sed -i 's/decision: undecided/decision: accept/' "$RUNNER_TEMP/out/drift.yaml"
+        run: |
+          sed -i 's/decision: undecided/decision: accept/' "$RUNNER_TEMP/out/drift.yaml"
       - name: Accept the drift
         id: accept
         uses: ./action
