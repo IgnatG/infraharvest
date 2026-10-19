@@ -29,7 +29,7 @@ Each attribute that changed in the cloud gets an outcome:
 |---|---|
 | `kept` | The code still has the old value: the next apply puts it back. This is what happens to every change you don't accept |
 | `written` | You accepted it, and the cloud's value is now in the code |
-| `manual` | You accepted it, but where the code sets the value takes a hand edit, such as an expression or a module call; `reason` says why |
+| `manual` | You accepted it, but where the code sets the value takes a hand edit, such as an expression; `reason` says why |
 | `rejected_by_plan` | You accepted it, but the plan of the edited code didn't take the edit, so nothing was written for it; `reason` says what the plan did |
 | `secret` | You accepted it, but it is a secret, which is never written into the code |
 | `not_assessable` | It can't be told here, such as a secret whose variable has no value |
@@ -41,7 +41,7 @@ A resource deleted in the cloud is reported once, as `deleted`. Some changes are
 
 Resources the root's import blocks import, but that the state doesn't have yet, are listed as not applied: they aren't checked.
 
-The report goes into `<out>/report/drift.json` and `<out>/report/drift.md`, apart from the import's report (see [Output](output.md#report)). `drift.md` lists the changes accepted into the code (with the file and line), those kept, which the next apply reverts, those that need a hand edit, the secrets and those not assessable, then those absorbed. Values the provider marks sensitive, and values that look like credentials, are shown as `(sensitive value)`. For resources in the root itself, the report gives the file and line where the code sets the attribute, as best it can tell; for resources in modules it gives none yet.
+The report goes into `<out>/report/drift.json` and `<out>/report/drift.md`, apart from the import's report (see [Output](output.md#report)). `drift.md` lists the changes accepted into the code (with the file and line), those kept, which the next apply reverts, those that need a hand edit, the secrets and those not assessable, then those absorbed. Values the provider marks sensitive, and values that look like credentials, are shown as `(sensitive value)`. The report gives the file and line where the root's code sets the attribute, as best it can tell. For a resource in a module call (`module_call`), that is the call's argument the module gets it from, and `source.module_path` says how the module reads it, such as `../../../modules/s3_bucket_0a1b2c3d/main.tf:4 var.tags` (see [Resources in module calls](#resources-in-module-calls)).
 
 ## Accepting changes
 
@@ -92,7 +92,7 @@ Generated roots keep the tags most resources share in one place:
 
 A root written by hand can keep them in the provider block itself, as a map literal: that is then the place, such as `provider.aws.default_tags`.
 
-When every resource that gets a key from that place changed it in the cloud to the same value, or removed it, that is one change: its address is the place's, such as `local.tags`, its attribute the key's, such as `tags.Env`, and `covers` lists the resources. `drift.md` lists it once. Accepting it edits the place once: the key's value is replaced, or the key removed. Which resources get a key is told from the code, for those whose tags refer to the local, and from the state, for those the provider tags: a resource whose `tags_all` (or `terraform_labels`) has the provider's value of the key, and whose own `tags` (or `labels`) don't set it. A local that anything else refers to, such as a module call or an output, or that a second configuration of the provider applies too, isn't treated as shared: each resource's change is its own.
+When every resource that gets a key from that place changed it in the cloud to the same value, or removed it, that is one change: its address is the place's, such as `local.tags`, its attribute the key's, such as `tags.Env`, and `covers` lists the resources. `drift.md` lists it once. Accepting it edits the place once: the key's value is replaced, or the key removed. Which resources get a key is told from the code, for those whose tags refer to the local, and from the state, for those the provider tags: a resource whose `tags_all` (or `terraform_labels`) has the provider's value of the key, and whose own `tags` (or `labels`) don't set it. A module call that passes the local as an argument, as it is or merged under keys of its own, counts its module's resources among those that get it when the module sets their `tags` (or `labels`) to that variable as it is, and does nothing else with it. A local that anything else refers to, such as an output or a call whose module does more with it, or that a second configuration of the provider applies too, isn't treated as shared: each resource's change is its own.
 
 When only some of those resources changed the key, or to different values, each change is its own, accepted at its resource: the key in the resource's own `tags` or `labels`, or `merge(local.tags, { Env = "dev" })` where the resource refers to the local. A resource can't leave out one of the provider's default tags, so a key removed from only some of the resources that get it from `default_tags` or `default_labels` is a hand edit, and the reason says so.
 
@@ -100,13 +100,34 @@ Planned without refreshing, an edited root can still change a resource's own `ta
 
 The edit of the shared tags is verified as any other: each resource it covers must plan no change to the key, and every other resource must plan what it did before, which catches the edit reaching a resource it doesn't cover. If the plan rejects the edit, it is left out, and each resource's change is accepted at the resource instead, with a reason that says why.
 
+### Resources in module calls
+
+A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its arguments from the module's code, and that code gets them from the call's arguments. Drift reads the module where `terraform init` installed it, as the root's `.terraform/modules/modules.json` lists it: a generated module under `<out>/modules`, or a registry module's download. It finds the resource's block there, follows the attribute to the module's variable, and edits that argument of the root's call, as the table above says for a resource's argument. It never edits the module.
+
+| Where the module sets the value | What accepting it edits |
+|---|---|
+| `var.x` | The call's argument `x` |
+| A key or an attribute of a variable: `var.x.k`, `var.x["k"]`, `lookup(var.x, "k", ...)` or `try(var.x.k, ...)` | `k` in the object or map the call passes as `x`. If the call leaves `k` out, and the variable's type makes it optional, `k` is added |
+| A variable of a module called inside the module | The argument it gets it from, followed up to the root's call |
+| A curated module's resource, called at the release its adapter pins | The input the adapter's `Inverse` maps the attribute onto, such as `tags` for the IAM role module's `aws_iam_role.this.tags`, or the policy's key in `policies` for its `aws_iam_role_policy_attachment.this.policy_arn`. A value the adapter names as the input's default leaves the argument out |
+| A literal in the module | Nothing: a hand edit in the module. A generated module's literal is the same for every call that shares the module: to change it for one call, make it a variable of the module |
+| Anything else: a function, a conditional, `each`, `count`, a `dynamic` block, or an attribute of a curated module that its adapter's `Inverse` doesn't name | Nothing: a hand edit, at the call |
+
+Another release of a registry module, such as one `--modules latest-untested` called, is traced through its code, as a local module is.
+
+A call with `count` or `for_each` makes several instances, and drift edits only the instance's own value: the element at its index in a list literal indexed by `count.index`, the item at its key in an object literal indexed by `each.key`, or, through `each.value`, the item at its key in the call's own `for_each` object literal. An argument all the instances share is a hand edit.
+
+An argument can reach more than the resource that changed: every resource the module makes from it, such as both a role and its instance profile from `tags`. The plan of the edited code catches that, as it catches an edit of a local that other resources use: if a resource that didn't change in the cloud would now change, the edit is rejected (`rejected_by_plan`), and the reason names that resource.
+
+`Inverse` names only the attributes a module sets from an input as it is, or from the input whose keys win in a merge, such as a VPC's `vpc_tags`, which the module merges over `tags`. Each entry is checked against the interface of the release its adapter pins, and by the nightly check against newer releases (see [Modules](modules.md)).
+
 ### Secrets
 
 A value the provider marks sensitive, or one infraharvest would take for a secret (see [Secrets](output.md#secrets)), is never written into the code or the report. Accepting it reports it as `secret`: where the code reads it from a sensitive variable, update the secret store or the `TF_VAR_` variable; elsewhere, move it into a sensitive variable by hand.
 
 ### What is a hand edit for now
 
-- Resources in module calls: the report names the call; the call's arguments are edited by hand.
+- In a module call: a value the module sets to a literal, or computes, and an attribute a curated module's adapter has no `Inverse` entry for (see [Resources in module calls](#resources-in-module-calls)).
 - A nested block added or removed in the cloud, such as a new `ingress` rule block.
 - A resource deleted in the cloud: remove it from the code, or apply to create it again.
 
