@@ -143,6 +143,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | Check roots after editing them | `infraharvest verify [output-directory]`, before deleting `imports.tf` (see [Verification gate](output.md#verification-gate)) |
 | See what changed in the cloud since applying | `infraharvest drift [output-directory]`: one refresh per root, with read access to the state; it reports which changes the next apply would revert, and changes nothing (see [Drift](drift.md)) |
 | Keep what changed in the cloud | `infraharvest drift [output-directory] --accept <rule>`, such as `--accept 'attribute=tags.*'`: the cloud's values of the changes the rules accept are written into the code, once a plan of the edited code shows them taken (see [Accepting changes](drift.md#accepting-changes)) |
+| Review changes in the cloud one by one | `infraharvest drift [output-directory] --write-decisions` writes `drift.yaml`, a decisions file with an entry per change; set each to `accept` or `keep`, then run `infraharvest drift [output-directory] --decisions <out>/drift.yaml` (see [Decisions file](drift.md#decisions-file)) |
 | Print the report again | `infraharvest report [output-directory]`, with `--format json` for JSON |
 | Use the result in a script | `--format json` prints the report on stdout, and logs go to stderr; the exit code says whether the import is complete (see [Exit codes](output.md#exit-codes)) |
 | Keep what imported when something fails | `--allow-partial`: what failed is left out and reported, and the run exits 3 instead of 1 |
