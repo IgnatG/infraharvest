@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -22,28 +23,46 @@ const (
 	DriftMarkdownFile = "drift.md"
 )
 
-// What the code makes of a change in the cloud (DriftChange.Outcome).
+// What became of a change in the cloud (DriftChange.Outcome).
 const (
-	DriftReverts       = "reverts"
-	DriftAbsorbed      = "absorbed"
+	// DriftWritten: accepted, and written into the code.
+	DriftWritten = "written"
+	// DriftKept: the code keeps its value: the next apply puts it back in
+	// the cloud.
+	DriftKept = "kept"
+	// DriftRejectedByPlan: accepted, but the plan of the edited code
+	// didn't take it, so nothing was written for it.
+	DriftRejectedByPlan = "rejected_by_plan"
+	// DriftManual: accepted, but taking it into the code is a hand edit.
+	DriftManual = "manual"
+	// DriftSecret: accepted, but a secret, which is never written.
+	DriftSecret = "secret"
+	// DriftNotAssessable: what the next apply does about it can't be
+	// told.
 	DriftNotAssessable = "not_assessable"
+	// DriftAbsorbed: the code doesn't set it: the next apply keeps the
+	// cloud's value.
+	DriftAbsorbed = "absorbed"
 )
 
 // DriftDeleted is the kind of a change of a resource no longer in the
 // cloud.
 const DriftDeleted = "deleted"
 
-// DriftUndecided is the decision of a change no one decided on yet, as
-// for every change detection alone finds.
-const DriftUndecided = "undecided"
+// What was decided for a change (DriftChange.Decision): keep is the
+// default, accept what an --accept rule chose.
+const (
+	DriftAccept = "accept"
+	DriftKeep   = "keep"
+)
 
 // Drift is what infraharvest drift found in the roots of an output
 // directory.
 type Drift struct {
 	SchemaVersion int `json:"schema_version"`
-	// DriftFound says whether a change reverts on the next apply or is
-	// not assessable: changes the code absorbs alone aren't drift to act
-	// on.
+	// DriftFound says whether a change is left that the next apply
+	// reverts, or that is not assessable: changes written into the code
+	// and those the code absorbs aren't drift to act on.
 	DriftFound bool          `json:"drift_found"`
 	Totals     DriftTotals   `json:"totals"`
 	Roots      []DriftRoot   `json:"roots"`
@@ -52,12 +71,16 @@ type Drift struct {
 
 // DriftTotals count the roots and changes of a Drift.
 type DriftTotals struct {
-	Roots         int `json:"roots"`
-	Failed        int `json:"failed"`
-	Changes       int `json:"changes"`
-	Reverts       int `json:"reverts"`
-	Absorbed      int `json:"absorbed"`
-	NotAssessable int `json:"not_assessable"`
+	Roots          int `json:"roots"`
+	Failed         int `json:"failed"`
+	Changes        int `json:"changes"`
+	Written        int `json:"written"`
+	Kept           int `json:"kept"`
+	RejectedByPlan int `json:"rejected_by_plan"`
+	Manual         int `json:"manual"`
+	Secret         int `json:"secret"`
+	NotAssessable  int `json:"not_assessable"`
+	Absorbed       int `json:"absorbed"`
 }
 
 // DriftRoot is one root drift checked, or couldn't.
@@ -96,11 +119,16 @@ type DriftChange struct {
 	Kind string `json:"kind"`
 	// Source is where the root's code sets the attribute, as best it can
 	// be told.
-	Source   *DriftSource `json:"source,omitempty"`
-	Decision string       `json:"decision"`
-	// Outcome is reverts, absorbed or not_assessable.
+	Source *DriftSource `json:"source,omitempty"`
+	// Decision is accept or keep.
+	Decision string `json:"decision"`
+	// Outcome is written, kept, rejected_by_plan, manual, secret,
+	// not_assessable or absorbed.
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason,omitempty"`
+	// ForcesReplacement says the next apply would replace the resource to
+	// put the code's value back.
+	ForcesReplacement bool `json:"forces_replacement,omitempty"`
 }
 
 // DriftSource is where a root's code sets an attribute.
@@ -138,16 +166,24 @@ func (d *Drift) Finish() {
 	}
 	for _, c := range d.Changes {
 		switch c.Outcome {
-		case DriftReverts:
-			t.Reverts++
-		case DriftAbsorbed:
-			t.Absorbed++
+		case DriftWritten:
+			t.Written++
+		case DriftKept:
+			t.Kept++
+		case DriftRejectedByPlan:
+			t.RejectedByPlan++
+		case DriftManual:
+			t.Manual++
+		case DriftSecret:
+			t.Secret++
 		case DriftNotAssessable:
 			t.NotAssessable++
+		case DriftAbsorbed:
+			t.Absorbed++
 		}
 	}
 	d.Totals = t
-	d.DriftFound = t.Reverts+t.NotAssessable > 0
+	d.DriftFound = t.Kept+t.RejectedByPlan+t.Manual+t.Secret+t.NotAssessable > 0
 }
 
 // WriteFiles writes drift.json and drift.md into the report directory
@@ -186,25 +222,33 @@ const maxDriftValue = 80
 func (d *Drift) Markdown() string {
 	var b strings.Builder
 	b.WriteString("# Drift report\n\n")
-	b.WriteString("What changed in the cloud since each root was last applied, and what the next `terraform apply` of its code would do about it. Nothing was changed: not the code, not the state, not the cloud.\n\n")
+	b.WriteString("What changed in the cloud since each root was last applied, and what the next `terraform apply` of its code would do about it. ")
+	if d.Totals.Written > 0 {
+		b.WriteString("The changes accepted into the code were written into the roots' files; nothing else was changed: not the state, not the cloud.\n\n")
+	} else {
+		b.WriteString("Nothing was changed: not the code, not the state, not the cloud.\n\n")
+	}
 	t := d.Totals
-	b.WriteString("| Roots | Not checked | Changes | Reverted by the next apply | Not assessable | Absorbed |\n|---|---|---|---|---|---|\n")
-	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d |\n", t.Roots, t.Failed, t.Changes, t.Reverts, t.NotAssessable, t.Absorbed)
+	b.WriteString("| Roots | Not checked | Changes | Accepted into the code | Kept | Needs a hand edit | Secret or not assessable | Absorbed |\n|---|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d | %d | %d |\n", t.Roots, t.Failed, t.Changes, t.Written, t.Kept, t.RejectedByPlan+t.Manual, t.Secret+t.NotAssessable, t.Absorbed)
 	if t.Changes == 0 && t.Failed == 0 {
 		b.WriteString("\nNo drift: the cloud is as the roots' state records it.\n")
 	}
 
 	sections := []struct {
-		outcome, title, intro string
+		outcomes     []string
+		title, intro string
 	}{
-		{DriftReverts, "Reverted by the next apply", "The code still has the value the state recorded: the next apply puts it back in the cloud. To keep the cloud's value, change the code to match it."},
-		{DriftNotAssessable, "Not assessable", "Whether the next apply puts these back can't be told here."},
-		{DriftAbsorbed, "Absorbed", "The code doesn't set these, such as attributes the provider computes or that `ignore_changes` names: the next apply keeps the cloud's value. Nothing to do."},
+		{[]string{DriftWritten}, "Accepted into the code", "The code now has the cloud's value, at the line each change gives: the next apply leaves it as it is. Look the edits over and commit them."},
+		{[]string{DriftKept}, "Kept: the next apply reverts the cloud", "The code still has the value the state recorded: the next apply puts it back in the cloud. To keep the cloud's value instead, accept the change with `--accept`."},
+		{[]string{DriftRejectedByPlan, DriftManual}, "Needs a hand edit", "Accepted, but not written: where the code sets the value takes a hand edit, or the plan of the edited code didn't take the edit, as each says. Until then, the next apply puts the code's value back."},
+		{[]string{DriftSecret, DriftNotAssessable}, "Secrets and not assessable", "Secrets are never written into the code: update them where the root's secret variables come from. Whether the next apply puts back the others can't be told here."},
+		{[]string{DriftAbsorbed}, "Absorbed", "The code doesn't set these, such as attributes the provider computes or that `ignore_changes` names: the next apply keeps the cloud's value. Nothing to do."},
 	}
 	for _, s := range sections {
 		var lines []string
 		for _, c := range d.Changes {
-			if c.Outcome == s.outcome {
+			if slices.Contains(s.outcomes, c.Outcome) {
 				lines = append(lines, driftLine(c))
 			}
 		}
@@ -252,6 +296,14 @@ func driftLine(c DriftChange) string {
 	}
 	if c.Reason != "" {
 		fmt.Fprintf(&b, "; %s", c.Reason)
+	}
+	if c.ForcesReplacement && c.Decision == DriftAccept {
+		switch c.Outcome {
+		case DriftWritten:
+			b.WriteString("; keeping the code instead would have replaced the resource on the next apply")
+		default:
+			b.WriteString("; keeping the code replaces the resource on the next apply")
+		}
 	}
 	return b.String()
 }
