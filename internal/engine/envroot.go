@@ -417,17 +417,18 @@ func (w *rootWriter) localsFile() []byte {
 			}
 		}
 	}
+	// The resources' names by file, each file's in the model's order.
+	locals := slices.Clone(w.m.locals)
+	sort.SliceStable(locals, func(i, j int) bool { return fileOfLocal[locals[i].name] < fileOfLocal[locals[j].name] })
 	var b strings.Builder
 	b.WriteString("locals {\n")
 	section := ""
-	for i, l := range w.m.locals {
+	for i, l := range locals {
 		if f := fileOfLocal[l.name]; f != section {
 			if i > 0 {
 				b.WriteString("\n")
 			}
-			if f != "" {
-				fmt.Fprintf(&b, "# %s\n", strings.TrimSuffix(f, ".tf"))
-			}
+			fmt.Fprintf(&b, "# %s\n", strings.TrimSuffix(f, ".tf"))
 			section = f
 		}
 		fmt.Fprintf(&b, "%s = %s\n", l.name, exprText(l.value))
@@ -965,10 +966,32 @@ func (w *rootWriter) tfvarsFile(env int) []byte {
 		}
 		for _, v := range vars {
 			value, _ := v.tfvars(env)
-			fmt.Fprintf(&b, "%s = %s\n", v.name, strings.TrimSpace(string(value.Bytes())))
+			fmt.Fprintf(&b, "%s = %s\n", v.name, listText(value))
 		}
 	}
 	return formatHCL(b.String())
+}
+
+// listText is tokens, a value, as text, with a list of objects written one
+// object after another rather than run together.
+func listText(tokens hclwrite.Tokens) string {
+	src := bytes.TrimSpace(tokens.Bytes())
+	expr, diags := hclsyntax.ParseExpression(src, "", hcl.InitialPos)
+	tuple, ok := expr.(*hclsyntax.TupleConsExpr)
+	if diags.HasErrors() || !ok || len(tuple.Exprs) == 0 {
+		return string(src)
+	}
+	var b strings.Builder
+	b.WriteString("[\n")
+	for _, e := range tuple.Exprs {
+		if _, ok := e.(*hclsyntax.ObjectConsExpr); !ok {
+			return string(src)
+		}
+		b.Write(e.Range().SliceBytes(src))
+		b.WriteString(",\n")
+	}
+	b.WriteString("]")
+	return b.String()
 }
 
 // importVarsFile writes environment env's imports.tfvars: the import ID
