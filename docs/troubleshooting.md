@@ -8,9 +8,10 @@ Find the message you see, or the exit code, below. infraharvest logs to stderr, 
 |---|---|---|
 | 0 | Everything found was imported | Nothing to do |
 | 1 | Something couldn't be imported; the log ends with `output is incomplete; rerun with --allow-partial to accept partial output` | `coverage.json`, below |
+| 1 | `infraharvest drift --detailed-exitcode`: a change it was told to accept failed verification, so its edit wasn't written | `report/drift.md`: the change's reason (see [Drift](drift.md#accepting-changes)) |
 | 2 | The import couldn't run: no credentials, no Terraform, a registry out of reach, state that can't be read | The last line of the log |
 | 3 | Something couldn't be imported, `--allow-partial` is set (`output is incomplete (--allow-partial is set)`), and the output has the rest | `coverage.json`, below |
-| 4 | `infraharvest drift --detailed-exitcode` found drift | `report/drift.md` (see [Drift](drift.md)) |
+| 4 | `infraharvest drift --detailed-exitcode` found drift the code doesn't take yet | `report/drift.md` (see [Drift](drift.md)) |
 | 130 | The import was interrupted with Ctrl-C (SIGINT) | `coverage.json` lists what was done before it stopped |
 | 143 | The import was terminated (SIGTERM), as by a CI runner cancelling the job or a timeout | `coverage.json`, as for 130 |
 
