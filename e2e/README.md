@@ -69,8 +69,9 @@ Five more tests import the same resources, each through a flow the round trip do
 - `TestGoogleIncremental` imports, creates a Pub/Sub topic ([`testdata/google-incremental`](testdata/google-incremental/main.tf)) and imports again with `--incremental`: the topic must be added to global's root in a file of its own, with nothing else changed, and the roots must still plan with no changes.
 - `TestGoogleResume` imports again with `--resume` into a finished import's output, which must generate no root again.
 - `TestGoogleReuseInventory` imports with `--reuse-inventory` after discover: the import must take the resources from the inventories discover saved and make none of the listing requests (searches and reads of the IAM policy) discover made.
+- `TestGoogleRegenerateMoves` creates three buckets of its own ([`testdata/google-moves`](testdata/google-moves/main.tf)), which only its stand-in for Cloud Asset Inventory finds, imports them into one root per environment (`--env-tags=env`, `--modules=none`) and applies the `dev` root into a local state. It then gives one bucket the `prod` label, so another root, and imports again with `--regenerate`: `moves.tf` of the `dev` root must have a `removed` block, with `destroy = false`, for it; the gate, G8 included, must pass; the other buckets must keep their addresses; the `prod` root must import the bucket; both READMEs must name the other root; and `coverage.json` must list it under `departed`. Planned over the state the first apply left, the `dev` root must forget the bucket, creating and destroying nothing; applied, then the `prod` root applied, neither root may plan any change. A bucket's name is its ID, so no bucket gets another address: `moved` blocks are left to the AWS test.
 
-CI runs the round trip, `TestGoogleIncremental`, which adds to what the others import, and `TestGoogleDrift`, which changes it, on runners of their own, and the other three on a fourth; run in one process, they share the resources the first one creates.
+CI runs the round trip, `TestGoogleIncremental`, which adds to what the others import, and `TestGoogleDrift`, which changes it, on runners of their own, and the other four on a fourth; run in one process, they share the resources the first one creates.
 
 ```sh
 docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
@@ -97,8 +98,9 @@ Five more tests import the same resources, each through a flow the round trip do
 - `TestAzureIncremental` imports, creates a network security group ([`testdata/azure-incremental`](testdata/azure-incremental/main.tf)) and imports again with `--incremental`: the group must be added to the root in a file of its own, with nothing else changed, and the root must still plan with no changes.
 - `TestAzureResume` imports again with `--resume` into a finished import's output, which must generate no root again.
 - `TestAzureReuseInventory` imports with `--reuse-inventory` after discover: the log must say the import took the resources from the inventory discover saved. The listers reach floci-az over HTTPS, so unlike the Google Cloud test it doesn't count their requests.
+- `TestAzureRegenerateMoves` creates three network security groups in a resource group of its own ([`testdata/azure-moves`](testdata/azure-moves/main.tf)), imports them into one root per environment (`--env-tags=env`, `--modules=none`) and applies the `dev` root into a local state. It then gives one group the `prod` tag, so another root, and imports again with `--regenerate`, with the same checks as `TestGoogleRegenerateMoves`: a `removed` block in the `dev` root, the gate passing, the `prod` root importing the group, and neither root planning any change once both are applied. A resource's name is in its ID, so no group gets another address.
 
-CI runs the round trip, `TestAzureIncremental`, which adds to what the others import, and `TestAzureDrift`, which changes it, on runners of their own, and the other three on a fourth; run in one process, they share the resources the first one creates.
+CI runs the round trip, `TestAzureIncremental`, which adds to what the others import, and `TestAzureDrift`, which changes it, on runners of their own, and the other four on a fourth; run in one process, they share the resources the first one creates.
 
 ```sh
 docker compose -f e2e/compose.yaml --profile azure up -d floci-az
