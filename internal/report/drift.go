@@ -50,10 +50,24 @@ const (
 const DriftDeleted = "deleted"
 
 // What was decided for a change (DriftChange.Decision): keep is the
-// default, accept what an --accept rule chose.
+// default, accept what an --accept rule or the decisions file chose.
 const (
 	DriftAccept = "accept"
 	DriftKeep   = "keep"
+)
+
+// Where a change's decision came from (DriftChange.DecisionSource).
+const (
+	// DriftDecidedByDefault: nothing decided it, so it is kept.
+	DriftDecidedByDefault = "default"
+	// DriftDecidedByDefaults: the decisions file's defaults.
+	DriftDecidedByDefaults = "decisions_defaults"
+	// DriftDecidedByRule: a rule of the decisions file.
+	DriftDecidedByRule = "decisions_rule"
+	// DriftDecidedByEntry: the change's own entry in the decisions file.
+	DriftDecidedByEntry = "decisions_change"
+	// DriftDecidedByFlag: an --accept or --keep rule.
+	DriftDecidedByFlag = "flag"
 )
 
 // Drift is what infraharvest drift found in the roots of an output
@@ -128,6 +142,13 @@ type DriftChange struct {
 	Covers []string `json:"covers,omitempty"`
 	// Decision is accept or keep.
 	Decision string `json:"decision"`
+	// DecisionSource says what decided it: default, decisions_defaults,
+	// decisions_rule, decisions_change or flag.
+	DecisionSource string `json:"decision_source,omitempty"`
+	// DecisionStale says the change's entry in the decisions file was
+	// decided for other values: the cloud changed it again, so the entry
+	// didn't decide it.
+	DecisionStale bool `json:"decision_stale,omitempty"`
 	// Outcome is written, kept, rejected_by_plan, manual, secret,
 	// not_assessable or absorbed.
 	Outcome string `json:"outcome"`
@@ -254,7 +275,7 @@ func (d *Drift) Markdown() string {
 		title, intro string
 	}{
 		{[]string{DriftWritten}, "Accepted into the code", "The code now has the cloud's value, at the line each change gives: the next apply leaves it as it is. Look the edits over and commit them."},
-		{[]string{DriftKept}, "Kept: the next apply reverts the cloud", "The code still has the value the state recorded: the next apply puts it back in the cloud. To keep the cloud's value instead, accept the change with `--accept`."},
+		{[]string{DriftKept}, "Kept: the next apply reverts the cloud", "The code still has the value the state recorded: the next apply puts it back in the cloud. To keep the cloud's value instead, accept the change with `--accept`, or in the decisions file (`--decisions`)."},
 		{[]string{DriftRejectedByPlan, DriftManual}, "Needs a hand edit", "Accepted, but not written: where the code sets the value takes a hand edit, or the plan of the edited code didn't take the edit, as each says. Until then, the next apply puts the code's value back."},
 		{[]string{DriftSecret, DriftNotAssessable}, "Secrets and not assessable", "Secrets are never written into the code: update them where the root's secret variables come from. Whether the next apply puts back the others can't be told here."},
 		{[]string{DriftAbsorbed}, "Absorbed", "The code doesn't set these, such as attributes the provider computes or that `ignore_changes` names: the next apply keeps the cloud's value. Nothing to do."},
@@ -316,6 +337,9 @@ func driftLine(c DriftChange) string {
 	}
 	if c.Reason != "" {
 		fmt.Fprintf(&b, "; %s", c.Reason)
+	}
+	if c.DecisionStale {
+		b.WriteString("; it changed again since its entry in the decisions file was decided, so that decision wasn't applied: decide it again")
 	}
 	if c.ForcesReplacement && c.Decision == DriftAccept {
 		switch c.Outcome {

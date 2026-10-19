@@ -25,11 +25,16 @@ func newDriftCmd() *cobra.Command {
 			"plans don't lock it, so read access to it is enough. S3, GCS and azurerm\n" +
 			"backends and local state are supported; HCP Terraform and other remote\n" +
 			"backends are refused.\n\n" +
-			"Without --accept, the code isn't changed either. With it, the cloud's values\n" +
-			"of the changes the rules accept are written into the code, once the plan of\n" +
-			"the edited copy, without refreshing again, shows each accepted resource\n" +
-			"taking them and nothing else changing; the others are kept, and the next\n" +
-			"apply puts them back. Secrets are never written.\n\n" +
+			"Without --accept or --decisions, the code isn't changed either. With them, the\n" +
+			"cloud's values of the changes they accept are written into the code, once the\n" +
+			"plan of the edited copy, without refreshing again, shows each accepted\n" +
+			"resource taking them and nothing else changing; the others are kept, and the\n" +
+			"next apply puts them back. Secrets are never written.\n\n" +
+			"--write-decisions writes a decisions file, drift.yaml in the output directory\n" +
+			"or the --decisions file, with an entry per change to accept or keep; edit it,\n" +
+			"and apply it with --decisions. Its entries decide over its rules and\n" +
+			"defaults, and --accept and --keep decide over the file. An entry decided for\n" +
+			"other values, as the cloud changed again since, isn't applied.\n\n" +
 			"The report goes into report/drift.json and report/drift.md. Exit code 0 means\n" +
 			"every root was checked, 2 that one couldn't be; with --detailed-exitcode, 4\n" +
 			"means drift is left, and 1 that an accepted change failed verification.",
@@ -53,6 +58,8 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&options.Roots, "root", nil, "check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable)")
 	cmd.Flags().Var(&driftRules{rules: &options.Rules, accept: true}, "accept", "write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep, the last rule that matches a change decides)")
 	cmd.Flags().Var(&driftRules{rules: &options.Rules}, "keep", "keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable)")
+	cmd.Flags().StringVar(&options.Decisions, "decisions", "", "decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it")
+	cmd.Flags().BoolVar(&options.WriteDecisions, "write-decisions", false, "write this run's changes into the decisions file, --decisions or "+importer.DefaultDriftDecisionsFile+" in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd

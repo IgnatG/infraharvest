@@ -27,6 +27,8 @@ func TestDriftFlags(t *testing.T) {
 		"force-unlock":      "false",
 		"accept":            "",
 		"keep":              "",
+		"decisions":         "",
+		"write-decisions":   "false",
 	} {
 		f := cmd.Flags().Lookup(name)
 		if f == nil {
@@ -37,23 +39,18 @@ func TestDriftFlags(t *testing.T) {
 			t.Errorf("--%s defaults to %q, want %q", name, f.DefValue, def)
 		}
 	}
-	// No decisions file yet.
-	for _, name := range []string{"decisions", "write-decisions"} {
-		if cmd.Flags().Lookup(name) != nil {
-			t.Errorf("drift has --%s", name)
-		}
-	}
 }
 
 func TestDriftRejectsBadFlags(t *testing.T) {
 	for name, args := range map[string][]string{
-		"--format":   {"--format", "yaml"},
-		"--parallel": {"--parallel", "0"},
-		"--engine":   {"--engine", "pulumi"},
-		"--root":     {"--root", "aws/["},
-		"--accept":   {"--accept", "everything"},
-		"--keep":     {"--keep", "name=x"},
-		"arguments":  {"a", "b"},
+		"--format":    {"--format", "yaml"},
+		"--parallel":  {"--parallel", "0"},
+		"--engine":    {"--engine", "pulumi"},
+		"--root":      {"--root", "aws/["},
+		"--accept":    {"--accept", "everything"},
+		"--keep":      {"--keep", "name=x"},
+		"--decisions": {"--decisions", "no-such-drift.yaml"},
+		"arguments":   {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := newDriftCmd()
