@@ -65,7 +65,7 @@ resource "aws_iam_role" "ci" {
 # from vars/<env>/imports.tfvars. Delete this file, and those, after it.
 
 import {
-  for_each = var.deploy_vpn ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_vpn]
 
   to = aws_customer_gateway.vpn_office[each.value]
   id = var.import_ids["aws_customer_gateway.vpn_office[0]"]
@@ -102,14 +102,14 @@ import {
 }
 
 import {
-  for_each = var.deploy_vpn ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_vpn]
 
   to = aws_vpn_connection.office[each.value]
   id = var.import_ids["aws_vpn_connection.office[0]"]
 }
 
 import {
-  for_each = var.deploy_vpn ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_vpn]
 
   to = aws_vpn_gateway.vpn[each.value]
   id = var.import_ids["aws_vpn_gateway.vpn[0]"]

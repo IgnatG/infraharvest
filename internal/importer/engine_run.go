@@ -55,6 +55,9 @@ type Run struct {
 	// environments are the estate's environments, if configured (see
 	// config.Environments).
 	environments config.Environments
+	// members are the roots the run generated of the configuration file's
+	// environments, which the merge phase merges (see MergeEnvironments).
+	members []mergeMember
 	// shared is what the run and its children work out once.
 	shared *shared
 	// OpenPicker opens the picker on the selection file discover writes,
@@ -264,6 +267,7 @@ func (r *Run) merge(child *Run) {
 		r.skipped[typ] += n
 	}
 	r.failures = append(r.failures, child.failures...)
+	r.members = append(r.members, child.members...)
 	r.listed = append(r.listed, child.listed...)
 	maps.Copy(r.covered, child.covered)
 	r.filtered = r.filtered || child.filtered
@@ -298,4 +302,15 @@ func (r *Run) Do(fn func() error) error {
 	activeRun = r
 	defer func() { activeRun = nil }()
 	return r.finish(fn())
+}
+
+// CheckMergeEnvironments rejects --merge-environments, or its setting in
+// the configuration file, set to true for a run whose configuration file
+// names no environments to merge (see config.CheckMergeEnvironments).
+func (r *Run) CheckMergeEnvironments(flags *pflag.FlagSet) error {
+	flag := flags.Lookup("merge-environments")
+	if flag == nil {
+		return nil
+	}
+	return config.CheckMergeEnvironments(r.environments, flag.Value.String() == "true", flag.Changed)
 }

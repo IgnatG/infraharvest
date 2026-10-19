@@ -461,7 +461,7 @@ func TestMergedRootFiles(t *testing.T) {
 			{"dynamodb.tf", `dynamic "attribute" {`},
 			{"lambda.tf", "for_each = var.api_tracing_config == null ? [] : [var.api_tracing_config]"},
 			{ImportsFileName, `id = var.import_ids["aws_sqs_queue.orders"]`},
-			{ImportsFileName, "for_each = var.deploy_vpn ? [0] : []"},
+			{ImportsFileName, "for_each = [for k in [0] : k if var.deploy_vpn]"},
 			{VariablesFileName, `condition     = contains(["dev", "prd"], var.env)`},
 			{"vars/prod/terraform.tfvars", `env = "prd"`},
 			{"vars/prod/terraform.tfvars", "deploy_vpn = true"},

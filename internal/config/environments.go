@@ -281,3 +281,18 @@ func (f *File) CheckEnvironmentFlags(layout string, envTags []string, defaultLay
 	}
 	return nil
 }
+
+// errMergeWithoutEnvironments is the error for --merge-environments set
+// to true with no environments to merge.
+var errMergeWithoutEnvironments = errors.New("--merge-environments merges the roots of the environments the configuration file names: add environments: to it, or leave the flag out")
+
+// CheckMergeEnvironments rejects --merge-environments, or its setting in
+// the file, set to true (merge, set) where envs, the file's environments,
+// name none to merge: as CheckEnvironmentFlags does for the flags the
+// environments can't go with.
+func CheckMergeEnvironments(envs Environments, merge, set bool) error {
+	if set && merge && len(envs) == 0 {
+		return errMergeWithoutEnvironments
+	}
+	return nil
+}

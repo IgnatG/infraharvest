@@ -217,6 +217,11 @@ type listedCall struct {
 	here *listedHere
 	// byDir are the imports of each root the call generates.
 	byDir map[string][]engine.Import
+	// places are where each root of one of the configuration file's
+	// environments goes when its stack merges (see mergePlaces), and
+	// region is the scope's region.
+	places map[string]memberPlace
+	region string
 	// handovers are what the call's roots hand over to the other roots of
 	// the run, with --regenerate (see planHandovers).
 	handovers *handovers
@@ -385,6 +390,14 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	}
 	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
 	withResourceOmissions(byDir, resourcesByService, cat, importID)
+	var places map[string]memberPlace
+	if options.MergeEnvironments && len(envNames) > 0 {
+		stackLayouts, err := rootLayouts(ctx, provider, stackLayout(pattern))
+		if err != nil {
+			return nil, err
+		}
+		places = mergePlaces(resourcesByService, envOf, dirOf, layoutDirs(stackLayouts[0], options.Out, providerDir(provider), envOf), kept, byDir)
+	}
 
 	run.used = true
 	run.options = options
@@ -426,7 +439,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 		run.leaveOutHeld(byDir, held)
 	}
-	return &listedCall{run: run, provider: provider, options: options, scope: scope, here: here, byDir: byDir, opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
+	return &listedCall{run: run, provider: provider, options: options, scope: scope, here: here, byDir: byDir, places: places, region: scopeRegion(scope), opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
 }
 
 // generate generates the call's roots into its run, each referring to the
@@ -562,6 +575,9 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		}
 		c.handovers.record(dir, result, err)
 		run.addDirectory(dir, byDir[dir], result, err)
+		if err == nil {
+			c.recordMember(dir, fp, result, dirOpts)
+		}
 		if err == nil && run.backend != nil {
 			// After the checks, which run on a local working directory: the
 			// import never needs access to the state backend.

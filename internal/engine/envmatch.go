@@ -71,6 +71,8 @@ type envRoot struct {
 	scope, region, group string
 	file                 *hclFile          // generated.tf
 	importIDs            map[string]string // by resource address
+	// data are the data sources the root reads, nil for none.
+	data *hclFile
 
 	// What the merged root's other files are written from (see
 	// writeMergedRoot): the root's provider, its configuration without

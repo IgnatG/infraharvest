@@ -47,6 +47,13 @@ type stackMerge struct {
 	// scope's and region's IDs from data sources, and each resource's name
 	// (see mergedAttribute.local).
 	locals []namedLocal
+	// rootData are the data sources the roots read, merged (see
+	// mergeData).
+	rootData []*stackData
+	// reason says why the roots can't share one root at all, such as a
+	// data source some environments only read; "" if they can.
+	reason   string
+	controls *mergeControls
 }
 
 // namedLocal is a local value of the merged root.
@@ -130,8 +137,11 @@ type envVariable struct {
 	// resourceType is the type of the resource it is for, which names it
 	// where two names collide; "" for none.
 	resourceType string
-	what         string   // what it holds, for its description
-	ty           cty.Type // cty.DynamicPseudoType if unknown
+	what         string // what it holds, for its description
+	// description, if set, is its description as it is, instead of
+	// one of what.
+	description string
+	ty          cty.Type // cty.DynamicPseudoType if unknown
 	// values are each environment's value, by environment, for the
 	// environments that have what it is for: nil for null; where sensitive,
 	// nil for each environment that sets it.
@@ -215,7 +225,34 @@ func (v *envVariable) tfvars(env int) (hclwrite.Tokens, bool) {
 // by a deploy_ variable (see features), and names the variables, with their defaults (see
 // envVariable.setDefault).
 func mergeStack(provider string, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
-	m := &stackMerge{provider: provider, roots: roots, schemas: schemas}
+	return mergeStackWith(provider, roots, schemas, nil)
+}
+
+// mergeKey is the key of an environment's resource in mergeControls: the
+// environment's index and the resource's address in its root.
+func mergeKey(env int, address string) string {
+	return fmt.Sprintf("%d\x00%s", env, address)
+}
+
+// mergeControls change how mergeStackWith merges, as the gate asks once
+// a plan of the merged root fails (see MergeRoots).
+type mergeControls struct {
+	// split are resources not to merge with the other environments', by
+	// mergeKey, with why: each stays residue of its environment.
+	split map[string]string
+	// isolated are resources matched with no other environment's, by
+	// mergeKey: what an incremental import added since the stack was
+	// merged (see MergeRoot.Isolated).
+	isolated map[string]bool
+}
+
+// mergeStackWith is mergeStack, with the resources controls name split
+// or kept apart.
+func mergeStackWith(provider string, roots []envRoot, schemas *tfjson.ProviderSchemas, controls *mergeControls) *stackMerge {
+	if controls == nil {
+		controls = &mergeControls{}
+	}
+	m := &stackMerge{provider: provider, roots: roots, schemas: schemas, controls: controls}
 	dataSource, _, _ := scopeData(provider)
 	for _, root := range roots {
 		m.envs = append(m.envs, root.env)
@@ -241,10 +278,41 @@ func mergeStack(provider string, roots []envRoot, schemas *tfjson.ProviderSchema
 			}
 		}
 	}
+	m.splitForced()
 	m.splitResidue()
 	m.groupForEach()
 	m.build()
 	return m
+}
+
+// splitForced splits each resource matched across environments that
+// m.controls says to split (see mergeControls.split) into residue of
+// each environment.
+func (m *stackMerge) splitForced() {
+	if len(m.controls.split) == 0 {
+		return
+	}
+	for split := true; split; {
+		split = false
+		for _, r := range m.resources {
+			if r.residue != "" {
+				continue
+			}
+			for e, member := range r.members {
+				if member == nil {
+					continue
+				}
+				if reason, ok := m.controls.split[mergeKey(e, member.block.address)]; ok {
+					m.split(r, reason)
+					split = true
+					break
+				}
+			}
+			if split {
+				break
+			}
+		}
+	}
 }
 
 // scopeData returns the data source that reads the ID of provider's
@@ -257,7 +325,7 @@ func scopeData(provider string) (dataSource, local, expr string) {
 	case "azurerm":
 		return "azurerm_client_config.current", "subscription_id", "data.azurerm_client_config.current.subscription_id"
 	case "google", "google-beta":
-		return "google_project.current", "project_id", "data.google_project.current.project_id"
+		return "google_client_config.current", "project_id", "data.google_client_config.current.project"
 	}
 	return "", "", ""
 }
@@ -381,6 +449,7 @@ func (m *stackMerge) build() {
 		g.body, g.fields, _ = m.keysBody(g.keys)
 		g.variable = m.keysVariable(g)
 	}
+	m.reason = m.mergeData()
 	m.nameVariables()
 	m.render()
 }
@@ -543,6 +612,9 @@ func (m *stackMerge) nameVariables() {
 		collect(g.body)
 		variables = append(variables, g.variable)
 	}
+	for _, d := range m.rootData {
+		collect(d.body)
+	}
 	used := map[string]bool{importIDsVariableName: true, resourceGroupVariableName: true}
 	for _, v := range variables {
 		v.name = uniqueEnvName(used, v.name, v.resourceType)
@@ -582,6 +654,9 @@ func (m *stackMerge) render() {
 	}
 	for _, g := range m.forEach {
 		bodies = append(bodies, g.body)
+	}
+	for _, d := range m.rootData {
+		bodies = append(bodies, d.body)
 	}
 	var templates []hclwrite.Tokens
 	for _, b := range bodies {
