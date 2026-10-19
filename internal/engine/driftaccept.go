@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -51,21 +52,27 @@ func decideDrift(changes []DriftChange, sources []Source, accept func(DriftChang
 }
 
 // settleDrift sets the outcome of each change failed has the source of,
-// one the edits couldn't take, and returns the others of changes.
-func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) []*DriftChange {
+// one the edits couldn't take, and returns the others of changes, and
+// whether it unshared a change of shared tags (see unshare), whose
+// members it returns in its place.
+func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) ([]*DriftChange, bool) {
 	var left []*DriftChange
+	unshared := false
 	for _, c := range changes {
 		src, ok := failed[c]
 		switch {
 		case !ok:
 			left = append(left, c)
+		case c.shared != nil:
+			left = append(left, unshare(c, src.Reason)...)
+			unshared = true
 		case src.Secret:
 			c.Outcome, c.Reason = DriftSecret, src.Reason
 		default:
 			c.Outcome, c.Reason = DriftManual, src.Reason
 		}
 	}
-	return left
+	return left, unshared
 }
 
 // acceptDrift takes the cloud's values of accepted into the code of the
@@ -76,7 +83,9 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) []*Drif
 // the code had, code, but on what is secret or kept only in state; every
 // other resource must plan what code has it plan (see changeSignature),
 // which an edit of a local others use would break. The edits the plan
-// blames are left out (see judgeDrift), and the others planned again.
+// blames are left out (see judgeDrift), and the others planned again;
+// a change of shared tags whose edit is blamed, or can't be made, is
+// accepted at each resource it covers instead (see unshare).
 // Then the edited files must pass the format, validate, standards,
 // moves and secrets checks. Only then are the edits made in the root's
 // own files, which are restored if writing one fails. Each accepted
@@ -112,8 +121,13 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		if err != nil {
 			return err
 		}
-		if pending = settleDrift(pending, failed); len(pending) == 0 {
+		var unshared bool
+		if pending, unshared = settleDrift(pending, failed); len(pending) == 0 {
 			break
+		}
+		if unshared {
+			// Its members are edited in the next round.
+			continue
 		}
 		for _, name := range names {
 			written[name] = true
@@ -137,6 +151,11 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		var left []*DriftChange
 		for _, c := range pending {
 			if reason, ok := rejected[c]; ok {
+				if c.shared != nil {
+					// Each resource it covers is edited on its own instead.
+					left = append(left, unshare(c, reason)...)
+					continue
+				}
 				c.Outcome, c.Reason = DriftRejectedByPlan, reason
 				continue
 			}
@@ -207,10 +226,12 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // blame, each with why: an error in the edited block; an accepted
 // attribute the plan still changes; or another attribute of the resource
 // the plan of the code, code, didn't change, but for what is secret or
-// kept only in state; or another resource planning other than code has
-// it, which the edits of locals are blamed for first, then those of the
-// resources it refers to, else all of them. Reasons have the values of
-// forms redacted.
+// kept only in state, or a key of its own tags or labels that only the
+// state records (see recordedTagLeaves); or another resource planning
+// other than code has it, which the edits of locals and of shared tags
+// are blamed for first, then those of the resources it refers to, else
+// all of them. A change of shared tags is judged on every resource it
+// covers. Reasons have the values of forms redacted.
 func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]Source, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
 	rejected := map[*DriftChange]string{}
 	reject := func(c *DriftChange, reason string) {
@@ -251,6 +272,12 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	}
 	byAddress := map[string][]*DriftChange{}
 	for _, c := range pending {
+		if c.shared != nil {
+			for _, a := range c.Covers {
+				byAddress[a] = append(byAddress[a], c)
+			}
+			continue
+		}
 		byAddress[c.Address] = append(byAddress[c.Address], c)
 	}
 	var leaked []string
@@ -275,8 +302,9 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 				baseLeaves[l.path] = true
 			}
 		}
+		recorded := recordedTagLeaves(rc)
 		for _, l := range planLeaves(rc, stateOnly) {
-			if l.sensitive {
+			if l.sensitive || recorded[l.path] {
 				continue
 			}
 			matched := false
@@ -304,7 +332,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	reason := "the edit changes what the plan does to " + strings.Join(leaked, ", ") + " too"
 	blamed := false
 	for _, c := range pending {
-		if sources[c].Kind == SourceLocal {
+		if k := sources[c].Kind; k == SourceLocal || k == SourceSharedTags {
 			reject(c, reason)
 			blamed = true
 		}
@@ -344,6 +372,12 @@ func planLeaves(rc *tfjson.ResourceChange, stateOnly map[string][]string) []valu
 // diagnosticOf reports whether d is about the edit of c, made as src
 // says in contents: in its resource, or in the file and block it edits.
 func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src Source, contents map[string][]byte) bool {
+	if c.shared != nil {
+		if d.Address != "" {
+			return slices.ContainsFunc(c.Covers, func(a string) bool { return trimInstanceKey(a) == trimInstanceKey(d.Address) })
+		}
+		return d.Range != nil && src.Edit != nil && filepath.Base(d.Range.Filename) == src.Edit.File
+	}
 	if d.Address != "" {
 		return trimInstanceKey(d.Address) == trimInstanceKey(c.Address)
 	}
@@ -466,4 +500,74 @@ func addedDetails(before, after Check) []string {
 		added = append(added, d)
 	}
 	return added
+}
+
+// mergedTagAttributes are, by a resource's own tags or labels, the
+// attributes that hold them together with the provider's: what reaches
+// the cloud.
+var mergedTagAttributes = map[string][]string{
+	"tags":   {"tags_all"},
+	"labels": {"terraform_labels", "effective_labels"},
+}
+
+// recordedTagLeaves returns the paths of the keys of a resource's own
+// tags or labels that rc, a planned change, changes while the attributes
+// holding them with the provider's, such as tags_all, keep the key as it
+// was: what reaches the cloud stays the same, and only the state records
+// the change. A key of the provider's default tags a resource gets its
+// own value of, or that the provider's then gives it, plans so without
+// refreshing.
+func recordedTagLeaves(rc *tfjson.ResourceChange) map[string]bool {
+	before, _ := rc.Change.Before.(map[string]any)
+	after, _ := rc.Change.After.(map[string]any)
+	unknown, _ := rc.Change.AfterUnknown.(map[string]any)
+	paths := map[string]bool{}
+	for own, mergedAll := range mergedTagAttributes {
+		var merged []string
+		for _, m := range mergedAll {
+			_, b := before[m]
+			_, a := after[m]
+			if b || a {
+				merged = append(merged, m)
+			}
+		}
+		if len(merged) == 0 {
+			continue
+		}
+		ob, _ := before[own].(map[string]any)
+		oa, _ := after[own].(map[string]any)
+		keys := map[string]bool{}
+		for k := range ob {
+			keys[k] = true
+		}
+		for k := range oa {
+			keys[k] = true
+		}
+		for k := range keys {
+			vb, okb := ob[k]
+			va, oka := oa[k]
+			if okb == oka && reflect.DeepEqual(vb, va) {
+				continue
+			}
+			kept := true
+			for _, m := range merged {
+				if marked(unknown[m]) || marked(maskKey(unknown[m], k)) {
+					kept = false
+					break
+				}
+				mb, _ := before[m].(map[string]any)
+				ma, _ := after[m].(map[string]any)
+				vb, okb := mb[k]
+				va, oka := ma[k]
+				if okb != oka || !reflect.DeepEqual(vb, va) {
+					kept = false
+					break
+				}
+			}
+			if kept {
+				paths[own+"."+k] = true
+			}
+		}
+	}
+	return paths
 }

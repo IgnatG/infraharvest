@@ -142,6 +142,9 @@ type RootDrift struct {
 // DriftChange is one attribute, or one resource, that changed in the
 // cloud since the state last recorded it.
 type DriftChange struct {
+	// Address is the resource's, or, for a change of tags several
+	// resources get from one place (see Covers), that place's: local.tags,
+	// or the provider's map literal, such as provider.aws.default_tags.
 	Address string
 	Type    string
 	// ModuleAddress is the module call the resource is in, such as
@@ -170,10 +173,18 @@ type DriftChange struct {
 	// best it can be told; nil when it can't, such as in a module.
 	Source *DriftSource
 
+	// Covers are, for a change of tags several resources get from one
+	// place, the resources it is of, sorted: each changed the key to the
+	// same value, or removed it, so that accepting it edits that place
+	// once. Type is then "".
+	Covers []string
+
 	// value is the cloud's value, and sensitive whether the plans mark
 	// it sensitive: for the edit that accepts it, never for a report.
 	value     any
 	sensitive bool
+	// shared is what a change of shared tags holds (see shareTags).
+	shared *tagShare
 }
 
 // DriftSource is where a root's configuration sets an attribute.
@@ -289,6 +300,9 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return nil, err
 	}
 	editor := newDriftEditor(refresh, code, opts.Defaults)
+	if result.Changes, err = shareTags(result.Changes, root, refresh, code, editor); err != nil {
+		return nil, err
+	}
 	sources, err := addDriftSources(result.Changes, root, editor)
 	if err != nil {
 		return nil, err
@@ -298,6 +312,7 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 			return nil, err
 		}
 	}
+	result.Changes = unsharedChanges(result.Changes)
 	return result, nil
 }
 
@@ -915,6 +930,11 @@ func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *
 	for i := range changes {
 		sources[i] = editor.resolve(cfg, &changes[i])
 		changes[i].Source = reportSource(cfg, sources[i], editor.forms)
+		if s := changes[i].shared; s != nil {
+			for _, m := range s.members {
+				m.Source = reportSource(cfg, editor.resolve(cfg, m), editor.forms)
+			}
+		}
 	}
 	return sources, nil
 }

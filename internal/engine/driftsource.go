@@ -43,6 +43,9 @@ const (
 	// SourceExpression: a function, a conditional, a for expression, a
 	// dynamic block, or anything else that computes the value.
 	SourceExpression = "expression"
+	// SourceSharedTags: tags or labels several resources get from one
+	// place: the provider's default tags, or a local their tags refer to.
+	SourceSharedTags = "shared_tags"
 	// SourceModule: the resource is in a module call.
 	SourceModule = "module"
 	// SourceResource: the whole resource, such as one deleted in the
@@ -102,10 +105,14 @@ type driftEditor struct {
 	// sensitive are the values the plans mark sensitive, and forms the
 	// forms text quotes them in: no edit may write one.
 	sensitive, forms []string
+	// providerTagged are, by a resource's address and the path of a key
+	// of its tags, why the resource can't leave out a key the provider's
+	// default tags give it.
+	providerTagged map[string]string
 }
 
 func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *driftEditor {
-	e := &driftEditor{resources: map[string]refreshedResource{}, defaults: defaults}
+	e := &driftEditor{resources: map[string]refreshedResource{}, defaults: defaults, providerTagged: map[string]string{}}
 	if refresh != nil {
 		for _, rc := range refresh.ResourceDrift {
 			if rc.Mode == tfjson.ManagedResourceMode && rc.Change != nil {
@@ -327,6 +334,9 @@ func valueAt(v any, steps []pathStep) (any, bool) {
 // has no edit.
 func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) Source {
 	src := e.locate(cfg, c)
+	if reason, ok := e.providerTagged[c.Address+" "+c.Attribute]; ok && src.Edit == nil && c.value == nil && c.Kind == DriftChanged {
+		src.Reason = reason
+	}
 	switch {
 	case c.sensitive, src.Kind == SourceSensitiveVariable:
 		src.Secret = true
@@ -384,6 +394,9 @@ func (e *driftEditor) writesSecret(text []byte) bool {
 }
 
 func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) Source {
+	if c.shared != nil {
+		return e.locateShared(cfg, c)
+	}
 	if c.ModuleAddress != "" {
 		return Source{Kind: SourceModule, Reason: "in the module call " + c.ModuleAddress + ": changing the call to match is a hand edit for now"}
 	}

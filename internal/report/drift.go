@@ -120,6 +120,12 @@ type DriftChange struct {
 	// Source is where the root's code sets the attribute, as best it can
 	// be told.
 	Source *DriftSource `json:"source,omitempty"`
+	// Covers are, for a change of tags several resources get from one
+	// place, such as local.tags or provider.aws.default_tags, which
+	// Address then names, the resources it is of: each changed the key to
+	// the same value, or removed it, so that it is one change, accepted by
+	// editing that place once. Type is then empty.
+	Covers []string `json:"covers,omitempty"`
 	// Decision is accept or keep.
 	Decision string `json:"decision"`
 	// Outcome is written, kept, rejected_by_plan, manual, secret,
@@ -290,6 +296,9 @@ func driftLine(c DriftChange) string {
 		b.WriteString(": deleted in the cloud")
 	} else {
 		fmt.Fprintf(&b, ", `%s`: %s → %s", c.Attribute, driftValue(c.Before), driftValue(c.After))
+	}
+	if len(c.Covers) > 0 {
+		fmt.Fprintf(&b, ", on every resource that gets it from there: `%s`", strings.Join(c.Covers, "`, `"))
 	}
 	if c.Source != nil && c.Source.File != "" {
 		fmt.Fprintf(&b, " (`%s:%d`)", c.Source.File, c.Source.Line)

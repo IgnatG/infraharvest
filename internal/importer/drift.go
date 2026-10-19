@@ -261,7 +261,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, check driftCheck,
 		rc := report.DriftChange{
 			Root: rel, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
 			Before: c.Before, After: c.After, Kind: c.Kind, Decision: decision, Outcome: c.Outcome, Reason: c.Reason,
-			ForcesReplacement: c.ForcesReplacement,
+			ForcesReplacement: c.ForcesReplacement, Covers: c.Covers,
 		}
 		if c.Source != nil {
 			rc.Source = &report.DriftSource{File: c.Source.File, Line: c.Source.Line, Expression: c.Source.Expression}
