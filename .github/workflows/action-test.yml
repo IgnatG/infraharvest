@@ -74,12 +74,18 @@ jobs:
           test "$EXIT_CODE" = 0
           test -f "$REPORT"
           grep -r --include=imports.tf "aws_sqs_queue" "$RUNNER_TEMP/out"
-      # Drift needs applied roots: apply them with local state, then change
-      # the queue in the emulator, as someone would in the console.
+      # Drift needs applied roots: apply them, then change the queue in the
+      # emulator, as someone would in the console. The state goes outside
+      # the roots, as a backend keeps it: a state file in a root is one to
+      # commit, which the import's checks refuse.
       - name: Apply the roots and tag the queue
         run: |
+          mkdir -p "$RUNNER_TEMP/state"
+          n=0
           find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' | while IFS= read -r file; do
             root=$(dirname "$file")
+            n=$((n + 1))
+            printf 'terraform {\n  backend "local" {\n    path = "%s"\n  }\n}\n' "$RUNNER_TEMP/state/$n.tfstate" > "$root/backend.tf"
             terraform -chdir="$root" init -input=false
             terraform -chdir="$root" apply -input=false -auto-approve
           done
