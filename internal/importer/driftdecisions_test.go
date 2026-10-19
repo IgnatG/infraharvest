@@ -144,6 +144,8 @@ func TestDriftDecisionPrecedence(t *testing.T) {
 	}
 	stale := entry(cidr, engine.DriftAccept)
 	stale.Fingerprint = driftFingerprint(cidr.Kind, cidr.Before, []any{"10.1.0.0/16"}, nil)
+	staleEnv := entry(env, engine.DriftAccept)
+	staleEnv.Fingerprint = driftFingerprint(env.Kind, env.Before, "qa", nil)
 	keepAll := []DriftRule{{Accept: false}}
 	acceptTags := []DriftRule{{Accept: true, Field: "attribute", Pattern: "tags.Owner"}}
 	for _, tc := range []struct {
@@ -164,7 +166,10 @@ func TestDriftDecisionPrecedence(t *testing.T) {
 		{"the entry over the rules", driftDecider{file: file(engine.DriftKeep, entry(env, engine.DriftKeep))}, env, false, report.DriftDecidedByEntry, false},
 		{"the entry over the defaults", driftDecider{file: file(engine.DriftKeep, entry(cidr, engine.DriftAccept))}, cidr, true, report.DriftDecidedByEntry, false},
 		{"an undecided entry", driftDecider{file: file(engine.DriftKeep, entry(env, DriftUndecided))}, env, true, report.DriftDecidedByRule, false},
-		{"a stale entry", driftDecider{file: file(engine.DriftKeep, stale)}, cidr, false, report.DriftDecidedByDefaults, true},
+		{"a stale entry", driftDecider{file: file(engine.DriftKeep, stale)}, cidr, false, report.DriftDecidedByEntry, true},
+		{"a stale entry over accepting defaults", driftDecider{file: file(engine.DriftAccept, stale)}, cidr, false, report.DriftDecidedByEntry, true},
+		{"a stale entry over an accepting rule", driftDecider{file: file(engine.DriftKeep, staleEnv)}, env, false, report.DriftDecidedByEntry, true},
+		{"--accept over a stale entry", driftDecider{file: file(engine.DriftKeep, stale), rules: []DriftRule{{Accept: true}}}, cidr, true, report.DriftDecidedByFlag, true},
 		{"flags over the entry", driftDecider{file: file(engine.DriftKeep, entry(cidr, engine.DriftAccept)), rules: keepAll}, cidr, false, report.DriftDecidedByFlag, false},
 		{"flags over the rules", driftDecider{file: file(engine.DriftKeep), rules: acceptTags}, owner, true, report.DriftDecidedByFlag, false},
 		{"flags that don't match", driftDecider{file: file(engine.DriftKeep, entry(cidr, engine.DriftAccept)), rules: acceptTags}, cidr, true, report.DriftDecidedByEntry, false},
@@ -274,7 +279,8 @@ func TestDriftAppliesDecisions(t *testing.T) {
 	}{
 		{"accepted", envFingerprint, engine.DriftAccept, nil, report.DriftWritten, report.DriftDecidedByEntry, false},
 		{"kept", envFingerprint, engine.DriftKeep, nil, report.DriftKept, report.DriftDecidedByEntry, false},
-		{"changed again", driftFingerprint(engine.DriftChanged, "prod", "staging", nil), engine.DriftAccept, nil, report.DriftKept, report.DriftDecidedByDefaults, true},
+		{"changed again", driftFingerprint(engine.DriftChanged, "prod", "staging", nil), engine.DriftAccept, nil, report.DriftKept, report.DriftDecidedByEntry, true},
+		{"changed again, accepted by --accept", driftFingerprint(engine.DriftChanged, "prod", "staging", nil), engine.DriftKeep, []DriftRule{{Accept: true}}, report.DriftWritten, report.DriftDecidedByFlag, true},
 		{"kept by --keep", envFingerprint, engine.DriftAccept, []DriftRule{{Field: "attribute", Pattern: "tags.*"}}, report.DriftKept, report.DriftDecidedByFlag, false},
 		{"accepted by --accept", envFingerprint, engine.DriftKeep, []DriftRule{{Accept: true}}, report.DriftWritten, report.DriftDecidedByFlag, false},
 	} {

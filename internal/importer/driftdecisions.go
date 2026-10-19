@@ -32,10 +32,10 @@ const DriftDecisionsVersion = 1
 // writes in the output directory without --decisions.
 const DefaultDriftDecisionsFile = "drift.yaml"
 
-// DriftUndecided is the decision of a change nobody has decided yet, or
-// that changed again in the cloud since it was decided (see
-// DriftDecisionEntry.Fingerprint): the file's rules and then its
-// defaults decide it.
+// DriftUndecided is the decision of a change nobody has decided yet: the
+// file's rules and then its defaults decide it. --write-decisions makes
+// an entry whose change changed again in the cloud undecided (see
+// DriftDecisionEntry.Fingerprint); until then, the change is kept.
 const DriftUndecided = "undecided"
 
 // DriftDecisions is a decisions file: which changes infraharvest drift
@@ -267,11 +267,12 @@ type driftDecision struct {
 
 // decide decides c, a change of the root at root. Without a decisions
 // file it is kept. With one, its defaults decide it, then its rules (the
-// last that matches), then its entry, unless the entry is undecided or
-// its fingerprint no longer matches the change, which leaves it to the
-// rules and defaults. The rules of --accept and --keep come last, the
-// last that matches deciding: on the command line, they decide over the
-// file.
+// last that matches), then its entry, unless the entry is undecided,
+// which leaves it to the rules and defaults. An entry whose fingerprint
+// no longer matches the change keeps it, whatever the rules and defaults
+// say. The rules of --accept and --keep come last, the last that matches
+// deciding: on the command line, they decide over the file, a stale
+// entry's too.
 func (d driftDecider) decide(root string, c engine.DriftChange) driftDecision {
 	out := driftDecision{source: report.DriftDecidedByDefault}
 	if f := d.file; f != nil {
@@ -287,7 +288,10 @@ func (d driftDecider) decide(root string, c engine.DriftChange) driftDecision {
 		if e := f.byKey[driftDecisionKey(root, c.Address, c.Attribute)]; e != nil {
 			switch {
 			case e.Fingerprint != driftFingerprint(c.Kind, c.Before, c.After, c.Covers):
-				out.stale = true
+				// The entry was decided for other values: neither it nor
+				// the file's rules and defaults decide what the change is
+				// now, so it is kept until someone decides again.
+				out.accept, out.source, out.stale = false, report.DriftDecidedByEntry, true
 			case e.Decision != DriftUndecided:
 				out.accept, out.source = e.Decision == engine.DriftAccept, report.DriftDecidedByEntry
 			}
@@ -388,7 +392,8 @@ const driftDecisionsHeader = `# infraharvest drift decisions: which changes in t
 # A decision holds only for the values it was made for: the fingerprint is a
 # hash of the change's values as the report shows them, secrets redacted; the
 # values themselves aren't kept here. A change that changed again in the
-# cloud is undecided again. Running --write-decisions again keeps the
+# cloud is kept, whatever the rules say, and undecided again once this file
+# is written again. Running --write-decisions again keeps the
 # decisions and notes of entries whose fingerprint matches, adds new changes
 # as undecided, and drops the changes no longer found in the roots it
 # checked. Comments other than this header aren't kept: use note.

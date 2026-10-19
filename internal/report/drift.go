@@ -146,8 +146,8 @@ type DriftChange struct {
 	// decisions_rule, decisions_change or flag.
 	DecisionSource string `json:"decision_source,omitempty"`
 	// DecisionStale says the change's entry in the decisions file was
-	// decided for other values: the cloud changed it again, so the entry
-	// didn't decide it.
+	// decided for other values: the cloud changed it again, so it is kept,
+	// unless --accept accepts it.
 	DecisionStale bool `json:"decision_stale,omitempty"`
 	// Outcome is written, kept, rejected_by_plan, manual, secret,
 	// not_assessable or absorbed.
