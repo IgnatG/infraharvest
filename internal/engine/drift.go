@@ -685,7 +685,9 @@ func diffValues(path string, before, after, unknown, bs, as any, sensitive bool,
 			diffValues(fmt.Sprintf("%s[%d]", path, i), at(bl, i), at(al, i), at(ul, i), maskIndex(bs, i), maskIndex(as, i), sensitive, out)
 		}
 	}
-	if len(*out) == n && !reflect.DeepEqual(before, after) {
+	// A JSON document, such as a policy, that only its formatting changed
+	// is the same value (see equivalentJSON).
+	if len(*out) == n && !reflect.DeepEqual(before, after) && !equivalentJSON(before, after) {
 		*out = append(*out, valueLeaf{path: path, before: before, after: after, sensitive: sensitive})
 	}
 }
