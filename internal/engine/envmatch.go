@@ -12,8 +12,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // The placeholders normalising puts in names and values for what differs
@@ -294,6 +296,18 @@ type stackResource struct {
 	rule         matchRule
 	members      []*envResource // by environment, as the roots are; nil where none
 	seq          int            // the order it was matched in
+
+	// residue says why the environments' resources it was matched from
+	// weren't merged: it is one environment's part of them, "" if merged.
+	residue string
+	// forEach is the resource it is a key of, by its label, or nil.
+	forEach *forEachGroup
+	// deploy is the deploy_<label> variable that counts it, for a
+	// resource some environments have and no forEach holds.
+	deploy *envVariable
+	// body is its arguments across the environments that have it (see
+	// mergeBody); nil in a forEach.
+	body *mergedBody
 }
 
 // coverage is the number of environments that have r.
@@ -307,11 +321,27 @@ func (r *stackResource) coverage() int {
 	return n
 }
 
-// address is r's resource block's address in the merged root.
+// address is r's resource block's address in the merged root: its
+// forEach's, for a key of one.
 func (r *stackResource) address() string {
+	if r.forEach != nil {
+		return r.forEach.address()
+	}
 	return r.resourceType + "." + r.label
 }
 
+// instance returns the address of r's instance in the merged root, as
+// references and import blocks write it: type.label, type.label[0] for
+// one deploy counts, and type.label["key"] in a forEach.
+func (r *stackResource) instance() hcl.Traversal {
+	switch {
+	case r.forEach != nil:
+		return hcl.Traversal{hcl.TraverseRoot{Name: r.resourceType}, hcl.TraverseAttr{Name: r.forEach.label}, hcl.TraverseIndex{Key: cty.StringVal(r.label)}}
+	case r.deploy != nil:
+		return hcl.Traversal{hcl.TraverseRoot{Name: r.resourceType}, hcl.TraverseAttr{Name: r.label}, hcl.TraverseIndex{Key: cty.NumberIntVal(0)}}
+	}
+	return hcl.Traversal{hcl.TraverseRoot{Name: r.resourceType}, hcl.TraverseAttr{Name: r.label}}
+}
 
 // matchResources matches the resources of roots, one per environment of
 // a stack, whose normalisers are norms, in order: by type and normalised
