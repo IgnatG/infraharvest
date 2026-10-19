@@ -159,3 +159,42 @@ func TestDriftWriteFiles(t *testing.T) {
 		}
 	}
 }
+
+// A change of tags several resources share is one change, which lists
+// the resources it covers.
+func TestDriftSharedTags(t *testing.T) {
+	t.Parallel()
+	d := &Drift{
+		Roots: []DriftRoot{{Path: "aws/123/eu-west-2", Backend: "s3", Resources: 2}},
+		Changes: []DriftChange{{
+			Root: "aws/123/eu-west-2", Address: "local.tags", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: "changed",
+			Source: &DriftSource{File: "locals.tf", Line: 3}, Covers: []string{"aws_s3_bucket.logs", "aws_sqs_queue.jobs"},
+			Decision: DriftAccept, Outcome: DriftWritten,
+		}},
+	}
+	d.Finish()
+	if d.Totals.Changes != 1 || d.Totals.Written != 1 {
+		t.Errorf("totals %+v", d.Totals)
+	}
+	var b bytes.Buffer
+	if err := d.WriteJSON(&b); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Changes []struct {
+			Address string   `json:"address"`
+			Covers  []string `json:"covers"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(b.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Changes) != 1 || got.Changes[0].Address != "local.tags" || len(got.Changes[0].Covers) != 2 {
+		t.Errorf("drift.json changes %+v", got.Changes)
+	}
+	md := d.Markdown()
+	want := "- `local.tags` in `aws/123/eu-west-2`, `tags.Env`: `\"prod\"` → `\"dev\"`, on every resource that gets it from there: `aws_s3_bucket.logs`, `aws_sqs_queue.jobs` (`locals.tf:3`)"
+	if !strings.Contains(md, want) || strings.Count(md, "tags.Env") != 1 {
+		t.Errorf("drift.md:\n%s\nwant once:\n%s", md, want)
+	}
+}

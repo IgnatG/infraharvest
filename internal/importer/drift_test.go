@@ -364,3 +364,33 @@ func TestDriftAcceptsByRule(t *testing.T) {
 		t.Errorf("got %v, want the rule refused", err)
 	}
 }
+
+// A rule on a type or an address matches a change of shared tags if it
+// matches one of the resources the change covers, or, for an address,
+// where the tags are kept.
+func TestDriftRulesMatchSharedTags(t *testing.T) {
+	t.Parallel()
+	shared := engine.DriftChange{Address: "local.tags", Attribute: "tags.Env", Covers: []string{"aws_s3_bucket.logs", "module.queues.aws_sqs_queue.this[0]"}}
+	for _, tc := range []struct {
+		rule string
+		want bool
+	}{
+		{"attribute=tags.*", true},
+		{"attribute=labels.*", false},
+		{"type=aws_s3_bucket", true},
+		{"type=aws_sqs_queue", true},
+		{"type=aws_security_group", false},
+		{"address=local.tags", true},
+		{"address=aws_s3_bucket.*", true},
+		{"address=aws_instance.*", false},
+		{"root=aws/*", true},
+	} {
+		r, err := ParseDriftRule(tc.rule, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := acceptsDrift([]DriftRule{r}, "aws/1/eu-west-2", shared); got != tc.want {
+			t.Errorf("%s: accepted %v, want %v", tc.rule, got, tc.want)
+		}
+	}
+}
