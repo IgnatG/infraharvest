@@ -5,8 +5,10 @@
 // Protocol. Its tools run the infraharvest binary itself, so they behave
 // exactly like the command line: discover lists resources into a selection
 // file, import generates Terraform configuration from one once a person
-// confirms it, and report reads an import's report. Nothing is ever
-// applied, and the cloud is only read.
+// confirms it, report reads an import's report, drift reports what changed
+// in the cloud since the roots were applied, and drift_accept takes the
+// cloud's values into the code once a person confirms it. Nothing is ever
+// applied, the state is never changed, and the cloud is only read.
 package mcpserver
 
 import (
@@ -46,11 +48,12 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 1. Call discover to list a provider's resources into a selection file. Each resource is marked included or not, with the reason for exclusions.
 2. Edit the selection file if the user wants a different selection, and show it to them.
 3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them. To generate those roots again from scratch, set regenerate instead.
-4. Call report to read what was imported, what was left out and why, and the results of the checks.`
+4. Call report to read what was imported, what was left out and why, and the results of the checks.
+5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with accept rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
 
 // New returns the server, which runs infraharvest with run. The tools read
-// and write files under root only: selection files, output directories
-// and reports.
+// and write files under root only: selection files, output directories,
+// reports and drift decisions files.
 func New(version, root string, run Runner) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infraharvest", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	t := &tools{run: run, root: root}
@@ -77,6 +80,21 @@ func New(version, root string, run Runner) *mcp.Server {
 		Description: "Returns the report of the import in an output directory: what was imported, left out and excluded, and the results of the verification checks.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, t.report)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "drift",
+		Title:       "Find what changed in the cloud since the roots were applied",
+		Description: "Checks the roots an import generated in the output directory for what changed in the cloud since they were applied, and what the next apply of their code would do about each change: revert it, or keep it as the code doesn't set it. Reads the cloud and the roots' state with the environment's credentials; changes neither the code nor the state, and writes only the drift report and Terraform's working files. " + driftExitHelp,
+		// It writes the drift report, and the roots' .terraform directories
+		// as an init does, but changes nothing a person keeps.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)},
+	}, t.drift)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "drift_accept",
+		Title:       "Take changes in the cloud into the code",
+		Description: "Checks the roots as drift does, and writes the cloud's values of the changes that accept rules or a decisions file accept into the roots' code, after the user confirms; each edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing. Secrets are never written. With write_decisions, writes the run's changes into a decisions file, which needs no confirmation on its own as it changes no code. Never applies, and never changes the state. " + driftExitHelp,
+		// Not idempotent: an accepted change is no longer drift.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
+	}, t.driftAccept)
 	return server
 }
 
@@ -396,7 +414,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, nil, err
 	}
-	snapshot, err := newSnapshot(content)
+	snapshot, err := newSnapshot("selection.yaml", content)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -541,17 +559,18 @@ func (t *tools) redeem(state string) bool {
 	return true
 }
 
-// snapshot is a private copy of a selection file's content.
+// snapshot is a private copy of a file's content, such as a selection
+// file's, at a path of its own named name.
 type snapshot struct {
 	dir, path string
 }
 
-func newSnapshot(content []byte) (*snapshot, error) {
+func newSnapshot(name string, content []byte) (*snapshot, error) {
 	dir, err := os.MkdirTemp("", "infraharvest-mcp-")
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, "selection.yaml")
+	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err

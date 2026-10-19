@@ -1,0 +1,418 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package mcpserver
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"unicode"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
+)
+
+// driftExitHelp says what the drift tools' exit codes mean, for their
+// descriptions: they run drift with --detailed-exitcode.
+const driftExitHelp = "Exit code 0 means no drift is left, 4 that changes are left that the next apply reverts or that can't be assessed, 1 that an accepted change failed verification, and 2 that a root couldn't be checked."
+
+// DriftInput is the drift tool's input.
+type DriftInput struct {
+	Out    string `json:"out" jsonschema:"the output directory of an import, whose roots were applied"`
+	Engine string `json:"engine,omitempty" jsonschema:"terraform (the default) or tofu"`
+	// Roots are --root patterns.
+	Roots []string `json:"roots,omitempty" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
+	// Parallel is --parallel, 0 for its default.
+	Parallel int `json:"parallel,omitempty" jsonschema:"how many roots to check at once (default 1); each runs its own Terraform"`
+}
+
+// DriftAcceptInput is the drift_accept tool's input.
+type DriftAcceptInput struct {
+	DriftInput
+	// Accept and Keep are --accept and --keep rules: every Accept rule
+	// comes first, so that a Keep rule decides a change both match.
+	Accept []string `json:"accept,omitempty" jsonschema:"rules of the changes to accept into the code: all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as attribute=tags.*"`
+	Keep   []string `json:"keep,omitempty" jsonschema:"rules of the changes to keep the code's values of, which the next apply puts back, as accept takes them; they come after the accept rules, so that a keep rule decides a change both match"`
+	// Decisions is --decisions.
+	Decisions string `json:"decisions,omitempty" jsonschema:"a decisions file to decide the changes by, such as one write_decisions wrote and the user edited: each change's entry, else its rules and defaults; accept and keep decide after it"`
+	// WriteDecisions is --write-decisions.
+	WriteDecisions bool `json:"write_decisions,omitempty" jsonschema:"write the run's changes into the decisions file, decisions or drift.yaml in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped"`
+}
+
+// DriftResult is what a drift tool found and did.
+type DriftResult struct {
+	ExitCode int `json:"exit_code"`
+	// DriftFound says whether changes are left that the next apply
+	// reverts, or that can't be assessed.
+	DriftFound bool `json:"drift_found"`
+	// Totals count the roots, and the changes by what became of them:
+	// written into the code, kept, needing a hand edit (manual), and so
+	// on.
+	Totals report.DriftTotals `json:"totals"`
+	// StaleDecisions counts the changes whose entry in the decisions file
+	// was decided for other values, so that it wasn't applied.
+	StaleDecisions int `json:"stale_decisions,omitempty"`
+	// FailedRoots are the roots that couldn't be checked, with why.
+	FailedRoots []string `json:"failed_roots,omitempty"`
+	// Changes are the first changes, up to maxDriftChanges; MoreChanges
+	// counts those left out, which the report has.
+	Changes     []report.DriftChange `json:"changes"`
+	MoreChanges int                  `json:"more_changes,omitempty"`
+	// Report is drift.md; drift.json is beside it.
+	Report string `json:"report"`
+	// Decisions is the decisions file write_decisions wrote.
+	Decisions string `json:"decisions,omitempty"`
+}
+
+// maxDriftChanges is how many changes a result lists: an estate's tags
+// changed in the console can be thousands, too many for an agent's
+// context, and the report has them all.
+const maxDriftChanges = 200
+
+// driftConfirmation names the drift_accept tool's request for the user's
+// confirmation.
+const driftConfirmation = "confirm_drift"
+
+// driftArgs checks in and returns the arguments of drift without its
+// rules and decisions, nor the output directory, which goes last. in.Out
+// is set to the path to use.
+func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
+	if in.Out == "" {
+		return nil, errors.New("out is required")
+	}
+	out, err := t.within("out", in.Out)
+	if err != nil {
+		return nil, err
+	}
+	in.Out = out
+	// drift initialises the roots, stages copies of them, and writes the
+	// report and edits there.
+	if err := t.linksStayUnder("out", in.Out); err != nil {
+		return nil, err
+	}
+	engine := in.Engine
+	if engine == "" {
+		engine = "terraform"
+	}
+	if engine != "terraform" && engine != "tofu" {
+		return nil, fmt.Errorf("engine must be terraform or tofu, not %q", engine)
+	}
+	if in.Parallel < 0 {
+		return nil, errors.New("parallel can't be negative")
+	}
+	args := []string{"drift", "--engine=" + engine, "--format=json", "--detailed-exitcode"}
+	if in.Parallel > 0 {
+		args = append(args, fmt.Sprintf("--parallel=%d", in.Parallel))
+	}
+	for _, r := range in.Roots {
+		if r == "" || strings.ContainsFunc(r, unicode.IsControl) {
+			return nil, fmt.Errorf("root pattern %q is empty or has a control character", r)
+		}
+		args = append(args, "--root="+r)
+	}
+	return args, nil
+}
+
+func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput) (*mcp.CallToolResult, *DriftResult, error) {
+	args, err := t.driftArgs(&in)
+	if err != nil {
+		return nil, nil, err
+	}
+	d, code, failed, err := t.runDrift(ctx, append(args, "--", in.Out), "drift")
+	if err != nil || failed != nil {
+		return failed, nil, err
+	}
+	result := driftResult(d, code, in.Out)
+	return textResult(driftText(result)), result, nil
+}
+
+func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in DriftAcceptInput) (*mcp.CallToolResult, *DriftResult, error) {
+	args, err := t.driftArgs(&in.DriftInput)
+	if err != nil {
+		return nil, nil, err
+	}
+	rules, err := parseDriftRules(in.Accept, in.Keep)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(rules) == 0 && in.Decisions == "" && !in.WriteDecisions {
+		return nil, nil, errors.New("set accept, keep, decisions or write_decisions; to only check, call drift")
+	}
+	// The flags of the run without the decisions file, which the run the
+	// user confirms reads from a private copy.
+	detect := slices.Clone(args)
+	for _, r := range rules {
+		flag := "--keep="
+		if r.Accept {
+			flag = "--accept="
+		}
+		args = append(args, flag+r.String())
+	}
+	target := filepath.Join(in.Out, importer.DefaultDriftDecisionsFile)
+	var content []byte
+	var decisions *importer.DriftDecisions
+	if in.Decisions != "" {
+		if in.Decisions, err = t.within("decisions", in.Decisions); err != nil {
+			return nil, nil, err
+		}
+		// Read once: the user confirms these bytes, as for an import's
+		// selection file.
+		if content, err = os.ReadFile(in.Decisions); err != nil {
+			return nil, nil, err
+		}
+		if decisions, err = importer.ParseDriftDecisions(in.Decisions, content); err != nil {
+			return nil, nil, err
+		}
+		target = in.Decisions
+	}
+	if in.WriteDecisions {
+		if _, err := t.within("decisions", target); err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "--write-decisions")
+	}
+	if !slices.ContainsFunc(rules, func(r importer.DriftRule) bool { return r.Accept }) && in.Decisions == "" {
+		// Only keep rules, or only the decisions file to write: no code is
+		// written, so there is nothing for the user to confirm.
+		return t.finishDrift(ctx, append(args, "--", in.Out), in, target, nil, nil)
+	}
+	shown := slices.Clone(args)
+	if in.Decisions != "" {
+		shown = append(shown, "--decisions="+in.Decisions)
+	}
+	shown = append(shown, "--", in.Out)
+
+	// A person confirms what is written into the code, as for an import.
+	state := confirmationState(shown, content)
+	if len(req.Params.InputResponses) == 0 {
+		if !canAsk(req.Session) {
+			return errorResult(fmt.Sprintf("The user has to confirm taking changes in the cloud into the code, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", shellJoin(shown))), nil, nil
+		}
+		// The counts to confirm come from a run without the rules and the
+		// decisions file, which changes no code.
+		d, _, failed, err := t.runDrift(ctx, append(detect, "--", in.Out), "The check before asking the user")
+		if err != nil || failed != nil {
+			return failed, nil, err
+		}
+		message := driftConfirmationMessage(in, target, d, importer.PreviewDrift(decisions, rules, d.Changes))
+		t.issue(state)
+		return &mcp.CallToolResult{
+			InputRequests: mcp.InputRequestMap{driftConfirmation: &mcp.ElicitParams{
+				Message:         message,
+				RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}},
+			RequestState: state,
+		}, nil, nil
+	}
+	answer, ok := req.Params.InputResponses[driftConfirmation].(*mcp.ElicitResult)
+	// Only an answer to a request this server made counts, and only once.
+	if !ok || answer.Action != "accept" || req.Params.RequestState != state || !t.redeem(state) {
+		return errorResult("The user didn't confirm taking changes in the cloud into the code, so the code wasn't changed."), nil, nil
+	}
+	if in.Decisions == "" {
+		return t.finishDrift(ctx, shown, in, target, nil, nil)
+	}
+	snapshot, err := newSnapshot(filepath.Base(in.Decisions), content)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer snapshot.remove()
+	return t.finishDrift(ctx, append(args, "--decisions="+snapshot.path, "--", in.Out), in, target, snapshot, content)
+}
+
+// parseDriftRules parses the accept rules, then the keep rules, as
+// --accept and --keep take them.
+func parseDriftRules(accept, keep []string) ([]importer.DriftRule, error) {
+	var rules []importer.DriftRule
+	for _, list := range []struct {
+		rules  []string
+		accept bool
+	}{{accept, true}, {keep, false}} {
+		for _, s := range list.rules {
+			if strings.ContainsFunc(s, unicode.IsControl) {
+				// Such as a newline, which could make the confirmation the
+				// user is shown say something else.
+				return nil, fmt.Errorf("rule %q has a control character", s)
+			}
+			r, err := importer.ParseDriftRule(s, list.accept)
+			if err != nil {
+				return nil, err
+			}
+			rules = append(rules, r)
+		}
+	}
+	return rules, nil
+}
+
+// driftConfirmationMessage asks the user to confirm in, saying how many
+// of the changes d, a run without the rules and the decisions file,
+// found that they would accept, as p counts them.
+func driftConfirmationMessage(in DriftAcceptInput, target string, d *report.Drift, p importer.DriftPreview) string {
+	var by []string
+	if in.Decisions != "" {
+		by = append(by, fmt.Sprintf("the decisions file %q", in.Decisions))
+	}
+	if len(in.Accept) > 0 {
+		by = append(by, "the accept rules "+quoteAll(in.Accept))
+	}
+	if len(in.Keep) > 0 {
+		by = append(by, "the keep rules "+quoteAll(in.Keep))
+	}
+	message := fmt.Sprintf("Take changes in the cloud into the Terraform code of the roots in %q? A check just now found %d changes the next apply would revert: %s accept %d of them, written into the roots' files, and keep %d, which the next apply puts back.",
+		in.Out, p.Accept+p.Keep, strings.Join(by, ", then "), p.Accept, p.Keep)
+	if p.Stale > 0 {
+		message += fmt.Sprintf(" %d entries of the decisions file were decided for other values, as the cloud changed again since, so they aren't applied.", p.Stale)
+	}
+	if d.Totals.Failed > 0 {
+		message += fmt.Sprintf(" %d roots couldn't be checked.", d.Totals.Failed)
+	}
+	message += " An edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing; secrets are never written, and changes that take a hand edit are reported instead."
+	if in.WriteDecisions {
+		message += fmt.Sprintf(" The run's changes are then written into the decisions file %q.", target)
+	}
+	return message + " infraharvest reads the cloud and the roots' state and writes files; it never applies anything, nor changes the state."
+}
+
+// quoteAll quotes each of values, joined with commas.
+func quoteAll(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = fmt.Sprintf("%q", v)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// finishDrift runs drift_accept's drift with args. With copied, the
+// private copy of the decisions file whose content the user confirmed,
+// that write_decisions writes into, the merged file is copied back to
+// in.Decisions, unless that changed meanwhile.
+func (t *tools) finishDrift(ctx context.Context, args []string, in DriftAcceptInput, target string, copied *snapshot, content []byte) (*mcp.CallToolResult, *DriftResult, error) {
+	d, code, failed, err := t.runDrift(ctx, args, "drift")
+	if err != nil || failed != nil {
+		return failed, nil, err
+	}
+	result := driftResult(d, code, in.Out)
+	text := driftText(result)
+	if in.WriteDecisions {
+		if err := copyBackDecisions(copied, target, content); err != nil {
+			text += fmt.Sprintf(" The decisions weren't written to %s: %v.", target, err)
+		} else {
+			result.Decisions = target
+			text += fmt.Sprintf(" The decisions file is %s: decide its undecided entries, then call drift_accept with it as decisions.", target)
+		}
+	}
+	return textResult(text), result, nil
+}
+
+// copyBackDecisions copies the decisions file drift merged into copied
+// to target, unless target no longer has content, the content the user
+// confirmed. Without copied, drift wrote target itself.
+func copyBackDecisions(copied *snapshot, target string, content []byte) error {
+	if copied == nil {
+		return nil
+	}
+	merged, err := os.ReadFile(copied.path)
+	if err != nil {
+		return err
+	}
+	current, err := os.ReadFile(target)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, content) {
+		return errors.New("it changed while drift ran")
+	}
+	if bytes.Equal(merged, content) {
+		return nil
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFile(target, merged, info.Mode().Perm())
+}
+
+// runDrift runs drift with args and reads the drift.json it prints. When
+// it printed none, as when it couldn't run, it returns an error result
+// that says what stopped it; what names the run there.
+func (t *tools) runDrift(ctx context.Context, args []string, what string) (*report.Drift, int, *mcp.CallToolResult, error) {
+	stdout, stderr, code, err := t.run(ctx, args)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	d, err := decodeDrift(stdout)
+	if err != nil {
+		if stopped(code) {
+			return nil, code, errorResult(fmt.Sprintf("%s was stopped (exit code %d):\n%s", what, code, tail(stderr))), nil
+		}
+		return nil, code, errorResult(fmt.Sprintf("%s couldn't run (exit code %d):\n%s", what, code, tail(stderr))), nil
+	}
+	return d, code, nil, nil
+}
+
+// decodeDrift reads drift.json. Numbers are kept as they are written, so
+// that the fingerprints of the changes' values are those drift took.
+func decodeDrift(content []byte) (*report.Drift, error) {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.UseNumber()
+	var d report.Drift
+	if err := decoder.Decode(&d); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// driftResult is d as a drift tool returns it, from a run that exited
+// with code on the output directory out.
+func driftResult(d *report.Drift, code int, out string) *DriftResult {
+	result := &DriftResult{
+		ExitCode:   code,
+		DriftFound: d.DriftFound,
+		Totals:     d.Totals,
+		Changes:    []report.DriftChange{},
+		Report:     filepath.Join(out, report.Dir, report.DriftMarkdownFile),
+	}
+	for _, r := range d.Roots {
+		if r.Error != "" {
+			result.FailedRoots = append(result.FailedRoots, r.Path+": "+r.Error)
+		}
+	}
+	for _, c := range d.Changes {
+		if c.DecisionStale {
+			result.StaleDecisions++
+		}
+		if len(result.Changes) == maxDriftChanges {
+			result.MoreChanges++
+			continue
+		}
+		result.Changes = append(result.Changes, c)
+	}
+	return result
+}
+
+// driftText summarises result.
+func driftText(result *DriftResult) string {
+	t, code := result.Totals, result.ExitCode
+	text := fmt.Sprintf("Checked %d roots (%d couldn't be): %d changes in the cloud since they were applied; %d accepted into the code, %d kept, which the next apply reverts, %d need a hand edit, %d rejected by the plan, %d secrets, %d not assessable, and %d the code absorbs (exit code %d). The report is in %s.",
+		t.Roots-t.Failed, t.Failed, t.Changes, t.Written, t.Kept, t.Manual, t.RejectedByPlan, t.Secret, t.NotAssessable, t.Absorbed, code, result.Report)
+	if result.MoreChanges > 0 {
+		text += fmt.Sprintf(" The result lists the first %d changes and leaves out %d more: the report has them all.", maxDriftChanges, result.MoreChanges)
+	}
+	if result.StaleDecisions > 0 {
+		text += fmt.Sprintf(" %d changes changed again since their entries in the decisions file were decided, so those weren't applied: decide them again.", result.StaleDecisions)
+	}
+	if stopped(code) {
+		text = "drift was stopped before it finished. " + text
+	}
+	return text
+}

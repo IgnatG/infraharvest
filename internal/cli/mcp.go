@@ -32,9 +32,11 @@ func newMCPCmd() *cobra.Command {
 		Short: "Serve infraharvest to AI agents over the Model Context Protocol (stdio)",
 		Long: "Serve infraharvest to AI agents over the Model Context Protocol, on stdin and\n" +
 			"stdout. The tools run this binary: discover lists resources into a selection file,\n" +
-			"import generates configuration from one after the user confirms it, and report\n" +
-			"reads an import's report. The files they read and write stay under --root.\n" +
-			"Nothing is ever applied.",
+			"import generates configuration from one after the user confirms it, report\n" +
+			"reads an import's report, drift reports what changed in the cloud since the\n" +
+			"roots were applied, and drift_accept takes such changes into the code after\n" +
+			"the user confirms it. The files they read and write stay under --root.\n" +
+			"Nothing is ever applied, and the state is never changed.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			self, err := os.Executable()
@@ -58,7 +60,7 @@ func newMCPCmd() *cobra.Command {
 			return mcpserver.New(version.Version, root, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories and reports (default: the current directory, unless that is the root of a filesystem or the home directory)")
+	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories, reports and drift decisions files (default: the current directory, unless that is the root of a filesystem or the home directory)")
 	return cmd
 }
 
