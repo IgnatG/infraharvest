@@ -1,0 +1,183 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+//go:build e2e && (!minimal || aws)
+
+package e2e
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/cli"
+	"github.com/IgnatG/infraharvest/internal/report"
+)
+
+// environmentAccounts are the accounts testdata/aws-environments creates
+// its resources in, which no other test uses, by environment.
+var environmentAccounts = map[string]string{"dev": "777777777777", "prod": "888888888888"}
+
+// environmentsConfig maps environmentAccounts to their environments,
+// prod's names holding prd.
+const environmentsConfig = `version: 1
+environments:
+  dev:
+    aws: { accounts: ["777777777777"] }
+  prod:
+    aws: { accounts: ["888888888888"] }
+    tokens: [prd]
+`
+
+// TestAWSEnvironments imports testdata/aws-environments, in two accounts
+// the configuration file maps to dev and prod, at once: the roots of the
+// two environments merge into one root they share, in aws/us-east-1,
+// with what differs in vars/<env>/. The queue of another size in each
+// environment becomes a variable, prod's alerts feature a deploy_
+// variable, and the queue configured too differently to merge stays
+// each environment's. Planned as each environment, with its own
+// credentials and var files, the merged root imports what that
+// environment has and changes nothing. A layout that puts the
+// environments' roots in the merged root's directory keeps them apart,
+// and the report says why. --resume keeps the merged root as it is, and
+// --incremental adds a queue dev gets since, as dev's, every environment
+// still planning with no changes.
+func TestAWSEnvironments(t *testing.T) {
+	endpoint := os.Getenv("AWS_ENDPOINT_URL")
+	if endpoint == "" {
+		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
+	}
+	if !isLoopback(endpoint) {
+		t.Fatalf("AWS_ENDPOINT_URL=%s: the test creates resources, so it only runs against a local emulator", endpoint)
+	}
+	isolateAWSConfig(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	defer cancel()
+	cache := t.TempDir()
+	engineName, binary := e2eEngine(t)
+	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(cache, "plugins")
+	fixture := seedApplied(ctx, t, "aws-environments", execPath, plugins)
+	config := writeConfig(t, environmentsConfig)
+
+	importInto := func(out string, more ...string) {
+		t.Helper()
+		root := cli.NewCmdRoot()
+		root.SetArgs(append([]string{
+			"import", "aws",
+			"--config=" + config,
+			"--engine=" + engineName,
+			"--terraform-path=" + execPath,
+			"--accounts=" + environmentAccounts["dev"] + "," + environmentAccounts["prod"],
+			"--parallel=2",
+			"--regions=us-east-1",
+			"--services=sqs,sns",
+			"--out=" + out,
+			"--all",
+		}, more...))
+		if err := root.ExecuteContext(ctx); err != nil {
+			t.Fatalf("infraharvest import %v: %v", more, err)
+		}
+	}
+	// Each environment plans with its own account's credentials.
+	credentials := func(env string) { t.Setenv("AWS_ACCESS_KEY_ID", environmentAccounts[env]) }
+	defer t.Setenv("AWS_ACCESS_KEY_ID", "test")
+
+	out := t.TempDir()
+	importInto(out)
+	coverage := coverageOf(t, out)
+	checkCoverage(t, "the import", coverage, nil)
+	merge := checkMerged(t, out, coverage, "aws/us-east-1", "dev", "prod")
+	dir := filepath.Join(out, "aws", "us-east-1")
+	for _, env := range []string{"dev", "prod"} {
+		var residue []string
+		for _, r := range merge.Residue {
+			if r.Env == env {
+				residue = append(residue, r.Address)
+			}
+		}
+		if len(residue) != 1 || !strings.Contains(residue[0], "events") {
+			t.Errorf("%s's residue: %v, want its events queue", env, residue)
+		}
+	}
+	files := configuration(t, dir)
+	for _, want := range []string{
+		"region = var.aws_region",
+		"Environment = var.env",
+		`count = var.deploy_alerts ? 1 : 0`,
+		"visibility_timeout_seconds = var.",
+		`naming_prefix = "shop-${var.env}"`,
+	} {
+		if !strings.Contains(strings.Join(strings.Fields(files), " "), strings.Join(strings.Fields(want), " ")) {
+			t.Errorf("the merged root misses %q:\n%s", want, files)
+		}
+	}
+	if strings.Contains(files, "assume_role") {
+		t.Errorf("the merged root assumes a role of its own:\n%s", files)
+	}
+	prodVars := readFile(t, filepath.Join(dir, "vars", "prod", "terraform.tfvars"))
+	if !strings.Contains(prodVars, `env = "prd"`) || !strings.Contains(prodVars, "deploy_alerts") {
+		t.Errorf("prod's terraform.tfvars:\n%s", prodVars)
+	}
+	imported := checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
+	if imported["dev"]["aws_sqs_queue"] != 2 || imported["prod"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sns_topic"] != 1 || imported["dev"]["aws_sns_topic"] != 0 {
+		t.Errorf("imported: %v", imported)
+	}
+
+	// Resumed, the merged root stays as it is, and nothing is merged
+	// again.
+	before := outputFiles(t, out)
+	importInto(out, "--resume")
+	if m := mergeOf(t, coverageOf(t, out), "aws/us-east-1"); !m.Merged || !m.Unchanged {
+		t.Errorf("--resume: merged %v, unchanged %v (%s)", m.Merged, m.Unchanged, m.Reason)
+	}
+	after := outputFiles(t, out)
+	for name, content := range before {
+		if strings.HasSuffix(name, ".tf") || strings.HasSuffix(name, ".tfvars") {
+			if after[name] != content {
+				t.Errorf("--resume changed %s", name)
+			}
+		}
+	}
+
+	// dev gets a queue, which --incremental adds as dev's.
+	fixture.apply(ctx, t, tfexec.Var("audit=true"))
+	importInto(out, "--incremental")
+	coverage = coverageOf(t, out)
+	checkCoverage(t, "--incremental", coverage, nil)
+	merge = checkMerged(t, out, coverage, "aws/us-east-1", "dev", "prod")
+	if !slices.ContainsFunc(merge.Residue, func(r report.MergeResidue) bool { return r.Env == "dev" && strings.Contains(r.MergedAddress, "audit") }) || !strings.Contains(readFile(t, filepath.Join(dir, "vars", "dev", "imports.tfvars")), "shop-dev-audit") {
+		t.Errorf("--incremental didn't add dev's new queue:\n%s", readFile(t, filepath.Join(dir, "vars", "dev", "imports.tfvars")))
+	}
+	if prod := readFile(t, filepath.Join(dir, "vars", "prod", "imports.tfvars")); strings.Contains(prod, "shop-dev-audit") {
+		t.Errorf("prod imports dev's new queue:\n%s", prod)
+	}
+	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
+	if imported["dev"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sqs_queue"] != 3 {
+		t.Errorf("--incremental: imported %v", imported)
+	}
+
+	// A layout that puts the environments' roots in the merged root's
+	// directory keeps them apart, each planning as it was generated.
+	apart := t.TempDir()
+	importInto(apart, "--layout={out}/{provider}/{region}/{env}/{account}/")
+	coverage = coverageOf(t, apart)
+	checkCoverage(t, "the layout", coverage, nil)
+	if m := mergeOf(t, coverage, "aws/us-east-1"); m.Merged || !strings.Contains(m.Reason, "merged root's directory") {
+		t.Errorf("the layout: merged %v, %q", m.Merged, m.Reason)
+	}
+	for env, account := range environmentAccounts {
+		credentials(env)
+		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
+	}
+}
