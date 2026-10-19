@@ -21,14 +21,14 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// update rewrites the golden files of the merged roots from what the code
-// writes now:
+// updateGolden rewrites the golden files of the merged roots from what
+// the code writes now:
 //
 //	go test ./internal/engine -run Golden -update
 //
 // or, without a local toolchain, the remote workflow's golden task with
 // packages=./internal/engine.
-var update = flag.Bool("update", false, "rewrite the golden files in testdata")
+var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata")
 
 // rootSchemas are envSchemas with the types the merged roots' tests use
 // besides.
@@ -45,10 +45,10 @@ var rootSchemas = func() *tfjson.ProviderSchemas {
 	}}
 }()
 
-// awsRoot returns environment env's AWS root of generated, in account,
+// awsEnvRoot returns environment env's AWS root of generated, in account,
 // with its files by address, the provider's default tags and its backend
 // if bucket is set.
-func awsRoot(t *testing.T, env string, tokens []string, account, generated string, ids, files, tags map[string]string, bucket string) envRoot {
+func awsEnvRoot(t *testing.T, env string, tokens []string, account, generated string, ids, files, tags map[string]string, bucket string) envRoot {
 	t.Helper()
 	root := testEnvRoot(t, env, tokens, account, generated, ids)
 	root.region = "eu-west-2"
@@ -196,8 +196,8 @@ resource "aws_vpn_connection" "office" {
 	prodIDs["aws_customer_gateway.vpn_office"] = "cgw-0abc1234"
 	prodIDs["aws_vpn_connection.office"] = "vpn-0abc1234"
 	return []envRoot{
-		awsRoot(t, "dev", nil, "111111111111", dev, ids("dev", "111111111111"), files, map[string]string{"Environment": "dev", "Owner": "platform"}, "shop-tfstate-111111111111"),
-		awsRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs, files, map[string]string{"Environment": "prd", "Owner": "platform"}, "shop-tfstate-222222222222"),
+		awsEnvRoot(t, "dev", nil, "111111111111", dev, ids("dev", "111111111111"), files, map[string]string{"Environment": "dev", "Owner": "platform"}, "shop-tfstate-111111111111"),
+		awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs, files, map[string]string{"Environment": "prd", "Owner": "platform"}, "shop-tfstate-222222222222"),
 	}
 }
 
@@ -280,7 +280,7 @@ resource "aws_ssm_parameter" "api_key" {
 		}
 		return m
 	}
-	prodRoot := awsRoot(t, "prod", []string{"prd"}, "222222222222", prod, ids("prd", "222222222222", "aws_db_instance.main", "aws_sqs_queue.refunds", "aws_ssm_parameter.api_key"), files, nil, "")
+	prodRoot := awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, ids("prd", "222222222222", "aws_db_instance.main", "aws_sqs_queue.refunds", "aws_ssm_parameter.api_key"), files, nil, "")
 	variables, err := parseHCL(VariablesFileName, []byte(`variable "shop_prd_api_key" {
   description = "The value of aws_ssm_parameter.api_key."
   type        = string
@@ -292,8 +292,8 @@ resource "aws_ssm_parameter" "api_key" {
 	}
 	prodRoot.variables = variables
 	return []envRoot{
-		awsRoot(t, "dev", nil, "111111111111", dev, ids("dev", "111111111111"), files, nil, ""),
-		awsRoot(t, "stage", []string{"stg"}, "333333333333", stage, ids("stg", "333333333333", "aws_db_instance.main"), files, nil, ""),
+		awsEnvRoot(t, "dev", nil, "111111111111", dev, ids("dev", "111111111111"), files, nil, ""),
+		awsEnvRoot(t, "stage", []string{"stg"}, "333333333333", stage, ids("stg", "333333333333", "aws_db_instance.main"), files, nil, ""),
 		prodRoot,
 	}
 }
@@ -407,7 +407,7 @@ func goldenRoot(t *testing.T, name string, files map[string][]byte) {
 		}
 	}
 	path := filepath.Join("testdata", "envroot", name+".golden.txt")
-	if *update {
+	if *updateGolden {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -540,8 +540,8 @@ func TestMergedRootFiles(t *testing.T) {
 }
 `
 		roots := []envRoot{
-			awsRoot(t, "dev", nil, "111111111111", fmt.Sprintf(generated, "dev"), nil, nil, nil, ""),
-			awsRoot(t, "prod", []string{"prd"}, "222222222222", fmt.Sprintf(generated, "prd"), nil, nil, nil, ""),
+			awsEnvRoot(t, "dev", nil, "111111111111", fmt.Sprintf(generated, "dev"), nil, nil, nil, ""),
+			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", fmt.Sprintf(generated, "prd"), nil, nil, nil, ""),
 		}
 		if _, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "local.tags") {
 			t.Errorf("want an error naming local.tags, got %v", err)
