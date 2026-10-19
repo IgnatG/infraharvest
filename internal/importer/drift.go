@@ -33,7 +33,14 @@ type DriftOptions struct {
 	// them, such as aws/*/eu-west-2: a root is checked if one matches its
 	// path or a directory it is in. None checks every root.
 	Roots []string
-	// DetailedExitCode exits with report.ExitDrift when drift is found.
+	// Rules decide which changes the next apply would revert to accept
+	// into the code, and which to keep (see DriftRule): the last that
+	// matches a change decides it, and a change none matches is kept.
+	// None edits nothing, as detection alone does.
+	Rules []DriftRule
+	// DetailedExitCode exits with report.ExitDrift when drift is found,
+	// and with report.ExitDriftRejected when an accepted change's edit
+	// failed verification.
 	DetailedExitCode bool
 	ForceUnlock      bool // check even when another run holds the output directory's lock
 	// Provider and Names find each root's provider, for its catalogue
@@ -51,10 +58,13 @@ type driftCheck func(ctx context.Context, dir, staging string, opts engine.Drift
 // Drift checks the roots an import generated in options.Out for what
 // changed in the cloud since they were applied (see engine.Drift), writes
 // report/drift.json and report/drift.md, and prints a summary, or with
-// --format json drift.json. It changes no code and no state. A root it
-// can't check, such as one with a remote backend, is reported and makes
-// it exit with report.ExitCouldNotRun; with DetailedExitCode, drift found
-// makes it exit with report.ExitDrift.
+// --format json drift.json. It changes no state; it changes the code only
+// to take the cloud's values of the changes options.Rules accept, once
+// the plan of the edited code says it takes them. A root it can't check,
+// such as one with a remote backend, is reported and makes it exit with
+// report.ExitCouldNotRun; with DetailedExitCode, an accepted change the
+// plan rejected makes it exit with report.ExitDriftRejected, and drift
+// left makes it exit with report.ExitDrift.
 func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftOptions(options); err != nil {
 		return err
@@ -131,8 +141,13 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if len(failed) > 0 {
 		return &ExitError{Code: report.ExitCouldNotRun, Err: fmt.Errorf("%d roots couldn't be checked:\n%s", len(failed), strings.Join(failed, "\n"))}
 	}
+	where := filepath.Join(options.Out, report.Dir, report.DriftMarkdownFile)
+	if options.DetailedExitCode && d.Totals.RejectedByPlan > 0 {
+		return &ExitError{Code: report.ExitDriftRejected, Err: fmt.Errorf("%d accepted changes failed verification, so they weren't written (see %s)", d.Totals.RejectedByPlan, where)}
+	}
 	if options.DetailedExitCode && d.DriftFound {
-		return &ExitError{Code: report.ExitDrift, Err: fmt.Errorf("drift found: %d changes the next apply reverts, %d not assessable (see %s)", d.Totals.Reverts, d.Totals.NotAssessable, filepath.Join(options.Out, report.Dir, report.DriftMarkdownFile))}
+		left := d.Totals.Kept + d.Totals.Manual + d.Totals.Secret
+		return &ExitError{Code: report.ExitDrift, Err: fmt.Errorf("drift found: %d changes the next apply reverts, %d not assessable (see %s)", left, d.Totals.NotAssessable, where)}
 	}
 	return nil
 }
@@ -153,6 +168,11 @@ func checkDriftOptions(options DriftOptions) error {
 	for _, p := range options.Roots {
 		if _, err := path.Match(p, ""); err != nil {
 			return fmt.Errorf("--root %q: %w", p, err)
+		}
+	}
+	for _, r := range options.Rules {
+		if _, err := ParseDriftRule(r.String(), r.Accept); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -213,13 +233,17 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, check driftCheck,
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel}
 	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout}
+	if len(options.Rules) > 0 {
+		opts.Accept = func(c engine.DriftChange) bool { return acceptsDrift(options.Rules, rel, c) }
+	}
 	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
 		cat, err := providerCatalogue(provider, "")
 		if err != nil {
 			root.Error = err.Error()
 			return root, nil
 		}
-		opts.StateOnly = cat.StateOnlyFor(lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
+		v := lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider)
+		opts.StateOnly, opts.Defaults, opts.Omit = cat.StateOnlyFor(v), cat.DefaultsFor(v), cat.OmitFor(v)
 	}
 	result, err := check(ctx, dir, driftStagingDir(options.Out, rel), opts)
 	if err != nil {
@@ -230,9 +254,14 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, check driftCheck,
 	root.NotApplied, root.Placeholders = result.NotApplied, result.Placeholders
 	changes := make([]report.DriftChange, 0, len(result.Changes))
 	for _, c := range result.Changes {
+		decision := report.DriftKeep
+		if c.Decision == engine.DriftAccept {
+			decision = report.DriftAccept
+		}
 		rc := report.DriftChange{
 			Root: rel, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
-			Before: c.Before, After: c.After, Kind: c.Kind, Decision: report.DriftUndecided, Outcome: c.Outcome, Reason: c.Reason,
+			Before: c.Before, After: c.After, Kind: c.Kind, Decision: decision, Outcome: c.Outcome, Reason: c.Reason,
+			ForcesReplacement: c.ForcesReplacement,
 		}
 		if c.Source != nil {
 			rc.Source = &report.DriftSource{File: c.Source.File, Line: c.Source.Line, Expression: c.Source.Expression}
@@ -273,7 +302,11 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 		case len(counts[r.Path]) > 0:
 			var parts []string
 			for _, o := range []struct{ outcome, label string }{
-				{report.DriftReverts, "reverted by the next apply"},
+				{report.DriftWritten, "accepted into the code"},
+				{report.DriftKept, "reverted by the next apply"},
+				{report.DriftRejectedByPlan, "rejected by the plan"},
+				{report.DriftManual, "need a hand edit"},
+				{report.DriftSecret, "secret"},
 				{report.DriftNotAssessable, "not assessable"},
 				{report.DriftAbsorbed, "absorbed"},
 			} {

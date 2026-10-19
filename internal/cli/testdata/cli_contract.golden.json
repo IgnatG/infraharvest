@@ -765,6 +765,12 @@
     "silence_errors": false,
     "flags": [
       {
+        "name": "accept",
+        "type": "rule",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "detailed-exitcode",
         "type": "bool",
         "default": "false",
@@ -794,6 +800,12 @@
         "name": "format",
         "type": "string",
         "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "keep",
+        "type": "rule",
+        "default": "",
         "persistent": false
       },
       {

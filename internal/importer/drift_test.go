@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -44,9 +45,12 @@ type fakeDriftCheck struct {
 	mu      sync.Mutex
 	checked []string
 	staged  []string
+	// accepted is the outcome of each change a rule accepts, as engine.Drift
+	// would give it.
+	accepted string
 }
 
-func (f *fakeDriftCheck) check(_ context.Context, dir, staging string, _ engine.DriftOptions) (*engine.RootDrift, error) {
+func (f *fakeDriftCheck) check(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
 	rel := relativePath(f.out, dir)
 	f.mu.Lock()
 	f.checked = append(f.checked, rel)
@@ -56,7 +60,17 @@ func (f *fakeDriftCheck) check(_ context.Context, dir, staging string, _ engine.
 		return nil, err
 	}
 	if r := f.results[rel]; r != nil {
-		return r, nil
+		if opts.Accept == nil {
+			return r, nil
+		}
+		decided := *r
+		decided.Changes = slices.Clone(r.Changes)
+		for i, c := range decided.Changes {
+			if c.Outcome == engine.DriftKept && opts.Accept(c) {
+				decided.Changes[i].Decision, decided.Changes[i].Outcome = engine.DriftAccept, f.accepted
+			}
+		}
+		return &decided, nil
 	}
 	return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
 }
@@ -66,7 +80,7 @@ func driftOptions(out string, f *fakeDriftCheck) DriftOptions {
 }
 
 var reverting = &engine.RootDrift{Backend: "s3", Resources: 2, Changes: []engine.DriftChange{
-	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: engine.DriftChanged, Outcome: engine.DriftReverts, Source: &engine.DriftSource{File: "main.tf", Line: 3}},
+	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: engine.DriftChanged, Outcome: engine.DriftKept, Source: &engine.DriftSource{File: "main.tf", Line: 3}},
 	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "arn", Before: "a", After: "b", Kind: engine.DriftChanged, Outcome: engine.DriftAbsorbed},
 }}
 
@@ -102,11 +116,11 @@ func TestDriftReportsEachRoot(t *testing.T) {
 		t.Errorf("stdout:\n%s\nwant:\n%s", stdout.String(), wantOut)
 	}
 	d := readDrift(t, out)
-	if d.Totals.Roots != 3 || d.Totals.Failed != 1 || d.Totals.Reverts != 1 || !d.DriftFound {
+	if d.Totals.Roots != 3 || d.Totals.Failed != 1 || d.Totals.Kept != 1 || !d.DriftFound {
 		t.Errorf("totals %+v", d.Totals)
 	}
 	c := d.Changes[1]
-	if c.Root != "aws/1/eu-west-2" || c.Decision != report.DriftUndecided || c.Source == nil || c.Source.Line != 3 {
+	if c.Root != "aws/1/eu-west-2" || c.Decision != report.DriftKeep || c.Source == nil || c.Source.Line != 3 {
 		t.Errorf("change %+v", c)
 	}
 	if _, err := os.Stat(filepath.Join(out, report.Dir, report.DriftMarkdownFile)); err != nil {
@@ -238,5 +252,115 @@ func TestDriftOptionsChecked(t *testing.T) {
 	err := Drift(context.Background(), driftOptions(t.TempDir(), &fakeDriftCheck{}), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "no generated roots") {
 		t.Errorf("got %v, want no roots", err)
+	}
+}
+
+func TestParseDriftRule(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		s    string
+		want DriftRule
+	}{
+		{"all", DriftRule{Accept: true}},
+		{"attribute=tags.*", DriftRule{Accept: true, Field: "attribute", Pattern: "tags.*"}},
+		{"type=aws_security_group", DriftRule{Accept: true, Field: "type", Pattern: "aws_security_group"}},
+		{"address=aws_s3_bucket.*", DriftRule{Accept: true, Field: "address", Pattern: "aws_s3_bucket.*"}},
+		{"root=aws/*/eu-west-2", DriftRule{Accept: true, Field: "root", Pattern: "aws/*/eu-west-2"}},
+		{"attribute=tags.a=b", DriftRule{Accept: true, Field: "attribute", Pattern: "tags.a=b"}},
+	} {
+		s, want := tc.s, tc.want
+		got, err := ParseDriftRule(s, true)
+		if err != nil || got != want {
+			t.Errorf("%s: got %+v (%v), want %+v", s, got, err, want)
+		}
+		if got.String() != s {
+			t.Errorf("%s: written back as %s", s, got.String())
+		}
+	}
+	for _, s := range []string{"", "everything", "name=x", "attribute=", "=x"} {
+		if _, err := ParseDriftRule(s, false); err == nil || !strings.Contains(err.Error(), "--keep") {
+			t.Errorf("%q: got %v, want an error naming --keep", s, err)
+		}
+	}
+}
+
+func TestDriftRulesLastMatchWins(t *testing.T) {
+	t.Parallel()
+	tag := engine.DriftChange{Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "tags.Env"}
+	rule := engine.DriftChange{Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "ingress[0].cidr_blocks"}
+	bucket := engine.DriftChange{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "versioning[0].enabled"}
+	parse := func(accept bool, s string) DriftRule {
+		r, err := ParseDriftRule(s, accept)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	rules := []DriftRule{parse(true, "all"), parse(false, "type=aws_security_group"), parse(true, "attribute=tags.*")}
+	for _, tc := range []struct {
+		rules []DriftRule
+		root  string
+		c     engine.DriftChange
+		want  bool
+	}{
+		{nil, "aws/1/eu-west-2", tag, false},
+		{rules, "aws/1/eu-west-2", tag, true},
+		{rules, "aws/1/eu-west-2", rule, false},
+		{rules, "aws/1/eu-west-2", bucket, true},
+		{[]DriftRule{parse(true, "root=aws/*/eu-west-1")}, "aws/1/eu-west-2", bucket, false},
+		{[]DriftRule{parse(true, "root=aws/*/eu-west-1")}, "aws/1/eu-west-1", bucket, true},
+		{[]DriftRule{parse(true, "address=aws_s3_bucket.*"), parse(false, "all")}, "aws/1/eu-west-2", bucket, false},
+	} {
+		if got := acceptsDrift(tc.rules, tc.root, tc.c); got != tc.want {
+			t.Errorf("%v in %s, %s %s: accepted %v, want %v", tc.rules, tc.root, tc.c.Address, tc.c.Attribute, got, tc.want)
+		}
+	}
+}
+
+func TestDriftAcceptsByRule(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		accepted string // what accepting a change makes of it
+		rules    []DriftRule
+		want     int
+	}{
+		{"none accepted", report.DriftWritten, nil, report.ExitDrift},
+		{"all written", report.DriftWritten, []DriftRule{{Accept: true}}, report.ExitOK},
+		{"rejected", report.DriftRejectedByPlan, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
+		{"a hand edit", report.DriftManual, []DriftRule{{Accept: true}}, report.ExitDrift},
+		{"in another root", report.DriftWritten, []DriftRule{{Accept: true, Field: "root", Pattern: "google/*"}}, report.ExitDrift},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out := driftOutput(t, "aws/1/eu-west-2")
+			f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}, accepted: tc.accepted}
+			options := driftOptions(out, f)
+			options.Rules = tc.rules
+			options.DetailedExitCode = true
+			err := Drift(context.Background(), options, &bytes.Buffer{})
+			if got := ExitCode(err); got != tc.want {
+				t.Errorf("exit code %d (%v), want %d", got, err, tc.want)
+			}
+			d := readDrift(t, out)
+			c := d.Changes[1]
+			if c.Attribute != "tags.Env" {
+				t.Fatalf("change %+v", c)
+			}
+			wantDecision, wantOutcome := report.DriftKeep, report.DriftKept
+			if len(tc.rules) > 0 && tc.rules[0].Field == "" {
+				wantDecision, wantOutcome = report.DriftAccept, tc.accepted
+			}
+			if c.Decision != wantDecision || c.Outcome != wantOutcome {
+				t.Errorf("tags.Env: %s, %s, want %s, %s", c.Decision, c.Outcome, wantDecision, wantOutcome)
+			}
+		})
+	}
+
+	out := driftOutput(t, "aws/1/eu-west-2")
+	options := driftOptions(out, &fakeDriftCheck{out: out})
+	options.Rules = []DriftRule{{Accept: true, Field: "name", Pattern: "x"}}
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "--accept") {
+		t.Errorf("got %v, want the rule refused", err)
 	}
 }

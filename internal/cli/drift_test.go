@@ -5,8 +5,12 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
 func TestDriftFlags(t *testing.T) {
@@ -21,6 +25,8 @@ func TestDriftFlags(t *testing.T) {
 		"root":              "[]",
 		"detailed-exitcode": "false",
 		"force-unlock":      "false",
+		"accept":            "",
+		"keep":              "",
 	} {
 		f := cmd.Flags().Lookup(name)
 		if f == nil {
@@ -31,8 +37,8 @@ func TestDriftFlags(t *testing.T) {
 			t.Errorf("--%s defaults to %q, want %q", name, f.DefValue, def)
 		}
 	}
-	// Detection only, for now.
-	for _, name := range []string{"accept", "keep", "decisions", "write-decisions"} {
+	// No decisions file yet.
+	for _, name := range []string{"decisions", "write-decisions"} {
 		if cmd.Flags().Lookup(name) != nil {
 			t.Errorf("drift has --%s", name)
 		}
@@ -45,6 +51,8 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 		"--parallel": {"--parallel", "0"},
 		"--engine":   {"--engine", "pulumi"},
 		"--root":     {"--root", "aws/["},
+		"--accept":   {"--accept", "everything"},
+		"--keep":     {"--keep", "name=x"},
 		"arguments":  {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -70,5 +78,30 @@ func TestDriftWithoutRoots(t *testing.T) {
 	cmd.SetArgs([]string{t.TempDir()})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "no generated roots") {
 		t.Errorf("got %v, want no generated roots", err)
+	}
+}
+
+// --accept and --keep add to one list of rules, in the order given.
+func TestDriftRuleFlagsKeepTheirOrder(t *testing.T) {
+	t.Parallel()
+	var rules []importer.DriftRule
+	accept, keep := &driftRules{rules: &rules, accept: true}, &driftRules{rules: &rules}
+	for _, set := range []struct {
+		flag  *driftRules
+		value string
+	}{{accept, "all"}, {keep, "type=aws_security_group"}, {accept, "attribute=tags.*"}} {
+		if err := set.flag.Set(set.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, r := range rules {
+		got = append(got, fmt.Sprintf("%v %s", r.Accept, r))
+	}
+	if want := []string{"true all", "false type=aws_security_group", "true attribute=tags.*"}; !slices.Equal(got, want) {
+		t.Errorf("rules %v, want %v", got, want)
+	}
+	if accept.String() != "all,attribute=tags.*" || keep.String() != "type=aws_security_group" {
+		t.Errorf("--accept %q, --keep %q", accept.String(), keep.String())
 	}
 }

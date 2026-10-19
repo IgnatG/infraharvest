@@ -19,10 +19,14 @@ func sampleDrift() *Drift {
 			{Path: "aws/123/eu-west-1", Error: "terraform init: exit status 1\nError: access denied"},
 		},
 		Changes: []DriftChange{
-			{Root: "aws/123/eu-west-2", Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "description", Before: "a", After: "b", Kind: "changed", Decision: DriftUndecided, Outcome: DriftAbsorbed},
-			{Root: "aws/123/eu-west-2", Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: "changed", Source: &DriftSource{File: "main.tf", Line: 3}, Decision: DriftUndecided, Outcome: DriftReverts},
-			{Root: "aws/123/eu-west-2", Address: "aws_db_instance.db", Type: "aws_db_instance", Attribute: "password", Before: "(sensitive value)", After: "(sensitive value)", Kind: "changed", Decision: DriftUndecided, Outcome: DriftNotAssessable, Reason: "a sensitive value whose variable has no value here"},
-			{Root: "aws/123/eu-west-2", Address: "aws_sqs_queue.gone", Type: "aws_sqs_queue", Kind: DriftDeleted, Decision: DriftUndecided, Outcome: DriftReverts, Reason: "the next apply creates the resource again"},
+			{Root: "aws/123/eu-west-2", Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "description", Before: "a", After: "b", Kind: "changed", Decision: DriftKeep, Outcome: DriftAbsorbed},
+			{Root: "aws/123/eu-west-2", Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: "changed", Source: &DriftSource{File: "main.tf", Line: 3}, Decision: DriftKeep, Outcome: DriftKept},
+			{Root: "aws/123/eu-west-2", Address: "aws_db_instance.db", Type: "aws_db_instance", Attribute: "password", Before: "(sensitive value)", After: "(sensitive value)", Kind: "changed", Decision: DriftKeep, Outcome: DriftNotAssessable, Reason: "a sensitive value whose variable has no value here"},
+			{Root: "aws/123/eu-west-2", Address: "aws_sqs_queue.gone", Type: "aws_sqs_queue", Kind: DriftDeleted, Decision: DriftKeep, Outcome: DriftKept, Reason: "the next apply creates the resource again"},
+			{Root: "aws/123/eu-west-2", Address: "aws_instance.web", Type: "aws_instance", Attribute: "subnet_id", Before: "subnet-a", After: "subnet-b", Kind: "changed", Source: &DriftSource{File: "main.tf", Line: 9}, Decision: DriftAccept, Outcome: DriftWritten, ForcesReplacement: true},
+			{Root: "aws/123/eu-west-2", Address: "aws_instance.web", Type: "aws_instance", Attribute: "user_data", Before: "a", After: "b", Kind: "changed", Decision: DriftAccept, Outcome: DriftManual, Reason: "base64encode() computes it: edit it by hand"},
+			{Root: "aws/123/eu-west-2", Address: "aws_ssm_parameter.token", Type: "aws_ssm_parameter", Attribute: "value", Before: "(sensitive value)", After: "(sensitive value)", Kind: "changed", Decision: DriftAccept, Outcome: DriftSecret, Reason: "a secret, which is never written into the code"},
+			{Root: "aws/123/eu-west-2", Address: "aws_sqs_queue.jobs", Type: "aws_sqs_queue", Attribute: "delay_seconds", Before: 0, After: 30, Kind: "changed", Decision: DriftAccept, Outcome: DriftRejectedByPlan, Reason: "the plan of the edited code still changes delay_seconds"},
 		},
 	}
 	d.Finish()
@@ -32,7 +36,7 @@ func sampleDrift() *Drift {
 func TestDriftFinish(t *testing.T) {
 	t.Parallel()
 	d := sampleDrift()
-	want := DriftTotals{Roots: 2, Failed: 1, Changes: 4, Reverts: 2, Absorbed: 1, NotAssessable: 1}
+	want := DriftTotals{Roots: 2, Failed: 1, Changes: 8, Written: 1, Kept: 2, RejectedByPlan: 1, Manual: 1, Secret: 1, NotAssessable: 1, Absorbed: 1}
 	if d.Totals != want {
 		t.Errorf("totals %+v, want %+v", d.Totals, want)
 	}
@@ -43,10 +47,10 @@ func TestDriftFinish(t *testing.T) {
 		t.Errorf("not sorted: %s, %s", d.Roots[0].Path, d.Changes[0].Address)
 	}
 
-	absorbed := &Drift{Roots: []DriftRoot{{Path: "a"}}, Changes: []DriftChange{{Root: "a", Outcome: DriftAbsorbed}}}
+	absorbed := &Drift{Roots: []DriftRoot{{Path: "a"}}, Changes: []DriftChange{{Root: "a", Outcome: DriftAbsorbed}, {Root: "a", Outcome: DriftWritten}}}
 	absorbed.Finish()
 	if absorbed.DriftFound {
-		t.Error("absorbed changes alone count as drift found")
+		t.Error("changes absorbed or written count as drift found")
 	}
 }
 
@@ -64,7 +68,7 @@ func TestDriftJSON(t *testing.T) {
 		t.Errorf("schema_version %v, drift_found %v", got["schema_version"], got["drift_found"])
 	}
 	changes, _ := got["changes"].([]any)
-	if len(changes) != 4 {
+	if len(changes) != 8 {
 		t.Fatalf("%d changes", len(changes))
 	}
 	first, _ := changes[0].(map[string]any)
@@ -90,11 +94,17 @@ func TestDriftMarkdown(t *testing.T) {
 	md := sampleDrift().Markdown()
 	for _, want := range []string{
 		"# Drift report",
-		"| 2 | 1 | 4 | 2 | 1 | 1 |",
-		"## Reverted by the next apply",
+		"| 2 | 1 | 8 | 1 | 2 | 2 | 2 | 1 |",
+		"## Accepted into the code",
+		"- `aws_instance.web` in `aws/123/eu-west-2`, `subnet_id`: `\"subnet-a\"` → `\"subnet-b\"` (`main.tf:9`); keeping the code instead would have replaced the resource on the next apply",
+		"## Kept: the next apply reverts the cloud",
 		"- `aws_s3_bucket.logs` in `aws/123/eu-west-2`, `tags.Env`: `\"prod\"` → `\"dev\"` (`main.tf:3`)",
 		"- `aws_sqs_queue.gone` in `aws/123/eu-west-2`: deleted in the cloud; the next apply creates the resource again",
-		"## Not assessable",
+		"## Needs a hand edit",
+		"`user_data`: `\"a\"` → `\"b\"`; base64encode() computes it: edit it by hand",
+		"`delay_seconds`: `0` → `30`; the plan of the edited code still changes delay_seconds",
+		"## Secrets and not assessable",
+		"`value`: `\"(sensitive value)\"` → `\"(sensitive value)\"`; a secret, which is never written into the code",
 		"`password`: `\"(sensitive value)\"` → `\"(sensitive value)\"`",
 		"## Absorbed",
 		"## Not checked\n\n- `aws/123/eu-west-1`: terraform init: exit status 1 Error: access denied",
@@ -107,8 +117,14 @@ func TestDriftMarkdown(t *testing.T) {
 			t.Errorf("drift.md has no %q:\n%s", want, md)
 		}
 	}
-	if strings.Index(md, "## Reverted") > strings.Index(md, "## Absorbed") {
-		t.Error("absorbed changes come before those the next apply reverts")
+	order := []string{"## Accepted into the code", "## Kept", "## Needs a hand edit", "## Secrets and not assessable", "## Absorbed"}
+	for i := 1; i < len(order); i++ {
+		if strings.Index(md, order[i-1]) > strings.Index(md, order[i]) {
+			t.Errorf("%s comes after %s", order[i-1], order[i])
+		}
+	}
+	if !strings.Contains(md, "written into the roots' files") {
+		t.Error("drift.md says nothing was changed, with changes written")
 	}
 
 	none := &Drift{Roots: []DriftRoot{{Path: "a", Resources: 1}}}
