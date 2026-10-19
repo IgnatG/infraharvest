@@ -771,6 +771,12 @@
         "persistent": false
       },
       {
+        "name": "decisions",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "detailed-exitcode",
         "type": "bool",
         "default": "false",
@@ -824,6 +830,13 @@
         "name": "terraform-path",
         "type": "string",
         "default": "",
+        "persistent": false
+      },
+      {
+        "name": "write-decisions",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": false
       }
     ]
