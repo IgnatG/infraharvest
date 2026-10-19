@@ -8,6 +8,8 @@ With `--env-tags=Environment` (any tag or label keys, first match wins), each en
 
 With `environments:` in the [configuration file](configuration.md#environments), environments go by account, subscription or project instead, with tags only where several environments share one, and their roots go to the same places: `<out>/envs/<env>/<provider>/<account>/<region>/`, or wherever `{env}` is in `--layout`. An account, subscription or project no environment names keeps the layout without environments. A root an earlier import generated into the same `--out` never moves, as its state key comes from its path: it keeps the resources the environments would now put under `envs/<env>/`, and the report names it, under Kept where they were (`kept_roots` in `coverage.json`).
 
+The roots each stack (provider, region and `{service}`) has in the configuration file's environments then merge into one root they share, `<out>/<provider>/<region>/` by default, with what differs between the environments in `vars/<env>/terraform.tfvars`, their import IDs in `vars/<env>/imports.tfvars` and their backends in `vars/<env>/backend.hcl`; the roots they had are kept under `<out>/.infraharvest/premerge/`. A stack whose merged root wouldn't plan as each environment's own root did keeps them. The report lists both, under Environments merged and Environments kept apart (`merges` in `coverage.json`, and `merged_into` on each directory merged); see [Merging environments](configuration.md#merging-environments).
+
 ## Files
 
 Each output directory gets:
