@@ -124,11 +124,6 @@ func MergeRoots(ctx context.Context, dir string, roots []MergeRoot, opts MergeOp
 		if reason != "" {
 			return &MergeResult{Reason: reason}, nil
 		}
-		for _, b := range stackBlocks(root.file) {
-			if strings.HasPrefix(b.address, "module.") {
-				return &MergeResult{Reason: fmt.Sprintf("%s: %s is a module call, which merging doesn't match across environments yet", r.Env, b.address)}, nil
-			}
-		}
 		envRoots[i] = root
 	}
 	g := &mergeGate{dir: dir, roots: roots, opts: opts}
@@ -487,7 +482,7 @@ func (g *mergeGate) residueFor(m *stackMerge, envs []MergedEnvironment) (map[str
 				continue
 			}
 			for _, change := range c.Changes {
-				r := byInstance[change.Address]
+				r := moduleInstance(byInstance, change.Address)
 				if r == nil || r.residue != "" || (r.coverage() < 2 && r.forEach == nil) {
 					continue
 				}

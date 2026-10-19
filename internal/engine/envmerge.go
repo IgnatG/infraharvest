@@ -408,7 +408,7 @@ func (m *stackMerge) groupForEach() {
 	for _, typ := range slices.Sorted(maps.Keys(byType)) {
 		candidates := byType[typ]
 		for _, seed := range candidates {
-			if seed.forEach != nil || seed.coverage() == len(m.envs) {
+			if seed.forEach != nil || seed.coverage() == len(m.envs) || typ == moduleType {
 				continue
 			}
 			keys := []*stackResource{seed}
@@ -963,6 +963,12 @@ func (b *bodyMerger) attribute(in []envBody, path []string, prefix, name string)
 	if present == len(in) && sameExprs(values) {
 		return &mergedAttribute{name: name, kind: sameValue, value: values[0]}
 	}
+	if b.r.resourceType == moduleType && len(path) == 0 && slices.Contains(moduleMetaArguments, name) {
+		// Another module, or another release of it: the call is each
+		// environment's own.
+		b.refuse(fmt.Sprintf("its %s differs between the environments", name))
+		return nil
+	}
 	if present == len(in) {
 		if normal, ok := b.m.template(in, values); ok {
 			return &mergedAttribute{name: name, kind: templateValue, normal: normal}
@@ -1362,7 +1368,7 @@ func (m *stackMerge) targets(env int, tokens hclwrite.Tokens) []*stackResource {
 	}
 	var targets []*stackResource
 	for _, t := range expr.Variables() {
-		if r, ok := m.index[env][resourceAddress(t)]; ok && r.stack != nil {
+		if r, ok := m.index[env][stackAddress(t)]; ok && r.stack != nil {
 			targets = append(targets, r.stack)
 		}
 	}
@@ -1396,6 +1402,12 @@ func (m *stackMerge) imports(env int) map[string]string {
 	for _, r := range m.resources {
 		if member := r.members[env]; member != nil && member.id != "" {
 			ids[string(hclwrite.TokensForTraversal(r.instance()).Bytes())] = member.id
+		}
+		if member := r.members[env]; member != nil && r.resourceType == moduleType {
+			call := addressText(r.instance())
+			for rest, id := range member.moduleIDs {
+				ids[call+"."+rest] = id
+			}
 		}
 	}
 	return ids
@@ -1495,7 +1507,7 @@ func exprReads(tokens hclwrite.Tokens) (resources, variables, other bool) {
 	}
 	for _, t := range expr.Variables() {
 		switch {
-		case resourceAddress(t) != "":
+		case stackAddress(t) != "":
 			resources = true
 		case t.RootName() == "var":
 			variables = true

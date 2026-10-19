@@ -310,6 +310,9 @@ type envResource struct {
 	// isolated keeps it apart from the other environments' resources (see
 	// mergeControls.isolated).
 	isolated bool
+	// moduleIDs are, for a module call, the import IDs of the resources in
+	// it, by their addresses in it, such as aws_s3_bucket.this[0].
+	moduleIDs map[string]string
 }
 
 // stackResource is a resource of a stack's merged root: the resources it
@@ -390,10 +393,13 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 	for e, root := range roots {
 		labels[e] = map[string]int{}
 		index := map[string]*envResource{}
-		for _, b := range root.file.resources() {
+		for _, b := range stackBlocks(root.file) {
 			typ, label, _ := strings.Cut(b.address, ".")
 			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
 			r.isolated = isolated[mergeKey(e, b.address)]
+			if typ == moduleType {
+				r.moduleIDs = moduleImportIDs(root.importIDs, label)
+			}
 			if id := root.importIDs[b.address]; id != "" {
 				r.id, r.normalID = id, norms[e].value(id)
 			}
@@ -404,7 +410,7 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 			byEnv[e] = append(byEnv[e], r)
 		}
 		for _, r := range byEnv[e] {
-			for _, a := range referencedAddresses(r.block.syntax.Body) {
+			for _, a := range stackReferences(r.block.syntax.Body) {
 				if t, ok := index[a]; ok && t != r {
 					r.refs = append(r.refs, t)
 				}

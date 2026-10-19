@@ -146,7 +146,11 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if len(m.locals) > 0 {
 		files[LocalsFileName] = w.localsFile()
 	}
-	if imports := w.importsFile(); imports != nil {
+	imports, err := w.importsFile()
+	if err != nil {
+		return nil, nil, err
+	}
+	if imports != nil {
 		files[ImportsFileName] = imports
 	}
 	// The provider block's variables come before variables.tf and the
@@ -240,7 +244,11 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 		if r.deploy != nil {
 			meta = append(meta, fmt.Sprintf("count = var.%s ? 1 : 0", r.deploy.name))
 		}
-		byFile[w.fileOf[r]] = append(byFile[w.fileOf[r]], block{r.address(), resourceText(r.resourceType, r.label, meta, r.body)})
+		text := resourceText(r.resourceType, r.label, meta, r.body)
+		if r.resourceType == moduleType {
+			text = moduleText(r.label, meta, r.body)
+		}
+		byFile[w.fileOf[r]] = append(byFile[w.fileOf[r]], block{r.address(), text})
 	}
 	for _, g := range w.m.forEach {
 		meta := []string{"for_each = var." + g.variable.name}
@@ -567,7 +575,7 @@ func (w *rootWriter) dataFile() []byte {
 // merged root, whose ID each environment's imports.tfvars gives; for a
 // resource some environments lack, or a forEach, with for_each over what
 // the environment has. It returns nil for none.
-func (w *rootWriter) importsFile() []byte {
+func (w *rootWriter) importsFile() ([]byte, error) {
 	hasID := func(r *stackResource) bool {
 		for _, member := range r.members {
 			if member != nil && member.id != "" {
@@ -578,6 +586,18 @@ func (w *rootWriter) importsFile() []byte {
 	}
 	type block struct{ address, text string }
 	var blocks []block
+	for _, r := range w.m.resources {
+		if r.resourceType != moduleType {
+			continue
+		}
+		calls, err := moduleImports(r)
+		if err != nil {
+			return nil, err
+		}
+		for address, text := range calls {
+			blocks = append(blocks, block{address, text})
+		}
+	}
 	for _, r := range w.m.resources {
 		if r.forEach != nil || !hasID(r) {
 			continue
@@ -598,7 +618,7 @@ func (w *rootWriter) importsFile() []byte {
 		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = var.%s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.variable.name, g.address(), importIDsVariableName, format)})
 	}
 	if len(blocks) == 0 {
-		return nil
+		return nil, nil
 	}
 	sort.Slice(blocks, func(i, j int) bool { return blocks[i].address < blocks[j].address })
 	var b strings.Builder
@@ -606,7 +626,7 @@ func (w *rootWriter) importsFile() []byte {
 	for _, blk := range blocks {
 		b.WriteString("\n" + blk.text)
 	}
-	return formatHCL(b.String())
+	return formatHCL(b.String()), nil
 }
 
 // providerBlocks writes the provider block and returns it: the arguments
@@ -725,6 +745,19 @@ func (w *rootWriter) aliases() []string {
 			return
 		}
 		for _, a := range b.attributes {
+			if a.name == "providers" {
+				// A module call's, such as { aws = aws.without_default_tags }.
+				if expr, diags := hclsyntax.ParseExpression(a.value.Bytes(), "", hcl.InitialPos); !diags.HasErrors() {
+					for _, t := range expr.Variables() {
+						if rel := t.SimpleSplit().Rel; len(rel) == 1 && t.RootName() == w.p.Name {
+							if step, ok := rel[0].(hcl.TraverseAttr); ok {
+								found[step.Name] = true
+							}
+						}
+					}
+				}
+				continue
+			}
 			if a.name != "provider" {
 				continue
 			}
