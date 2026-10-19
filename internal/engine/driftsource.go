@@ -450,25 +450,25 @@ func (w *driftWalk) text(rng hcl.Range) string {
 	return string(w.f.src[rng.Start.Byte:rng.End.Byte])
 }
 
-// at returns the cloud's value at the first n steps, and whether the
-// cloud has it; at the whole path, the change's own value.
-func (w *driftWalk) at(n int) (any, bool) {
+// at returns the cloud's value at the first n steps, or nil if the cloud
+// has none; at the whole path, the change's own value.
+func (w *driftWalk) at(n int) any {
 	if n >= len(w.steps) {
-		return w.c.value, w.c.value != nil
+		return w.c.value
 	}
 	if v, ok := valueAt(w.res.after, w.steps[:n]); ok {
-		return v, true
+		return v
 	}
 	if m, ok := w.res.after.(map[string]any); ok {
 		for from, to := range foldedAttributes {
 			if to == w.steps[0].name {
 				if v, ok := valueAt(map[string]any{to: m[from]}, w.steps[:n]); ok {
-					return v, true
+					return v
 				}
 			}
 		}
 	}
-	return nil, false
+	return nil
 }
 
 // body follows the path from step i in block's body; names are the block
@@ -516,7 +516,7 @@ func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) Source {
 			value = map[string]any{w.steps[i+1].name: w.c.value}
 		}
 	} else {
-		value, _ = w.at(i + 1)
+		value = w.at(i + 1)
 	}
 	if value == nil {
 		return w.manual(SourceAbsent, block.DefRange(), "the code doesn't set it, and the cloud has no value for it")
@@ -619,7 +619,7 @@ func literalExpr(expr hclsyntax.Expression) bool {
 // the default the catalogue names for the argument.
 func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i int) Source {
 	rng := x.Range()
-	value, _ := w.at(i)
+	value := w.at(i)
 	src := Source{File: w.file, Range: rng, Kind: SourceLiteral}
 	if value == nil {
 		switch {
@@ -715,7 +715,7 @@ func (w *driftWalk) local(x *hclsyntax.ScopeTraversalExpr, name string, path []s
 		merged := fmt.Sprintf("merge(%s, { %s = %s })", ref, keyText(w.steps[i].name), text)
 		return Source{File: w.file, Range: x.Range(), Kind: SourceSharedLocal, Edit: &SourceEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: []byte(merged)}}
 	}
-	value, _ := w.at(i)
+	value := w.at(i)
 	if value == nil {
 		return w.manual(SourceSharedLocal, x.Range(), ref+", which other resources use too, sets it, and the cloud has no value: edit it by hand")
 	}
