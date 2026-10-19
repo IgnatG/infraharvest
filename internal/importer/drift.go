@@ -36,8 +36,17 @@ type DriftOptions struct {
 	// Rules decide which changes the next apply would revert to accept
 	// into the code, and which to keep (see DriftRule): the last that
 	// matches a change decides it, and a change none matches is kept.
-	// None edits nothing, as detection alone does.
+	// None edits nothing, as detection alone does. They decide after
+	// Decisions.
 	Rules []DriftRule
+	// Decisions is a decisions file to decide the changes by (see
+	// DriftDecisions), or "" for none.
+	Decisions string
+	// WriteDecisions writes the run's changes into the decisions file,
+	// Decisions, or DefaultDriftDecisionsFile in Out without it, merged
+	// with what the file has (see DriftDecisions.Merge). Without
+	// Decisions, the file it merges into isn't applied.
+	WriteDecisions bool
 	// DetailedExitCode exits with report.ExitDrift when drift is found,
 	// and with report.ExitDriftRejected when an accepted change's edit
 	// failed verification.
@@ -59,8 +68,10 @@ type driftCheck func(ctx context.Context, dir, staging string, opts engine.Drift
 // changed in the cloud since they were applied (see engine.Drift), writes
 // report/drift.json and report/drift.md, and prints a summary, or with
 // --format json drift.json. It changes no state; it changes the code only
-// to take the cloud's values of the changes options.Rules accept, once
-// the plan of the edited code says it takes them. A root it can't check,
+// to take the cloud's values of the changes options.Decisions and
+// options.Rules accept, once the plan of the edited code says it takes
+// them. With WriteDecisions, it writes the decisions file, which it
+// changes only after every root is checked. A root it can't check,
 // such as one with a remote backend, is reported and makes it exit with
 // report.ExitCouldNotRun; with DetailedExitCode, an accepted change the
 // plan rejected makes it exit with report.ExitDriftRejected, and drift
@@ -68,6 +79,24 @@ type driftCheck func(ctx context.Context, dir, staging string, opts engine.Drift
 func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftOptions(options); err != nil {
 		return err
+	}
+	decider := driftDecider{rules: options.Rules}
+	if options.Decisions != "" {
+		f, err := LoadDriftDecisions(options.Decisions)
+		if err != nil {
+			return fmt.Errorf("--decisions: %w", err)
+		}
+		decider.file = f
+	}
+	// What --write-decisions merges into is read first, so that a file it
+	// can't merge into fails the run before any root is refreshed.
+	var merge *DriftDecisions
+	if options.WriteDecisions {
+		m, err := decisionsToMerge(options, decider.file)
+		if err != nil {
+			return err
+		}
+		merge = m
 	}
 	all, err := generatedRoots(options.Out)
 	if err != nil {
@@ -115,7 +144,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 				return
 			}
 			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, options, check, dir)
+			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, dir)
 		}()
 	}
 	wg.Wait()
@@ -135,8 +164,19 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := d.WriteFiles(options.Out); err != nil {
 		return err
 	}
+	var written string
+	if merge != nil {
+		if written, err = writeDriftDecisions(driftDecisionsPath(options), merge, d); err != nil {
+			return err
+		}
+	}
 	if err := writeDriftSummary(w, d, options); err != nil {
 		return err
+	}
+	if written != "" && options.Format == FormatText {
+		if _, err := fmt.Fprintln(w, written); err != nil {
+			return err
+		}
 	}
 	if len(failed) > 0 {
 		return &ExitError{Code: report.ExitCouldNotRun, Err: fmt.Errorf("%d roots couldn't be checked:\n%s", len(failed), strings.Join(failed, "\n"))}
@@ -229,12 +269,19 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 // checkDriftRoot checks the root in dir, staged under the output
 // directory's checkpoints, which .gitignore excludes, and returns it and
 // its changes as the report has them.
-func checkDriftRoot(ctx context.Context, options DriftOptions, check driftCheck, dir string) (report.DriftRoot, []report.DriftChange) {
+func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDecider, check driftCheck, dir string) (report.DriftRoot, []report.DriftChange) {
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel}
 	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout}
-	if len(options.Rules) > 0 {
-		opts.Accept = func(c engine.DriftChange) bool { return acceptsDrift(options.Rules, rel, c) }
+	// The decisions taken, by change, for the report to say where each
+	// came from. Accept is called for one change at a time.
+	decided := newDecidedDrift()
+	if decider.active() {
+		opts.Accept = func(c engine.DriftChange) bool {
+			d := decider.decide(rel, c)
+			decided.record(c, d)
+			return d.accept
+		}
 	}
 	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
 		cat, err := providerCatalogue(provider, "")
@@ -263,6 +310,8 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, check driftCheck,
 			Before: c.Before, After: c.After, Kind: c.Kind, Decision: decision, Outcome: c.Outcome, Reason: c.Reason,
 			ForcesReplacement: c.ForcesReplacement, Covers: c.Covers,
 		}
+		d := decided.of(c, func() driftDecision { return decider.decide(rel, c) })
+		rc.DecisionSource, rc.DecisionStale = d.source, d.stale
 		if c.Source != nil {
 			rc.Source = &report.DriftSource{File: c.Source.File, Line: c.Source.Line, Expression: c.Source.Expression, ModulePath: c.Source.ModulePath}
 		}

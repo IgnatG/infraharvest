@@ -311,7 +311,7 @@ func TestDriftRulesLastMatchWins(t *testing.T) {
 		{[]DriftRule{parse(true, "root=aws/*/eu-west-1")}, "aws/1/eu-west-1", bucket, true},
 		{[]DriftRule{parse(true, "address=aws_s3_bucket.*"), parse(false, "all")}, "aws/1/eu-west-2", bucket, false},
 	} {
-		if got := acceptsDrift(tc.rules, tc.root, tc.c); got != tc.want {
+		if got := (driftDecider{rules: tc.rules}).decide(tc.root, tc.c).accept; got != tc.want {
 			t.Errorf("%v in %s, %s %s: accepted %v, want %v", tc.rules, tc.root, tc.c.Address, tc.c.Attribute, got, tc.want)
 		}
 	}
@@ -389,7 +389,7 @@ func TestDriftRulesMatchSharedTags(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := acceptsDrift([]DriftRule{r}, "aws/1/eu-west-2", shared); got != tc.want {
+		if got := (driftDecider{rules: []DriftRule{r}}).decide("aws/1/eu-west-2", shared).accept; got != tc.want {
 			t.Errorf("%s: accepted %v, want %v", tc.rule, got, tc.want)
 		}
 	}

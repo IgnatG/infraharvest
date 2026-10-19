@@ -98,18 +98,6 @@ func addressType(address string) string {
 	return parts[0]
 }
 
-// acceptsDrift reports whether rules accept c, a change of the root at
-// root: the last rule that matches it decides, and none keeps it.
-func acceptsDrift(rules []DriftRule, root string, c engine.DriftChange) bool {
-	accept := false
-	for _, r := range rules {
-		if r.matches(root, c) {
-			accept = r.Accept
-		}
-	}
-	return accept
-}
-
 // addressNames returns the names of an address, split at its dots,
 // without its instance keys, whose quoted strings may have dots of their
 // own: module, logs, aws_s3_bucket and this for

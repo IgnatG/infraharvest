@@ -1,13 +1,15 @@
 # Drift
 
-Once the roots are applied, people still change things in the cloud: a tag in the console, a security group rule during an incident. `infraharvest drift` finds those changes, and says which ones the next `terraform apply` of the code would undo. With `--accept`, it writes the cloud's values of the changes you choose into the code instead.
+Once the roots are applied, people still change things in the cloud: a tag in the console, a security group rule during an incident. `infraharvest drift` finds those changes, and says which ones the next `terraform apply` of the code would undo. With `--accept`, or a decisions file you review change by change, it writes the cloud's values of the changes you choose into the code instead.
 
 ```sh
 infraharvest drift [output-directory]
 infraharvest drift [output-directory] --accept 'attribute=tags.*'
+infraharvest drift [output-directory] --write-decisions
+infraharvest drift [output-directory] --decisions infraharvest-out/drift.yaml
 ```
 
-It checks every root an import generated in the output directory (default `infraharvest-out`), or those `--root` matches, such as `--root 'aws/*/eu-west-2'`. It never changes the state or the cloud. Without `--accept`, it doesn't change the code either.
+It checks every root an import generated in the output directory (default `infraharvest-out`), or those `--root` matches, such as `--root 'aws/*/eu-west-2'`. It never changes the state or the cloud. Without `--accept` or `--decisions`, it doesn't change the code either.
 
 ## How it works
 
@@ -35,7 +37,7 @@ Each attribute that changed in the cloud gets an outcome:
 | `not_assessable` | It can't be told here, such as a secret whose variable has no value |
 | `absorbed` | The code doesn't set it, such as an attribute the provider computes, or one `ignore_changes` names: the next apply keeps the cloud's value |
 
-Each change also has a `decision`: `accept` when an `--accept` rule chose it, else `keep`. A change whose old value the next apply can only put back by replacing the resource has `forces_replacement`, and its reason says so: accepting it is how to keep the resource.
+Each change also has a `decision`: `accept` when an `--accept` rule or the [decisions file](#decisions-file) chose it, else `keep`, and a `decision_source` that says what decided it: `default` (nothing did, so it is kept), `decisions_defaults`, `decisions_rule` or `decisions_change` (the decisions file's defaults, one of its rules, or the change's own entry), or `flag` (`--accept` or `--keep`). `decision_stale` marks a change whose entry was decided for other values, which is kept unless `--accept` accepts it (see [When the cloud changes again](#when-the-cloud-changes-again)). A change whose old value the next apply can only put back by replacing the resource has `forces_replacement`, and its reason says so: accepting it is how to keep the resource.
 
 A resource deleted in the cloud is reported once, as `deleted`. Some changes are left out: arguments the provider keeps only in state, write-only arguments (`*_wo`), and resources the root still imports. Changes to `tags_all`, `effective_labels` and `terraform_labels` are reported as changes to `tags` and `labels`. A tag that every resource gets from one place, the provider's default tags or a shared `local.tags`, and that changed the same way on all of them, is reported once, for that place (see [Tags several resources share](#tags-several-resources-share)).
 
@@ -130,6 +132,71 @@ A value the provider marks sensitive, or one infraharvest would take for a secre
 - In a module call: a value the module sets to a literal, or computes, and an attribute a curated module's adapter has no `Inverse` entry for (see [Resources in module calls](#resources-in-module-calls)).
 - A nested block added or removed in the cloud, such as a new `ingress` rule block.
 - A resource deleted in the cloud: remove it from the code, or apply to create it again.
+
+## Decisions file
+
+`--accept` and `--keep` decide changes by rule. To review them one by one instead, write a decisions file, `drift.yaml`:
+
+```sh
+infraharvest drift [output-directory] --write-decisions
+```
+
+It goes into the output directory, or to the file `--decisions` names. It has an entry for each change the next apply would revert, whatever its outcome; changes the code absorbs, and those not assessable, have nothing to decide and aren't listed:
+
+```yaml
+version: 1
+defaults:
+  decision: keep
+rules:
+  - accept: { attribute: "tags.*", type: "aws_*" }
+changes:
+  - root: aws/123456789012/eu-west-2
+    address: aws_security_group.web
+    attribute: ingress[1].cidr_blocks
+    fingerprint: 3f2a...
+    decision: undecided
+    note: opened during the incident of 12 October
+```
+
+Set each change's `decision` to `accept` or `keep`, then apply the file:
+
+```sh
+infraharvest drift [output-directory] --decisions infraharvest-out/drift.yaml
+```
+
+Without `--decisions`, `--write-decisions` doesn't apply the file it writes, so a first run never edits the code.
+
+| Field | Means |
+|---|---|
+| `version` | The file's format: 1 |
+| `defaults.decision` | `accept` or `keep` (the default): what becomes of a change that neither its entry nor a rule decides |
+| `rules` | Each one `accept` or `keep` with the changes it matches: `attribute`, `type`, `address` and `root`, each a pattern or a list of them, in which `*` matches any text, as `--accept` takes them. A change matches if every field given has a pattern it matches; `accept: all` matches every change. The last rule that matches a change decides it |
+| `changes` | An entry per change: its `root`, `address` and `attribute` (none for a resource deleted in the cloud), its `fingerprint`, and its `decision`: `accept`, `keep` or `undecided`. `note` is yours: it is kept |
+
+A change is decided, in order:
+
+1. By the file's `defaults`.
+2. By its rules: the last that matches decides over the defaults.
+3. By its entry, if its decision is `accept` or `keep`, and its fingerprint is the change's. An `undecided` entry leaves the change to the rules and defaults. An entry whose fingerprint isn't the change's keeps it, whatever the rules and defaults say (see [When the cloud changes again](#when-the-cloud-changes-again)).
+4. By `--accept` and `--keep`: on the command line, the last rule that matches decides over the file.
+
+A rule the command line takes is a rule of the file with one field: `--accept 'attribute=tags.*'` is `- accept: { attribute: "tags.*" }`, and `--keep all` is `- keep: all`.
+
+### When the cloud changes again
+
+The fingerprint is a SHA-256 of the change's values before and after, as the report shows them, with every secret already `(sensitive value)`, and, for [tags several resources share](#tags-several-resources-share), of the resources it covers. The file never has the values themselves, nor a hash of a secret: a change of a secret has the same fingerprint whatever the secret becomes, which doesn't matter, as a secret is never written into the code.
+
+A decision holds only for the values it was made for. When a change's fingerprint isn't its entry's any more, as when someone changed the value again in the cloud, the change is kept in that run: neither the entry's decision nor the file's rules and defaults are applied to it, `decision_source` is `decisions_change`, the report marks it `decision_stale`, and `drift.md` says to decide it again. Only `--accept` on the command line can still accept it. `--write-decisions` then sets the entry to `undecided`, with the new fingerprint: from the next run, the rules and defaults decide it until you do.
+
+### Writing it again
+
+`--write-decisions` merges the run's changes into the file:
+
+- An entry of a change found again keeps its decision and note if its fingerprint is the change's; else it becomes `undecided`.
+- A change without an entry is added as `undecided`, so the rules and defaults decide it until you do.
+- An entry of a root it checked whose change it didn't find again is dropped: the change was accepted into the code, or put back by an apply. Entries of roots it didn't check, as `--root` left them out or they couldn't be checked, stay as they are.
+
+With `--decisions`, it writes into that file after applying it. The changes are sorted by root, address and attribute. The file is written again from what it holds, so comments other than its header aren't kept: use `note`.
 
 ## Credentials
 
