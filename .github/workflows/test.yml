@@ -23,8 +23,10 @@ concurrency:
   # gets a result of its own.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# A pull request that changes only documentation, linter configuration or
-# other workflows skips the Go and e2e jobs (see the changes job). The
+# A pull request that changes no core code (documentation, Markdown,
+# licences, linter configuration, other workflows, the release files or the
+# permission templates: see .github/scripts/changes.sh) skips the Go, e2e
+# and build jobs, and runs the permissions job only for the templates. The
 # required checks still report: test, e2e and checks gather the jobs below
 # them and pass when each passed or was skipped, and a skipped job such as
 # test-windows counts as passed. A push to main and workflow_dispatch run
@@ -35,6 +37,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      permissions: ${{ steps.diff.outputs.permissions }}
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -577,7 +580,7 @@ jobs:
   # otherwise run only by hand.
   permissions:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.permissions == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
