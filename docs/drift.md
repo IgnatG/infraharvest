@@ -223,3 +223,7 @@ S3, GCS and azurerm backends and local state are supported. HCP Terraform (a `cl
 | 4 | With `--detailed-exitcode` only: a change is left that the next apply reverts (kept, a hand edit or a secret), or that is not assessable |
 
 Changes written into the code, and those the code absorbs, exit 0. A root that couldn't be checked comes first (2), then a rejected edit (1), then drift left (4).
+
+## From an AI agent
+
+`infraharvest mcp` serves drift to AI agents as two tools: `drift`, which only reports, and `drift_accept`, which takes changes into the code once the user confirms, seeing how many changes would be accepted (see [AI agents](mcp.md)).
