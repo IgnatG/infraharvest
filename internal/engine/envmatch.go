@@ -71,6 +71,19 @@ type envRoot struct {
 	scope, region, group string
 	file                 *hclFile          // generated.tf
 	importIDs            map[string]string // by resource address
+
+	// What the merged root's other files are written from (see
+	// writeMergedRoot): the root's provider, its configuration without
+	// credentials; its required_version; the tags its provider applies
+	// to every resource (default_tags), if any; the file each resource
+	// goes in, by address (see Import.File); its backend.tf and its
+	// variables.tf, nil for none.
+	provider        Provider
+	requiredVersion string
+	defaultTags     map[string]string
+	files           map[string]string
+	backend         []byte
+	variables       *hclFile
 }
 
 // normaliser puts placeholders in one environment's labels, import IDs

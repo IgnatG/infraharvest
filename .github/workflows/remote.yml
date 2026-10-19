@@ -12,7 +12,8 @@ name: remote
 #   golden  rewrites the golden files of the packages' tests that take
 #           -update: ./internal/catalogue (the default), ./internal/cli (the
 #           command-line contract and the generated references,
-#           docs/reference/cli.md and docs/reference/services.md) and
+#           docs/reference/cli.md and docs/reference/services.md),
+#           ./internal/engine (the roots environments share) and
 #           ./internal/harvest. No other package takes -update, so go test
 #           fails on it. It uploads them as the artifact golden; pushing a
 #           branch named golden/<anything> does the same:
