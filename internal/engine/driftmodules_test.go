@@ -216,7 +216,7 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 			file:   queueCall,
 			after:  map[string]any{"name": "work"},
 			change: moduleDrift("module.jobs.aws_sqs_queue.this", "aws_sqs_queue", "name", "work"),
-			want:   strings.Replace(queueCall, `"jobs"`, `"work"`, 1),
+			want:   strings.Replace(queueCall, `= "jobs"`, `= "work"`, 1),
 			source: "main.tf",
 			module: "../../../modules/queue_0a1b2c3d/main.tf:2 var.settings.name",
 		},
