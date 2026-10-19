@@ -66,6 +66,20 @@ type Adapter struct {
 	// as that value: a call leaves out the arguments Map sets to them,
 	// as a person calling the module would (see IsDefault).
 	Defaults map[string]cty.Value
+	// Inverse maps, for drift, an attribute of a resource inside the
+	// module, by its target and its path, such as aws_iam_role.this.tags
+	// or google_storage_bucket.bucket.versioning[0].enabled, onto the
+	// input path that sets it (see ParseInputPath), such as tags: a change
+	// in the cloud to the attribute, or to a key or an element in it, is
+	// taken into the call by setting the input, or the same key or
+	// element in it. [each.key] stands for the instance key of a resource
+	// the module makes with for_each over the input, such as
+	// policies[each.key]. Only attributes the module sets from an input
+	// as it is, or from the input whose keys win in a merge, such as a
+	// VPC's vpc_tags, have an entry: a change to another is a hand edit.
+	// Each entry is checked against the module's interface (see
+	// moduleinterface.Check).
+	Inverse map[string]string
 }
 
 // Cluster is an anchor resource and the resources that refer to it.

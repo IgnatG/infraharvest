@@ -41,6 +41,17 @@ var IAMRole = Adapter{
 		"max_session_duration": cty.NumberIntVal(3600),
 		"path":                 cty.StringVal("/"),
 	},
+	// The module sets these from the inputs as they are (modules/iam-role/main.tf).
+	Inverse: map[string]string{
+		"aws_iam_instance_profile.this.path":             "path",
+		"aws_iam_instance_profile.this.tags":             "tags",
+		"aws_iam_role.this.description":                  "description",
+		"aws_iam_role.this.max_session_duration":         "max_session_duration",
+		"aws_iam_role.this.path":                         "path",
+		"aws_iam_role.this.permissions_boundary":         "permissions_boundary",
+		"aws_iam_role.this.tags":                         "tags",
+		"aws_iam_role_policy_attachment.this.policy_arn": "policies[each.key]",
+	},
 }
 
 func mapIAMRole(c Cluster) (*Call, error) {
