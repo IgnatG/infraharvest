@@ -46,7 +46,9 @@ const (
 	// SourceSharedTags: tags or labels several resources get from one
 	// place: the provider's default tags, or a local their tags refer to.
 	SourceSharedTags = "shared_tags"
-	// SourceModule: the resource is in a module call.
+	// SourceModule: the resource is in a module call, and what sets it
+	// there can't be traced back to the call's arguments, or takes a
+	// hand edit in the module.
 	SourceModule = "module"
 	// SourceResource: the whole resource, such as one deleted in the
 	// cloud.
@@ -72,6 +74,10 @@ type Source struct {
 	Reason string
 	// Secret says the value is a secret, which is never written.
 	Secret bool
+	// Module says, for a resource in a module call, how the module gets
+	// the value from the argument of the call the edit is in, such as
+	// ../../modules/bucket_0a1b2c3d/main.tf:4 var.tags.
+	Module string
 }
 
 // SourceEdit replaces the bytes from Start to End of File, relative to
@@ -109,6 +115,10 @@ type driftEditor struct {
 	// of its tags, why the resource can't leave out a key the provider's
 	// default tags give it.
 	providerTagged map[string]string
+	// modules are the modules the root calls, by their keys in
+	// modules.json (see loadDriftModules), to trace changes of their
+	// resources to the calls.
+	modules map[string]*driftModule
 }
 
 func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *driftEditor {
@@ -170,6 +180,7 @@ type driftConfig struct {
 	locals    map[string]driftLocal
 	uses      map[string]int // how often each local is referred to
 	variables map[string]*hclsyntax.Block
+	calls     map[string]driftBlock // module calls, by name
 }
 
 type driftBlock struct {
@@ -207,7 +218,7 @@ func tfContents(dir string) (map[string][]byte, error) {
 }
 
 func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
-	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, variables: map[string]*hclsyntax.Block{}}
+	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
 	for _, name := range sortedKeys(contents) {
 		f, err := parseHCL(name, contents[name])
 		if err != nil {
@@ -224,6 +235,8 @@ func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
 				}
 			case b.Type == "variable" && len(b.Labels) == 1:
 				cfg.variables[b.Labels[0]] = b
+			case b.Type == "module" && len(b.Labels) == 1:
+				cfg.calls[b.Labels[0]] = driftBlock{file: name, f: f, b: b}
 			}
 		}
 		for _, t := range allTraversals(f.syntax) {
@@ -398,7 +411,7 @@ func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) Source {
 		return e.locateShared(cfg, c)
 	}
 	if c.ModuleAddress != "" {
-		return Source{Kind: SourceModule, Reason: "in the module call " + c.ModuleAddress + ": changing the call to match is a hand edit for now"}
+		return e.locateInModule(cfg, c)
 	}
 	address := trimInstanceKey(c.Address)
 	b, ok := cfg.blocks[address]
@@ -414,19 +427,27 @@ func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) Source {
 			return w.manual(SourceExpression, b.b.DefRange(), "the block makes several resources with "+meta+": edit it by hand")
 		}
 	}
-	values := []any{w.res.before, w.res.after}
-	if m, ok := w.res.after.(map[string]any); ok {
+	w.steps = splitPath(c.Attribute, e.pathValues(c.Address)...)
+	if len(w.steps) == 0 || w.steps[0].isIndex {
+		return w.manual(SourceExpression, b.b.DefRange(), "edit it by hand")
+	}
+	return w.body(b.b, nil, 0)
+}
+
+// pathValues are the values the path of a change of the resource at
+// address goes into, for splitPath: the state's, the cloud's, and the
+// cloud's tags and labels with the provider's, as the change has them.
+func (e *driftEditor) pathValues(address string) []any {
+	res := e.resources[address]
+	values := []any{res.before, res.after}
+	if m, ok := res.after.(map[string]any); ok {
 		for from, to := range foldedAttributes {
 			if v, ok := m[from]; ok {
 				values = append(values, map[string]any{to: v})
 			}
 		}
 	}
-	w.steps = splitPath(c.Attribute, values...)
-	if len(w.steps) == 0 || w.steps[0].isIndex {
-		return w.manual(SourceExpression, b.b.DefRange(), "edit it by hand")
-	}
-	return w.body(b.b, nil, 0)
+	return values
 }
 
 // driftWalk follows a change's path through a resource's block.
@@ -442,6 +463,9 @@ type driftWalk struct {
 	// attrAt is the index in steps after the argument's name.
 	attrAt int
 	depth  int // of locals followed
+	// mod is set for the walk of a module call's argument, whose steps
+	// aren't the resource's path (see callWalk).
+	mod *callWalk
 }
 
 // holder is what holds an expression: an argument of a block, an item of
@@ -464,18 +488,26 @@ func (w *driftWalk) text(rng hcl.Range) string {
 }
 
 // at returns the cloud's value at the first n steps, or nil if the cloud
-// has none; at the whole path, the change's own value.
+// has none; at the whole path, the change's own value. Of a module call's
+// argument, it is nil where it isn't known (see known).
 func (w *driftWalk) at(n int) any {
 	if n >= len(w.steps) {
 		return w.c.value
 	}
-	if v, ok := valueAt(w.res.after, w.steps[:n]); ok {
+	steps := w.steps[:n]
+	if w.mod != nil {
+		if !w.known(n) {
+			return nil
+		}
+		steps = slices.Concat(w.mod.prefix, w.steps[w.mod.offset:n])
+	}
+	if v, ok := valueAt(w.res.after, steps); ok {
 		return v
 	}
-	if m, ok := w.res.after.(map[string]any); ok {
+	if m, ok := w.res.after.(map[string]any); ok && len(steps) > 0 {
 		for from, to := range foldedAttributes {
-			if to == w.steps[0].name {
-				if v, ok := valueAt(map[string]any{to: m[from]}, w.steps[:n]); ok {
+			if to == steps[0].name {
+				if v, ok := valueAt(map[string]any{to: m[from]}, steps); ok {
 					return v
 				}
 			}
@@ -515,20 +547,26 @@ func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) Source {
 		}
 		return w.body(nested[j], path, next)
 	}
-	if w.e.schemas != nil && schemaBlockType(w.e.schemas, w.c.Type, path) {
+	if w.mod == nil && w.e.schemas != nil && schemaBlockType(w.e.schemas, w.c.Type, path) {
 		return w.manual(SourceAbsent, block.DefRange(), "the code has no "+s.name+" block: add it by hand")
 	}
 	// An argument the code leaves out.
 	w.attrAt = i + 1
 	var value any
 	var sub []pathStep
-	if i+2 == len(w.steps) && !w.steps[i+1].isIndex {
+	switch {
+	case i+2 == len(w.steps) && !w.steps[i+1].isIndex:
 		// A key of a map, alone: the other keys the cloud has are other
 		// changes, each decided on its own.
 		if w.c.value != nil {
 			value = map[string]any{w.steps[i+1].name: w.c.value}
 		}
-	} else {
+		if w.mod != nil && !w.mod.fits(s.name, value) {
+			return w.manual(SourceAbsent, block.DefRange(), "the call doesn't set "+s.name+", whose type needs more than the cloud's value: add it by hand")
+		}
+	case !w.known(i + 1):
+		return w.manual(SourceAbsent, block.DefRange(), "the call doesn't set "+s.name+", and the cloud's value is only part of it: add it by hand")
+	default:
 		value = w.at(i + 1)
 	}
 	if value == nil {
@@ -632,10 +670,17 @@ func literalExpr(expr hclsyntax.Expression) bool {
 // the default the catalogue names for the argument.
 func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i int) Source {
 	rng := x.Range()
+	if !w.known(i) {
+		return w.manual(SourceLiteral, rng, "it sets more than the cloud's value: edit it by hand")
+	}
 	value := w.at(i)
 	src := Source{File: w.file, Range: rng, Kind: SourceLiteral}
 	if value == nil {
 		switch {
+		case h.attr != nil && w.mod != nil:
+			// A call that leaves the argument out gets the module's
+			// default, which needn't be none.
+			src.Edit = &SourceEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
 		case h.attr != nil:
 			src.Edit = w.removeLines(h.attr.SrcRange)
 		case h.item != nil:
@@ -663,6 +708,17 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 // isDefault reports whether text is the value the catalogue names as the
 // default of the argument at path (see Options.Defaults).
 func (w *driftWalk) isDefault(path []string, text []byte) bool {
+	if w.mod != nil {
+		// A call's argument: the default its adapter names, if curated.
+		if w.mod.adapter == nil || len(path) != 1 {
+			return false
+		}
+		f, diags := hclwrite.ParseConfig(slices.Concat([]byte("x = "), text, []byte("\n")), "", hcl.InitialPos)
+		if diags.HasErrors() || f.Body().GetAttribute("x") == nil {
+			return false
+		}
+		return w.mod.adapter.IsDefault(path[0], f.Body().GetAttribute("x").Expr().BuildTokens(nil))
+	}
 	want, ok := defaultValues(w.e.defaults[w.c.Type])[strings.Join(path, ".")]
 	if !ok {
 		return false
@@ -729,8 +785,8 @@ func (w *driftWalk) local(x *hclsyntax.ScopeTraversalExpr, name string, path []s
 		return Source{File: w.file, Range: x.Range(), Kind: SourceSharedLocal, Edit: &SourceEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: []byte(merged)}}
 	}
 	value := w.at(i)
-	if value == nil {
-		return w.manual(SourceSharedLocal, x.Range(), ref+", which other resources use too, sets it, and the cloud has no value: edit it by hand")
+	if value == nil || !w.known(i) {
+		return w.manual(SourceSharedLocal, x.Range(), ref+", which other resources use too, sets it, and the cloud has no value for all of it: edit it by hand")
 	}
 	text, err := w.valueText(value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
@@ -811,24 +867,10 @@ func (w *driftWalk) valueText(value any, path []string, sub []pathStep) ([]byte,
 // typeAt returns the type of the argument at path, then of what the
 // steps sub go into in it, or cty.NilType if the schemas don't say.
 func (w *driftWalk) typeAt(path []string, sub []pathStep) cty.Type {
-	ty := schemaType(w.e.schemas, "resource", w.c.Type, path)
-	for _, s := range sub {
-		switch {
-		case ty == cty.NilType:
-			return ty
-		case s.isIndex && (ty.IsListType() || ty.IsSetType()):
-			ty = ty.ElementType()
-		case s.isIndex && ty.IsTupleType() && s.index < len(ty.TupleElementTypes()):
-			ty = ty.TupleElementTypes()[s.index]
-		case !s.isIndex && ty.IsMapType():
-			ty = ty.ElementType()
-		case !s.isIndex && ty.IsObjectType() && ty.HasAttribute(s.name):
-			ty = ty.AttributeType(s.name)
-		default:
-			return cty.NilType
-		}
+	if w.mod != nil {
+		return w.mod.typeAt(w, w.attrAt+len(sub))
 	}
-	return ty
+	return descendType(schemaType(w.e.schemas, "resource", w.c.Type, path), sub)
 }
 
 // schemaBlockType reports whether the schemas have a nested block type at
@@ -1026,15 +1068,16 @@ func layoutResource(src []byte, address string) []byte {
 	return src
 }
 
-// reportSource is src as a report shows it: the file and line, and the
-// expression if on one line, with secrets left out; nil without a file.
+// reportSource is src as a report shows it: the file and line, the
+// expression if on one line, with secrets left out, and how a module gets
+// the value from the call; nil without a file.
 func reportSource(cfg *driftConfig, src Source, forms []string) *DriftSource {
 	if src.File == "" {
 		return nil
 	}
-	out := &DriftSource{File: src.File, Line: src.Range.Start.Line}
+	out := &DriftSource{File: src.File, Line: src.Range.Start.Line, ModulePath: src.Module}
 	f := cfg.files[src.File]
-	if f == nil || src.Kind == SourceAbsent || src.Kind == SourceResource {
+	if f == nil || src.Kind == SourceAbsent || src.Kind == SourceResource || src.Kind == SourceModule {
 		return out
 	}
 	rng := src.Range

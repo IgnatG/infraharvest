@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -48,12 +47,18 @@ type sharedSource struct {
 	provider, setting, merged string
 	// values are its tags.
 	values map[string]string
-	// refs are the root's resources whose attribute refers to the local.
+	// refs are the root's resources whose attribute refers to the local,
+	// and those of the module calls that pass it to a module that gives
+	// it to its resources as their attribute (see moduleTagTargets).
 	refs []tagRef
+	// uses counts the blocks refs are of: the resources' and the calls'.
+	uses int
 }
 
 // tagRef is a resource whose tags refer to a local: as the local, or
-// merged over it, as merge(local.tags, { Name = "x" }) does.
+// merged over it, as merge(local.tags, { Name = "x" }) does, or through
+// a module call's argument that is. Its address is that of its block, in
+// the root or in the call, such as module.logs.aws_s3_bucket.this.
 type tagRef struct {
 	address string
 	// overrides are the keys the resource sets over the local's.
@@ -77,9 +82,11 @@ type tagShare struct {
 // sharedTagSources returns where cfg keeps tags several resources get,
 // sorted by address: the locals the provider's default tags, or the
 // tags of two resources or more, refer to, if they are map literals of
-// strings that nothing else refers to; and the map literals of the
+// strings that nothing else refers to but module calls that pass them to
+// modules, by their keys in modules, that give them to their resources as
+// their tags and do nothing else with them; and the map literals of the
 // providers' default tags.
-func sharedTagSources(cfg *driftConfig) []*sharedSource {
+func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*sharedSource {
 	byLocal := map[string]*sharedSource{}
 	unsound := map[string]bool{}
 	var sources []*sharedSource
@@ -135,7 +142,27 @@ func sharedTagSources(cfg *driftConfig) []*sharedSource {
 						ref.address = b.Labels[0] + "." + b.Labels[1]
 						s := local(n, attribute)
 						s.refs = append(s.refs, ref)
+						s.uses++
 					}
+				}
+			case b.Type == "module" && len(b.Labels) == 1 && !hasInstances(b):
+				for _, name := range sortedKeys(b.Body.Attributes) {
+					n, ref := tagReference(b.Body.Attributes[name].Expr)
+					if n == "" {
+						continue
+					}
+					attribute, targets, ok := moduleTagTargets(modules[b.Labels[0]], name)
+					if !ok {
+						// Left out of uses: the local isn't shared.
+						continue
+					}
+					s := local(n, attribute)
+					for _, target := range targets {
+						r := ref
+						r.address = "module." + b.Labels[0] + "." + target
+						s.refs = append(s.refs, r)
+					}
+					s.uses++
 				}
 			}
 		}
@@ -146,13 +173,14 @@ func sharedTagSources(cfg *driftConfig) []*sharedSource {
 		if unsound[name] || !ok || (s.provider == "" && len(s.refs) < 2) {
 			continue
 		}
-		uses := len(s.refs)
+		uses := s.uses
 		if s.provider != "" {
 			uses++
 		}
 		if cfg.uses[name] != uses {
-			// Something else refers to it, such as a module call or an
-			// output: an edit of it reaches further than the resources.
+			// Something else refers to it, such as an output, or a module
+			// call that does more with it than tagging resources: an edit
+			// of it reaches further than the resources.
 			continue
 		}
 		obj, ok := def.attr.Expr.(*hclsyntax.ObjectConsExpr)
@@ -339,17 +367,15 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 	if err != nil {
 		return nil, err
 	}
-	shared := sharedTagSources(cfg)
+	shared := sharedTagSources(cfg, editor.modules)
 	if len(shared) == 0 {
 		return changes, nil
 	}
 	before := priorValues(refresh, code)
 	instances := map[string][]string{}
 	for _, address := range sortedKeys(before) {
-		if !strings.HasPrefix(address, "module.") {
-			block := trimInstanceKey(address)
-			instances[block] = append(instances[block], address)
-		}
+		block := unkeyedAddress(address)
+		instances[block] = append(instances[block], address)
 	}
 	index := map[string]int{}
 	for i, c := range changes {
@@ -498,4 +524,52 @@ func unsharedChanges(changes []DriftChange) []DriftChange {
 		})
 	}
 	return out
+}
+
+// moduleTagTargets returns the resources of the module m, by their
+// addresses in it, whose tags or labels, attribute, are the variable as it
+// is, and whether those are all the module does with it: an edit of what
+// a call passes reaches no other.
+func moduleTagTargets(m *driftModule, variable string) (string, []string, bool) {
+	if m == nil {
+		return "", nil, false
+	}
+	uses := 0
+	for _, name := range sortedKeys(m.cfg.files) {
+		for _, t := range allTraversals(m.cfg.files[name].syntax) {
+			if t.RootName() != "var" || len(t) < 2 {
+				continue
+			}
+			if attr, ok := t[1].(hcl.TraverseAttr); ok && attr.Name == variable {
+				uses++
+			}
+		}
+	}
+	attribute := ""
+	var targets []string
+	for _, address := range sortedKeys(m.cfg.blocks) {
+		b := m.cfg.blocks[address].b
+		for _, name := range []string{"tags", "labels"} {
+			attr, ok := b.Body.Attributes[name]
+			if !ok {
+				continue
+			}
+			x, ok := attr.Expr.(*hclsyntax.ScopeTraversalExpr)
+			if !ok || len(x.Traversal) != 2 || x.Traversal.RootName() != "var" {
+				continue
+			}
+			if step, ok := x.Traversal[1].(hcl.TraverseAttr); !ok || step.Name != variable {
+				continue
+			}
+			if attribute != "" && attribute != name {
+				return "", nil, false
+			}
+			attribute = name
+			targets = append(targets, address)
+		}
+	}
+	if len(targets) == 0 || len(targets) != uses {
+		return "", nil, false
+	}
+	return attribute, targets, true
 }

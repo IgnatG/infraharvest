@@ -219,3 +219,33 @@ func TestTypeChanges(t *testing.T) {
 		t.Errorf("changes: got %q, want %q", got, want)
 	}
 }
+
+// Check rejects an Inverse entry of a resource the adapter doesn't map
+// onto, onto a variable the module doesn't have, or onto an input path
+// that doesn't parse.
+func TestCheckInverse(t *testing.T) {
+	t.Parallel()
+	iface := &Interface{Variables: map[string]Variable{
+		"tags":     {Type: "map(string)"},
+		"policies": {Type: "map(string)"},
+	}}
+	a := adapters.Adapter{
+		Inputs:  []string{"policies", "tags"},
+		Targets: []string{"aws_iam_role.this", "aws_iam_role_policy_attachment.this"},
+		Inverse: map[string]string{
+			"aws_iam_role.this.tags":                         "tags",
+			"aws_iam_role_policy_attachment.this.policy_arn": "policies[each.key]",
+			"aws_iam_role.this.description":                  "role_description",
+			"aws_iam_instance_profile.this.tags":             "tags",
+			"aws_iam_role.this.path":                         "tags[",
+		},
+	}
+	want := []string{
+		`Inverse has "aws_iam_instance_profile.this.tags", an attribute of none of the adapter's Targets`,
+		`Inverse maps "aws_iam_role.this.description" onto "role_description", but the module has no variable "role_description"`,
+		`Inverse maps "aws_iam_role.this.path" onto an input path that doesn't parse: "tags[" has a [ without its ]`,
+	}
+	if got := Check(a, iface); !reflect.DeepEqual(got, want) {
+		t.Errorf("problems: got %q, want %q", got, want)
+	}
+}

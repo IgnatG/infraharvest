@@ -434,7 +434,7 @@ func TestSharedTagSources(t *testing.T) {
 				t.Fatal(err)
 			}
 			var got []string
-			for _, s := range sharedTagSources(cfg) {
+			for _, s := range sharedTagSources(cfg, nil) {
 				got = append(got, s.address)
 			}
 			if !reflect.DeepEqual(got, tc.want) {
@@ -530,4 +530,105 @@ func TestDriftSharesDefaultLabels(t *testing.T) {
 			t.Errorf("locals.tf changed:\n%s", got)
 		}
 	})
+}
+
+// A store module that tags its account with its tags variable, as it
+// is.
+var storeModule = map[string]string{
+	"main.tf":      "resource \"azurerm_storage_account\" \"this\" {\n  name = var.name\n  tags = var.tags\n}\n",
+	"variables.tf": "variable \"name\" {\n  type = string\n}\n\nvariable \"tags\" {\n  type = map(string)\n}\n",
+}
+
+const storeMain = `resource "azurerm_resource_group" "app" {
+  name = "app"
+  tags = local.tags
+}
+
+module "store" {
+  source = "../../../modules/store_0a1b2c3d"
+
+  name = "store"
+  tags = local.tags
+}
+`
+
+const storeLocals = `locals {
+  tags = {
+    Env = "prod"
+  }
+}
+`
+
+// A local.tags a module call passes to a module that tags its resources
+// with it covers those resources too: a key every one changed the same
+// way is accepted in the local once.
+func TestDriftSharedTagsCoverModuleResources(t *testing.T) {
+	t.Parallel()
+	dir, staging := driftModuleRoot(t, map[string]string{"main.tf": storeMain, "locals.tf": storeLocals}, map[string]map[string]string{"store_0a1b2c3d": storeModule}, map[string]string{"store": "store_0a1b2c3d"})
+	update, noop := tfjson.Actions{tfjson.ActionUpdate}, tfjson.Actions{tfjson.ActionNoop}
+	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{
+		moduleTags("azurerm_resource_group.app", "azurerm_resource_group", update, "prod", "dev"),
+		moduleTags("module.store.azurerm_storage_account.this", "azurerm_storage_account", update, "prod", "dev"),
+	}}
+	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		moduleTags("azurerm_resource_group.app", "azurerm_resource_group", update, "dev", "prod"),
+		moduleTags("module.store.azurerm_storage_account.this", "azurerm_storage_account", update, "dev", "prod"),
+	}}
+	edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		moduleTags("azurerm_resource_group.app", "azurerm_resource_group", noop, "dev", "dev"),
+		moduleTags("module.store.azurerm_storage_account.this", "azurerm_storage_account", noop, "dev", "dev"),
+	}}
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Changes) != 1 {
+		t.Fatalf("changes %+v", result.Changes)
+	}
+	c := result.Changes[0]
+	if c.Address != "local.tags" || c.Outcome != DriftWritten || !reflect.DeepEqual(c.Covers, []string{"azurerm_resource_group.app", "module.store.azurerm_storage_account.this"}) {
+		t.Errorf("change %s: %s (%s), covers %v", c.Address, c.Outcome, c.Reason, c.Covers)
+	}
+	if got, want := readFile(t, dir, "locals.tf"), strings.Replace(storeLocals, "prod", "dev", 1); got != want {
+		t.Errorf("locals.tf:\n%s", got)
+	}
+	if got := readFile(t, dir, "main.tf"); got != storeMain {
+		t.Errorf("main.tf changed:\n%s", got)
+	}
+}
+
+// A local passed to a module that does more with it than tag its
+// resources isn't shared; a module resource's change of one of its keys
+// is accepted at the call's argument.
+func TestSharedTagSourcesWithModules(t *testing.T) {
+	t.Parallel()
+	cfg, err := parseDriftConfig(byteFiles(map[string]string{"main.tf": storeMain, "locals.tf": storeLocals}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := map[string]*driftModule{"store": testModule(t, "../../../modules/store_0a1b2c3d", 1, storeModule)}
+	if got := sharedTagSources(cfg, direct); len(got) != 1 || got[0].address != "local.tags" || len(got[0].refs) != 2 {
+		t.Errorf("a module that tags with the variable: %+v", got)
+	}
+	merged := map[string]string{
+		"main.tf":      "resource \"azurerm_storage_account\" \"this\" {\n  name = var.name\n  tags = merge(var.tags, { Role = \"store\" })\n}\n",
+		"variables.tf": storeModule["variables.tf"],
+	}
+	if got := sharedTagSources(cfg, map[string]*driftModule{"store": testModule(t, "../../../modules/store_0a1b2c3d", 1, merged)}); len(got) != 0 {
+		t.Errorf("a module that merges the variable: %+v", got)
+	}
+	if got := sharedTagSources(cfg, nil); len(got) != 0 {
+		t.Errorf("a module that isn't installed: %+v", got)
+	}
+
+	e := testEditor(map[string]map[string]any{"module.store.azurerm_storage_account.this": {"tags": map[string]any{"Env": "dev"}}})
+	e.modules = direct
+	contents := byteFiles(map[string]string{"main.tf": storeMain, "locals.tf": storeLocals})
+	c := moduleDrift("module.store.azurerm_storage_account.this", "azurerm_storage_account", "tags.Env", "dev")
+	if _, _, failed, err := e.apply(contents, []*DriftChange{c}); err != nil || len(failed) > 0 {
+		t.Fatalf("%v, %+v", err, failed)
+	}
+	if got := string(contents["main.tf"]); !strings.Contains(got, `tags = merge(local.tags, { Env = "dev" })`) || strings.Count(got, "merge(") != 1 {
+		t.Errorf("main.tf:\n%s", got)
+	}
 }

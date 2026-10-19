@@ -33,6 +33,12 @@ var GoogleKMS = Adapter{
 	Outputs: []string{"keyring", "keyring_name", "keys"},
 	Targets: []string{"google_kms_crypto_key.key", "google_kms_key_ring.key_ring"},
 	Map:     mapGoogleKMS,
+	// The module sets these from the inputs as they are, for every key
+	// (main.tf).
+	Inverse: map[string]string{
+		"google_kms_crypto_key.key.labels":          "labels",
+		"google_kms_crypto_key.key.rotation_period": "key_rotation_period",
+	},
 }
 
 // kmsKeySettings are the crypto key arguments the module sets the same for

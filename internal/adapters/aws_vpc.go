@@ -78,6 +78,24 @@ var VPC = Adapter{
 		"private_subnet_suffix":                cty.StringVal("private"),
 		"public_subnet_suffix":                 cty.StringVal("public"),
 	},
+	// The module sets these from the inputs as they are, and each
+	// resource's tags by merging tags and then its own input, whose keys
+	// win (main.tf): a tag one of them changes goes into its own input.
+	Inverse: map[string]string{
+		"aws_eip.nat.tags":                                  "nat_eip_tags",
+		"aws_internet_gateway.this.tags":                    "igw_tags",
+		"aws_nat_gateway.this.tags":                         "nat_gateway_tags",
+		"aws_route_table.private.tags":                      "private_route_table_tags",
+		"aws_route_table.public.tags":                       "public_route_table_tags",
+		"aws_subnet.private.tags":                           "private_subnet_tags",
+		"aws_subnet.public.map_public_ip_on_launch":         "map_public_ip_on_launch",
+		"aws_subnet.public.tags":                            "public_subnet_tags",
+		"aws_vpc.this.enable_dns_hostnames":                 "enable_dns_hostnames",
+		"aws_vpc.this.enable_dns_support":                   "enable_dns_support",
+		"aws_vpc.this.enable_network_address_usage_metrics": "enable_network_address_usage_metrics",
+		"aws_vpc.this.instance_tenancy":                     "instance_tenancy",
+		"aws_vpc.this.tags":                                 "vpc_tags",
+	},
 }
 
 // vpcPart is a resource of a VPC cluster, read.

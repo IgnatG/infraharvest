@@ -42,6 +42,16 @@ var GoogleStorageBucket = Adapter{
 		"public_access_prevention": cty.StringVal("inherited"),
 		"versioning":               cty.True,
 	},
+	// The module sets these from the inputs as they are
+	// (modules/simple_bucket/main.tf).
+	Inverse: map[string]string{
+		"google_storage_bucket.bucket.autoclass[0].enabled":        "autoclass",
+		"google_storage_bucket.bucket.labels":                      "labels",
+		"google_storage_bucket.bucket.public_access_prevention":    "public_access_prevention",
+		"google_storage_bucket.bucket.storage_class":               "storage_class",
+		"google_storage_bucket.bucket.uniform_bucket_level_access": "bucket_policy_only",
+		"google_storage_bucket.bucket.versioning[0].enabled":       "versioning",
+	},
 }
 
 func mapGoogleStorageBucket(c Cluster) (*Call, error) {

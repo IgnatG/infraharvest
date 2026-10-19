@@ -382,8 +382,11 @@ func readVariable(body *hclsyntax.Body, src []byte) Variable {
 
 // Check returns how an adapter doesn't fit a module interface: inputs the
 // module has no variable for, required variables the adapter never sets,
-// outputs the module doesn't have, and defaults (see Adapter.Defaults)
-// that aren't the ones the interface records.
+// outputs the module doesn't have, defaults (see Adapter.Defaults) that
+// aren't the ones the interface records, and Inverse entries (see
+// Adapter.Inverse) of no resource in the adapter's Targets, or onto an
+// input path that doesn't parse or whose variable the module doesn't
+// have.
 func Check(a adapters.Adapter, iface *Interface) []string {
 	var problems []string
 	for _, input := range a.Inputs {
@@ -411,6 +414,21 @@ func Check(a adapters.Adapter, iface *Interface) []string {
 	for _, input := range slices.Sorted(maps.Keys(a.Defaults)) {
 		if v, ok := iface.Variables[input]; ok && v.Default != nil && !sameDefault(a.Defaults[input], v.Default) {
 			problems = append(problems, fmt.Sprintf("the adapter's default for %q isn't the module's, %s", input, v.Default))
+		}
+	}
+	// Drift takes a change to a resource of the module into the input an
+	// entry names: one the module doesn't have would edit nothing it reads.
+	for _, key := range slices.Sorted(maps.Keys(a.Inverse)) {
+		if _, _, ok := a.InverseTarget(key); !ok {
+			problems = append(problems, fmt.Sprintf("Inverse has %q, an attribute of none of the adapter's Targets", key))
+		}
+		in, err := adapters.ParseInputPath(a.Inverse[key])
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("Inverse maps %q onto an input path that doesn't parse: %v", key, err))
+			continue
+		}
+		if _, ok := iface.Variables[in.Variable]; !ok {
+			problems = append(problems, fmt.Sprintf("Inverse maps %q onto %q, but the module has no variable %q", key, a.Inverse[key], in.Variable))
 		}
 	}
 	return problems

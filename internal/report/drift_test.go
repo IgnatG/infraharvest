@@ -198,3 +198,43 @@ func TestDriftSharedTags(t *testing.T) {
 		t.Errorf("drift.md:\n%s\nwant once:\n%s", md, want)
 	}
 }
+
+// A change of a resource in a module call names the call, points at its
+// argument, and says how the module reads it.
+func TestDriftModuleCall(t *testing.T) {
+	t.Parallel()
+	d := &Drift{
+		Roots: []DriftRoot{{Path: "aws/123/eu-west-2", Backend: "s3", Resources: 1}},
+		Changes: []DriftChange{{
+			Root: "aws/123/eu-west-2", Address: "module.logs.aws_s3_bucket.this", Type: "aws_s3_bucket", ModuleCall: "module.logs",
+			Attribute: "tags.Env", Before: "prod", After: "dev", Kind: "changed",
+			Source:   &DriftSource{File: "generated.tf", Line: 7, Expression: "{ Env = \"prod\" }", ModulePath: "../../../modules/s3_bucket_0a1b2c3d/main.tf:3 var.tags"},
+			Decision: DriftAccept, Outcome: DriftWritten,
+		}},
+	}
+	d.Finish()
+	var b bytes.Buffer
+	if err := d.WriteJSON(&b); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Changes []struct {
+			ModuleCall string `json:"module_call"`
+			Source     struct {
+				File       string `json:"file"`
+				Line       int    `json:"line"`
+				ModulePath string `json:"module_path"`
+			} `json:"source"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(b.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Changes) != 1 || got.Changes[0].ModuleCall != "module.logs" || got.Changes[0].Source.File != "generated.tf" || got.Changes[0].Source.ModulePath != "../../../modules/s3_bucket_0a1b2c3d/main.tf:3 var.tags" {
+		t.Errorf("drift.json changes %+v", got.Changes)
+	}
+	want := "(`generated.tf:7`, which the module reads at `../../../modules/s3_bucket_0a1b2c3d/main.tf:3 var.tags`)"
+	if md := d.Markdown(); !strings.Contains(md, want) {
+		t.Errorf("drift.md:\n%s\nwant:\n%s", md, want)
+	}
+}

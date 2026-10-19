@@ -26,6 +26,12 @@ var GoogleServiceAccount = Adapter{
 	Outputs:  []string{"email", "iam_email", "id"},
 	Targets:  []string{"google_project_iam_member.roles", "google_service_account.sa"},
 	Map:      mapGoogleServiceAccount,
+	// The module sets these from the inputs as they are
+	// (modules/simple-sa/main.tf).
+	Inverse: map[string]string{
+		"google_service_account.sa.description":  "description",
+		"google_service_account.sa.display_name": "display_name",
+	},
 }
 
 func mapGoogleServiceAccount(c Cluster) (*Call, error) {

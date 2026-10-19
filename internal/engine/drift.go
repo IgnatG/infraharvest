@@ -170,7 +170,8 @@ type DriftChange struct {
 	// to put the code's value back: keeping the code replaces it.
 	ForcesReplacement bool
 	// Source is where the root's configuration sets the attribute, as
-	// best it can be told; nil when it can't, such as in a module.
+	// best it can be told: for a resource in a module call, the call's
+	// argument the module gets it from; nil when it can't be told.
 	Source *DriftSource
 
 	// Covers are, for a change of tags several resources get from one
@@ -192,6 +193,13 @@ type DriftSource struct {
 	File       string // relative to the root
 	Line       int
 	Expression string // the expression that sets it, if on one line
+	// ModulePath says, for a resource in a module call, how the module
+	// gets the value from the call's argument at File and Line: the
+	// module's file, line and expression, or, for a curated module, its
+	// release and the input its adapter maps the attribute onto; for calls
+	// inside modules, each call's, from the root's inwards, separated by
+	// "; ".
+	ModulePath string
 }
 
 // UnsupportedBackendError is the error of a root whose backend Drift
@@ -300,6 +308,7 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return nil, err
 	}
 	editor := newDriftEditor(refresh, code, opts.Defaults)
+	editor.modules = loadDriftModules(dir)
 	if result.Changes, err = shareTags(result.Changes, root, refresh, code, editor); err != nil {
 		return nil, err
 	}
@@ -919,8 +928,7 @@ const maxSourceExpression = 120
 
 // addDriftSources sets, as best it can, where the root's code, contents
 // by file name, sets each change's attribute (see driftEditor.resolve),
-// and returns the sources it found, by change. Changes of resources in
-// module calls have none yet.
+// and returns the sources it found, by change.
 func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]Source, error) {
 	cfg, err := parseDriftConfig(contents)
 	if err != nil {

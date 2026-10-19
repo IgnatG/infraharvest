@@ -44,6 +44,14 @@ var AzureUserAssignedIdentity = Adapter{
 	Providers: []string{"azapi"},
 	Targets:   []string{"azurerm_federated_identity_credential.this", "azurerm_user_assigned_identity.this"},
 	Map:       mapAzureUserAssignedIdentity,
+	// The module sets these from the inputs as they are (main.tf).
+	Inverse: map[string]string{
+		"azurerm_federated_identity_credential.this.audience": "federated_identity_credentials[each.key].audience",
+		"azurerm_federated_identity_credential.this.issuer":   "federated_identity_credentials[each.key].issuer",
+		"azurerm_federated_identity_credential.this.subject":  "federated_identity_credentials[each.key].subject",
+		"azurerm_user_assigned_identity.this.isolation_scope": "isolation_scope",
+		"azurerm_user_assigned_identity.this.tags":            "tags",
+	},
 }
 
 func mapAzureUserAssignedIdentity(c Cluster) (*Call, error) {

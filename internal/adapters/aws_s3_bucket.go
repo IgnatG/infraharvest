@@ -59,6 +59,16 @@ var S3Bucket = Adapter{
 		"object_ownership":        cty.StringVal("BucketOwnerEnforced"),
 		"restrict_public_buckets": cty.True,
 	},
+	// The module sets these from the inputs as they are (main.tf).
+	Inverse: map[string]string{
+		"aws_s3_bucket.this.tags": "tags",
+		"aws_s3_bucket_lifecycle_configuration.this.transition_default_minimum_object_size": "transition_default_minimum_object_size",
+		"aws_s3_bucket_ownership_controls.this.rule[0].object_ownership":                    "object_ownership",
+		"aws_s3_bucket_public_access_block.this.block_public_acls":                          "block_public_acls",
+		"aws_s3_bucket_public_access_block.this.block_public_policy":                        "block_public_policy",
+		"aws_s3_bucket_public_access_block.this.ignore_public_acls":                         "ignore_public_acls",
+		"aws_s3_bucket_public_access_block.this.restrict_public_buckets":                    "restrict_public_buckets",
+	},
 }
 
 func mapS3Bucket(c Cluster) (*Call, error) {

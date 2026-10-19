@@ -51,6 +51,15 @@ var GoogleNetwork = Adapter{
 		"mtu":                          cty.Zero,
 		"network_firewall_policy_enforcement_order": cty.StringVal("AFTER_CLASSIC_FIREWALL"),
 	},
+	// The module passes these on to its vpc module, which sets them from
+	// its inputs as they are (main.tf, modules/vpc/main.tf).
+	Inverse: map[string]string{
+		"module.vpc.google_compute_network.network.bgp_best_path_selection_mode":              "bgp_best_path_selection_mode",
+		"module.vpc.google_compute_network.network.description":                               "description",
+		"module.vpc.google_compute_network.network.mtu":                                       "mtu",
+		"module.vpc.google_compute_network.network.network_firewall_policy_enforcement_order": "network_firewall_policy_enforcement_order",
+		"module.vpc.google_compute_network.network.routing_mode":                              "routing_mode",
+	},
 }
 
 func mapGoogleNetwork(c Cluster) (*Call, error) {

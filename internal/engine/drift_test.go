@@ -335,7 +335,8 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	if c := byKey["aws_s3_bucket.logs arn"]; c.Source == nil || c.Source.Line != 1 {
 		t.Errorf("an argument the code leaves out at %+v, want the block's line 1", c.Source)
 	}
-	if c := byKey["module.data.aws_s3_bucket.this tags.Team"]; c.Source != nil || c.ModuleAddress != "module.data" {
+	// Without the modules.json of an init, the source is the call.
+	if c := byKey["module.data.aws_s3_bucket.this tags.Team"]; c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 16}) || c.ModuleAddress != "module.data" {
 		t.Errorf("a module's resource has source %+v and module %q", c.Source, c.ModuleAddress)
 	}
 	for _, c := range result.Changes {
