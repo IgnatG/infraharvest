@@ -52,9 +52,10 @@ var azureAuthorizationErrors = []string{
 // permissions/azure grants, as a user would, and checks that nothing was
 // denied, that the engine plans every generated resource as an import
 // with no changes, and that the import found the resource group, with its
-// tags, and what the estate created. It destroys the estate when it is
-// done. The sandbox-azure workflow runs it, after approval; see
-// e2e/README.md.
+// tags, and what the estate created. Applied, the root must take a tag
+// added out of band through infraharvest drift (see checkAzureDrift). It
+// destroys the estate when it is done. The sandbox-azure workflow runs
+// it, after approval; see e2e/README.md.
 func TestSandboxAzure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
 	defer cancel()
@@ -75,6 +76,7 @@ func TestSandboxAzure(t *testing.T) {
 	if imported["azurerm_resource_group"] == 0 {
 		t.Errorf("the import doesn't import the resource group %s", s.resourceGroup)
 	}
+	s.checkAzureDrift(ctx, t, estate, root)
 }
 
 // azureSandbox is what the Azure sandbox test runs with: the subscription,
@@ -266,4 +268,42 @@ func checkGroupTags(t *testing.T, root string, group *tfjson.StateResource) {
 			t.Errorf("the configuration doesn't have the resource group's tag %s = %q", key, v)
 		}
 	}
+}
+
+// checkAzureDrift does what a team does when someone changes a resource
+// of an applied root outside Terraform: it applies root, in a copy of the
+// output, as the read-only identity, as the apply only imports; adds a
+// drift tag to the estate's network security group, as the fixture
+// identity; and runs infraharvest drift, as the read-only identity. Drift
+// must report the tag as kept, exit with 4 with --detailed-exitcode, and
+// leave the code as it was; accepted, the tag must be written into the
+// code, which then plans no change. Only the group, a resource of the
+// estate, changes in the cloud; the estate's destroy deletes it as it is.
+func (s *azureSandbox) checkAzureDrift(ctx context.Context, t *testing.T, estate *sandboxEstate, root string) {
+	t.Helper()
+	rel, err := filepath.Rel(s.out, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	if err := copyOutput(s.out, work); err != nil {
+		t.Fatalf("copy %s: %v", s.out, err)
+	}
+	applied := filepath.Join(work, rel)
+	applyRoot(ctx, t, applied, s.execPath, s.plugins, nil)
+	checkPlanClean(t, rel+": after the apply", planRoot(ctx, t, applied, s.execPath, s.plugins))
+
+	estate.apply(ctx, t, tfexec.Var("drift_tag=reported"), tfexec.Target("azurerm_network_security_group.app"))
+	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
+	code := codeFiles(t, work)
+	d := drift.mustExit(t, report.ExitDrift, "--detailed-exitcode")
+	checkCodeUnchanged(t, "drift", code, work)
+	checkDriftChange(t, "drift", driftChange(t, "drift", d, "azurerm_network_security_group", "tags.drift"), "<nil>", "reported", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+
+	d = drift.mustExit(t, report.ExitOK, "--accept", "type=azurerm_network_security_group")
+	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "azurerm_network_security_group", "tags.drift"), "<nil>", "reported", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	if !codeMatches(t, work, `drift\s*=\s*"reported"`) {
+		t.Errorf("drift --accept: the code doesn't have the group's tag drift = \"reported\"")
+	}
+	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
 }

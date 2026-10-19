@@ -38,6 +38,12 @@ variable "resource_group" {
   default     = "infraharvest-sandbox"
 }
 
+variable "drift_tag" {
+  description = "A drift tag for the network security group, which a second apply adds out of band of the applied root for infraharvest drift to find."
+  type        = string
+  default     = ""
+}
+
 provider "azurerm" {
   features {
     # The fixture identity's role is on the resource group alone, and the
@@ -106,7 +112,7 @@ resource "azurerm_network_security_group" "app" {
   name                = "${local.name}-app"
   location            = local.location
   resource_group_name = local.rg
-  tags                = local.tags
+  tags                = var.drift_tag == "" ? local.tags : merge(local.tags, { drift = var.drift_tag })
 }
 
 resource "azurerm_network_security_rule" "https" {

@@ -59,7 +59,7 @@ func TestAWSRegenerateMoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugins := filepath.Join(cache, "plugins")
-	fixture := seedMoves(ctx, t, execPath, plugins)
+	fixture := seedApplied(ctx, t, "aws-moves", execPath, plugins)
 	renamed, handed, kept := fixture.queueURL(ctx, t, "renamed"), fixture.queueURL(ctx, t, "handed"), fixture.queueURL(ctx, t, "kept")
 	t.Setenv("AWS_ACCESS_KEY_ID", movesAccount)
 	// The import keeps the credentials it resolves for the rest of the
@@ -193,17 +193,18 @@ func TestAWSRegenerateMoves(t *testing.T) {
 	}
 }
 
-// movesFixture is testdata/aws-moves, applied in a directory of its own,
-// which the test applies again with other variables.
-type movesFixture struct {
-	tf *engine.Runner
+// appliedFixture is a fixture under testdata, applied in a directory of
+// its own, which a test applies again with other variables.
+type appliedFixture struct {
+	name string
+	tf   *engine.Runner
 }
 
-// seedMoves applies testdata/aws-moves in the emulator.
-func seedMoves(ctx context.Context, t *testing.T, execPath, plugins string) *movesFixture {
+// seedApplied applies testdata/<name> in the emulator.
+func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins string) *appliedFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, filepath.Join("testdata", "aws-moves", "main.tf"))), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, filepath.Join("testdata", name, "main.tf"))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
@@ -215,13 +216,13 @@ func seedMoves(ctx context.Context, t *testing.T, execPath, plugins string) *mov
 	if err := tf.Init(ctx); err != nil {
 		t.Fatalf("seed: terraform init: %v", err)
 	}
-	f := &movesFixture{tf: tf}
+	f := &appliedFixture{name: name, tf: tf}
 	f.apply(ctx, t)
 	return f
 }
 
 // apply applies the fixture with opts, such as its variables.
-func (f *movesFixture) apply(ctx context.Context, t *testing.T, opts ...tfexec.ApplyOption) {
+func (f *appliedFixture) apply(ctx context.Context, t *testing.T, opts ...tfexec.ApplyOption) {
 	t.Helper()
 	if err := f.tf.Apply(ctx, opts...); err != nil {
 		t.Fatalf("seed: terraform apply: %v", err)
@@ -229,7 +230,7 @@ func (f *movesFixture) apply(ctx context.Context, t *testing.T, opts ...tfexec.A
 }
 
 // queueURL returns the URL, the ID, of the fixture's queue called name.
-func (f *movesFixture) queueURL(ctx context.Context, t *testing.T, name string) string {
+func (f *appliedFixture) queueURL(ctx context.Context, t *testing.T, name string) string {
 	t.Helper()
 	state, err := f.tf.Show(ctx)
 	if err != nil {
@@ -242,7 +243,7 @@ func (f *movesFixture) queueURL(ctx context.Context, t *testing.T, name string) 
 			}
 		}
 	}
-	t.Fatalf("testdata/aws-moves created no aws_sqs_queue.%s", name)
+	t.Fatalf("testdata/%s created no aws_sqs_queue.%s", f.name, name)
 	return ""
 }
 
@@ -309,43 +310,5 @@ func clearRootFiles(t *testing.T, dir string) {
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
-	}
-}
-
-// planRoot initialises and plans the root in dir, with the local state it
-// has, and returns the plan.
-func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string) *tfjson.Plan {
-	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
-		t.Fatalf("%s: terraform init: %v", dir, err)
-	}
-	planFile := filepath.Join(t.TempDir(), "moves.tfplan")
-	if _, err := tf.Plan(ctx, tfexec.Out(planFile), tfexec.Lock(false)); err != nil {
-		t.Fatalf("%s: terraform plan: %v", dir, err)
-	}
-	plan, err := tf.ShowPlanFile(ctx, planFile)
-	if err != nil {
-		t.Fatalf("%s: terraform show: %v", dir, err)
-	}
-	return plan
-}
-
-// applyRoot initialises and applies the root in dir, with env on top of
-// the process's environment, into the local state it has.
-func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string) {
-	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
-		t.Fatalf("%s: terraform init: %v", dir, err)
-	}
-	if err := tf.Apply(ctx, tfexec.Lock(false)); err != nil {
-		t.Fatalf("%s: terraform apply: %v", dir, err)
 	}
 }

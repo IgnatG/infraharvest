@@ -51,6 +51,12 @@ variable "region" {
   default     = "europe-west2"
 }
 
+variable "drift_label" {
+  description = "Another value of the topic's project label, which a second apply sets out of band of the applied root for infraharvest drift to find. A label the code doesn't set is the provider's to ignore, so the change is to one it sets."
+  type        = string
+  default     = ""
+}
+
 provider "google" {
   project = var.project
   region  = var.region
@@ -183,7 +189,7 @@ resource "google_storage_bucket" "data" {
 # A topic and a subscription with no messages cost nothing.
 resource "google_pubsub_topic" "events" {
   name   = local.name
-  labels = local.labels
+  labels = var.drift_label == "" ? local.labels : merge(local.labels, { project = var.drift_label })
 }
 
 resource "google_pubsub_subscription" "events" {

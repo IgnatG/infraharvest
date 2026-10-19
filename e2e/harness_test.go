@@ -378,3 +378,42 @@ func addedConfiguration(t *testing.T, before, after map[string]string) map[strin
 	}
 	return added
 }
+
+// planRoot initialises and plans the root in dir, with the local state it
+// has and opts, such as tfexec.Refresh(false), and returns the plan.
+func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, opts ...tfexec.PlanOption) *tfjson.Plan {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+		t.Fatalf("%s: terraform init: %v", dir, err)
+	}
+	planFile := filepath.Join(t.TempDir(), "root.tfplan")
+	if _, err := tf.Plan(ctx, append([]tfexec.PlanOption{tfexec.Out(planFile), tfexec.Lock(false)}, opts...)...); err != nil {
+		t.Fatalf("%s: terraform plan: %v", dir, err)
+	}
+	plan, err := tf.ShowPlanFile(ctx, planFile)
+	if err != nil {
+		t.Fatalf("%s: terraform show: %v", dir, err)
+	}
+	return plan
+}
+
+// applyRoot initialises and applies the root in dir, with env on top of
+// the process's environment and opts, such as tfexec.RefreshOnly(true),
+// into the local state it has.
+func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string, opts ...tfexec.ApplyOption) {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+		t.Fatalf("%s: terraform init: %v", dir, err)
+	}
+	if err := tf.Apply(ctx, append([]tfexec.ApplyOption{tfexec.Lock(false)}, opts...)...); err != nil {
+		t.Fatalf("%s: terraform apply: %v", dir, err)
+	}
+}
