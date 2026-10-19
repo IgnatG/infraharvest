@@ -134,9 +134,8 @@ func TestDriftDecisionPrecedence(t *testing.T) {
 	owner := engine.DriftChange{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Owner", Before: "a", After: "b", Kind: engine.DriftChanged}
 	cidr := engine.DriftChange{Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "ingress[0].cidr_blocks", Before: []any{"10.0.0.0/8"}, After: []any{"0.0.0.0/0"}, Kind: engine.DriftChanged}
 	file := func(defaults string, entries ...DriftDecisionEntry) *DriftDecisions {
-		f := &DriftDecisions{Version: 1, Defaults: DriftDecisionDefaults{Decision: defaults},
-			Rules: []DriftDecisionRule{{Accept: &DriftMatch{Attribute: selection.Patterns{"tags.*"}}}, {Keep: &DriftMatch{Attribute: selection.Patterns{"tags.Owner"}, Type: selection.Patterns{"aws_s3_*"}}}},
-			Changes: entries}
+		rules := []DriftDecisionRule{{Accept: &DriftMatch{Attribute: selection.Patterns{"tags.*"}}}, {Keep: &DriftMatch{Attribute: selection.Patterns{"tags.Owner"}, Type: selection.Patterns{"aws_s3_*"}}}}
+		f := &DriftDecisions{Version: 1, Defaults: DriftDecisionDefaults{Decision: defaults}, Rules: rules, Changes: entries}
 		f.index()
 		return f
 	}
