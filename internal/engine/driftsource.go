@@ -946,7 +946,7 @@ func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.Ob
 	return &SourceEdit{File: w.file, Start: rng.Start.Byte, End: end}
 }
 
-// applyDrift makes in contents, files by name, the edits that take the
+// apply makes in contents, files by name, the edits that take the
 // cloud's values for changes, in order, each found again in the files as
 // the edits before it left them; each edited file is laid out where an
 // argument was added, and formatted, as terraform fmt would. It returns

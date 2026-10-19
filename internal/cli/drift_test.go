@@ -80,3 +80,28 @@ func TestDriftWithoutRoots(t *testing.T) {
 		t.Errorf("got %v, want no generated roots", err)
 	}
 }
+
+// --accept and --keep add to one list of rules, in the order given.
+func TestDriftRuleFlagsKeepTheirOrder(t *testing.T) {
+	t.Parallel()
+	var rules []importer.DriftRule
+	accept, keep := &driftRules{rules: &rules, accept: true}, &driftRules{rules: &rules}
+	for _, set := range []struct {
+		flag  *driftRules
+		value string
+	}{{accept, "all"}, {keep, "type=aws_security_group"}, {accept, "attribute=tags.*"}} {
+		if err := set.flag.Set(set.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, r := range rules {
+		got = append(got, fmt.Sprintf("%v %s", r.Accept, r))
+	}
+	if want := []string{"true all", "false type=aws_security_group", "true attribute=tags.*"}; !slices.Equal(got, want) {
+		t.Errorf("rules %v, want %v", got, want)
+	}
+	if accept.String() != "all,attribute=tags.*" || keep.String() != "type=aws_security_group" {
+		t.Errorf("--accept %q, --keep %q", accept.String(), keep.String())
+	}
+}
