@@ -183,11 +183,13 @@ infraharvest drift [output-directory] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--detailed-exitcode` |  | exit with 4 when a change would be reverted by the next apply or can't be assessed, 0 when none |
+| `--accept` |  | write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep, the last rule that matches a change decides) |
+| `--detailed-exitcode` |  | exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none |
 | `--engine` | `terraform` | terraform or tofu |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit) |
 | `--force-unlock` |  | check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock |
 | `--format` | `text` | text prints a line per root; json prints drift.json |
+| `--keep` |  | keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable) |
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
