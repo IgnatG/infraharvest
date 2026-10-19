@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -341,5 +342,34 @@ resource "aws_db_instance" "db" {
 	}
 	if got := readFile(t, dir, "main.tf"); got != main {
 		t.Errorf("main.tf changed:\n%s", got)
+	}
+}
+
+func TestRecordedTagLeaves(t *testing.T) {
+	t.Parallel()
+	upd := tfjson.Actions{tfjson.ActionUpdate}
+	dev := map[string]any{"Env": "dev"}
+	prod := map[string]any{"Env": "prod"}
+	labels := map[string]any{"env": "dev"}
+	for _, tc := range []struct {
+		name string
+		rc   *tfjson.ResourceChange
+		want map[string]bool
+	}{
+		{"own tags only", driftResource("aws_s3_bucket.a", "aws_s3_bucket", upd,
+			map[string]any{"tags": dev, "tags_all": dev}, map[string]any{"tags": nil, "tags_all": dev}), map[string]bool{"tags.Env": true}},
+		{"tags_all changes too", driftResource("aws_s3_bucket.a", "aws_s3_bucket", upd,
+			map[string]any{"tags": dev, "tags_all": dev}, map[string]any{"tags": nil, "tags_all": prod}), map[string]bool{}},
+		{"tags_all unknown", &tfjson.ResourceChange{Address: "aws_s3_bucket.a", Type: "aws_s3_bucket", Mode: tfjson.ManagedResourceMode, Change: &tfjson.Change{Actions: upd,
+			Before: map[string]any{"tags": dev, "tags_all": dev}, After: map[string]any{"tags": nil}, AfterUnknown: map[string]any{"tags_all": true}}}, map[string]bool{}},
+		{"no tags_all", driftResource("azurerm_resource_group.a", "azurerm_resource_group", upd,
+			map[string]any{"tags": dev}, map[string]any{"tags": prod}), map[string]bool{}},
+		{"labels", driftResource("google_storage_bucket.a", "google_storage_bucket", upd,
+			map[string]any{"labels": nil, "terraform_labels": labels, "effective_labels": labels},
+			map[string]any{"labels": labels, "terraform_labels": labels, "effective_labels": labels}), map[string]bool{"labels.env": true}},
+	} {
+		if got := recordedTagLeaves(tc.rc); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -207,8 +208,9 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // blame, each with why: an error in the edited block; an accepted
 // attribute the plan still changes; or another attribute of the resource
 // the plan of the code, code, didn't change, but for what is secret or
-// kept only in state; or another resource planning other than code has
-// it, which the edits of locals are blamed for first, then those of the
+// kept only in state, or a key of its own tags or labels that only the
+// state records (see recordedTagLeaves); or another resource planning
+// other than code has it, which the edits of locals are blamed for first, then those of the
 // resources it refers to, else all of them. Reasons have the values of
 // forms redacted.
 func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]Source, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
@@ -275,8 +277,9 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 				baseLeaves[l.path] = true
 			}
 		}
+		recorded := recordedTagLeaves(rc)
 		for _, l := range planLeaves(rc, stateOnly) {
-			if l.sensitive {
+			if l.sensitive || recorded[l.path] {
 				continue
 			}
 			matched := false
@@ -466,4 +469,74 @@ func addedDetails(before, after Check) []string {
 		added = append(added, d)
 	}
 	return added
+}
+
+// mergedTagAttributes are, by a resource's own tags or labels, the
+// attributes that hold them together with the provider's: what reaches
+// the cloud.
+var mergedTagAttributes = map[string][]string{
+	"tags":   {"tags_all"},
+	"labels": {"terraform_labels", "effective_labels"},
+}
+
+// recordedTagLeaves returns the paths of the keys of a resource's own
+// tags or labels that rc, a planned change, changes while the attributes
+// holding them with the provider's, such as tags_all, keep the key as it
+// was: what reaches the cloud stays the same, and only the state records
+// the change. A key of the provider's default tags a resource gets its
+// own value of, or that the provider's then gives it, plans so without
+// refreshing.
+func recordedTagLeaves(rc *tfjson.ResourceChange) map[string]bool {
+	before, _ := rc.Change.Before.(map[string]any)
+	after, _ := rc.Change.After.(map[string]any)
+	unknown, _ := rc.Change.AfterUnknown.(map[string]any)
+	paths := map[string]bool{}
+	for own, mergedAll := range mergedTagAttributes {
+		var merged []string
+		for _, m := range mergedAll {
+			_, b := before[m]
+			_, a := after[m]
+			if b || a {
+				merged = append(merged, m)
+			}
+		}
+		if len(merged) == 0 {
+			continue
+		}
+		ob, _ := before[own].(map[string]any)
+		oa, _ := after[own].(map[string]any)
+		keys := map[string]bool{}
+		for k := range ob {
+			keys[k] = true
+		}
+		for k := range oa {
+			keys[k] = true
+		}
+		for k := range keys {
+			vb, okb := ob[k]
+			va, oka := oa[k]
+			if okb == oka && reflect.DeepEqual(vb, va) {
+				continue
+			}
+			kept := true
+			for _, m := range merged {
+				if marked(unknown[m]) || marked(maskKey(unknown[m], k)) {
+					kept = false
+					break
+				}
+				mb, _ := before[m].(map[string]any)
+				ma, _ := after[m].(map[string]any)
+				vb, okb := mb[k]
+				va, oka := ma[k]
+				if okb != oka || !reflect.DeepEqual(vb, va) {
+					kept = false
+					break
+				}
+			}
+			if kept {
+				paths[own+"."+k] = true
+			}
+		}
+	}
+	return paths
 }
