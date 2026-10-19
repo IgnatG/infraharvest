@@ -33,6 +33,10 @@ type fakeDriftTerraform struct {
 	planOpts  [][]tfexec.PlanOption
 	applyOpts [][]tfexec.ApplyOption
 	onInit    func()
+	schemas   *tfjson.ProviderSchemas
+
+	// unformatted are the files FormatCheck finds unformatted.
+	unformatted []string
 }
 
 func (f *fakeDriftTerraform) record(call string) { *f.calls = append(*f.calls, f.name+":"+call) }
@@ -60,6 +64,9 @@ func (f *fakeDriftTerraform) Validate(context.Context) (*tfjson.ValidateOutput, 
 
 func (f *fakeDriftTerraform) ProvidersSchema(context.Context) (*tfjson.ProviderSchemas, error) {
 	f.record("schema")
+	if f.schemas != nil {
+		return f.schemas, nil
+	}
 	return &tfjson.ProviderSchemas{}, nil
 }
 
@@ -75,7 +82,7 @@ func (f *fakeDriftTerraform) ShowPlanFile(context.Context, string, ...tfexec.Sho
 
 func (f *fakeDriftTerraform) FormatCheck(context.Context, ...tfexec.FormatOption) (bool, []string, error) {
 	f.record("fmt")
-	return true, nil, nil
+	return len(f.unformatted) == 0, f.unformatted, nil
 }
 
 func (f *fakeDriftTerraform) SetStdout(io.Writer) {}
@@ -294,10 +301,10 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	want := []got{
 		{"aws_db_instance.db", "password", DriftChanged, DriftNotAssessable},
 		{"aws_s3_bucket.logs", "arn", DriftChanged, DriftAbsorbed},
-		{"aws_s3_bucket.logs", "tags.Env", DriftChanged, DriftReverts},
+		{"aws_s3_bucket.logs", "tags.Env", DriftChanged, DriftKept},
 		{"aws_security_group.web", "description", DriftChanged, DriftAbsorbed},
-		{"aws_security_group.web", "ingress[0].cidr_blocks[0]", DriftChanged, DriftReverts},
-		{"aws_sqs_queue.gone", "", DriftDeleted, DriftReverts},
+		{"aws_security_group.web", "ingress[0].cidr_blocks[0]", DriftChanged, DriftKept},
+		{"aws_sqs_queue.gone", "", DriftDeleted, DriftKept},
 		{"module.data.aws_s3_bucket.this", "tags.Team", DriftChanged, DriftAbsorbed},
 	}
 	if !reflect.DeepEqual(gots, want) {
@@ -316,7 +323,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	if c := byKey["aws_security_group.web ingress[0].cidr_blocks[0]"]; !strings.Contains(c.Reason, "replaces") {
 		t.Errorf("a change the next apply replaces the resource for has the reason %q", c.Reason)
 	}
-	if c := byKey["aws_s3_bucket.logs tags.Env"]; c.Before != "prod" || c.After != "dev" || c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 3}) {
+	if c := byKey["aws_s3_bucket.logs tags.Env"]; c.Before != "prod" || c.After != "dev" || c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 4, Expression: `"prod"`}) {
 		t.Errorf("tags.Env: %v -> %v at %+v", c.Before, c.After, c.Source)
 	}
 	if c := byKey["aws_security_group.web description"]; c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 10, Expression: `"a"`}) {
@@ -330,6 +337,14 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	}
 	if c := byKey["module.data.aws_s3_bucket.this tags.Team"]; c.Source != nil || c.ModuleAddress != "module.data" {
 		t.Errorf("a module's resource has source %+v and module %q", c.Source, c.ModuleAddress)
+	}
+	for _, c := range result.Changes {
+		if c.Decision != DriftKeep {
+			t.Errorf("%s %s: decision %q without --accept", c.Address, c.Attribute, c.Decision)
+		}
+	}
+	if slices.Contains(calls, "staged:schema") {
+		t.Error("read the schemas with nothing accepted")
 	}
 	content, err := json.Marshal(result)
 	if err != nil {

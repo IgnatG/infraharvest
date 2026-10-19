@@ -34,6 +34,11 @@ func loadHCL(path string) (*hclFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseHCL(path, src)
+}
+
+// parseHCL parses src, the content of the file at path.
+func parseHCL(path string, src []byte) (*hclFile, error) {
 	f, diags := hclwrite.ParseConfig(src, path, hcl.InitialPos)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parse %s: %w", path, diags)

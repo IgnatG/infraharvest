@@ -48,7 +48,8 @@ const (
 // What the code makes of a change (DriftChange.Outcome).
 const (
 	// DriftReverts: the code still has the value of the state, so the
-	// next apply puts it back in the cloud.
+	// next apply puts it back in the cloud. Drift reports such a change
+	// as DriftKept, or as what accepting it did.
 	DriftReverts = "reverts"
 	// DriftAbsorbed: the code doesn't set what changed, such as an
 	// attribute the provider computes or one ignore_changes names, so the
@@ -57,6 +58,30 @@ const (
 	// DriftNotAssessable: whether the next apply puts the value back
 	// can't be told, such as for a secret whose variable has no value.
 	DriftNotAssessable = "not_assessable"
+	// DriftKept: the code keeps its value, so the next apply puts it back
+	// in the cloud.
+	DriftKept = "kept"
+	// DriftWritten: the cloud's value was accepted and written into the
+	// code.
+	DriftWritten = "written"
+	// DriftRejectedByPlan: the cloud's value was accepted, but the plan
+	// of the edited code didn't take it as it should, so the edit wasn't
+	// written.
+	DriftRejectedByPlan = "rejected_by_plan"
+	// DriftManual: the cloud's value was accepted, but where the code
+	// sets it takes a hand edit, as Reason says.
+	DriftManual = "manual"
+	// DriftSecret: the cloud's value was accepted, but it is a secret,
+	// which is never written into the code.
+	DriftSecret = "secret"
+)
+
+// What is decided for a change (DriftChange.Decision).
+const (
+	// DriftAccept: take the cloud's value into the code.
+	DriftAccept = "accept"
+	// DriftKeep: keep the code's value, which the next apply puts back.
+	DriftKeep = "keep"
 )
 
 // driftBackends are the backends Drift reads state from: the others, and
@@ -78,6 +103,22 @@ type DriftOptions struct {
 	// CommandTimeout bounds each Terraform command (see
 	// Options.CommandTimeout).
 	CommandTimeout time.Duration
+	// Accept says whether to take the cloud's value into the code for a
+	// change the next apply would revert; nil keeps every change, as
+	// detection alone does.
+	Accept func(DriftChange) bool
+	// Defaults name, per resource type, the values the provider gives
+	// arguments it isn't told (see Options.Defaults): a change accepted
+	// to one of them leaves the argument out rather than writing it.
+	Defaults map[string][]string
+	// Omit names, per resource type, the arguments the output leaves out
+	// (see Options.Omit), which the standards check of the edited code
+	// looks for.
+	Omit map[string][]string
+
+	// writeFile writes an edited file into the root; nil is
+	// fsutil.WriteFile. For tests.
+	writeFile func(path string, content []byte, perm os.FileMode) error
 }
 
 // RootDrift is what Drift found in one root.
@@ -115,18 +156,31 @@ type DriftChange struct {
 	// replaced by "(sensitive value)".
 	Before, After any
 	Kind          string // DriftChanged or DriftDeleted
-	Outcome       string // DriftReverts, DriftAbsorbed or DriftNotAssessable
-	Reason        string
+	// Decision is DriftAccept or DriftKeep.
+	Decision string
+	// Outcome is DriftAbsorbed or DriftNotAssessable, or, for a change the
+	// next apply would revert, DriftKept, DriftWritten,
+	// DriftRejectedByPlan, DriftManual or DriftSecret.
+	Outcome string
+	Reason  string
+	// ForcesReplacement says the next apply would replace the resource
+	// to put the code's value back: keeping the code replaces it.
+	ForcesReplacement bool
 	// Source is where the root's configuration sets the attribute, as
 	// best it can be told; nil when it can't, such as in a module.
 	Source *DriftSource
+
+	// value is the cloud's value, and sensitive whether the plans mark
+	// it sensitive: for the edit that accepts it, never for a report.
+	value     any
+	sensitive bool
 }
 
 // DriftSource is where a root's configuration sets an attribute.
 type DriftSource struct {
 	File       string // relative to the root
 	Line       int
-	Expression string // the top-level argument's expression, if on one line
+	Expression string // the expression that sets it, if on one line
 }
 
 // UnsupportedBackendError is the error of a root whose backend Drift
@@ -153,6 +207,13 @@ func (e *UnsupportedBackendError) Error() string {
 // the code without refreshing again says which of those changes the
 // next apply would put back. The root's state is never written: plans
 // don't lock it, as a lock needs write access.
+//
+// The changes the next apply would put back that opts.Accept accepts are
+// taken into the root's code, where it can be told how (see Source):
+// edited in the copy, planned again without refreshing, and written into
+// the root only once the plan and the checks of the verification gate
+// say the edits take them and change nothing else (see acceptDrift). The
+// others are kept. Each change's Outcome says what became of it.
 //
 // A root with an unsupported backend fails with an
 // UnsupportedBackendError before Terraform runs.
@@ -223,7 +284,20 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return nil, fmt.Errorf("terraform plan -refresh=false: %w", err)
 	}
 	result.Changes = classifyDrift(refresh, code, opts.StateOnly, len(placeholdered) > 0)
-	addDriftSources(result.Changes, files, dir, driftSensitiveForms(refresh, code))
+	root, err := tfContents(dir)
+	if err != nil {
+		return nil, err
+	}
+	editor := newDriftEditor(refresh, code, opts.Defaults)
+	sources, err := addDriftSources(result.Changes, root, editor)
+	if err != nil {
+		return nil, err
+	}
+	if accepted := decideDrift(result.Changes, sources, opts.Accept); len(accepted) > 0 {
+		if err := acceptDrift(ctx, stf, dir, staging, root, accepted, code, vars, editor, opts); err != nil {
+			return nil, err
+		}
+	}
 	return result, nil
 }
 
@@ -642,6 +716,9 @@ func driftLeaves(typ string, leaves []valueLeaf, stateOnly map[string][]string) 
 type plannedChange struct {
 	actions tfjson.Actions
 	leaves  []valueLeaf
+	// replacePaths are the paths that force the replacement, as the plan
+	// has them.
+	replacePaths []any
 }
 
 // find returns the leaf of c on path, or on a path that holds it or that
@@ -689,7 +766,7 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 			continue
 		}
 		leaves := valueLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown, rc.Change.BeforeSensitive, rc.Change.AfterSensitive)
-		planned[rc.Address] = &plannedChange{actions: rc.Change.Actions, leaves: driftLeaves(rc.Type, leaves, stateOnly)}
+		planned[rc.Address] = &plannedChange{actions: rc.Change.Actions, leaves: driftLeaves(rc.Type, leaves, stateOnly), replacePaths: rc.Change.ReplacePaths}
 	}
 	forms := driftSensitiveForms(refresh, code)
 	var changes []DriftChange
@@ -717,6 +794,7 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 			c := base
 			c.Kind, c.Attribute = DriftChanged, l.path
 			c.Before, c.After = redactDriftValue(l.before, l.sensitive, forms), redactDriftValue(l.after, l.sensitive, forms)
+			c.value, c.sensitive = l.after, l.sensitive
 			c.Outcome = DriftAbsorbed
 			if p != nil {
 				if cl, ok := p.find(l.path); ok {
@@ -729,6 +807,7 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 						c.Outcome = DriftReverts
 						if p.actions.Replace() {
 							c.Reason = "the next apply replaces the resource to put the code's value back"
+							c.ForcesReplacement = forcesReplacement(p.replacePaths, l.path)
 						}
 					}
 				}
@@ -743,6 +822,25 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 		return changes[i].Attribute < changes[j].Attribute
 	})
 	return changes
+}
+
+// forcesReplacement reports whether the attribute at path is one of
+// paths, those a plan says force a replacement, or is in one; without
+// paths, a replacement is taken to be the attribute's.
+func forcesReplacement(paths []any, path string) bool {
+	if len(paths) == 0 {
+		return true
+	}
+	for _, p := range paths {
+		steps, ok := p.([]any)
+		if !ok || len(steps) == 0 {
+			continue
+		}
+		if first, ok := steps[0].(string); ok && first == topOf(path) {
+			return true
+		}
+	}
+	return false
 }
 
 // driftSensitiveForms returns the values the plans mark sensitive, in
@@ -804,57 +902,21 @@ func redactDriftValue(v any, sensitive bool, forms []string) any {
 // maxSourceExpression is the longest expression a DriftSource quotes.
 const maxSourceExpression = 120
 
-// addDriftSources sets, as best it can, where the root in dir, of files,
-// sets each change's attribute: for a resource of the root itself, the
-// resource's block, and the line of the top-level argument or nested
-// block the attribute is in, with the argument's expression if it is on
-// one line. Changes of resources in modules have none yet.
-func addDriftSources(changes []DriftChange, files []*hclFile, dir string, forms []string) {
-	type block struct {
-		file string
-		f    *hclFile
-		b    *hclsyntax.Block
+// addDriftSources sets, as best it can, where the root's code, contents
+// by file name, sets each change's attribute (see driftEditor.resolve),
+// and returns the sources it found, by change. Changes of resources in
+// module calls have none yet.
+func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]Source, error) {
+	cfg, err := parseDriftConfig(contents)
+	if err != nil {
+		return nil, err
 	}
-	blocks := map[string]block{}
-	for _, f := range files {
-		name := f.path
-		if rel, err := filepath.Rel(dir, f.path); err == nil {
-			name = filepath.ToSlash(rel)
-		}
-		for _, r := range f.resources() {
-			blocks[r.address] = block{file: name, f: f, b: r.syntax}
-		}
-	}
+	sources := make([]Source, len(changes))
 	for i := range changes {
-		c := &changes[i]
-		if c.ModuleAddress != "" {
-			continue
-		}
-		address, _, _ := strings.Cut(c.Address, "[")
-		b, ok := blocks[address]
-		if !ok {
-			continue
-		}
-		src := &DriftSource{File: b.file, Line: b.b.DefRange().Start.Line}
-		if top := topOf(c.Attribute); top != "" {
-			if attr, ok := b.b.Body.Attributes[top]; ok {
-				src.Line = attr.SrcRange.Start.Line
-				rng := attr.Expr.Range()
-				expr := string(b.f.src[rng.Start.Byte:rng.End.Byte])
-				if !strings.Contains(expr, "\n") && len(expr) <= maxSourceExpression && credentialFormat(expr) == "" {
-					src.Expression = redactText(expr, forms)
-				}
-			} else {
-				for _, nested := range b.b.Body.Blocks {
-					if nested.Type == top {
-						src.Line = nested.DefRange().Start.Line
-						break
-					}
-				}
-			}
-		}
-		c.Source = src
+		sources[i] = editor.resolve(cfg, &changes[i])
+		changes[i].Source = reportSource(cfg, sources[i], editor.forms)
 	}
+	return sources, nil
 }
 
 // timedDriftTerraform is a DriftTerraform whose every command runs for at
