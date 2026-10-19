@@ -4,12 +4,15 @@
 package importer
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // noEnv places no resource in an environment.
@@ -28,7 +31,7 @@ func TestEnvPathPattern(t *testing.T) {
 		// A layout of the user's own isn't split behind their back.
 		{"{out}/{provider}/{service}/", []string{"Environment"}, "{out}/{provider}/{service}/"},
 	} {
-		if got := withEnvLayout(tc.pattern, tc.tags); got != tc.want {
+		if got := withEnvLayout(tc.pattern, len(tc.tags) > 0); got != tc.want {
 			t.Errorf("withEnvLayout(%q, %v) = %q, want %q", tc.pattern, tc.tags, got, tc.want)
 		}
 	}
@@ -59,7 +62,7 @@ func TestEnvironments(t *testing.T) {
 	}
 	parents := map[string]string{tagKey(child): tagKey(bucket)}
 
-	got := environments(resources, tags, defaultEnvTags, parents, importID)
+	got := environments(resources, tags, byTagKeys(defaultEnvTags), parents, importID)
 	want := map[string]string{
 		tagKey(bucket):      "prod",
 		tagKey(versioning):  "prod",       // the bucket's ID is its import ID
@@ -119,7 +122,7 @@ func TestImportsByDirPerEnvironment(t *testing.T) {
 		}
 		return "prod"
 	}
-	got, _ := importsByDir("aws", "aws", options, map[string][]harvest.Resource{"s3": {prod}, "vpc": {shared}}, listerID, envOf, rawName, noFile)
+	got, _ := importsByDir("aws", map[string][]harvest.Resource{"s3": {prod}, "vpc": {shared}}, listerID, layoutDirs(options.Layout, options.Out, "aws", envOf), rawName, noFile)
 	if len(got[filepath.FromSlash("out/envs/prod/aws")]) != 1 || len(got[filepath.FromSlash("out/envs/shared/aws")]) != 1 {
 		t.Errorf("roots: %v", got)
 	}
@@ -127,3 +130,110 @@ func TestImportsByDirPerEnvironment(t *testing.T) {
 
 func rawName(r harvest.Resource) string      { return r.RawName }
 func noFile(string, harvest.Resource) string { return "" }
+
+// The configuration file's environments place a scope's resources: all
+// in its one environment, or by the tags of those that share it, as
+// --env-tags does, with what no tags place in sharedEnv.
+func TestConfiguredEnvOf(t *testing.T) {
+	bucket := harvest.RecordBare("shop-prd-logs", "logs", "aws_s3_bucket", "aws")
+	versioning := harvest.RecordBare("shop-prd-logs", "logs", "aws_s3_bucket_versioning", "aws")
+	queue := harvest.RecordBare("https://sqs/shop-dev-jobs", "jobs", "aws_sqs_queue", "aws")
+	vpc := harvest.RecordBare("vpc-1", "main", "aws_vpc", "aws")
+	resources := map[string][]harvest.Resource{"s3": {bucket, versioning}, "sqs": {queue}, "vpc": {vpc}}
+	tags := map[string]map[string]string{
+		tagKey(bucket): {"Environment": "Prod"},
+		tagKey(queue):  {"Environment": "dev", "Team": "shop"},
+		tagKey(vpc):    {"Environment": "shared-services"},
+	}
+	envs := config.Environments{
+		"dev":  {AWS: &config.AWSScopes{Accounts: []string{"111111111111"}}, Tags: map[string]string{"Environment": "dev"}},
+		"prod": {AWS: &config.AWSScopes{Accounts: []string{"111111111111", "222222222222"}}, Tags: map[string]string{"Environment": "prod"}},
+	}
+	for _, tc := range []struct {
+		name  string
+		names []string
+		want  map[harvest.Resource]string
+	}{
+		{"one environment", []string{"prod"}, map[harvest.Resource]string{bucket: "prod", versioning: "prod", queue: "prod", vpc: "prod"}},
+		{"split by tags", []string{"dev", "prod"}, map[harvest.Resource]string{
+			bucket:     "prod",
+			versioning: "prod", // the bucket's ID is its import ID
+			queue:      "dev",
+			vpc:        sharedEnv, // no environment's tags
+		}},
+	} {
+		envOf := configuredEnvOf(envs, tc.names, resources, tags, nil, listerID)
+		for r, want := range tc.want {
+			if got := envOf(r); got != want {
+				t.Errorf("%s: %s: got %q, want %q", tc.name, r.Address.Type, got, want)
+			}
+		}
+	}
+}
+
+func TestScopeAccount(t *testing.T) {
+	for scope, want := range map[string]string{
+		"aws/111111111111/eu-west-2": "111111111111",
+		"azure/0b1c2d3e/all":         "0b1c2d3e",
+		"google/shop-prod/global":    "shop-prod",
+		"":                           "",
+		"aws/111111111111":           "",
+	} {
+		if got := scopeAccount(scope); got != want {
+			t.Errorf("scopeAccount(%q) = %q, want %q", scope, got, want)
+		}
+	}
+}
+
+// A root an earlier import generated keeps its directory: what the
+// environments would put elsewhere stays in it, and the report names it.
+// Where nothing was generated, or the environment's root was, the
+// environments lay the roots out.
+func TestKeptRoots(t *testing.T) {
+	out := t.TempDir()
+	old := filepath.Join(out, "aws", "111111111111", "us-east-1")
+	split := filepath.Join(out, "envs", "dev", "aws", "333333333333", "us-east-1")
+	for _, dir := range []string{old, split, filepath.Join(out, "aws", "333333333333", "us-east-1")} {
+		path := checkpointPath(out, dir)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	account := func(r harvest.Resource) string { return r.RawName }
+	envOf := func(r harvest.Resource) string {
+		if r.Address.Type == "aws_vpc" {
+			return sharedEnv
+		}
+		return "dev"
+	}
+	dirOf := func(_ string, r harvest.Resource) string {
+		return filepath.Join(out, "envs", envOf(r), "aws", account(r), "us-east-1")
+	}
+	unsplit := func(_ string, r harvest.Resource) string {
+		return filepath.Join(out, "aws", account(r), "us-east-1")
+	}
+	kept := newKeptRoots(out)
+	dirs := kept.dirs(dirOf, unsplit, envOf)
+	for _, tc := range []struct {
+		r    harvest.Resource
+		want string
+	}{
+		{harvest.RecordBare("q-1", "111111111111", "aws_sqs_queue", "aws"), old},
+		{harvest.RecordBare("vpc-1", "111111111111", "aws_vpc", "aws"), old},
+		// Nothing generated before.
+		{harvest.RecordBare("q-2", "222222222222", "aws_sqs_queue", "aws"), filepath.Join(out, "envs", "dev", "aws", "222222222222", "us-east-1")},
+		// The environment's root was generated: it stays too.
+		{harvest.RecordBare("q-3", "333333333333", "aws_sqs_queue", "aws"), split},
+	} {
+		if got := dirs("sqs", tc.r); got != tc.want {
+			t.Errorf("%s: got %s, want %s", tc.r.Observed.ID, got, tc.want)
+		}
+	}
+	want := []report.KeptRoot{{Path: "aws/111111111111/us-east-1", Environments: []string{"dev", sharedEnv}, Scope: "aws/111111111111/us-east-1"}}
+	if got := kept.report("aws/111111111111/us-east-1"); !reflect.DeepEqual(got, want) {
+		t.Errorf("kept: got %+v, want %+v", got, want)
+	}
+}

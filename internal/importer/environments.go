@@ -4,16 +4,22 @@
 package importer
 
 import (
+	"log"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/spf13/pflag"
+
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // sharedEnv is the environment of what no environment tag places, such as
 // a network the environments share.
-const sharedEnv = "shared"
+const sharedEnv = config.SharedEnvironment
 
 // defaultEnvTags are the tag keys that name a resource's environment, for
 // {env} in a layout without --env-tags.
@@ -24,24 +30,163 @@ const envLayout = "{out}/envs/{env}/{provider}/{account}/{region}/"
 
 // withEnvLayout returns the layout of the roots when environments
 // split them: pattern if it has {env}; the default layout per environment
-// if pattern is the default and envTags name environment tags; else
-// pattern, with no split.
-func withEnvLayout(pattern string, envTags []string) string {
+// if pattern is the default and split, as when --env-tags names
+// environment tags or the configuration file's environments place the
+// resources; else pattern, with no split.
+func withEnvLayout(pattern string, split bool) string {
 	switch {
 	case strings.Contains(pattern, "{env}"):
 		return pattern
-	case len(envTags) > 0 && (pattern == "" || pattern == DefaultLayout):
+	case split && (pattern == "" || pattern == DefaultLayout):
 		return envLayout
 	}
 	return pattern
 }
 
+// checkEnvironmentFlags rejects the flags the configuration file f's
+// environments can't go with, as the command's flags have them once f
+// applies (see config.File.CheckEnvironmentFlags).
+func checkEnvironmentFlags(f *config.File, flags *pflag.FlagSet) error {
+	layout := ""
+	if flag := flags.Lookup("layout"); flag != nil {
+		layout = flag.Value.String()
+	}
+	var envTags []string
+	if flag := flags.Lookup("env-tags"); flag != nil {
+		if values, ok := flag.Value.(pflag.SliceValue); ok {
+			envTags = values.GetSlice()
+		}
+	}
+	return f.CheckEnvironmentFlags(layout, envTags, DefaultLayout)
+}
+
+// byTagKeys returns the environment tags give a resource by keys, as
+// --env-tags does: the value of the first of keys they have, as a
+// directory name (see envName); "" for none.
+func byTagKeys(keys []string) func(map[string]string) string {
+	return func(tags map[string]string) string {
+		for _, k := range keys {
+			if v := tags[k]; v != "" {
+				return envName(v)
+			}
+		}
+		return ""
+	}
+}
+
+// byConfiguredTags returns the environment tags give a resource by the
+// tags of the environments names of envs: the one whose tags they match
+// (see config.Environment.Matches), of which the file's check leaves at
+// most one; "" for none.
+func byConfiguredTags(envs config.Environments, names []string) func(map[string]string) string {
+	return func(tags map[string]string) string {
+		for _, name := range names {
+			if envs[name].Matches(tags) {
+				return name
+			}
+		}
+		return ""
+	}
+}
+
+// configuredEnvOf returns the environment of each resource of a scope
+// whose environments, of envs, are names (see config.Environments.For):
+// the one environment, if there is one; else the one whose tags its tags
+// match, as environments places them, with sharedEnv for what none
+// places.
+func configuredEnvOf(envs config.Environments, names []string, resourcesByService map[string][]harvest.Resource, tags map[string]map[string]string, parents map[string]string, importID func(harvest.Resource) (string, bool)) func(harvest.Resource) string {
+	if len(names) == 1 {
+		name := names[0]
+		return func(harvest.Resource) string { return name }
+	}
+	placed := environments(resourcesByService, tags, byConfiguredTags(envs, names), parents, importID)
+	return func(r harvest.Resource) string { return placed[tagKey(r)] }
+}
+
+// scopeAccount returns the account, subscription or project of a scope
+// as discoveryScope names it (aws/123456789012/eu-west-2), or "" if it
+// names none.
+func scopeAccount(scope string) string {
+	parts := strings.SplitN(scope, "/", 3)
+	if len(parts) != 3 {
+		return ""
+	}
+	return parts[1]
+}
+
+// keptRoots keeps resources in the roots earlier imports generated for
+// them, where environments would now lay them out elsewhere: a root
+// never moves, as its state key comes from its path.
+type keptRoots struct {
+	out string
+	// recorded says, by directory, whether a checkpoint records a root
+	// there (see checkpointPath).
+	recorded map[string]bool
+	// kept are the roots resources were kept in, each with the
+	// environments of those resources.
+	kept map[string][]string
+}
+
+func newKeptRoots(out string) *keptRoots {
+	return &keptRoots{out: out, recorded: map[string]bool{}, kept: map[string][]string{}}
+}
+
+// dirs returns dirOf, the root of each resource with environments, but
+// for a resource whose root there no checkpoint records while unsplit,
+// its root without environments, names one a checkpoint records: that
+// one, which it records as kept, with the resource's environment by
+// envOf.
+func (k *keptRoots) dirs(dirOf, unsplit func(string, harvest.Resource) string, envOf func(harvest.Resource) string) func(string, harvest.Resource) string {
+	return func(service string, r harvest.Resource) string {
+		dir := dirOf(service, r)
+		before := unsplit(service, r)
+		if dir == before || k.isRecorded(dir) || !k.isRecorded(before) {
+			return dir
+		}
+		if env := envOf(r); !slices.Contains(k.kept[before], env) {
+			k.kept[before] = append(k.kept[before], env)
+		}
+		return before
+	}
+}
+
+// isRecorded reports whether a checkpoint records a root in dir.
+func (k *keptRoots) isRecorded(dir string) bool {
+	if recorded, ok := k.recorded[dir]; ok {
+		return recorded
+	}
+	recorded, err := fileExists(checkpointPath(k.out, dir))
+	if err != nil {
+		log.Printf("%s: %v; its root is taken for one no import generated", relativePath(k.out, dir), err)
+	}
+	k.recorded[dir] = recorded
+	return recorded
+}
+
+// report returns the kept roots, sorted, each of scope, for the report,
+// and logs each.
+func (k *keptRoots) report(scope string) []report.KeptRoot {
+	dirs := make([]string, 0, len(k.kept))
+	for dir := range k.kept {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	kept := make([]report.KeptRoot, 0, len(dirs))
+	for _, dir := range dirs {
+		envs := slices.Sorted(slices.Values(k.kept[dir]))
+		path := relativePath(k.out, dir)
+		log.Printf("%s: an earlier import generated this root, so it keeps the resources the environments %s would put under envs/: a root's state key comes from its path", path, strings.Join(envs, ", "))
+		kept = append(kept, report.KeptRoot{Path: path, Environments: envs, Scope: scope})
+	}
+	return kept
+}
+
 // environments returns the environment of each resource, by tagKey: the
-// value of the first of keys its tags have; for a resource without one,
-// the environment of a resource whose ID its import ID contains, such as
-// a bucket's versioning or a subnet's route table association, or of its
+// one envOfTags gives its tags; for a resource they give none, the
+// environment of a resource whose ID its import ID contains, such as a
+// bucket's versioning or a subnet's route table association, or of its
 // parent, for a child import; else sharedEnv.
-func environments(resourcesByService map[string][]harvest.Resource, tags map[string]map[string]string, keys []string, parents map[string]string, importID func(harvest.Resource) (string, bool)) map[string]string {
+func environments(resourcesByService map[string][]harvest.Resource, tags map[string]map[string]string, envOfTags func(map[string]string) string, parents map[string]string, importID func(harvest.Resource) (string, bool)) map[string]string {
 	envs := map[string]string{}
 	byID := map[string]string{}
 	var untagged []harvest.Resource
@@ -53,13 +198,7 @@ func environments(resourcesByService map[string][]harvest.Resource, tags map[str
 	for _, service := range services {
 		for _, r := range resourcesByService[service] {
 			key := tagKey(r)
-			env := ""
-			for _, k := range keys {
-				if v := tags[key][k]; v != "" {
-					env = envName(v)
-					break
-				}
-			}
+			env := envOfTags(tags[key])
 			if env == "" {
 				untagged = append(untagged, r)
 				continue

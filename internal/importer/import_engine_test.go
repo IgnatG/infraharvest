@@ -29,7 +29,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory per service", func(t *testing.T) {
 		options := Options{Layout: "{out}/{provider}/{service}/", Out: "out"}
 
-		got, _ := importsByDir("aws", "aws", options, resources, listerID, noEnv, rawName, noFile)
+		got, _ := importsByDir("aws", resources, listerID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
 
 		want := map[string][]engine.Import{
 			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/1/orders"}},
@@ -43,7 +43,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory for a pattern without {service}", func(t *testing.T) {
 		options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-		got, _ := importsByDir("aws", "aws", options, resources, listerID, noEnv, rawName, noFile)
+		got, _ := importsByDir("aws", resources, listerID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
 
 		if len(got) != 1 || len(got[filepath.Join("out", "aws")]) != 2 {
 			t.Errorf("want both resources in out/aws, got %v", got)
@@ -71,11 +71,11 @@ func TestImportsByDirNamesOtherProviders(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	beta, _ := importsByDir("google", "google-beta", options, resources, listerID, noEnv, rawName, noFile)
+	beta, _ := importsByDir("google-beta", resources, listerID, layoutDirs(options.Layout, options.Out, "google", noEnv), rawName, noFile)
 	if imports := beta[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
 		t.Errorf("google-beta: got %+v, want provider google-beta in out/google", beta)
 	}
-	ga, _ := importsByDir("google", "google", options, resources, listerID, noEnv, rawName, noFile)
+	ga, _ := importsByDir("google", resources, listerID, layoutDirs(options.Layout, options.Out, "google", noEnv), rawName, noFile)
 	if imports := ga[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "" {
 		t.Errorf("google: got %+v, want no provider", ga)
 	}
@@ -90,7 +90,7 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, _ := importsByDir("azure", "azurerm", options, resources, listerID, noEnv, rawName, noFile)
+	got, _ := importsByDir("azurerm", resources, listerID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
 
 	want := map[string][]engine.Import{
 		filepath.Join("out", "azure"): {{Type: "azurerm_resource_group", Name: "rg", ID: "/subscriptions/s/resourceGroups/rg"}},
@@ -136,7 +136,7 @@ func TestImportsByDirUsesImportIDs(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, skipped := importsByDir("aws", "aws", options, resources, importID, noEnv, rawName, noFile)
+	got, skipped := importsByDir("aws", resources, importID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
 
 	want := map[string][]engine.Import{
 		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "a", ID: "subnet-1/rtb-1"}},
@@ -232,7 +232,7 @@ func TestImportsByDirKeepRawNames(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, _ := importsByDir("aws", "aws", options, resources, listerID, noEnv, rawName, noFile)
+	got, _ := importsByDir("aws", resources, listerID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
 
 	names := map[string]bool{}
 	for _, imp := range got[filepath.Join("out", "aws")] {
@@ -303,10 +303,16 @@ func TestRootPathPattern(t *testing.T) {
 		"{out}/{account}/{service}/":  "{out}/111122223333/{service}/",
 		"{out}/{provider}/":           "{out}/{provider}/",
 	} {
-		got, err := rootLayout(t.Context(), scopedProvider{}, pattern)
-		if err != nil || got != want {
+		got, err := rootLayouts(t.Context(), scopedProvider{}, pattern)
+		if err != nil || len(got) != 1 || got[0] != want {
 			t.Errorf("%s: got %q, %v; want %q", pattern, got, err, want)
 		}
+	}
+	// Several at once, each filled in.
+	got, err := rootLayouts(t.Context(), scopedProvider{}, envLayout, "", "{out}/{provider}/")
+	want := []string{"{out}/envs/{env}/{provider}/111122223333/eu-west-2/", "{out}/{provider}/111122223333/eu-west-2/", "{out}/{provider}/"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("several: got %q, %v; want %q", got, err, want)
 	}
 }
 
