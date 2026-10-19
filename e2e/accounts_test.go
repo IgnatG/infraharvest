@@ -88,4 +88,89 @@ func TestAWSParallelAccounts(t *testing.T) {
 			t.Errorf("%s: imported %v, want its queue", dir, imported)
 		}
 	}
+
+	checkAccountEnvironments(ctx, t, out, engineName, execPath, plugins)
+}
+
+// accountEnvironments maps the accounts of testdata/aws-accounts to
+// environments, as a configuration file's environments do.
+var accountEnvironments = map[string]string{
+	"111111111111": "dev",
+	"222222222222": "prod",
+}
+
+// checkAccountEnvironments imports the accounts again, with environments
+// in the configuration file that map each account to one: each gets its
+// roots under envs/<env>/, which plan as imports with no changes. Into
+// out, where an import without environments generated the roots, the
+// roots stay where they are, and the report names them.
+func checkAccountEnvironments(ctx context.Context, t *testing.T, out, engineName, execPath, plugins string) {
+	t.Helper()
+	config := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	content := "version: 1\nenvironments:\n"
+	for _, account := range []string{"111111111111", "222222222222"} {
+		content += "  " + accountEnvironments[account] + ":\n    aws: { accounts: [\"" + account + "\"] }\n"
+	}
+	if err := os.WriteFile(config, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	importInto := func(out string, more ...string) report.Report {
+		t.Helper()
+		root := cli.NewCmdRoot()
+		root.SetArgs(append([]string{
+			"import", "aws",
+			"--config=" + config,
+			"--engine=" + engineName,
+			"--terraform-path=" + execPath,
+			"--accounts=111111111111,222222222222",
+			"--parallel=2",
+			"--regions=us-east-1",
+			"--services=sqs",
+			"--out=" + out,
+			"--all",
+		}, more...))
+		if err := root.ExecuteContext(ctx); err != nil {
+			t.Fatalf("infraharvest import with environments %v: %v", more, err)
+		}
+		var coverage report.Report
+		if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+			t.Fatal(err)
+		}
+		if len(coverage.Failures) != 0 || coverage.Totals.LeftOut != 0 {
+			t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, coverage.Failures)
+		}
+		return coverage
+	}
+
+	split := t.TempDir()
+	if coverage := importInto(split); len(coverage.KeptRoots) != 0 {
+		t.Errorf("a new --out kept roots: %+v", coverage.KeptRoots)
+	}
+	for account, queue := range parallelAccounts {
+		dir := filepath.Join(split, "envs", accountEnvironments[account], "aws", account, "us-east-1")
+		if generated := configuration(t, dir); !strings.Contains(generated, queue) {
+			t.Errorf("%s: %s is missing", dir, queue)
+		}
+		if imported := checkNoChanges(ctx, t, dir, execPath, plugins, nil); imported["aws_sqs_queue"] != 1 {
+			t.Errorf("%s: imported %v, want its queue", dir, imported)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(split, "aws")); err == nil {
+		t.Errorf("%s: roots outside envs/", split)
+	}
+
+	// The roots out has stay, unchanged.
+	coverage := importInto(out, "--resume")
+	if len(coverage.KeptRoots) != len(parallelAccounts) {
+		t.Errorf("kept roots: %+v, want one per account", coverage.KeptRoots)
+	}
+	for _, kept := range coverage.KeptRoots {
+		account := strings.Split(kept.Path, "/")[1]
+		if want := "aws/" + account + "/us-east-1"; kept.Path != want || len(kept.Environments) != 1 || kept.Environments[0] != accountEnvironments[account] {
+			t.Errorf("kept root %+v, want %s of %s", kept, want, accountEnvironments[account])
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "envs")); err == nil {
+		t.Errorf("%s: roots under envs/ beside the earlier import's", out)
+	}
 }
