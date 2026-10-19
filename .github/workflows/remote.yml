@@ -131,10 +131,12 @@ jobs:
             echo "TASK=$TASK"
             echo "PACKAGES=$PACKAGES"
           } >> "$GITHUB_ENV"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           # go mod tidy may change go.sum, which keys the cache.
@@ -156,7 +158,8 @@ jobs:
           git ls-files --modified --others --exclude-standard -- '*/testdata/*' 'docs/reference/*' > changed.txt
           cat changed.txt
           test -s changed.txt || echo "::notice::no golden file changed"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload the golden files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: env.TASK == 'golden'
         with:
           name: golden
@@ -182,7 +185,8 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             fi
           done
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.TASK == 'bench' && env.BASE != ''
         with:
           ref: ${{ env.BASE }}
@@ -205,7 +209,8 @@ jobs:
             cat bench/benchstat.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload the benchmarks
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: env.TASK == 'bench'
         with:
           name: bench
@@ -215,7 +220,8 @@ jobs:
       - name: go mod tidy
         if: env.TASK == 'tidy'
         run: go mod tidy
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload go.mod and go.sum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: env.TASK == 'tidy'
         with:
           name: go-mod

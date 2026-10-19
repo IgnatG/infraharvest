@@ -149,7 +149,8 @@ runs:
         if [[ -n "$DRIFT_DECISIONS" && ! -f "$DRIFT_DECISIONS" ]]; then
           fail "drift-decisions: no file $DRIFT_DECISIONS (drift report writes one, drift.yaml in the out directory)"
         fi
-    - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       if: inputs.binary == ''
     - name: Install infraharvest
       if: inputs.binary == ''
@@ -334,7 +335,8 @@ runs:
           if [[ "$DRIFT" != off && -n "$DRIFT_DECISIONS" ]]; then echo "$DRIFT_DECISIONS"; fi
           echo "INFRAHARVEST_PATHS"
         } >> "$GITHUB_OUTPUT"
-    - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+    - name: Open the pull request
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       id: pull-request
       if: inputs.pull-request == 'true'
       with:

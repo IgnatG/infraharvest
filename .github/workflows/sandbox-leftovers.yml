@@ -33,11 +33,13 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     # The fixture role, which can list and delete what the estate holds.
-    - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+    - name: Configure AWS credentials (fixture role)
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
       with:
         role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
         role-session-name: infraharvest-leftovers-${{ github.run_id }}
@@ -183,7 +185,8 @@ jobs:
       SUBSCRIPTION: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
     steps:
-    - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+    - name: Log in to Azure
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
       with:
         client-id: ${{ vars.AZURE_READONLY_CLIENT_ID }}
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -229,7 +232,8 @@ jobs:
     env:
       PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
     steps:
-    - id: readonly
+    - name: Authenticate as the read-only service account
+      id: readonly
       uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
       with:
         workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}

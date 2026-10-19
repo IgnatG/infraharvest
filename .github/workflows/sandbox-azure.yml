@@ -54,7 +54,8 @@ jobs:
           echo "SANDBOX_OUTPUT_DIR=$RUNNER_TEMP/out"
           echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/plugins"
         } >> "$GITHUB_ENV"
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -63,7 +64,8 @@ jobs:
         go-version-file: go.mod
         cache: true
     # The gate runs the scanners it finds (G5), as in the e2e jobs.
-    - uses: ./.github/actions/setup-engines
+    - name: Install the engine and scanners
+      uses: ./.github/actions/setup-engines
       with:
         engine: ${{ inputs.engine }}
         scanners: "true"
