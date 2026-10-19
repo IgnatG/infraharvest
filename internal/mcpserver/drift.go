@@ -148,8 +148,8 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	if len(rules) == 0 && in.Decisions == "" && !in.WriteDecisions {
 		return nil, nil, errors.New("set accept, keep, decisions or write_decisions; to only check, call drift")
 	}
-	// The flags of the run without the decisions file, which the run the
-	// user confirms reads from a private copy.
+	// The flags of the check without the rules and the decisions file,
+	// whose changes the confirmation counts.
 	detect := slices.Clone(args)
 	for _, r := range rules {
 		flag := "--keep="
