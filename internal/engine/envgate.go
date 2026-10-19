@@ -142,6 +142,8 @@ type mergeGate struct {
 	// written are the files it wrote in dir, by path in it with forward
 	// slashes.
 	written []string
+	// newest is the root whose provider the merged root pins.
+	newest int
 }
 
 // merge merges envRoots, read from g.roots, in rounds (see MergeRoots).
@@ -149,6 +151,12 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 	if err := os.MkdirAll(g.dir, 0o755); err != nil {
 		return nil, err
 	}
+	// The provider release the merged root pins (see newestProvider).
+	newest, err := newestProvider(envRoots)
+	if err != nil {
+		return &MergeResult{Reason: err.Error()}, nil
+	}
+	g.newest = newest
 	schemas, err := g.schemas(ctx, envRoots)
 	if err != nil {
 		return nil, err
@@ -207,10 +215,10 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 		return nil, err
 	}
 	required := RequiredVersion(MinimumVersion)
-	if envRoots[0].requiredVersion != "" {
-		required = envRoots[0].requiredVersion
+	if envRoots[g.newest].requiredVersion != "" {
+		required = envRoots[g.newest].requiredVersion
 	}
-	if err := g.write(map[string][]byte{VersionsFileName: VersionsFile(required, g.roots[0].Provider)}); err != nil {
+	if err := g.write(map[string][]byte{VersionsFileName: VersionsFile(required, envRoots[g.newest].provider)}); err != nil {
 		return nil, err
 	}
 	tf, err := g.terraform(0)
@@ -227,10 +235,11 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 	return schemas, nil
 }
 
-// copyLock copies the first root's dependency lock file into dir, so
-// that the merged root plans with the provider release its roots did.
+// copyLock copies the dependency lock file of the root whose provider
+// the merged root pins into dir, so that the merged root plans with the
+// provider release that root did.
 func (g *mergeGate) copyLock() error {
-	lock, err := os.ReadFile(filepath.Join(g.roots[0].Dir, LockFileName))
+	lock, err := os.ReadFile(filepath.Join(g.roots[g.newest].Dir, LockFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

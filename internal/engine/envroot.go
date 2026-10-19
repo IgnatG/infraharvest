@@ -118,12 +118,11 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if m.reason != "" {
 		return nil, nil, errors.New(m.reason)
 	}
-	w := &rootWriter{m: m, p: m.roots[0].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true}}
-	for _, root := range m.roots[1:] {
-		if p := root.provider; p.Name != w.p.Name || p.Source != w.p.Source || p.Version != w.p.Version {
-			return nil, nil, fmt.Errorf("the environments use different providers: %s %s and %s %s", w.p.Source, w.p.Version, p.Source, p.Version)
-		}
+	newest, err := newestProvider(m.roots)
+	if err != nil {
+		return nil, nil, err
 	}
+	w := &rootWriter{m: m, p: m.roots[newest].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true}}
 	if w.p.Name == "" {
 		return nil, nil, errors.New("the roots name no provider")
 	}

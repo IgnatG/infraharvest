@@ -526,8 +526,21 @@ func TestMergedRootFiles(t *testing.T) {
 	})
 
 	t.Run("different provider versions", func(t *testing.T) {
+		// The newest release line any root pins.
 		roots := devProdRoots(t)
 		roots[1].provider.Version = "~> 6.20"
+		files, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(files[ProvidersFileName]); !strings.Contains(got, `version = "~> 6.20"`) {
+			t.Errorf("want the newest release line pinned:\n%s", got)
+		}
+		roots[0].provider.Version = "~> 7.0"
+		if _, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "different major releases") {
+			t.Errorf("want an error naming the major releases, got %v", err)
+		}
+		roots[0].provider.Source = "example.com/acme/aws"
 		if _, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "different providers") {
 			t.Errorf("want an error naming the providers, got %v", err)
 		}
