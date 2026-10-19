@@ -35,7 +35,7 @@ Each attribute that changed in the cloud gets an outcome:
 | `rejected_by_plan` | You accepted it, but the plan of the edited code didn't take the edit, so nothing was written for it; `reason` says what the plan did |
 | `secret` | You accepted it, but it is a secret, which is never written into the code |
 | `not_assessable` | It can't be told here, such as a secret whose variable has no value |
-| `absorbed` | The code doesn't set it, such as an attribute the provider computes, or one `ignore_changes` names: the next apply keeps the cloud's value |
+| `absorbed` | The code doesn't set it, such as an attribute the provider computes, or one `ignore_changes` names, or, with Google, a label added in the cloud that neither the resource nor the provider's `default_labels` set, as the google provider manages only the labels the code sets: the next apply keeps the cloud's value |
 
 Each change also has a `decision`: `accept` when an `--accept` rule or the [decisions file](#decisions-file) chose it, else `keep`, and a `decision_source` that says what decided it: `default` (nothing did, so it is kept), `decisions_defaults`, `decisions_rule` or `decisions_change` (the decisions file's defaults, one of its rules, or the change's own entry), or `flag` (`--accept` or `--keep`). `decision_stale` marks a change whose entry was decided for other values, which is kept unless `--accept` accepts it (see [When the cloud changes again](#when-the-cloud-changes-again)). A change whose old value the next apply can only put back by replacing the resource has `forces_replacement`, and its reason says so: accepting it is how to keep the resource.
 
