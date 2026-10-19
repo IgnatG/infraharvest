@@ -151,6 +151,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | Choose what becomes a module call | `--modules`: `registry` (the default), `latest-untested`, `local` or `none`; your own modules go in the [configuration file](configuration.md) (see [Modules](modules.md)) |
 | Import less | `--services` and `--skip`, then `--id`, `--tag` and `--where` (see [Filtering](#filtering)) |
 | Run on a schedule | The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md), which can open a pull request with the result |
+| Check drift on a schedule | The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#drift) with `drift: report` or `drift: accept`: it adds `drift.md` to the job summary, sets `drift-found`, and can open a pull request with the accepted edits, alone (`import: "false"`) or with an import |
 | Let an AI agent prepare a selection | `infraharvest mcp` (see [AI agents](mcp.md)) |
 
 ## Options that go together

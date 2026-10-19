@@ -1,8 +1,8 @@
 # infraharvest GitHub Action
 
-Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also open a pull request with the configuration, with the report as its body.
+Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body.
 
-The action installs a release and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud and writes files; it never applies anything.
+The action installs a release and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
 
 ## Example: a scheduled import that opens a pull request
 
@@ -60,6 +60,163 @@ With the default `github.token`, the repository's (or organisation's) setting **
 
 Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go after the blocks of the files of their types, such as `network.tf`, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
 
+## Drift
+
+Once the roots are applied, people still change things in the cloud. With `drift` set, the action runs [`infraharvest drift`](../docs/drift.md) on the roots in `out` before importing: it refreshes each root once, with read access to its state, and reports which changes the next `terraform apply` would revert. The report, `drift.md`, goes into the job summary, and the `drift-found` output says whether drift is left.
+
+| `drift` | What the action does |
+|---|---|
+| `off` (default) | No drift check |
+| `report` | Finds the changes and writes the decisions file, `drift.yaml` in `out`, with an entry per change to accept or keep. The code isn't changed |
+| `accept` | Writes the cloud's values of the changes that `drift-decisions` (a decisions file you reviewed) or `drift-accept` (rules) accept into the code, once a plan of the edited code shows them taken; the others are kept, and the next apply reverts them. The decisions file is written again with this run's changes |
+
+`drift-accept` takes one rule a line, as `--accept` does, such as `attribute=tags.*`, `type=aws_s3_bucket` or `all`; a line `keep <rule>` keeps what it matches, and the last rule that matches a change decides (see [Accepting changes](../docs/drift.md#accepting-changes)). `drift-decisions` decides by the file first, and the rules after it. To review changes one by one, run with `drift: report`, commit the `drift.yaml` it writes, set each entry's `decision`, then run with `drift: accept` and `drift-decisions` naming that file.
+
+The drift check runs first, on the code the repository has, so that what the import adds isn't taken for drift; then the import adds the new resources (`incremental` must be `true`). One pull request carries both. A run with `import: "false"` only checks drift, and needs no `provider` or `services`. On a first run, before `out` exists, there is nothing to check, and the check is skipped.
+
+`infraharvest drift` exits 4 when drift is left: that doesn't fail the step, and `drift-found` is `true`. Exit code 1 (an accepted change failed verification, so it wasn't written) and 2 (a root couldn't be checked, such as one without access to its state) fail the step, after adding the report to the job summary, and the import doesn't run. To fail the job on drift, as a check would, add a step after the action:
+
+```yaml
+      - name: Fail on drift
+        if: steps.infraharvest.outputs.drift-found == 'true'
+        run: |
+          echo "::error::the cloud has changed since the roots were applied; see the job summary"
+          exit 1
+```
+
+### The pull request with drift
+
+With `drift` set, the pull request also covers the decisions file, wherever `drift-decisions` keeps it, and its body is the import report followed by `drift.md`:
+
+| Run | Title | Commit | Default branch |
+|---|---|---|---|
+| Import only | Import existing resources with infraharvest | `feat: import existing resources with infraharvest` | `infraharvest/import` |
+| Drift and import | Accept cloud changes (drift) and import new resources | `fix: accept drift found by infraharvest` | `infraharvest/import` |
+| Drift only (`import: "false"`) | Accept cloud changes (drift) | `fix: accept drift found by infraharvest` | `infraharvest/drift` |
+
+`drift.md` and `drift.json` redact secrets: values the provider marks sensitive, and values that look like credentials, are `(sensitive value)`. The action writes `drift.json` to a file in `RUNNER_TEMP` and to `out/report`, never to the log.
+
+### Example: a daily drift check
+
+```yaml
+name: drift
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write       # push the pull request branch
+  pull-requests: write  # open the pull request
+  id-token: write       # OIDC to AWS
+
+# The same group as the workflow that applies the roots: drift doesn't lock
+# the state, so it shouldn't read it while an apply writes it.
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-drift
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        id: infraharvest
+        with:
+          version: v0.1.0
+          import: "false"
+          drift: accept
+          drift-decisions: infraharvest-out/drift.yaml
+          drift-accept: |
+            attribute=tags.*
+          pull-request: "true"
+```
+
+Set the roots' secret variables as `TF_VAR_<name>` in the job's `env`, from your secret store: a variable without a value gets a placeholder, and what it sets is reported as not assessable.
+
+## Permissions for drift
+
+Drift needs what your own `terraform plan` of the roots needs: the read-only access the import uses ([permissions/](../permissions)), to refresh the resources, and read access to each root's state, from the backend in its `backend.tf`.
+
+Every plan runs with `-lock=false`. Taking the state's lock writes to the backend (a `.tflock` object in S3 or GCS, a lease on the azurerm blob), and drift never writes the state, so read access is enough. The catch: a plan that doesn't lock can read the state while an apply is writing it, and report as drift what that apply is changing. Keep drift and your applies apart, such as with the same `concurrency` group as above, and if a report taken during an apply looks wrong, run it again once the apply has finished.
+
+Drift also applies its refresh, in a private copy with local state only: that writes nothing to the backend or the cloud, but Terraform configures the provider again for it. With AWS, that calls `sts:GetCallerIdentity`, which every principal may call and no policy can deny; with Azure and Google Cloud, it signs in again. So the credentials must still be valid after the refresh, and the cloud's sign-in endpoints reachable from the runner, such as through an STS VPC endpoint whose policy allows the call: make the role's session last the whole job (`role-duration-seconds`, up to the role's `max_session_duration`).
+
+### AWS: S3 backend
+
+The role needs `s3:ListBucket` on the state bucket and `s3:GetObject` on the roots' state keys, `<key_prefix>/<root path>/terraform.tfstate` (see [Configuration](../docs/configuration.md)). Locking with `use_lockfile` needs nothing more, since drift doesn't lock; neither does a DynamoDB table, which the generated roots don't use. With the bucket `acme-terraform-state` and the key prefix `imported`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListTheStateBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::acme-terraform-state"
+    },
+    {
+      "Sid": "ReadTheRootsState",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::acme-terraform-state/imported/*"
+    }
+  ]
+}
+```
+
+If the backend sets `kms_key_id`, the role needs `kms:Decrypt` on that key too, to read the encrypted state.
+
+The `infraharvest-readonly` role from [permissions/aws](../permissions/aws) explicitly denies `s3:GetObject` and `kms:Decrypt` everywhere ([`deny-data-reads.json`](../permissions/aws/deny-data-reads.json)), and an explicit deny wins over any allow. The state holds secrets, so give drift a role of its own, `infraharvest-drift` above: `ReadOnlyAccess`, the policy above, and a copy of `deny-data-reads.json` that leaves the three `s3:GetObject` actions and `kms:Decrypt` out of its first statement and denies them everywhere but the state instead:
+
+```json
+    {
+      "Sid": "DenyObjectReadsButTheState",
+      "Effect": "Deny",
+      "Action": ["s3:GetObject", "s3:GetObjectTorrent", "s3:GetObjectVersion"],
+      "NotResource": "arn:aws:s3:::acme-terraform-state/imported/*"
+    },
+    {
+      "Sid": "DenyDecryptButTheStateKey",
+      "Effect": "Deny",
+      "Action": "kms:Decrypt",
+      "NotResource": "arn:aws:kms:eu-west-2:123456789012:key/<the state key's ID>"
+    }
+```
+
+Without `kms_key_id`, leave `kms:Decrypt` in the first statement and drop the second one here.
+
+### Azure: azurerm backend
+
+The `Reader` role from [permissions/azure](../permissions/azure) has no data actions, so it can't read the state's blob. Without other settings, the azurerm backend reads it with the storage account's access key, which needs `Microsoft.Storage/storageAccounts/listKeys/action` and gives full access to everything in the account. Read it with the identity's own token instead: set `ARM_USE_AZUREAD: "true"` in the job's `env`, and assign **Storage Blob Data Reader** on the state's container only:
+
+```sh
+az role assignment create \
+  --assignee <object-id> \
+  --role "Storage Blob Data Reader" \
+  --scope "/subscriptions/<subscription>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/<account>/blobServices/default/containers/<container>"
+```
+
+or in Terraform, an `azurerm_role_assignment` with `role_definition_name = "Storage Blob Data Reader"` and that `scope`. The backend's lock, a lease on the blob, needs write access, which drift doesn't take.
+
+### Google Cloud: GCS backend
+
+`roles/viewer` from [permissions/google](../permissions/google) can list a bucket's objects but not read them (`storage.objects.get`). Grant **Storage Object Viewer** on the state bucket only:
+
+```sh
+gcloud storage buckets add-iam-policy-binding gs://acme-terraform-state \
+  --member=serviceAccount:<email> \
+  --role=roles/storage.objectViewer
+```
+
+It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. The backend's lock, a `default.tflock` object, needs `storage.objects.create`, which drift doesn't take.
+
 ## Inputs
 
 | Input | Default | Description |
@@ -67,24 +224,31 @@ Run again on a schedule, the action adds what is new to the roots the repository
 | `version` | | The release to install, such as `v0.1.0`. Either `version` or `binary` is required |
 | `binary` | | An infraharvest binary to run instead of installing a release |
 | `token` | `github.token` | Token to download the release with |
-| `provider` | | The provider command, such as `aws` (required) |
-| `services` | | Services to import, comma-separated (required) |
+| `import` | `true` | Import resources; `false` only checks [drift](#drift) |
+| `provider` | | The provider command, such as `aws` (required when importing) |
+| `services` | | Services to import, comma-separated (required when importing) |
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
 | `engine` | `terraform` | `terraform` or `tofu` |
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
-| `incremental` | `true` | Add what is new to the roots `out` already has, in files of their own (`--incremental`), instead of failing on them |
+| `incremental` | `true` | Add what is new to the roots `out` already has, in files of their own (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
+| `drift` | `off` | `off`, `report` or `accept`: check the roots in `out` for changes in the cloud before importing (see [Drift](#drift)) |
+| `drift-decisions` | | With `drift: accept`, a decisions file to decide the changes by (`--decisions`), written again with this run's changes. Without one, the decisions file is `drift.yaml` in `out` |
+| `drift-accept` | | With `drift: accept`, rules for the changes to accept, one a line, such as `attribute=tags.*`; `keep <rule>` keeps what it matches |
 | `pull-request` | `false` | Open or update a pull request with the output |
-| `pull-request-branch` | `infraharvest/import` | The pull request's branch |
+| `pull-request-branch` | `infraharvest/import`, or `infraharvest/drift` with `import: "false"` | The pull request's branch |
 | `pull-request-token` | `github.token` | Token to push the branch and open the pull request with: see [Checks on the pull request](#checks-on-the-pull-request) |
 
 ## Outputs
 
 | Output | Description |
 |---|---|
-| `exit-code` | infraharvest's exit code: 0 complete, 1 incomplete, 2 couldn't run, 3 partial |
+| `exit-code` | infraharvest import's exit code: 0 complete, 1 incomplete, 2 couldn't run, 3 partial; empty with `import: "false"` |
 | `report` | Path of the import report |
+| `drift-found` | `true` when drift is left: a change the next apply would revert, or that can't be assessed. `false` when none is, or without `drift` |
+| `drift-report` | Path of the drift report, `drift.md`, if drift ran |
+| `drift-exit-code` | infraharvest drift's exit code: 0 no drift left, 4 drift left, 1 an accepted change failed verification, 2 a root couldn't be checked; empty if drift didn't run |
 | `pull-request-url` | URL of the pull request, if one was opened |

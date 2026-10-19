@@ -1,15 +1,16 @@
 name: infraharvest
-description: Generate Terraform configuration that plans with no changes for existing cloud resources, and summarise the import.
+description: Generate Terraform configuration that plans with no changes for existing cloud resources, find what changed in the cloud since it was applied, and summarise both.
 author: Gabriel Ignat
 branding:
   icon: download-cloud
   color: green
 
 # The action installs a release of infraharvest, verifies its signature and
-# checksum, and runs one import. Credentials come from the environment, for
-# example from aws-actions/configure-aws-credentials with OIDC: the action
-# never needs cloud secrets. It reads the cloud and writes files; it never
-# applies anything.
+# checksum, and runs a drift check, an import, or both: drift first, on the
+# code the repository has, then the import. Credentials come from the
+# environment, for example from aws-actions/configure-aws-credentials with
+# OIDC: the action never needs cloud secrets. It reads the cloud (and, for
+# drift, the state) and writes files; it never applies anything.
 inputs:
   version:
     description: The infraharvest release to install, such as v0.1.0.
@@ -20,12 +21,15 @@ inputs:
   token:
     description: Token to download the release with.
     default: ${{ github.token }}
+  import:
+    description: Import resources (true), or only check drift (false, with drift set).
+    default: "true"
   provider:
-    description: The provider command, such as aws.
-    required: true
+    description: The provider command, such as aws. Required when importing.
+    required: false
   services:
-    description: Services to import, comma-separated, such as vpc,s3,iam.
-    required: true
+    description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing.
+    required: false
   regions:
     description: Regions to import, comma-separated.
     required: false
@@ -50,23 +54,41 @@ inputs:
   allow-partial:
     description: Succeed when some resources couldn't be imported (exit code 3), keeping the rest.
     default: "false"
+  drift:
+    description: Before importing, check the roots in the out directory for what changed in the cloud since they were applied (infraharvest drift). off, report (find the changes and write the decisions file, without changing the code) or accept (write the changes drift-decisions or drift-accept accept into the code).
+    default: "off"
+  drift-decisions:
+    description: With drift accept, a decisions file (drift.yaml) to decide the changes by (--decisions). It is written again with this run's changes (--write-decisions). Without one, the decisions file is drift.yaml in the out directory.
+    required: false
+  drift-accept:
+    description: With drift accept, rules for the changes to accept, one a line, as --accept takes them, such as attribute=tags.* or all. A line starting with keep, such as keep type=aws_security_group, is a --keep rule. The last rule that matches a change decides.
+    required: false
   pull-request:
     description: Open or update a pull request with the generated configuration, with the report as its body.
     default: "false"
   pull-request-branch:
-    description: Branch for the pull request.
-    default: infraharvest/import
+    description: Branch for the pull request. Default infraharvest/import, or infraharvest/drift when only checking drift.
+    required: false
   pull-request-token:
     description: Token to push the branch and open the pull request with. GitHub starts no workflows for a pull request the default github.token opens, so checks never run on it; pass a GitHub App token (actions/create-github-app-token) or a fine-grained personal access token for them to run.
     default: ${{ github.token }}
 
 outputs:
   exit-code:
-    description: infraharvest's exit code (0 complete, 1 incomplete, 2 couldn't run, 3 partial with allow-partial).
+    description: infraharvest import's exit code (0 complete, 1 incomplete, 2 couldn't run, 3 partial with allow-partial); empty when not importing.
     value: ${{ steps.import.outputs.exit-code }}
   report:
     description: Path of the import report (report.md).
     value: ${{ steps.import.outputs.report }}
+  drift-found:
+    description: true when drift is left, a change in the cloud that the next apply would revert or that can't be assessed; false when none is, or drift is off.
+    value: ${{ steps.drift.outputs.drift-found || 'false' }}
+  drift-report:
+    description: Path of the drift report (drift.md), if drift ran.
+    value: ${{ steps.drift.outputs.drift-report }}
+  drift-exit-code:
+    description: infraharvest drift's exit code (0 no drift left, 4 drift left, 1 an accepted change failed verification, 2 a root couldn't be checked); empty when drift didn't run.
+    value: ${{ steps.drift.outputs.exit-code }}
   pull-request-url:
     description: URL of the pull request, if one was opened.
     value: ${{ steps.pull-request.outputs.pull-request-url }}
@@ -79,14 +101,53 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
         BINARY: ${{ inputs.binary }}
+        IMPORT: ${{ inputs.import }}
+        PROVIDER: ${{ inputs.provider }}
+        SERVICES: ${{ inputs.services }}
+        INCREMENTAL: ${{ inputs.incremental }}
+        DRIFT: ${{ inputs.drift }}
+        DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
+        DRIFT_ACCEPT: ${{ inputs.drift-accept }}
       run: |
-        if [[ -z "$VERSION" && -z "$BINARY" ]]; then
-          echo "::error::set version (a release such as v0.1.0) or binary"
+        fail() {
+          echo "::error::$1"
           exit 1
+        }
+        if [[ -z "$VERSION" && -z "$BINARY" ]]; then
+          fail "set version (a release such as v0.1.0) or binary"
         fi
         if [[ -n "$VERSION" && ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-          echo "::error::version must look like v1.2.3, got '$VERSION'"
-          exit 1
+          fail "version must look like v1.2.3, got '$VERSION'"
+        fi
+        case "$IMPORT" in
+          true | false) ;;
+          *) fail "import must be true or false, got '$IMPORT'" ;;
+        esac
+        case "$DRIFT" in
+          off | report | accept) ;;
+          *) fail "drift must be off, report or accept, got '$DRIFT'" ;;
+        esac
+        if [[ "$IMPORT" == false && "$DRIFT" == off ]]; then
+          fail "nothing to do: set import to true, or drift to report or accept"
+        fi
+        if [[ "$IMPORT" == true ]]; then
+          if [[ -z "$PROVIDER" || -z "$SERVICES" ]]; then
+            fail "importing needs provider and services (set import to false to only check drift)"
+          fi
+          # Drift runs on the roots the repository has; the import then has
+          # to add to them rather than fail on them.
+          if [[ "$DRIFT" != off && "$INCREMENTAL" != true ]]; then
+            fail "drift with an import needs incremental to be true"
+          fi
+        fi
+        if [[ "$DRIFT" != accept && ( -n "$DRIFT_DECISIONS" || -n "$DRIFT_ACCEPT" ) ]]; then
+          fail "drift-decisions and drift-accept take effect with drift set to accept"
+        fi
+        if [[ "$DRIFT" == accept && -z "$DRIFT_DECISIONS" && -z "$DRIFT_ACCEPT" ]]; then
+          fail "drift accept needs drift-decisions or drift-accept to say which changes to accept"
+        fi
+        if [[ -n "$DRIFT_DECISIONS" && ! -f "$DRIFT_DECISIONS" ]]; then
+          fail "drift-decisions: no file $DRIFT_DECISIONS (drift report writes one, drift.yaml in the out directory)"
         fi
     - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       if: inputs.binary == ''
@@ -122,8 +183,74 @@ runs:
         if command -v sha256sum > /dev/null; then sha256sum --check --ignore-missing "$sums"; else shasum -a 256 --check --ignore-missing "$sums"; fi
         if [[ "$ext" == zip ]]; then unzip -q -o "$archive"; else tar -xzf "$archive"; fi
         echo "$dir" >> "$GITHUB_PATH"
+    # Drift first, on the code the repository has, so that what the import
+    # adds next isn't taken for drift: one pull request then carries both.
+    - name: Drift
+      id: drift
+      if: inputs.drift != 'off'
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        ENGINE: ${{ inputs.engine }}
+        OUT: ${{ inputs.out }}
+        DRIFT: ${{ inputs.drift }}
+        DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
+        DRIFT_ACCEPT: ${{ inputs.drift-accept }}
+      run: |
+        trim() {
+          local s="$1"
+          s="${s#"${s%%[![:space:]]*}"}"
+          printf '%s' "${s%"${s##*[![:space:]]}"}"
+        }
+        if [[ ! -d "$OUT" ]]; then
+          echo "::notice::$OUT doesn't exist yet: there are no roots to check for drift"
+          echo "drift-found=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        bin="${BINARY:-infraharvest}"
+        # Without --decisions, --write-decisions writes drift.yaml in the out
+        # directory without applying it, so drift report never edits the code.
+        args=(drift "$OUT" "--engine=$ENGINE" --format=json --detailed-exitcode --write-decisions)
+        if [[ "$DRIFT" == accept ]]; then
+          if [[ -n "$DRIFT_DECISIONS" ]]; then args+=("--decisions=$DRIFT_DECISIONS"); fi
+          while IFS= read -r line; do
+            line="$(trim "$line")"
+            case "$line" in
+              "" | "#"*) ;;
+              keep[[:space:]]*) args+=("--keep=$(trim "${line#keep}")") ;;
+              accept[[:space:]]*) args+=("--accept=$(trim "${line#accept}")") ;;
+              *) args+=("--accept=$line") ;;
+            esac
+          done <<< "$DRIFT_ACCEPT"
+        fi
+        code=0
+        # drift.json goes to a file, not the log: its values are redacted,
+        # but the job summary gets drift.md, which is written for people.
+        json="$RUNNER_TEMP/infraharvest-drift.json"
+        "$bin" "${args[@]}" > "$json" || code=$?
+        report="$OUT/report/drift.md"
+        found=false
+        if [[ "$code" == 4 ]]; then found=true; fi
+        # An accepted change that failed verification (1) is drift left too.
+        if command -v jq > /dev/null && [[ -s "$json" ]] && [[ "$(jq -r '.drift_found' "$json" 2> /dev/null)" == true ]]; then
+          found=true
+        fi
+        {
+          echo "exit-code=$code"
+          echo "drift-found=$found"
+          if [[ -f "$report" ]]; then echo "drift-report=$report"; fi
+        } >> "$GITHUB_OUTPUT"
+        if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+        # 4 says drift is left, which the report and drift-found tell; it
+        # doesn't fail the step. 1 (an accepted change failed verification),
+        # 2 (a root couldn't be checked) and any other code do.
+        if [[ "$code" != 0 && "$code" != 4 ]]; then
+          echo "::error::infraharvest drift exited with $code; see the job summary"
+          exit "$code"
+        fi
     - name: Import
       id: import
+      if: inputs.import == 'true'
       shell: bash
       env:
         BINARY: ${{ inputs.binary }}
@@ -160,13 +287,60 @@ runs:
           echo "::error::infraharvest exited with $code; see the job summary"
           exit "$code"
         fi
+    - name: Pull request details
+      id: pull-request-details
+      if: inputs.pull-request == 'true'
+      shell: bash
+      env:
+        IMPORT: ${{ inputs.import }}
+        DRIFT: ${{ inputs.drift }}
+        OUT: ${{ inputs.out }}
+        DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
+        BRANCH: ${{ inputs.pull-request-branch }}
+        IMPORT_REPORT: ${{ steps.import.outputs.report }}
+        DRIFT_REPORT: ${{ steps.drift.outputs.drift-report }}
+      run: |
+        if [[ "$DRIFT" == off ]]; then
+          title="Import existing resources with infraharvest"
+          commit="feat: import existing resources with infraharvest"
+          branch=infraharvest/import
+        elif [[ "$IMPORT" == true ]]; then
+          title="Accept cloud changes (drift) and import new resources"
+          commit="fix: accept drift found by infraharvest"
+          branch=infraharvest/import
+        else
+          title="Accept cloud changes (drift)"
+          commit="fix: accept drift found by infraharvest"
+          branch=infraharvest/drift
+        fi
+        if [[ -n "$BRANCH" ]]; then branch="$BRANCH"; fi
+        # The body is the import's report, then the drift report.
+        body="$RUNNER_TEMP/infraharvest-pull-request.md"
+        : > "$body"
+        for file in "$IMPORT_REPORT" "$DRIFT_REPORT"; do
+          if [[ -n "$file" && -f "$file" ]]; then
+            if [[ -s "$body" ]]; then printf '\n' >> "$body"; fi
+            cat "$file" >> "$body"
+          fi
+        done
+        {
+          echo "title=$title"
+          echo "commit-message=$commit"
+          echo "branch=$branch"
+          echo "body-path=$body"
+          # The decisions file, wherever it is, is part of the change.
+          echo "add-paths<<INFRAHARVEST_PATHS"
+          echo "$OUT"
+          if [[ "$DRIFT" != off && -n "$DRIFT_DECISIONS" ]]; then echo "$DRIFT_DECISIONS"; fi
+          echo "INFRAHARVEST_PATHS"
+        } >> "$GITHUB_OUTPUT"
     - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       id: pull-request
       if: inputs.pull-request == 'true'
       with:
         token: ${{ inputs.pull-request-token }}
-        add-paths: ${{ inputs.out }}
-        branch: ${{ inputs.pull-request-branch }}
-        commit-message: "feat: import existing resources with infraharvest"
-        title: Import existing resources with infraharvest
-        body-path: ${{ steps.import.outputs.report }}
+        add-paths: ${{ steps.pull-request-details.outputs.add-paths }}
+        branch: ${{ steps.pull-request-details.outputs.branch }}
+        commit-message: ${{ steps.pull-request-details.outputs.commit-message }}
+        title: ${{ steps.pull-request-details.outputs.title }}
+        body-path: ${{ steps.pull-request-details.outputs.body-path }}

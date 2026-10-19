@@ -53,3 +53,7 @@ terraform apply -var project_id=<project> -var member=serviceAccount:<email>
 For a folder or organisation, grant the same three roles there with `google_folder_iam_member` or `google_organization_iam_member`.
 
 Known gap: `roles/viewer` can also read some data, for example object listings. A custom role limited to metadata will replace it once the exact permissions are confirmed.
+
+## Drift: reading the state
+
+`infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and `roles/viewer` doesn't read objects. Grant it on the state alone: `s3:ListBucket` and `s3:GetObject` on the state's bucket and keys, in a role of its own whose deny leaves the state out; **Storage Blob Data Reader** on the state's container, with `ARM_USE_AZUREAD=true`; or **Storage Object Viewer** on the state's bucket. The policies, and why drift never needs write access to take the state's lock, are in the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift).

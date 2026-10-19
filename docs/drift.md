@@ -205,7 +205,11 @@ Drift needs what your own `terraform plan` needs:
 - The read-only role the import uses, to refresh the resources.
 - Read access to the state: for S3, `s3:GetObject` on the state's key and `s3:ListBucket` on the bucket; for GCS, `storage.objects.get`; for azurerm, read access to the state's blob.
 
-Every plan runs with `-lock=false`. Taking the state's lock needs write access, and drift never writes the state. The catch: a plan without the lock can read the state while someone else is applying. Run drift again after that apply finishes.
+Every plan runs with `-lock=false`. Taking the state's lock needs write access, and drift never writes the state. The catch: a plan without the lock can read the state while someone else is applying, and report as drift what that apply is changing. Keep drift and your applies apart, such as by running them in one CI concurrency group, and run drift again after an apply that overlapped it.
+
+Applying the refresh to the private copy writes only its local state, but Terraform configures the provider again for it: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission; with Azure and Google Cloud, it signs in again. The credentials must still be valid then, after the refresh, and the cloud's sign-in endpoint reachable.
+
+The roles in [`permissions/`](https://github.com/IgnatG/infraharvest/tree/main/permissions) don't read the state: the AWS role denies `s3:GetObject` and `kms:Decrypt` everywhere, Azure's `Reader` has no data actions, and Google Cloud's `roles/viewer` doesn't read objects. What to grant for each backend, with policy snippets, is in the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift). For an azurerm backend, set `ARM_USE_AZUREAD=true`, so that the backend reads the state with your identity's token, with the **Storage Blob Data Reader** role, rather than with the storage account's access key.
 
 Set the root's secret variables with `TF_VAR_` environment variables or an `.auto.tfvars` file. A variable without a value gets a placeholder, and the report lists what it sets as `not_assessable`.
 
@@ -223,6 +227,10 @@ S3, GCS and azurerm backends and local state are supported. HCP Terraform (a `cl
 | 4 | With `--detailed-exitcode` only: a change is left that the next apply reverts (kept, a hand edit or a secret), or that is not assessable |
 
 Changes written into the code, and those the code absorbs, exit 0. A root that couldn't be checked comes first (2), then a rejected edit (1), then drift left (4).
+
+## In GitHub Actions
+
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#drift) runs drift on a schedule with `drift: report` or `drift: accept`, before an import or on its own (`import: "false"`). It adds `drift.md` to the job summary, sets the `drift-found` output, and can open a pull request with the accepted edits and the decisions file, whose body is the reports. Exit code 4 (drift left) doesn't fail its step; 1 and 2 do.
 
 ## From an AI agent
 
