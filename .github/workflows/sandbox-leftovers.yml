@@ -2,13 +2,14 @@
 # carrying a sandbox tag or name, and in AWS the kinds that cost the most
 # while they exist (running instances, NAT gateways, Elastic IPs, load
 # balancers, databases, Redshift, ElastiCache and EKS clusters), tagged or
-# not, with the month's cost so far where the identity may read it. With
-# delete set, it then deletes what AWS still holds with a sandbox tag: the
-# sweep's kinds, ECS services, clusters and task definitions, VPC
+# not. With delete set, it then deletes what AWS still holds with a sandbox
+# tag: the sweep's kinds, ECS services, clusters and task definitions, VPC
 # endpoints, and KMS keys, which are scheduled for deletion after the
 # shortest wait, 7 days. Runs only when started by hand, and only after a
 # reviewer of the sandbox environment approves it. It prints names and IDs
-# only, to the run's summary.
+# only, to the run's summary, and no cost figures: the logs and summaries
+# of a public repository's runs are public. The costs are in each
+# cloud's console.
 name: Sandbox leftovers
 
 on:
@@ -81,23 +82,6 @@ jobs:
         if [ "$found" -eq 0 ]; then
           echo "Nothing left." | tee -a "$GITHUB_STEP_SUMMARY"
         fi
-    # One Cost Explorer call, which AWS charges a cent for; skipped with a
-    # note when the role may not read costs.
-    - name: Cost this month
-      if: ${{ !cancelled() }}
-      run: |
-        start=$(date -u +%Y-%m-01)
-        end=$(date -u -d tomorrow +%Y-%m-%d)
-        {
-          echo "### Cost from $start (USD, unblended)"
-          if ! aws ce get-cost-and-usage --region us-east-1 --time-period "Start=$start,End=$end" \
-            --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE --output json |
-            jq -r '[.ResultsByTime[].Groups[] | {s: .Keys[0], c: (.Metrics.UnblendedCost.Amount | tonumber)}]
-              | group_by(.s) | map({s: .[0].s, c: (map(.c) | add)}) | sort_by(-.c)
-              | (map(.c) | add | "- total: \(. * 100 | round / 100)"), (.[] | select(.c >= 0.01) | "- \(.s): \(.c * 100 | round / 100)")'; then
-            echo "The role may not read costs."
-          fi
-        } | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Delete
       if: ${{ inputs.delete }}
       env:
@@ -200,28 +184,6 @@ jobs:
         else
           echo "Nothing left in $GROUP." | tee -a "$GITHUB_STEP_SUMMARY"
         fi
-    # The month's cost so far, by service, from Cost Management: for the
-    # subscription when the identity may read it, else for the group.
-    - name: Cost this month
-      if: ${{ !cancelled() }}
-      run: |
-        body='{"type":"ActualCost","timeframe":"MonthToDate","dataset":{"granularity":"None",
-          "aggregation":{"cost":{"name":"Cost","function":"Sum"}},
-          "grouping":[{"type":"Dimension","name":"ServiceName"}]}}'
-        {
-          for scope in "subscriptions/$SUBSCRIPTION" "subscriptions/$SUBSCRIPTION/resourceGroups/$GROUP"; do
-            if out=$(az rest --method post --body "$body" \
-              --url "https://management.azure.com/$scope/providers/Microsoft.CostManagement/query?api-version=2023-03-01" 2> /dev/null); then
-              echo "### Cost this month, ${scope##*/} (by service)"
-              jq -r '.properties as $p | ($p.columns | map(.name)) as $c
-                | [$p.rows[] | {s: .[($c | index("ServiceName"))], c: .[($c | index("Cost"))], u: .[($c | index("Currency"))]}]
-                | sort_by(-.c) | (map(.c) | add // 0 | "- total: \(. * 100 | round / 100)"),
-                  (.[] | select(.c >= 0.01) | "- \(.s): \(.c * 100 | round / 100) \(.u)")' <<< "$out"
-              exit 0
-            fi
-          done
-          echo "The identity may not read costs."
-        } | tee -a "$GITHUB_STEP_SUMMARY"
 
   google:
     runs-on: ubuntu-latest
@@ -254,9 +216,8 @@ jobs:
         else
           echo "Nothing left in the project." | tee -a "$GITHUB_STEP_SUMMARY"
         fi
-    # Google Cloud has no API for costs (only a billing export to
-    # BigQuery): this says only whether the project is billed; its costs are
-    # in the console's billing report.
+    # Whether the project is billed, and no more: its costs are in the
+    # console's billing report.
     - name: Billing
       if: ${{ !cancelled() }}
       env:
