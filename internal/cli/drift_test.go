@@ -5,8 +5,12 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
 func TestDriftFlags(t *testing.T) {
@@ -21,6 +25,8 @@ func TestDriftFlags(t *testing.T) {
 		"root":              "[]",
 		"detailed-exitcode": "false",
 		"force-unlock":      "false",
+		"accept":            "",
+		"keep":              "",
 	} {
 		f := cmd.Flags().Lookup(name)
 		if f == nil {
@@ -31,8 +37,8 @@ func TestDriftFlags(t *testing.T) {
 			t.Errorf("--%s defaults to %q, want %q", name, f.DefValue, def)
 		}
 	}
-	// Detection only, for now.
-	for _, name := range []string{"accept", "keep", "decisions", "write-decisions"} {
+	// No decisions file yet.
+	for _, name := range []string{"decisions", "write-decisions"} {
 		if cmd.Flags().Lookup(name) != nil {
 			t.Errorf("drift has --%s", name)
 		}
@@ -45,6 +51,8 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 		"--parallel": {"--parallel", "0"},
 		"--engine":   {"--engine", "pulumi"},
 		"--root":     {"--root", "aws/["},
+		"--accept":   {"--accept", "everything"},
+		"--keep":     {"--keep", "name=x"},
 		"arguments":  {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -209,6 +209,12 @@ func (m *Match) matches(resourceType, id, name string, tags map[string]string) b
 	return true
 }
 
+// Matches reports whether value matches a pattern, in which * matches any
+// text; no patterns match all.
+func (p Patterns) Matches(value string) bool {
+	return p.match(value)
+}
+
 // match reports whether value matches a pattern; no patterns match all.
 func (p Patterns) match(value string) bool {
 	if len(p) == 0 {

@@ -4,6 +4,8 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
@@ -19,12 +21,18 @@ func newDriftCmd() *cobra.Command {
 			"for what changed in the cloud since it was applied. Each root is initialised\n" +
 			"with its backend and its state pulled; a private copy is then refreshed once,\n" +
 			"and planned again with the code, to tell the changes the next apply would\n" +
-			"revert from those the code absorbs. Nothing is written to the state or the\n" +
-			"code, and plans don't lock the state, so read access to it is enough. S3, GCS\n" +
-			"and azurerm backends and local state are supported; HCP Terraform and other\n" +
-			"remote backends are refused. The report goes into report/drift.json and\n" +
-			"report/drift.md. Exit code 0 means every root was checked, 2 that one\n" +
-			"couldn't be; with --detailed-exitcode, 4 means drift was found.",
+			"revert from those the code absorbs. Nothing is written to the state, and\n" +
+			"plans don't lock it, so read access to it is enough. S3, GCS and azurerm\n" +
+			"backends and local state are supported; HCP Terraform and other remote\n" +
+			"backends are refused.\n\n" +
+			"Without --accept, the code isn't changed either. With it, the cloud's values\n" +
+			"of the changes the rules accept are written into the code, once the plan of\n" +
+			"the edited copy, without refreshing again, shows each accepted resource\n" +
+			"taking them and nothing else changing; the others are kept, and the next\n" +
+			"apply puts them back. Secrets are never written.\n\n" +
+			"The report goes into report/drift.json and report/drift.md. Exit code 0 means\n" +
+			"every root was checked, 2 that one couldn't be; with --detailed-exitcode, 4\n" +
+			"means drift is left, and 1 that an accepted change failed verification.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,7 +51,40 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a line per root; json prints drift.json")
 	cmd.Flags().IntVar(&options.Parallel, "parallel", 1, "how many roots to check at once; each runs its own Terraform, so memory use grows with it")
 	cmd.Flags().StringArrayVar(&options.Roots, "root", nil, "check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable)")
-	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change would be reverted by the next apply or can't be assessed, 0 when none")
+	cmd.Flags().Var(&driftRules{rules: &options.Rules, accept: true}, "accept", "write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep, the last rule that matches a change decides)")
+	cmd.Flags().Var(&driftRules{rules: &options.Rules}, "keep", "keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable)")
+	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }
+
+// driftRules is the value of --accept or --keep: both add to one list, in
+// the order given, as the last rule that matches a change decides.
+type driftRules struct {
+	rules  *[]importer.DriftRule
+	accept bool
+}
+
+func (r *driftRules) Set(s string) error {
+	rule, err := importer.ParseDriftRule(s, r.accept)
+	if err != nil {
+		return err
+	}
+	*r.rules = append(*r.rules, rule)
+	return nil
+}
+
+func (r *driftRules) String() string {
+	if r.rules == nil {
+		return ""
+	}
+	var mine []string
+	for _, rule := range *r.rules {
+		if rule.Accept == r.accept {
+			mine = append(mine, rule.String())
+		}
+	}
+	return strings.Join(mine, ",")
+}
+
+func (r *driftRules) Type() string { return "rule" }
