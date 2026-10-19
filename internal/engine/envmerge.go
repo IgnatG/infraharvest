@@ -266,7 +266,14 @@ func mergeStackWith(provider string, roots []envRoot, schemas *tfjson.ProviderSc
 		}
 		m.norms = append(m.norms, n)
 	}
-	m.resources = matchResources(roots, m.norms)
+	m.resources = matchResourcesWith(roots, m.norms, controls.isolated)
+	for _, r := range m.resources {
+		for _, member := range r.members {
+			if member != nil && member.isolated {
+				r.residue = "an incremental import added it since the stack was merged, so it stays its environment's"
+			}
+		}
+	}
 	m.index = make([]map[string]*envResource, len(roots))
 	for e := range roots {
 		m.index[e] = map[string]*envResource{}

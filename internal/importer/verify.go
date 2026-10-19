@@ -29,8 +29,11 @@ import (
 
 // verifiedRoot is one root's gate results, as --format json prints them.
 type verifiedRoot struct {
-	Path   string         `json:"path"`
-	Checks []report.Check `json:"checks"`
+	Path string `json:"path"`
+	// Environment is, for a root environments share, the environment it
+	// was planned as.
+	Environment string         `json:"environment,omitempty"`
+	Checks      []report.Check `json:"checks"`
 }
 
 func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
@@ -85,18 +88,43 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		gate, err := engine.Verify(ctx, tf, dir, opts)
-		if err != nil {
-			return fmt.Errorf("%s: %w", dir, err)
-		}
-		root := verifiedRoot{Path: relativePath(out, dir)}
-		for _, c := range gate {
-			root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
-			if !c.Passed {
-				failed = append(failed, fmt.Sprintf("%s: %s failed: %s", root.Path, c.Name, strings.Join(c.Details, "; ")))
+		record := func(root verifiedRoot, gate engine.Gate) {
+			name := root.Path
+			if root.Environment != "" {
+				name += " (" + root.Environment + ")"
 			}
+			for _, c := range gate {
+				root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
+				if !c.Passed {
+					failed = append(failed, fmt.Sprintf("%s: %s failed: %s", name, c.Name, strings.Join(c.Details, "; ")))
+				}
+			}
+			results = append(results, root)
 		}
-		results = append(results, root)
+		// A root environments share plans once per environment, with its
+		// var files.
+		envs, err := engine.MergedEnvironments(dir)
+		if err != nil {
+			return err
+		}
+		if len(envs) == 0 {
+			gate, err := engine.Verify(ctx, tf, dir, opts)
+			if err != nil {
+				return fmt.Errorf("%s: %w", dir, err)
+			}
+			record(verifiedRoot{Path: relativePath(out, dir)}, gate)
+			continue
+		}
+		for _, env := range envs {
+			if len(options.Environments) > 0 && !slices.Contains(options.Environments, env) {
+				continue
+			}
+			gate, err := engine.VerifyMerged(ctx, tf, dir, env, opts)
+			if err != nil {
+				return fmt.Errorf("%s (%s): %w", dir, env, err)
+			}
+			record(verifiedRoot{Path: relativePath(out, dir), Environment: env}, gate)
+		}
 	}
 	if err := writeVerified(w, results, format); err != nil {
 		return err
@@ -133,7 +161,11 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 		if len(skippedNames) > 0 {
 			status += "; skipped " + strings.Join(skippedNames, ", ")
 		}
-		if _, err := fmt.Fprintf(w, "%s: %s\n", r.Path, status); err != nil {
+		name := r.Path
+		if r.Environment != "" {
+			name += " (" + r.Environment + ")"
+		}
+		if _, err := fmt.Fprintf(w, "%s: %s\n", name, status); err != nil {
 			return err
 		}
 	}
@@ -179,6 +211,9 @@ type VerifyOptions struct {
 	// Provider returns a new provider of the given name, or nil when it
 	// isn't compiled in: each root's catalogue comes from its provider.
 	Provider func(name string) harvest.Provider
+	// Environments are, for the roots environments share, the environments
+	// to plan each as; none plans every environment it has.
+	Environments []string
 	// Names are the providers Provider knows, by which a root's provider
 	// blocks find the provider it belongs to (see rootProvider).
 	Names []string

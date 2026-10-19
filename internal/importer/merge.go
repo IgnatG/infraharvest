@@ -102,14 +102,31 @@ type mergeMember struct {
 	// takes what it checks with.
 	opts               engine.Options
 	execPath, cacheDir string
+	// premerged says its files are set aside (see premergeDir), as its
+	// stack merged before, and isolated are the addresses of what an
+	// incremental import added to it since (see engine.MergeRoot.Isolated).
+	premerged bool
+	isolated  []string
 }
 
 // recordMember records that the call generated the root in dir, from
 // fingerprint fp, with result and opts, for the merge phase, where the
 // root is of one of the configuration file's environments.
 func (c *listedCall) recordMember(dir, fp string, result *engine.Result, opts engine.Options) {
+	c.recordMemberWith(dir, fp, result, opts, nil)
+}
+
+// recordMemberWith is recordMember, with isolated the addresses of what
+// an incremental import added to the root, which its stack merged
+// before.
+func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opts engine.Options, isolated []string) {
 	place, ok := c.places[dir]
 	if !ok || result == nil {
+		return
+	}
+	set, err := premerged(c.options.Out, dir)
+	if err != nil {
+		log.Printf("%s: %v; its stack isn't merged", dir, err)
 		return
 	}
 	region := c.region
@@ -132,6 +149,8 @@ func (c *listedCall) recordMember(dir, fp string, result *engine.Result, opts en
 		opts:           opts,
 		execPath:       c.execPath,
 		cacheDir:       c.cacheDir,
+		premerged:      set,
+		isolated:       isolated,
 	})
 }
 
@@ -171,83 +190,6 @@ func MergeEnvironments(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-// mergeStack merges members, the roots of the stack whose merged root is
-// stack, if they are of two environments or more, recording the outcome
-// in the report.
-func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMember) error {
-	out := r.options.Out
-	var envs []string
-	for _, m := range members {
-		if !slices.Contains(envs, m.env) {
-			envs = append(envs, m.env)
-		}
-	}
-	if len(envs) < 2 {
-		return nil
-	}
-	merge := report.Merge{Path: relativePath(out, stack), Environments: envs}
-	for _, m := range members {
-		merge.Roots = append(merge.Roots, report.MergedRoot{Env: m.env, Path: relativePath(out, m.dir)})
-	}
-	if reason := mergeRefusal(out, stack, members); reason != "" {
-		merge.Reason = reason
-		r.recordMerge(merge, members)
-		return nil
-	}
-	fp, err := mergeFingerprint(out, members)
-	if err != nil {
-		return err
-	}
-	log.Printf("merging the roots of %s into %s", strings.Join(envs, ", "), merge.Path)
-	roots := make([]engine.MergeRoot, len(members))
-	for i, m := range members {
-		premerge := premergeDir(out, m.dir)
-		if err := copyRoot(m.dir, premerge); err != nil {
-			return err
-		}
-		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins")}
-		if tr.env, err = terraformEnv(ctx, m.provider); err != nil {
-			return err
-		}
-		tr.freshEnv = freshTerraformEnv(m.provider)
-		roots[i] = engine.MergeRoot{
-			Env:       m.env,
-			Tokens:    m.tokens,
-			Scope:     m.account,
-			Region:    m.region,
-			Group:     m.group,
-			Dir:       premerge,
-			Origin:    m.dir,
-			Provider:  m.engineProvider,
-			Secrets:   m.result.Secrets,
-			Terraform: tr.in,
-		}
-	}
-	opts := members[0].opts
-	result, err := engine.MergeRoots(ctx, stack, roots, engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout})
-	if err != nil {
-		return err
-	}
-	fillMerge(&merge, result)
-	if !merge.Merged {
-		log.Printf("%s: the environments keep their roots: %s", merge.Path, merge.Reason)
-		for _, m := range members {
-			if err := os.RemoveAll(premergeDir(out, m.dir)); err != nil {
-				return err
-			}
-		}
-	} else {
-		log.Printf("%s: %s share one root; their own roots are kept under %s", merge.Path, strings.Join(envs, ", "), filepath.Join(out, CheckpointDir, premergeDirName))
-		for _, m := range members {
-			if err := removeRoot(out, m.dir); err != nil {
-				return err
-			}
-		}
-	}
-	r.recordMerge(merge, members)
-	return writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: fp, Members: checkpointMembers(out, members), Merge: merge, Files: result.Files})
 }
 
 // mergeRefusal returns why members, the roots of the stack whose merged
@@ -396,6 +338,9 @@ type mergeCheckpoint struct {
 	Members     []mergeCheckpointMember `json:"members"`
 	Merge       report.Merge            `json:"merge"`
 	Files       []string                `json:"files,omitempty"`
+	// Imports are, by environment, the import IDs of its resources by
+	// their addresses in the merged root.
+	Imports map[string]map[string]string `json:"imports,omitempty"`
 }
 
 // mergeCheckpointMember is one root a stack's merge took.

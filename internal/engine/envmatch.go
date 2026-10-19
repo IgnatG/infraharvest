@@ -307,6 +307,9 @@ type envResource struct {
 	normalLabel  string
 	refs         []*envResource // the resources of its root it refers to
 	stack        *stackResource // what it is part of, once matched
+	// isolated keeps it apart from the other environments' resources (see
+	// mergeControls.isolated).
+	isolated bool
 }
 
 // stackResource is a resource of a stack's merged root: the resources it
@@ -375,6 +378,13 @@ func (r *stackResource) instance() hcl.Traversal {
 // returns the stack's resources sorted by address, with labels unique per
 // type (see assignLabels).
 func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
+	return matchResourcesWith(roots, norms, nil)
+}
+
+// matchResourcesWith is matchResources, with the resources isolated names,
+// by mergeKey, matched with no other environment's (see
+// mergeControls.isolated).
+func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool) []*stackResource {
 	byEnv := make([][]*envResource, len(roots))
 	labels := make([]map[string]int, len(roots))
 	for e, root := range roots {
@@ -383,10 +393,13 @@ func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
 		for _, b := range root.file.resources() {
 			typ, label, _ := strings.Cut(b.address, ".")
 			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
+			r.isolated = isolated[mergeKey(e, b.address)]
 			if id := root.importIDs[b.address]; id != "" {
 				r.id, r.normalID = id, norms[e].value(id)
 			}
-			labels[e][typ+"."+r.normalLabel]++
+			if !r.isolated {
+				labels[e][typ+"."+r.normalLabel]++
+			}
 			index[b.address] = r
 			byEnv[e] = append(byEnv[e], r)
 		}
@@ -471,7 +484,7 @@ func matchBy(byEnv [][]*envResource, key func(*envResource) string, match func([
 	candidates := map[string][][]*envResource{}
 	for e, rs := range byEnv {
 		for _, r := range rs {
-			if r.stack != nil {
+			if r.stack != nil || r.isolated {
 				continue
 			}
 			k := key(r)
@@ -532,6 +545,10 @@ func assignLabels(resources []*stackResource, envs []string) {
 		}
 		if a.base != b.base {
 			return a.base < b.base
+		}
+		// What is kept apart comes last: what was merged keeps its label.
+		if ai, bi := a.r.members[a.first].isolated, b.r.members[b.first].isolated; ai != bi {
+			return !ai
 		}
 		if a.r.coverage() != b.r.coverage() {
 			return a.r.coverage() > b.r.coverage()

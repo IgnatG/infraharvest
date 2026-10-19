@@ -362,3 +362,110 @@ func TestReplaceLocals(t *testing.T) {
 		t.Errorf("got %s", got)
 	}
 }
+
+// A resource an incremental import added since the stack merged stays
+// its environment's, matched with no other's, and what the merged root
+// had keeps its address.
+func TestMergeStackIsolated(t *testing.T) {
+	t.Parallel()
+	queue := func(env, name string) string {
+		return "resource \"aws_sqs_queue\" \"" + name + "\" {\n  name = \"shop-" + env + "-" + name + "\"\n}\n"
+	}
+	ids := func(env string, names ...string) map[string]string {
+		m := map[string]string{}
+		for _, n := range names {
+			m["aws_sqs_queue."+n] = "https://sqs.eu-west-2.amazonaws.com/1/shop-" + env + "-" + n
+		}
+		return m
+	}
+	dev := testEnvRoot(t, "dev", nil, "111111111111", queue("dev", "orders")+queue("dev", "audit"), ids("dev", "orders", "audit"))
+	prod := testEnvRoot(t, "prod", []string{"prd"}, "222222222222", queue("prd", "orders")+queue("prd", "audit"), ids("prd", "orders", "audit"))
+	// Without isolation, the audit queues match.
+	if m := mergeStack("aws", []envRoot{dev, prod}, envSchemas); len(m.resources) != 2 {
+		t.Fatalf("resources: %d", len(m.resources))
+	}
+	m := mergeStackWith("aws", []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}})
+	addresses := map[string]string{}
+	for _, r := range m.resources {
+		for e, member := range r.members {
+			if member != nil {
+				addresses[m.envs[e]+" "+member.block.address] = r.address() + " " + r.residue
+			}
+		}
+	}
+	if got := addresses["prod aws_sqs_queue.audit"]; !strings.HasPrefix(got, "aws_sqs_queue.audit_prod ") || !strings.Contains(got, "incremental") {
+		t.Errorf("prod's new queue: %q", got)
+	}
+	if got := addresses["dev aws_sqs_queue.audit"]; !strings.HasPrefix(got, "aws_sqs_queue.audit ") {
+		t.Errorf("dev's queue: %q", got)
+	}
+	if got := addresses["prod aws_sqs_queue.orders"]; got != "aws_sqs_queue.orders " {
+		t.Errorf("the shared queue: %q", got)
+	}
+}
+
+func TestMergedImportIDs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if envs, err := MergedEnvironments(dir); err != nil || len(envs) != 0 {
+		t.Errorf("a root of its own: %v %v", envs, err)
+	}
+	for _, env := range []string{"dev", "prod"} {
+		if err := os.MkdirAll(filepath.Join(dir, varsDirName, env), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, varsDirName, env, envVarsFileName), []byte("env = \""+env+"\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, varsDirName, "prod", importVarsFileName), []byte(`import_ids = {
+  "aws_sqs_queue.orders"            = "https://sqs.eu-west-2.amazonaws.com/2/shop-prd-orders"
+  "aws_sqs_queue.this[\"refunds\"]" = "https://sqs.eu-west-2.amazonaws.com/2/shop-prd-refunds"
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envs, err := MergedEnvironments(dir)
+	if err != nil || strings.Join(envs, ",") != "dev,prod" {
+		t.Fatalf("environments: %v %v", envs, err)
+	}
+	ids, err := MergedImportIDs(dir, "prod")
+	if err != nil || len(ids) != 2 || ids[`aws_sqs_queue.this["refunds"]`] != "https://sqs.eu-west-2.amazonaws.com/2/shop-prd-refunds" {
+		t.Errorf("prod's import IDs: %v %v", ids, err)
+	}
+	if ids, err := MergedImportIDs(dir, "dev"); err != nil || ids != nil {
+		t.Errorf("dev, without imports.tfvars: %v %v", ids, err)
+	}
+	if got := AddressType(`module.logs.aws_s3_bucket.this[0]`); got != "aws_s3_bucket" {
+		t.Errorf("AddressType: %q", got)
+	}
+}
+
+// VerifyMerged plans a merged root as one environment, with its var
+// files, and expects its imports.
+func TestVerifyMerged(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	var overrides []string
+	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{}); err != nil || result.Reason != "" {
+		t.Fatalf("merge: %v %+v", err, result)
+	}
+	gate, err := VerifyMerged(context.Background(), &mergeFake{env: "prod", dir: dir, overrides: &overrides}, dir, "prod", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gate.Passed() {
+		t.Errorf("gate: %+v", gate)
+	}
+	// Once applied, imports.tf goes, and nothing is imported.
+	if err := os.Remove(filepath.Join(dir, ImportsFileName)); err != nil {
+		t.Fatal(err)
+	}
+	gate, err = VerifyMerged(context.Background(), &mergeFake{env: "prod", dir: dir, overrides: &overrides}, dir, "prod", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan := gate.check(CheckPlan); plan.Passed {
+		t.Errorf("a plan that imports what imports.tf no longer has passes: %+v", plan)
+	}
+}

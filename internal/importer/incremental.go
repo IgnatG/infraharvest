@@ -219,6 +219,17 @@ func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.Ext
 			}
 		}
 	}
+	// And what the roots environments share have, whose import IDs come
+	// from their var files.
+	merged, err := mergedHolds(out, byDir)
+	if err != nil {
+		return nil, err
+	}
+	for key, root := range merged {
+		if _, ok := held[key]; !ok {
+			held[key] = root
+		}
+	}
 	return held, nil
 }
 
