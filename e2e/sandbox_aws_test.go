@@ -81,7 +81,8 @@ func TestSandboxAWS(t *testing.T) {
 	checkRegions(t, coverage, state, s.region, secondRegion)
 
 	created := checkSandboxIncremental(ctx, t, s, estate, importSandbox, imported)
-	checkRegenerated(ctx, t, s, estate, importSandbox, created)
+	work, rel := checkRegenerated(ctx, t, s, estate, importSandbox, created)
+	checkSandboxDrift(ctx, t, s, estate, work, rel, created)
 }
 
 // TestSandboxAWSClusters creates testdata/sandbox/aws-clusters, a
@@ -623,8 +624,9 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 // to its new address. Over the state the first apply left, the root
 // generated again must plan the log group as moved, creating and
 // destroying nothing, and once applied, plan no change. created is what
-// the estate had before.
-func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, created []*tfjson.StateResource) {
+// the estate had before. It returns the copy of the output and the
+// root's path in it, applied.
+func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, created []*tfjson.StateResource) (work, rel string) {
 	t.Helper()
 	out := s.out
 	logGroup := ""
@@ -639,7 +641,7 @@ func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *san
 	}
 	rel, from := coverage.Directories[0].Path, coverage.Directories[0].Imported[0].Address
 
-	work := t.TempDir()
+	work = t.TempDir()
 	if err := copyOutput(out, work); err != nil {
 		t.Fatalf("copy %s: %v", out, err)
 	}
@@ -710,6 +712,41 @@ func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *san
 	for _, rc := range planned(ctx, t, root, s.execPath, s.plugins, vars).ResourceChanges {
 		if rc.Mode == tfjson.ManagedResourceMode && (!rc.Change.Actions.NoOp() || rc.Change.Importing != nil || rc.PreviousAddress != "") {
 			t.Errorf("%s generated again, after the apply: %s is planned to %v", rel, rc.Address, rc.Change.Actions)
+		}
+	}
+	return work, rel
+}
+
+// checkSandboxDrift does what a team does when someone changes a resource
+// of an applied root outside Terraform: it gives the extra log group
+// another Name tag, as the fixture profile, and runs infraharvest drift,
+// as the read-only profile, on the root of rel that checkRegenerated
+// applied in work. Drift must report the tag as kept, exit with 4 with
+// --detailed-exitcode, and leave the code as it was; accepted, the tag
+// must be written into the code, which then plans no change. Only the log
+// group, a resource of the estate, changes in the cloud; the estate's
+// destroy deletes it as it is.
+func checkSandboxDrift(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, work, rel string, created []*tfjson.StateResource) {
+	t.Helper()
+	const before, after = "infraharvest-sandbox-renamed", "infraharvest-sandbox-drifted"
+	estate.apply(ctx, t, tfexec.Var("extra=true"), tfexec.Var("extra_name="+after), tfexec.Target("aws_cloudwatch_log_group.extra"))
+	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
+
+	code := codeFiles(t, work)
+	d := drift.mustExit(t, report.ExitDrift, "--root", rel, "--detailed-exitcode")
+	checkCodeUnchanged(t, "drift", code, work)
+	checkDriftChange(t, "drift", driftChange(t, "drift", d, "aws_cloudwatch_log_group", "tags.Name"), before, after, report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+
+	d = drift.mustExit(t, report.ExitOK, "--root", rel, "--accept", "type=aws_cloudwatch_log_group")
+	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "aws_cloudwatch_log_group", "tags.Name"), before, after, report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	if !codeMatches(t, work, `"`+after+`"`) || codeMatches(t, work, `"`+before+`"`) {
+		t.Errorf("drift --accept: the code doesn't have the log group's Name tag %q in place of %q", after, before)
+	}
+	root := filepath.Join(work, filepath.FromSlash(rel))
+	vars := secretValues(t, filepath.Join(s.out, filepath.FromSlash(rel)), created)
+	for _, rc := range planned(ctx, t, root, s.execPath, s.plugins, vars).ResourceChanges {
+		if rc.Mode == tfjson.ManagedResourceMode && (!rc.Change.Actions.NoOp() || rc.Change.Importing != nil) {
+			t.Errorf("%s, drift accepted: %s is planned to %v", rel, rc.Address, rc.Change.Actions)
 		}
 	}
 }

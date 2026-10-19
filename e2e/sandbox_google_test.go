@@ -86,9 +86,11 @@ var sandboxGoogleUnlisted = []string{"google_storage_bucket_object"}
 // engine plans every generated resource as an import with no changes, and
 // that the import found what the estate created, by ID, with its labels,
 // the project and the read-only account's grants, and that the default
-// selection leaves out what Google created for the estate's function. It
-// destroys the estate when it is done. The sandbox-google workflow runs
-// it, after approval; see e2e/README.md.
+// selection leaves out what Google created for the estate's function.
+// Applied, the global root must take a label added out of band through
+// infraharvest drift (see checkGoogleDrift). It destroys the estate when
+// it is done. The sandbox-google workflow runs it, after approval; see
+// e2e/README.md.
 func TestSandboxGoogle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
 	defer cancel()
@@ -116,6 +118,7 @@ func TestSandboxGoogle(t *testing.T) {
 	if imported["google_project"] == 0 {
 		t.Errorf("the import doesn't import the project %s", s.project)
 	}
+	s.checkGoogleDrift(ctx, t, estate)
 }
 
 // googleSandbox is what the Google Cloud sandbox test runs with: the
@@ -745,4 +748,41 @@ func checkGoogleDisks(t *testing.T, coverage report.Report, created []*tfjson.St
 	if data == 0 {
 		t.Error("the estate creates no data disk")
 	}
+}
+
+// checkGoogleDrift does what a team does when someone changes a resource
+// of an applied root outside Terraform: it applies the global root, which
+// has the estate's topic, in a copy of the output, as the fixture service
+// account, as checkApplied does; adds a drift label to the topic, as the
+// fixture service account; and runs infraharvest drift on the root, as
+// the read-only one. Drift must report the label as kept, exit with 4
+// with --detailed-exitcode, and leave the code as it was; accepted, the
+// label must be written into the code, which then plans no change but to
+// the labels the provider keeps only in state. Only the topic, a resource
+// of the estate, changes in the cloud; the estate's destroy deletes it as
+// it is.
+func (s *googleSandbox) checkGoogleDrift(ctx context.Context, t *testing.T, estate *sandboxEstate) {
+	t.Helper()
+	rel := filepath.Join("google", s.project, "global")
+	work := t.TempDir()
+	if err := copyOutput(s.out, work); err != nil {
+		t.Fatalf("copy %s: %v", s.out, err)
+	}
+	applied := filepath.Join(work, rel)
+	applyRoot(ctx, t, applied, s.execPath, s.plugins, map[string]string{"GOOGLE_APPLICATION_CREDENTIALS": s.fixtureCredentials})
+	checkPlanClean(t, rel+": after the apply", planRoot(ctx, t, applied, s.execPath, s.plugins))
+
+	estate.apply(ctx, t, tfexec.Var("drift_label=reported"), tfexec.Target("google_pubsub_topic.events"))
+	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
+	code := codeFiles(t, work)
+	d := drift.mustExit(t, report.ExitDrift, "--root", filepath.ToSlash(rel), "--detailed-exitcode")
+	checkCodeUnchanged(t, "drift", code, work)
+	checkDriftChange(t, "drift", driftChange(t, "drift", d, "google_pubsub_topic", "labels.drift"), "<nil>", "reported", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+
+	d = drift.mustExit(t, report.ExitOK, "--root", filepath.ToSlash(rel), "--accept", "type=google_pubsub_topic")
+	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "google_pubsub_topic", "labels.drift"), "<nil>", "reported", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	if !codeMatches(t, work, `drift\s*=\s*"reported"`) {
+		t.Errorf("drift --accept: the code doesn't have the topic's label drift = \"reported\"")
+	}
+	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
 }
