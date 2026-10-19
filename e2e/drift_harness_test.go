@@ -43,6 +43,12 @@ type driftRun struct {
 func (r driftRun) run(t *testing.T, args ...string) (int, report.Drift) {
 	t.Helper()
 	all := append([]string{"drift", r.out, "--engine=" + r.engineName, "--terraform-path=" + r.execPath}, args...)
+	// A run that fails before it writes the report mustn't pass for one
+	// with the report of the run before.
+	path := filepath.Join(r.out, report.Dir, report.DriftJSONFile)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
 	var stdout bytes.Buffer
 	root := cli.NewCmdRoot()
 	root.SetArgs(all)
@@ -50,7 +56,6 @@ func (r driftRun) run(t *testing.T, args ...string) (int, report.Drift) {
 	err := root.ExecuteContext(r.ctx)
 	code := importer.ExitCode(err)
 	t.Logf("infraharvest %s: exit %d, %v\n%s", strings.Join(all[2:], " "), code, err, stdout.String())
-	path := filepath.Join(r.out, report.Dir, report.DriftJSONFile)
 	content, readErr := os.ReadFile(path)
 	if readErr != nil {
 		t.Fatalf("infraharvest drift %v: %v; no %s: %v", args, err, report.DriftJSONFile, readErr)
