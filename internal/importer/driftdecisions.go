@@ -168,6 +168,12 @@ func LoadDriftDecisions(path string) (*DriftDecisions, error) {
 	return parseDriftDecisions(path, content)
 }
 
+// ParseDriftDecisions reads and checks content, a decisions file read
+// from path, which its errors name.
+func ParseDriftDecisions(path string, content []byte) (*DriftDecisions, error) {
+	return parseDriftDecisions(path, content)
+}
+
 func parseDriftDecisions(path string, content []byte) (*DriftDecisions, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	decoder.KnownFields(true)
