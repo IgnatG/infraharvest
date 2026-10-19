@@ -6,7 +6,7 @@
 # happened. The service accounts, the workload identity provider they
 # trust and the project's APIs come from a one-time bootstrap
 # (e2e/testdata/sandbox/google-bootstrap); see e2e/README.md.
-name: sandbox-google
+name: Sandbox (Google Cloud)
 
 on:
   workflow_dispatch:

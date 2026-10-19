@@ -1,4 +1,4 @@
-name: release-check
+name: Release check
 
 # Builds a snapshot release, as the release workflow would but without
 # signing or publishing, and smoke-tests the binary and the image.

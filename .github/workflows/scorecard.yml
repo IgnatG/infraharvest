@@ -5,7 +5,7 @@
 # dependencies, token permissions, branch protection, signed releases and
 # more) on every push to main and weekly, publishes the score for the
 # README's badge, and uploads the findings to code scanning.
-name: scorecard
+name: Scorecard
 
 on:
   push:

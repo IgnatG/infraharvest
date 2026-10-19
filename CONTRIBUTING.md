@@ -86,8 +86,8 @@ make ci-bench BENCH=ScanSecrets BASE=<sha>     # benchmarks with CPU profiles, c
 Without `make`, the same with `gh`:
 
 ```sh
-gh workflow run megalinter --ref <branch>
-gh workflow run remote --ref <branch> -f task=check -f packages="./internal/harvest/... ./internal/providers/aws/..." -f os=ubuntu-latest
+gh workflow run megalinter.yml --ref <branch>
+gh workflow run remote.yml --ref <branch> -f task=check -f packages="./internal/harvest/... ./internal/providers/aws/..." -f os=ubuntu-latest
 gh run watch
 ```
 

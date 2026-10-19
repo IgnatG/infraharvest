@@ -85,7 +85,7 @@ func TestGoldenCLIContract(t *testing.T) {
 		}
 		return
 	}
-	hint := "if the change to the command-line contract is intended, run gh workflow run remote --ref <branch> -f task=golden -f packages=./internal/cli and commit the " + filepath.Base(cliContract) + " it writes (or locally: go test ./internal/cli -run TestGoldenCLIContract -update)"
+	hint := "if the change to the command-line contract is intended, run gh workflow run remote.yml --ref <branch> -f task=golden -f packages=./internal/cli and commit the " + filepath.Base(cliContract) + " it writes (or locally: go test ./internal/cli -run TestGoldenCLIContract -update)"
 	want, err := os.ReadFile(cliContract)
 	if err != nil {
 		t.Fatalf("%v: %s", err, hint)

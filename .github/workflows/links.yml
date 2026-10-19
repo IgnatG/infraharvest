@@ -1,7 +1,7 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: links
+name: Links
 
 # Checks the external links in the Markdown files, with lychee
 # (https://lychee.cli.rs). It is not a required check: a site that is down

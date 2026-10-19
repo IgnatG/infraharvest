@@ -1,4 +1,4 @@
-name: adapters
+name: Adapters
 
 # Checks every night whether the modules the curated adapters pin have a
 # newer release, whether each adapter fits it (its interface and the
@@ -9,7 +9,7 @@ name: adapters
 # provider is a note in the run's summary, not an issue: there is nothing
 # to bump to yet.
 #
-# Run on a branch with write set (gh workflow run adapters --ref <branch>
+# Run on a branch with write set (gh workflow run adapters.yml --ref <branch>
 # -f write=true), it fetches the interface of each version the adapters
 # pin instead, into internal/adapters/testdata/interfaces, and uploads the files as
 # the artifact interfaces: no local toolchain needed.

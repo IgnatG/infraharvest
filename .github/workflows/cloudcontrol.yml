@@ -1,4 +1,4 @@
-name: cloudcontrol
+name: Cloud Control types
 
 # The Cloud Control lister takes each resource's identifier as its Terraform
 # import ID, which holds while the type's CloudFormation primary identifier

@@ -1,4 +1,4 @@
-name: docs
+name: Docs
 
 # Builds the documentation site (mkdocs.yml, docs/) on every change to it,
 # strictly: a broken link or a page missing from the navigation fails the

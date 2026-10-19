@@ -1,7 +1,7 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: govulncheck
+name: Vulnerability check
 
 # Checks the binary for known vulnerabilities after each merge to main and
 # every week, as the tests workflow does on each pull request: a

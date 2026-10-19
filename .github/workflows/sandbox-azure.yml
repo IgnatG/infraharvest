@@ -6,7 +6,7 @@
 # end, whatever happened. The identities and the resource group come from
 # a one-time bootstrap (e2e/testdata/sandbox/azure-bootstrap); see
 # e2e/README.md.
-name: sandbox-azure
+name: Sandbox (Azure)
 
 on:
   workflow_dispatch:

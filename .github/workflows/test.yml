@@ -1,7 +1,7 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: tests
+name: Tests
 
 # Every pull request, whatever its base: a pull request stacked on another
 # one gets the same signal as one against main. After each merge, main runs

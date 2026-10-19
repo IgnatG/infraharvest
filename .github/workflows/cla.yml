@@ -1,7 +1,7 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: cla
+name: CLA
 
 # Enforces the Contributor License Agreement (CLA.md). On every pull request
 # it sets the CLA commit status on the head commit: green when every author

@@ -8,7 +8,7 @@
 # cost more, so it runs only when asked for; so does data
 # (TestSandboxAWSData): an EC2 instance, a Lambda function, an RDS
 # database, a Redshift cluster and an S3 bucket, destroyed straight after.
-name: sandbox-aws
+name: Sandbox (AWS)
 
 on:
   workflow_dispatch:

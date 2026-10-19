@@ -185,7 +185,7 @@ A new page goes into `mkdocs.yml`'s navigation; the `docs` workflow builds stric
 
 The `release` workflow publishes a release from `main`: it runs the tests in a job with a read-only token, then tags the commit and has GoReleaser (`.goreleaser.yaml`) build the archives, the signed checksum file, the SBOMs and the signed container image into a draft release, attests the build provenance, and only then publishes the draft. If a step after the tag fails, it deletes the draft and the tag, so the same version can be released again. One release runs at a time. The release notes are generated: GitHub lists the pull requests merged since the previous release, so their titles (the squashed Conventional Commits) are the changelog, and GoReleaser adds how to install and verify the release below them.
 
-1. Run `gh workflow run release --ref main -f version=v0.2.0`. A version with a suffix, such as `v0.2.0-rc.1`, is published as a prerelease, which GitHub never counts as the latest: the install script and the image's `latest` tag skip it.
+1. Run `gh workflow run release.yml --ref main -f version=v0.2.0`. A version with a suffix, such as `v0.2.0-rc.1`, is published as a prerelease, which GitHub never counts as the latest: the install script and the image's `latest` tag skip it.
 2. After the release, open a pull request that sets `devVersion` in `internal/version/version.go` to the next version with `-dev` (`v0.3.0-dev`), so builds from `main` don't report the version just released or one before it.
 
 ## Checks
