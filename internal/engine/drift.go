@@ -184,7 +184,7 @@ type DriftChange struct {
 	value     any
 	sensitive bool
 	// shared is what a change of shared tags holds (see shareTags).
-	shared *sharedTags
+	shared *tagShare
 }
 
 // DriftSource is where a root's configuration sets an attribute.

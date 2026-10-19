@@ -63,9 +63,9 @@ type tagRef struct {
 	opaque bool
 }
 
-// sharedTags is what a change of shared tags holds: the change of each
+// tagShare is what a change of shared tags holds: the change of each
 // resource it covers, as each would be accepted on its own.
-type sharedTags struct {
+type tagShare struct {
 	source  *sharedSource
 	key     string
 	members []*DriftChange
@@ -396,7 +396,7 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 				Address: s.address, Attribute: attribute, Kind: DriftChanged, Outcome: DriftReverts,
 				Before: redactDriftValue(s.values[k], false, editor.forms), After: first.After,
 				Covers: covered, value: first.value,
-				shared: &sharedTags{source: s, key: k},
+				shared: &tagShare{source: s, key: k},
 			}
 			for _, i := range members {
 				used[i] = true
