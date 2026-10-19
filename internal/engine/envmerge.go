@@ -544,7 +544,7 @@ func (m *stackMerge) nameVariables() {
 	}
 	used := map[string]bool{importIDsVariableName: true, resourceGroupVariableName: true}
 	for _, v := range variables {
-		v.name = uniqueName(used, v.name, v.resourceType)
+		v.name = uniqueEnvName(used, v.name, v.resourceType)
 		if !v.hasDefault {
 			v.setDefault(len(m.envs))
 		}
@@ -552,10 +552,10 @@ func (m *stackMerge) nameVariables() {
 	m.variables = variables
 }
 
-// uniqueName returns name, or where used has it, name after
+// uniqueEnvName returns name, or where used has it, name after
 // resourceType's name without its provider, or with _2, _3, ... after
 // it, whichever first isn't in used; and records it there.
-func uniqueName(used map[string]bool, name, resourceType string) string {
+func uniqueEnvName(used map[string]bool, name, resourceType string) string {
 	if _, rest, ok := strings.Cut(resourceType, "_"); ok && used[name] {
 		name = rest + "_" + name
 	}
@@ -627,7 +627,7 @@ func (m *stackMerge) render() {
 			if a.kind != templateValue || !isNameAttribute(r.resourceType, a.name) || !holds([]hclwrite.Tokens{a.normal}, envPlaceholder) {
 				continue
 			}
-			a.local = uniqueName(used, callName(r.resourceType+"."+r.label)+"_name", r.resourceType)
+			a.local = uniqueEnvName(used, callName(r.resourceType+"."+r.label)+"_name", r.resourceType)
 			m.locals = append(m.locals, namedLocal{a.local, a.value})
 			a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: a.local}})
 			break
