@@ -370,6 +370,10 @@ type ImportResult struct {
 	// IncompleteHandovers are the handovers one of whose roots failed,
 	// with what to do before applying either root.
 	IncompleteHandovers []report.IncompleteHandover `json:"incomplete_handovers,omitempty"`
+	// KeptRoots are the roots earlier imports generated that keep their
+	// directories, though the configuration file's environments would put
+	// their resources under envs/<env>/ now.
+	KeptRoots []report.KeptRoot `json:"kept_roots,omitempty"`
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
@@ -487,6 +491,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		Departed:      r.Departed,
 
 		IncompleteHandovers: r.IncompleteHandovers,
+		KeptRoots:           r.KeptRoots,
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
@@ -498,6 +503,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 	if n := len(r.IncompleteHandovers); n > 0 {
 		text += fmt.Sprintf(" %d handovers between roots aren't finished, as one of their roots failed (see incomplete_handovers and the report): do what each says before applying either root.", n)
+	}
+	if n := len(r.KeptRoots); n > 0 {
+		text += fmt.Sprintf(" %d roots an earlier import generated keep their directories, though the configuration file's environments would put their resources under envs/<env>/ now (see kept_roots and the report): to lay them out by environment, import into a new output directory.", n)
 	}
 	if stopped(code) {
 		text = "The import was stopped before it finished. " + text
