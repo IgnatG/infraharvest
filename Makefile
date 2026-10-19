@@ -26,7 +26,7 @@ GH_REPO ?= IgnatG/infraharvest
 # A workflow run's ID, for ci-watch and ci-download; empty means the latest
 # run of WORKFLOW on REF.
 RUN ?=
-WORKFLOW ?= remote
+WORKFLOW ?= remote.yml
 # The artifact ci-download fetches: golden, go-mod from ci-tidy or bench from
 # ci-bench.
 NAME ?= golden
@@ -126,19 +126,19 @@ define dispatch
 endef
 
 ci-check: ## go vet and go test PKG on GitHub, on RUNNER (remote workflow, task check)
-	$(call dispatch,remote,-f task=check -f packages="$(PKG)" -f os=$(RUNNER))
+	$(call dispatch,remote.yml,-f task=check -f packages="$(PKG)" -f os=$(RUNNER))
 
 ci-golden: ## Rewrite the golden files of PKG on GitHub (remote workflow, task golden); then ci-download
-	$(call dispatch,remote,-f task=golden -f packages="$(GOLDEN_PKG)")
+	$(call dispatch,remote.yml,-f task=golden -f packages="$(GOLDEN_PKG)")
 
 ci-tidy: ## go mod tidy on GitHub (remote workflow, task tidy); then ci-download NAME=go-mod
-	$(call dispatch,remote,-f task=tidy)
+	$(call dispatch,remote.yml,-f task=tidy)
 
 ci-bench: ## Benchmarks BENCH of PKG on GitHub, with CPU profiles, compared with BASE if set (remote workflow, task bench)
-	$(call dispatch,remote,-f task=bench -f bench="$(BENCH)" -f base="$(BASE)" $(if $(filter command line environment,$(origin PKG)),-f packages="$(PKG)"))
+	$(call dispatch,remote.yml,-f task=bench -f bench="$(BENCH)" -f base="$(BASE)" $(if $(filter command line environment,$(origin PKG)),-f packages="$(PKG)"))
 
 ci-lint: ## Every linter, golangci-lint included, on the whole repository on GitHub (megalinter workflow)
-	$(call dispatch,megalinter,)
+	$(call dispatch,megalinter.yml,)
 
 ci-watch: ## Watch run RUN, or the latest run of WORKFLOW on REF, until it ends
 	@run='$(RUN)'; \

@@ -9,7 +9,7 @@
 # shortest wait, 7 days. Runs only when started by hand, and only after a
 # reviewer of the sandbox environment approves it. It prints names and IDs
 # only, to the run's summary.
-name: sandbox-leftovers
+name: Sandbox leftovers
 
 on:
   workflow_dispatch:

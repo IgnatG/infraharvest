@@ -150,7 +150,7 @@ Each entry that changes what an import does (an import ID, a skip rule, children
 go test ./internal/catalogue -run TestGolden -update
 ```
 
-Without a local Go toolchain, push the branch as `golden/<anything>` (or run `gh workflow run remote --ref <branch> -f task=golden`) and download what the run rewrote, from the repository's root, with `gh run download <run-id> -n golden`.
+Without a local Go toolchain, push the branch as `golden/<anything>` (or run `gh workflow run remote.yml --ref <branch> -f task=golden`) and download what the run rewrote, from the repository's root, with `gh run download <run-id> -n golden`.
 
 The golden tests render what the catalogue says, so they can't tell a mistyped or renamed argument from a real one. The tests workflow's `catalogue-schemas` job does: it dumps the schemas of the newest aws, azurerm and google releases with `terraform providers schema -json` and checks that every type, child type and data source the built-in catalogue names exists, that every `omit`, `defaults`, `state_only`, `keep_empty` and placeholder path is an argument or nested block in it (`provider_versions` lists only where their constraint accepts that release), and that each default converts to its attribute's type. To run it locally, put the two files it reads in a directory and name it:
 

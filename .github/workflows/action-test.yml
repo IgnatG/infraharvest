@@ -1,7 +1,7 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: action-test
+name: Action test
 
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against Floci, a local AWS emulator: no AWS account is involved. It also

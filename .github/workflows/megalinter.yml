@@ -1,7 +1,7 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: megalinter
+name: MegaLinter
 
 # Every linter CI runs, in one place: MegaLinter (https://megalinter.io),
 # Go flavour, over the whole repository on every pull request.
@@ -12,7 +12,7 @@ name: megalinter
 #
 # Run it on a branch before opening a pull request, so a laptop never has
 # to compile the module (make ci-lint does the same):
-#   gh workflow run megalinter --ref <branch>
+#   gh workflow run megalinter.yml --ref <branch>
 # or locally, with Docker: npx mega-linter-runner --flavor go
 on:
   pull_request:

@@ -1,14 +1,14 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-name: remote
+name: Remote tasks
 
 # Runs the checks that need a Go toolchain on GitHub, so a change doesn't
 # need one on a laptop (the Makefile's ci-* targets dispatch it). The task
 # input picks what it does:
 #
 #   check   go vet and go test of the packages, on the runner os names:
-#             gh workflow run remote --ref <branch> -f task=check -f packages="./pkg/..." -f os=ubuntu-latest
+#             gh workflow run remote.yml --ref <branch> -f task=check -f packages="./pkg/..." -f os=ubuntu-latest
 #   golden  rewrites the golden files of the packages' tests that take
 #           -update: ./internal/catalogue (the default), ./internal/cli (the
 #           command-line contract and the generated references,
@@ -16,10 +16,10 @@ name: remote
 #           ./internal/harvest. No other package takes -update, so go test
 #           fails on it. It uploads them as the artifact golden; pushing a
 #           branch named golden/<anything> does the same:
-#             gh workflow run remote --ref <branch> -f task=golden -f packages=./internal/catalogue
+#             gh workflow run remote.yml --ref <branch> -f task=golden -f packages=./internal/catalogue
 #   tidy    runs go mod tidy and uploads go.mod and go.sum as the artifact
 #           go-mod; pushing a branch named tidy/<anything> does the same:
-#             gh workflow run remote --ref <branch> -f task=tidy
+#             gh workflow run remote.yml --ref <branch> -f task=tidy
 #   bench   runs the benchmarks bench matches in each of the packages (the
 #           default ./internal/engine ./internal/importer), count times,
 #           with a CPU profile per package, and puts the profile's top
@@ -27,7 +27,7 @@ name: remote
 #           same benchmarks, it runs them there too and compares the two
 #           with benchstat. It uploads the results and profiles as the
 #           artifact bench:
-#             gh workflow run remote --ref <branch> -f task=bench -f bench=ScanSecrets -f base=<sha>
+#             gh workflow run remote.yml --ref <branch> -f task=bench -f bench=ScanSecrets -f base=<sha>
 #
 # Download an artifact from the repository's root, then review and commit
 # it:
