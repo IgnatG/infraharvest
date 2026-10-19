@@ -311,3 +311,4 @@ func clearRootFiles(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 	}
+}
