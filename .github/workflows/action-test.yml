@@ -38,19 +38,22 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-east-1
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Free disk space
         run: .github/scripts/free-disk-space.sh start
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Wait for free disk space
         run: .github/scripts/free-disk-space.sh wait
       - name: Build
         run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
-      - uses: ./.github/actions/setup-engines
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
         with:
           engine: terraform
       - name: Start Floci and create a queue

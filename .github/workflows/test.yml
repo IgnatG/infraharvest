@@ -36,7 +36,8 @@ jobs:
     outputs:
       code: ${{ steps.diff.outputs.code }}
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         # The history for the merge base, without file contents.
         fetch-depth: 0
@@ -56,7 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Free disk space
@@ -111,7 +113,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Free disk space
@@ -165,7 +168,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     # Restore only, from main: a Windows cache is about 900 MB, and pull
@@ -204,7 +208,8 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -234,7 +239,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Free disk space
@@ -267,7 +273,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -305,7 +312,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -365,7 +373,8 @@ jobs:
           run: ""
           skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift)$
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Free disk space
@@ -377,7 +386,8 @@ jobs:
         cache: true
     # The gate runs the scanners it finds (G5): tflint must find nothing in
     # the generated configuration; trivy only reports.
-    - uses: ./.github/actions/setup-engines
+    - name: Install the engine and scanners
+      uses: ./.github/actions/setup-engines
       with:
         engine: ${{ matrix.engine }}
         scanners: "true"
@@ -437,7 +447,8 @@ jobs:
           run: ^TestGoogle
           skip: ^TestGoogle(RoundTrip|Incremental|Drift)$
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -445,7 +456,8 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: ./.github/actions/setup-engines
+    - name: Install the engine and scanners
+      uses: ./.github/actions/setup-engines
       with:
         engine: ${{ matrix.engine }}
     - name: Start floci-gcp
@@ -500,7 +512,8 @@ jobs:
           run: ^TestAzure
           skip: ^TestAzure(RoundTrip|Incremental|Drift)$
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -508,7 +521,8 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: ./.github/actions/setup-engines
+    - name: Install the engine and scanners
+      uses: ./.github/actions/setup-engines
       with:
         engine: ${{ matrix.engine }}
     # The azurerm provider and the listers reach floci-az over HTTPS: trust
@@ -567,10 +581,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-    - uses: ./.github/actions/setup-engines
+    - name: Install the engine and scanners
+      uses: ./.github/actions/setup-engines
       with:
         engine: terraform
     - name: Format
@@ -597,7 +613,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -605,7 +622,8 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
-    - uses: ./.github/actions/setup-engines
+    - name: Install the engine and scanners
+      uses: ./.github/actions/setup-engines
       with:
         engine: terraform
     - name: Provider schemas
@@ -632,7 +650,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Install Go
@@ -677,7 +696,8 @@ jobs:
         - goos: windows
           goarch: arm64
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Free disk space
@@ -739,7 +759,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         # The whole history for the root commit check, without the contents
         # of past commits: only the checked-out commit's files are fetched.
