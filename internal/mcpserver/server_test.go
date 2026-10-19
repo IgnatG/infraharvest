@@ -20,14 +20,21 @@ import (
 )
 
 // fakeRunner records the arguments of each run, and writes a selection
-// file for discover and prints a report for import. With discoverExit set,
-// discover fails with that code and discoverStderr instead.
+// file for discover, prints a report for import, and checks for drift.
+// With discoverExit set, discover fails with that code and discoverStderr
+// instead.
 type fakeRunner struct {
 	runs           [][]string
 	discoverExit   int
 	discoverStderr string
 	// selections are the contents of the selection files imports read.
 	selections []string
+	// driftExit and driftStderr make drift fail with them, printing
+	// nothing; decisions are the contents of the decisions files drift
+	// read (see fakeDrift).
+	driftExit   int
+	driftStderr string
+	decisions   []string
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -52,6 +59,8 @@ func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int,
 		r := report.Report{Totals: report.CoverageTotal{Discovered: 3, Imported: 2, Excluded: 1}}
 		out, err := json.Marshal(r)
 		return out, []byte("imported 2 of 3 resources\n"), 0, err
+	case "drift":
+		return f.fakeDrift(args)
 	}
 	return nil, nil, 2, nil
 }
@@ -575,15 +584,16 @@ func TestFilesStayUnderRoot(t *testing.T) {
 }
 
 // Clients auto-approve read-only tools and retry idempotent ones: discover
-// writes the selection file, and the same import again isn't the same.
+// writes the selection file, the same import again isn't the same, and
+// drift_accept writes into the code what drift only reports.
 func TestToolAnnotations(t *testing.T) {
 	session := connect(t, &fakeRunner{}, t.TempDir(), nil)
 	res, err := session.ListTools(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Tools) != 3 {
-		t.Fatalf("got %d tools, want 3", len(res.Tools))
+	if len(res.Tools) != 5 {
+		t.Fatalf("got %d tools, want 5", len(res.Tools))
 	}
 	for _, tool := range res.Tools {
 		a := tool.Annotations
@@ -592,9 +602,9 @@ func TestToolAnnotations(t *testing.T) {
 			continue
 		}
 		switch tool.Name {
-		case "report":
+		case "report", "drift":
 			if !a.ReadOnlyHint {
-				t.Errorf("report isn't read-only")
+				t.Errorf("%s isn't read-only", tool.Name)
 			}
 		default:
 			if a.ReadOnlyHint || a.IdempotentHint || a.DestructiveHint == nil || *a.DestructiveHint {
