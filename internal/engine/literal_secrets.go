@@ -920,10 +920,13 @@ func redactBytes(b []byte, secrets []Secret) []byte {
 }
 
 // literalSecrets returns, for a .tf or .hcl file, a finding for each
-// secret value secretsInBody finds in any of its blocks.
+// secret value secretsInBody finds in any of its blocks; and for a merged
+// root's var file (see isVarFile), in its arguments too, the values it
+// sets, as secretsInBody judges a provider's arguments.
 func literalSecrets(f *parsedFile) []string {
 	rel := f.rel
-	if !strings.HasSuffix(rel, ".tf") && !strings.HasSuffix(rel, ".hcl") {
+	varFile := isVarFile(rel)
+	if !strings.HasSuffix(rel, ".tf") && !strings.HasSuffix(rel, ".hcl") && !varFile {
 		return nil
 	}
 	body, ok := f.body()
@@ -931,6 +934,21 @@ func literalSecrets(f *parsedFile) []string {
 		return nil
 	}
 	var findings []string
+	if varFile {
+		names := make([]string, 0, len(body.Attributes))
+		for name := range body.Attributes {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			// The values are those of the provider's arguments, which
+			// variables are named after: judged as those are, while G4
+			// fails a var file that sets a sensitive variable.
+			for _, s := range secretsInExpr(body.Attributes[name].Expr, name, name, false, tagAttribute(name)) {
+				findings = append(findings, fmt.Sprintf("%s: %s holds a secret value (%s); it belongs in a sensitive variable, set outside the file", rel, s.attribute, s.reason))
+			}
+		}
+	}
 	for _, b := range body.Blocks {
 		what := strings.Join(append([]string{b.Type}, b.Labels...), ".")
 		for _, f := range secretsInBody(b.Body, "") {
@@ -938,6 +956,14 @@ func literalSecrets(f *parsedFile) []string {
 		}
 	}
 	return findings
+}
+
+// isVarFile reports whether rel, a file of a root by its path in it with
+// forward slashes, is one of the var files a merged root keeps under vars
+// (see writeMergedRoot), such as vars/prod/terraform.tfvars, whose
+// arguments set variables.
+func isVarFile(rel string) bool {
+	return strings.HasPrefix(rel, varsDirName+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
 }
 
 // withoutRejected returns the secrets of resources rejections doesn't
