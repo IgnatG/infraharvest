@@ -228,8 +228,9 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // the plan of the code, code, didn't change, but for what is secret or
 // kept only in state, or a key of its own tags or labels that only the
 // state records (see recordedTagLeaves); or another resource planning
-// other than code has it, which the edits of locals and of shared tags
-// are blamed for first, then those of the resources it refers to, else
+// other than code has it, which the edits of locals, of shared tags and
+// of module calls' arguments, which reach every resource the module
+// makes from them, are blamed for first, then those of the resources it refers to, else
 // all of them. A change of shared tags is judged on every resource it
 // covers. Reasons have the values of forms redacted.
 func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]Source, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
@@ -332,7 +333,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	reason := "the edit changes what the plan does to " + strings.Join(leaked, ", ") + " too"
 	blamed := false
 	for _, c := range pending {
-		if k := sources[c].Kind; k == SourceLocal || k == SourceSharedTags {
+		if src := sources[c]; src.Kind == SourceLocal || src.Kind == SourceSharedTags || src.Module != "" {
 			reject(c, reason)
 			blamed = true
 		}
@@ -392,8 +393,13 @@ func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src Source, contents map[
 		return address == trimInstanceKey(c.Address)
 	}
 	for _, b := range f.syntax.Blocks {
-		if b.Type == "locals" && spans(b.Range(), d.Range.Start.Line) {
+		switch {
+		case !spans(b.Range(), d.Range.Start.Line):
+		case b.Type == "locals":
 			return src.Kind == SourceLocal
+		case b.Type == "module" && len(b.Labels) == 1 && src.Module != "":
+			calls, _, _, ok := splitModuleAddress(c.Address)
+			return ok && calls[0].name == b.Labels[0]
 		}
 	}
 	return false

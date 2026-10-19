@@ -142,6 +142,14 @@ type DriftSource struct {
 	File       string `json:"file"`
 	Line       int    `json:"line,omitempty"`
 	Expression string `json:"expression,omitempty"`
+	// ModulePath says, for a resource in a module call, how the module
+	// gets the value from the call's argument at File and Line: the
+	// module's file, line and expression, such as
+	// ../../modules/bucket_0a1b2c3d/main.tf:4 var.tags, or, for a curated
+	// module, its release and the input its adapter maps the attribute
+	// onto. Calls of modules inside modules are separated by "; ", from
+	// the root's call inwards.
+	ModulePath string `json:"module_path,omitempty"`
 }
 
 // Finish sorts the roots and changes and counts them.
@@ -300,7 +308,10 @@ func driftLine(c DriftChange) string {
 	if len(c.Covers) > 0 {
 		fmt.Fprintf(&b, ", on every resource that gets it from there: `%s`", strings.Join(c.Covers, "`, `"))
 	}
-	if c.Source != nil && c.Source.File != "" {
+	switch {
+	case c.Source != nil && c.Source.File != "" && c.Source.ModulePath != "":
+		fmt.Fprintf(&b, " (`%s:%d`, which the module reads at `%s`)", c.Source.File, c.Source.Line, strings.ReplaceAll(c.Source.ModulePath, "`", "'"))
+	case c.Source != nil && c.Source.File != "":
 		fmt.Fprintf(&b, " (`%s:%d`)", c.Source.File, c.Source.Line)
 	}
 	if c.Reason != "" {
