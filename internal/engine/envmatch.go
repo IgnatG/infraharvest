@@ -1,0 +1,512 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package engine
+
+import (
+	"fmt"
+	"maps"
+	"path"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+)
+
+// The placeholders normalising puts in names and values for what differs
+// between the environments of a stack by design (see normaliser).
+const (
+	envPlaceholder           = "{env}"
+	accountPlaceholder       = "{account}"
+	resourceGroupPlaceholder = "{resource_group}"
+)
+
+// stackPlaceholders are the layout placeholders that tell the roots of
+// one stack's environments apart, which its key leaves out.
+var stackPlaceholders = []string{"{env}", "{account}", "{subscription}", "{project}"}
+
+// stackKey returns the stack a root laid out by pattern belongs to: the
+// pattern without its segments that hold a placeholder of
+// stackPlaceholders, and with values (by placeholder, such as {provider})
+// filling in the others, normalised by n (see normaliser.value) if set,
+// as an Azure root's resource group may be named after its environment.
+// Roots of different environments with the same key merge: the same
+// provider, region and service.
+func stackKey(pattern string, values map[string]string, n *normaliser) string {
+	pairs := make([]string, 0, 2*len(values))
+	for _, placeholder := range slices.Sorted(maps.Keys(values)) {
+		pairs = append(pairs, placeholder, values[placeholder])
+	}
+	fill := strings.NewReplacer(pairs...)
+	var kept []string
+	for _, segment := range strings.Split(strings.ReplaceAll(pattern, "\\", "/"), "/") {
+		if slices.ContainsFunc(stackPlaceholders, func(p string) bool { return strings.Contains(segment, p) }) {
+			continue
+		}
+		segment = fill.Replace(segment)
+		if n != nil {
+			segment = n.value(segment)
+		}
+		kept = append(kept, segment)
+	}
+	return path.Clean(strings.ReplaceAll(strings.Join(kept, "/"), "\\", "/"))
+}
+
+// envRoot is one environment's finished root of a stack, as merging reads
+// it.
+type envRoot struct {
+	env string
+	// tokens are the words that stand for the environment inside names,
+	// such as prd for prod (see config.Environment.Tokens); by default
+	// env.
+	tokens []string
+	// scope is the root's account, subscription or project ID, and group
+	// its resource group, if any.
+	scope, group string
+	file         *hclFile          // generated.tf
+	importIDs    map[string]string // by resource address
+}
+
+// normaliser puts placeholders in one environment's labels, import IDs
+// and string values: accountPlaceholder for its root's account,
+// subscription or project, resourceGroupPlaceholder for its resource group
+// where the group's name holds none of the environment's tokens, and
+// envPlaceholder for those tokens. Each is replaced where it is a whole
+// word: between the ends of the string and characters other than letters
+// and digits, such as - _ . / and :, so that shop-prd-db holds prd and
+// arn:aws:iam::111111111111:role/ci the account, but production doesn't
+// hold prod.
+type normaliser struct {
+	words []string // the tokens, longest first
+	scope string
+	group string // "" where the group's name holds a token
+	// token is the word var.env stands for: the token the root's values
+	// use most (see chooseToken).
+	token string
+}
+
+func newNormaliser(root envRoot) *normaliser {
+	order := slices.Clone(root.tokens)
+	if len(order) == 0 {
+		order = []string{root.env}
+	}
+	words := slices.Clone(order)
+	sort.SliceStable(words, func(i, j int) bool { return len(words[i]) > len(words[j]) })
+	n := &normaliser{words: words, scope: root.scope}
+	if root.group != "" && !n.holdsToken(root.group) {
+		n.group = root.group
+	}
+	n.token = chooseToken(order, root.file)
+	return n
+}
+
+// chooseToken returns the token of order the string values of f's
+// resources hold most often as a whole word; the first of order for a
+// tie, or where none holds any.
+func chooseToken(order []string, f *hclFile) string {
+	counts := map[string]int{}
+	if f != nil {
+		for _, r := range f.resources() {
+			countTokens(r.write.Body(), order, counts)
+		}
+	}
+	best := order[0]
+	for _, t := range order {
+		if counts[t] > counts[best] {
+			best = t
+		}
+	}
+	return best
+}
+
+func countTokens(body *hclwrite.Body, order []string, counts map[string]int) {
+	for _, attr := range body.Attributes() {
+		for _, t := range attr.Expr().BuildTokens(nil) {
+			if t.Type != hclsyntax.TokenQuotedLit && t.Type != hclsyntax.TokenStringLit {
+				continue
+			}
+			for _, word := range order {
+				_, n := replaceWord(string(t.Bytes), word, envPlaceholder)
+				counts[word] += n
+			}
+		}
+	}
+	for _, b := range body.Blocks() {
+		countTokens(b.Body(), order, counts)
+	}
+}
+
+// holdsToken reports whether s holds one of n's tokens as a whole word.
+func (n *normaliser) holdsToken(s string) bool {
+	return slices.ContainsFunc(n.words, func(w string) bool { return indexWord(s, w) >= 0 })
+}
+
+// value returns s with n's placeholders in it.
+func (n *normaliser) value(s string) string {
+	if n.scope != "" {
+		s, _ = replaceWord(s, n.scope, accountPlaceholder)
+	}
+	if n.group != "" {
+		s, _ = replaceWord(s, n.group, resourceGroupPlaceholder)
+	}
+	for _, w := range n.words {
+		s, _ = replaceWord(s, w, envPlaceholder)
+	}
+	return s
+}
+
+// denormalise returns s, a value with placeholders, as n's environment
+// has it, with its chosen token for envPlaceholder.
+func (n *normaliser) denormalise(s string) string {
+	return strings.NewReplacer(envPlaceholder, n.token, accountPlaceholder, n.scope, resourceGroupPlaceholder, n.group).Replace(s)
+}
+
+// label returns a block label without the words of n's tokens, scope and
+// group, which merged labels leave out: shop_prd_web (or web, once
+// stripPrefix took shop_prd_) and logs_prd become web and logs. A label
+// with nothing else becomes main.
+func (n *normaliser) label(label string) string {
+	// Without the r_ that Label puts before a digit, which may be the
+	// scope's.
+	if rest, ok := strings.CutPrefix(label, "r_"); ok && startsWithDigit(rest) {
+		label = rest
+	}
+	s := "_" + label + "_"
+	drop := make([]string, 0, len(n.words)+2)
+	for _, w := range append(slices.Clone(n.words), n.scope, n.group) {
+		if words := labelWords(w); len(words) > 0 {
+			drop = append(drop, strings.Join(words, "_"))
+		}
+	}
+	for _, w := range drop {
+		for strings.Contains(s, "_"+w+"_") {
+			s = strings.ReplaceAll(s, "_"+w+"_", "_")
+		}
+	}
+	s = strings.Trim(s, "_")
+	switch {
+	case s == "":
+		return mainLabel
+	case startsWithDigit(s):
+		return "r_" + s
+	}
+	return s
+}
+
+// mapLiterals returns tokens with fn applied to their string literals,
+// leaving tokens as they are.
+func mapLiterals(tokens hclwrite.Tokens, fn func(string) string) hclwrite.Tokens {
+	out := make(hclwrite.Tokens, len(tokens))
+	for i, t := range tokens {
+		c := *t
+		if t.Type == hclsyntax.TokenQuotedLit || t.Type == hclsyntax.TokenStringLit {
+			c.Bytes = []byte(fn(string(t.Bytes)))
+		}
+		out[i] = &c
+	}
+	return out
+}
+
+// replaceWord returns s with each whole-word occurrence of word (see
+// indexWord) replaced by placeholder, and how many it replaced.
+func replaceWord(s, word, placeholder string) (string, int) {
+	var b strings.Builder
+	n := 0
+	for {
+		i := indexWord(s, word)
+		if i < 0 {
+			break
+		}
+		b.WriteString(s[:i])
+		b.WriteString(placeholder)
+		s = s[i+len(word):]
+		n++
+	}
+	if n == 0 {
+		return s, 0
+	}
+	b.WriteString(s)
+	return b.String(), n
+}
+
+// indexWord returns the index of the first occurrence of word in s that
+// is a whole word: with no letter or digit next to it. One after $ or %,
+// which would make a template sequence of the placeholder, or inside a
+// placeholder, doesn't count. It returns -1 for none.
+func indexWord(s, word string) int {
+	if word == "" {
+		return -1
+	}
+	for from := 0; from <= len(s); {
+		i := strings.Index(s[from:], word)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		end := i + len(word)
+		before := i == 0 || (!isWordByte(s[i-1]) && s[i-1] != '$' && s[i-1] != '%')
+		after := end == len(s) || !isWordByte(s[end])
+		inPlaceholder := i > 0 && s[i-1] == '{' && end < len(s) && s[end] == '}'
+		if before && after && !inPlaceholder {
+			return i
+		}
+		from = i + 1
+	}
+	return -1
+}
+
+// isWordByte reports whether b is part of a word: a letter, a digit, or a
+// byte of a character beyond ASCII.
+func isWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b >= 0x80
+}
+
+// matchRule is how a resource was matched across environments.
+type matchRule int
+
+const (
+	notMatched   matchRule = iota // a resource of one environment
+	byImportID                    // the same type and normalised import ID
+	byLabel                       // the same type and normalised label
+	byReferences                  // the same type, referring to the same matched resources
+)
+
+// envResource is a resource of one environment's root.
+type envResource struct {
+	env          int // the index of its root
+	block        resourceBlock
+	resourceType string
+	id           string // its import ID, "" if unknown
+	normalID     string // id normalised, "" if unknown
+	normalLabel  string
+	refs         []*envResource // the resources of its root it refers to
+	stack        *stackResource // what it is part of, once matched
+}
+
+// stackResource is a resource of a stack's merged root: the resources it
+// stands for in each environment that has one.
+type stackResource struct {
+	resourceType string
+	label        string
+	rule         matchRule
+	members      []*envResource // by environment, as the roots are; nil where none
+	seq          int            // the order it was matched in
+}
+
+// coverage is the number of environments that have r.
+func (r *stackResource) coverage() int {
+	n := 0
+	for _, m := range r.members {
+		if m != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// address is r's resource block's address in the merged root.
+func (r *stackResource) address() string {
+	return r.resourceType + "." + r.label
+}
+
+
+// matchResources matches the resources of roots, one per environment of
+// a stack, whose normalisers are norms, in order: by type and normalised
+// import ID; by type and normalised label, where the label is unique in
+// its root; and by type and the matched resources they refer to, where
+// one resource of each root is left. Each match takes each root's only
+// candidate, so two resources of one root never match one. A resource
+// that matches none is a stack resource of its environment alone. It
+// returns the stack's resources sorted by address, with labels unique per
+// type (see assignLabels).
+func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
+	byEnv := make([][]*envResource, len(roots))
+	labels := make([]map[string]int, len(roots))
+	for e, root := range roots {
+		labels[e] = map[string]int{}
+		index := map[string]*envResource{}
+		for _, b := range root.file.resources() {
+			typ, label, _ := strings.Cut(b.address, ".")
+			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
+			if id := root.importIDs[b.address]; id != "" {
+				r.id, r.normalID = id, norms[e].value(id)
+			}
+			labels[e][typ+"."+r.normalLabel]++
+			index[b.address] = r
+			byEnv[e] = append(byEnv[e], r)
+		}
+		for _, r := range byEnv[e] {
+			for _, a := range referencedAddresses(r.block.syntax.Body) {
+				if t, ok := index[a]; ok && t != r {
+					r.refs = append(r.refs, t)
+				}
+			}
+		}
+	}
+	var stack []*stackResource
+	add := func(rule matchRule, members []*envResource) {
+		s := &stackResource{resourceType: members[0].resourceType, rule: rule, members: make([]*envResource, len(roots)), seq: len(stack)}
+		for _, m := range members {
+			s.members[m.env] = m
+			m.stack = s
+		}
+		stack = append(stack, s)
+	}
+	matchBy(byEnv, func(r *envResource) string {
+		if r.normalID == "" {
+			return ""
+		}
+		return r.resourceType + "\x00" + r.normalID
+	}, func(members []*envResource) { add(byImportID, members) })
+	matchBy(byEnv, func(r *envResource) string {
+		if labels[r.env][r.resourceType+"."+r.normalLabel] != 1 {
+			return ""
+		}
+		return r.resourceType + "\x00" + r.normalLabel
+	}, func(members []*envResource) { add(byLabel, members) })
+	// A match by references may let others refer to matched resources
+	// only.
+	for matched := true; matched; {
+		matched = matchBy(byEnv, referenceKey, func(members []*envResource) { add(byReferences, members) })
+	}
+	for _, rs := range byEnv {
+		for _, r := range rs {
+			if r.stack == nil {
+				add(notMatched, []*envResource{r})
+			}
+		}
+	}
+	envs := make([]string, len(roots))
+	for i, root := range roots {
+		envs[i] = root.env
+	}
+	assignLabels(stack, envs)
+	sort.Slice(stack, func(i, j int) bool { return stack[i].address() < stack[j].address() })
+	return stack
+}
+
+// referenceKey is the key of a match by references: the resource's type
+// and the matched resources it refers to, where it refers to some and to
+// no other.
+func referenceKey(r *envResource) string {
+	if len(r.refs) == 0 {
+		return ""
+	}
+	seqs := make([]int, 0, len(r.refs))
+	for _, t := range r.refs {
+		if t.stack == nil {
+			return ""
+		}
+		seqs = append(seqs, t.stack.seq)
+	}
+	slices.Sort(seqs)
+	seqs = slices.Compact(seqs)
+	parts := make([]string, len(seqs))
+	for i, s := range seqs {
+		parts[i] = strconv.Itoa(s)
+	}
+	return r.resourceType + "\x00" + strings.Join(parts, ",")
+}
+
+// matchBy matches the resources of byEnv not yet matched whose key, by
+// key ("" for none), is the same, where each environment has at most one
+// with it and at least two have one; match gets each match's resources.
+// It reports whether it matched any.
+func matchBy(byEnv [][]*envResource, key func(*envResource) string, match func([]*envResource)) bool {
+	candidates := map[string][][]*envResource{}
+	for e, rs := range byEnv {
+		for _, r := range rs {
+			if r.stack != nil {
+				continue
+			}
+			k := key(r)
+			if k == "" {
+				continue
+			}
+			if candidates[k] == nil {
+				candidates[k] = make([][]*envResource, len(byEnv))
+			}
+			candidates[k][e] = append(candidates[k][e], r)
+		}
+	}
+	matched := false
+	for _, k := range slices.Sorted(maps.Keys(candidates)) {
+		var members []*envResource
+		unique := true
+		for _, rs := range candidates[k] {
+			switch len(rs) {
+			case 0:
+			case 1:
+				members = append(members, rs[0])
+			default:
+				unique = false
+			}
+		}
+		if unique && len(members) >= 2 {
+			match(members)
+			matched = true
+		}
+	}
+	return matched
+}
+
+// assignLabels labels each of resources, the resources of one stack, by
+// the normalised label of its first environment's resource, unique per
+// type: where two have the same, the one more environments have keeps
+// it, and the other gets its environment's name after it, for a resource
+// of one environment, or _2, _3, ...
+func assignLabels(resources []*stackResource, envs []string) {
+	type candidate struct {
+		r     *stackResource
+		base  string
+		first int
+	}
+	all := make([]candidate, 0, len(resources))
+	for _, r := range resources {
+		for e, m := range r.members {
+			if m != nil {
+				all = append(all, candidate{r, m.normalLabel, e})
+				break
+			}
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		a, b := all[i], all[j]
+		if a.r.resourceType != b.r.resourceType {
+			return a.r.resourceType < b.r.resourceType
+		}
+		if a.base != b.base {
+			return a.base < b.base
+		}
+		if a.r.coverage() != b.r.coverage() {
+			return a.r.coverage() > b.r.coverage()
+		}
+		if a.first != b.first {
+			return a.first < b.first
+		}
+		return a.r.members[a.first].block.address < b.r.members[b.first].block.address
+	})
+	used := map[string]bool{}
+	for _, l := range all {
+		label := l.base
+		if used[l.r.resourceType+"."+label] && l.r.coverage() == 1 {
+			label = l.base + "_" + Label(envs[l.first])
+		}
+		label = uniqueIn(used, l.r.resourceType, label)
+		l.r.label = label
+	}
+}
+
+// uniqueIn returns label, or label with _2, _3, ... after it, whichever
+// first isn't a label of resourceType in used, and records it there.
+func uniqueIn(used map[string]bool, resourceType, label string) string {
+	unique := label
+	for n := 2; used[resourceType+"."+unique]; n++ {
+		unique = fmt.Sprintf("%s_%d", label, n)
+	}
+	used[resourceType+"."+unique] = true
+	return unique
+}
