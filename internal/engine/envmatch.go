@@ -23,6 +23,7 @@ import (
 const (
 	envPlaceholder           = "{env}"
 	accountPlaceholder       = "{account}"
+	regionPlaceholder        = "{region}"
 	resourceGroupPlaceholder = "{resource_group}"
 )
 
@@ -65,26 +66,28 @@ type envRoot struct {
 	// such as prd for prod (see config.Environment.Tokens); by default
 	// env.
 	tokens []string
-	// scope is the root's account, subscription or project ID, and group
-	// its resource group, if any.
-	scope, group string
-	file         *hclFile          // generated.tf
-	importIDs    map[string]string // by resource address
+	// scope is the root's account, subscription or project ID, region its
+	// AWS region, and group its resource group, if any.
+	scope, region, group string
+	file                 *hclFile          // generated.tf
+	importIDs            map[string]string // by resource address
 }
 
 // normaliser puts placeholders in one environment's labels, import IDs
 // and string values: accountPlaceholder for its root's account,
-// subscription or project, resourceGroupPlaceholder for its resource group
-// where the group's name holds none of the environment's tokens, and
-// envPlaceholder for those tokens. Each is replaced where it is a whole
-// word: between the ends of the string and characters other than letters
-// and digits, such as - _ . / and :, so that shop-prd-db holds prd and
+// subscription or project, regionPlaceholder for its AWS region,
+// resourceGroupPlaceholder for its resource group where the group's name
+// holds none of the environment's tokens, and envPlaceholder for those
+// tokens. Each is replaced where it is a whole word: between the ends of
+// the string and characters other than letters and digits, such as - _ .
+// / and :, so that shop-prd-db holds prd and
 // arn:aws:iam::111111111111:role/ci the account, but production doesn't
 // hold prod.
 type normaliser struct {
-	words []string // the tokens, longest first
-	scope string
-	group string // "" where the group's name holds a token
+	words  []string // the tokens, longest first
+	scope  string
+	region string
+	group  string // "" where the group's name holds a token
 	// token is the word var.env stands for: the token the root's values
 	// use most (see chooseToken).
 	token string
@@ -97,7 +100,7 @@ func newNormaliser(root envRoot) *normaliser {
 	}
 	words := slices.Clone(order)
 	sort.SliceStable(words, func(i, j int) bool { return len(words[i]) > len(words[j]) })
-	n := &normaliser{words: words, scope: root.scope}
+	n := &normaliser{words: words, scope: root.scope, region: root.region}
 	if root.group != "" && !n.holdsToken(root.group) {
 		n.group = root.group
 	}
@@ -151,6 +154,9 @@ func (n *normaliser) value(s string) string {
 	if n.scope != "" {
 		s, _ = replaceWord(s, n.scope, accountPlaceholder)
 	}
+	if n.region != "" {
+		s, _ = replaceWord(s, n.region, regionPlaceholder)
+	}
 	if n.group != "" {
 		s, _ = replaceWord(s, n.group, resourceGroupPlaceholder)
 	}
@@ -163,11 +169,11 @@ func (n *normaliser) value(s string) string {
 // denormalise returns s, a value with placeholders, as n's environment
 // has it, with its chosen token for envPlaceholder.
 func (n *normaliser) denormalise(s string) string {
-	return strings.NewReplacer(envPlaceholder, n.token, accountPlaceholder, n.scope, resourceGroupPlaceholder, n.group).Replace(s)
+	return strings.NewReplacer(envPlaceholder, n.token, accountPlaceholder, n.scope, regionPlaceholder, n.region, resourceGroupPlaceholder, n.group).Replace(s)
 }
 
-// label returns a block label without the words of n's tokens, scope and
-// group, which merged labels leave out: shop_prd_web (or web, once
+// label returns a block label without the words of n's tokens, scope, region
+// and group, which merged labels leave out: shop_prd_web (or web, once
 // stripPrefix took shop_prd_) and logs_prd become web and logs. A label
 // with nothing else becomes main.
 func (n *normaliser) label(label string) string {
@@ -178,7 +184,7 @@ func (n *normaliser) label(label string) string {
 	}
 	s := "_" + label + "_"
 	drop := make([]string, 0, len(n.words)+2)
-	for _, w := range append(slices.Clone(n.words), n.scope, n.group) {
+	for _, w := range append(slices.Clone(n.words), n.scope, n.region, n.group) {
 		if words := labelWords(w); len(words) > 0 {
 			drop = append(drop, strings.Join(words, "_"))
 		}
@@ -302,8 +308,9 @@ type stackResource struct {
 	residue string
 	// forEach is the resource it is a key of, by its label, or nil.
 	forEach *forEachGroup
-	// deploy is the deploy_<label> variable that counts it, for a
-	// resource some environments have and no forEach holds.
+	// deploy is the deploy_<feature> variable that counts it, and the
+	// other resources of its feature, for a resource some environments
+	// have and no forEach holds (see stackMerge.features).
 	deploy *envVariable
 	// body is its arguments across the environments that have it (see
 	// mergeBody); nil in a forEach.

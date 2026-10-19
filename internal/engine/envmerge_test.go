@@ -115,18 +115,35 @@ func tfvarsOf(m *stackMerge, env int) map[string]string {
 // named with the token prd.
 func mergeDevProd(t *testing.T, dev, prod string, devIDs, prodIDs map[string]string) *stackMerge {
 	t.Helper()
-	return mergeStack("aws", []envRoot{
+	roots := []envRoot{
 		testEnvRoot(t, "dev", nil, "111111111111", dev, devIDs),
 		testEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs),
-	}, envSchemas)
+	}
+	for i := range roots {
+		roots[i].region = "eu-west-2"
+	}
+	return mergeStack("aws", roots, envSchemas)
+}
+
+// localsOf is m's locals, formatted, by name, and their names in order.
+func localsOf(m *stackMerge) (map[string]string, []string) {
+	values := map[string]string{}
+	names := make([]string, 0, len(m.locals))
+	for _, l := range m.locals {
+		values[l.name] = flatExpr(l.value)
+		names = append(names, l.name)
+	}
+	return values, names
 }
 
 func TestMergeStackTemplates(t *testing.T) {
 	m := mergeDevProd(t, `resource "aws_iam_role" "ci" {
+  description          = "reads arn:aws:sqs:eu-west-2:111111111111:shop-dev-orders"
   name                 = "shop-dev-ci"
   permissions_boundary = "arn:aws:iam::111111111111:policy/boundary"
 }
 `, `resource "aws_iam_role" "ci" {
+  description          = "reads arn:aws:sqs:eu-west-2:222222222222:shop-prd-orders"
   name                 = "shop-prd-ci"
   permissions_boundary = "arn:aws:iam::222222222222:policy/boundary"
 }
@@ -136,19 +153,37 @@ func TestMergeStackTemplates(t *testing.T) {
 		t.Error("a resource every environment has is counted")
 	}
 	for name, want := range map[string]string{
-		"name":                 `"${local.naming_prefix}-ci"`,
-		"permissions_boundary": `"arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/boundary"`,
+		"description":          `"reads arn:aws:sqs:${local.aws_region}:${local.aws_account_id}:${local.naming_prefix}-orders"`,
+		"name":                 "local.ci_name",
+		"permissions_boundary": `"arn:aws:iam::${local.aws_account_id}:policy/boundary"`,
 	} {
 		a := attributeOf(t, role, name)
 		if a.kind != templateValue || flatExpr(a.value) != want {
 			t.Errorf("%s = %s (kind %d), want the template %s", name, flatExpr(a.value), a.kind, want)
 		}
 	}
+	if a := attributeOf(t, role, "name"); a.local != "ci_name" {
+		t.Errorf("the name's local is %q", a.local)
+	}
 	if m.workload != "shop" {
 		t.Errorf("workload = %q, want shop", m.workload)
 	}
-	if !slices.Equal(m.data, []string{"aws_caller_identity.current"}) {
+	if !slices.Equal(m.data, []string{"aws_caller_identity.current", "aws_region.current"}) {
 		t.Errorf("data = %v", m.data)
+	}
+	locals, order := localsOf(m)
+	if want := []string{"naming_prefix", "aws_account_id", "aws_region", "ci_name"}; !slices.Equal(order, want) {
+		t.Errorf("locals %v, want %v", order, want)
+	}
+	for name, want := range map[string]string{
+		"naming_prefix":  `"shop-${var.env}"`,
+		"aws_account_id": "data.aws_caller_identity.current.account_id",
+		"aws_region":     "data.aws_region.current.region",
+		"ci_name":        `"${local.naming_prefix}-ci"`,
+	} {
+		if locals[name] != want {
+			t.Errorf("local.%s = %s, want %s", name, locals[name], want)
+		}
 	}
 	// var.env is the token the names use, not the environment's name.
 	for e, want := range []string{`"dev"`, `"prd"`} {
@@ -157,6 +192,121 @@ func TestMergeStackTemplates(t *testing.T) {
 		}
 	}
 	if ids := m.imports(1); ids["aws_iam_role.ci"] != "shop-prd-ci" {
+		t.Errorf("prod imports = %v", ids)
+	}
+}
+
+func TestMergeStackConditions(t *testing.T) {
+	bucket := func(env, forceDestroy, billing string) string {
+		return `resource "aws_s3_bucket" "logs" {
+  bucket        = "shop-` + env + `-logs"
+  force_destroy = ` + forceDestroy + `
+  tags          = { Owner = "platform" }
+}
+
+resource "aws_dynamodb_table" "orders" {
+  billing_mode = "` + billing + `"
+  hash_key     = "id"
+  name         = "shop-` + env + `-orders"
+}
+`
+	}
+	ids := func(env string) map[string]string {
+		return map[string]string{"aws_s3_bucket.logs": "shop-" + env + "-logs", "aws_dynamodb_table.orders": "shop-" + env + "-orders"}
+	}
+	m := mergeDevProd(t, bucket("dev", "true", "PAY_PER_REQUEST"), bucket("prd", "false", "PROVISIONED"), ids("dev"), ids("prd"))
+	for _, tc := range []struct{ address, attr, want string }{
+		// Two environments: true where it is.
+		{"aws_s3_bucket.logs", "force_destroy", `var.env == "dev"`},
+		// Two environments: the last one's value.
+		{"aws_dynamodb_table.orders", "billing_mode", `var.env == "prd" ? "PROVISIONED" : "PAY_PER_REQUEST"`},
+	} {
+		a := attributeOf(t, resourceAt(t, m, tc.address), tc.attr)
+		if a.kind != conditionValue || flatExpr(a.value) != tc.want {
+			t.Errorf("%s.%s = %s (kind %d), want %s", tc.address, tc.attr, flatExpr(a.value), a.kind, tc.want)
+		}
+	}
+	for _, v := range m.variables {
+		if v.name != "env" {
+			t.Errorf("variable %s for a value a condition gives", v.name)
+		}
+	}
+
+	// Three environments, one of them false.
+	roots := make([]envRoot, 0, 3)
+	for _, env := range []string{"dev", "stage", "prod"} {
+		destroy := "true"
+		if env == "prod" {
+			destroy = "false"
+		}
+		roots = append(roots, testEnvRoot(t, env, nil, "", bucket(env, destroy, "PAY_PER_REQUEST"), ids(env)))
+	}
+	m = mergeStack("google", roots, nil)
+	if a := attributeOf(t, resourceAt(t, m, "aws_s3_bucket.logs"), "force_destroy"); flatExpr(a.value) != `var.env != "prod"` {
+		t.Errorf("force_destroy = %s", flatExpr(a.value))
+	}
+}
+
+func TestMergeStackFeatures(t *testing.T) {
+	m := mergeDevProd(t, `resource "aws_s3_bucket" "logs" {
+  bucket = "shop-dev-logs"
+}
+`, `resource "aws_cloudwatch_metric_alarm" "errors" {
+  alarm_name = "shop-prd-errors"
+}
+
+resource "aws_customer_gateway" "vpn_office" {
+  ip_address = "203.0.113.10"
+}
+
+resource "aws_s3_bucket" "logs" {
+  bucket = "shop-prd-logs"
+}
+
+resource "aws_vpn_connection" "office" {
+  customer_gateway_id = aws_customer_gateway.vpn_office.id
+  vpn_gateway_id      = aws_vpn_gateway.vpn.id
+}
+
+resource "aws_vpn_gateway" "vpn" {
+  amazon_side_asn = 64512
+}
+`, map[string]string{"aws_s3_bucket.logs": "shop-dev-logs"}, map[string]string{
+		"aws_s3_bucket.logs":                 "shop-prd-logs",
+		"aws_cloudwatch_metric_alarm.errors": "shop-prd-errors",
+		"aws_customer_gateway.vpn_office":    "cgw-1",
+		"aws_vpn_connection.office":          "vpn-1",
+		"aws_vpn_gateway.vpn":                "vgw-1",
+	})
+	vpn := resourceAt(t, m, "aws_vpn_gateway.vpn").deploy
+	if vpn == nil || vpn.name != "deploy_vpn" {
+		t.Fatalf("the VPN gateway is counted by %v, want deploy_vpn", vpn)
+	}
+	for _, address := range []string{"aws_customer_gateway.vpn_office", "aws_vpn_connection.office"} {
+		if resourceAt(t, m, address).deploy != vpn {
+			t.Errorf("%s isn't counted by deploy_vpn", address)
+		}
+	}
+	if alarm := resourceAt(t, m, "aws_cloudwatch_metric_alarm.errors").deploy; alarm == nil || alarm.name != "deploy_errors" {
+		t.Error("the alarm, a feature of its own, isn't counted by deploy_errors")
+	}
+	var deploys []string
+	for _, v := range m.variables {
+		if strings.HasPrefix(v.name, "deploy_") {
+			deploys = append(deploys, v.name)
+		}
+	}
+	if !slices.Equal(deploys, []string{"deploy_errors", "deploy_vpn"}) {
+		t.Errorf("deploy variables %v", deploys)
+	}
+	if got := tfvarsOf(m, 1); got["deploy_vpn"] != "true" || got["deploy_errors"] != "true" {
+		t.Errorf("prod tfvars = %v", got)
+	}
+	connection := resourceAt(t, m, "aws_vpn_connection.office")
+	if a := attributeOf(t, connection, "vpn_gateway_id"); flatExpr(a.value) != "aws_vpn_gateway.vpn[0].id" {
+		t.Errorf("vpn_gateway_id = %s", flatExpr(a.value))
+	}
+	if ids := m.imports(1); ids["aws_vpn_connection.office[0]"] != "vpn-1" {
 		t.Errorf("prod imports = %v", ids)
 	}
 }

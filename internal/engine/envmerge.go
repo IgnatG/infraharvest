@@ -6,6 +6,7 @@ package engine
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -41,6 +42,16 @@ type stackMerge struct {
 	forEach   []*forEachGroup  // by address
 	variables []*envVariable   // by name
 	data      []string         // the data sources values read, such as aws_caller_identity.current
+	// locals are the merged root's locals, in order: naming_prefix, the
+	// scope's and region's IDs from data sources, and each resource's name
+	// (see mergedAttribute.local).
+	locals []namedLocal
+}
+
+// namedLocal is a local value of the merged root.
+type namedLocal struct {
+	name  string
+	value hclwrite.Tokens
 }
 
 // valueKind is how the merged root writes an argument.
@@ -48,10 +59,11 @@ type valueKind int
 
 const (
 	sameValue      valueKind = iota // the same in every environment, as it is
-	templateValue                   // the same once normalised, with var.env, local.naming_prefix and data sources
+	templateValue                   // the same once normalised, with var.env and locals
 	variableValue                   // a variable
 	referenceValue                  // a reference to a resource some environments lack, null where they do
 	eachValue                       // each.value.<name>, in a forEach
+	conditionValue                  // a condition on var.env, where one environment's value differs (see envCondition)
 )
 
 // mergedBody is a block's body across the environments that have it.
@@ -72,6 +84,10 @@ type mergedAttribute struct {
 	// target is the resource a referenceValue refers to, written where
 	// target is.
 	target *stackResource
+	// local is the named local a templateValue that is the resource's name
+	// is written as, such as orders_name for local.orders_name; "" for
+	// none.
+	local string
 }
 
 // mergedBlock is a nested block of a merged body, or, for blocks some
@@ -194,18 +210,21 @@ func (v *envVariable) tfvars(env int) (hclwrite.Tokens, bool) {
 // merge into one root: it matches their resources (see matchResources),
 // leaves as residue each environment's part of those that can't merge
 // (see mergeBody), puts resources of some environments only as keys of a
-// compatible resource's for_each (see groupForEach) or under a deploy_
-// variable, and names the variables, with their defaults (see
+// compatible resource's for_each (see groupForEach) or in features counted
+// by a deploy_ variable (see features), and names the variables, with their defaults (see
 // envVariable.setDefault).
 func mergeStack(provider string, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
 	m := &stackMerge{provider: provider, schemas: schemas}
-	dataSource, _ := scopeData(provider)
+	dataSource, _, _ := scopeData(provider)
 	for _, root := range roots {
 		m.envs = append(m.envs, root.env)
 		n := newNormaliser(root)
 		if dataSource == "" {
 			// No data source gives the scope's ID.
 			n.scope = ""
+		}
+		if provider != "aws" {
+			n.region = ""
 		}
 		m.norms = append(m.norms, n)
 	}
@@ -228,19 +247,25 @@ func mergeStack(provider string, roots []envRoot, schemas *tfjson.ProviderSchema
 }
 
 // scopeData returns the data source that reads the ID of provider's
-// account, subscription or project, and the expression of the ID; ""
-// for a provider with none.
-func scopeData(provider string) (dataSource, expr string) {
+// account, subscription or project, the local that holds the ID, and the
+// expression that reads it; "" for a provider with none.
+func scopeData(provider string) (dataSource, local, expr string) {
 	switch provider {
 	case "aws":
-		return "aws_caller_identity.current", "data.aws_caller_identity.current.account_id"
+		return "aws_caller_identity.current", "aws_account_id", "data.aws_caller_identity.current.account_id"
 	case "azurerm":
-		return "azurerm_client_config.current", "data.azurerm_client_config.current.subscription_id"
+		return "azurerm_client_config.current", "subscription_id", "data.azurerm_client_config.current.subscription_id"
 	case "google", "google-beta":
-		return "google_project.current", "data.google_project.current.project_id"
+		return "google_project.current", "project_id", "data.google_project.current.project_id"
 	}
-	return "", ""
+	return "", "", ""
 }
+
+// The data source and local of an AWS root's region.
+const (
+	regionData  = "aws_region.current"
+	regionLocal = "aws_region"
+)
 
 // splitResidue splits each resource matched across environments whose
 // bodies don't merge (see mergeBody) into one resource per environment,
@@ -333,25 +358,12 @@ func (m *stackMerge) groupForEach() {
 	sort.Slice(m.forEach, func(i, j int) bool { return m.forEach[i].address() < m.forEach[j].address() })
 }
 
-// build sets the deploy variables, merges each resource's body and each
-// forEach's, and names and renders the variables.
+// build gives the resources some environments lack, outside a forEach,
+// their features' deploy variables (see features), merges each
+// resource's body and each forEach's, and names and renders the
+// variables.
 func (m *stackMerge) build() {
-	for _, r := range m.resources {
-		if r.forEach == nil && r.coverage() < len(m.envs) {
-			r.deploy = &envVariable{
-				name:         "deploy_" + callName(r.resourceType+"."+r.label),
-				resourceType: r.resourceType,
-				what:         "whether the environment has " + r.resourceType + "." + r.label,
-				ty:           cty.Bool,
-				values:       map[int]hclwrite.Tokens{},
-				hasDefault:   true,
-				defaultValue: hclwrite.TokensForValue(cty.False),
-			}
-			for e, member := range r.members {
-				r.deploy.values[e] = hclwrite.TokensForValue(cty.BoolVal(member != nil))
-			}
-		}
-	}
+	m.features()
 	for _, r := range m.resources {
 		if r.forEach != nil {
 			continue
@@ -370,6 +382,131 @@ func (m *stackMerge) build() {
 	}
 	m.nameVariables()
 	m.render()
+}
+
+// features groups the resources some environments only have, outside a
+// forEach, into features: resources the same environments have that
+// refer to one another, or whose names start with the same word, such as
+// aws_vpn_gateway.vpn and aws_vpn_connection.vpn_customer. One
+// deploy_<feature> variable, true where an environment has the feature,
+// counts every resource of it. A feature is named after the word most of
+// its resources' names start with, or, for one resource, after the
+// resource (see callName). Each residue resource is a feature of its own.
+func (m *stackMerge) features() {
+	var parts []*stackResource
+	for _, r := range m.resources {
+		if r.forEach == nil && r.coverage() < len(m.envs) {
+			parts = append(parts, r)
+		}
+	}
+	parent := make([]int, len(parts))
+	for i := range parent {
+		parent[i] = i
+	}
+	find := func(i int) int {
+		for parent[i] != i {
+			i = parent[i]
+		}
+		return i
+	}
+	for i, a := range parts {
+		for j := i + 1; j < len(parts); j++ {
+			b := parts[j]
+			if a.residue != "" || b.residue != "" || coverageKey(a) != coverageKey(b) {
+				continue
+			}
+			if refersTo(a, b) || refersTo(b, a) || firstWord(a) == firstWord(b) {
+				parent[find(j)] = find(i)
+			}
+		}
+	}
+	groups := map[int][]*stackResource{}
+	var order []int
+	for i, r := range parts {
+		root := find(i)
+		if groups[root] == nil {
+			order = append(order, root)
+		}
+		groups[root] = append(groups[root], r)
+	}
+	for _, root := range order {
+		members := groups[root]
+		name := callName(members[0].resourceType + "." + members[0].label)
+		resourceType := members[0].resourceType
+		if len(members) > 1 {
+			name, resourceType = commonWord(members), ""
+		}
+		addresses := make([]string, len(members))
+		for i, r := range members {
+			addresses[i] = r.resourceType + "." + r.label
+		}
+		v := &envVariable{
+			name:         "deploy_" + name,
+			resourceType: resourceType,
+			what:         "whether the environment has " + strings.Join(addresses, ", "),
+			ty:           cty.Bool,
+			values:       map[int]hclwrite.Tokens{},
+			hasDefault:   true,
+			defaultValue: hclwrite.TokensForValue(cty.False),
+		}
+		for e := range m.envs {
+			v.values[e] = hclwrite.TokensForValue(cty.BoolVal(members[0].members[e] != nil))
+		}
+		for _, r := range members {
+			r.deploy = v
+		}
+	}
+}
+
+// coverageKey says which environments have r.
+func coverageKey(r *stackResource) string {
+	var b strings.Builder
+	for _, member := range r.members {
+		if member != nil {
+			b.WriteByte('1')
+		} else {
+			b.WriteByte('0')
+		}
+	}
+	return b.String()
+}
+
+// refersTo reports whether a refers to b in an environment.
+func refersTo(a, b *stackResource) bool {
+	for _, member := range a.members {
+		if member == nil {
+			continue
+		}
+		for _, t := range member.refs {
+			if t.stack == b {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// firstWord is the first word of r's name in the merged root (see
+// callName).
+func firstWord(r *stackResource) string {
+	word, _, _ := strings.Cut(callName(r.resourceType+"."+r.label), "_")
+	return word
+}
+
+// commonWord returns the first word (see firstWord) most of resources
+// have; the first in order of a tie.
+func commonWord(resources []*stackResource) string {
+	counts := map[string]int{}
+	for _, r := range resources {
+		counts[firstWord(r)]++
+	}
+	best := ""
+	for _, w := range slices.Sorted(maps.Keys(counts)) {
+		if best == "" || counts[w] > counts[best] {
+			best = w
+		}
+	}
+	return best
 }
 
 // nameVariables collects the variables of the merged root, makes their
@@ -391,8 +528,10 @@ func (m *stackMerge) nameVariables() {
 			}
 		})
 	}
+	deploys := map[*envVariable]bool{}
 	for _, r := range m.resources {
-		if r.deploy != nil {
+		if r.deploy != nil && !deploys[r.deploy] {
+			deploys[r.deploy] = true
 			variables = append(variables, r.deploy)
 		}
 		if r.body != nil {
@@ -405,16 +544,7 @@ func (m *stackMerge) nameVariables() {
 	}
 	used := map[string]bool{importIDsVariableName: true, resourceGroupVariableName: true}
 	for _, v := range variables {
-		name := v.name
-		if _, rest, ok := strings.Cut(v.resourceType, "_"); ok && used[name] {
-			name = rest + "_" + v.name
-		}
-		unique := name
-		for n := 2; used[unique]; n++ {
-			unique = fmt.Sprintf("%s_%d", name, n)
-		}
-		used[unique] = true
-		v.name = unique
+		v.name = uniqueName(used, v.name, v.resourceType)
 		if !v.hasDefault {
 			v.setDefault(len(m.envs))
 		}
@@ -422,9 +552,26 @@ func (m *stackMerge) nameVariables() {
 	m.variables = variables
 }
 
+// uniqueName returns name, or where used has it, name after
+// resourceType's name without its provider, or with _2, _3, ... after
+// it, whichever first isn't in used; and records it there.
+func uniqueName(used map[string]bool, name, resourceType string) string {
+	if _, rest, ok := strings.Cut(resourceType, "_"); ok && used[name] {
+		name = rest + "_" + name
+	}
+	unique := name
+	for n := 2; used[unique]; n++ {
+		unique = fmt.Sprintf("%s_%d", name, n)
+	}
+	used[unique] = true
+	return unique
+}
+
 // render writes the value of each argument that isn't written as it is,
 // now that the variables have their names and local.naming_prefix its
-// workload; and adds the variables and data sources the values read.
+// workload; and adds the locals, variables and data sources the values
+// read. A template that is a resource's name (see isNameAttribute) and
+// holds the environment's token becomes a named local.
 func (m *stackMerge) render() {
 	var bodies []*mergedBody
 	for _, r := range m.resources {
@@ -444,12 +591,17 @@ func (m *stackMerge) render() {
 		}, nil)
 	}
 	m.workload = workloadOf(templates)
-	readsScope, readsGroup := false, false
-	for _, normal := range templates {
-		for _, t := range normal {
-			readsScope = readsScope || strings.Contains(string(t.Bytes), accountPlaceholder)
-			readsGroup = readsGroup || strings.Contains(string(t.Bytes), resourceGroupPlaceholder)
-		}
+	if m.workload != "" {
+		m.locals = append(m.locals, namedLocal{"naming_prefix", exprTokens(`"` + m.workload + `-${var.` + envVariableName + `}"`)})
+	}
+	if holds(templates, accountPlaceholder) {
+		dataSource, local, expr := scopeData(m.provider)
+		m.data = append(m.data, dataSource)
+		m.locals = append(m.locals, namedLocal{local, exprTokens(expr)})
+	}
+	if holds(templates, regionPlaceholder) {
+		m.data = append(m.data, regionData)
+		m.locals = append(m.locals, namedLocal{regionLocal, exprTokens("data." + regionData + ".region")})
 	}
 	for _, b := range bodies {
 		b.visit(func(a *mergedAttribute) {
@@ -463,10 +615,25 @@ func (m *stackMerge) render() {
 			}
 		}, nil)
 	}
-	if dataSource, _ := scopeData(m.provider); readsScope {
-		m.data = append(m.data, dataSource)
+	used := map[string]bool{}
+	for _, l := range m.locals {
+		used[l.name] = true
 	}
-	if readsGroup {
+	for _, r := range m.resources {
+		if r.body == nil {
+			continue
+		}
+		for _, a := range r.body.attributes {
+			if a.kind != templateValue || !isNameAttribute(r.resourceType, a.name) || !holds([]hclwrite.Tokens{a.normal}, envPlaceholder) {
+				continue
+			}
+			a.local = uniqueName(used, callName(r.resourceType+"."+r.label)+"_name", r.resourceType)
+			m.locals = append(m.locals, namedLocal{a.local, a.value})
+			a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: a.local}})
+			break
+		}
+	}
+	if holds(templates, resourceGroupPlaceholder) {
 		group := &envVariable{name: resourceGroupVariableName, what: "resource group of the environment", ty: cty.String, values: map[int]hclwrite.Tokens{}}
 		for e, n := range m.norms {
 			if n.group != "" {
@@ -477,6 +644,32 @@ func (m *stackMerge) render() {
 		m.variables = append(m.variables, group)
 	}
 	sort.Slice(m.variables, func(i, j int) bool { return m.variables[i].name < m.variables[j].name })
+}
+
+// holds reports whether the string literals of any of templates hold
+// placeholder.
+func holds(templates []hclwrite.Tokens, placeholder string) bool {
+	for _, tokens := range templates {
+		for _, t := range tokens {
+			if (t.Type == hclsyntax.TokenQuotedLit || t.Type == hclsyntax.TokenStringLit) && strings.Contains(string(t.Bytes), placeholder) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isNameAttribute reports whether attr of resourceType is the resource's
+// name: name, bucket or identifier, or <word>_name for a word of the
+// type, as function_name of aws_lambda_function.
+func isNameAttribute(resourceType, attr string) bool {
+	switch attr {
+	case "name", "bucket", "identifier":
+		return true
+	}
+	word, ok := strings.CutSuffix(attr, "_name")
+	_, rest, _ := strings.Cut(resourceType, "_")
+	return ok && slices.Contains(strings.Split(rest, "_"), word)
 }
 
 // presence is an expression that is true where the merged root has r:
@@ -491,13 +684,14 @@ func (m *stackMerge) presence(r *stackResource) hclwrite.Tokens {
 
 // renderTemplate returns a template value's placeholders as the merged
 // root reads them: <workload>-{env} as local.naming_prefix, {env} as
-// var.env, the scope from its data source, and the resource group from
-// its variable.
+// var.env, the scope and region from their locals, and the resource
+// group from its variable.
 func (m *stackMerge) renderTemplate(normal hclwrite.Tokens) hclwrite.Tokens {
-	_, scope := scopeData(m.provider)
+	_, scope, _ := scopeData(m.provider)
 	placeholders := strings.NewReplacer(
 		envPlaceholder, "${var."+envVariableName+"}",
-		accountPlaceholder, "${"+scope+"}",
+		accountPlaceholder, "${local."+scope+"}",
+		regionPlaceholder, "${local."+regionLocal+"}",
 		resourceGroupPlaceholder, "${var."+resourceGroupVariableName+"}",
 	)
 	return mapLiterals(normal, func(s string) string {
@@ -711,6 +905,11 @@ func (b *bodyMerger) attribute(in []envBody, path []string, prefix, name string)
 		b.refuse(fmt.Sprintf("its sensitive %s differs between the environments", at))
 		return nil
 	}
+	if !variables && present == len(in) {
+		if value, ok := b.m.envCondition(in, original); ok {
+			return &mergedAttribute{name: name, kind: conditionValue, value: value}
+		}
+	}
 	v := &envVariable{
 		name:         joinName(prefix, name),
 		resourceType: b.r.resourceType,
@@ -729,6 +928,79 @@ func (b *bodyMerger) attribute(in []envBody, path []string, prefix, name string)
 		}
 	}
 	return &mergedAttribute{name: name, kind: variableValue, variable: v}
+}
+
+// enumLike matches a string that looks like a value of an enum, such as
+// ACTIVE, PAY_PER_REQUEST or Enabled, rather than a free setting.
+var enumLike = regexp.MustCompile(`^([A-Z][A-Z0-9]*(_[A-Z0-9]+)*|[A-Z][a-z]+)$`)
+
+// envCondition returns values, those of bodies in, as a condition on
+// var.env, where they are literal booleans, or literal strings that look
+// like an enum's (see enumLike), of two values, one of which one
+// environment alone has: var.env == "<its token>" for true there and
+// false elsewhere (!= for false there), else var.env == "<its token>" ?
+// <its value> : <the others'>. Of two environments, that one is the one
+// with true, for booleans, else the last.
+func (m *stackMerge) envCondition(in []envBody, values []hclwrite.Tokens) (hclwrite.Tokens, bool) {
+	if len(in) < 2 {
+		return nil, false
+	}
+	literals := make([]cty.Value, len(values))
+	for i, v := range values {
+		lit, ok := literalValue(v)
+		if !ok || (lit.Type() != cty.Bool && (lit.Type() != cty.String || !enumLike.MatchString(lit.AsString()))) {
+			return nil, false
+		}
+		if i > 0 && !lit.Type().Equals(literals[0].Type()) {
+			return nil, false
+		}
+		literals[i] = lit
+	}
+	counts := map[string]int{}
+	for _, v := range values {
+		counts[exprKey(v)]++
+	}
+	var alone []int
+	for i, v := range values {
+		if counts[exprKey(v)] == 1 {
+			alone = append(alone, i)
+		}
+	}
+	if len(counts) != 2 || len(alone) == 0 {
+		return nil, false
+	}
+	odd := alone[len(alone)-1]
+	isBool := literals[odd].Type() == cty.Bool
+	if isBool && len(alone) == 2 && literals[alone[0]].True() {
+		odd = alone[0]
+	}
+	other := 0
+	if other == odd {
+		other = 1
+	}
+	token := m.norms[in[odd].env].token
+	if isBool {
+		op := "=="
+		if literals[odd].False() {
+			op = "!="
+		}
+		return exprTokens(fmt.Sprintf("var.%s %s %q", envVariableName, op, token)), true
+	}
+	return exprTokens(fmt.Sprintf("var.%s == %q ? %s : %s", envVariableName, token, strings.TrimSpace(string(values[odd].Bytes())), strings.TrimSpace(string(values[other].Bytes())))), true
+}
+
+// literalValue returns the value of tokens, an expression, where it is a
+// literal that isn't null.
+func literalValue(tokens hclwrite.Tokens) (cty.Value, bool) {
+	expr, diags := hclsyntax.ParseExpression(tokens.Bytes(), "", hcl.InitialPos)
+	if diags.HasErrors() || len(expr.Variables()) > 0 {
+		return cty.NilVal, false
+	}
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || !v.IsKnown() || v.IsNull() {
+		return cty.NilVal, false
+	}
+	return v, true
 }
 
 // reference merges values, an argument at that refers to resources: the
