@@ -5,6 +5,8 @@ package engine
 
 import (
 	"fmt"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,10 +33,11 @@ var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", VersionsFile
 // checkStandards checks a root, and the local modules it calls, against the
 // output standard: pinned Terraform, providers and modules; typed and
 // described variables and outputs; no legacy interpolation; no secret
-// variable with a default; none of the arguments omit leaves out; no state
-// files; only .tf files. Each finding names its rule. The organisation's
-// own modules in directories, own, are its to shape: the root's call of
-// one is checked, not the module.
+// variable with a default other than null; none of the arguments omit
+// leaves out; no state files; only .tf files, and under vars only a merged
+// root's var files (see checkVarFiles). Each finding names its rule. The
+// organisation's own modules in directories, own, are its to shape: the
+// root's call of one is checked, not the module.
 func checkStandards(dir string, omit map[string][]string, own []string) (Check, error) {
 	check := Check{Name: CheckStandards, Passed: true}
 	fail := func(rule, format string, args ...any) {
@@ -43,6 +46,9 @@ func checkStandards(dir string, omit map[string][]string, own []string) (Check, 
 	}
 	modules, err := standardsIn(dir, dir, true, omit, fail)
 	if err != nil {
+		return check, err
+	}
+	if err := checkVarFiles(dir, fail); err != nil {
 		return check, err
 	}
 	sort.Strings(modules)
@@ -174,7 +180,9 @@ func checkTerraformBlock(b *hclsyntax.Block, root bool, where func(hcl.Range) st
 	return ok
 }
 
-// checkVariable: typed, described, and no default for a sensitive one.
+// checkVariable: typed, described, and no default for a sensitive one but
+// null, which persists no secret: a merged root's, for the environments
+// that don't set it (see writeMergedRoot).
 func checkVariable(b *hclsyntax.Block, where func(hcl.Range) string, fail func(rule, format string, args ...any)) {
 	name := b.Labels[0]
 	if _, ok := b.Body.Attributes["type"]; !ok {
@@ -185,11 +193,83 @@ func checkVariable(b *hclsyntax.Block, where func(hcl.Range) string, fail func(r
 	}
 	if s, ok := b.Body.Attributes["sensitive"]; ok {
 		if v, diags := s.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.Bool && v.True() {
-			if _, ok := b.Body.Attributes["default"]; ok {
+			if d, ok := b.Body.Attributes["default"]; ok && !isNull(d.Expr) {
 				fail("secret-persisted-to-state", "%s: sensitive variable %s has a default", where(b.DefRange()), name)
 			}
 		}
 	}
+}
+
+// isNull reports whether expr is null.
+func isNull(expr hclsyntax.Expression) bool {
+	v, diags := expr.Value(nil)
+	return !diags.HasErrors() && v.IsNull()
+}
+
+// varsDirName is the directory of a merged root's var files (see
+// writeMergedRoot).
+const varsDirName = "vars"
+
+// checkVarFiles checks the vars directory of dir, where a merged root
+// keeps the values each environment sets (see writeMergedRoot): only
+// .tfvars and .hcl files, each of which parses, and none that sets a
+// variable the root declares sensitive.
+func checkVarFiles(dir string, fail func(rule, format string, args ...any)) error {
+	vars := filepath.Join(dir, varsDirName)
+	if info, err := os.Stat(vars); err != nil || !info.IsDir() {
+		return nil
+	}
+	sensitive, err := sensitiveVariables(dir)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(vars, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		name := rel(dir, path)
+		if !strings.HasSuffix(name, ".tfvars") && !strings.HasSuffix(name, ".hcl") {
+			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, varsDirName)
+			return nil
+		}
+		f, err := loadHCL(path)
+		if err != nil {
+			fail("invalid-var-file", "%s doesn't parse", name)
+			return nil
+		}
+		if !strings.HasSuffix(name, ".tfvars") {
+			return nil
+		}
+		for _, v := range slices.Sorted(maps.Keys(f.syntax.Attributes)) {
+			if sensitive[v] {
+				fail("secret-in-var-file", "%s:%d: sets %s, a sensitive variable, which belongs outside the files", name, f.syntax.Attributes[v].SrcRange.Start.Line, v)
+			}
+		}
+		return nil
+	})
+}
+
+// sensitiveVariables returns the variables the root in dir declares
+// sensitive.
+func sensitiveVariables(dir string) (map[string]bool, error) {
+	files, err := configFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	sensitive := map[string]bool{}
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type != "variable" || len(b.Labels) != 1 {
+				continue
+			}
+			if s, ok := b.Body.Attributes["sensitive"]; ok {
+				if v, diags := s.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.Bool && v.True() {
+					sensitive[b.Labels[0]] = true
+				}
+			}
+		}
+	}
+	return sensitive, nil
 }
 
 // checkModuleCall checks a module call's version pin, and returns the

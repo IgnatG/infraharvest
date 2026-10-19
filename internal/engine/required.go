@@ -33,6 +33,11 @@ var features = []struct {
 	since, tofu string
 	uses        func(b *hclsyntax.Block) bool
 }{
+	// Import blocks whose ID is an expression, such as a variable.
+	{"1.6.0", "", func(b *hclsyntax.Block) bool {
+		id, ok := b.Body.Attributes["id"]
+		return b.Type == "import" && ok && len(id.Expr.Variables()) > 0
+	}},
 	// Import blocks with for_each, and removed blocks.
 	{"1.7.0", "", func(b *hclsyntax.Block) bool {
 		_, forEach := b.Body.Attributes["for_each"]
@@ -77,22 +82,10 @@ func requireMinimumVersion(dir string) error {
 	if err != nil {
 		return err
 	}
-	need := MinimumVersion
+	need := featuresNeed(files)
 	raise := func(v *version.Version) {
 		if v != nil && v.GreaterThan(need) {
 			need = v
-		}
-	}
-	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
-			for _, feature := range features {
-				if feature.uses(b) {
-					raise(version.Must(version.NewVersion(feature.since)))
-					if feature.tofu != "" {
-						raise(version.Must(version.NewVersion(feature.tofu)))
-					}
-				}
-			}
 		}
 	}
 	modules, err := installedModules(dir)
@@ -133,6 +126,28 @@ func requireMinimumVersion(dir string) error {
 		return nil
 	}
 	return versions.save()
+}
+
+// featuresNeed returns the oldest release the blocks of files work with:
+// MinimumVersion, or the release that brought a feature they use, or
+// OpenTofu's where later (see features).
+func featuresNeed(files []*hclFile) *version.Version {
+	need := MinimumVersion
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			for _, feature := range features {
+				if !feature.uses(b) {
+					continue
+				}
+				for _, since := range []string{feature.since, feature.tofu} {
+					if v, err := version.NewVersion(since); err == nil && v.GreaterThan(need) {
+						need = v
+					}
+				}
+			}
+		}
+	}
+	return need
 }
 
 // shortVersion writes v as major.minor, with the patch only if it isn't 0.

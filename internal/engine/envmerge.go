@@ -30,6 +30,7 @@ const (
 // variables each environment sets.
 type stackMerge struct {
 	provider string
+	roots    []envRoot
 	envs     []string      // the environments, as the roots are
 	norms    []*normaliser // by environment
 	index    []map[string]*envResource
@@ -214,7 +215,7 @@ func (v *envVariable) tfvars(env int) (hclwrite.Tokens, bool) {
 // by a deploy_ variable (see features), and names the variables, with their defaults (see
 // envVariable.setDefault).
 func mergeStack(provider string, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
-	m := &stackMerge{provider: provider, schemas: schemas}
+	m := &stackMerge{provider: provider, roots: roots, schemas: schemas}
 	dataSource, _, _ := scopeData(provider)
 	for _, root := range roots {
 		m.envs = append(m.envs, root.env)

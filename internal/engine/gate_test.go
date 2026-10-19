@@ -457,3 +457,65 @@ func TestValueMatcher(t *testing.T) {
 		t.Error("a matcher of no values matched")
 	}
 }
+
+// G4 accepts a merged root's var files and fails others under vars, and
+// var files that set a sensitive variable; G6 fails a secret value a var
+// file sets.
+func TestGateVarFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, VariablesFileName, `variable "db_password" {
+  description = "The password."
+  type        = string
+  sensitive   = true
+}
+
+variable "api_token" {
+  description = "A token."
+  type        = string
+  default     = null
+}
+`)
+	for name, content := range map[string]string{
+		"vars/common.tfvars":         "# nothing\n",
+		"vars/prod/terraform.tfvars": "db_password = \"x\"\napi_token = \"ghp_" + strings.Repeat("a1", 18) + "\"\n",
+		"vars/prod/backend.hcl":      "bucket = \"shop-tfstate\"\n",
+		"vars/prod/notes.txt":        "notes\n",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	standards, err := checkStandards(dir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := strings.Join(standards.Details, "\n")
+	for _, want := range []string{
+		"secret-in-var-file: vars/prod/terraform.tfvars:1: sets db_password",
+		"unexpected-var-file: vars/prod/notes.txt",
+	} {
+		if !strings.Contains(details, want) {
+			t.Errorf("G4 doesn't report %s:\n%s", want, details)
+		}
+	}
+	if strings.Contains(details, "backend.hcl") || strings.Contains(details, "common.tfvars") {
+		t.Errorf("G4 reports a var file of a merged root:\n%s", details)
+	}
+	secrets, err := scanSecrets(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(secrets.Details, "\n"), "vars/prod/terraform.tfvars: api_token holds a secret value") {
+		t.Errorf("G6 doesn't find the token the var file sets: %+v", secrets)
+	}
+	for _, rel := range []string{"terraform.tfvars", "vars.tfvars", "vars/prod/main.tf"} {
+		if isVarFile(rel) {
+			t.Errorf("%s is taken for a merged root's var file", rel)
+		}
+	}
+}
