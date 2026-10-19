@@ -295,10 +295,18 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return nil, err
 	}
 	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, importID)
-	pattern := withEnvLayout(options.Layout, options.EnvTags)
-	if options.Layout, err = rootLayout(ctx, provider, pattern); err != nil {
+	// The configuration file's environments of the scope, if any; none
+	// keeps the layout as without them.
+	envNames := run.environments.For(providerDir(provider), scopeAccount(scope))
+	pattern := withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(envNames) > 0)
+	// Where the roots would be without the file's environments, for those
+	// an earlier import generated there, which stay (see keptRoots).
+	layouts, err := rootLayouts(ctx, provider, pattern, withEnvLayout(options.Layout, len(options.EnvTags) > 0))
+	if err != nil {
 		return nil, err
 	}
+	options.Layout = layouts[0]
+	unsplitLayout := layouts[1]
 
 	cacheDir, err := infraharvestCacheDir()
 	if err != nil {
@@ -349,25 +357,41 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	opts.KeepOwned = keptOwned(selected, listed, importID)
 	opts.External = leftOut
 	opts.Adapters, opts.ModulesDir = moduleOptions(options.Modules, options.Out, moduleAdapters)
-	envOf := func(harvest.Resource) string { return "" }
-	if strings.Contains(options.Layout, "{env}") {
+	unplaced := func(harvest.Resource) string { return "" }
+	byEnvTags := func(layout string) func(harvest.Resource) string {
+		if !strings.Contains(layout, "{env}") {
+			return unplaced
+		}
 		keys := options.EnvTags
 		if len(keys) == 0 {
 			keys = defaultEnvTags
 		}
-		envs := environments(resourcesByService, listed.tags, keys, parents, importID)
-		envOf = func(r harvest.Resource) string { return envs[tagKey(r)] }
+		envs := environments(resourcesByService, listed.tags, byTagKeys(keys), parents, importID)
+		return func(r harvest.Resource) string { return envs[tagKey(r)] }
+	}
+	envOf := byEnvTags(options.Layout)
+	if len(envNames) > 0 {
+		envOf = configuredEnvOf(run.environments, envNames, resourcesByService, listed.tags, parents, importID)
+	}
+	dirOf := layoutDirs(options.Layout, options.Out, providerDir(provider), envOf)
+	var kept *keptRoots
+	if len(envNames) > 0 {
+		kept = newKeptRoots(options.Out)
+		dirOf = kept.dirs(dirOf, layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout)), envOf)
 	}
 	nameOf := resourceNames(provider.Name(), listed, resourcesByService)
 	fileOf := func(service string, r harvest.Resource) string {
 		return configFile(provider.Name(), service, r.Address.Type, cat)
 	}
-	byDir, skipped := importsByDir(providerDir(provider), provider.Name(), options, resourcesByService, importID, envOf, nameOf, fileOf)
+	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
 	withResourceOmissions(byDir, resourcesByService, cat, importID)
 
 	run.used = true
 	run.options = options
 	run.report.TagKeys = options.ReportTags
+	if kept != nil {
+		run.report.KeptRoots = append(run.report.KeptRoots, kept.report(scope)...)
+	}
 	// Each call adds what it selected: another region's may hold the
 	// provider back, or find other modules.
 	run.report.Add(report.Manifest{
@@ -911,17 +935,26 @@ func checkFilters(options Options) error {
 	return nil
 }
 
+// layoutDirs returns the root of each resource of a service, by layout
+// (see rootLayouts) under out, with dirName for {provider} and envOf for
+// {env}.
+func layoutDirs(layout, out, dirName string, envOf func(harvest.Resource) string) func(service string, r harvest.Resource) string {
+	return func(service string, r harvest.Resource) string {
+		return rootDir(layout, rootValues{out: out, provider: dirName, service: service, env: envOf(r)})
+	}
+}
+
 // importsByDir groups resources into import blocks per output directory,
-// following --layout with dirName for {provider}, each named by nameOf and
-// in the file fileOf names. providerName is the Terraform provider the
-// roots declare. It leaves out, logs and counts by type resources Terraform
-// can't import.
-func importsByDir(dirName, providerName string, options Options, resourcesByService map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool), envOf, nameOf func(harvest.Resource) string, fileOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
+// the root dirOf names for each, each named by nameOf and in the file
+// fileOf names. providerName is the Terraform provider the roots declare.
+// It leaves out, logs and counts by type resources Terraform can't
+// import.
+func importsByDir(providerName string, resourcesByService map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool), dirOf func(service string, r harvest.Resource) string, nameOf func(harvest.Resource) string, fileOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
 	byDir := map[string][]engine.Import{}
 	skipped := map[string]int{}
 	for service, resources := range resourcesByService {
 		for _, r := range resources {
-			dir := rootDir(options.Layout, rootValues{out: options.Out, provider: dirName, service: service, env: envOf(r)})
+			dir := dirOf(service, r)
 			id, ok := importID(r)
 			if !ok {
 				skipped[r.Address.Type]++
@@ -1200,28 +1233,37 @@ const BackendFileName = "backend.tf"
 // account (or subscription or project), then region or global.
 const DefaultLayout = "{out}/{provider}/{account}/{region}/"
 
-// rootLayout returns the layout of the roots: pattern, or
-// DefaultLayout if empty, with {account} and {region} filled in
-// from the provider.
-func rootLayout(ctx context.Context, provider harvest.Provider, pattern string) (string, error) {
-	if pattern == "" {
-		pattern = DefaultLayout
-	}
-	if !strings.Contains(pattern, "{account}") && !strings.Contains(pattern, "{region}") {
-		return pattern, nil
-	}
-	account, region := "default", "default"
-	if withScope, ok := provider.(harvest.ProviderWithScope); ok {
-		var err error
-		if account, region, err = withScope.Scope(ctx); err != nil {
-			return "", err
+// rootLayouts returns the layout of the roots of each of patterns: the
+// pattern, or DefaultLayout if empty, with {account} and {region} filled
+// in from the provider, which is asked for its scope once.
+func rootLayouts(ctx context.Context, provider harvest.Provider, patterns ...string) ([]string, error) {
+	layouts := make([]string, len(patterns))
+	var scope *strings.Replacer
+	for i, pattern := range patterns {
+		if pattern == "" {
+			pattern = DefaultLayout
 		}
+		if !strings.Contains(pattern, "{account}") && !strings.Contains(pattern, "{region}") {
+			layouts[i] = pattern
+			continue
+		}
+		if scope == nil {
+			account, region := "default", "default"
+			if withScope, ok := provider.(harvest.ProviderWithScope); ok {
+				var err error
+				if account, region, err = withScope.Scope(ctx); err != nil {
+					return nil, err
+				}
+			}
+			scope = strings.NewReplacer("{account}", account, "{region}", region)
+		}
+		layouts[i] = scope.Replace(pattern)
 	}
-	return strings.NewReplacer("{account}", account, "{region}", region).Replace(pattern), nil
+	return layouts, nil
 }
 
 // rootValues are what the placeholders of a --layout stand for in one
-// root, besides {account} and {region}, which rootLayout fills in
+// root, besides {account} and {region}, which rootLayouts fills in
 // first.
 type rootValues struct {
 	out, provider, service, env string

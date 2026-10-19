@@ -50,6 +50,9 @@ type File struct {
 	// resources move into before the curated public ones (see
 	// adapters.Generic).
 	Modules []Module `yaml:"modules,omitempty"`
+	// Environments are the estate's environments: each gets roots of its
+	// own, under {out}/envs/<name>/ (see Environments.For).
+	Environments Environments `yaml:"environments,omitempty"`
 }
 
 // Module is a module of the organisation's own, at a pinned version: a git
@@ -110,6 +113,9 @@ func Load(file string) (*File, error) {
 	}
 	if err := f.Backend.check(); err != nil {
 		return nil, fmt.Errorf("%s: backend: %w", file, err)
+	}
+	if err := f.Environments.check(); err != nil {
+		return nil, fmt.Errorf("%s: environments: %w", file, err)
 	}
 	for i, m := range f.Modules {
 		resolved, err := m.check(filepath.Dir(file))

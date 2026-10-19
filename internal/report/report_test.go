@@ -423,3 +423,33 @@ func TestNotInCloud(t *testing.T) {
 		t.Errorf("a report with nothing gone has the section:\n%s", md)
 	}
 }
+
+// The roots kept where they were are merged by path, from every call and
+// child report that kept them, and listed in the report.
+func TestKeptRoots(t *testing.T) {
+	t.Parallel()
+	r := &Report{KeptRoots: []KeptRoot{{Path: "aws/2/us-east-1", Environments: []string{"prod"}, Scope: "aws/2/us-east-1"}}}
+	child := &Report{KeptRoots: []KeptRoot{
+		{Path: "aws/1/us-east-1", Environments: []string{"shared", "dev"}, Scope: "aws/1/us-east-1"},
+		{Path: "aws/1/us-east-1", Environments: []string{"dev", "a"}, Scope: "aws/1/us-east-1"},
+	}}
+	r.Merge(child)
+	r.Finish(nil, nil, false)
+	want := []KeptRoot{
+		{Path: "aws/1/us-east-1", Environments: []string{"a", "dev", "shared"}, Scope: "aws/1/us-east-1"},
+		{Path: "aws/2/us-east-1", Environments: []string{"prod"}, Scope: "aws/2/us-east-1"},
+	}
+	if !reflect.DeepEqual(r.KeptRoots, want) {
+		t.Errorf("got %+v, want %+v", r.KeptRoots, want)
+	}
+	if got := child.KeptRoots[0].Environments; !reflect.DeepEqual(got, []string{"shared", "dev"}) {
+		t.Errorf("the child's report changed: %v", got)
+	}
+	md := r.Markdown()
+	if !strings.Contains(md, "## Kept where they were") || !strings.Contains(md, "- `aws/1/us-east-1`, of a, dev, shared") {
+		t.Errorf("report.md:\n%s", md)
+	}
+	if strings.Contains((&Report{}).Markdown(), "Kept where they were") {
+		t.Error("a report with no kept roots has the section")
+	}
+}

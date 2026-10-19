@@ -52,6 +52,9 @@ type Run struct {
 	backend *config.Backend
 	// modules are the organisation's own modules, if configured.
 	modules []config.Module
+	// environments are the estate's environments, if configured (see
+	// config.Environments).
+	environments config.Environments
 	// shared is what the run and its children work out once.
 	shared *shared
 	// OpenPicker opens the picker on the selection file discover writes,
@@ -232,11 +235,12 @@ func couldNotRun(err, writeErr error) error {
 
 // child returns a run for one of several accounts or projects of r's
 // command, imported alongside the others (see ImportEach): it shares r's
-// selection file, state backend, lock file and modules, and keeps
-// everything else to itself until r merges it.
+// selection file, state backend, lock file, modules and environments,
+// and keeps everything else to itself until r merges it.
 func (r *Run) child() *Run {
 	c := NewRun()
 	c.selection, c.backend, c.lock, c.modules, c.shared = r.selection, r.backend, r.lock, r.modules, r.shared
+	c.environments = r.environments
 	return c
 }
 
@@ -269,7 +273,7 @@ func (r *Run) merge(child *Run) {
 }
 
 // ApplyConfig applies the configuration file at path to the command's
-// flags, and keeps its backend and modules for the run.
+// flags, and keeps its backend, modules and environments for the run.
 func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string) error {
 	f, err := config.Load(path)
 	if err != nil {
@@ -278,8 +282,12 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string) err
 	if err := f.Apply(flags, command); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
+	if err := checkEnvironmentFlags(f, flags); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
 	r.backend = f.Backend
 	r.modules = f.Modules
+	r.environments = f.Environments
 	return nil
 }
 
