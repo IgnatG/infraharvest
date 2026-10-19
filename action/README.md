@@ -141,7 +141,7 @@ Set the roots' secret variables as `TF_VAR_<name>` in the job's `env`, from your
 
 ## Permissions for drift
 
-Drift needs what your own `terraform plan` of the roots needs: the read-only access the import uses ([permissions/](../permissions)), to refresh the resources, and read access to each root's state, from the backend in its `backend.tf`.
+Drift needs what your own `terraform plan` of the roots needs: the read-only access the import uses ([permissions/](../permissions)), to refresh the resources, and read access to each root's state, from the backend in its `backend.tf`. The templates `permissions/aws-drift`, `permissions/azure-drift` and `permissions/google-drift` grant both; the sections below say what they grant.
 
 Every plan runs with `-lock=false`. Taking the state's lock writes to the backend (a `.tflock` object in S3 or GCS, a lease on the azurerm blob), and drift never writes the state, so read access is enough. The catch: a plan that doesn't lock can read the state while an apply is writing it, and report as drift what that apply is changing. Keep drift and your applies apart, such as with the same `concurrency` group as above, and if a report taken during an apply looks wrong, run it again once the apply has finished.
 
@@ -173,7 +173,7 @@ The role needs `s3:ListBucket` on the state bucket and `s3:GetObject` on the roo
 
 If the backend sets `kms_key_id`, the role needs `kms:Decrypt` on that key too, to read the encrypted state.
 
-The `infraharvest-readonly` role from [permissions/aws](../permissions/aws) explicitly denies `s3:GetObject` and `kms:Decrypt` everywhere ([`deny-data-reads.json`](../permissions/aws/deny-data-reads.json)), and an explicit deny wins over any allow. The state holds secrets, so give drift a role of its own, `infraharvest-drift` above: `ReadOnlyAccess`, the policy above, and a copy of `deny-data-reads.json` that leaves the three `s3:GetObject` actions and `kms:Decrypt` out of its first statement and denies them everywhere but the state instead:
+[permissions/aws-drift](../permissions/aws-drift) creates the role this section describes. The `infraharvest-readonly` role from [permissions/aws](../permissions/aws) explicitly denies `s3:GetObject` and `kms:Decrypt` everywhere ([`deny-data-reads.json`](../permissions/aws/deny-data-reads.json)), and an explicit deny wins over any allow. The state holds secrets, so give drift a role of its own, `infraharvest-drift` above: `ReadOnlyAccess`, the policy above, and a copy of `deny-data-reads.json` that leaves the three `s3:GetObject` actions and `kms:Decrypt` out of its first statement and denies them everywhere but the state instead:
 
 ```json
     {
