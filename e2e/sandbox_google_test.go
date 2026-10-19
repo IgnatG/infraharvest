@@ -753,9 +753,12 @@ func checkGoogleDisks(t *testing.T, coverage report.Report, created []*tfjson.St
 // checkGoogleDrift does what a team does when someone changes a resource
 // of an applied root outside Terraform: it applies the global root, which
 // has the estate's topic, in a copy of the output, as the fixture service
-// account, as checkApplied does; adds a drift label to the topic, as the
-// fixture service account; and runs infraharvest drift on the root, as
-// the read-only one. Drift must report the label as kept, exit with 4
+// account, as checkApplied does; gives the topic another value of its
+// project label, which the code sets through the provider's
+// default_labels, as the fixture service account; and runs infraharvest
+// drift on the root, as the read-only one. A label the code doesn't set
+// at all would be absorbed: the google provider manages only the labels
+// the code sets. Drift must report the label as kept, exit with 4
 // with --detailed-exitcode, and leave the code as it was; accepted, the
 // label must be written into the code, which then plans no change but to
 // the labels the provider keeps only in state. Only the topic, a resource
@@ -777,12 +780,12 @@ func (s *googleSandbox) checkGoogleDrift(ctx context.Context, t *testing.T, esta
 	code := codeFiles(t, work)
 	d := drift.mustExit(t, report.ExitDrift, "--root", filepath.ToSlash(rel), "--detailed-exitcode")
 	checkCodeUnchanged(t, "drift", code, work)
-	checkDriftChange(t, "drift", driftChange(t, "drift", d, "google_pubsub_topic", "labels.drift"), "<nil>", "reported", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+	checkDriftChange(t, "drift", driftChange(t, "drift", d, "google_pubsub_topic", "labels.project"), "infraharvest-sandbox", "reported", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
 
 	d = drift.mustExit(t, report.ExitOK, "--root", filepath.ToSlash(rel), "--accept", "type=google_pubsub_topic")
-	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "google_pubsub_topic", "labels.drift"), "<nil>", "reported", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
-	if !codeMatches(t, work, `drift\s*=\s*"reported"`) {
-		t.Errorf("drift --accept: the code doesn't have the topic's label drift = \"reported\"")
+	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "google_pubsub_topic", "labels.project"), "infraharvest-sandbox", "reported", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	if !codeMatches(t, work, `project\s*=\s*"reported"`) {
+		t.Errorf("drift --accept: the code doesn't have the topic's label project = \"reported\"")
 	}
 	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
 }
