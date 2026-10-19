@@ -34,7 +34,7 @@ func TestGoogleRegenerateMoves(t *testing.T) {
 			"--engine=" + e.engineName,
 			"--terraform-path=" + e.execPath,
 			"--projects=" + googleProject,
-			"--services=gcs",
+			"--services=cloud_asset",
 			"--regions=global,us-central1",
 			"--env-tags=env",
 			// No module calls: each bucket is a resource of the root, at

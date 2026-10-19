@@ -196,3 +196,39 @@ func sortByJSON(values []any) {
 		values[i] = e.value
 	}
 }
+
+// driftSameValue reports whether before and after hold the same value: equal,
+// or maps and lists whose values are the same value in turn, with JSON
+// documents compared by equivalentJSON. A map whose only difference is a
+// reformatted policy is then the same map, as its attribute is.
+func driftSameValue(before, after any) bool {
+	if reflect.DeepEqual(before, after) {
+		return true
+	}
+	switch b := before.(type) {
+	case map[string]any:
+		a, ok := after.(map[string]any)
+		if !ok || len(a) != len(b) {
+			return false
+		}
+		for k, v := range b {
+			w, ok := a[k]
+			if !ok || !driftSameValue(v, w) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		a, ok := after.([]any)
+		if !ok || len(a) != len(b) {
+			return false
+		}
+		for i := range b {
+			if !driftSameValue(b[i], a[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return equivalentJSON(before, after)
+}
