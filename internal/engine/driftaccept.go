@@ -52,21 +52,27 @@ func decideDrift(changes []DriftChange, sources []Source, accept func(DriftChang
 }
 
 // settleDrift sets the outcome of each change failed has the source of,
-// one the edits couldn't take, and returns the others of changes.
-func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) []*DriftChange {
+// one the edits couldn't take, and returns the others of changes, and
+// whether it unshared a change of shared tags (see unshare), whose
+// members it returns in its place.
+func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) ([]*DriftChange, bool) {
 	var left []*DriftChange
+	unshared := false
 	for _, c := range changes {
 		src, ok := failed[c]
 		switch {
 		case !ok:
 			left = append(left, c)
+		case c.shared != nil:
+			left = append(left, unshare(c, src.Reason)...)
+			unshared = true
 		case src.Secret:
 			c.Outcome, c.Reason = DriftSecret, src.Reason
 		default:
 			c.Outcome, c.Reason = DriftManual, src.Reason
 		}
 	}
-	return left
+	return left, unshared
 }
 
 // acceptDrift takes the cloud's values of accepted into the code of the
@@ -77,7 +83,9 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) []*Drif
 // the code had, code, but on what is secret or kept only in state; every
 // other resource must plan what code has it plan (see changeSignature),
 // which an edit of a local others use would break. The edits the plan
-// blames are left out (see judgeDrift), and the others planned again.
+// blames are left out (see judgeDrift), and the others planned again;
+// a change of shared tags whose edit is blamed, or can't be made, is
+// accepted at each resource it covers instead (see unshare).
 // Then the edited files must pass the format, validate, standards,
 // moves and secrets checks. Only then are the edits made in the root's
 // own files, which are restored if writing one fails. Each accepted
@@ -113,8 +121,13 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		if err != nil {
 			return err
 		}
-		if pending = settleDrift(pending, failed); len(pending) == 0 {
+		var unshared bool
+		if pending, unshared = settleDrift(pending, failed); len(pending) == 0 {
 			break
+		}
+		if unshared {
+			// Its members are edited in the next round.
+			continue
 		}
 		for _, name := range names {
 			written[name] = true
@@ -138,6 +151,11 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		var left []*DriftChange
 		for _, c := range pending {
 			if reason, ok := rejected[c]; ok {
+				if c.shared != nil {
+					// Each resource it covers is edited on its own instead.
+					left = append(left, unshare(c, reason)...)
+					continue
+				}
 				c.Outcome, c.Reason = DriftRejectedByPlan, reason
 				continue
 			}
@@ -210,9 +228,10 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // the plan of the code, code, didn't change, but for what is secret or
 // kept only in state, or a key of its own tags or labels that only the
 // state records (see recordedTagLeaves); or another resource planning
-// other than code has it, which the edits of locals are blamed for first, then those of the
-// resources it refers to, else all of them. Reasons have the values of
-// forms redacted.
+// other than code has it, which the edits of locals and of shared tags
+// are blamed for first, then those of the resources it refers to, else
+// all of them. A change of shared tags is judged on every resource it
+// covers. Reasons have the values of forms redacted.
 func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]Source, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
 	rejected := map[*DriftChange]string{}
 	reject := func(c *DriftChange, reason string) {
@@ -253,6 +272,12 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	}
 	byAddress := map[string][]*DriftChange{}
 	for _, c := range pending {
+		if c.shared != nil {
+			for _, a := range c.Covers {
+				byAddress[a] = append(byAddress[a], c)
+			}
+			continue
+		}
 		byAddress[c.Address] = append(byAddress[c.Address], c)
 	}
 	var leaked []string
@@ -307,7 +332,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	reason := "the edit changes what the plan does to " + strings.Join(leaked, ", ") + " too"
 	blamed := false
 	for _, c := range pending {
-		if sources[c].Kind == SourceLocal {
+		if k := sources[c].Kind; k == SourceLocal || k == SourceSharedTags {
 			reject(c, reason)
 			blamed = true
 		}
@@ -347,6 +372,12 @@ func planLeaves(rc *tfjson.ResourceChange, stateOnly map[string][]string) []valu
 // diagnosticOf reports whether d is about the edit of c, made as src
 // says in contents: in its resource, or in the file and block it edits.
 func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src Source, contents map[string][]byte) bool {
+	if c.shared != nil {
+		if d.Address != "" {
+			return slices.ContainsFunc(c.Covers, func(a string) bool { return trimInstanceKey(a) == trimInstanceKey(d.Address) })
+		}
+		return d.Range != nil && src.Edit != nil && filepath.Base(d.Range.Filename) == src.Edit.File
+	}
 	if d.Address != "" {
 		return trimInstanceKey(d.Address) == trimInstanceKey(c.Address)
 	}
