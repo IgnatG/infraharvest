@@ -325,7 +325,9 @@ jobs:
   # its own, with its own Floci. The options tests (TestAWSOptions*), which
   # import testdata/aws-options in an account of their own many times
   # over, run on two more: those of the output (layout, modules, verify)
-  # and those of what is imported (report, filters, exit codes). The
+  # and those of what is imported (report, filters, exit codes). The drift
+  # test (TestAWSDrift), which applies and changes its estate many times
+  # over, runs on another. The
   # other tests (TestAWSParallelAccounts, TestAWSParallelRegions and
   # TestAWSRegenerateMoves, which create their resources in other
   # accounts) share a last one.
@@ -339,7 +341,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, selection, incremental, options-output, options-input, others]
+        shard: [round-trip, selection, incremental, options-output, options-input, drift, others]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
@@ -356,9 +358,12 @@ jobs:
         - shard: options-input
           run: ^TestAWSOptions(Report|Filters|ExitCodes)$
           skip: ""
+        - shard: drift
+          run: ^TestAWSDrift$
+          skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*)$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -403,9 +408,10 @@ jobs:
       if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,aws ./e2e/
 
-  # TestGoogleIncremental adds to the estate the other tests import, so it
-  # runs on a runner of its own, with its own floci-gcp, as does the round
-  # trip; the other tests share a third.
+  # TestGoogleIncremental adds to the estate the other tests import, and
+  # TestGoogleDrift changes it, so each runs on a runner of its own, with
+  # its own floci-gcp, as does the round trip; the other tests share a
+  # fourth.
   e2e-google:
     name: e2e-google (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
@@ -416,7 +422,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, incremental, others]
+        shard: [round-trip, incremental, drift, others]
         include:
         - shard: round-trip
           run: ^TestGoogleRoundTrip$
@@ -424,9 +430,12 @@ jobs:
         - shard: incremental
           run: ^TestGoogleIncremental$
           skip: ""
+        - shard: drift
+          run: ^TestGoogleDrift$
+          skip: ""
         - shard: others
           run: ^TestGoogle
-          skip: ^TestGoogle(RoundTrip|Incremental)$
+          skip: ^TestGoogle(RoundTrip|Incremental|Drift)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -462,9 +471,10 @@ jobs:
       if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,google ./e2e/
 
-  # TestAzureIncremental adds to the estate the other tests import, so it
-  # runs on a runner of its own, with its own floci-az, as does the round
-  # trip; the other tests share a third.
+  # TestAzureIncremental adds to the estate the other tests import, and
+  # TestAzureDrift changes it, so each runs on a runner of its own, with
+  # its own floci-az, as does the round trip; the other tests share a
+  # fourth.
   e2e-azure:
     name: e2e-azure (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
@@ -475,7 +485,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, incremental, others]
+        shard: [round-trip, incremental, drift, others]
         include:
         - shard: round-trip
           run: ^TestAzureRoundTrip$
@@ -483,9 +493,12 @@ jobs:
         - shard: incremental
           run: ^TestAzureIncremental$
           skip: ""
+        - shard: drift
+          run: ^TestAzureDrift$
+          skip: ""
         - shard: others
           run: ^TestAzure
-          skip: ^TestAzure(RoundTrip|Incremental)$
+          skip: ^TestAzure(RoundTrip|Incremental|Drift)$
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
