@@ -6,12 +6,13 @@ name: action-test
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against Floci, a local AWS emulator: no AWS account is involved. It also
 # runs when the CLI changes, since the action relies on its flags, report
-# path and exit codes.
+# path and exit codes, and checks drift on the roots once they're applied.
 on:
   pull_request:
     paths:
       - action/**
       - internal/cli/**
+      - internal/engine/drift*.go
       - internal/importer/**
       - internal/report/**
       - main.go
@@ -73,8 +74,20 @@ jobs:
           test "$EXIT_CODE" = 0
           test -f "$REPORT"
           grep -r --include=imports.tf "aws_sqs_queue" "$RUNNER_TEMP/out"
+      # Drift needs applied roots: apply them with local state, then change
+      # the queue in the emulator, as someone would in the console.
+      - name: Apply the roots and tag the queue
+        run: |
+          find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' | while IFS= read -r file; do
+            root=$(dirname "$file")
+            terraform -chdir="$root" init -input=false
+            terraform -chdir="$root" apply -input=false -auto-approve
+          done
+          url=$(aws sqs get-queue-url --queue-name infraharvest-action --query QueueUrl --output text)
+          aws sqs tag-queue --queue-url "$url" --tags Drift=console
       # A scheduled run on a fresh checkout: the roots are there, infraharvest's
-      # checkpoints (gitignored) are not, and a queue is new.
+      # checkpoints (gitignored) are not, and a queue is new. Drift is checked
+      # first, and only reported: the code stays as it is.
       - name: Add a queue
         run: |
           # The resources' files, whose blocks adding to the roots leaves as
@@ -96,6 +109,18 @@ jobs:
           services: sqs
           regions: us-east-1
           out: ${{ runner.temp }}/out
+          drift: report
+      - name: Check the drift was reported
+        env:
+          DRIFT_FOUND: ${{ steps.again.outputs.drift-found }}
+          DRIFT_EXIT_CODE: ${{ steps.again.outputs.drift-exit-code }}
+          DRIFT_REPORT: ${{ steps.again.outputs.drift-report }}
+        run: |
+          test "$DRIFT_EXIT_CODE" = 4
+          test "$DRIFT_FOUND" = true
+          test -f "$DRIFT_REPORT"
+          jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "kept")] | length == 1' "$RUNNER_TEMP/out/report/drift.json"
+          grep -q "decision: undecided" "$RUNNER_TEMP/out/drift.yaml"
       - name: Check the new queue was added
         env:
           EXIT_CODE: ${{ steps.again.outputs.exit-code }}
@@ -117,6 +142,33 @@ jobs:
             -not -name imports.tf -not -name data.tf -not -name variables.tf -not -name locals.tf)
           grep -q "infraharvest-action-new" <<< "$added"
           ! grep -q '"infraharvest-action"' <<< "$added"
+      # Review the decisions file as a person would: accept the change.
+      - name: Decide to accept the drift
+        run: sed -i 's/decision: undecided/decision: accept/' "$RUNNER_TEMP/out/drift.yaml"
+      - name: Accept the drift
+        id: accept
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          import: "false"
+          out: ${{ runner.temp }}/out
+          drift: accept
+          drift-decisions: ${{ runner.temp }}/out/drift.yaml
+          # Matches nothing here: the file's decision stands.
+          drift-accept: |
+            # Security groups are reviewed by hand.
+            keep type=aws_security_group
+      - name: Check the drift was accepted
+        env:
+          EXIT_CODE: ${{ steps.accept.outputs.exit-code }}
+          DRIFT_FOUND: ${{ steps.accept.outputs.drift-found }}
+          DRIFT_EXIT_CODE: ${{ steps.accept.outputs.drift-exit-code }}
+        run: |
+          test -z "$EXIT_CODE"
+          test "$DRIFT_EXIT_CODE" = 0
+          test "$DRIFT_FOUND" = false
+          jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "written")] | length == 1' "$RUNNER_TEMP/out/report/drift.json"
+          grep -rq --include='*.tf' -E 'Drift += +"console"' "$RUNNER_TEMP/out"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
