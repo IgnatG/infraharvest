@@ -306,7 +306,8 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	run.warnUnscoped(provider, scope)
 	pattern := withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(envNames) > 0)
 	// Where the roots would be without the file's environments, for those
-	// an earlier import generated there, which stay (see keptRoots).
+	// an earlier import generated there, which keep their resources, or
+	// with --regenerate hand them over (see keptRoots).
 	layouts, err := rootLayouts(ctx, provider, pattern, withEnvLayout(options.Layout, len(options.EnvTags) > 0))
 	if err != nil {
 		return nil, err
@@ -383,7 +384,11 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	var kept *keptRoots
 	if len(envNames) > 0 {
 		kept = newKeptRoots(options.Out)
-		dirOf = kept.dirs(dirOf, layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout)), envOf)
+		unsplit := layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout))
+		if err := kept.split(resourcesByService, dirOf, unsplit, importID, options.Regenerate); err != nil {
+			return nil, err
+		}
+		dirOf = kept.dirs(dirOf, unsplit, envOf)
 	}
 	nameOf := resourceNames(provider.Name(), listed, resourcesByService)
 	fileOf := func(service string, r harvest.Resource) string {

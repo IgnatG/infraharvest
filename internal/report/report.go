@@ -985,7 +985,7 @@ func (r *Report) Markdown() string {
 	for _, k := range r.KeptRoots {
 		keptLines = append(keptLines, fmt.Sprintf("- `%s`, of %s", k.Path, strings.Join(k.Environments, ", ")))
 	}
-	section("Kept where they were", "An earlier import generated these roots, so they keep their directories, and the resources in them, though the configuration file's environments would put those under `envs/<env>/` now: a root's state key comes from its path. To lay them out by environment, import into a new `--out`.", keptLines)
+	section("Kept where they were", "An earlier import generated these roots, so they keep their directories, and the resources in them, though the configuration file's environments would put those under `envs/<env>/` now: a root's state key comes from its path. To lay them out by environment, import into a new `--out`, or generate them again with `--regenerate`, which hands their resources over to the roots of their environments where removed blocks can take them all, the log saying why not.", keptLines)
 	var mergedLines, apartLines []string
 	for _, m := range r.Merges {
 		roots := make([]string, len(m.Roots))

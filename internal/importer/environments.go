@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -144,7 +146,8 @@ func (r *Run) warnUnscoped(provider harvest.Provider, scope string) {
 
 // keptRoots keeps resources in the roots earlier imports generated for
 // them, where environments would now lay them out elsewhere: a root
-// never moves, as its state key comes from its path.
+// never moves, as its state key comes from its path. With --regenerate,
+// such a root hands them over instead, where it can (see split).
 type keptRoots struct {
 	out string
 	// recorded says, by directory, whether a checkpoint records a root
@@ -153,22 +156,25 @@ type keptRoots struct {
 	// kept are the roots resources were kept in, each with the
 	// environments of those resources.
 	kept map[string][]string
+	// splits are the roots whose resources go to the roots of their
+	// environments (see split).
+	splits map[string]bool
 }
 
 func newKeptRoots(out string) *keptRoots {
-	return &keptRoots{out: out, recorded: map[string]bool{}, kept: map[string][]string{}}
+	return &keptRoots{out: out, recorded: map[string]bool{}, kept: map[string][]string{}, splits: map[string]bool{}}
 }
 
 // dirs returns dirOf, the root of each resource with environments, but
 // for a resource whose root there no checkpoint records while unsplit,
-// its root without environments, names one a checkpoint records: that
-// one, which it records as kept, with the resource's environment by
-// envOf.
+// its root without environments, names one a checkpoint records and
+// split didn't split: that one, which it records as kept, with the
+// resource's environment by envOf.
 func (k *keptRoots) dirs(dirOf, unsplit func(string, harvest.Resource) string, envOf func(harvest.Resource) string) func(string, harvest.Resource) string {
 	return func(service string, r harvest.Resource) string {
 		dir := dirOf(service, r)
 		before := unsplit(service, r)
-		if dir == before || k.isRecorded(dir) || !k.isRecorded(before) {
+		if dir == before || k.isRecorded(dir) || !k.isRecorded(before) || k.splits[filepath.Clean(before)] {
 			return dir
 		}
 		if env := envOf(r); !slices.Contains(k.kept[before], env) {
@@ -176,6 +182,86 @@ func (k *keptRoots) dirs(dirOf, unsplit func(string, harvest.Resource) string, e
 		}
 		return before
 	}
+}
+
+// split works out which of the roots earlier imports generated, where
+// environments, by dirOf, would now lay out the resources of
+// resourcesByService that unsplit puts there, give them up to the roots
+// of their environments rather than keep them (see dirs). With
+// regenerate, as with --regenerate, a root does whose removed blocks can
+// hand over what goes (see handOver and planHandovers), and whose every
+// resource goes, or that keeps some of the run's: it is then generated
+// with removed blocks for them, alone if nothing is left in it, and the
+// roots of their environments import them. Without, only a root that has
+// nothing left to hand over does, as one an earlier run handed
+// everything over from. The other roots keep
+// their resources, and the log says why.
+func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirOf, unsplit func(string, harvest.Resource) string, importID func(harvest.Resource) (string, bool), regenerate bool) error {
+	// Where each resource goes, by the root it would be kept in, and the
+	// roots some of the run's resources stay in anyway.
+	going := map[string]map[engine.External]string{}
+	staying := map[string]bool{}
+	for _, service := range slices.Sorted(maps.Keys(resourcesByService)) {
+		for _, r := range resourcesByService[service] {
+			dir, before := dirOf(service, r), unsplit(service, r)
+			if dir == before {
+				staying[filepath.Clean(before)] = true
+				continue
+			}
+			if k.isRecorded(dir) || !k.isRecorded(before) {
+				continue
+			}
+			before = filepath.Clean(before)
+			if going[before] == nil {
+				going[before] = map[engine.External]string{}
+			}
+			if id, ok := importID(r); ok {
+				going[before][engine.External{Type: r.Address.Type, ID: id}] = filepath.Clean(dir)
+			}
+		}
+	}
+	for _, before := range sortedDirs(going) {
+		root := relativePath(k.out, before)
+		c, err := readCheckpoint(k.out, before)
+		if err != nil {
+			log.Printf("%s: %v; it keeps the resources the environments would put under envs/", root, err)
+			continue
+		}
+		previous, err := previousAddresses(k.out, before)
+		if err != nil {
+			return err
+		}
+		var leaving []departing
+		for _, p := range previous {
+			if to, ok := going[before][engine.External{Type: p.Type, ID: p.ID}]; ok {
+				leaving = append(leaving, departing{had: p, to: to})
+			}
+		}
+		sort.Slice(leaving, func(i, j int) bool { return leaving[i].had.Address < leaving[j].had.Address })
+		finished := c != nil && c.Result != nil
+		var why []string
+		switch {
+		case !regenerate && (!finished || len(previous) > 0):
+			continue // a root never moves (see keptRoots)
+		case !finished:
+			why = []string{"its import didn't finish"}
+		case len(leaving) < len(previous) && !staying[before]:
+			why = []string{fmt.Sprintf("the run lists %d of its %d resources, and it hands them over only when every one goes", len(leaving), len(previous))}
+		default:
+			if _, why, err = handOver(k.out, before, leaving); err != nil {
+				return err
+			}
+		}
+		if len(why) > 0 {
+			log.Printf("%s: it keeps the resources the environments would put under envs/, rather than hand them over (--regenerate): %s", root, strings.Join(why, "; "))
+			continue
+		}
+		if len(previous) > 0 {
+			log.Printf("%s: removed blocks hand its resources over to the roots of their environments under envs/ (--regenerate)", root)
+		}
+		k.splits[before] = true
+	}
+	return nil
 }
 
 // isRecorded reports whether a checkpoint records a root in dir.
