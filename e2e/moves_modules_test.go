@@ -66,6 +66,7 @@ const curatedMovesProfile = "infraharvest-e2e-curated-moves"
 
 // TestAWSRegenerateCuratedModules is TestAWSRegenerateModules with
 // testdata/aws-curated-moves, two buckets each with its versioning, and
+// the public access block and encryption the emulator gives each, and
 // --modules=registry: generated again, each bucket becomes a call of the
 // curated s3-bucket module from the registry, which moves.tf moves its
 // resources into, and, with --modules=none, out of again.
@@ -76,7 +77,7 @@ func TestAWSRegenerateCuratedModules(t *testing.T) {
 		profile:   curatedMovesProfile,
 		services:  "s3",
 		modules:   "registry",
-		resources: 4,
+		resources: 8,
 		calls:     2,
 	})
 }
