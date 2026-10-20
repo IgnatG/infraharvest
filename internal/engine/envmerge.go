@@ -436,8 +436,9 @@ func (m *stackMerge) groupForEach() {
 
 // build gives the resources some environments lack, outside a forEach,
 // their features' deploy variables (see features), merges each
-// resource's body and each forEach's, and names and renders the
-// variables.
+// resource's body and each forEach's, merges the data sources, which a
+// feature's deploy variable counts where only it reads one, and names
+// and renders the variables.
 func (m *stackMerge) build() {
 	m.features()
 	for _, r := range m.resources {
@@ -459,6 +460,7 @@ func (m *stackMerge) build() {
 	m.reason = m.mergeData()
 	m.nameVariables()
 	m.render()
+	m.indexGatedData()
 }
 
 // features groups the resources some environments only have, outside a

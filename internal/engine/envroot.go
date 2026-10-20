@@ -556,6 +556,12 @@ func (w *rootWriter) dataFile() []byte {
 	for _, d := range w.m.rootData {
 		typ, name, _ := strings.Cut(d.address, ".")
 		fmt.Fprintf(&b, "\ndata %q %q {\n", typ, name)
+		if d.deploy != nil {
+			fmt.Fprintf(&b, "count = var.%s ? 1 : 0\n", d.deploy.name)
+			if len(d.body.attributes) > 0 {
+				b.WriteString("\n")
+			}
+		}
 		writeMergedBody(&b, d.body)
 		b.WriteString("}\n")
 		written[d.address] = true
