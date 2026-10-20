@@ -341,7 +341,8 @@ jobs:
   # over, runs on another, with the shorter drift tests of an S3 backend
   # (TestAWSDriftBackend) and of the MCP server's drift tools
   # (TestAWSDriftMCP), as does the environments test
-  # (TestAWSEnvironments), which imports two accounts four times, and the
+  # (TestAWSEnvironments), which imports two accounts four times, with the
+  # test of a feature's data sources there (TestAWSEnvironmentsData), and the
   # tests of --regenerate's moved and removed blocks
   # (TestAWSRegenerate*), which each apply roots and generate them again
   # in accounts of their own. The other tests (TestAWSParallelAccounts
@@ -379,14 +380,14 @@ jobs:
           run: ^TestAWSDrift(Backend|MCP)?$
           skip: ""
         - shard: environments
-          run: ^TestAWSEnvironments$
+          run: ^TestAWSEnvironments(Data)?$
           skip: ""
         - shard: regenerate
           run: ^TestAWSRegenerate(Moves|Layout|Modules|CuratedModules)$
           skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift.*|Environments|Regenerate.*)$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift.*|Environments(Data)?|Regenerate.*)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

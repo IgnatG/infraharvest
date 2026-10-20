@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/IgnatG/infraharvest/main/internal/catalogue/schema.json
+# A --catalogue overlay for TestAWSEnvironmentsData
+# (environments_aws_test.go): a skip rule that leaves prod's alerts
+# policy of testdata/aws-environments-data out of the default selection,
+# so that the role it is attached to reads it through a data source.
+provider: aws
+types:
+  aws_iam_policy:
+    skip:
+      - reason: managed elsewhere, per the end-to-end tests' catalogue overlay
+        ids: ["arn:aws:iam::818181818181:policy/shop-prd-alerts-publish"]
