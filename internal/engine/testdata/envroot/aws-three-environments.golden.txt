@@ -19,11 +19,12 @@ Run each environment with its own credentials: the provider block sets no role o
 
 ```sh
 terraform init
+terraform workspace select -or-create dev
 terraform plan -var-file=vars/common.tfvars -var-file=vars/dev/terraform.tfvars -var-file=vars/dev/imports.tfvars
 terraform apply -var-file=vars/common.tfvars -var-file=vars/dev/terraform.tfvars -var-file=vars/dev/imports.tfvars
 ```
 
-`-reconfigure` switches the working directory to the environment's state. Plan each environment before its first apply: it should import every resource and change nothing else.
+Without a backend, each environment keeps its state in the workspace named after it, in `terraform.tfstate.d/<env>/`, which `infraharvest drift` reads. Plan each environment before its first apply: it should import every resource and change nothing else.
 
 ## After the first apply
 

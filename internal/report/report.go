@@ -383,6 +383,10 @@ type Merge struct {
 	// Unchanged says a resumed import kept the merged root as an earlier
 	// one wrote it (--resume).
 	Unchanged bool `json:"unchanged,omitempty"`
+	// Unplanned are the environments the import didn't have, which merged
+	// again as their roots were set aside, but weren't planned, without
+	// their credentials: verify --environment plans them.
+	Unplanned []string `json:"unplanned,omitempty"`
 }
 
 // MergedRoot is the root of one environment of a stack.
@@ -941,6 +945,9 @@ func (r *Report) Markdown() string {
 		line := fmt.Sprintf("- `%s`, of %s: %d resources shared", m.Path, strings.Join(roots, ", "), m.Shared)
 		if len(m.Residue) > 0 {
 			line += fmt.Sprintf(", %d kept as their environment's root had them", len(m.Residue))
+		}
+		if len(m.Unplanned) > 0 {
+			line += fmt.Sprintf("; not planned as %s, which the import didn't have: plan it with each one's credentials, with `infraharvest verify --environment`, before applying", strings.Join(m.Unplanned, ", "))
 		}
 		mergedLines = append(mergedLines, line)
 		for _, res := range m.Residue {

@@ -1009,6 +1009,15 @@ func (b *bodyMerger) attribute(in []envBody, path []string, prefix, name string)
 	}
 	for i, x := range in {
 		switch {
+		case !variables && original[i] != nil:
+			// A var file, or the variable's default, holds no function
+			// calls, such as the jsonencode of a policy.
+			literal, ok := literalTokens(original[i])
+			if !ok {
+				b.refuse(fmt.Sprintf("its %s differs between the environments in a value a var file can't hold", at))
+				return nil
+			}
+			v.values[x.env] = literal
 		case !variables:
 			v.values[x.env] = original[i]
 		case original[i] != nil:
@@ -1516,6 +1525,32 @@ func exprReads(tokens hclwrite.Tokens) (resources, variables, other bool) {
 		}
 	}
 	return resources, variables, other
+}
+
+// literalTokens returns tokens, a value that reads nothing, as a var file
+// or a variable's default can hold it: as it is without function calls,
+// else evaluated, as jsonencode({...}) becomes the JSON string it gives;
+// false where it can't be evaluated.
+func literalTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
+	expr, diags := hclsyntax.ParseExpression(tokens.Bytes(), "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, false
+	}
+	calls := false
+	_ = hclsyntax.VisitAll(expr, func(n hclsyntax.Node) hcl.Diagnostics {
+		if _, ok := n.(*hclsyntax.FunctionCallExpr); ok {
+			calls = true
+		}
+		return nil
+	})
+	if !calls {
+		return tokens, true
+	}
+	v, diags := expr.Value(omitEvalContext)
+	if diags.HasErrors() || !v.IsWhollyKnown() {
+		return nil, false
+	}
+	return hclwrite.TokensForValue(v), true
 }
 
 // exprTokens parses src, an expression, into tokens; nil if it doesn't

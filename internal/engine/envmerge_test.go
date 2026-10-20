@@ -756,3 +756,28 @@ func TestMergeStackAzure(t *testing.T) {
 		t.Errorf("data = %v, though no value holds the subscription", m.data)
 	}
 }
+
+// TestLiteralTokens checks that a differing value a variable takes is one
+// a var file can hold: a function call, such as the jsonencode of a
+// policy, is evaluated into the value it gives, and one that can't be
+// evaluated isn't taken.
+func TestLiteralTokens(t *testing.T) {
+	for _, tc := range []struct {
+		src, want string
+		ok        bool
+	}{
+		{src: `"plain"`, want: `"plain"`, ok: true},
+		{src: `{ a = 1, b = ["x"] }`, want: `{ a = 1, b = ["x"] }`, ok: true},
+		{src: `jsonencode({ Version = "2012-10-17", Statement = [{ Sid = "Dev" }] })`, want: `"{\"Statement\":[{\"Sid\":\"Dev\"}],\"Version\":\"2012-10-17\"}"`, ok: true},
+		{src: `upper("x")`, ok: false},
+	} {
+		got, ok := literalTokens(exprTokens(tc.src))
+		if ok != tc.ok {
+			t.Errorf("%s: ok %v, want %v", tc.src, ok, tc.ok)
+			continue
+		}
+		if ok && strings.Join(strings.Fields(string(got.Bytes())), " ") != tc.want {
+			t.Errorf("%s: %s, want %s", tc.src, got.Bytes(), tc.want)
+		}
+	}
+}

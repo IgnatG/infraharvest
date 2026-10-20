@@ -817,6 +817,12 @@
         "persistent": false
       },
       {
+        "name": "environment",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": false
+      },
+      {
         "name": "force-unlock",
         "type": "bool",
         "default": "false",

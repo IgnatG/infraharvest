@@ -37,7 +37,7 @@ func PreviewDrift(decisions *DriftDecisions, rules []DriftRule, changes []report
 		if c.Outcome != report.DriftKept {
 			continue
 		}
-		d := decider.decide(c.Root, engine.DriftChange{
+		d := decider.decideIn(c.Root, c.Environment, engine.DriftChange{
 			Address: c.Address, Type: c.Type, ModuleAddress: c.ModuleCall, Attribute: c.Attribute,
 			Before: c.Before, After: c.After, Kind: c.Kind, Covers: c.Covers,
 		})

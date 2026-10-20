@@ -413,3 +413,83 @@ func TestAddressType(t *testing.T) {
 		}
 	}
 }
+
+// TestDriftChecksEachEnvironment checks that a root environments share is
+// checked once per environment, as --environment names them, and that a
+// change of each goes into the report and the decisions file as that
+// environment's.
+func TestDriftChecksEachEnvironment(t *testing.T) {
+	t.Parallel()
+	out := driftOutput(t, "aws/us-east-1", "aws/1/global")
+	for _, env := range []string{"dev", "prod"} {
+		path := filepath.Join(out, "aws", "us-east-1", "vars", env, "terraform.tfvars")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("env = \""+env+"\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	var checked, staged []string
+	check := func(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+		mu.Lock()
+		checked = append(checked, report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name())
+		staged = append(staged, staging)
+		mu.Unlock()
+		// Each environment is checked with its var files.
+		if _, err := os.Stat(filepath.Join(dir, "vars", opts.Environment, "terraform.tfvars")); opts.Environment != "" && err != nil {
+			return nil, err
+		}
+		if opts.Environment == "" {
+			return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+		}
+		return reverting, nil
+	}
+	run := func(envs ...string) ([]string, error) {
+		checked, staged = nil, nil
+		options := DriftOptions{Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 2, Environments: envs, WriteDecisions: true, check: check}
+		var stdout bytes.Buffer
+		err := Drift(context.Background(), options, &stdout)
+		sort.Strings(checked)
+		return checked, err
+	}
+
+	got, err := run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"aws/1/global", "aws/us-east-1 (dev)", "aws/us-east-1 (prod)"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("checked %v, want %v", got, want)
+	}
+	if len(slices.Compact(slices.Sorted(slices.Values(staged)))) != 3 {
+		t.Errorf("two checks staged in the same directory: %v", staged)
+	}
+	d := readDrift(t, out)
+	var envs []string
+	for _, c := range d.Changes {
+		if c.Attribute == "tags.Env" {
+			envs = append(envs, c.Name())
+		}
+	}
+	if want := []string{"aws/us-east-1 (dev)", "aws/us-east-1 (prod)"}; !reflect.DeepEqual(envs, want) {
+		t.Errorf("changes of tags.Env: %v, want %v", envs, want)
+	}
+	f, err := LoadDriftDecisions(filepath.Join(out, DefaultDriftDecisionsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Changes) != 2 || f.Changes[0].Environment != "dev" || f.Changes[1].Environment != "prod" {
+		t.Errorf("decisions: %+v", f.Changes)
+	}
+
+	if got, err = run("prod"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"aws/1/global", "aws/us-east-1 (prod)"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("--environment prod: checked %v, want %v", got, want)
+	}
+	if _, err := run("qa"); err == nil || !strings.Contains(err.Error(), "qa") {
+		t.Errorf("--environment qa: %v, want an error naming it", err)
+	}
+}

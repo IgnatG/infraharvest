@@ -87,6 +87,9 @@ type MergedEnvironment struct {
 	// Addresses are where its root's resources are in the merged root, by
 	// their addresses in the root.
 	Addresses map[string]string
+	// Unplanned says the merged root wasn't planned as the environment,
+	// as the run had no Terraform runner for it (see MergeRoot.Terraform).
+	Unplanned bool
 }
 
 // Passed reports whether every environment's gate passed.
@@ -221,7 +224,11 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 	if err := g.write(map[string][]byte{VersionsFileName: VersionsFile(required, envRoots[g.newest].provider)}); err != nil {
 		return nil, err
 	}
-	tf, err := g.terraform(0)
+	first := slices.IndexFunc(g.roots, func(r MergeRoot) bool { return r.Terraform != nil })
+	if first < 0 {
+		return nil, errors.New("no environment of the stack to plan the merged root as")
+	}
+	tf, err := g.terraform(first)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +349,12 @@ func (g *mergeGate) removeOverride() error {
 // and the plan, and the secrets check of the values it marks sensitive,
 // with each other's.
 func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]MergedEnvironment, error) {
-	tf, err := g.terraform(0)
+	// The first environment the run can plan as runs the whole gate.
+	first := slices.IndexFunc(g.roots, func(r MergeRoot) bool { return r.Terraform != nil })
+	if first < 0 {
+		return nil, errors.New("no environment of the stack to plan the merged root as")
+	}
+	tf, err := g.terraform(first)
 	if err != nil {
 		return nil, err
 	}
@@ -353,14 +365,21 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 	envs := make([]MergedEnvironment, len(g.roots))
 	for e := range g.roots {
 		envs[e] = MergedEnvironment{Env: m.envs[e], Imports: g.imports(m, e), Addresses: g.addresses(m, e)}
+		if g.roots[e].Terraform == nil {
+			// Not imported this time, so without its credentials: it
+			// keeps its part as it was, unplanned (see MergeRoot.Terraform).
+			envs[e].Unplanned = true
+			envs[e].Gate = Gate{{Name: CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
+			continue
+		}
 		envTF := tf
-		if e > 0 {
+		if e != first {
 			if envTF, err = g.terraform(e); err != nil {
 				return nil, err
 			}
 		}
 		plan := func() (Check, []string, error) { return g.plan(ctx, envTF, m, w, e) }
-		if e == 0 {
+		if e == first {
 			if envs[e].Gate, err = gateWith(ctx, envTF, g.dir, gateOpts, plan); err != nil {
 				return nil, err
 			}

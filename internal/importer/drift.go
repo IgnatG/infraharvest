@@ -12,6 +12,7 @@ import (
 	"io"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,11 @@ type DriftOptions struct {
 	// failed verification.
 	DetailedExitCode bool
 	ForceUnlock      bool // check even when another run holds the output directory's lock
+	// Environments are, for the roots environments share (see
+	// engine.MergedEnvironments), the environments to check each as, with
+	// its backend settings and var files; none checks every environment
+	// under its vars/.
+	Environments []string
 	// Provider and Names find each root's provider, for its catalogue
 	// (see rootProvider).
 	Provider func(name string) harvest.Provider
@@ -114,6 +120,10 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if len(roots) == 0 {
 		return fmt.Errorf("no root in %s matches --root %s", options.Out, strings.Join(options.Roots, ", "))
 	}
+	targets, err := driftTargets(roots, options.Environments)
+	if err != nil {
+		return err
+	}
 	// Its inits write into the roots, as verify's do.
 	lock, err := lockOutput(options.Out, options.ForceUnlock)
 	if err != nil {
@@ -129,22 +139,22 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 		}
 	}
 
-	results := make([]report.DriftRoot, len(roots))
-	changes := make([][]report.DriftChange, len(roots))
+	results := make([]report.DriftRoot, len(targets))
+	changes := make([][]report.DriftChange, len(targets))
 	slots := make(chan struct{}, options.Parallel)
 	var wg sync.WaitGroup
-	for i, dir := range roots {
+	for i, target := range targets {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			select {
 			case slots <- struct{}{}:
 			case <-ctx.Done():
-				results[i] = report.DriftRoot{Path: relativePath(options.Out, dir), Error: ctx.Err().Error()}
+				results[i] = report.DriftRoot{Path: relativePath(options.Out, target.dir), Environment: target.env, Error: ctx.Err().Error()}
 				return
 			}
 			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, dir)
+			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, target)
 		}()
 	}
 	wg.Wait()
@@ -157,7 +167,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	for i, r := range results {
 		d.Changes = append(d.Changes, changes[i]...)
 		if r.Error != "" {
-			failed = append(failed, r.Path+": "+r.Error)
+			failed = append(failed, r.Name()+": "+r.Error)
 		}
 	}
 	d.Finish()
@@ -266,19 +276,57 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 	}, nil
 }
 
-// checkDriftRoot checks the root in dir, staged under the output
+// driftTarget is a root drift checks, and, for a root environments
+// share, the environment it checks it as.
+type driftTarget struct {
+	dir, env string
+}
+
+// driftTargets returns what drift checks of roots: each root, but a root
+// environments share once per environment under its vars/ that envs
+// names, or every one without envs. An environment of envs that no
+// root has is an error.
+func driftTargets(roots, envs []string) ([]driftTarget, error) {
+	var targets []driftTarget
+	found := map[string]bool{}
+	for _, dir := range roots {
+		merged, err := engine.MergedEnvironments(dir)
+		if err != nil {
+			return nil, err
+		}
+		if len(merged) == 0 {
+			targets = append(targets, driftTarget{dir: dir})
+			continue
+		}
+		for _, env := range merged {
+			found[env] = true
+			if len(envs) == 0 || slices.Contains(envs, env) {
+				targets = append(targets, driftTarget{dir: dir, env: env})
+			}
+		}
+	}
+	for _, env := range envs {
+		if !found[env] {
+			return nil, fmt.Errorf("--environment %s: no root the environments share has it under vars/", env)
+		}
+	}
+	return targets, nil
+}
+
+// checkDriftRoot checks the root of target, staged under the output
 // directory's checkpoints, which .gitignore excludes, and returns it and
 // its changes as the report has them.
-func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDecider, check driftCheck, dir string) (report.DriftRoot, []report.DriftChange) {
+func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDecider, check driftCheck, target driftTarget) (report.DriftRoot, []report.DriftChange) {
+	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
-	root := report.DriftRoot{Path: rel}
-	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout}
+	root := report.DriftRoot{Path: rel, Environment: env}
+	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env}
 	// The decisions taken, by change, for the report to say where each
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()
 	if decider.active() {
 		opts.Accept = func(c engine.DriftChange) bool {
-			d := decider.decide(rel, c)
+			d := decider.decideIn(rel, env, c)
 			decided.record(c, d)
 			return d.accept
 		}
@@ -292,7 +340,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 		v := lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider)
 		opts.StateOnly, opts.Defaults, opts.Omit = cat.StateOnlyFor(v), cat.DefaultsFor(v), cat.OmitFor(v)
 	}
-	result, err := check(ctx, dir, driftStagingDir(options.Out, rel), opts)
+	result, err := check(ctx, dir, driftStagingDir(options.Out, root.Name()), opts)
 	if err != nil {
 		root.Error = err.Error()
 		return root, nil
@@ -306,11 +354,11 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 			decision = report.DriftAccept
 		}
 		rc := report.DriftChange{
-			Root: rel, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
+			Root: rel, Environment: env, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
 			Before: c.Before, After: c.After, Kind: c.Kind, Decision: decision, Outcome: c.Outcome, Reason: c.Reason,
 			ForcesReplacement: c.ForcesReplacement, Covers: c.Covers,
 		}
-		d := decided.of(c, func() driftDecision { return decider.decide(rel, c) })
+		d := decided.of(c, func() driftDecision { return decider.decideIn(rel, env, c) })
 		rc.DecisionSource, rc.DecisionStale = d.source, d.stale
 		if c.Source != nil {
 			rc.Source = &report.DriftSource{File: c.Source.File, Line: c.Source.Line, Expression: c.Source.Expression, ModulePath: c.Source.ModulePath}
@@ -320,9 +368,10 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 	return root, changes
 }
 
-// driftStagingDir is where Drift stages the root at rel: a directory of
-// its own, named by a hash of rel, so that a root's never holds
-// another's.
+// driftStagingDir is where Drift stages the root at rel, or, for a root
+// environments share, rel and the environment (see
+// report.DriftRoot.Name): a directory of its own, named by a hash of
+// rel, so that a root's never holds another's.
 func driftStagingDir(out, rel string) string {
 	sum := sha256.Sum256([]byte(rel))
 	return filepath.Join(out, CheckpointDir, "drift", hex.EncodeToString(sum[:])[:16])
@@ -336,10 +385,10 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 	}
 	counts := map[string]map[string]int{}
 	for _, c := range d.Changes {
-		if counts[c.Root] == nil {
-			counts[c.Root] = map[string]int{}
+		if counts[c.Name()] == nil {
+			counts[c.Name()] = map[string]int{}
 		}
-		counts[c.Root][c.Outcome]++
+		counts[c.Name()][c.Outcome]++
 	}
 	for _, r := range d.Roots {
 		status := "no drift"
@@ -348,7 +397,7 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 			status = "not checked: " + strings.Join(strings.Fields(r.Error), " ")
 		case r.Resources == 0:
 			status = "not applied yet"
-		case len(counts[r.Path]) > 0:
+		case len(counts[r.Name()]) > 0:
 			var parts []string
 			for _, o := range []struct{ outcome, label string }{
 				{report.DriftWritten, "accepted into the code"},
@@ -359,13 +408,13 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 				{report.DriftNotAssessable, "not assessable"},
 				{report.DriftAbsorbed, "absorbed"},
 			} {
-				if n := counts[r.Path][o.outcome]; n > 0 {
+				if n := counts[r.Name()][o.outcome]; n > 0 {
 					parts = append(parts, fmt.Sprintf("%d %s", n, o.label))
 				}
 			}
 			status = strings.Join(parts, ", ")
 		}
-		if _, err := fmt.Fprintf(w, "%s: %s\n", r.Path, status); err != nil {
+		if _, err := fmt.Fprintf(w, "%s: %s\n", r.Name(), status); err != nil {
 			return err
 		}
 	}

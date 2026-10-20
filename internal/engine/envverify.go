@@ -91,19 +91,9 @@ func VerifyMerged(ctx context.Context, tf Terraform, dir, env string, opts Optio
 	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
-	abs, err := filepath.Abs(dir)
+	vars, _, err := mergedVarFiles(dir, env)
 	if err != nil {
 		return nil, err
-	}
-	var vars []tfexec.PlanOption
-	for _, path := range []string{
-		filepath.Join(abs, varsDirName, commonVarsFileName),
-		filepath.Join(abs, varsDirName, env, envVarsFileName),
-		filepath.Join(abs, varsDirName, env, importVarsFileName),
-	} {
-		if _, err := os.Stat(path); err == nil {
-			vars = append(vars, tfexec.VarFile(path))
-		}
 	}
 	expected := 0
 	if _, err := os.Stat(filepath.Join(dir, ImportsFileName)); err == nil {
@@ -122,6 +112,31 @@ func VerifyMerged(ctx context.Context, tf Terraform, dir, env string, opts Optio
 		check.Details = append([]string{"environment " + env}, check.Details...)
 		return check, sensitiveValues(p), nil
 	})
+}
+
+// mergedVarFiles returns the var files environment env plans the root
+// environments share in dir with, as -var-file options and as absolute
+// paths: those there are of vars/common.tfvars, vars/<env>/terraform.tfvars
+// and, until it is deleted after the first apply,
+// vars/<env>/imports.tfvars.
+func mergedVarFiles(dir, env string) ([]tfexec.PlanOption, []string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	var vars []tfexec.PlanOption
+	var paths []string
+	for _, path := range []string{
+		filepath.Join(abs, varsDirName, commonVarsFileName),
+		filepath.Join(abs, varsDirName, env, envVarsFileName),
+		filepath.Join(abs, varsDirName, env, importVarsFileName),
+	} {
+		if _, err := os.Stat(path); err == nil {
+			vars = append(vars, tfexec.VarFile(path))
+			paths = append(paths, path)
+		}
+	}
+	return vars, paths, nil
 }
 
 // AddressType returns the resource type of an address, such as

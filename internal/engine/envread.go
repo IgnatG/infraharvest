@@ -43,7 +43,10 @@ type MergeRoot struct {
 	Secrets []Secret
 	// Terraform returns a Terraform runner in a directory with the
 	// environment's credentials, which plans the merged root as the
-	// environment.
+	// environment; nil for an environment the run didn't import, whose
+	// root is as an earlier import generated it: the merged root isn't
+	// planned as it (see MergedEnvironment.Unplanned). One environment at
+	// least must have it.
 	Terraform func(dir string) (Terraform, error)
 	// Isolated are the addresses, in the root, of the resources an
 	// incremental import added since the stack was merged: each stays a

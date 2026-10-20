@@ -1206,11 +1206,16 @@ func (w *rootWriter) readme() []byte {
 	if w.backendType() != "" {
 		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=vars/%s/%s\n", env, backendConfigFileName)
 	} else {
-		b.WriteString("terraform init\n")
+		fmt.Fprintf(&b, "terraform init\nterraform workspace select -or-create %s\n", env)
 	}
 	varFiles := fmt.Sprintf("-var-file=%s/%s -var-file=%s/%s/%s -var-file=%s/%s/%s", varsDirName, commonVarsFileName, varsDirName, env, envVarsFileName, varsDirName, env, importVarsFileName)
 	fmt.Fprintf(&b, "terraform plan %s\nterraform apply %s\n```\n\n", varFiles, varFiles)
-	b.WriteString("`-reconfigure` switches the working directory to the environment's state. Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
+	if w.backendType() != "" {
+		b.WriteString("`-reconfigure` switches the working directory to the environment's state.")
+	} else {
+		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", workspaceStateDir)
+	}
+	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
 	b.WriteString("## After the first apply\n\nOnce every environment has been applied, delete `imports.tf` and each `vars/<env>/imports.tfvars`, and leave `-var-file=vars/<env>/imports.tfvars` out of the commands.\n")
 	var secrets []string
 	for _, v := range w.variables() {

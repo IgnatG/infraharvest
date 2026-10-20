@@ -149,7 +149,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | Import faster | `--parallel` for accounts, subscriptions, projects and regions, `--list-parallel` for services (see [Running in parallel](#running-in-parallel)) |
 | Split roots by environment | `--env-tags=Environment`, or `{env}` in `--layout` (see [Layout](output.md#layout)) |
 | Share one root between environments | `environments:` in the [configuration file](configuration.md#environments): each stack's roots of its environments merge into one root, with each environment's values in `vars/<env>/`; `--merge-environments=false` keeps a root per environment (see [Merging environments](configuration.md#merging-environments)) |
-| Check a root environments share | `infraharvest verify [output-directory]` plans it once per environment, with its var files; `--environment=prod` plans one, with that environment's credentials |
+| Check a root environments share | `infraharvest verify [output-directory]` plans it once per environment, with its var files; `--environment=prod` plans one, with that environment's credentials. `infraharvest drift --environment=prod` checks it for drift likewise |
 | Choose what becomes a module call | `--modules`: `registry` (the default), `latest-untested`, `local` or `none`; your own modules go in the [configuration file](configuration.md) (see [Modules](modules.md)) |
 | Import less | `--services` and `--skip`, then `--id`, `--tag` and `--where` (see [Filtering](#filtering)) |
 | Run on a schedule | The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md), which can open a pull request with the result |
@@ -173,7 +173,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | `--layout` | Starts with `{out}/`, and uses only `{out}`, `{provider}`, `{account}`, `{region}`, `{service}` and `{env}` |
 | `--layout` with several scopes | Must contain `{account}`: on AWS with `--accounts` or `--organization`, on Azure with more than one subscription, on Google Cloud with more than one project (or `{provider}/{service}` there) |
 | `--merge-environments` | Merges only with `environments:` in the configuration file; set to `true` without them, it is an error. Its roots of a stack must be one per environment, outside the merged root's directory |
-| A merged stack with `--incremental` | Import every environment of the stack: a run with only some leaves the merged root as it is, and fails |
+| A merged stack with `--incremental` | A run with only some of the stack's environments merges the others from their kept roots, unplanned: plan each with `infraharvest verify --environment`, with its credentials |
 | `--env-tags` with `--layout` | A layout of your own needs `{env}`; `{env}` without `--env-tags` reads `Environment`, `environment`, `Env` or `env` |
 | AWS `--accounts`, `--organization` | One or the other; with either, `--assume-role` must contain `{account}` |
 | Azure `--subscriptions`, `--management-group` | Combine, and without either the import covers `ARM_SUBSCRIPTION_ID`; `--resource-group` narrows each subscription to that group |
