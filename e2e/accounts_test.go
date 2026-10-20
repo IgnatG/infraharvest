@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -103,7 +104,9 @@ var accountEnvironments = map[string]string{
 // in the configuration file that map each account to one: each gets its
 // roots under envs/<env>/, which plan as imports with no changes. Into
 // out, where an import without environments generated the roots, the
-// roots stay where they are, and the report names them.
+// roots stay where they are, and the report names them; generated again
+// (--regenerate), each hands its queue over to the root of its
+// environment, which imports it.
 func checkAccountEnvironments(ctx context.Context, t *testing.T, out, engineName, execPath, plugins string) {
 	t.Helper()
 	config := filepath.Join(t.TempDir(), "infraharvest.yaml")
@@ -175,5 +178,43 @@ func checkAccountEnvironments(ctx context.Context, t *testing.T, out, engineName
 	}
 	if _, err := os.Stat(filepath.Join(out, "envs")); err == nil {
 		t.Errorf("%s: roots under envs/ beside the earlier import's", out)
+	}
+
+	// Generated again, each root hands its queue over to the root of its
+	// environment, keeping removed blocks alone, and isn't kept.
+	coverage = importInto(out, "--regenerate")
+	if len(coverage.KeptRoots) != 0 {
+		t.Errorf("--regenerate: kept roots %+v", coverage.KeptRoots)
+	}
+	if len(coverage.IncompleteHandovers) != 0 {
+		t.Errorf("--regenerate: incomplete handovers %+v", coverage.IncompleteHandovers)
+	}
+	for account, queue := range parallelAccounts {
+		oldRoot := "aws/" + account + "/us-east-1"
+		newRoot := "envs/" + accountEnvironments[account] + "/" + oldRoot
+		var handed []report.Move
+		for _, d := range coverage.Departed {
+			if d.FromRoot == oldRoot {
+				handed = append(handed, d)
+			}
+		}
+		if len(handed) != 1 || handed[0].ToRoot != newRoot || !strings.Contains(handed[0].ID, queue) {
+			t.Errorf("--regenerate: %s hands over %+v, want %s to %s", oldRoot, handed, queue, newRoot)
+			continue
+		}
+		old := filepath.Join(out, filepath.FromSlash(oldRoot))
+		if moves := strings.Join(strings.Fields(readFile(t, filepath.Join(old, engine.MovesFileName))), " "); !strings.Contains(moves, "removed { from = "+handed[0].From+" lifecycle { destroy = false } }") {
+			t.Errorf("%s/%s doesn't remove %s:\n%s", oldRoot, engine.MovesFileName, handed[0].From, moves)
+		}
+		if _, err := os.Stat(filepath.Join(old, engine.GeneratedFileName)); err == nil {
+			t.Errorf("%s keeps its %s", oldRoot, engine.GeneratedFileName)
+		}
+		dir := filepath.Join(out, filepath.FromSlash(newRoot))
+		if imported := checkNoChanges(ctx, t, dir, execPath, plugins, nil); imported["aws_sqs_queue"] != 1 {
+			t.Errorf("%s: imported %v, want the queue handed over", dir, imported)
+		}
+		if readme := readFile(t, filepath.Join(dir, engine.ReadmeFileName)); !strings.Contains(readme, oldRoot) {
+			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(newRoot, engine.ReadmeFileName), oldRoot, readme)
+		}
 	}
 }
