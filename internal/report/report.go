@@ -387,6 +387,12 @@ type Merge struct {
 	// again as their roots were set aside, but weren't planned, without
 	// their credentials: verify --environment plans them.
 	Unplanned []string `json:"unplanned,omitempty"`
+	// Apart are the roots of environments the merged root didn't have,
+	// which the import brought, that keep roots of their own, as
+	// ApartReason says: merging them in failed, or would have given what
+	// the merged root has other addresses.
+	Apart       []MergedRoot `json:"apart,omitempty"`
+	ApartReason string       `json:"apart_reason,omitempty"`
 }
 
 // MergedRoot is the root of one environment of a stack.
@@ -948,6 +954,13 @@ func (r *Report) Markdown() string {
 		}
 		if len(m.Unplanned) > 0 {
 			line += fmt.Sprintf("; not planned as %s, which the import didn't have: plan it with each one's credentials, with `infraharvest verify --environment`, before applying", strings.Join(m.Unplanned, ", "))
+		}
+		if len(m.Apart) > 0 {
+			apart := make([]string, len(m.Apart))
+			for i, root := range m.Apart {
+				apart[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
+			}
+			line += fmt.Sprintf("; %s, new to it, kept a root of its own: %s", strings.Join(apart, ", "), m.ApartReason)
 		}
 		mergedLines = append(mergedLines, line)
 		for _, res := range m.Residue {

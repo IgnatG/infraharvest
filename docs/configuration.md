@@ -126,7 +126,7 @@ The roots a stack merged are kept under `<out>/.infraharvest/premerge/`, and `<o
 - `infraharvest verify` plans a merged root once per environment, with its var files and the credentials verify runs with; `--environment` names the environments to plan.
 - `infraharvest drift` checks a merged root once per environment, with its backend settings and var files; `--environment` names the environments to check (see [Drift](drift.md#roots-environments-share)).
 
-Merging takes the roots one run generates: an environment imported in a later run gets roots of its own. The roots of an earlier import without environments, which keep their directories, are never merged.
+An environment the merged root doesn't have yet, such as one added to `environments:` since, joins it in the run that imports it: the stack merges again with every environment, those the run doesn't have from their kept roots, unplanned, and the new environment's resources are matched with the others'. Where that fails, or would give what the merged root has other addresses, the merged root stays as it was for the other environments, merged again without the new one where the run has something new of them, and the new environment keeps roots of its own, which the report names with why (`apart` and `apart_reason` in `coverage.json`); a later run that imports it tries again. The roots of an earlier import without environments, which keep their directories, are never merged.
 
 ## Behind a TLS-intercepting proxy
 

@@ -174,6 +174,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | `--layout` with several scopes | Must contain `{account}`: on AWS with `--accounts` or `--organization`, on Azure with more than one subscription, on Google Cloud with more than one project (or `{provider}/{service}` there) |
 | `--merge-environments` | Merges only with `environments:` in the configuration file; set to `true` without them, it is an error. Its roots of a stack must be one per environment, outside the merged root's directory |
 | A merged stack with `--incremental` | A run with only some of the stack's environments merges the others from their kept roots, unplanned: plan each with `infraharvest verify --environment`, with its credentials |
+| A merged stack and a new environment | An environment the merged root doesn't have yet joins it: the stack merges again with every environment, those the run lacks from their kept roots, unplanned. Where that would give what the merged root has other addresses, the new environment keeps roots of its own, and the report says why |
 | `--env-tags` with `--layout` | A layout of your own needs `{env}`; `{env}` without `--env-tags` reads `Environment`, `environment`, `Env` or `env` |
 | AWS `--accounts`, `--organization` | One or the other; with either, `--assume-role` must contain `{account}` |
 | Azure `--subscriptions`, `--management-group` | Combine, and without either the import covers `ARM_SUBSCRIPTION_ID`; `--resource-group` narrows each subscription to that group |
