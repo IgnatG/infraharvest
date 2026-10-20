@@ -29,8 +29,9 @@ type appliedFixture struct {
 	tf   *engine.Runner
 }
 
-// seedApplied applies testdata/<name> in the emulator.
-func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins string) *appliedFixture {
+// seedApplied applies testdata/<name> in the emulator, with opts, such as
+// its variables.
+func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins string, opts ...tfexec.ApplyOption) *appliedFixture {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, filepath.Join("testdata", name, "main.tf"))), 0o644); err != nil {
@@ -46,7 +47,7 @@ func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins stri
 		t.Fatalf("seed: terraform init: %v", err)
 	}
 	f := &appliedFixture{name: name, tf: tf}
-	f.apply(ctx, t)
+	f.apply(ctx, t, opts...)
 	return f
 }
 
@@ -167,6 +168,82 @@ type handover struct {
 // both roots are applied, in that order, neither plans any change.
 func (h handover) check(t *testing.T) {
 	t.Helper()
+	first := h.applyFirst(t)
+	h.change(t)
+	runPartialImport(h.ctx, t, append(slices.Clone(h.args), "--regenerate")...)
+	h.finish(t, first)
+}
+
+// checkHalfDone checks a handover one of whose roots fails, as check
+// does but for a run of --regenerate that can't write the root handed
+// leaves: the root it goes to, generated first, imports it, and the root
+// it leaves fails, so its state still has it. coverage.json and the
+// report say the handover isn't finished, naming that root, and that it
+// is to be generated again before either root is applied. Generated
+// again, the handover finishes as check's does.
+func (h handover) checkHalfDone(t *testing.T) {
+	t.Helper()
+	first := h.applyFirst(t)
+	h.change(t)
+	if err := os.Chmod(first.dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(first.dir, 0o755) })
+	if f, err := os.CreateTemp(first.dir, "writable"); err == nil {
+		_ = f.Close()
+		t.Fatalf("%s can still be written, as by root, so generating it again can't fail", first.dir)
+	}
+	runPartialImport(h.ctx, t, append(slices.Clone(h.args), "--regenerate", "--allow-partial")...)
+	if err := os.Chmod(first.dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	half := coverageOf(t, h.out)
+	var incomplete []report.IncompleteHandover
+	for _, i := range half.IncompleteHandovers {
+		if i.ID == h.handed {
+			incomplete = append(incomplete, i)
+		}
+	}
+	if len(incomplete) != 1 {
+		t.Fatalf("a failed root: incomplete handovers %+v, want one of %s", half.IncompleteHandovers, h.handed)
+	}
+	i := incomplete[0]
+	if i.FailedRoot != first.root || i.FromRoot != first.root || i.From != first.handedFrom || i.ToRoot == first.root || i.To == "" || !strings.Contains(i.Warning, "--regenerate") {
+		t.Errorf("a failed root: incomplete handover %+v, want %s failed, handing %s over", i, first.root, first.handedFrom)
+	}
+	if at := importedAt(t, half, i.ToRoot, h.handed); at != i.To {
+		t.Errorf("a failed root: %s imports %s at %s, coverage.json hands it over to %s", i.ToRoot, h.handed, at, i.To)
+	}
+	if !slices.ContainsFunc(half.Directories, func(d report.Directory) bool { return d.Path == first.root && d.Error != "" }) {
+		t.Errorf("a failed root: coverage.json doesn't report %s failed: %+v", first.root, half.Directories)
+	}
+	if _, err := os.Stat(filepath.Join(first.dir, engine.MovesFileName)); err == nil {
+		t.Errorf("a failed root: %s has a %s", first.root, engine.MovesFileName)
+	}
+	if md := readFile(t, filepath.Join(h.out, report.Dir, "report.md")); !strings.Contains(md, "Handovers not finished") || !strings.Contains(md, i.Warning) {
+		t.Errorf("a failed root: report.md doesn't list the handover with %q:\n%s", i.Warning, md)
+	}
+
+	// Generated again, as the warning says: the handover finishes.
+	runPartialImport(h.ctx, t, append(slices.Clone(h.args), "--regenerate")...)
+	h.finish(t, first)
+}
+
+// appliedRoot is the root the first import of a handover's test puts
+// handed and kept in, applied in a working directory of its own.
+type appliedRoot struct {
+	// root is its path in the output directory, dir its directory there,
+	// and work the directory it is applied in, which keeps its state.
+	root, dir, work string
+	// handedFrom and keptAt are the addresses of handed and kept in it.
+	handedFrom, keptAt string
+}
+
+// applyFirst imports the fixture and applies the root handed and kept
+// are in, keeping its state, as its README says, with its import blocks
+// deleted.
+func (h *handover) applyFirst(t *testing.T) appliedRoot {
+	t.Helper()
 	runPartialImport(h.ctx, t, h.args...)
 	first := coverageOf(t, h.out)
 	checkCoverage(t, "the first import", first, h.emulatorFailure)
@@ -177,20 +254,28 @@ func (h handover) check(t *testing.T) {
 	if keptRoot := rootOf(t, first, h.kept); keptRoot != fromRoot {
 		t.Fatalf("the first import: %s is in %s, %s in %s, want both in one root", h.handed, fromRoot, h.kept, keptRoot)
 	}
-	handedFrom, keptAt := importedAt(t, first, fromRoot, h.handed), importedAt(t, first, fromRoot, h.kept)
-	from := filepath.Join(h.out, filepath.FromSlash(fromRoot))
-
-	// The root applied, as its README says: its state then has both.
-	work := t.TempDir()
-	workFrom, workTo := filepath.Join(work, "from"), filepath.Join(work, "to")
-	copyRootFiles(t, from, workFrom)
-	applyRoot(h.ctx, t, workFrom, h.execPath, h.plugins, nil)
-	if err := os.Remove(filepath.Join(workFrom, engine.ImportsFileName)); err != nil {
+	applied := appliedRoot{
+		root:       fromRoot,
+		dir:        filepath.Join(h.out, filepath.FromSlash(fromRoot)),
+		work:       filepath.Join(t.TempDir(), "from"),
+		handedFrom: importedAt(t, first, fromRoot, h.handed),
+		keptAt:     importedAt(t, first, fromRoot, h.kept),
+	}
+	copyRootFiles(t, applied.dir, applied.work)
+	applyRoot(h.ctx, t, applied.work, h.execPath, h.plugins, nil)
+	if err := os.Remove(filepath.Join(applied.work, engine.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
+	return applied
+}
 
-	h.change(t)
-	runPartialImport(h.ctx, t, append(slices.Clone(h.args), "--regenerate")...)
+// finish checks the roots generated again (--regenerate) after h.change
+// hand handed over from first, the root applyFirst applied, as check
+// says, and applies them in order.
+func (h handover) finish(t *testing.T, first appliedRoot) {
+	t.Helper()
+	fromRoot, handedFrom, keptAt, from, workFrom := first.root, first.handedFrom, first.keptAt, first.dir, first.work
+	workTo := filepath.Join(filepath.Dir(workFrom), "to")
 	second := coverageOf(t, h.out)
 	checkCoverage(t, "--regenerate", second, h.emulatorFailure)
 
