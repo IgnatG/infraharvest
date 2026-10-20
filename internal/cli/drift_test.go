@@ -21,6 +21,7 @@ func TestDriftFlags(t *testing.T) {
 		"terraform-path":    "",
 		"engine-timeout":    "1h0m0s",
 		"format":            "text",
+		"catalogue":         "",
 		"parallel":          "1",
 		"root":              "[]",
 		"detailed-exitcode": "false",
@@ -50,6 +51,7 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 		"--accept":    {"--accept", "everything"},
 		"--keep":      {"--keep", "name=x"},
 		"--decisions": {"--decisions", "no-such-drift.yaml"},
+		"--catalogue": {"--catalogue", "no-such-catalogue"},
 		"arguments":   {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -100,5 +102,38 @@ func TestDriftRuleFlagsKeepTheirOrder(t *testing.T) {
 	}
 	if accept.String() != "all,attribute=tags.*" || keep.String() != "type=aws_security_group" {
 		t.Errorf("--accept %q, --keep %q", accept.String(), keep.String())
+	}
+}
+
+// --write-decisions takes no value, true or false, or the file to write.
+func TestWriteDecisionsFlag(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		args []string
+		on   bool
+		path string
+	}{
+		{nil, false, ""},
+		{[]string{"--write-decisions"}, true, ""},
+		{[]string{"--write-decisions=false"}, false, ""},
+		{[]string{"--write-decisions=decisions/drift.yaml"}, true, "decisions/drift.yaml"},
+		{[]string{"--write-decisions=decisions/drift.yaml", "--write-decisions=true"}, true, ""},
+	} {
+		var on bool
+		var path string
+		cmd := newDriftCmd()
+		cmd.Flags().Lookup("write-decisions").Value = &writeDecisions{on: &on, path: &path}
+		if err := cmd.Flags().Parse(append(tc.args, "out")); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if on != tc.on || path != tc.path {
+			t.Errorf("%v: on %v, file %q, want %v, %q", tc.args, on, path, tc.on, tc.path)
+		}
+		if args := cmd.Flags().Args(); !slices.Equal(args, []string{"out"}) {
+			t.Errorf("%v: arguments %v, want the output directory", tc.args, args)
+		}
+	}
+	if err := newDriftCmd().Flags().Parse([]string{"--write-decisions="}); err == nil {
+		t.Error("--write-decisions= with no file: want an error")
 	}
 }

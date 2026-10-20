@@ -439,3 +439,53 @@ func TestDriftFingerprint(t *testing.T) {
 		t.Error("the same map, another fingerprint")
 	}
 }
+
+// --write-decisions=<file> writes that file, merging what it has without
+// applying it, and leaves the output directory's drift.yaml alone. With
+// --decisions, it has to name the same file.
+func TestDriftWritesDecisionsToAFile(t *testing.T) {
+	t.Parallel()
+	out := driftOutput(t, "aws/1/eu-west-2")
+	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
+	options := driftOptions(out, f)
+	options.WriteDecisions = true
+	options.WriteDecisionsTo = writeDecisions(t, t.TempDir(), envFingerprint, engine.DriftAccept)
+	var stdout bytes.Buffer
+	if err := Drift(context.Background(), options, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if c := envChange(t, readDrift(t, out)); c.Outcome != report.DriftKept || c.DecisionSource != report.DriftDecidedByDefault {
+		t.Errorf("tags.Env: %s from %s, want kept by default", c.Outcome, c.DecisionSource)
+	}
+	g, err := LoadDriftDecisions(options.WriteDecisionsTo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Changes) != 1 || g.Changes[0].Decision != engine.DriftAccept || g.Changes[0].Note != "mine" {
+		t.Errorf("decisions file %+v, want the entry's decision and note kept", g.Changes)
+	}
+	if !strings.Contains(stdout.String(), "decisions: "+options.WriteDecisionsTo) {
+		t.Errorf("stdout doesn't say where the decisions went:\n%s", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(out, DefaultDriftDecisionsFile)); !os.IsNotExist(err) {
+		t.Errorf("wrote %s in the output directory too (%v)", DefaultDriftDecisionsFile, err)
+	}
+
+	// Naming the file --decisions names, it applies it.
+	options.Decisions = options.WriteDecisionsTo
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if c := envChange(t, readDrift(t, out)); c.Outcome != report.DriftWritten {
+		t.Errorf("tags.Env with --decisions: %s, want written", c.Outcome)
+	}
+
+	f.checked = nil
+	options.WriteDecisionsTo = filepath.Join(t.TempDir(), "other.yaml")
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "--write-decisions") {
+		t.Errorf("another file than --decisions: got %v, want it refused", err)
+	}
+	if len(f.checked) > 0 {
+		t.Error("checked roots anyway")
+	}
+}

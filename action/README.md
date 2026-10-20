@@ -67,10 +67,10 @@ Once the roots are applied, people still change things in the cloud. With `drift
 | `drift` | What the action does |
 |---|---|
 | `off` (default) | No drift check |
-| `report` | Finds the changes and writes the decisions file, `drift.yaml` in `out`, with an entry per change to accept or keep. The code isn't changed |
+| `report` | Finds the changes and writes the decisions file, `drift-decisions` or `drift.yaml` in `out`, with an entry per change to accept or keep, keeping the decisions it has. The code isn't changed, and the decisions file isn't applied |
 | `accept` | Writes the cloud's values of the changes that `drift-decisions` (a decisions file you reviewed) or `drift-accept` (rules) accept into the code, once a plan of the edited code shows them taken; the others are kept, and the next apply reverts them. The decisions file is written again with this run's changes |
 
-`drift-accept` takes one rule a line, as `--accept` does, such as `attribute=tags.*`, `type=aws_s3_bucket` or `all`; a line `keep <rule>` keeps what it matches, and the last rule that matches a change decides (see [Accepting changes](../docs/drift.md#accepting-changes)). `drift-decisions` decides by the file first, and the rules after it. To review changes one by one, run with `drift: report`, commit the `drift.yaml` it writes, set each entry's `decision`, then run with `drift: accept` and `drift-decisions` naming that file.
+`drift-accept` takes one rule a line, as `--accept` does, such as `attribute=tags.*`, `type=aws_s3_bucket` or `all`; a line `keep <rule>` keeps what it matches, and the last rule that matches a change decides (see [Accepting changes](../docs/drift.md#accepting-changes)). `drift-decisions` decides by the file first, and the rules after it. To review changes one by one, run with `drift: report`, commit the decisions file it writes, set each entry's `decision`, then run with `drift: accept` and `drift-decisions` naming that file. To keep the decisions file outside `out`, such as `decisions/drift.yaml`, set `drift-decisions` with `drift: report` too: it is written there, merged with what it has, and never applied in that mode.
 
 The drift check runs first, on the code the repository has, so that what the import adds isn't taken for drift; then the import adds the new resources (`incremental` must be `true`). One pull request carries both. A run with `import: "false"` only checks drift, and needs no `provider` or `services`. On a first run, before `out` exists, there is nothing to check, and the check is skipped.
 
@@ -91,8 +91,12 @@ With `drift` set, the pull request also covers the decisions file, wherever `dri
 | Run | Title | Commit | Default branch |
 |---|---|---|---|
 | Import only | Import existing resources with infraharvest | `feat: import existing resources with infraharvest` | `infraharvest/import` |
-| Drift and import | Accept cloud changes (drift) and import new resources | `fix: accept drift found by infraharvest` | `infraharvest/import` |
-| Drift only (`import: "false"`) | Accept cloud changes (drift) | `fix: accept drift found by infraharvest` | `infraharvest/drift` |
+| `drift: accept` and import | Accept cloud changes (drift) and import new resources | `fix: accept drift found by infraharvest` | `infraharvest/import` |
+| `drift: accept` only (`import: "false"`) | Accept cloud changes (drift) | `fix: accept drift found by infraharvest` | `infraharvest/drift` |
+| `drift: report` and import | Import new resources, and record cloud changes (drift) for review | `feat: import new resources and record drift found by infraharvest` | `infraharvest/import` |
+| `drift: report` only (`import: "false"`) | Record cloud changes (drift) for review | `chore: record drift found by infraharvest for review` | `infraharvest/drift` |
+
+With `drift: report`, the pull request accepts nothing: it carries the decisions file and the drift report, for you to review the changes and decide each entry, and any import.
 
 `drift.md` and `drift.json` redact secrets: values the provider marks sensitive, and values that look like credentials, are `(sensitive value)`. The action writes `drift.json` to a file in `RUNNER_TEMP` and to `out/report`, never to the log.
 
@@ -236,7 +240,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `drift` | `off` | `off`, `report` or `accept`: check the roots in `out` for changes in the cloud before importing (see [Drift](#drift)) |
-| `drift-decisions` | | With `drift: accept`, a decisions file to decide the changes by (`--decisions`), written again with this run's changes. Without one, the decisions file is `drift.yaml` in `out` |
+| `drift-decisions` | | The decisions file. With `drift: report`, the file to write this run's changes into, without applying it (`--write-decisions=<file>`); with `drift: accept`, the file to decide the changes by (`--decisions`), written again with this run's changes. Without one, the decisions file is `drift.yaml` in `out` |
 | `drift-accept` | | With `drift: accept`, rules for the changes to accept, one a line, such as `attribute=tags.*`; `keep <rule>` keeps what it matches |
 | `pull-request` | `false` | Open or update a pull request with the output |
 | `pull-request-branch` | `infraharvest/import`, or `infraharvest/drift` with `import: "false"` | The pull request's branch |

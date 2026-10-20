@@ -39,7 +39,7 @@ Each attribute that changed in the cloud gets an outcome:
 
 Each change also has a `decision`: `accept` when an `--accept` rule or the [decisions file](#decisions-file) chose it, else `keep`, and a `decision_source` that says what decided it: `default` (nothing did, so it is kept), `decisions_defaults`, `decisions_rule` or `decisions_change` (the decisions file's defaults, one of its rules, or the change's own entry), or `flag` (`--accept` or `--keep`). `decision_stale` marks a change whose entry was decided for other values, which is kept unless `--accept` accepts it (see [When the cloud changes again](#when-the-cloud-changes-again)). A change whose old value the next apply can only put back by replacing the resource has `forces_replacement`, and its reason says so: accepting it is how to keep the resource.
 
-A resource deleted in the cloud is reported once, as `deleted`. Some changes are left out: arguments the provider keeps only in state, write-only arguments (`*_wo`), and resources the root still imports. Changes to `tags_all`, `effective_labels` and `terraform_labels` are reported as changes to `tags` and `labels`. A tag that every resource gets from one place, the provider's default tags or a shared `local.tags`, and that changed the same way on all of them, is reported once, for that place (see [Tags several resources share](#tags-several-resources-share)).
+A resource deleted in the cloud is reported once, as `deleted`. Some changes are left out: arguments the provider keeps only in state, as the catalogue names them (with `--catalogue <directory>`, the directory of catalogue files the import used, on top of the built-in one: see [Overriding entries](catalogue.md#overriding-entries)), write-only arguments (`*_wo`), and resources the root still imports. Changes to `tags_all`, `effective_labels` and `terraform_labels` are reported as changes to `tags` and `labels`. A tag that every resource gets from one place, the provider's default tags or a shared `local.tags`, and that changed the same way on all of them, is reported once, for that place (see [Tags several resources share](#tags-several-resources-share)).
 
 Resources the root's import blocks import, but that the state doesn't have yet, are listed as not applied: they aren't checked.
 
@@ -142,7 +142,7 @@ A value the provider marks sensitive, or one infraharvest would take for a secre
 infraharvest drift [output-directory] --write-decisions
 ```
 
-It goes into the output directory, or to the file `--decisions` names. It has an entry for each change the next apply would revert, whatever its outcome; changes the code absorbs, and those not assessable, have nothing to decide and aren't listed:
+It goes into the output directory, to the file `--decisions` names, or to the one `--write-decisions=<file>` names, such as `--write-decisions=decisions/drift.yaml` to keep it outside the output directory. It has an entry for each change the next apply would revert, whatever its outcome; changes the code absorbs, and those not assessable, have nothing to decide and aren't listed:
 
 ```yaml
 version: 1
@@ -165,7 +165,7 @@ Set each change's `decision` to `accept` or `keep`, then apply the file:
 infraharvest drift [output-directory] --decisions infraharvest-out/drift.yaml
 ```
 
-Without `--decisions`, `--write-decisions` doesn't apply the file it writes, so a first run never edits the code.
+Without `--decisions`, `--write-decisions` doesn't apply the file it writes, so a first run never edits the code; nor does `--write-decisions=<file>`, unless `--decisions` names the same file (naming another one is an error).
 
 | Field | Means |
 |---|---|
@@ -206,9 +206,9 @@ Drift needs what your own `terraform plan` needs:
 - The read-only role the import uses, to refresh the resources.
 - Read access to the state: for S3, `s3:GetObject` on the state's key and `s3:ListBucket` on the bucket; for GCS, `storage.objects.get`; for azurerm, read access to the state's blob.
 
-Every plan runs with `-lock=false`. Taking the state's lock needs write access, and drift never writes the state. The catch: a plan without the lock can read the state while someone else is applying, and report as drift what that apply is changing. Keep drift and your applies apart, such as by running them in one CI concurrency group, and run drift again after an apply that overlapped it.
+Drift never takes the state's lock: `terraform state pull` takes none, and every plan of the private copy runs with `-lock=false`, on its local state. Taking the lock needs write access, and drift never writes the state. The catch: a pull while someone else is applying reads the state as that apply last saved it, partway through, and drift then reports as drift what the apply is changing. Taking the lock wouldn't keep that apply out either: Terraform holds a lock only while the command that took it runs, not from the pull to the last plan, so drift has no flag for it. Keep drift and your applies apart instead, such as by running them in one CI concurrency group, and run drift again after an apply that overlapped it.
 
-Applying the refresh to the private copy writes only its local state, but Terraform configures the provider again for it: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission; with Azure and Google Cloud, it signs in again. The credentials must still be valid then, after the refresh, and the cloud's sign-in endpoint reachable.
+Applying the saved refresh plan to the private copy writes only its local state, but Terraform configures the provider again for it: with AWS, that calls `sts:GetCallerIdentity`, which every principal may call and no policy can deny, so the drift templates grant nothing for it; with Azure and Google Cloud, it signs in again. The credentials must still be valid then, after the refresh, and the cloud's sign-in endpoint reachable, such as an STS VPC endpoint whose policy allows the call: with AWS, make the session last the whole run (the drift template's `max_session_duration`).
 
 The read-only roles in [`permissions/`](https://github.com/IgnatG/infraharvest/tree/main/permissions) don't read the state: the AWS role denies `s3:GetObject` and `kms:Decrypt` everywhere, Azure's `Reader` has no data actions, and Google Cloud's `roles/viewer` doesn't read objects. The drift templates beside them, `permissions/aws-drift`, `permissions/azure-drift` and `permissions/google-drift`, grant the same read-only access and read access to the state alone (see [Permissions](permissions.md#drift-reading-the-state)). What to grant for each backend, with policy snippets, is in the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift). For an azurerm backend, set `ARM_USE_AZUREAD=true`, so that the backend reads the state with your identity's token, with the **Storage Blob Data Reader** role, rather than with the storage account's access key.
 
@@ -243,4 +243,4 @@ The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/READ
 
 ## From an AI agent
 
-`infraharvest mcp` serves drift to AI agents as two tools: `drift`, which only reports, and `drift_accept`, which takes changes into the code once the user confirms, seeing how many changes would be accepted (see [AI agents](mcp.md)).
+`infraharvest mcp` serves drift to AI agents as two tools: `drift`, which only reports, and `drift_accept`, which takes changes into the code once the user confirms, seeing how many changes would be accepted; the `report` tool reads `drift.md` with `kind: drift` (see [AI agents](mcp.md)).

@@ -16,19 +16,36 @@
 #   [DRIFT_REPORT=<drift.md>] pull-request-details.sh
 set -euo pipefail
 
-if [[ "$DRIFT" == off ]]; then
-  title="Import existing resources with infraharvest"
-  commit="feat: import existing resources with infraharvest"
-  branch=infraharvest/import
-elif [[ "$IMPORT" == true ]]; then
-  title="Accept cloud changes (drift) and import new resources"
-  commit="fix: accept drift found by infraharvest"
-  branch=infraharvest/import
-else
-  title="Accept cloud changes (drift)"
-  commit="fix: accept drift found by infraharvest"
-  branch=infraharvest/drift
-fi
+# drift accept writes accepted changes into the code; drift report accepts
+# nothing, and records the changes, in the decisions file and the report,
+# for review.
+case "$DRIFT/$IMPORT" in
+  off/*)
+    title="Import existing resources with infraharvest"
+    commit="feat: import existing resources with infraharvest"
+    branch=infraharvest/import
+    ;;
+  accept/true)
+    title="Accept cloud changes (drift) and import new resources"
+    commit="fix: accept drift found by infraharvest"
+    branch=infraharvest/import
+    ;;
+  accept/*)
+    title="Accept cloud changes (drift)"
+    commit="fix: accept drift found by infraharvest"
+    branch=infraharvest/drift
+    ;;
+  report/true)
+    title="Import new resources, and record cloud changes (drift) for review"
+    commit="feat: import new resources and record drift found by infraharvest"
+    branch=infraharvest/import
+    ;;
+  *)
+    title="Record cloud changes (drift) for review"
+    commit="chore: record drift found by infraharvest for review"
+    branch=infraharvest/drift
+    ;;
+esac
 if [[ -n "${BRANCH-}" ]]; then branch="$BRANCH"; fi
 # The body is the import's report, then the drift report.
 body="$RUNNER_TEMP/infraharvest-pull-request.md"

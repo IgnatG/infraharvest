@@ -357,6 +357,8 @@ func TestDriftAcceptRejectsBadInput(t *testing.T) {
 		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Accept: []string{"all"}}, "control character"},
 		"another engine":        {DriftAcceptInput{DriftInput: DriftInput{Out: out, Engine: "pulumi"}, Accept: []string{"all"}}, "terraform or tofu"},
 		"negative parallel":     {DriftAcceptInput{DriftInput: DriftInput{Out: out, Parallel: -1}, Accept: []string{"all"}}, "negative"},
+		"a bad engine timeout":  {DriftAcceptInput{DriftInput: DriftInput{Out: out, EngineTimeout: "soon"}, Accept: []string{"all"}}, "engine_timeout"},
+		"a negative timeout":    {DriftAcceptInput{DriftInput: DriftInput{Out: out, EngineTimeout: "-1m"}, Accept: []string{"all"}}, "negative"},
 		"a bad decisions file":  {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: writeFile(t, dir, "bad.yaml", "version: 9\n")}, "version 9"},
 		"no decisions file":     {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: filepath.Join(dir, "missing.yaml")}, ""},
 	} {
@@ -444,5 +446,58 @@ func TestDriftResultBoundsTheChanges(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("text %q misses %q", text, want)
 		}
+	}
+}
+
+// The catalogue directory is passed on as --catalogue, and stays under
+// the root as the other files do.
+func TestDriftCatalogue(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, nil)
+	out := generatedOut(t, dir)
+	catalogue := filepath.Join(dir, "catalogue")
+	if err := os.MkdirAll(catalogue, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if res, text := call(t, session, "drift", map[string]any{"out": out, "catalogue": catalogue}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	want := []string{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--catalogue=" + catalogue, "--", out}
+	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
+		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+
+	tools := &tools{run: runner.run, root: dir}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+	if _, _, err := tools.drift(t.Context(), req, DriftInput{Out: out, Catalogue: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "must be under") {
+		t.Errorf("a catalogue outside the root: got %v, want it rejected", err)
+	}
+	if len(runner.runs) != 1 {
+		t.Errorf("ran with a catalogue outside the root: %v", runner.runs[1:])
+	}
+}
+
+// engine_timeout and force_unlock set --engine-timeout and --force-unlock,
+// for drift_accept too.
+func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, nil)
+	out := generatedOut(t, dir)
+
+	if res, text := call(t, session, "drift", map[string]any{"out": out, "engine_timeout": "90m", "force_unlock": true}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if res, text := call(t, session, "drift_accept", map[string]any{"out": out, "engine_timeout": "0", "keep": []string{"all"}}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	want := [][]string{
+		{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--engine-timeout=1h30m0s", "--force-unlock", "--", out},
+		{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--engine-timeout=0s", "--keep=all", "--", out},
+	}
+	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
+		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
 }

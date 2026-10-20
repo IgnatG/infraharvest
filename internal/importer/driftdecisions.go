@@ -492,9 +492,13 @@ func (r decidedDrift) of(c engine.DriftChange, decide func() driftDecision) drif
 	return decide()
 }
 
-// driftDecisionsPath is the decisions file --write-decisions writes:
-// --decisions, else DefaultDriftDecisionsFile in the output directory.
+// driftDecisionsPath is the decisions file --write-decisions writes: the
+// file it names, else --decisions, else DefaultDriftDecisionsFile in the
+// output directory.
 func driftDecisionsPath(options DriftOptions) string {
+	if options.WriteDecisionsTo != "" {
+		return options.WriteDecisionsTo
+	}
 	if options.Decisions != "" {
 		return options.Decisions
 	}

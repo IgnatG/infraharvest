@@ -5,9 +5,10 @@
 // Protocol. Its tools run the infraharvest binary itself, so they behave
 // exactly like the command line: discover lists resources into a selection
 // file, import generates Terraform configuration from one once a person
-// confirms it, report reads an import's report, drift reports what changed
-// in the cloud since the roots were applied, and drift_accept takes the
-// cloud's values into the code once a person confirms it. Nothing is ever
+// confirms it, report reads an import's report or the drift report, drift
+// reports what changed in the cloud since the roots were applied, and
+// drift_accept takes the cloud's values into the code once a person
+// confirms it. Nothing is ever
 // applied, the state is never changed, and the cloud is only read.
 package mcpserver
 
@@ -49,7 +50,7 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 2. Edit the selection file if the user wants a different selection, and show it to them.
 3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them. To generate those roots again from scratch, set regenerate instead.
 4. Call report to read what was imported, what was left out and why, and the results of the checks.
-5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with accept rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
+5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. Call report with kind drift to read the drift report it wrote. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with accept rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
 
 // New returns the server, which runs infraharvest with run. The tools read
 // and write files under root only: selection files, output directories,
@@ -76,8 +77,8 @@ func New(version, root string, run Runner) *mcp.Server {
 	}, t.importSelection)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "report",
-		Title:       "Read an import's report",
-		Description: "Returns the report of the import in an output directory: what was imported, left out and excluded, and the results of the verification checks.",
+		Title:       "Read an import's report or the drift report",
+		Description: "Returns the report of the import in an output directory: what was imported, left out and excluded, and the results of the verification checks; or, with kind drift, the drift report: the changes in the cloud since the roots were applied, and what became of each.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, t.report)
 	mcp.AddTool(server, &mcp.Tool{
@@ -597,21 +598,45 @@ func canAsk(session *mcp.ServerSession) bool {
 // ReportInput is the report tool's input.
 type ReportInput struct {
 	Out string `json:"out" jsonschema:"the output directory of an import"`
+	// Kind is the report to read: reportImport or reportDrift.
+	Kind string `json:"kind,omitempty" jsonschema:"import for the import's report (report.md), drift for the drift report (drift.md); default: the import's, or the drift report when the output directory has only that"`
 }
+
+// The kinds of report the report tool reads.
+const (
+	reportImport = "import"
+	reportDrift  = "drift"
+)
 
 func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput) (*mcp.CallToolResult, any, error) {
 	if in.Out == "" {
 		return nil, nil, errors.New("out is required")
+	}
+	if in.Kind != "" && in.Kind != reportImport && in.Kind != reportDrift {
+		return nil, nil, fmt.Errorf("kind must be %s or %s, not %q", reportImport, reportDrift, in.Kind)
 	}
 	out, err := t.within("out", in.Out)
 	if err != nil {
 		return nil, nil, err
 	}
 	in.Out = out
-	// The report's own path too: .infraharvest or report.md could be a
+	path := filepath.Join(in.Out, report.Dir, "report.md")
+	drift := filepath.Join(in.Out, report.Dir, report.DriftMarkdownFile)
+	switch in.Kind {
+	case reportDrift:
+		path = drift
+	case "":
+		// An output directory drift checked, whose import ran elsewhere,
+		// has the drift report only.
+		if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+			if _, err := os.Lstat(drift); err == nil {
+				path = drift
+			}
+		}
+	}
+	// The report's own path too: .infraharvest or the report could be a
 	// symbolic link that leads out of the root, such as one a cloned
 	// repository plants to a credentials file.
-	path := filepath.Join(in.Out, report.Dir, "report.md")
 	if _, err := t.within("report", path); err != nil {
 		return nil, nil, err
 	}
