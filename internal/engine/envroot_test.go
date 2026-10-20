@@ -79,7 +79,7 @@ func awsEnvRoot(t *testing.T, env string, tokens []string, account, generated st
 // timeout differs, a bucket destroyed with its objects in dev only, a role
 // whose values hold the account and region, a database whose password is
 // a secret of each environment, a table with a second attribute in prod,
-// a function traced in prod, and a VPN prod only has.
+// a function traced in prod, and a VPN prod only has, in a VPC it reads.
 func devProdRoots(t *testing.T) []envRoot {
 	t.Helper()
 	generated := func(env, account, timeout, forceDestroy, class string) string {
@@ -156,6 +156,7 @@ resource "aws_lambda_function" "api" {
 
 resource "aws_vpn_gateway" "vpn" {
   amazon_side_asn = 64512
+  vpc_id          = data.aws_vpc.vpn.id
 }
 
 resource "aws_customer_gateway" "vpn_office" {
@@ -195,9 +196,15 @@ resource "aws_vpn_connection" "office" {
 	prodIDs["aws_vpn_gateway.vpn"] = "vgw-0abc1234"
 	prodIDs["aws_customer_gateway.vpn_office"] = "cgw-0abc1234"
 	prodIDs["aws_vpn_connection.office"] = "vpn-0abc1234"
+	prodRoot := awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs, files, map[string]string{"Environment": "prd", "Owner": "platform"}, "shop-tfstate-222222222222")
+	data, err := parseHCL(DataFileName, []byte("data \"aws_vpc\" \"vpn\" {\n  id = \"vpc-0abc1234\"\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prodRoot.data = data
 	return []envRoot{
 		awsEnvRoot(t, "dev", nil, "111111111111", dev, ids("dev", "111111111111"), files, map[string]string{"Environment": "dev", "Owner": "platform"}, "shop-tfstate-111111111111"),
-		awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs, files, map[string]string{"Environment": "prd", "Owner": "platform"}, "shop-tfstate-222222222222"),
+		prodRoot,
 	}
 }
 
@@ -458,6 +465,8 @@ func TestMergedRootFiles(t *testing.T) {
 			{"s3.tf", `force_destroy = var.env == "dev"`},
 			{"vpn.tf", "count = var.deploy_vpn ? 1 : 0"},
 			{"vpn.tf", "vpn_gateway_id      = aws_vpn_gateway.vpn[0].id"},
+			{"vpn.tf", "vpc_id = data.aws_vpc.vpn[0].id"},
+			{DataFileName, "data \"aws_vpc\" \"vpn\" {\n  count = var.deploy_vpn ? 1 : 0"},
 			{"dynamodb.tf", `dynamic "attribute" {`},
 			{"lambda.tf", "for_each = var.api_tracing_config == null ? [] : [var.api_tracing_config]"},
 			{ImportsFileName, `id = var.import_ids["aws_sqs_queue.orders"]`},

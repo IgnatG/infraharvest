@@ -666,6 +666,99 @@ resource "aws_sqs_queue" "refunds" {
 	})
 }
 
+// A data source only some environments read is counted with the feature
+// that alone refers to it, and the references to it are to its instance.
+func TestMergeStackFeatureData(t *testing.T) {
+	const dev = `resource "aws_sqs_queue" "orders" {
+  name = "shop-dev-orders"
+}
+`
+	merge := func(t *testing.T, prod, data string) *stackMerge {
+		t.Helper()
+		roots := []envRoot{
+			awsEnvRoot(t, "dev", nil, "111111111111", dev, map[string]string{"aws_sqs_queue.orders": "shop-dev-orders"}, nil, nil, ""),
+			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, map[string]string{"aws_sqs_queue.orders": "shop-prd-orders", "aws_vpn_gateway.vpn": "vgw-1"}, nil, nil, ""),
+		}
+		f, err := parseHCL(DataFileName, []byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots[1].data = f
+		return mergeStack("aws", roots, envSchemas)
+	}
+	const policy = `data "aws_vpc" "vpn" {
+  id = "vpc-0abc1234"
+}
+
+data "aws_iam_policy_document" "vpn" {
+  statement {
+    resources = [data.aws_vpc.vpn.arn]
+  }
+}
+`
+
+	t.Run("counted with its feature", func(t *testing.T) {
+		m := merge(t, dev+`
+resource "aws_vpn_gateway" "vpn" {
+  vpc_id = data.aws_vpc.vpn.id
+  tags = {
+    Policy = data.aws_iam_policy_document.vpn.json
+  }
+}
+`, policy)
+		if m.reason != "" {
+			t.Fatal(m.reason)
+		}
+		deploy := resourceAt(t, m, "aws_vpn_gateway.vpn").deploy
+		if deploy == nil {
+			t.Fatal("the VPN gateway isn't counted")
+		}
+		for _, d := range m.rootData {
+			if d.deploy != deploy {
+				t.Errorf("data.%s is counted by %v, want %s", d.address, d.deploy, deploy.name)
+			}
+		}
+		gateway := resourceAt(t, m, "aws_vpn_gateway.vpn")
+		if a := attributeOf(t, gateway, "vpc_id"); flatExpr(a.value) != "data.aws_vpc.vpn[0].id" {
+			t.Errorf("vpc_id = %s", flatExpr(a.value))
+		}
+		if a := attributeOf(t, gateway, "tags"); !strings.Contains(flatExpr(a.value), "data.aws_iam_policy_document.vpn[0].json") {
+			t.Errorf("tags = %s", flatExpr(a.value))
+		}
+		files, err := mergedRootFiles(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"data \"aws_iam_policy_document\" \"vpn\" {\n  count = var." + deploy.name + " ? 1 : 0\n\n  statement {\n    resources = [data.aws_vpc.vpn[0].arn]\n",
+			"data \"aws_vpc\" \"vpn\" {\n  count = var." + deploy.name + " ? 1 : 0\n\n  id = \"vpc-0abc1234\"\n}\n",
+		} {
+			if got := string(files[DataFileName]); !strings.Contains(got, want) {
+				t.Errorf("%s:\n%s\nwant it to have:\n%s", DataFileName, got, want)
+			}
+		}
+	})
+
+	t.Run("refused where two features refer to it", func(t *testing.T) {
+		m := merge(t, dev+`
+resource "aws_vpn_gateway" "vpn" {
+  vpc_id = data.aws_vpc.vpn.id
+}
+
+resource "aws_sns_topic" "alerts" {
+  policy = data.aws_iam_policy_document.vpn.json
+}
+
+resource "aws_sns_topic" "audit" {
+  policy = data.aws_iam_policy_document.vpn.json
+}
+`, policy)
+		if !strings.Contains(m.reason, "data.aws_iam_policy_document.vpn is read in some environments only") {
+			t.Errorf("reason %q", m.reason)
+		}
+	})
+}
+
 func TestMergeStackReferencesToEnvOnly(t *testing.T) {
 	const prod = `resource "aws_kms_key" "queue" {
   description = "shop-prd-queue"

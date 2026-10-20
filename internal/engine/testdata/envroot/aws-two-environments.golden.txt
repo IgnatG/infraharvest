@@ -36,6 +36,12 @@ Set `db_instance_password` for each environment from your secret store, or with 
 # selection left out or other roots manage, and what the cloud or the
 # provider defines.
 
+data "aws_vpc" "vpn" {
+  count = var.deploy_vpn ? 1 : 0
+
+  id = "vpc-0abc1234"
+}
+
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
@@ -374,5 +380,6 @@ resource "aws_vpn_connection" "office" {
 resource "aws_vpn_gateway" "vpn" {
   count = var.deploy_vpn ? 1 : 0
 
+  vpc_id          = data.aws_vpc.vpn[0].id
   amazon_side_asn = 64512
 }
