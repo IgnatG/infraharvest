@@ -115,6 +115,30 @@ func TestBackupTree(t *testing.T) {
 	}
 }
 
+// A merged root's backup leaves out its local state, such as its
+// workspaces', so that restoring it never writes back a state Terraform
+// may have written since.
+func TestBackupTreeLeavesOutLocalState(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	writeRootFiles(t, dir, map[string]string{"main.tf": "# main\n", "terraform.tfstate": "before"})
+	writeRootFiles(t, filepath.Join(dir, "terraform.tfstate.d", "dev"), map[string]string{"terraform.tfstate": "before"})
+	backup, err := backupTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRootFiles(t, dir, map[string]string{"terraform.tfstate": "after"})
+	writeRootFiles(t, filepath.Join(dir, "terraform.tfstate.d", "dev"), map[string]string{"terraform.tfstate": "after"})
+	if err := backup.restore(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"terraform.tfstate", filepath.Join("terraform.tfstate.d", "dev", "terraform.tfstate")} {
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != "after" {
+			t.Errorf("%s: %q, %v, want it as Terraform last wrote it", name, got, err)
+		}
+	}
+}
+
 func TestMergedHolds(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()

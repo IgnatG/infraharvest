@@ -129,7 +129,14 @@ func MergeRoots(ctx context.Context, dir string, roots []MergeRoot, opts MergeOp
 		}
 		envRoots[i] = root
 	}
-	g := &mergeGate{dir: dir, roots: roots, opts: opts}
+	// The merged root's plans read no state, such as a workspace's that
+	// an environment applied without a backend (see statelessTerraform).
+	state, removeState, err := emptyState()
+	if err != nil {
+		return nil, err
+	}
+	defer removeState()
+	g := &mergeGate{dir: dir, roots: roots, opts: opts, emptyState: state}
 	result, err := g.merge(ctx, envRoots)
 	if err != nil || result.Reason != "" {
 		return result, errors.Join(err, g.clear())
@@ -147,6 +154,8 @@ type mergeGate struct {
 	written []string
 	// newest is the root whose provider the merged root pins.
 	newest int
+	// emptyState is the state its plans read (see emptyState).
+	emptyState string
 }
 
 // merge merges envRoots, read from g.roots, in rounds (see MergeRoots).
@@ -269,7 +278,7 @@ func (g *mergeGate) terraform(env int) (Terraform, error) {
 	if err != nil {
 		return nil, err
 	}
-	return withTimeout(tf, g.opts.CommandTimeout), nil
+	return withTimeout(&statelessTerraform{Terraform: tf, state: g.emptyState}, g.opts.CommandTimeout), nil
 }
 
 // record notes that g wrote name, a path in dir with forward slashes.
