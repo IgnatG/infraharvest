@@ -676,8 +676,8 @@ func TestMergeStackFeatureData(t *testing.T) {
 	merge := func(t *testing.T, prod, data string) *stackMerge {
 		t.Helper()
 		roots := []envRoot{
-			testEnvRoot(t, "dev", nil, "111111111111", dev, map[string]string{"aws_sqs_queue.orders": "shop-dev-orders"}),
-			testEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, map[string]string{"aws_sqs_queue.orders": "shop-prd-orders", "aws_vpn_gateway.vpn": "vgw-1"}),
+			awsEnvRoot(t, "dev", nil, "111111111111", dev, map[string]string{"aws_sqs_queue.orders": "shop-dev-orders"}, nil, nil, ""),
+			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, map[string]string{"aws_sqs_queue.orders": "shop-prd-orders", "aws_vpn_gateway.vpn": "vgw-1"}, nil, nil, ""),
 		}
 		f, err := parseHCL(DataFileName, []byte(data))
 		if err != nil {
@@ -739,9 +739,17 @@ resource "aws_vpn_gateway" "vpn" {
 		}
 	})
 
-	t.Run("refused where a resource every environment has refers to it", func(t *testing.T) {
-		m := merge(t, `resource "aws_sqs_queue" "orders" {
-  name   = "shop-prd-orders"
+	t.Run("refused where two features refer to it", func(t *testing.T) {
+		m := merge(t, dev+`
+resource "aws_vpn_gateway" "vpn" {
+  vpc_id = data.aws_vpc.vpn.id
+}
+
+resource "aws_sns_topic" "alerts" {
+  policy = data.aws_iam_policy_document.vpn.json
+}
+
+resource "aws_sns_topic" "audit" {
   policy = data.aws_iam_policy_document.vpn.json
 }
 `, policy)
