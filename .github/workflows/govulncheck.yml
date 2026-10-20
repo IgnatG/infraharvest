@@ -18,6 +18,12 @@ on:
 permissions:
   contents: read
 
+# The module proxy drops a download now and then (stream error
+# INTERNAL_ERROR); fetching that module from its repository instead keeps
+# the job from failing on it. go.sum still checks what is fetched.
+env:
+  GOPROXY: https://proxy.golang.org|direct
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
