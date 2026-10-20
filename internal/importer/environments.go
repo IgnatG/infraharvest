@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -47,7 +48,8 @@ func withEnvLayout(pattern string, split bool) string {
 
 // checkEnvironmentFlags rejects the flags the configuration file f's
 // environments can't go with, as the command's flags have them once f
-// applies (see config.File.CheckEnvironmentFlags).
+// applies: --default-env, and those config.File.CheckEnvironmentFlags
+// rejects.
 func checkEnvironmentFlags(f *config.File, flags *pflag.FlagSet) error {
 	layout := ""
 	if flag := flags.Lookup("layout"); flag != nil {
@@ -59,8 +61,16 @@ func checkEnvironmentFlags(f *config.File, flags *pflag.FlagSet) error {
 			envTags = values.GetSlice()
 		}
 	}
+	if flag := flags.Lookup("default-env"); flag != nil && flag.Value.String() != "" && len(f.Environments) > 0 {
+		return errEnvironmentsAndDefaultEnv
+	}
 	return f.CheckEnvironmentFlags(layout, envTags, DefaultLayout)
 }
+
+// errEnvironmentsAndDefaultEnv is the error for --default-env with the
+// configuration file's environments, whose tags, not --env-tags, place
+// resources.
+var errEnvironmentsAndDefaultEnv = errors.New("--default-env names the environment of what no --env-tags tag places, but environments: in the configuration file places resources: leave the flag out")
 
 // byTagKeys returns the environment tags give a resource by keys, as
 // --env-tags does: the value of the first of keys they have, as a
@@ -101,7 +111,7 @@ func configuredEnvOf(envs config.Environments, names []string, resourcesByServic
 		name := names[0]
 		return func(harvest.Resource) string { return name }
 	}
-	placed := environments(resourcesByService, tags, byConfiguredTags(envs, names), parents, importID)
+	placed := environments(resourcesByService, tags, byConfiguredTags(envs, names), parents, importID, sharedEnv)
 	return func(r harvest.Resource) string { return placed[tagKey(r)] }
 }
 
@@ -213,8 +223,9 @@ func (k *keptRoots) report(scope string) []report.KeptRoot {
 // one envOfTags gives its tags; for a resource they give none, the
 // environment of a resource whose ID its import ID contains, such as a
 // bucket's versioning or a subnet's route table association, or of its
-// parent, for a child import; else sharedEnv.
-func environments(resourcesByService map[string][]harvest.Resource, tags map[string]map[string]string, envOfTags func(map[string]string) string, parents map[string]string, importID func(harvest.Resource) (string, bool)) map[string]string {
+// parent, for a child import; else fallback: sharedEnv, or the
+// environment --default-env names.
+func environments(resourcesByService map[string][]harvest.Resource, tags map[string]map[string]string, envOfTags func(map[string]string) string, parents map[string]string, importID func(harvest.Resource) (string, bool), fallback string) map[string]string {
 	envs := map[string]string{}
 	byID := map[string]string{}
 	var untagged []harvest.Resource
@@ -248,7 +259,7 @@ func environments(resourcesByService map[string][]harvest.Resource, tags map[str
 			envs[key] = envs[parent]
 			continue
 		}
-		envs[key] = sharedEnv
+		envs[key] = fallback
 		id, ok := importID(r)
 		if !ok {
 			continue
@@ -283,4 +294,14 @@ func envName(value string) string {
 		return sharedEnv
 	}
 	return name
+}
+
+// untaggedEnv returns the environment of what no environment tag places:
+// defaultEnv, the value of --default-env, as a directory name (see
+// envName), or sharedEnv where it is "".
+func untaggedEnv(defaultEnv string) string {
+	if defaultEnv == "" {
+		return sharedEnv
+	}
+	return envName(defaultEnv)
 }

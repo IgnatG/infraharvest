@@ -181,7 +181,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 	}
 
 	out := maps.Clone(root)
-	rootNames, _, failed, err := editor.apply(out, pending)
+	rootNames, applied, failed, err := editor.apply(out, pending)
 	if err != nil {
 		return err
 	}
@@ -204,7 +204,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		}
 	}
 	for _, c := range pending {
-		c.Outcome, c.Reason = DriftWritten, ""
+		c.Outcome, c.Reason = DriftWritten, applied[c].Note
 		if cfg != nil {
 			c.Source = reportSource(cfg, editor.resolve(cfg, c), editor.forms)
 		}

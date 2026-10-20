@@ -97,14 +97,15 @@ type envRoot struct {
 // the string and characters other than letters and digits, such as - _ .
 // / and :, so that shop-prd-db holds prd and
 // arn:aws:iam::111111111111:role/ci the account, but production doesn't
-// hold prod.
+// hold prod. The tokens are words of any case: shop-PRD-db and
+// shop-Prd-db hold prd too.
 type normaliser struct {
 	words  []string // the tokens, longest first
 	scope  string
 	region string
 	group  string // "" where the group's name holds a token
 	// token is the word var.env stands for: the token the root's values
-	// use most (see chooseToken).
+	// use most, as they write it (see chooseToken).
 	token string
 }
 
@@ -124,65 +125,77 @@ func newNormaliser(root envRoot) *normaliser {
 }
 
 // chooseToken returns the token of order the string values of f's
-// resources hold most often as a whole word; the first of order for a
-// tie, or where none holds any.
+// resources hold most often as a whole word, as they write it, in
+// whatever case (PRD for prd, where the names say PRD); the first of
+// order for a tie, or where none holds any.
 func chooseToken(order []string, f *hclFile) string {
 	counts := map[string]int{}
+	var forms []string // as the values write the tokens, in order seen
 	if f != nil {
 		for _, r := range f.resources() {
-			countTokens(r.write.Body(), order, counts)
+			forms = countTokens(r.write.Body(), order, counts, forms)
 		}
 	}
 	best := order[0]
-	for _, t := range order {
-		if counts[t] > counts[best] {
-			best = t
+	for _, word := range order {
+		for _, form := range forms {
+			if strings.EqualFold(form, word) && counts[form] > counts[best] {
+				best = form
+			}
 		}
 	}
 	return best
 }
 
-func countTokens(body *hclwrite.Body, order []string, counts map[string]int) {
+// countTokens counts in counts each whole-word occurrence in body's string
+// values of a token of order, as written, and returns forms with each
+// way of writing one not seen before.
+func countTokens(body *hclwrite.Body, order []string, counts map[string]int, forms []string) []string {
 	for _, attr := range body.Attributes() {
 		for _, t := range attr.Expr().BuildTokens(nil) {
 			if t.Type != hclsyntax.TokenQuotedLit && t.Type != hclsyntax.TokenStringLit {
 				continue
 			}
 			for _, word := range order {
-				_, n := replaceWord(string(t.Bytes), word, envPlaceholder)
-				counts[word] += n
+				for _, form := range wordForms(string(t.Bytes), word) {
+					if counts[form] == 0 {
+						forms = append(forms, form)
+					}
+					counts[form]++
+				}
 			}
 		}
 	}
 	for _, b := range body.Blocks() {
-		countTokens(b.Body(), order, counts)
+		forms = countTokens(b.Body(), order, counts, forms)
 	}
+	return forms
 }
 
 // holdsToken reports whether s holds one of n's tokens as a whole word.
 func (n *normaliser) holdsToken(s string) bool {
-	return slices.ContainsFunc(n.words, func(w string) bool { return indexWord(s, w) >= 0 })
+	return slices.ContainsFunc(n.words, func(w string) bool { return indexWord(s, w, true) >= 0 })
 }
 
 // value returns s with n's placeholders in it.
 func (n *normaliser) value(s string) string {
 	if n.scope != "" {
-		s, _ = replaceWord(s, n.scope, accountPlaceholder)
+		s = replaceWord(s, n.scope, accountPlaceholder, false)
 	}
 	if n.region != "" {
-		s, _ = replaceWord(s, n.region, regionPlaceholder)
+		s = replaceWord(s, n.region, regionPlaceholder, false)
 	}
 	if n.group != "" {
-		s, _ = replaceWord(s, n.group, resourceGroupPlaceholder)
+		s = replaceWord(s, n.group, resourceGroupPlaceholder, false)
 	}
 	return n.envValue(s)
 }
 
-// envValue returns s with envPlaceholder for n's tokens, and no other
-// placeholder.
+// envValue returns s with envPlaceholder for n's tokens, in any case, and
+// no other placeholder.
 func (n *normaliser) envValue(s string) string {
 	for _, w := range n.words {
-		s, _ = replaceWord(s, w, envPlaceholder)
+		s = replaceWord(s, w, envPlaceholder, true)
 	}
 	return s
 }
@@ -239,38 +252,53 @@ func mapLiterals(tokens hclwrite.Tokens, fn func(string) string) hclwrite.Tokens
 	return out
 }
 
-// replaceWord returns s with each whole-word occurrence of word (see
-// indexWord) replaced by placeholder, and how many it replaced.
-func replaceWord(s, word, placeholder string) (string, int) {
-	var b strings.Builder
-	n := 0
+// wordForms returns each whole-word occurrence of word in s, in any case
+// (see indexWord), as s writes it.
+func wordForms(s, word string) []string {
+	var forms []string
 	for {
-		i := indexWord(s, word)
+		i := indexWord(s, word, true)
+		if i < 0 {
+			return forms
+		}
+		forms = append(forms, s[i:i+len(word)])
+		s = s[i+len(word):]
+	}
+}
+
+// replaceWord returns s with each whole-word occurrence of word (see
+// indexWord, and fold) replaced by placeholder.
+func replaceWord(s, word, placeholder string, fold bool) string {
+	var b strings.Builder
+	for {
+		i := indexWord(s, word, fold)
 		if i < 0 {
 			break
 		}
 		b.WriteString(s[:i])
 		b.WriteString(placeholder)
 		s = s[i+len(word):]
-		n++
-	}
-	if n == 0 {
-		return s, 0
 	}
 	b.WriteString(s)
-	return b.String(), n
+	return b.String()
 }
 
 // indexWord returns the index of the first occurrence of word in s that
 // is a whole word: with no letter or digit next to it. One after $ or %,
 // which would make a template sequence of the placeholder, or inside a
-// placeholder, doesn't count. It returns -1 for none.
-func indexWord(s, word string) int {
+// placeholder, doesn't count. With fold, the case of ASCII letters
+// doesn't count either: PRD and Prd are prd. It returns -1 for none.
+func indexWord(s, word string, fold bool) int {
 	if word == "" {
 		return -1
 	}
+	// in is s as word is looked for in it: the same bytes but for case.
+	in := s
+	if fold {
+		in, word = lowerASCII(s), lowerASCII(word)
+	}
 	for from := 0; from <= len(s); {
-		i := strings.Index(s[from:], word)
+		i := strings.Index(in[from:], word)
 		if i < 0 {
 			return -1
 		}
@@ -285,6 +313,18 @@ func indexWord(s, word string) int {
 		from = i + 1
 	}
 	return -1
+}
+
+// lowerASCII returns s with its ASCII letters in lower case, and every
+// other byte as it is, so that indexes in it are indexes in s.
+func lowerASCII(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
 }
 
 // isWordByte reports whether b is part of a word: a letter, a digit, or a

@@ -100,6 +100,12 @@
         "persistent": true
       },
       {
+        "name": "default-env",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
         "name": "engine",
         "type": "string",
         "default": "terraform",
@@ -336,6 +342,12 @@
         "persistent": true
       },
       {
+        "name": "default-env",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
         "name": "engine",
         "type": "string",
         "default": "terraform",
@@ -567,6 +579,12 @@
       },
       {
         "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "default-env",
         "type": "string",
         "default": "",
         "persistent": true
@@ -933,6 +951,12 @@
         "persistent": true
       },
       {
+        "name": "default-env",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
         "name": "engine",
         "type": "string",
         "default": "terraform",
@@ -1169,6 +1193,12 @@
         "persistent": true
       },
       {
+        "name": "default-env",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
         "name": "engine",
         "type": "string",
         "default": "terraform",
@@ -1400,6 +1430,12 @@
       },
       {
         "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
+        "name": "default-env",
         "type": "string",
         "default": "",
         "persistent": true
