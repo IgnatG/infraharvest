@@ -24,7 +24,7 @@ import (
 // returns it: a queue whose visibility timeout is timeout, named through
 // a local, a bucket, the provider's default tags from local.tags, a data
 // source, and more, more resources.
-func writeRootDir(t *testing.T, token, account, timeout, more string, moreIDs map[string]string) string {
+func writeRootDir(t *testing.T, token, account, timeout, more string) string {
 	t.Helper()
 	dir := t.TempDir()
 	imports := `import {
@@ -37,9 +37,6 @@ import {
   id = "shop-` + token + `-logs"
 }
 `
-	for address, id := range moreIDs {
-		imports += "\nimport {\n  to = " + address + "\n  id = \"" + id + "\"\n}\n"
-	}
 	files := map[string]string{
 		VersionsFileName: `terraform {
   required_version = ">= 1.5, < 2.0"
@@ -169,7 +166,7 @@ func (f *mergeFake) SetStdout(io.Writer) {}
 func mergeRoots(t *testing.T, dir string, changed map[string]map[string]int, overrides *[]string) []MergeRoot {
 	t.Helper()
 	root := func(env, token, account, timeout string) MergeRoot {
-		d := writeRootDir(t, token, account, timeout, "", nil)
+		d := writeRootDir(t, token, account, timeout, "")
 		fake := &mergeFake{env: env, dir: dir, changed: changed[env], overrides: overrides}
 		return MergeRoot{
 			Env: env, Tokens: []string{token}, Scope: account, Region: "eu-west-2", Dir: d,
@@ -186,7 +183,7 @@ func mergeRoots(t *testing.T, dir string, changed map[string]map[string]int, ove
 
 func TestReadEnvRoot(t *testing.T) {
 	t.Parallel()
-	dir := writeRootDir(t, "prd", "222222222222", "60", "", nil)
+	dir := writeRootDir(t, "prd", "222222222222", "60", "")
 	root, reason, err := readEnvRoot(MergeRoot{Env: "prod", Tokens: []string{"prd"}, Dir: dir, Provider: Provider{Name: "aws"}}, t.TempDir())
 	if err != nil || reason != "" {
 		t.Fatalf("readEnvRoot: %v %s", err, reason)
@@ -218,7 +215,7 @@ func TestReadEnvRoot(t *testing.T) {
 		MovesFileName: "moved {\n  from = aws_sqs_queue.old\n  to   = aws_sqs_queue.orders\n}\n",
 		"outputs.tf":  "output \"queue\" {\n  value = aws_sqs_queue.orders.id\n}\n",
 	} {
-		other := writeRootDir(t, "prd", "222222222222", "60", "", nil)
+		other := writeRootDir(t, "prd", "222222222222", "60", "")
 		if err := os.WriteFile(filepath.Join(other, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -516,7 +513,7 @@ func TestRootProvider(t *testing.T) {
 	t.Parallel()
 	// A provider block with an alias isn't the root's provider.
 	aliased := "\nprovider \"aws\" {\n  alias  = \"global\"\n  region = \"us-east-1\"\n}\n"
-	p, err := RootProvider(writeRootDir(t, "prd", "222222222222", "60", aliased, nil), "aws")
+	p, err := RootProvider(writeRootDir(t, "prd", "222222222222", "60", aliased), "aws")
 	if err != nil {
 		t.Fatal(err)
 	}
