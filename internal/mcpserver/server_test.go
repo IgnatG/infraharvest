@@ -35,6 +35,9 @@ type fakeRunner struct {
 	driftExit   int
 	driftStderr string
 	decisions   []string
+	// importReport, when set, is the report import prints instead of the
+	// default one.
+	importReport *report.Report
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -57,6 +60,9 @@ func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int,
 			}
 		}
 		r := report.Report{Totals: report.CoverageTotal{Discovered: 3, Imported: 2, Excluded: 1}}
+		if f.importReport != nil {
+			r = *f.importReport
+		}
 		out, err := json.Marshal(r)
 		return out, []byte("imported 2 of 3 resources\n"), 0, err
 	case "drift":
@@ -939,5 +945,41 @@ func TestDiscoverStopped(t *testing.T) {
 		if !res.IsError || !strings.Contains(text, "discover was stopped") || strings.Contains(text, "lists 3 resources") {
 			t.Errorf("exit code %d: want an error result saying discover was stopped, got %s", code, text)
 		}
+	}
+}
+
+// The roots an earlier import generated that keep their directories, though
+// the configuration file's environments would lay them out under envs/ now,
+// are in the result, and its text says what to do.
+func TestImportReportsKeptRoots(t *testing.T) {
+	kept := []report.KeptRoot{{Path: "aws/123456789012/eu-west-2/vpc", Environments: []string{"dev", "prod"}, Scope: "aws/123456789012"}}
+	r := report.Report{Coverage: report.Coverage{Totals: report.CoverageTotal{Discovered: 2, Imported: 2}, KeptRoots: kept}}
+	runner := &fakeRunner{importReport: &r}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+
+	res, text := call(t, session, "import", importArgs(path, filepath.Join(dir, "generated")))
+	if res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if !strings.Contains(text, "1 roots an earlier import generated keep their directories") || !strings.Contains(text, "kept_roots") {
+		t.Errorf("text %q doesn't say which roots kept their directories", text)
+	}
+	content, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ImportResult
+	if err := json.Unmarshal(content, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.KeptRoots) != 1 || got.KeptRoots[0].Path != kept[0].Path || !slices.Equal(got.KeptRoots[0].Environments, kept[0].Environments) || got.KeptRoots[0].Scope != kept[0].Scope {
+		t.Errorf("kept_roots: %+v, want %+v", got.KeptRoots, kept)
 	}
 }

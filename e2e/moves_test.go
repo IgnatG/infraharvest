@@ -17,7 +17,6 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -193,42 +192,6 @@ func TestAWSRegenerateMoves(t *testing.T) {
 	}
 }
 
-// appliedFixture is a fixture under testdata, applied in a directory of
-// its own, which a test applies again with other variables.
-type appliedFixture struct {
-	name string
-	tf   *engine.Runner
-}
-
-// seedApplied applies testdata/<name> in the emulator.
-func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins string) *appliedFixture {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, filepath.Join("testdata", name, "main.tf"))), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tf.SetStdout(os.Stdout)
-	tf.SetStderr(os.Stderr)
-	if err := tf.Init(ctx); err != nil {
-		t.Fatalf("seed: terraform init: %v", err)
-	}
-	f := &appliedFixture{name: name, tf: tf}
-	f.apply(ctx, t)
-	return f
-}
-
-// apply applies the fixture with opts, such as its variables.
-func (f *appliedFixture) apply(ctx context.Context, t *testing.T, opts ...tfexec.ApplyOption) {
-	t.Helper()
-	if err := f.tf.Apply(ctx, opts...); err != nil {
-		t.Fatalf("seed: terraform apply: %v", err)
-	}
-}
-
 // queueURL returns the URL, the ID, of the fixture's queue called name.
 func (f *appliedFixture) queueURL(ctx context.Context, t *testing.T, name string) string {
 	t.Helper()
@@ -245,70 +208,4 @@ func (f *appliedFixture) queueURL(ctx context.Context, t *testing.T, name string
 	}
 	t.Fatalf("testdata/%s created no aws_sqs_queue.%s", f.name, name)
 	return ""
-}
-
-// runMovesImport runs infraharvest with args, failing the test if it
-// fails.
-func runMovesImport(ctx context.Context, t *testing.T, args ...string) {
-	t.Helper()
-	root := cli.NewCmdRoot()
-	root.SetArgs(args)
-	if err := root.ExecuteContext(ctx); err != nil {
-		t.Fatalf("infraharvest %s: %v", strings.Join(args, " "), err)
-	}
-}
-
-// importedAt returns the address the root at path, as coverage reports
-// it, imports the resource with id at; it fails the test if it doesn't.
-func importedAt(t *testing.T, coverage report.Report, path, id string) string {
-	t.Helper()
-	for _, d := range coverage.Directories {
-		if d.Path != path {
-			continue
-		}
-		for _, r := range d.Imported {
-			if r.ID == id {
-				return r.Address
-			}
-		}
-	}
-	t.Fatalf("%s doesn't import %s: %+v", path, id, coverage.Directories)
-	return ""
-}
-
-// copyRootFiles copies the files of the root in dir, but no state or
-// Terraform working directory, into dst, as a team copies a root
-// generated again into its repository.
-func copyRootFiles(t *testing.T, dir, dst string) {
-	t.Helper()
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if !e.Type().IsRegular() || strings.Contains(e.Name(), ".tfstate") {
-			continue
-		}
-		if err := os.WriteFile(filepath.Join(dst, e.Name()), []byte(readFile(t, filepath.Join(dir, e.Name()))), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// clearRootFiles removes the .tf files of the root in dir, keeping its
-// state, for the files of a root generated again.
-func clearRootFiles(t *testing.T, dir string) {
-	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range paths {
-		if err := os.Remove(path); err != nil {
-			t.Fatal(err)
-		}
-	}
 }

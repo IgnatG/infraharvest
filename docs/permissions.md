@@ -56,4 +56,50 @@ Known gap: `roles/viewer` can also read some data, for example object listings. 
 
 ## Drift: reading the state
 
-`infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and `roles/viewer` doesn't read objects. Grant it on the state alone: `s3:ListBucket` and `s3:GetObject` on the state's bucket and keys, in a role of its own whose deny leaves the state out; **Storage Blob Data Reader** on the state's container, with `ARM_USE_AZUREAD=true`; or **Storage Object Viewer** on the state's bucket. The policies, and why drift never needs write access to take the state's lock, are in the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift).
+`infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and `roles/viewer` doesn't read objects. The drift templates grant it on the state alone, with the read-only access above. Drift plans with `-lock=false`, so none of them grants write access to take the state's lock (see the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift)).
+
+### AWS: `permissions/aws-drift`
+
+Creates the `infraharvest-drift` role, for the S3 backend:
+
+- **Trust** and **`ReadOnlyAccess`:** as the read-only role.
+- **`read-state`:** `s3:ListBucket` on the state's bucket and `s3:GetObject` on the roots' state keys, `<key_prefix>/<root path>/terraform.tfstate`, and `kms:Decrypt` on the state's key when the backend sets `kms_key_id`.
+- **`deny-data-reads`:** the read-only role's [`deny-data-reads.json`](https://github.com/IgnatG/infraharvest/blob/main/permissions/aws/deny-data-reads.json), read from `permissions/aws`, with the object reads (and `kms:Decrypt`, with a state key) denied everywhere but the state instead.
+
+```sh
+cd permissions/aws-drift
+terraform init
+terraform apply \
+  -var 'trusted_principal_arns=["arn:aws:iam::123456789012:role/platform-ci"]' \
+  -var state_bucket=acme-terraform-state -var state_key_prefix=imported
+# with an encrypted state:
+#   -var state_kms_key_arn=arn:aws:kms:eu-west-2:123456789012:key/<id>
+```
+
+Then run `infraharvest drift` with a profile that assumes the role. The state holds secrets, which is why this is a role of its own: the import's role never reads it.
+
+### Azure: `permissions/azure-drift`
+
+Assigns **Reader**, as `permissions/azure` does, and **Storage Blob Data Reader** on the state's container only. Run drift with `ARM_USE_AZUREAD=true`, so that the backend reads the state with the identity's token rather than with the storage account's access key, which opens the whole account.
+
+```sh
+cd permissions/azure-drift
+terraform init
+terraform apply -var subscription_id=<subscription-guid> -var principal_id=<object-id> \
+  -var state_storage_account_id=/subscriptions/<id>/resourceGroups/<group>/providers/Microsoft.Storage/storageAccounts/<account> \
+  -var state_container_name=<container>
+# when permissions/azure assigns Reader to the principal already:
+#   -var assign_reader=false
+```
+
+### Google Cloud: `permissions/google-drift`
+
+Grants the three roles `permissions/google` grants on the project, and **Storage Object Viewer** on the state's bucket only: `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces.
+
+```sh
+cd permissions/google-drift
+terraform init
+terraform apply -var project_id=<project> -var member=serviceAccount:<email> -var state_bucket=acme-terraform-state
+# when permissions/google grants the member the read-only roles already:
+#   -var grant_read_only=false
+```

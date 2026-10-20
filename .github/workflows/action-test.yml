@@ -16,6 +16,9 @@ on:
       - internal/importer/**
       - internal/report/**
       - main.go
+      - go.mod
+      - go.sum
+      - e2e/compose.yaml
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
