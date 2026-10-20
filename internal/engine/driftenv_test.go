@@ -45,9 +45,9 @@ const (
 	prodVars = "env            = \"prd\"\norders_timeout = 120\n"
 )
 
-// envRoot writes a root dev and prod share, with main and dev's var file,
+// sharedDriftRoot writes a root dev and prod share, with main and dev's var file,
 // and dev's local state, and returns it and where Drift stages it.
-func envRoot(t *testing.T, main, dev string) (dir, staging string) {
+func sharedDriftRoot(t *testing.T, main, dev string) (dir, staging string) {
 	t.Helper()
 	return acceptRoot(t, map[string]string{
 		"main.tf":                                   main,
@@ -108,7 +108,7 @@ func tfvarsValues(t *testing.T, content string) map[string]string {
 // variable other arguments use, need a hand edit.
 func TestDriftWritesAVariableIntoTheEnvironmentsVarFile(t *testing.T) {
 	t.Parallel()
-	dir, staging := envRoot(t, envMain, devVars)
+	dir, staging := sharedDriftRoot(t, envMain, devVars)
 	// The edited plan takes the timeout; the tag still reverts, as the code
 	// did.
 	verified := queueUpdate("aws_sqs_queue.orders", ordersQueue(90, "qa"), ordersQueue(90, "dev"))
@@ -155,7 +155,7 @@ func TestDriftWritesAVariableIntoTheEnvironmentsVarFile(t *testing.T) {
 func TestDriftAddsAVariableToTheEnvironmentsVarFile(t *testing.T) {
 	t.Parallel()
 	main := strings.Replace(envMain, "  type        = number\n", "  type        = number\n  default     = 30\n", 1)
-	dir, staging := envRoot(t, main, `env = "dev"`)
+	dir, staging := sharedDriftRoot(t, main, `env = "dev"`)
 	verified := queueUpdate("aws_sqs_queue.orders", ordersQueue(90, "qa"), ordersQueue(90, "dev"))
 	result, _, _, err := acceptAll(t, dir, staging, envPlans(verified), DriftOptions{Environment: "dev"})
 	if err != nil {
@@ -180,7 +180,7 @@ func TestDriftAddsAVariableToTheEnvironmentsVarFile(t *testing.T) {
 // A value the plan of the edited var file doesn't take isn't written.
 func TestDriftRejectsAVarFileEditThePlanDoesntTake(t *testing.T) {
 	t.Parallel()
-	dir, staging := envRoot(t, envMain, devVars)
+	dir, staging := sharedDriftRoot(t, envMain, devVars)
 	verified := queueUpdate("aws_sqs_queue.orders", ordersQueue(90, "qa"), ordersQueue(30, "dev"))
 	result, _, _, err := acceptAll(t, dir, staging, envPlans(verified), DriftOptions{Environment: "dev"})
 	if err != nil {
