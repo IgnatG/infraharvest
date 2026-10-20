@@ -6,6 +6,7 @@ package engine
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -93,6 +94,46 @@ func TestRemovals(t *testing.T) {
 	}
 	if got := removals(nil, now); got != nil {
 		t.Errorf("without a previous root: %+v", got)
+	}
+}
+
+// A root generated again of which one instance of a resource goes to
+// another root, as others stay, moves it to a resource of the root alone
+// first, which the removed block takes: the gate passes, and the README
+// says where it was.
+func TestGenerateHandsOverAnInstanceAlone(t *testing.T) {
+	t.Parallel()
+	departure := Departure{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.group[0]", Root: "aws/prod"}
+	previous := &Previous{
+		Addresses: []Managed{
+			{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.group[0]"},
+			{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.group[1]"},
+		},
+		Removed: []Removal{{From: "aws_sqs_queue.departed_group_0", Resources: []Departure{departure}, Instance: "aws_sqs_queue.group[0]"}},
+	}
+	dir, result := generateAgain(t, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "b"}}, previous)
+
+	if !reflect.DeepEqual(result.Removed, previous.Removed) || len(result.Unmoved) != 0 {
+		t.Errorf("removed %+v, unmoved %q", result.Removed, result.Unmoved)
+	}
+	got := strings.Join(strings.Fields(readFile(t, dir, MovesFileName)), " ")
+	for _, block := range []string{
+		"moved { from = aws_sqs_queue.group[0] to = aws_sqs_queue.departed_group_0 }",
+		"removed { from = aws_sqs_queue.departed_group_0 lifecycle { destroy = false } }",
+	} {
+		if !strings.Contains(got, block) {
+			t.Errorf("%s misses %q:\n%s", MovesFileName, block, got)
+		}
+	}
+	// The move for the removed block isn't one of the root's own.
+	if slices.ContainsFunc(result.Moves, func(m Move) bool { return m.From == "aws_sqs_queue.group[0]" }) {
+		t.Errorf("moves %+v", result.Moves)
+	}
+	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, "| `aws_sqs_queue.group[0]`, moved to `aws_sqs_queue.departed_group_0` | `aws/prod` |") {
+		t.Errorf("README.md:\n%s", readme)
+	}
+	if !result.Gate.check(CheckMoves).Passed {
+		t.Errorf("moves check: %+v", result.Gate.check(CheckMoves))
 	}
 }
 

@@ -262,7 +262,12 @@ func movesSection(result *Result) string {
 			if len(roots) > 0 {
 				to = codeList(roots)
 			}
-			fmt.Fprintf(&b, "| `%s` | %s |\n", r.From, to)
+			removed := "`" + r.From + "`"
+			if r.Instance != "" {
+				// A moved block moves it to From first, for the removed block.
+				removed = fmt.Sprintf("`%s`, moved to `%s`", r.Instance, r.From)
+			}
+			fmt.Fprintf(&b, "| %s | %s |\n", removed, to)
 		}
 	}
 	if len(result.Arrived) > 0 {

@@ -38,6 +38,12 @@ type Removal struct {
 	// Resources are what From has, each with the root it goes to; none
 	// for a removed block of moves.tf whose resources no checkpoint says.
 	Resources []Departure `json:",omitempty"`
+	// Instance, if set, is where the root has the one resource From
+	// takes: an instance of a resource, or a resource of a module call,
+	// others of which stay. As a removed block takes no instance keys and
+	// only a whole module call, a moved block moves it to From, a
+	// resource of the root alone (see DepartedAddress), first.
+	Instance string `json:",omitempty"`
 }
 
 // Retype is a resource of a root generated again that is of another type
@@ -291,7 +297,7 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move
 	}
 	retyped, why := retypes(previous, now, sources)
 	unmoved = append(unmoved, why...)
-	if problem := conflictingMoves(append(slices.Clone(moved), departureMoves(retyped)...), declared); problem != "" {
+	if problem := conflictingMoves(append(slices.Clone(moved), departureMoves(previous.Removed, retyped)...), declared); problem != "" {
 		if len(previous.Moved) > 0 {
 			problem += fmt.Sprintf(": plan and apply the root, and delete %s, before generating it again", MovesFileName)
 		}
@@ -367,6 +373,17 @@ func retypes(previous *Previous, now []Managed, sources map[string]string) ([]Re
 	return retyped, why
 }
 
+// RootResources returns the resources of the root that addresses name,
+// as type.label, such as aws_subnet.a for aws_subnet.a[0], leaving out
+// those in module calls: what DepartedAddress takes as taken.
+func RootResources(addresses ...string) map[string]bool {
+	taken := map[string]bool{}
+	for _, address := range addresses {
+		addTaken(taken, address)
+	}
+	return taken
+}
+
 // addTaken adds the resource of the root that address names, as
 // type.label, to taken; nothing for one in a module call.
 func addTaken(taken map[string]bool, address string) {
@@ -376,10 +393,15 @@ func addTaken(taken map[string]bool, address string) {
 }
 
 // departureMoves returns the moved blocks that move what the removed
-// blocks of retyped take alone to the resources of the root those blocks
-// take (see Retype.Removed), sorted.
-func departureMoves(retyped []Retype) []Move {
+// blocks of removed and retyped take alone to the resources of the root
+// those blocks take (see Removal.Instance and Retype.Removed), sorted.
+func departureMoves(removed []Removal, retyped []Retype) []Move {
 	var moved []Move
+	for _, r := range removed {
+		if r.Instance != "" {
+			moved = append(moved, Move{From: r.Instance, To: r.From})
+		}
+	}
 	for _, r := range retyped {
 		if r.Removed != RemovedFrom(r.From) {
 			moved = append(moved, Move{From: r.From, To: r.Removed})
@@ -391,11 +413,11 @@ func departureMoves(retyped []Retype) []Move {
 
 // DepartedAddress returns the address a moved block moves address, an
 // instance of a resource or a resource in a module call, to for a
-// removed block to take it alone (see Retype.Removed): a resource of
+// removed block to take it alone (see Removal.Instance): a resource of
 // the root of its type, labelled departed_ and what address names, such
 // as aws_subnet.departed_vpc_a_x for module.vpc.aws_subnet.a["x"], that
-// taken, the root's resources as type.label, doesn't have yet. It adds
-// the address to taken.
+// taken, the root's resources as type.label (see RootResources), doesn't
+// have yet. It adds the address to taken.
 func DepartedAddress(address string, taken map[string]bool) string {
 	var names []string
 	rest := address
@@ -485,6 +507,13 @@ func packagedCall(address string, sources map[string]string) string {
 	return fmt.Sprintf("module.%s (%s)", name, source)
 }
 
+// PackagedCall returns, for address in a module call that a call of calls
+// makes of a module that isn't a local one makes in turn, the call and its
+// source, which a moved block can't reach (see packagedCall); "" otherwise.
+func PackagedCall(address string, calls []ModuleCall) string {
+	return packagedCall(address, callSources(calls))
+}
+
 // afterKey returns what follows the instance key that s starts with, such
 // as `["a.b"]`, keys in quotes taking any character but an unescaped
 // quote; "" if s doesn't end the key.
@@ -554,7 +583,7 @@ func sortMoves(moved []Move) {
 }
 
 // writeMoves writes moved into dir's moves.tf, with the moves of what
-// the removed blocks of retyped take alone (see
+// the removed blocks of removed and retyped take alone (see
 // departureMoves), sorted by where they move to, then those removed
 // blocks, sorted by what they remove, each with destroy = false; it
 // removes the file if there are none.
@@ -566,7 +595,7 @@ func writeMoves(dir string, moved []Move, removed []Removal, retyped []Retype) e
 		}
 		return nil
 	}
-	sorted := append(slices.Clone(moved), departureMoves(retyped)...)
+	sorted := append(slices.Clone(moved), departureMoves(removed, retyped)...)
 	sortMoves(sorted)
 	var b strings.Builder
 	for i, m := range sorted {

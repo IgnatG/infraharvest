@@ -180,25 +180,64 @@ func TestPlanHandoversVacatesARootThatHasNothingLeft(t *testing.T) {
 	}
 }
 
-// A removed block takes no instance keys and a whole module call: a root
-// of which only some instances, or part of a module call, go is left as
-// it was, and what would go is left out of the roots it goes to.
+// A removed block takes no instance keys and only a whole module call:
+// of a root of which only some instances, or part of a module call, go,
+// each resource that goes gets a removed block of its own, of a resource
+// of the root alone that a moved block moves it to first, named so that
+// it takes no address the root has.
+func TestPlanHandoversHandsOverSomeInstancesAlone(t *testing.T) {
+	for name, tt := range map[string]struct {
+		had  []engine.Managed
+		want engine.Removal
+	}{
+		"instances": {
+			had:  []engine.Managed{thing("a", "fake_thing.group[0]"), thing("b", "fake_thing.group[1]"), thing("c", "fake_thing.departed_group_0")},
+			want: engine.Removal{From: "fake_thing.departed_group_0_2", Instance: "fake_thing.group[0]"},
+		},
+		"module call": {
+			had:  []engine.Managed{thing("a", `module.m["k"].fake_thing.x`), thing("b", `module.m["k"].fake_thing.y`)},
+			want: engine.Removal{From: "fake_thing.departed_m_k_x", Instance: `module.m["k"].fake_thing.x`},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
+			earlierRoot(t, out, old, tt.had...)
+			c := regenerating(out, map[string][]engine.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}})
+
+			if err := planHandovers(out, []*listedCall{c}); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.handovers.refusal(old); err != nil {
+				t.Fatalf("old refused: %v", err)
+			}
+			tt.want.Resources = []engine.Departure{{Type: "fake_thing", ID: "a", Address: tt.want.Instance, Root: "fake/next"}}
+			if got := c.handovers.removalsOf(old); !reflect.DeepEqual(got, []engine.Removal{tt.want}) {
+				t.Errorf("old's removals: got %+v, want %+v", got, tt.want)
+			}
+			if got := c.handovers.arrivalsOf(next); len(got) != 1 || got[0].From != tt.want.Instance {
+				t.Errorf("next's arrivals: %+v", got)
+			}
+		})
+	}
+}
+
+// What removed blocks can't take leaves a root as it was, and what would
+// go is left out of the roots it goes to: a resource whose address is
+// only inferred, and part of a call that a module from the registry
+// makes, which a moved block can't reach.
 func TestPlanHandoversRefusesWhatARemovedBlockCantTake(t *testing.T) {
 	for name, tt := range map[string]struct {
 		had  []engine.Managed
 		want string
 	}{
-		"instances": {
-			had:  []engine.Managed{thing("a", "fake_thing.group[0]"), thing("b", "fake_thing.group[1]")},
-			want: "only some instances of fake_thing.group go to fake/next, and a removed block takes no instance keys",
-		},
-		"module call": {
-			had:  []engine.Managed{thing("a", "module.m.fake_thing.x"), thing("b", "module.m.fake_thing.y")},
-			want: "only part of module.m goes to fake/next, and a removed block takes the whole module call",
-		},
 		"inferred address": {
 			had:  []engine.Managed{{Type: "fake_thing", ID: "a", Address: "fake_thing.a", Unverified: true}, thing("b", "fake_thing.b")},
 			want: "only inferred",
+		},
+		"registry module call": {
+			had:  []engine.Managed{thing("a", "module.eks.module.kms.fake_thing.x"), thing("b", "module.eks.fake_thing.y")},
+			want: "only part of module.eks goes to fake/next: a removed block takes only the whole module call, and a moved block can't move module.eks.module.kms.fake_thing.x out of a call module.eks (terraform-aws-modules/eks/aws) makes",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -206,6 +245,9 @@ func TestPlanHandoversRefusesWhatARemovedBlockCantTake(t *testing.T) {
 			old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 			earlierRoot(t, out, old, tt.had...)
 			c := regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {thingImport("a"), thingImport("c")}})
+			if err := saveCheckpoint(out, old, "fp", &engine.Result{Addresses: tt.had, Modules: []engine.ModuleCall{{Name: "eks", Source: "terraform-aws-modules/eks/aws"}}}); err != nil {
+				t.Fatal(err)
+			}
 
 			if err := planHandovers(out, []*listedCall{c}); err != nil {
 				t.Fatal(err)

@@ -263,9 +263,10 @@ type departing struct {
 // incremental import does (see leaveOutHeld). But a root whose every
 // resource goes to roots of the run is generated with removed blocks
 // alone (see engine.Vacate), by the call of the first root they go to.
-// A root of the run whose resources a removed block can't hand over,
-// as it takes no instance keys, is left as it was and reported as
-// failed, and they are left out of the roots they would go to too.
+// A root of the run whose resources removed blocks can't hand over,
+// such as part of a call a module from the registry makes (see
+// handOver), is left as it was and reported as failed, and they are left
+// out of the roots they would go to too.
 func planHandovers(out string, calls []*listedCall) error {
 	var live []*listedCall
 	for _, c := range calls {
@@ -465,10 +466,14 @@ func assignedAs(assigned map[engine.External]string, p engine.Managed) (engine.E
 
 // handOver returns the removed blocks the root in dir, an earlier
 // import's, gets for leaving, those of its resources that go to other
-// roots now, or what keeps them from it: a removed block takes a whole
-// resource, with no instance key, or a whole module call, so all of it
-// must go; and a moved block of its moves.tf that a plan may not have
-// applied yet mustn't move it, nor an address only inferred name it.
+// roots now, or what keeps them from it. A removed block takes a whole
+// resource, with no instance key, or a whole module call: when only some
+// of it goes, each resource that goes gets a removed block of its own,
+// of a resource of the root alone that a moved block moves it to first
+// (see engine.Removal.Instance), which a resource in a call that a module
+// from the registry makes can't be, as moved blocks stay within a module
+// package. A moved block of its moves.tf that a plan may not have applied
+// yet mustn't move it, nor an address only inferred name it.
 func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string, error) {
 	previous, err := previousAddresses(out, dir)
 	if err != nil {
@@ -478,10 +483,31 @@ func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string,
 	if err != nil {
 		return nil, nil, err
 	}
+	c, err := readCheckpoint(out, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	var calls []engine.ModuleCall
+	if c != nil && c.Result != nil {
+		calls = c.Result.Modules
+	}
+	pending, err := engine.ReadRemoved(dir)
+	if err != nil {
+		return nil, nil, err
+	}
 	members := map[string]int{}
+	var addresses []string
 	for _, p := range previous {
 		members[engine.RemovedFrom(p.Address)]++
+		addresses = append(addresses, p.Address)
 	}
+	for _, m := range moved {
+		addresses = append(addresses, m.From, m.To)
+	}
+	for _, r := range pending {
+		addresses = append(addresses, r.From)
+	}
+	taken := engine.RootResources(addresses...)
 	byFrom := map[string][]departing{}
 	for _, d := range leaving {
 		from := engine.RemovedFrom(d.had.Address)
@@ -502,23 +528,28 @@ func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string,
 			}
 		}
 		where := strings.Join(slices.Sorted(maps.Keys(roots)), ", ")
-		switch {
-		case problem != "":
-		case len(going) < members[from] && strings.HasPrefix(from, "module."):
-			problem = fmt.Sprintf("only part of %s goes to %s, and a removed block takes the whole module call", from, where)
-		case len(going) < members[from]:
-			problem = fmt.Sprintf("only some instances of %s go to %s, and a removed block takes no instance keys", from, where)
+		partial := len(going) < members[from]
+		for _, d := range going {
+			if call := engine.PackagedCall(d.had.Address, calls); problem == "" && partial && call != "" {
+				problem = fmt.Sprintf("only part of %s goes to %s: a removed block takes only the whole module call, and a moved block can't move %s out of a call %s makes for one to take it alone", from, where, d.had.Address, call)
+			}
 		}
 		for _, m := range moved {
 			if problem == "" && (engine.RemovedFrom(m.From) == from || engine.RemovedFrom(m.To) == from) {
 				problem = fmt.Sprintf("%s goes to %s, and %s still moves it: plan and apply the root, and delete %s, before generating it again", from, where, engine.MovesFileName, engine.MovesFileName)
 			}
 		}
-		if problem != "" {
+		switch {
+		case problem != "":
 			problems = append(problems, problem)
-			continue
+		case partial:
+			// Only some of it goes: each resource that goes alone.
+			for _, d := range removal.Resources {
+				removals = append(removals, engine.Removal{From: engine.DepartedAddress(d.Address, taken), Resources: []engine.Departure{d}, Instance: d.Address})
+			}
+		default:
+			removals = append(removals, removal)
 		}
-		removals = append(removals, removal)
 	}
 	return removals, problems, nil
 }

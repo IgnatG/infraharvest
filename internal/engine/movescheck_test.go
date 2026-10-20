@@ -67,6 +67,19 @@ removed {
     destroy = false
   }
 }
+
+moved {
+  from = aws_subnet.c[2]
+  to   = aws_subnet.departed_c_2
+}
+
+removed {
+  from = aws_subnet.departed_c_2
+
+  lifecycle {
+    destroy = false
+  }
+}
 `)
 	check, err := checkMoves(dir)
 	if err != nil {

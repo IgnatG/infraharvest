@@ -125,7 +125,7 @@ func checkMoves(dir string) (Check, error) {
 	}
 	// What the removed blocks take, which a moved block may move a
 	// resource to first, as one instance or one resource of a module call
-	// that keeps others (see Retype.Removed).
+	// that keeps others (see Removal.Instance and Retype.Removed).
 	removed := map[string]bool{}
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
@@ -178,8 +178,11 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: moved block to %s, which the root doesn't declare, and no removed block takes", where(b), to.text)
 			}
 			// Within one resource or module call, a moved block only changes
-			// instance keys, as from aws_subnet.a to aws_subnet.a[0].
-			if from.resource() != to.resource() && stillDeclared(from) {
+			// instance keys, as from aws_subnet.a to aws_subnet.a[0]. An
+			// instance may leave a resource the root still declares, as
+			// aws_subnet.a["x"] to aws_subnet.departed_a_x, if the resource
+			// no longer has its key, which only the plan can tell.
+			if from.resource() != to.resource() && !from.keyed && stillDeclared(from) {
 				fail("%s: moved block from %s, which the root still declares", where(b), from.text)
 			}
 			switch {
