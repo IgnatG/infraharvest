@@ -240,7 +240,7 @@ func movesSection(result *Result) string {
 		}
 	}
 	if len(result.Removed) > 0 {
-		fmt.Fprintf(&b, "\nThese resources go to other roots of the output now. The removed blocks in `%s` make this root's state forget them, without destroying them, and the other roots import them. Apply this root first, then the root each goes to: until then, both would manage it.\n\n| Removed | Goes to |\n|---|---|\n", MovesFileName)
+		fmt.Fprintf(&b, "\nThese resources go to other roots of the output now. The removed blocks in `%s` make this root's state forget them, without destroying them, and the other roots import them. Apply this root first, then the root each goes to: until then, both would manage it. Removed blocks with `destroy = false` need Terraform 1.7 or OpenTofu 1.10, so `%s` requires 1.10 or later while `%s` has them.\n\n| Removed | Goes to |\n|---|---|\n", MovesFileName, VersionsFileName, MovesFileName)
 		for _, r := range result.Removed {
 			var roots []string
 			for _, d := range r.Resources {
