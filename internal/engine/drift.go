@@ -361,6 +361,10 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	}
 	editor := newDriftEditor(refresh, code, opts.Defaults)
 	editor.modules = loadDriftModules(dir)
+	if err := addModuleFiles(root, dir, editor.modules); err != nil {
+		return nil, err
+	}
+	editor.syncModules(root)
 	if opts.Environment != "" {
 		editor.env, editor.envVars = opts.Environment, envVarsPath(opts.Environment)
 	}
@@ -426,7 +430,8 @@ func stateHasResources(state string) bool {
 // stageDrift writes into staging, which it creates private to the user
 // (the state holds secrets), a copy of the root in dir: its files without
 // backend.tf, any backend or cloud block or state, with the sources of
-// local module calls rewritten to reach the same modules from staging,
+// local module calls rewritten to reach the same modules from staging, or
+// copies in it of the generated ones (see stageModule),
 // and state as its local terraform.tfstate. Subdirectories, such as a
 // module of the root's own, stay where they are.
 func stageDrift(dir, staging string, state []byte) error {
@@ -471,7 +476,8 @@ func stageDrift(dir, staging string, state []byte) error {
 
 // stagedConfig returns content, the configuration file at path of the
 // root in dir, as the copy in staging has it: without backend or cloud
-// blocks, and with local module sources relative to staging.
+// blocks, and with local module sources relative to staging, or calling
+// copies in it of the generated modules (see stageModule).
 func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 	wf, diags := hclwrite.ParseConfig(content, path, hcl.InitialPos)
 	if diags.HasErrors() {
@@ -507,6 +513,19 @@ func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 			abs, err := filepath.Abs(m)
 			if err != nil {
 				return nil, err
+			}
+			if generatedModuleDir(abs) {
+				// A copy, which an accepted change may edit (see
+				// promoteLiteral).
+				copied, err := stageModule(staging, abs)
+				if err != nil {
+					return nil, err
+				}
+				if copied != "" {
+					blocks[i].Body().SetAttributeValue("source", cty.StringVal(copied))
+					changed = true
+					continue
+				}
 			}
 			source, err := callSource(staging, abs)
 			if err != nil {

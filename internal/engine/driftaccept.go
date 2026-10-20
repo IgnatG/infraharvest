@@ -103,6 +103,12 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 	if err != nil {
 		return err
 	}
+	// The modules' files, which the copy has copies of (see stageModule).
+	for name, content := range root {
+		if isModuleFile(name) {
+			staged[name] = content
+		}
+	}
 	standards, err := checkStandards(staging, opts.Omit, nil)
 	if err != nil {
 		return err
@@ -138,7 +144,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		// The files an earlier round edited are as they were, but for this
 		// round's edits.
 		for _, name := range sortedKeys(written) {
-			if err := fsutil.WriteFile(filepath.Join(staging, name), edited[name], 0o600); err != nil {
+			if err := fsutil.WriteFile(stagedPath(staging, name), edited[name], 0o600); err != nil {
 				return err
 			}
 		}
@@ -199,6 +205,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 	var cfg *driftConfig
 	if editor.env != "" {
 		// A value added to the environment's var file is set there now.
+		editor.syncModules(out)
 		if cfg, err = parseDriftConfig(out); err != nil {
 			return err
 		}

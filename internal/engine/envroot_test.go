@@ -402,18 +402,23 @@ func TestGoldenMergedRoots(t *testing.T) {
 }
 
 // goldenRoot compares files, a merged root's, with
-// testdata/envroot/<name>.golden.txt, each file after a -- path -- line,
-// or rewrites it under -update.
+// testdata/envroot/<name>.golden.txt (see goldenFiles).
 func goldenRoot(t *testing.T, name string, files map[string][]byte) {
 	t.Helper()
+	goldenFiles(t, filepath.Join("testdata", "envroot", name+".golden.txt"), files)
+}
+
+// goldenFiles compares files with the golden file at path, each file
+// after a -- path -- line, or rewrites it under -update.
+func goldenFiles(t *testing.T, path string, files map[string][]byte) {
+	t.Helper()
 	var b strings.Builder
-	for _, path := range slices.Sorted(maps.Keys(files)) {
-		fmt.Fprintf(&b, "-- %s --\n%s", path, files[path])
-		if !strings.HasSuffix(string(files[path]), "\n") {
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		fmt.Fprintf(&b, "-- %s --\n%s", name, files[name])
+		if !strings.HasSuffix(string(files[name]), "\n") {
 			b.WriteString("\n")
 		}
 	}
-	path := filepath.Join("testdata", "envroot", name+".golden.txt")
 	if *updateGolden {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
