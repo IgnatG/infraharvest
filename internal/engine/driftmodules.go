@@ -645,9 +645,11 @@ func inputText(t traced) string {
 }
 
 // instance follows the path into the argument of a call that makes
-// several instances, for the instance key: into the call's for_each
-// object literal, at the key, through each.value; or into a list or an
-// object literal, at the call's count index or for_each key.
+// several instances, for the instance key: through each.value, into the
+// item at the key of the call's for_each; or into the element at the
+// call's count index or for_each key of what the argument indexes, such
+// as local.queues[count.index].settings. What it goes into is a list or
+// an object literal (see callLiteral).
 func (w *driftWalk) instance(block *hclsyntax.Block, key instanceKey) Source {
 	name := w.steps[0].name
 	attr, ok := block.Body.Attributes[name]
@@ -655,76 +657,152 @@ func (w *driftWalk) instance(block *hclsyntax.Block, key instanceKey) Source {
 		return w.manual(SourceModule, block.DefRange(), "the call makes several instances, and doesn't set "+name+" for them: edit it by hand")
 	}
 	w.attrAt = 1
-	names := []string{name}
-	switch x := attr.Expr.(type) {
+	lit, ok := w.instanceValue(block, attr.Expr, key)
+	if !ok {
+		return w.manual(SourceModule, attr.Expr.Range(), "the call makes several instances, and "+name+" isn't each one's own literal: edit it by hand")
+	}
+	w.file, w.f = lit.file, lit.f
+	w.steps = slices.Concat(w.steps[:1], lit.into, w.steps[1:])
+	w.mod.offset += len(lit.into)
+	w.mod.each = len(lit.into)
+	return w.expr(lit.expr, holder{}, []string{name}, 1)
+}
+
+// instanceLiteral is a literal of a call's argument: expr, in file, and
+// the steps into it that the argument's value is at.
+type instanceLiteral struct {
+	expr hclsyntax.Expression
+	into []pathStep
+	file string
+	f    *hclFile
+}
+
+// instanceValue returns where e, the argument of block, a call that makes
+// several instances, has the instance key's own value (see instance).
+func (w *driftWalk) instanceValue(block *hclsyntax.Block, e hclsyntax.Expression, key instanceKey) (instanceLiteral, bool) {
+	switch x := e.(type) {
+	case *hclsyntax.ParenthesesExpr:
+		return w.instanceValue(block, x.Expression, key)
 	case *hclsyntax.ScopeTraversalExpr:
-		item := forEachItem(block, key)
-		if x.Traversal.RootName() != "each" || len(x.Traversal) < 2 || item == nil {
-			break
+		forEach, set := block.Body.Attributes["for_each"]
+		if x.Traversal.RootName() != "each" || len(x.Traversal) < 2 || !set || !key.hasKey {
+			return instanceLiteral{}, false
 		}
 		if step, ok := x.Traversal[1].(hcl.TraverseAttr); !ok || step.Name != "value" {
-			break
+			return instanceLiteral{}, false
 		}
 		into, ok := traversalSteps(x.Traversal[2:])
 		if !ok {
-			break
+			return instanceLiteral{}, false
 		}
-		w.steps = slices.Concat(w.steps[:1], into, w.steps[1:])
-		w.mod.offset += len(into)
-		w.mod.each = len(into)
-		return w.expr(item.ValueExpr, holder{}, names, 1)
+		lit, ok := w.callLiteral(block, forEach.Expr)
+		obj, isObj := lit.expr.(*hclsyntax.ObjectConsExpr)
+		if !ok || !isObj {
+			return instanceLiteral{}, false
+		}
+		lit.expr, lit.into = objectItem(obj, key.key), into
+		return lit, lit.expr != nil
 	case *hclsyntax.IndexExpr:
-		if element := instanceElement(x, key); element != nil {
-			return w.expr(element, holder{}, names, 1)
+		lit, ok := w.callLiteral(block, x.Collection)
+		if !ok {
+			return instanceLiteral{}, false
 		}
+		lit.expr = instanceElement(lit.expr, x.Key, key)
+		return lit, lit.expr != nil
+	case *hclsyntax.RelativeTraversalExpr:
+		lit, ok := w.instanceValue(block, x.Source, key)
+		into, valid := traversalSteps(x.Traversal)
+		if !ok || !valid {
+			return instanceLiteral{}, false
+		}
+		lit.into = slices.Concat(lit.into, into)
+		return lit, true
 	}
-	return w.manual(SourceModule, attr.Expr.Range(), "the call makes several instances, and "+name+" isn't each one's own literal: edit it by hand")
+	return instanceLiteral{}, false
 }
 
-// forEachItem returns the item of the object literal block's for_each is
-// that key is the key of, or nil.
-func forEachItem(block *hclsyntax.Block, key instanceKey) *hclsyntax.ObjectConsItem {
-	attr, ok := block.Body.Attributes["for_each"]
-	if !ok || !key.hasKey {
-		return nil
+// callLiteral returns the list or object literal e, an expression of the
+// call block, is: written in the call; the value of a local; or, in a
+// root environments share, the value the environment's var file gives a
+// variable. A local or a variable is followed only where nothing outside
+// the call refers to it, as an edit of it reaches only the call then.
+func (w *driftWalk) callLiteral(block *hclsyntax.Block, e hclsyntax.Expression) (instanceLiteral, bool) {
+	lit := instanceLiteral{expr: e, file: w.file, f: w.f}
+	if x, ok := e.(*hclsyntax.ScopeTraversalExpr); ok && len(x.Traversal) == 2 {
+		step, _ := x.Traversal[1].(hcl.TraverseAttr)
+		root, name := x.Traversal.RootName(), step.Name
+		switch {
+		case name == "":
+		case root == "local":
+			def, ok := w.cfg.locals[name]
+			if !ok || w.cfg.uses[name] > blockUses(block, root, name) {
+				return instanceLiteral{}, false
+			}
+			lit = instanceLiteral{expr: def.attr.Expr, file: def.file, f: def.f}
+		case root == "var" && w.e.env != "":
+			v, f := w.cfg.variables[name], w.cfg.files[w.e.envVars]
+			if v == nil || sensitiveVariable(v) || f == nil || w.cfg.varUses[name] > blockUses(block, root, name) {
+				return instanceLiteral{}, false
+			}
+			attr, ok := f.syntax.Attributes[name]
+			if !ok {
+				return instanceLiteral{}, false
+			}
+			lit = instanceLiteral{expr: attr.Expr, file: w.e.envVars, f: f}
+		}
 	}
-	obj, ok := attr.Expr.(*hclsyntax.ObjectConsExpr)
-	if !ok {
-		return nil
+	switch lit.expr.(type) {
+	case *hclsyntax.ObjectConsExpr, *hclsyntax.TupleConsExpr:
+		return lit, true
 	}
-	for i := range obj.Items {
-		if keyName(obj.Items[i].KeyExpr) == key.key {
-			return &obj.Items[i]
+	return instanceLiteral{}, false
+}
+
+// blockUses counts the references in block to root.name, such as
+// local.queues.
+func blockUses(block *hclsyntax.Block, root, name string) int {
+	n := 0
+	for _, t := range allTraversals(block.Body) {
+		if t.RootName() != root || len(t) < 2 {
+			continue
+		}
+		if step, ok := t[1].(hcl.TraverseAttr); ok && step.Name == name {
+			n++
+		}
+	}
+	return n
+}
+
+// objectItem returns the value of obj's item at key, or nil.
+func objectItem(obj *hclsyntax.ObjectConsExpr, key string) hclsyntax.Expression {
+	for _, item := range obj.Items {
+		if keyName(item.KeyExpr) == key {
+			return item.ValueExpr
 		}
 	}
 	return nil
 }
 
-// instanceElement returns, of x, a list literal indexed by count.index or
-// an object literal by each.key, the element of the instance key key, or
-// nil.
-func instanceElement(x *hclsyntax.IndexExpr, key instanceKey) hclsyntax.Expression {
-	index, ok := x.Key.(*hclsyntax.ScopeTraversalExpr)
-	if !ok || len(index.Traversal) != 2 {
+// instanceElement returns, of collection, a list literal index is
+// count.index into or an object literal it is each.key into, the element
+// of the instance key key, or nil.
+func instanceElement(collection, index hclsyntax.Expression, key instanceKey) hclsyntax.Expression {
+	ref, ok := index.(*hclsyntax.ScopeTraversalExpr)
+	if !ok || len(ref.Traversal) != 2 {
 		return nil
 	}
-	step, ok := index.Traversal[1].(hcl.TraverseAttr)
+	step, ok := ref.Traversal[1].(hcl.TraverseAttr)
 	if !ok {
 		return nil
 	}
-	switch c := x.Collection.(type) {
+	switch c := collection.(type) {
 	case *hclsyntax.TupleConsExpr:
-		if index.Traversal.RootName() == "count" && step.Name == "index" && key.isNum && key.index < len(c.Exprs) {
+		if ref.Traversal.RootName() == "count" && step.Name == "index" && key.isNum && key.index < len(c.Exprs) {
 			return c.Exprs[key.index]
 		}
 	case *hclsyntax.ObjectConsExpr:
-		if index.Traversal.RootName() != "each" || step.Name != "key" || !key.hasKey {
-			return nil
-		}
-		for _, item := range c.Items {
-			if keyName(item.KeyExpr) == key.key {
-				return item.ValueExpr
-			}
+		if ref.Traversal.RootName() == "each" && step.Name == "key" && key.hasKey {
+			return objectItem(c, key.key)
 		}
 	}
 	return nil

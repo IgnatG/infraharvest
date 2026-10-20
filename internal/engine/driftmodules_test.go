@@ -185,6 +185,10 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 		// source is the file the source is in, and module what its
 		// Module has.
 		source, module string
+		// files are the root's other files, by name, and env the
+		// environment of a root environments share.
+		files map[string]string
+		env   string
 	}{
 		{
 			name:   "var.x",
@@ -272,6 +276,90 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 			contains: "    a = { name = \"a\" }\n    b = { name = \"c\" }\n",
 		},
 		{
+			name: "a for_each key into a local's object literal",
+			file: `locals {
+  teams = {
+    a = { name = "a" }
+    b = { name = "b" }
+  }
+}
+
+module "teams" {
+  source   = "../../../modules/queue_0a1b2c3d"
+  for_each = local.teams
+
+  settings = each.value
+}
+`,
+			after:    map[string]any{"name": "c"},
+			change:   moduleDrift(`module.teams["b"].aws_sqs_queue.this`, "aws_sqs_queue", "name", "c"),
+			contains: "    a = { name = \"a\" }\n    b = { name = \"c\" }\n",
+		},
+		{
+			name: "a count index into a local's list literal",
+			file: `locals {
+  queues = [
+    { settings = { name = "a" } },
+    { settings = { name = "b" } },
+  ]
+}
+
+module "queues" {
+  source = "../../../modules/queue_0a1b2c3d"
+  count  = length(local.queues)
+
+  settings = local.queues[count.index].settings
+}
+`,
+			after:    map[string]any{"name": "c"},
+			change:   moduleDrift("module.queues[1].aws_sqs_queue.this", "aws_sqs_queue", "name", "c"),
+			contains: `{ settings = { name = "c" } },`,
+		},
+		{
+			name: "a local something else refers to",
+			file: `locals {
+  teams = {
+    a = { name = "a" }
+    b = { name = "b" }
+  }
+}
+
+module "teams" {
+  source   = "../../../modules/queue_0a1b2c3d"
+  for_each = local.teams
+
+  settings = each.value
+}
+
+output "teams" {
+  value = local.teams
+}
+`,
+			after:  map[string]any{"name": "c"},
+			change: moduleDrift(`module.teams["b"].aws_sqs_queue.this`, "aws_sqs_queue", "name", "c"),
+			reason: "isn't each one's own literal",
+		},
+		{
+			name: "a for_each key into the environment's value of a variable",
+			file: `variable "teams" {
+  type = map(object({ name = string }))
+}
+
+module "teams" {
+  source   = "../../../modules/queue_0a1b2c3d"
+  for_each = var.teams
+
+  settings = each.value
+}
+`,
+			files:    map[string]string{"vars/dev/terraform.tfvars": "teams = {\n  a = { name = \"a\" }\n  b = { name = \"b\" }\n}\n"},
+			env:      "dev",
+			after:    map[string]any{"name": "c"},
+			change:   moduleDrift(`module.teams["b"].aws_sqs_queue.this`, "aws_sqs_queue", "name", "c"),
+			contains: "  a = { name = \"a\" }\n  b = { name = \"c\" }\n",
+			source:   "vars/dev/terraform.tfvars",
+		},
+		{
 			name: "an argument every instance shares",
 			file: `module "teams" {
   source   = "../../../modules/queue_0a1b2c3d"
@@ -320,7 +408,11 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 			t.Parallel()
 			e := testEditor(map[string]map[string]any{tc.change.Address: tc.after})
 			e.modules = modules(t)
-			contents := map[string][]byte{"main.tf": []byte(tc.file)}
+			if tc.env != "" {
+				e.env, e.envVars = tc.env, envVarsPath(tc.env)
+			}
+			contents := byteFiles(tc.files)
+			contents["main.tf"] = []byte(tc.file)
 			before := maps.Clone(contents)
 			_, applied, failed, err := e.apply(contents, []*DriftChange{tc.change})
 			if err != nil {
@@ -351,12 +443,13 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 			if !edited {
 				t.Fatalf("no edit: %s: %s", src.Kind, src.Reason)
 			}
-			got := string(contents["main.tf"])
+			name := src.Edit.File
+			got := string(contents[name])
 			if tc.want != "" && got != tc.want {
-				t.Errorf("main.tf:\n%s\nwant:\n%s", got, tc.want)
+				t.Errorf("%s:\n%s\nwant:\n%s", name, got, tc.want)
 			}
 			if tc.contains != "" && !strings.Contains(got, tc.contains) {
-				t.Errorf("main.tf:\n%s\nwant it to have:\n%s", got, tc.contains)
+				t.Errorf("%s:\n%s\nwant it to have:\n%s", name, got, tc.contains)
 			}
 		})
 	}

@@ -118,7 +118,7 @@ A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its 
 
 Another release of a registry module, such as one `--modules latest-untested` called, is traced through its code, as a local module is.
 
-A call with `count` or `for_each` makes several instances, and drift edits only the instance's own value: the element at its index in a list literal indexed by `count.index`, the item at its key in an object literal indexed by `each.key`, or, through `each.value`, the item at its key in the call's own `for_each` object literal. An argument all the instances share is a hand edit.
+A call with `count` or `for_each` makes several instances, and drift edits only the instance's own value: the element at its index in a list literal indexed by `count.index`, the item at its key in an object literal indexed by `each.key`, or, through `each.value`, the item at its key in the call's `for_each` object literal, and from there into an attribute, such as `each.value.settings` or `local.queues[count.index].settings`. The literal can be in the call, the value of a local, or, in a root environments share, the value the environment's `vars/<env>/terraform.tfvars` gives a variable, such as `for_each = var.teams`; a local or a variable is followed only when nothing outside the call refers to it. An argument all the instances share is a hand edit.
 
 An argument can reach more than the resource that changed: every resource the module makes from it, such as both a role and its instance profile from `tags`. The plan of the edited code catches that, as it catches an edit of a local that other resources use: if a resource that didn't change in the cloud would now change, the edit is rejected (`rejected_by_plan`), and the reason names that resource.
 
