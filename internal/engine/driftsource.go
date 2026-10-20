@@ -78,6 +78,9 @@ type Source struct {
 	// the value from the argument of the call the edit is in, such as
 	// ../../modules/bucket_0a1b2c3d/main.tf:4 var.tags.
 	Module string
+	// Note says what the report should say of an edit, such as a call's
+	// argument set to null, whose module's default isn't null.
+	Note string
 }
 
 // SourceEdit replaces the bytes from Start to End of File, relative to
@@ -701,8 +704,16 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 		switch {
 		case h.attr != nil && w.mod != nil:
 			// A call that leaves the argument out gets the module's
-			// default, which needn't be none.
-			src.Edit = &SourceEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
+			// default: the argument goes where that is none too, and is
+			// set to null where it isn't, or can't be told.
+			isNull, note := w.mod.nullDefault(h.attr.Name)
+			if isNull && i == w.attrAt {
+				src.Edit = w.removeLines(h.attr.SrcRange)
+			}
+			if src.Edit == nil {
+				src.Edit = &SourceEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
+				src.Note = note
+			}
 		case h.attr != nil:
 			src.Edit = w.removeLines(h.attr.SrcRange)
 		case h.item != nil:

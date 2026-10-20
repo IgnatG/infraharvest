@@ -762,6 +762,30 @@ func (cw *callWalk) fits(variable string, value any) bool {
 	return true
 }
 
+// nullDefault reports whether the module's variable has null for its
+// default, so that a call that leaves it out gets none, as one that sets
+// it to null does. Where it has another default, or none, a note says the
+// call sets it to null all the same; where the module's code doesn't
+// say, there is no note.
+func (cw *callWalk) nullDefault(variable string) (bool, string) {
+	v := cw.module.cfg.variables[variable]
+	if v == nil {
+		return false, ""
+	}
+	attr, ok := v.Body.Attributes["default"]
+	if !ok {
+		return false, fmt.Sprintf("set to null, as the module %s has no default for var.%s", cw.module.dir, variable)
+	}
+	value, diags := attr.Expr.Value(nil)
+	switch {
+	case diags.HasErrors():
+		return false, ""
+	case value.IsNull():
+		return true, ""
+	}
+	return false, fmt.Sprintf("set to null, as the default of var.%s in the module %s differs from the cloud's value", variable, cw.module.dir)
+}
+
 // resourceTypeAt returns the type of what steps go to in a resource of
 // typ: through its nested blocks, to an argument, then into its value;
 // cty.NilType if the schemas don't say.
