@@ -243,7 +243,7 @@ func movesSection(result *Result) string {
 		}
 	}
 	if len(result.Retyped) > 0 {
-		fmt.Fprintf(&b, "\nThese resources are of another name of their type now, which no moved block can follow. The removed blocks in `%s` make this root's state forget them where it had them, without destroying them, and the import blocks in `%s` import them again where they are now.\n\n| Was | Is now |\n|---|---|\n", MovesFileName, ImportsFileName)
+		fmt.Fprintf(&b, "\nThese resources are of another name of their type now, which no moved block can follow. The removed blocks in `%s` make this root's state forget them where it had them, without destroying them, and the import blocks in `%s` import them again where they are now. Removed blocks with `destroy = false` need Terraform 1.7 or OpenTofu 1.10, so `%s` requires 1.10 or later while `%s` has them.\n\n| Was | Is now |\n|---|---|\n", MovesFileName, ImportsFileName, VersionsFileName, MovesFileName)
 		for _, r := range result.Retyped {
 			fmt.Fprintf(&b, "| `%s` | `%s` |\n", r.From, r.To)
 		}
