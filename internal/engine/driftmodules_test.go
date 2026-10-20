@@ -69,6 +69,58 @@ var queueModule = map[string]string{
 `,
 }
 
+// A local module that makes several instances of what it has: calls of
+// the queue module, by for_each and by count, and topics, from its
+// variables.
+var fleetModule = map[string]string{
+	"main.tf": `module "queue" {
+  source   = "../queue_0a1b2c3d"
+  for_each = var.queues
+
+  settings = each.value
+}
+
+module "counted" {
+  source = "../queue_0a1b2c3d"
+  count  = length(var.names)
+
+  settings = { name = var.names[count.index] }
+}
+
+resource "aws_sns_topic" "this" {
+  for_each = var.topics
+
+  name = each.value.name
+}
+`,
+	"variables.tf": `variable "queues" {
+  type = map(object({ name = string }))
+}
+
+variable "names" {
+  type = list(string)
+}
+
+variable "topics" {
+  type = map(object({ name = string }))
+}
+`,
+}
+
+const fleetCall = `module "fleet" {
+  source = "../../../modules/fleet_0a1b2c3d"
+
+  names = ["a", "b"]
+  queues = {
+    a = { name = "a" }
+    b = { name = "b" }
+  }
+  topics = {
+    t = { name = "t" }
+  }
+}
+`
+
 // iamRoleModule stands for the iam-role module the IAMRole adapter pins:
 // its Inverse says what sets what, so only the variables are read.
 var iamRoleModule = map[string]string{
@@ -168,6 +220,8 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 		bucket := testModule(t, "../../../modules/s3_0a1b2c3d", 2, bucketModule)
 		queue := testModule(t, "../../../modules/queue_0a1b2c3d", 3, queueModule)
 		return map[string]*driftModule{
+			"fleet":       testModule(t, "../../../modules/fleet_0a1b2c3d", 1, fleetModule),
+			"fleet.queue": queue, "fleet.counted": queue,
 			"logs": bucket, "data": bucket,
 			"jobs": queue, "queues": queue, "teams": queue,
 			"deploy": testModule(t, ".terraform/modules/deploy", 1, iamRoleModule),
@@ -358,6 +412,30 @@ module "teams" {
 			change:   moduleDrift(`module.teams["b"].aws_sqs_queue.this`, "aws_sqs_queue", "name", "c"),
 			contains: "  a = { name = \"a\" }\n  b = { name = \"c\" }\n",
 			source:   "vars/dev/terraform.tfvars",
+		},
+		{
+			name:     "a call's for_each over a variable, inside a module",
+			file:     fleetCall,
+			after:    map[string]any{"name": "c"},
+			change:   moduleDrift(`module.fleet.module.queue["b"].aws_sqs_queue.this`, "aws_sqs_queue", "name", "c"),
+			contains: "    a = { name = \"a\" }\n    b = { name = \"c\" }\n",
+			module:   "../../../modules/fleet_0a1b2c3d/main.tf:5 each.value; ../../../modules/queue_0a1b2c3d/main.tf:2 var.settings.name",
+		},
+		{
+			name:   "a call's count index into a variable, inside a module",
+			file:   fleetCall,
+			after:  map[string]any{"name": "c"},
+			change: moduleDrift("module.fleet.module.counted[1].aws_sqs_queue.this", "aws_sqs_queue", "name", "c"),
+			// A list is written whole, and the cloud has only the element.
+			reason: "from its argument names[1]: it sets more than the cloud's value",
+		},
+		{
+			name:     "a resource's for_each over a variable",
+			file:     fleetCall,
+			after:    map[string]any{"name": "u"},
+			change:   moduleDrift(`module.fleet.aws_sns_topic.this["t"]`, "aws_sns_topic", "name", "u"),
+			contains: `t = { name = "u" }`,
+			module:   "../../../modules/fleet_0a1b2c3d/main.tf:18 each.value.name",
 		},
 		{
 			name: "an argument every instance shares",

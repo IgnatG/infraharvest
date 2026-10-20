@@ -112,9 +112,10 @@ A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its 
 | `var.x` | The call's argument `x` |
 | A key or an attribute of a variable: `var.x.k`, `var.x["k"]`, `lookup(var.x, "k", ...)` or `try(var.x.k, ...)` | `k` in the object or map the call passes as `x`. If the call leaves `k` out, and the variable's type makes it optional, `k` is added |
 | A variable of a module called inside the module | The argument it gets it from, followed up to the root's call |
+| In a resource or a module call with `count` or `for_each`: `each.value` (or `each.value.k`) of `for_each = var.x`, `var.x[count.index]` or `var.x[each.key]` | The instance's own value in `x`, such as `queues["b"]`, with the keys of the calls it is in, followed up to the root's call. An argument every instance gets, such as `var.tags`, is followed too, and the plan rejects the edit if it reaches instances that didn't change |
 | A curated module's resource, called at the release its adapter pins | The input the adapter's `Inverse` maps the attribute onto, such as `tags` for the IAM role module's `aws_iam_role.this.tags`, or the policy's key in `policies` for its `aws_iam_role_policy_attachment.this.policy_arn`. A value the adapter names as the input's default leaves the argument out |
 | A literal in the module | Nothing: a hand edit in the module. A generated module's literal is the same for every call that shares the module: to change it for one call, make it a variable of the module |
-| Anything else: a function, a conditional, `each`, `count`, a `dynamic` block, or an attribute of a curated module that its adapter's `Inverse` doesn't name | Nothing: a hand edit, at the call |
+| Anything else: a function, a conditional, any other use of `each` or `count`, a `dynamic` block, or an attribute of a curated module that its adapter's `Inverse` doesn't name | Nothing: a hand edit, at the call |
 
 Another release of a registry module, such as one `--modules latest-untested` called, is traced through its code, as a local module is.
 

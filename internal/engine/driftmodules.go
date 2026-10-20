@@ -252,10 +252,16 @@ type traced struct {
 // moduleTracer follows a path through a block of a module, a resource's
 // or a call's of another module, to the variable it gets the value from:
 // var.x, a key, attribute or element of it, such as var.x.k, var.x["k"],
-// lookup(var.x, "k", ...) or try(var.x.k, ...), or a local that is one.
+// lookup(var.x, "k", ...) or try(var.x.k, ...), or a local that is one;
+// in a block with count or for_each, also each.value, var.x[count.index]
+// or var.x[each.key], at the instance's key.
 type moduleTracer struct {
 	m     *driftModule
 	steps []pathStep
+	// block is the block followed, and key its instance's key, for its
+	// count or for_each.
+	block *hclsyntax.Block
+	key   instanceKey
 }
 
 func (t *moduleTracer) fail(file string, rng hcl.Range, reason string) traced {
@@ -328,7 +334,10 @@ func (t *moduleTracer) expr(file string, e hclsyntax.Expression, i, depth int) t
 }
 
 // ref returns the variable, and the steps into it, whose value e is, as
-// it is; depth counts the locals followed.
+// it is; depth counts the locals followed. Of a block that makes several
+// instances, each.value is the instance's value of the variable for_each
+// is, and count.index and each.key index the variable at the instance's
+// key.
 func (t *moduleTracer) ref(e hclsyntax.Expression, depth int) (string, []pathStep, bool) {
 	switch x := e.(type) {
 	case *hclsyntax.ParenthesesExpr:
@@ -351,25 +360,72 @@ func (t *moduleTracer) ref(e hclsyntax.Expression, depth int) (string, []pathSte
 				return "", nil, false
 			}
 			return t.ref(def.attr.Expr, depth+1)
+		case "each":
+			if len(x.Traversal) < 2 || t.block == nil || !t.key.hasKey {
+				return "", nil, false
+			}
+			forEach, ok := t.block.Body.Attributes["for_each"]
+			if step, value := x.Traversal[1].(hcl.TraverseAttr); !ok || !value || step.Name != "value" {
+				return "", nil, false
+			}
+			name, sub, ok := t.ref(forEach.Expr, depth)
+			into, valid := traversalSteps(x.Traversal[2:])
+			if !ok || !valid {
+				return "", nil, false
+			}
+			if ty, typed := t.m.variables[name]; typed {
+				// Of a set, each.value is the key, not a value in it.
+				if ty = descendType(ty, sub); ty.IsSetType() || ty.IsListType() {
+					return "", nil, false
+				}
+			}
+			return name, slices.Concat(sub, []pathStep{{name: t.key.key}}, into), true
+		}
+	case *hclsyntax.RelativeTraversalExpr:
+		name, sub, ok := t.ref(x.Source, depth)
+		into, valid := traversalSteps(x.Traversal)
+		if ok && valid {
+			return name, slices.Concat(sub, into), true
 		}
 	case *hclsyntax.IndexExpr:
 		name, sub, ok := t.ref(x.Collection, depth)
-		if key := literalKey(x.Key); ok && key != "" {
-			return name, append(slices.Clone(sub), pathStep{name: key}), true
+		if step, isKey := t.keyStep(x.Key); ok && isKey {
+			return name, append(slices.Clone(sub), step), true
 		}
 	case *hclsyntax.FunctionCallExpr:
 		switch {
 		case x.ExpandFinal:
 		case x.Name == "lookup" && (len(x.Args) == 2 || len(x.Args) == 3):
 			name, sub, ok := t.ref(x.Args[0], depth)
-			if key := literalKey(x.Args[1]); ok && key != "" {
-				return name, append(slices.Clone(sub), pathStep{name: key}), true
+			if step, isKey := t.keyStep(x.Args[1]); ok && isKey {
+				return name, append(slices.Clone(sub), step), true
 			}
 		case x.Name == "try" && len(x.Args) > 0:
 			return t.ref(x.Args[0], depth)
 		}
 	}
 	return "", nil, false
+}
+
+// keyStep returns the step e, a key, takes: a literal key, or of a block
+// that makes several instances, the instance's count.index or each.key.
+func (t *moduleTracer) keyStep(e hclsyntax.Expression) (pathStep, bool) {
+	if key := literalKey(e); key != "" {
+		return pathStep{name: key}, true
+	}
+	x, ok := e.(*hclsyntax.ScopeTraversalExpr)
+	if !ok || len(x.Traversal) != 2 || t.block == nil {
+		return pathStep{}, false
+	}
+	step, ok := x.Traversal[1].(hcl.TraverseAttr)
+	switch {
+	case !ok:
+	case x.Traversal.RootName() == "count" && step.Name == "index" && t.key.isNum:
+		return pathStep{index: t.key.index, isIndex: true}, true
+	case x.Traversal.RootName() == "each" && step.Name == "key" && t.key.hasKey:
+		return pathStep{name: t.key.key}, true
+	}
+	return pathStep{}, false
 }
 
 // traversalSteps returns the steps of a relative traversal, such as .k or
@@ -544,20 +600,18 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 		if !ok {
 			return callSource("the module " + m.dir + " has no block for " + resource + ": edit it by hand")
 		}
-		tr := &moduleTracer{m: m, steps: steps}
+		tr := &moduleTracer{m: m, steps: steps, block: b.b, key: key}
 		if t = tr.body(b.file, b.b, 0); t.variable == "" {
 			return e.moduleManual(c, m, t)
 		}
 		via = append(via, e.viaText(m, t))
 	}
-	// Up through the calls of modules inside modules, to the root's.
+	// Up through the calls of modules inside modules, to the root's, each
+	// at its instance's key.
 	rest := steps[t.at:]
 	for i := level; i > 0; i-- {
-		if hasInstances(blocks[i].b) {
-			return callSource("module." + calls[i].name + " in the module " + mods[i-1].dir + " makes several instances: edit it by hand")
-		}
 		callSteps := slices.Concat([]pathStep{{name: t.variable}}, t.sub, rest)
-		tr := &moduleTracer{m: mods[i-1], steps: callSteps}
+		tr := &moduleTracer{m: mods[i-1], steps: callSteps, block: blocks[i].b, key: calls[i].key}
 		if t = tr.body(blocks[i].file, blocks[i].b, 0); t.variable == "" {
 			return e.moduleManual(c, mods[i-1], t)
 		}
