@@ -14,6 +14,10 @@ resource "azurerm_role_assignment" "reader" {
   description          = "infraharvest: read-only access to resource configuration."
 }
 
+# Applying drift's saved refresh plan to its private copy configures the
+# provider again, which signs in again: nothing here grants that, but the
+# identity's credentials must still be valid then.
+
 # Reads the roots' state blobs with the identity's own token
 # (ARM_USE_AZUREAD=true), on the state's container alone: no access key,
 # which would open the whole storage account. Drift plans with

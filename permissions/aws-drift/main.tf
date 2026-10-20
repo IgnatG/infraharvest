@@ -27,6 +27,10 @@ data "aws_iam_policy_document" "trust" {
   }
 }
 
+# Applying drift's saved refresh plan to its private copy configures the
+# provider again, which calls sts:GetCallerIdentity: every principal may
+# call it and no policy can deny it, so nothing here grants it, but the
+# session must still be valid then (max_session_duration).
 resource "aws_iam_role" "drift" {
   name                 = var.role_name
   description          = "Drift checks for infraharvest: configuration metadata and the roots' state, no other data-plane reads."

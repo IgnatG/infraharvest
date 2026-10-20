@@ -17,6 +17,10 @@ resource "google_project_iam_member" "readonly" {
   member  = var.member
 }
 
+# Applying drift's saved refresh plan to its private copy configures the
+# provider again, which signs in again: nothing here grants that, but the
+# member's credentials must still be valid then.
+
 # Reads the roots' state objects (storage.objects.get) and finds their
 # workspaces (storage.objects.list), on the state's bucket alone. Drift
 # plans with -lock=false, so it never creates the lock object.
