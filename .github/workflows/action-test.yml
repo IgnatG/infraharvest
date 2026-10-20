@@ -259,12 +259,30 @@ jobs:
           printf '# Import report\n\n# Drift report\n' > "$RUNNER_TEMP/both.md"
           cmp "$RUNNER_TEMP/both.md" "$(output both body-path)"
 
-          # Drift alone, on a branch of its own, with no drift report: on a
-          # first run, out doesn't exist yet.
+          # Drift reported, then an import: the changes are recorded for
+          # review, and none accepted.
+          details recorded IMPORT=true DRIFT=report OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift.yaml \
+            IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          expect recorded title "Import new resources, and record cloud changes (drift) for review"
+          expect recorded commit-message "feat: import new resources and record drift found by infraharvest"
+          expect recorded branch infraharvest/import
+          expect recorded add-paths "$(printf 'infraharvest-out\ndecisions/drift.yaml')"
+          cmp "$RUNNER_TEMP/both.md" "$(output recorded body-path)"
+
+          # Drift accepted alone, on a branch of its own.
+          details accepted IMPORT=false DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
+            IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          expect accepted title "Accept cloud changes (drift)"
+          expect accepted commit-message "fix: accept drift found by infraharvest"
+          expect accepted branch infraharvest/drift
+          cmp "$RUNNER_TEMP/drift.md" "$(output accepted body-path)"
+
+          # Drift reported alone, on a branch of its own, with no drift
+          # report: on a first run, out doesn't exist yet.
           details drift IMPORT=false DRIFT=report OUT=infraharvest-out BRANCH=infraharvest/weekly DRIFT_DECISIONS= \
             IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/missing/drift.md"
-          expect drift title "Accept cloud changes (drift)"
-          expect drift commit-message "fix: accept drift found by infraharvest"
+          expect drift title "Record cloud changes (drift) for review"
+          expect drift commit-message "chore: record drift found by infraharvest for review"
           expect drift branch infraharvest/weekly
           expect drift add-paths infraharvest-out
           test ! -s "$(output drift body-path)"

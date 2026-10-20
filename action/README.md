@@ -91,8 +91,12 @@ With `drift` set, the pull request also covers the decisions file, wherever `dri
 | Run | Title | Commit | Default branch |
 |---|---|---|---|
 | Import only | Import existing resources with infraharvest | `feat: import existing resources with infraharvest` | `infraharvest/import` |
-| Drift and import | Accept cloud changes (drift) and import new resources | `fix: accept drift found by infraharvest` | `infraharvest/import` |
-| Drift only (`import: "false"`) | Accept cloud changes (drift) | `fix: accept drift found by infraharvest` | `infraharvest/drift` |
+| `drift: accept` and import | Accept cloud changes (drift) and import new resources | `fix: accept drift found by infraharvest` | `infraharvest/import` |
+| `drift: accept` only (`import: "false"`) | Accept cloud changes (drift) | `fix: accept drift found by infraharvest` | `infraharvest/drift` |
+| `drift: report` and import | Import new resources, and record cloud changes (drift) for review | `feat: import new resources and record drift found by infraharvest` | `infraharvest/import` |
+| `drift: report` only (`import: "false"`) | Record cloud changes (drift) for review | `chore: record drift found by infraharvest for review` | `infraharvest/drift` |
+
+With `drift: report`, the pull request accepts nothing: it carries the decisions file and the drift report, for you to review the changes and decide each entry, and any import.
 
 `drift.md` and `drift.json` redact secrets: values the provider marks sensitive, and values that look like credentials, are `(sensitive value)`. The action writes `drift.json` to a file in `RUNNER_TEMP` and to `out/report`, never to the log.
 
