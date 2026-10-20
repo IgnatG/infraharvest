@@ -83,7 +83,11 @@ func (c *listedCall) recordAdded(dir, fp string, holds *engine.Result, opts engi
 // what an incremental import added to them kept apart (see
 // mergeMember.isolated); where that fails, or would give what the merged
 // root has other addresses, the merged root stays as it was, and so do
-// the set-aside roots, which the failure names.
+// the set-aside roots, which the failure names. An environment the merged
+// root doesn't have yet, which the import brings, joins it, its resources
+// matched with the others'; where that fails, or would give what the
+// merged root has other addresses, its roots stay apart, and the stack
+// merges again without it (see mergeWithout).
 func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMember) error {
 	out := r.options.Out
 	var envs []string
@@ -96,6 +100,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	if err != nil {
 		return err
 	}
+	joining := joiningEnvironments(prev, members)
 	if prev != nil && prev.Merge.Merged {
 		if missing := missingEnvironments(prev, envs); len(missing) > 0 {
 			// The environments the import doesn't have merge again as
@@ -203,6 +208,14 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		}
 	}
 	fillMerge(&merge, result)
+	if !merge.Merged && backup != nil && len(joining) > 0 {
+		// The merged root an earlier import wrote stays as it was for
+		// what it has, and the environments new to it keep their roots.
+		if err := backup.restore(); err != nil {
+			return err
+		}
+		return r.mergeWithout(ctx, stack, prev, members, joining, merge.Reason)
+	}
 	if !merge.Merged && backup != nil {
 		// The merged root an earlier import wrote, which may be in use,
 		// stays; so do the roots set aside, with what is new in them.
@@ -309,11 +322,93 @@ func missingEnvironments(prev *mergeCheckpoint, envs []string) []string {
 	return missing
 }
 
+// joiningEnvironments returns the environments of members, the stack's
+// now, that prev, its merge checkpoint, didn't merge, where it merged:
+// those an import brings to the merged root for the first time, sorted.
+func joiningEnvironments(prev *mergeCheckpoint, members []mergeMember) []string {
+	if prev == nil || !prev.Merge.Merged {
+		return nil
+	}
+	var joining []string
+	for _, m := range members {
+		merged := slices.ContainsFunc(prev.Members, func(pm mergeCheckpointMember) bool { return pm.Env == m.env })
+		if !merged && !slices.Contains(joining, m.env) {
+			joining = append(joining, m.env)
+		}
+	}
+	sort.Strings(joining)
+	return joining
+}
+
+// withoutEnvironments returns members but those of envs, and those.
+func withoutEnvironments(members []mergeMember, envs []string) (rest, of []mergeMember) {
+	for _, m := range members {
+		if slices.Contains(envs, m.env) {
+			of = append(of, m)
+		} else {
+			rest = append(rest, m)
+		}
+	}
+	return rest, of
+}
+
+// apartRoots returns the roots of members, under out, as the report
+// records them.
+func apartRoots(out string, members []mergeMember) []report.MergedRoot {
+	roots := make([]report.MergedRoot, len(members))
+	for i, m := range members {
+		roots[i] = report.MergedRoot{Env: m.env, Path: relativePath(out, m.dir)}
+	}
+	return roots
+}
+
+// mergeWithout merges members, the roots of the stack whose merged root
+// is stack, of which prev is the checkpoint, again but those of joining,
+// environments new to the merged root that couldn't join it, why says:
+// their roots stay where they are, of their own, and the report says why
+// with the stack's merge. Where the import has nothing new of the other
+// environments, the merged root stays as it was.
+func (r *Run) mergeWithout(ctx context.Context, stack string, prev *mergeCheckpoint, members []mergeMember, joining []string, why string) error {
+	out := r.options.Out
+	rest, apart := withoutEnvironments(members, joining)
+	for _, m := range apart {
+		premerge := premergeDir(out, m.dir)
+		if m.premerged {
+			if err := copyRoot(premerge, m.dir); err != nil {
+				return err
+			}
+		}
+		if err := os.RemoveAll(premerge); err != nil {
+			return err
+		}
+	}
+	path := relativePath(out, stack)
+	log.Printf("%s: %s keep roots of their own, as joining the merged root failed: %s", path, strings.Join(joining, ", "), why)
+	n := len(r.report.Merges)
+	var err error
+	if slices.ContainsFunc(rest, func(m mergeMember) bool { return !m.restored }) {
+		err = r.mergeStack(ctx, stack, rest)
+	} else {
+		kept := prev.Merge
+		kept.Unchanged = true
+		r.recordMerge(kept, rest)
+	}
+	for i := n; i < len(r.report.Merges); i++ {
+		if m := &r.report.Merges[i]; m.Path == path {
+			m.Apart, m.ApartReason = apartRoots(out, apart), why
+		}
+	}
+	return err
+}
+
 // keepMerged keeps the merged root in stack as prev, its checkpoint,
 // records it, and sets members aside, which an import generated or added
-// to but can't merge again, why says, as a failure of the run.
+// to but can't merge again, why says, as a failure of the run. The
+// members of environments prev didn't merge keep their roots where they
+// are (see joiningEnvironments).
 func (r *Run) keepMerged(stack string, prev *mergeCheckpoint, members []mergeMember, why string) error {
 	out := r.options.Out
+	members, apart := withoutEnvironments(members, joiningEnvironments(prev, members))
 	for _, m := range members {
 		if !m.premerged {
 			if err := setAside(out, m.dir); err != nil {
@@ -324,6 +419,9 @@ func (r *Run) keepMerged(stack string, prev *mergeCheckpoint, members []mergeMem
 	kept := prev.Merge
 	kept.Unchanged = true
 	kept.Reason = why
+	if len(apart) > 0 {
+		kept.Apart, kept.ApartReason = apartRoots(out, apart), why
+	}
 	r.recordMerge(kept, members)
 	err := fmt.Errorf("%s: %s", relativePath(out, stack), why)
 	log.Print(err)

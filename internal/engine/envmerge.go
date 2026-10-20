@@ -651,7 +651,8 @@ func uniqueEnvName(used map[string]bool, name, resourceType string) string {
 // now that the variables have their names and local.naming_prefix its
 // workload; and adds the locals, variables and data sources the values
 // read. A template that is a resource's name (see isNameAttribute) and
-// holds the environment's token becomes a named local.
+// holds the environment's token becomes a named local, as does a residue
+// resource's name (see residueName).
 func (m *stackMerge) render() {
 	var bodies []*mergedBody
 	for _, r := range m.resources {
@@ -672,6 +673,17 @@ func (m *stackMerge) render() {
 				templates = append(templates, a.normal)
 			}
 		}, nil)
+	}
+	// The residue's names, by argument: templates where they hold their
+	// environment's token, nil where they are kept as they are.
+	residueNames := map[*mergedAttribute]hclwrite.Tokens{}
+	for _, r := range m.resources {
+		if a, normal := m.residueName(r); a != nil {
+			residueNames[a] = normal
+			if normal != nil {
+				templates = append(templates, normal)
+			}
+		}
 	}
 	m.workload = workloadOf(templates)
 	if m.workload != "" {
@@ -707,11 +719,19 @@ func (m *stackMerge) render() {
 			continue
 		}
 		for _, a := range r.body.attributes {
-			if a.kind != templateValue || !isNameAttribute(r.resourceType, a.name) || !holds([]hclwrite.Tokens{a.normal}, envPlaceholder) {
+			value, residue := residueNames[a]
+			switch {
+			case residue && value != nil:
+				value = m.renderTemplate(value)
+			case residue:
+				value = a.value
+			case a.kind == templateValue && isNameAttribute(r.resourceType, a.name) && holds([]hclwrite.Tokens{a.normal}, envPlaceholder):
+				value = a.value
+			default:
 				continue
 			}
 			a.local = uniqueEnvName(used, callName(r.resourceType+"."+r.label)+"_name", r.resourceType)
-			m.locals = append(m.locals, namedLocal{a.local, a.value})
+			m.locals = append(m.locals, namedLocal{a.local, value})
 			a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: a.local}})
 			break
 		}
@@ -727,6 +747,37 @@ func (m *stackMerge) render() {
 		m.variables = append(m.variables, group)
 	}
 	sort.Slice(m.variables, func(i, j int) bool { return m.variables[i].name < m.variables[j].name })
+}
+
+// residueName returns the argument that is r's name, where r is residue
+// and its name a literal string, and the name with envPlaceholder for its
+// environment's tokens (see normaliser.envValue): a template its
+// environment's var files give its value back from, as
+// local.naming_prefix does. The template is nil where the name holds no
+// token, or doesn't come back as it is, and the name stays as it is.
+func (m *stackMerge) residueName(r *stackResource) (*mergedAttribute, hclwrite.Tokens) {
+	if r.residue == "" || r.body == nil {
+		return nil, nil
+	}
+	e := slices.IndexFunc(r.members, func(member *envResource) bool { return member != nil })
+	if e < 0 {
+		return nil, nil
+	}
+	n := m.norms[e]
+	for _, a := range r.body.attributes {
+		if a.kind != sameValue || !isNameAttribute(r.resourceType, a.name) {
+			continue
+		}
+		if v, ok := literalValue(a.value); !ok || v.Type() != cty.String {
+			continue
+		}
+		normal := mapLiterals(a.value, n.envValue)
+		if !holds([]hclwrite.Tokens{normal}, envPlaceholder) || exprKey(mapLiterals(normal, n.denormalise)) != exprKey(a.value) {
+			return a, nil
+		}
+		return a, normal
+	}
+	return nil, nil
 }
 
 // holds reports whether the string literals of any of templates hold

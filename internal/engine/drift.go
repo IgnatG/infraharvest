@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -119,8 +120,18 @@ type DriftOptions struct {
 	// backend settings, vars/<env>/backend.hcl, or, for a root without a
 	// backend, the local state of the workspace named after it, and with
 	// its var files. The environments share the root's code, so a change
-	// accepted for one isn't written into it: it needs a hand edit.
+	// accepted for one isn't written into it: where a variable no other
+	// argument uses sets the whole value, it is written into the
+	// environment's vars/<env>/terraform.tfvars instead; else it needs a
+	// hand edit.
 	Environment string
+	// RootLock, for a root environments share, is held while the root's
+	// own directory is initialised with Environment's backend settings,
+	// its state pulled and its files staged: checks of its other
+	// environments, run at once, reconfigure the backend of the same
+	// directory, and a pull between another's init and its own would read
+	// that environment's state. nil locks nothing.
+	RootLock *sync.Mutex
 
 	// writeFile writes an edited file into the root; nil is
 	// fsutil.WriteFile. For tests.
@@ -237,8 +248,11 @@ func (e *UnsupportedBackendError) Error() string {
 // taken into the root's code, where it can be told how (see Source):
 // edited in the copy, planned again without refreshing, and written into
 // the root only once the plan and the checks of the verification gate
-// say the edits take them and change nothing else (see acceptDrift). The
-// others are kept. Each change's Outcome says what became of it.
+// say the edits take them and change nothing else (see acceptDrift); the
+// others are kept. For a root environments share, checked as
+// opts.Environment, only that environment's var file, staged with the
+// copy, is edited, for a value a variable sets (see envVariable). Each
+// change's Outcome says what became of it.
 //
 // A root with an unsupported backend fails with an
 // UnsupportedBackendError before Terraform runs.
@@ -253,16 +267,19 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	}
 	result := &RootDrift{Backend: backend}
 	tf = driftWithTimeout(tf, opts.CommandTimeout)
-	var envVars []tfexec.PlanOption
-	var envVarPaths []string
 	var envImports map[string]string
 	if opts.Environment != "" {
-		if envVars, envVarPaths, err = mergedVarFiles(dir, opts.Environment); err != nil {
-			return nil, err
-		}
 		if envImports, err = MergedImportIDs(dir, opts.Environment); err != nil {
 			return nil, err
 		}
+	}
+	// Checks of the root's other environments wait until its directory is
+	// initialised for this one, its state pulled and its files staged.
+	unlock := func() {}
+	if opts.RootLock != nil {
+		opts.RootLock.Lock()
+		unlock = sync.OnceFunc(opts.RootLock.Unlock)
+		defer unlock()
 	}
 	state, err := pullDriftState(ctx, tf, dir, backend, opts.Environment)
 	if err != nil {
@@ -276,8 +293,22 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return result, nil
 	}
 	defer os.RemoveAll(staging)
-	if err := stageDrift(dir, staging, []byte(state)); err != nil {
+	err = stageDrift(dir, staging, []byte(state))
+	unlock()
+	if err != nil {
 		return nil, err
+	}
+	// The plans read the environment's var files from the staged copy,
+	// where an accepted change is edited first.
+	var envVars []tfexec.PlanOption
+	var envVarPaths []string
+	if opts.Environment != "" {
+		if err := stageVarFiles(dir, staging, opts.Environment); err != nil {
+			return nil, err
+		}
+		if envVars, envVarPaths, err = mergedVarFiles(staging, opts.Environment); err != nil {
+			return nil, err
+		}
 	}
 	stf, err := staged(staging)
 	if err != nil {
@@ -324,12 +355,15 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return nil, fmt.Errorf("terraform plan -refresh=false: %w", err)
 	}
 	result.Changes = classifyDrift(refresh, code, opts.StateOnly, len(placeholdered) > 0)
-	root, err := tfContents(dir)
+	root, err := driftContents(dir, opts.Environment)
 	if err != nil {
 		return nil, err
 	}
 	editor := newDriftEditor(refresh, code, opts.Defaults)
 	editor.modules = loadDriftModules(dir)
+	if opts.Environment != "" {
+		editor.env, editor.envVars = opts.Environment, envVarsPath(opts.Environment)
+	}
 	if result.Changes, err = shareTags(result.Changes, root, refresh, code, editor); err != nil {
 		return nil, err
 	}
@@ -338,12 +372,6 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return nil, err
 	}
 	accepted := decideDrift(result.Changes, sources, opts.Accept)
-	if opts.Environment != "" {
-		for _, c := range accepted {
-			c.Outcome, c.Reason = DriftManual, fmt.Sprintf("the environments share this root's code, so it isn't edited for %s alone: where a variable sets the value, change it in %s/%s/%s; else edit the code by hand, for every environment", opts.Environment, varsDirName, opts.Environment, envVarsFileName)
-		}
-		accepted = nil
-	}
 	if len(accepted) > 0 {
 		if err := acceptDrift(ctx, stf, dir, staging, root, accepted, code, vars, editor, opts); err != nil {
 			return nil, err

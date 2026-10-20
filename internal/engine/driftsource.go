@@ -119,6 +119,10 @@ type driftEditor struct {
 	// modules.json (see loadDriftModules), to trace changes of their
 	// resources to the calls.
 	modules map[string]*driftModule
+	// env is, for a root environments share, the environment checked:
+	// its code is every environment's, so only env's var file, envVars
+	// (see envVarsPath), is edited, for a value a variable sets.
+	env, envVars string
 }
 
 func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *driftEditor {
@@ -179,6 +183,7 @@ type driftConfig struct {
 	blocks    map[string]driftBlock
 	locals    map[string]driftLocal
 	uses      map[string]int // how often each local is referred to
+	varUses   map[string]int // and each variable, outside variables and outputs
 	variables map[string]*hclsyntax.Block
 	calls     map[string]driftBlock // module calls, by name
 }
@@ -218,7 +223,7 @@ func tfContents(dir string) (map[string][]byte, error) {
 }
 
 func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
-	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
+	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
 	for _, name := range sortedKeys(contents) {
 		f, err := parseHCL(name, contents[name])
 		if err != nil {
@@ -245,6 +250,19 @@ func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
 			}
 			if step, ok := t[1].(hcl.TraverseAttr); ok {
 				cfg.uses[step.Name]++
+			}
+		}
+		for _, b := range f.syntax.Blocks {
+			if b.Type == "variable" || b.Type == "output" {
+				continue
+			}
+			for _, t := range allTraversals(b.Body) {
+				if t.RootName() != "var" || len(t) < 2 {
+					continue
+				}
+				if step, ok := t[1].(hcl.TraverseAttr); ok {
+					cfg.varUses[step.Name]++
+				}
 			}
 		}
 	}
@@ -365,6 +383,10 @@ func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) Source {
 		if src.Kind != SourceSensitiveVariable {
 			src.Reason = "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store"
 		}
+	}
+	if e.env != "" && src.Edit != nil && src.Edit.File != e.envVars {
+		src.Edit = nil
+		src.Reason = fmt.Sprintf("the environments share this root's code, so it isn't edited for %s alone: edit it by hand, for every environment", e.env)
 	}
 	return src
 }
@@ -744,7 +766,7 @@ func (w *driftWalk) traversal(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 		if name == "" {
 			return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
 		}
-		return w.variable(x, name)
+		return w.variable(x, name, path, i)
 	case "each", "count", "path", "terraform", "self":
 		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
 	}
@@ -795,18 +817,58 @@ func (w *driftWalk) local(x *hclsyntax.ScopeTraversalExpr, name string, path []s
 	return Source{File: w.file, Range: x.Range(), Kind: SourceSharedLocal, Edit: &SourceEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
 }
 
-// variable is the source of an attribute var.name sets: never edited.
-func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string) Source {
+// variable is the source of an attribute var.name, which x is, sets from
+// step i of the path, the argument at path or in it: edited only in the
+// var file of the environment of a root environments share (see
+// envVariable).
+func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
 	v := w.cfg.variables[name]
 	switch {
 	case v == nil:
 		return w.manual(SourceVariable, x.Range(), "var."+name+" sets it, which the root doesn't declare: edit it by hand")
 	case sensitiveVariable(v):
 		return w.manual(SourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which var.%s sets: update it in your secret store, or TF_VAR_%s", name, name))
+	case w.e.env != "":
+		return w.envVariable(x, name, path, i)
 	case hasDefault(v):
 		return w.manual(SourceVariable, x.Range(), "var."+name+" sets it, with another root's value as its default: update it from that root")
 	}
 	return w.manual(SourceVariable, x.Range(), "var."+name+" sets it: change the value the root is given")
+}
+
+// envVariable is the source of an attribute var.name, which x is, sets
+// from step i of the path in a root environments share: the value the
+// environment's var file gives the variable, or, where the file doesn't
+// set it, x, with an edit that adds it to the file. The value is set
+// only where it is the whole of what changed, written as the schema
+// types the argument at path, and no other argument refers to the
+// variable, whose value would reach it too.
+func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
+	file := w.e.envVars
+	f := w.cfg.files[file]
+	switch {
+	case f == nil:
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
+	case w.mod != nil || i != len(w.steps):
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
+	case w.cfg.varUses[name] > 1:
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s, which other arguments use too, sets it: change it in %s by hand if they should all take the cloud's value", name, file))
+	case w.c.value == nil:
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
+	}
+	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
+	if err != nil {
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("the cloud's value can't be written: change var.%s in %s by hand", name, file))
+	}
+	if attr, ok := f.syntax.Attributes[name]; ok {
+		rng := attr.Expr.Range()
+		return Source{File: file, Range: rng, Kind: SourceVariable, Edit: &SourceEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}}
+	}
+	line := slices.Concat([]byte(name+" = "), text, []byte("\n"))
+	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
+		line = slices.Concat([]byte("\n"), line)
+	}
+	return Source{File: w.file, Range: x.Range(), Kind: SourceVariable, Edit: &SourceEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
 }
 
 // sensitiveVariable reports whether a variable block says sensitive =

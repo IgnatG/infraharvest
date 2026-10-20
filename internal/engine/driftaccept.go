@@ -88,15 +88,18 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) ([]*Dri
 // accepted at each resource it covers instead (see unshare).
 // Then the edited files must pass the format, validate, standards,
 // moves and secrets checks. Only then are the edits made in the root's
-// own files, which are restored if writing one fails. Each accepted
-// change ends written, rejected by the plan, a hand edit or a secret.
+// own files, which are restored if writing one fails. For a root
+// environments share, root and the copy's files hold the environment's
+// var file too, the only file edited (see envVariable), and a change
+// written gets its source there. Each accepted change ends written,
+// rejected by the plan, a hand edit or a secret.
 func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
 	schemas, err := stf.ProvidersSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("terraform providers schema: %w", err)
 	}
 	editor.schemas = schemas
-	staged, err := tfContents(staging)
+	staged, err := driftContents(staging, opts.Environment)
 	if err != nil {
 		return err
 	}
@@ -193,8 +196,18 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 	if err := writeDriftFiles(dir, out, rootNames, opts.writeFile); err != nil {
 		return err
 	}
+	var cfg *driftConfig
+	if editor.env != "" {
+		// A value added to the environment's var file is set there now.
+		if cfg, err = parseDriftConfig(out); err != nil {
+			return err
+		}
+	}
 	for _, c := range pending {
 		c.Outcome, c.Reason = DriftWritten, ""
+		if cfg != nil {
+			c.Source = reportSource(cfg, editor.resolve(cfg, c), editor.forms)
+		}
 	}
 	return nil
 }

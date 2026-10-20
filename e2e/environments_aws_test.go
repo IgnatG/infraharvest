@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -50,7 +51,8 @@ environments:
 // --incremental adds a queue dev gets since, as dev's, every environment
 // still planning with no changes; with dev alone, it merges prod again as
 // its root was kept, unplanned. Applied into each environment's
-// workspace, the merged root is checked for drift as each environment.
+// workspace, the merged root is checked for drift as each environment,
+// and a change dev accepts is written into dev's var file.
 func TestAWSEnvironments(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -121,9 +123,16 @@ func TestAWSEnvironments(t *testing.T) {
 		`count = var.deploy_alerts ? 1 : 0`,
 		"visibility_timeout_seconds = var.",
 		`naming_prefix = "shop-${var.env}"`,
+		// Each environment's events queue is named from a local too.
+		`_name = "${local.naming_prefix}-events"`,
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(files), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Errorf("the merged root misses %q:\n%s", want, files)
+		}
+	}
+	for _, name := range []string{`"shop-dev-events"`, `"shop-prd-events"`} {
+		if strings.Contains(files, name) {
+			t.Errorf("the merged root names a queue %s, not from a local:\n%s", name, files)
 		}
 	}
 	if strings.Contains(files, "assume_role") {
@@ -166,6 +175,9 @@ func TestAWSEnvironments(t *testing.T) {
 	if prod := readFile(t, filepath.Join(dir, "vars", "prod", "imports.tfvars")); strings.Contains(prod, "shop-dev-audit") {
 		t.Errorf("prod imports dev's new queue:\n%s", prod)
 	}
+	if files := configuration(t, dir); strings.Contains(files, `"shop-dev-audit"`) || !strings.Contains(files, `"${local.naming_prefix}-audit"`) {
+		t.Errorf("--incremental: dev's new queue isn't named from a local:\n%s", files)
+	}
 	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
 	if imported["dev"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sqs_queue"] != 3 {
 		t.Errorf("--incremental: imported %v", imported)
@@ -194,8 +206,8 @@ func TestAWSEnvironments(t *testing.T) {
 
 	// Each environment applies the merged root into its workspace, as the
 	// README says for a root without a backend. Then dev's queue changes in
-	// the cloud: drift as dev finds it, and needs a hand edit to accept
-	// it, as the environments share the code; drift as prod finds none.
+	// the cloud: drift as dev finds it, and accepts it into dev's var file
+	// alone, as the environments share the code; drift as prod finds none.
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
 		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
@@ -229,10 +241,45 @@ func TestAWSEnvironments(t *testing.T) {
 	if timeout.Environment != "dev" {
 		t.Errorf("drift as dev: the change is of %q", timeout.Environment)
 	}
-	d = drift.mustExit(t, report.ExitDrift, "--detailed-exitcode", "--environment=dev", "--accept=all")
+	// Accepted, the timeout dev's var file gives its variable takes the
+	// cloud's value; the code and prod's var files stay as they were.
+	files = configuration(t, dir)
+	variable := regexp.MustCompile(`visibility_timeout_seconds\s*=\s*var\.(\w+)`).FindStringSubmatch(files)
+	if variable == nil {
+		t.Fatalf("no variable sets the orders queue's timeout:\n%s", files)
+	}
+	devVars := "aws/us-east-1/vars/dev/terraform.tfvars"
+	varFiles := map[string]string{}
+	for name, content := range outputFiles(t, out) {
+		if strings.HasSuffix(name, ".tfvars") || strings.HasSuffix(name, ".hcl") {
+			varFiles[name] = content
+		}
+	}
+	// Dev's timeout is the variable's default, or dev's var file sets it.
+	if set := regexp.MustCompile(`(?m)^\s*` + variable[1] + `\s*=\s*(\S+)\s*$`).FindStringSubmatch(varFiles[devVars]); set != nil && set[1] != "30" {
+		t.Fatalf("dev's terraform.tfvars sets %s to %s, want 30:\n%s", variable[1], set[1], varFiles[devVars])
+	}
+	d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=dev", "--accept=all")
 	accepted := driftChange(t, "drift as dev, accepted", d, "aws_sqs_queue", "visibility_timeout_seconds")
-	checkDriftChange(t, "drift as dev, accepted", accepted, "30", "90", report.DriftAccept, report.DriftDecidedByFlag, report.DriftManual)
+	checkDriftChange(t, "drift as dev, accepted", accepted, "30", "90", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	if accepted.Source == nil || accepted.Source.File != "vars/dev/terraform.tfvars" || accepted.Source.Line == 0 {
+		t.Errorf("drift as dev, accepted: the source is %+v, want dev's terraform.tfvars", accepted.Source)
+	}
 	checkCodeUnchanged(t, "drift as dev, accepted", code, out)
+	after = outputFiles(t, out)
+	for name, content := range varFiles {
+		switch {
+		case name != devVars && after[name] != content:
+			t.Errorf("drift as dev, accepted: changed %s:\n%s", name, after[name])
+		case name == devVars && !regexp.MustCompile(`(?m)^\s*`+variable[1]+`\s*=\s*90\s*$`).MatchString(after[name]):
+			t.Errorf("drift as dev, accepted: dev's terraform.tfvars doesn't set %s to 90:\n%s", variable[1], after[name])
+		}
+	}
+	// Drift doesn't write the state: the code now absorbs the change.
+	d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=dev")
+	if c := driftChange(t, "drift as dev, written", d, "aws_sqs_queue", "visibility_timeout_seconds"); c.Outcome != report.DriftAbsorbed {
+		t.Errorf("drift as dev, written: the timeout is %s (%s), want %s", c.Outcome, c.Reason, report.DriftAbsorbed)
+	}
 	credentials("prod")
 	if d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=prod"); len(d.Changes) != 0 {
 		t.Errorf("drift as prod:\n%s", driftChanges(d))

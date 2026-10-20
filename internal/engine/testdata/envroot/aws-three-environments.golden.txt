@@ -92,6 +92,11 @@ locals {
 
   # rds
   db_instance_name = "${local.naming_prefix}-db"
+
+  # sns
+  alerts_dev_name   = "${local.naming_prefix}-alerts"
+  alerts_prod_name  = "${local.naming_prefix}-alerts"
+  alerts_stage_name = "${local.naming_prefix}-alerts"
 }
 -- logs.tf --
 resource "aws_cloudwatch_log_group" "app" {
@@ -128,7 +133,7 @@ resource "aws_db_instance" "main" {
 resource "aws_sns_topic" "alerts_dev" {
   count = var.deploy_alerts_dev ? 1 : 0
 
-  name              = "shop-dev-alerts"
+  name              = local.alerts_dev_name
   display_name      = "Shop alerts"
   kms_master_key_id = "alias/one"
   tracing_config    = "PassThrough"
@@ -137,7 +142,7 @@ resource "aws_sns_topic" "alerts_dev" {
 resource "aws_sns_topic" "alerts_prod" {
   count = var.deploy_alerts_prod ? 1 : 0
 
-  name              = "shop-prd-alerts"
+  name              = local.alerts_prod_name
   display_name      = "Shop production alerts"
   kms_master_key_id = "alias/three"
   tracing_config    = "PassThrough"
@@ -146,7 +151,7 @@ resource "aws_sns_topic" "alerts_prod" {
 resource "aws_sns_topic" "alerts_stage" {
   count = var.deploy_alerts_stage ? 1 : 0
 
-  name              = "shop-stg-alerts"
+  name              = local.alerts_stage_name
   display_name      = "Shop staging alerts"
   kms_master_key_id = "alias/two"
   tracing_config    = "Active"

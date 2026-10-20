@@ -73,6 +73,7 @@ An accepted change is edited in place, keeping comments and the layout of everyt
 | `merge(...)`, as tags often are | The key in the resource's own map, the last argument, whose values win |
 | A reference, such as `aws_vpc.main.id` | A reference to another resource the root manages, if the cloud's value is its ID, ARN or name; else a hand edit |
 | A variable with a default, such as another root's value | Nothing: update it from the root it comes from |
+| A variable of a root environments share | Its value in the environment's `vars/<env>/terraform.tfvars`, if nothing else refers to it (see [Roots environments share](#roots-environments-share)) |
 | A sensitive variable | Nothing: update it in your secret store, or `TF_VAR_<name>` |
 | A function other than `merge`, a conditional, a `for` expression, a `dynamic` block, or a block with `count` or `for_each` | Nothing: a hand edit, at the file and line the report gives |
 
@@ -221,7 +222,9 @@ S3, GCS and azurerm backends and local state are supported. HCP Terraform (a `cl
 
 A root that [environments share](configuration.md#merging-environments) is checked once per environment under its `vars/`, or for each `--environment` you name, with the credentials drift runs with: run it once per environment, with that environment's credentials, and `--environment` naming it. Each check initialises the backend with the environment's settings, `-backend-config=vars/<env>/backend.hcl`, or, for a root without a backend, reads the state of the workspace named after the environment, in `terraform.tfstate.d/<env>/`, as the root's README applies it. Its plans read the environment's var files. The report names the root with the environment, such as `aws/us-east-1 (prod)` (`environment` in `drift.json`), and so does the decisions file.
 
-The environments share the root's code, so drift writes nothing into it for one of them: an accepted change needs a hand edit, in `vars/<env>/terraform.tfvars` where a variable sets the value, else in the code, for every environment.
+The environments share the root's code, so drift never edits it for one of them. Where a variable sets the value, as for what differs between the environments, an accepted change is written into the environment's `vars/<env>/terraform.tfvars` instead: the variable's value replaced, or, where the file doesn't set it, as when its default holds the environment's value, `<name> = <value>` added at the end of the file, keeping its comments and the order of the rest. The value is written even where it is the variable's default. As for an edit of the code, the staged copy's var file is edited first and planned again without refreshing, with the environment's other var files, and the file is written into the root only once the plan shows each accepted resource taking the value and nothing else changing. The other environments' var files are never read or written, so their plans stay the same. The change's `source` is then the line of `vars/<env>/terraform.tfvars` that sets it.
+
+That needs the variable to set the whole value, such as `visibility_timeout_seconds = var.orders_visibility_timeout_seconds`, or a key of a map, such as `Env = var.team_env` in `tags`; and nothing else to refer to it, as a variable such as `var.env` reaches every name and tag of the environment. Otherwise, and for a value a literal, a local or anything else in the code sets, an accepted change is `manual`: a hand edit, in the code for every environment, or in the var file by hand; `reason` says which. A sensitive variable's value is never written: update it in your secret store.
 
 ## Exit codes
 

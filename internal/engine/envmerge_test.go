@@ -493,13 +493,80 @@ func TestMergeStackResidue(t *testing.T) {
 		if r.deploy == nil || r.deploy.name != "deploy_orders_"+m.envs[e] {
 			t.Errorf("%s isn't counted by its own variable", address)
 		}
-		// One environment's resource, written as it is.
-		if a := attributeOf(t, r, "name"); a.kind != sameValue {
-			t.Errorf("%s: name is of kind %d", address, a.kind)
+		// One environment's resource, written as it is, but for its name.
+		if a := attributeOf(t, r, "name"); a.kind != sameValue || a.local != "orders_"+m.envs[e]+"_name" || flatExpr(a.value) != "local."+a.local {
+			t.Errorf("%s: name = %s (kind %d)", address, flatExpr(a.value), a.kind)
+		}
+	}
+	locals, order := localsOf(m)
+	if want := []string{"naming_prefix", "orders_dev_name", "orders_prod_name"}; !slices.Equal(order, want) {
+		t.Errorf("locals %v, want %v", order, want)
+	}
+	for name, want := range map[string]string{
+		"naming_prefix":    `"shop-${var.env}"`,
+		"orders_dev_name":  `"${local.naming_prefix}-orders"`,
+		"orders_prod_name": `"${local.naming_prefix}-orders"`,
+	} {
+		if locals[name] != want {
+			t.Errorf("local.%s = %s, want %s", name, locals[name], want)
 		}
 	}
 	if ids := m.imports(0); ids["aws_sqs_queue.orders_dev[0]"] != "shop-dev-orders" {
 		t.Errorf("dev imports = %v", ids)
+	}
+}
+
+// TestMergeStackResidueNames checks that a residue resource's name that
+// holds no token of its environment, or not the one var.env stands for,
+// is a local of its name as it is.
+func TestMergeStackResidueNames(t *testing.T) {
+	roots := []envRoot{
+		testEnvRoot(t, "dev", nil, "111111111111", `resource "aws_sqs_queue" "orders" {
+  delay_seconds              = 0
+  max_message_size           = 1024
+  name                       = "shop-dev-orders"
+  visibility_timeout_seconds = 30
+}
+`, map[string]string{"aws_sqs_queue.orders": "shop-dev-orders"}),
+		testEnvRoot(t, "prod", []string{"prd", "prod"}, "222222222222", `resource "aws_sqs_queue" "orders" {
+  delay_seconds              = 5
+  max_message_size           = 2048
+  name                       = "legacy-orders"
+  visibility_timeout_seconds = 60
+}
+
+resource "aws_sqs_queue" "refunds" {
+  delay_seconds = 5
+  name          = "shop-prd-refunds"
+}
+
+resource "aws_sqs_queue" "returns" {
+  delay_seconds = 5
+  name          = "shop-prod-returns"
+}
+`, map[string]string{"aws_sqs_queue.orders": "legacy-orders", "aws_sqs_queue.refunds": "shop-prd-refunds", "aws_sqs_queue.returns": "shop-prod-returns"}),
+	}
+	isolated := map[string]bool{mergeKey(1, "aws_sqs_queue.refunds"): true, mergeKey(1, "aws_sqs_queue.returns"): true}
+	m := mergeStackWith("aws", roots, envSchemas, &mergeControls{isolated: isolated})
+	locals, _ := localsOf(m)
+	for address, want := range map[string]string{
+		"aws_sqs_queue.orders_dev":  `"${local.naming_prefix}-orders"`,
+		"aws_sqs_queue.orders_prod": `"legacy-orders"`,
+		"aws_sqs_queue.refunds":     `"${local.naming_prefix}-refunds"`,
+		// prd is the token var.env stands for in prod.
+		"aws_sqs_queue.returns": `"shop-prod-returns"`,
+	} {
+		r := resourceAt(t, m, address)
+		if r.residue == "" {
+			t.Errorf("%s isn't residue", address)
+		}
+		a := attributeOf(t, r, "name")
+		if a.local == "" || flatExpr(a.value) != "local."+a.local || locals[a.local] != want {
+			t.Errorf("%s: name = %s, local.%s = %s, want %s", address, flatExpr(a.value), a.local, locals[a.local], want)
+		}
+	}
+	if got := tfvarsOf(m, 1)["env"]; got != `"prd"` {
+		t.Errorf("prod: env = %s", got)
 	}
 }
 

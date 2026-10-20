@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,5 +152,104 @@ func TestReaddressNotInCloud(t *testing.T) {
 	run.readdressNotInCloud(report.Merge{Path: "aws/eu-west-2", Merged: true}, members, result)
 	if g := run.report.NotInCloud[0]; g.Path != "aws/eu-west-2" || g.Address != `aws_sqs_queue.this["orders"]` {
 		t.Errorf("not in cloud: %+v", g)
+	}
+}
+
+// joiningStack is a stack merged before of dev and prod, which a run
+// brings staging to: prev, its checkpoint, and the members, dev and
+// prod's restored from their roots set aside, and staging's root in
+// place, which the merge copied aside as it does before merging.
+func joiningStack(t *testing.T, out string) (*mergeCheckpoint, []mergeMember, string) {
+	t.Helper()
+	prev := &mergeCheckpoint{
+		Merge:   report.Merge{Path: "aws/eu-west-2", Merged: true, Environments: []string{"dev", "prod"}},
+		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/aws/111111111111/eu-west-2"}, {Env: "prod", Path: "envs/prod/aws/222222222222/eu-west-2"}},
+	}
+	staging := filepath.Join(out, "envs", "staging", "aws", "333333333333", "eu-west-2")
+	writeRootFiles(t, staging, map[string]string{engine.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
+	if err := copyRoot(staging, premergeDir(out, staging)); err != nil {
+		t.Fatal(err)
+	}
+	members := []mergeMember{
+		{env: "dev", dir: filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2"), premerged: true, restored: true},
+		{env: "prod", dir: filepath.Join(out, "envs", "prod", "aws", "222222222222", "eu-west-2"), premerged: true, restored: true},
+		{env: "staging", dir: staging},
+	}
+	return prev, members, staging
+}
+
+// checkApart checks that run recorded the merge of aws/eu-west-2 kept as
+// it was, with staging's root, in place under out, apart, as why says.
+func checkApart(t *testing.T, run *Run, out, staging, why string) {
+	t.Helper()
+	if len(run.report.Merges) != 1 {
+		t.Fatalf("merges: %+v", run.report.Merges)
+	}
+	m := run.report.Merges[0]
+	if !m.Merged || !m.Unchanged || m.ApartReason != why || len(m.Apart) != 1 || m.Apart[0] != (report.MergedRoot{Env: "staging", Path: "envs/staging/aws/333333333333/eu-west-2"}) {
+		t.Errorf("merge: %+v", m)
+	}
+	if _, err := os.Stat(filepath.Join(staging, "sqs.tf")); err != nil {
+		t.Errorf("staging's root isn't in place: %v", err)
+	}
+	if _, err := os.Stat(premergeDir(out, staging)); err == nil {
+		t.Errorf("staging's root is set aside")
+	}
+}
+
+func TestJoiningEnvironments(t *testing.T) {
+	t.Parallel()
+	prev, members, _ := joiningStack(t, t.TempDir())
+	if got := joiningEnvironments(prev, members); strings.Join(got, ",") != "staging" {
+		t.Errorf("joining: %v", got)
+	}
+	if got := joiningEnvironments(&mergeCheckpoint{Members: prev.Members}, members); len(got) != 0 {
+		t.Errorf("joining a stack kept apart: %v", got)
+	}
+	if got := joiningEnvironments(nil, members); len(got) != 0 {
+		t.Errorf("joining a stack never merged: %v", got)
+	}
+	rest, apart := withoutEnvironments(members, []string{"staging"})
+	if len(rest) != 2 || len(apart) != 1 || apart[0].env != "staging" {
+		t.Errorf("without staging: %+v, %+v", rest, apart)
+	}
+}
+
+// TestMergeWithout leaves staging, which couldn't join the merged root,
+// apart: with nothing new of dev and prod, the merged root stays as it
+// was, and the report says why staging keeps its root.
+func TestMergeWithout(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	prev, members, staging := joiningStack(t, out)
+	run := NewRun()
+	run.options.Out = out
+	why := "merging it again would give what the merged root has other addresses: dev: aws_sqs_queue.orders is now aws_sqs_queue.orders_dev[0]"
+	if err := run.mergeWithout(context.Background(), filepath.Join(out, "aws", "eu-west-2"), prev, members, []string{"staging"}, why); err != nil {
+		t.Fatal(err)
+	}
+	checkApart(t, run, out, staging, why)
+	if len(run.report.Failures) != 0 {
+		t.Errorf("failures: %v", run.report.Failures)
+	}
+}
+
+// TestKeepMergedJoining keeps the merged root as it was, and staging,
+// new to it, keeps its root in place rather than set aside.
+func TestKeepMergedJoining(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	prev, members, staging := joiningStack(t, out)
+	if err := os.RemoveAll(premergeDir(out, staging)); err != nil {
+		t.Fatal(err)
+	}
+	run := NewRun()
+	run.options.Out = out
+	if err := run.keepMerged(filepath.Join(out, "aws", "eu-west-2"), prev, members, "why"); err != nil {
+		t.Fatal(err)
+	}
+	checkApart(t, run, out, staging, "why")
+	if len(run.report.Failures) != 1 {
+		t.Errorf("failures: %v", run.report.Failures)
 	}
 }

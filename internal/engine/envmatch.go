@@ -175,6 +175,12 @@ func (n *normaliser) value(s string) string {
 	if n.group != "" {
 		s, _ = replaceWord(s, n.group, resourceGroupPlaceholder)
 	}
+	return n.envValue(s)
+}
+
+// envValue returns s with envPlaceholder for n's tokens, and no other
+// placeholder.
+func (n *normaliser) envValue(s string) string {
 	for _, w := range n.words {
 		s, _ = replaceWord(s, w, envPlaceholder)
 	}
