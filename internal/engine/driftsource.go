@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -70,6 +71,10 @@ type Source struct {
 	// Edit takes the cloud's value into the code; nil when that is a hand
 	// edit, as Reason says, or a secret.
 	Edit *SourceEdit
+	// Also are the other edits Edit takes, made with it, or not at all:
+	// for a literal of a generated module made a variable of it, the
+	// module's and the call's (see promoteLiteral).
+	Also []SourceEdit
 	// Reason says why there is no Edit.
 	Reason string
 	// Secret says the value is a secret, which is never written.
@@ -222,9 +227,14 @@ func tfContents(dir string) (map[string][]byte, error) {
 	return contents, nil
 }
 
+// parseDriftConfig parses the root's files of contents, without the files
+// of the modules it calls it may hold (see isModuleFile).
 func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
 	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
 	for _, name := range sortedKeys(contents) {
+		if isModuleFile(name) {
+			continue
+		}
 		f, err := parseHCL(name, contents[name])
 		if err != nil {
 			return nil, err
@@ -379,13 +389,13 @@ func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) Source {
 		src.Secret = true
 	}
 	if src.Secret {
-		src.Edit = nil
+		src.Edit, src.Also = nil, nil
 		if src.Kind != SourceSensitiveVariable {
 			src.Reason = "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store"
 		}
 	}
 	if e.env != "" && src.Edit != nil && src.Edit.File != e.envVars {
-		src.Edit = nil
+		src.Edit, src.Also = nil, nil
 		src.Reason = fmt.Sprintf("the environments share this root's code, so it isn't edited for %s alone: edit it by hand, for every environment", e.env)
 	}
 	return src
@@ -902,12 +912,18 @@ func (w *driftWalk) reference(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 // at path and the steps sub into it: port = 80, not "80"; objects
 // without their null attributes.
 func (w *driftWalk) valueText(value any, path []string, sub []pathStep) ([]byte, error) {
+	return typedValueText(value, w.typeAt(path, sub))
+}
+
+// typedValueText writes value as HCL, of type ty where it has one
+// (cty.NilType for none), else as its JSON has it; objects without their
+// null attributes.
+func typedValueText(value any, ty cty.Type) ([]byte, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
 	var v cty.Value
-	ty := w.typeAt(path, sub)
 	if ty != cty.NilType && !ty.HasDynamicTypes() {
 		v, err = ctyjson.Unmarshal(raw, ty)
 	}
@@ -1066,16 +1082,18 @@ func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.Ob
 // apply makes in contents, files by name, the edits that take the
 // cloud's values for changes, in order, each found again in the files as
 // the edits before it left them; each edited file is laid out where an
-// argument was added, and formatted, as terraform fmt would. It returns
-// the names of the files it edited, sorted, the sources it edited by,
-// and the sources of the changes it couldn't edit: a hand edit, or a
-// secret, which includes an edit that would add a value the literal
-// secrets check takes for one (see literalSecrets).
+// argument was added, and formatted, as terraform fmt would. A change's
+// edits, its Edit and those Also has, are made together, or none of them.
+// It returns the names of the files it edited, sorted, the sources it
+// edited by, and the sources of the changes it couldn't edit: a hand
+// edit, or a secret, which includes an edit that would add a value the
+// literal secrets check takes for one (see literalSecrets).
 func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) ([]string, map[*DriftChange]Source, map[*DriftChange]Source, error) {
 	edited := map[string]bool{}
 	applied := map[*DriftChange]Source{}
 	failed := map[*DriftChange]Source{}
 	for _, c := range changes {
+		e.syncModules(contents)
 		cfg, err := parseDriftConfig(contents)
 		if err != nil {
 			return nil, nil, nil, err
@@ -1085,29 +1103,57 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 			failed[c] = src
 			continue
 		}
-		name := src.Edit.File
-		old := contents[name]
-		next := slices.Concat(old[:src.Edit.Start], src.Edit.Text, old[src.Edit.End:])
-		if src.Edit.Layout != "" {
-			next = layoutResource(next, src.Edit.Layout)
-		}
-		next = hclwrite.Format(next)
-		if _, diags := hclsyntax.ParseConfig(next, name, hcl.InitialPos); diags.HasErrors() {
-			src.Edit, src.Reason = nil, "the edit wouldn't parse: edit it by hand"
+		next, reason, secret := editFiles(contents, slices.Concat([]SourceEdit{*src.Edit}, src.Also))
+		if reason != "" {
+			src.Edit, src.Also, src.Reason, src.Secret = nil, nil, reason, secret
 			failed[c] = src
 			continue
 		}
-		if len(literalSecrets(&parsedFile{rel: name, content: string(next)})) > len(literalSecrets(&parsedFile{rel: name, content: string(old)})) {
-			src.Edit, src.Secret = nil, true
-			src.Reason = "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store"
-			failed[c] = src
-			continue
+		for name, content := range next {
+			contents[name] = content
+			edited[name] = true
 		}
-		contents[name] = next
-		edited[name] = true
 		applied[c] = src
 	}
 	return sortedKeys(edited), applied, failed, nil
+}
+
+// editFiles returns the files of contents edits change, as they edit
+// them, each laid out where an argument was added and formatted; or why
+// they can't be made, as an edited file wouldn't parse or would hold a
+// literal secret it didn't (secret).
+func editFiles(contents map[string][]byte, edits []SourceEdit) (map[string][]byte, string, bool) {
+	byFile := map[string][]SourceEdit{}
+	for _, edit := range edits {
+		byFile[edit.File] = append(byFile[edit.File], edit)
+	}
+	next := map[string][]byte{}
+	for _, name := range sortedKeys(byFile) {
+		old := contents[name]
+		fileEdits := byFile[name]
+		// From the last, so that the offsets of the others hold.
+		sort.SliceStable(fileEdits, func(i, j int) bool { return fileEdits[i].Start > fileEdits[j].Start })
+		content := old
+		var layouts []string
+		for _, edit := range fileEdits {
+			content = slices.Concat(content[:edit.Start], edit.Text, content[edit.End:])
+			if edit.Layout != "" {
+				layouts = append(layouts, edit.Layout)
+			}
+		}
+		for _, address := range layouts {
+			content = layoutResource(content, address)
+		}
+		content = hclwrite.Format(content)
+		if _, diags := hclsyntax.ParseConfig(content, name, hcl.InitialPos); diags.HasErrors() {
+			return nil, "the edit wouldn't parse: edit it by hand", false
+		}
+		if len(literalSecrets(&parsedFile{rel: name, content: string(content)})) > len(literalSecrets(&parsedFile{rel: name, content: string(old)})) {
+			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
+		}
+		next[name] = content
+	}
+	return next, "", false
 }
 
 // layoutResource lays out the block of the resource at address in src

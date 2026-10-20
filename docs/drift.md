@@ -16,7 +16,7 @@ It checks every root an import generated in the output directory (default `infra
 For each root, with one refresh of the cloud:
 
 1. It initialises the root with its backend (`terraform init -input=false -reconfigure`) and pulls the state (`terraform state pull`).
-2. It copies the root into a private directory under `<out>/.infraharvest/drift`, which it removes when done: the state holds secrets. The copy has no `backend.tf`, uses the pulled state as its local state, and calls the same local modules.
+2. It copies the root into a private directory under `<out>/.infraharvest/drift`, which it removes when done: the state holds secrets. The copy has no `backend.tf`, uses the pulled state as its local state, and calls the same local modules, but for the generated modules under `<out>/modules`, which it calls copies of, so that an edit of one (see [Resources in module calls](#resources-in-module-calls)) is planned before the module itself is written.
 3. In the copy, `terraform plan -refresh-only` reads the cloud. Its `resource_drift` lists each resource that differs from the state.
 4. It applies that plan to the copy's local state only. A saved plan applies without reading the cloud again.
 5. `terraform plan -refresh=false` then compares the code with the refreshed state, again without reading the cloud.
@@ -105,7 +105,7 @@ The edit of the shared tags is verified as any other: each resource it covers mu
 
 ### Resources in module calls
 
-A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its arguments from the module's code, and that code gets them from the call's arguments. Drift reads the module where `terraform init` installed it, as the root's `.terraform/modules/modules.json` lists it: a generated module under `<out>/modules`, or a registry module's download. It finds the resource's block there, follows the attribute to the module's variable, and edits that argument of the root's call, as the table above says for a resource's argument. It never edits the module.
+A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its arguments from the module's code, and that code gets them from the call's arguments. Drift reads the module where `terraform init` installed it, as the root's `.terraform/modules/modules.json` lists it: a generated module under `<out>/modules`, or a registry module's download. It finds the resource's block there, follows the attribute to the module's variable, and edits that argument of the root's call, as the table above says for a resource's argument. It edits a module only where it is generated, and only to make a literal a variable of it, as below; never a registry or curated module.
 
 | Where the module sets the value | What accepting it edits |
 |---|---|
@@ -114,10 +114,13 @@ A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its 
 | A variable of a module called inside the module | The argument it gets it from, followed up to the root's call |
 | In a resource or a module call with `count` or `for_each`: `each.value` (or `each.value.k`) of `for_each = var.x`, `var.x[count.index]` or `var.x[each.key]` | The instance's own value in `x`, such as `queues["b"]`, with the keys of the calls it is in, followed up to the root's call. An argument every instance gets, such as `var.tags`, is followed too, and the plan rejects the edit if it reaches instances that didn't change |
 | A curated module's resource, called at the release its adapter pins | The input the adapter's `Inverse` maps the attribute onto, such as `tags` for the IAM role module's `aws_iam_role.this.tags`, or the policy's key in `policies` for its `aws_iam_role_policy_attachment.this.policy_arn`. A value the adapter names as the input's default leaves the argument out |
-| A literal in the module | Nothing: a hand edit in the module. A generated module's literal is the same for every call that shares the module: to change it for one call, make it a variable of the module |
+| A literal in a generated module under `<out>/modules`, which other calls of the module, or other environments of a root they share, get too, in the resource's block | The literal becomes a variable of the module, whose default is the literal, so that every other call keeps it, and the call that changed sets it: `force_destroy = true` in the call. In a root environments share, the call sets it to a variable of the root of the same default, `force_destroy = var.logs_force_destroy`, which the environment's `vars/<env>/terraform.tfvars` sets. Not for a call with `count` or `for_each`, nor a module that calls modules |
+| Another literal in the module, such as one only one call gets, or one of a registry or curated module | Nothing: a hand edit in the module |
 | Anything else: a function, a conditional, any other use of `each` or `count`, a `dynamic` block, or an attribute of a curated module that its adapter's `Inverse` doesn't name | Nothing: a hand edit, at the call |
 
 Another release of a registry module, such as one `--modules latest-untested` called, is traced through its code, as a local module is.
+
+A literal made a variable is planned like any other edit, with the staged copy calling an edited copy of the module, and every other call of it, in this root or another, keeps the literal as the variable's default: the plan rejects the edit if any other resource would change. Then the module's files are written with the root's.
 
 A call with `count` or `for_each` makes several instances, and drift edits only the instance's own value: the element at its index in a list literal indexed by `count.index`, the item at its key in an object literal indexed by `each.key`, or, through `each.value`, the item at its key in the call's `for_each` object literal, and from there into an attribute, such as `each.value.settings` or `local.queues[count.index].settings`. The literal can be in the call, the value of a local, or, in a root environments share, the value the environment's `vars/<env>/terraform.tfvars` gives a variable, such as `for_each = var.teams`; a local or a variable is followed only when nothing outside the call refers to it. An argument all the instances share is a hand edit.
 
@@ -131,7 +134,7 @@ A value the provider marks sensitive, or one infraharvest would take for a secre
 
 ### What is a hand edit for now
 
-- In a module call: a value the module sets to a literal, or computes, and an attribute a curated module's adapter has no `Inverse` entry for (see [Resources in module calls](#resources-in-module-calls)).
+- In a module call: a value the module computes, or sets to a literal it can't make a variable of, and an attribute a curated module's adapter has no `Inverse` entry for (see [Resources in module calls](#resources-in-module-calls)).
 - A nested block added or removed in the cloud, such as a new `ingress` rule block.
 - A resource deleted in the cloud: remove it from the code, or apply to create it again.
 

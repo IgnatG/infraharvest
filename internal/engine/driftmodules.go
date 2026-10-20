@@ -33,6 +33,9 @@ type driftModule struct {
 	// calls counts the module calls, of the root and of its modules, that
 	// call the directory.
 	calls int
+	// inContents says it was parsed from the contents drift edits (see
+	// syncModules), which have its files.
+	inContents bool
 }
 
 // loadDriftModules reads the modules the root in dir calls, by their keys
@@ -327,7 +330,7 @@ func (t *moduleTracer) expr(file string, e hclsyntax.Expression, i, depth int) t
 	}
 	if literalExpr(e) {
 		r := t.fail(file, e.Range(), "")
-		r.literal = true
+		r.literal, r.at = true, i
 		return r
 	}
 	return t.fail(file, e.Range(), "an expression in the module computes it")
@@ -532,7 +535,8 @@ func (w *driftWalk) known(n int) bool {
 // its code says (see moduleTracer), followed through the calls of other
 // modules inside it, or, in a curated module, as its adapter's Inverse
 // says; then as for a resource's argument (see driftWalk) in that
-// argument. Nothing under the modules is ever edited.
+// argument. Nothing under the modules is edited, but a literal of a
+// generated module that calls or environments share (see promoteLiteral).
 func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 	manual := func(reason string) Source {
 		return Source{Kind: SourceModule, Reason: "in the module call " + c.ModuleAddress + ": " + reason}
@@ -602,6 +606,11 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 		}
 		tr := &moduleTracer{m: m, steps: steps, block: b.b, key: key}
 		if t = tr.body(b.file, b.b, 0); t.variable == "" {
+			if t.literal && len(calls) == 1 {
+				if src, ok := e.promoteLiteral(cfg, c, blocks[0], calls[0].name, m, b, t, steps); ok {
+					return src
+				}
+			}
 			return e.moduleManual(c, m, t)
 		}
 		via = append(via, e.viaText(m, t))
