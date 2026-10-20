@@ -113,9 +113,13 @@ func TestRefactorBlocksWithRealEngines(t *testing.T) {
 		t.Fatal(err)
 	}
 	engines["terraform"] = execPath
-	if tofu, err := TofuBinary.Find(ctx, "", filepath.Join(cache, "tofu")); err == nil {
+	// CI installs OpenTofu, so there it must be found.
+	switch tofu, err := TofuBinary.Find(ctx, "", filepath.Join(cache, "tofu")); {
+	case err == nil:
 		engines["tofu"] = tofu
-	} else {
+	case os.Getenv("CI") != "":
+		t.Fatalf("CI is set, but OpenTofu isn't found: %v", err)
+	default:
 		t.Logf("not with OpenTofu: %v", err)
 	}
 	for name, execPath := range engines {
