@@ -437,6 +437,10 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 		checked = append(checked, report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name())
 		staged = append(staged, staging)
 		mu.Unlock()
+		// Each environment is checked with its var files.
+		if _, err := os.Stat(filepath.Join(dir, "vars", opts.Environment, "terraform.tfvars")); opts.Environment != "" && err != nil {
+			return nil, err
+		}
 		if opts.Environment == "" {
 			return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
 		}
