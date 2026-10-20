@@ -34,7 +34,8 @@ var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", VersionsFile
 // output standard: pinned Terraform, providers and modules; typed and
 // described variables and outputs; no legacy interpolation; no secret
 // variable with a default other than null; none of the arguments omit
-// leaves out; no state files; only .tf files, and under vars only a merged
+// leaves out; no state files but a root's local state (see
+// localStateFile); only .tf files, and under vars only a merged
 // root's var files (see checkVarFiles). Each finding names its rule. The
 // organisation's own modules in directories, own, are its to shape: the
 // root's call of one is checked, not the module.
@@ -71,6 +72,14 @@ func checkStandards(dir string, omit map[string][]string, own []string) (Check, 
 	return check, nil
 }
 
+// localStateFile reports whether name is a file Terraform's local backend
+// keeps a root's state in, its backups and its lock, which the output's
+// .gitignore leaves out (see GitignoreFile); its workspaces' states are
+// in the directory terraform.tfstate.d.
+func localStateFile(name string) bool {
+	return strings.HasPrefix(name, stagedStateFile) || name == ".terraform.tfstate.lock.info"
+}
+
 // standardsIn checks the files of dir, a root or a module, naming them
 // relative to base, and returns the local module directories it calls.
 func standardsIn(base, dir string, root bool, omit map[string][]string, fail func(rule, format string, args ...any)) ([]string, error) {
@@ -87,6 +96,10 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 			continue
 		case strings.HasSuffix(name, ".tofu") || strings.HasSuffix(name, ".tf.json"):
 			fail("cross-dialect-syntax", "%s: only .tf files work on both Terraform and OpenTofu", rel(base, filepath.Join(dir, name)))
+			continue
+		case root && localStateFile(name):
+			// The state of a root applied without a backend, which the
+			// output's .gitignore keeps out of version control.
 			continue
 		case strings.Contains(name, ".tfstate"):
 			fail("committed-state-file", "%s is a state file", rel(base, filepath.Join(dir, name)))

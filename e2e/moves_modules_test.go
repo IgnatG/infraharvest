@@ -119,17 +119,13 @@ func TestAWSRegenerateModules(t *testing.T) {
 		t.Helper()
 		coverage := importWith(modules, "--regenerate")
 		now := map[string]string{}
-		// The report's imported resources have the address Generate gave
-		// them, not the module call's, so the moves say where each is now.
 		for id, address := range from {
-			i := slices.IndexFunc(coverage.Moved, func(m report.Move) bool {
-				return m.ID == id && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address
-			})
-			if i < 0 {
-				t.Errorf("--modules=%s: coverage.json doesn't move %s from %s: moved %+v", modules, id, address, coverage.Moved)
-				continue
+			now[id] = importedAt(t, coverage, rootPath, id)
+			if !slices.ContainsFunc(coverage.Moved, func(m report.Move) bool {
+				return m.ID == id && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address && m.To == now[id]
+			}) {
+				t.Errorf("--modules=%s: coverage.json doesn't move %s from %s to %s: moved %+v", modules, id, address, now[id], coverage.Moved)
 			}
-			now[id] = coverage.Moved[i].To
 		}
 		moves := strings.Join(strings.Fields(readFile(t, filepath.Join(root, engine.MovesFileName))), " ")
 		for id, address := range from {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -49,6 +50,34 @@ func TestEngineRunCombinesImports(t *testing.T) {
 	}
 	if len(coverage.Directories) != 2 || coverage.Totals.Imported != 2 || coverage.Totals.LeftOut != 1 {
 		t.Errorf("want both imports in one report, got %+v", coverage)
+	}
+}
+
+// The report has each resource at its address in the root: in the module
+// call Generate moved it into, not at the label Generate gave it, and at
+// that label for a result without addresses, as an older release's.
+func TestAddDirectoryReportsAddressesInModuleCalls(t *testing.T) {
+	out := t.TempDir()
+	run := NewRun()
+	run.options = Options{Out: out}
+	imported := []engine.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "web", ID: "web"}}
+	run.addDirectory(filepath.Join(out, "aws"), nil, &engine.Result{Imported: imported, Addresses: []engine.Managed{
+		{Type: "aws_iam_role", ID: "app", Address: "module.app.aws_iam_role.this"},
+		{Type: "aws_iam_role", ID: "web", Address: "aws_iam_role.web"},
+	}}, nil)
+	run.addDirectory(filepath.Join(out, "older"), nil, &engine.Result{Imported: imported[:1]}, nil)
+
+	want := [][]report.Resource{
+		{{Address: "module.app.aws_iam_role.this", ID: "app"}, {Address: "aws_iam_role.web", ID: "web"}},
+		{{Address: "aws_iam_role.app", ID: "app"}},
+	}
+	if len(run.report.Directories) != 2 {
+		t.Fatalf("directories %+v", run.report.Directories)
+	}
+	for i, d := range run.report.Directories {
+		if !reflect.DeepEqual(d.Imported, want[i]) {
+			t.Errorf("%s imports %+v, want %+v", d.Path, d.Imported, want[i])
+		}
 	}
 }
 

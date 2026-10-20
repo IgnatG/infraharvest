@@ -4,7 +4,9 @@
 package importer
 
 import (
+	"fmt"
 	"log"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -112,6 +114,32 @@ func scopeAccount(scope string) string {
 		return ""
 	}
 	return parts[1]
+}
+
+// warnUnscoped warns, in the log and the report, when provider can't say
+// which account, subscription or project it lists in (see
+// discoveryScope), but the configuration file's environments name some
+// of its: none of those can then be the environment of what it lists.
+func (r *Run) warnUnscoped(provider harvest.Provider, scope string) {
+	if scopeAccount(scope) != "" {
+		return
+	}
+	dir := providerDir(provider)
+	var named []string
+	for _, name := range slices.Sorted(maps.Keys(r.environments)) {
+		if len(r.environments[name].Scopes(dir)) > 0 {
+			named = append(named, name)
+		}
+	}
+	if len(named) == 0 {
+		return
+	}
+	w := fmt.Sprintf("%s couldn't say which account, subscription or project it lists in, so the configuration file's environments that name one (%s) don't apply to what it lists", provider.Name(), strings.Join(named, ", "))
+	if slices.Contains(r.report.Warnings, w) {
+		return
+	}
+	log.Printf("warning: %s", w)
+	r.report.Warnings = append(r.report.Warnings, w)
 }
 
 // keptRoots keeps resources in the roots earlier imports generated for

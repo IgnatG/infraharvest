@@ -189,6 +189,38 @@ func TestManagedCounts(t *testing.T) {
 }
 
 // What another tool manages, and every count by account and region.
+func TestResourceType(t *testing.T) {
+	t.Parallel()
+	for address, want := range map[string]string{
+		"aws_iam_role.app":                                  "aws_iam_role",
+		"aws_iam_role.app[0]":                               "aws_iam_role",
+		"module.app.aws_iam_role.this":                      "aws_iam_role",
+		"module.app[0].aws_iam_role.this[0]":                "aws_iam_role",
+		`module.app["a.b"].aws_iam_role.this`:               "aws_iam_role",
+		`module.app["a]\".b"].module.inner.aws_s3_bucket.x`: "aws_s3_bucket",
+		"module.app":                                        "module.app",
+	} {
+		if got := ResourceType(address); got != want {
+			t.Errorf("ResourceType(%q) = %q, want %q", address, got, want)
+		}
+	}
+}
+
+// A resource in a module call counts as one of its type.
+func TestFinishCountsResourcesInModuleCalls(t *testing.T) {
+	t.Parallel()
+	r := &Report{Directories: []Directory{{Path: "aws", Imported: []Resource{
+		{Address: "module.app.aws_iam_role.this", ID: "app"},
+		{Address: "aws_iam_role.web", ID: "web"},
+	}}}}
+
+	r.Finish(map[string]int{"aws_iam_role": 2}, nil, false)
+
+	if len(r.Types) != 1 || r.Types[0].Type != "aws_iam_role" || r.Types[0].Imported != 2 || r.ExitCode != ExitOK {
+		t.Errorf("types %+v, exit code %d, want both roles imported", r.Types, r.ExitCode)
+	}
+}
+
 func TestScopeCounts(t *testing.T) {
 	t.Parallel()
 	const prod, dev = "aws/111111111111/eu-west-2", "aws/222222222222/eu-west-2"
@@ -290,6 +322,8 @@ func TestMerge(t *testing.T) {
 	second.Directories = []Directory{{Path: "aws/222222222222/eu-west-2", Scope: "aws/222222222222/eu-west-2"}}
 	second.Excluded = []Excluded{{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC", Scope: "aws/222222222222/eu-west-2"}}
 	second.Failures = []string{"aws/222222222222/eu-west-2: a check failed"}
+	first.Warnings = []string{"aws couldn't say which account it lists in"}
+	second.Warnings = first.Warnings
 	second.AddDiscovered("aws/222222222222/eu-west-2", 2)
 	second.AddDiscovered("aws/111111111111/eu-west-2", 1)
 
@@ -304,6 +338,9 @@ func TestMerge(t *testing.T) {
 	}
 	if len(r.Scopes) != 2 || r.Scopes[0].Discovered != 4 || r.Scopes[1].Discovered != 2 {
 		t.Errorf("scopes %+v", r.Scopes)
+	}
+	if r.Finish(nil, nil, false); len(r.Warnings) != 1 {
+		t.Errorf("warnings %v, want the one both have", r.Warnings)
 	}
 }
 

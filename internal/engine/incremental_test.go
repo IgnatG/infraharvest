@@ -385,6 +385,38 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+// A root applied without a backend, its state in its directory, is added
+// to as any other: its checks don't take the state for one committed with
+// the configuration, nor read it, and it stays as it was.
+func TestAddToARootWithLocalState(t *testing.T) {
+	t.Parallel()
+	root := existingRoot(t)
+	state := `{"resources": [{"instances": [{"attributes": {"id": "vpc-0abc1234"}}]}]}`
+	if err := os.WriteFile(filepath.Join(root, "terraform.tfstate"), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root}
+	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
+
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range result.Gate {
+		for _, d := range c.Details {
+			if strings.Contains(d, "tfstate") {
+				t.Errorf("%s: %s", c.Name, d)
+			}
+		}
+	}
+	if got := readFile(t, root, "terraform.tfstate"); got != state {
+		t.Errorf("the root's state changed: %s", got)
+	}
+}
+
 // A root that doesn't initialize, or whose checks fail to run, stays as it
 // was: the next run adds the resources again.
 func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {

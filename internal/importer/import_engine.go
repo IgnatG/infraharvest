@@ -303,6 +303,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	// The configuration file's environments of the scope, if any; none
 	// keeps the layout as without them.
 	envNames := run.environments.For(providerDir(provider), scopeAccount(scope))
+	run.warnUnscoped(provider, scope)
 	pattern := withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(envNames) > 0)
 	// Where the roots would be without the file's environments, for those
 	// an earlier import generated there, which stay (see keptRoots).
@@ -595,6 +596,12 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if err != nil {
+				// A root an earlier import generated, which may be in use,
+				// keeps the files it had, and its checkpoint, rather than
+				// none: a later run generates it again.
+				err = errors.Join(err, claimed.putBack(dir))
+			}
 			if err == nil && dirOpts.Previous != nil {
 				err = claimed.refuseReaddressed(dir, result, byDir[dir], inOtherRoots(options.Out, roots, dir))
 			}
@@ -704,9 +711,21 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		r.report.Directories = append(r.report.Directories, reported)
 		return
 	}
+	// Each resource at its address in the root, in the module call
+	// Generate moved it into if any (see engine.Result.Addresses); a
+	// result without addresses, as in a checkpoint an older release
+	// wrote, has only the labels Generate gave them.
+	at := map[engine.External]string{}
+	for _, m := range result.Addresses {
+		at[engine.External{Type: m.Type, ID: m.ID}] = m.Address
+	}
 	reported.Imported = make([]report.Resource, 0, len(result.Imported))
 	for _, imp := range result.Imported {
-		reported.Imported = append(reported.Imported, report.Resource{Address: imp.Type + "." + imp.Name, ID: imp.ID})
+		address, ok := at[engine.External{Type: imp.Type, ID: imp.ID}]
+		if !ok {
+			address = imp.Type + "." + imp.Name
+		}
+		reported.Imported = append(reported.Imported, report.Resource{Address: address, ID: imp.ID})
 	}
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))

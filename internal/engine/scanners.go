@@ -107,8 +107,10 @@ func DefaultScanners() []Scanner {
 		scanners = append(scanners, Scanner{Name: "checkov", Run: func(ctx context.Context, dir string) ([]Finding, error) {
 			// --skip-download: nothing goes to or comes from the Prisma
 			// Cloud platform, which an API key in the environment would
-			// otherwise upload the configuration to.
-			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
+			// otherwise upload the configuration to. Its secrets scan reads
+			// every file but the local state of a root applied without a
+			// backend, which holds secret values (see localStateFile).
+			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--skip-path", `\.tfstate`, "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
 			if err != nil {
 				return nil, err
 			}

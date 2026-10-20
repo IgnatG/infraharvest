@@ -364,6 +364,47 @@ func TestListCallRegeneratesRootsWhoseAddressesStay(t *testing.T) {
 	}
 }
 
+// With --regenerate, a root the engine fails for keeps the files it had,
+// moves.tf too, and its checkpoint, so that it is as before, not empty;
+// generated again later, it moves on from them.
+func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
+	alpha := filepath.Join(out, "fake", "alpha")
+	moves := []byte("moved {\n  from = fake_thing.old\n  to   = fake_thing.alpha\n}\n")
+	if err := os.WriteFile(filepath.Join(alpha, engine.MovesFileName), moves, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := readCheckpoint(out, alpha)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := &fakeEngine{fail: "alpha"}
+	options := pathOptions(out, f, "alpha", "beta")
+	options.Regenerate = true
+	run := importPath(t, options)
+
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha (failed)", "fake/beta"}) {
+		t.Errorf("reported directories %v", got)
+	}
+	for name, want := range map[string][]byte{engine.GeneratedFileName: []byte("# fake\n"), engine.ImportsFileName: []byte("# fake\n"), engine.MovesFileName: moves} {
+		if got, err := os.ReadFile(filepath.Join(alpha, name)); err != nil || !slices.Equal(got, want) {
+			t.Errorf("alpha's %s: %q, %v, want it as it was, %q", name, got, err, want)
+		}
+	}
+	if after, err := readCheckpoint(out, alpha); err != nil || !reflect.DeepEqual(after, before) {
+		t.Errorf("alpha's checkpoint: %+v, %v, want it as it was, %+v", after, err, before)
+	}
+
+	f = &fakeEngine{}
+	options.tools = f.tools()
+	importPath(t, options)
+	if previous := f.opts["alpha"].Previous; previous == nil || len(previous.Addresses) != 1 || len(previous.Moved) != 1 {
+		t.Errorf("generated again, alpha moves on from %+v, want its address and moved block", previous)
+	}
+}
+
 // A root that holds files no import wrote is left alone and reported as
 // failed, as is one the engine fails for; the others are generated.
 func TestListCallRecordsRootsThatFail(t *testing.T) {

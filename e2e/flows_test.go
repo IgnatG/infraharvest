@@ -193,7 +193,7 @@ func checkImportsSelected(t *testing.T, f *selection.File, coverage report.Repor
 	got := map[string]bool{}
 	for _, d := range coverage.Directories {
 		for _, r := range d.Imported {
-			typ, _, _ := strings.Cut(r.Address, ".")
+			typ := report.ResourceType(r.Address)
 			got[typ+" "+r.ID] = true
 		}
 	}

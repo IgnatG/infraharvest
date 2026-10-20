@@ -157,12 +157,15 @@ type Provider struct {
 
 // Coverage records what an import found and what became of it.
 type Coverage struct {
-	Types       []TypeCount   `json:"types"`
-	Directories []Directory   `json:"directories"`
-	Skipped     []Skipped     `json:"skipped,omitempty"`
-	Excluded    []Excluded    `json:"excluded,omitempty"`
-	Failures    []string      `json:"failures,omitempty"`
-	Totals      CoverageTotal `json:"totals"`
+	Types       []TypeCount `json:"types"`
+	Directories []Directory `json:"directories"`
+	Skipped     []Skipped   `json:"skipped,omitempty"`
+	Excluded    []Excluded  `json:"excluded,omitempty"`
+	Failures    []string    `json:"failures,omitempty"`
+	// Warnings are about how the import ran that people should look at,
+	// such as environments it couldn't apply; a directory's are its own.
+	Warnings []string      `json:"warnings,omitempty"`
+	Totals   CoverageTotal `json:"totals"`
 	// NotInCloud are the resources of roots an incremental import added to
 	// that its listing didn't find, though it listed everything of their
 	// type where they were: they have been deleted since.
@@ -493,6 +496,7 @@ func (r *Report) Merge(other *Report) {
 	r.Merges = append(r.Merges, other.Merges...)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
+	r.Warnings = append(r.Warnings, other.Warnings...)
 	r.listed = append(r.listed, other.listed...)
 	if len(r.TagKeys) == 0 {
 		r.TagKeys = other.TagKeys
@@ -541,6 +545,8 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		return a.From < b.From
 	})
 	sort.Strings(r.Failures)
+	sort.Strings(r.Warnings)
+	r.Warnings = slices.Compact(r.Warnings)
 	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
 	sort.Slice(r.Merges, func(i, j int) bool { return r.Merges[i].Path < r.Merges[j].Path })
 
@@ -591,10 +597,10 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		sort.Slice(d.Imported, func(a, b int) bool { return d.Imported[a].Address < d.Imported[b].Address })
 		sort.Slice(d.LeftOut, func(a, b int) bool { return d.LeftOut[a].Address < d.LeftOut[b].Address })
 		for _, res := range d.Imported {
-			count(resourceType(res.Address)).Imported++
+			count(ResourceType(res.Address)).Imported++
 		}
 		for _, res := range d.LeftOut {
-			count(resourceType(res.Address)).LeftOut++
+			count(ResourceType(res.Address)).LeftOut++
 		}
 		inScope(d.Scope, func(c *CoverageTotal) {
 			c.Imported += len(d.Imported)
@@ -677,10 +683,10 @@ func (r *Report) countByTag() []TagCount {
 	imported, leftOut := map[string]bool{}, map[string]bool{}
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			imported[key(d.Scope, resourceType(res.Address), res.ID)] = true
+			imported[key(d.Scope, ResourceType(res.Address), res.ID)] = true
 		}
 		for _, res := range d.LeftOut {
-			leftOut[key(d.Scope, resourceType(res.Address), res.ID)] = true
+			leftOut[key(d.Scope, ResourceType(res.Address), res.ID)] = true
 		}
 	}
 	excluded := map[string]string{}
@@ -762,9 +768,48 @@ func (r *Report) SkippedChecks() []string {
 	return skipped
 }
 
-func resourceType(address string) string {
+// ResourceType returns the type of the resource at address, in a module
+// call or not: aws_iam_role for both aws_iam_role.app and
+// module.app["a.b"].aws_iam_role.this.
+func ResourceType(address string) string {
+	for {
+		rest, ok := strings.CutPrefix(address, "module.")
+		if !ok {
+			break
+		}
+		// Past the call's name and its key, if any, which may hold dots.
+		i := strings.IndexAny(rest, ".[")
+		if i < 0 {
+			return address
+		}
+		if rest[i] == '[' {
+			end := keyEnd(rest[i:])
+			if end < 0 || i+end+1 >= len(rest) || rest[i+end+1] != '.' {
+				return address
+			}
+			i += end + 1
+		}
+		address = rest[i+1:]
+	}
 	t, _, _ := strings.Cut(address, ".")
 	return t
+}
+
+// keyEnd returns the index of the bracket that closes the key key starts
+// with, such as ["a.b"] or [0], or -1 if none does.
+func keyEnd(key string) int {
+	quoted := false
+	for i := 1; i < len(key); i++ {
+		switch {
+		case quoted && key[i] == '\\':
+			i++
+		case key[i] == '"':
+			quoted = !quoted
+		case !quoted && key[i] == ']':
+			return i
+		}
+	}
+	return -1
 }
 
 // WriteFiles writes coverage.json, manifest.json and report.md into the
@@ -879,6 +924,9 @@ func (r *Report) Markdown() string {
 	}
 
 	var leftOut, secrets, warnings, modules, declined, dirErrors []string
+	for _, w := range r.Warnings {
+		warnings = append(warnings, "- "+w+".")
+	}
 	for _, d := range r.Directories {
 		for _, m := range d.Modules {
 			resources := "`" + strings.Join(m.Resources, "`, `") + "`"
