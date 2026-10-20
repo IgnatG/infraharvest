@@ -432,10 +432,13 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var checked, staged []string
+	// The lock each check holds while it initialises the root's directory.
+	locks := map[string]*sync.Mutex{}
 	check := func(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
 		mu.Lock()
 		checked = append(checked, report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name())
 		staged = append(staged, staging)
+		locks[report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name()] = opts.RootLock
 		mu.Unlock()
 		// Each environment is checked with its var files.
 		if _, err := os.Stat(filepath.Join(dir, "vars", opts.Environment, "terraform.tfvars")); opts.Environment != "" && err != nil {
@@ -464,6 +467,14 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	if len(slices.Compact(slices.Sorted(slices.Values(staged)))) != 3 {
 		t.Errorf("two checks staged in the same directory: %v", staged)
+	}
+	// The environments of the shared root initialise its directory one at
+	// a time; the other root locks nothing.
+	if dev, prod := locks["aws/us-east-1 (dev)"], locks["aws/us-east-1 (prod)"]; dev == nil || dev != prod {
+		t.Errorf("the environments of aws/us-east-1 hold locks %p and %p, want one they share", dev, prod)
+	}
+	if locks["aws/1/global"] != nil {
+		t.Errorf("aws/1/global holds a lock")
 	}
 	d := readDrift(t, out)
 	var envs []string

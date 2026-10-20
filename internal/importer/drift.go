@@ -277,9 +277,11 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 }
 
 // driftTarget is a root drift checks, and, for a root environments
-// share, the environment it checks it as.
+// share, the environment it checks it as, and the lock the checks of its
+// environments share (see engine.DriftOptions.RootLock).
 type driftTarget struct {
 	dir, env string
+	lock     *sync.Mutex
 }
 
 // driftTargets returns what drift checks of roots: each root, but a root
@@ -298,10 +300,11 @@ func driftTargets(roots, envs []string) ([]driftTarget, error) {
 			targets = append(targets, driftTarget{dir: dir})
 			continue
 		}
+		lock := &sync.Mutex{}
 		for _, env := range merged {
 			found[env] = true
 			if len(envs) == 0 || slices.Contains(envs, env) {
-				targets = append(targets, driftTarget{dir: dir, env: env})
+				targets = append(targets, driftTarget{dir: dir, env: env, lock: lock})
 			}
 		}
 	}
@@ -320,7 +323,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel, Environment: env}
-	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env}
+	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env, RootLock: target.lock}
 	// The decisions taken, by change, for the report to say where each
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()

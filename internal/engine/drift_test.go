@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -397,6 +398,36 @@ func TestDriftOfARootNeverAppliedPlansNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(staging); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("staged anyway: %v", err)
+	}
+}
+
+// TestDriftHoldsTheRootLock checks that RootLock is held while the root's
+// own directory is initialised, and released before the staged copy is,
+// so that the checks of other environments of the root wait only for
+// what they share.
+func TestDriftHoldsTheRootLock(t *testing.T) {
+	t.Parallel()
+	dir, staging := driftRoot(t, map[string]string{})
+	var calls []string
+	var lock sync.Mutex
+	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState, onInit: func() {
+		if lock.TryLock() {
+			lock.Unlock()
+			t.Error("the root's directory was initialised without the lock")
+		}
+	}}
+	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{{}}, onInit: func() {
+		if !lock.TryLock() {
+			t.Error("the staged copy was initialised with the lock held")
+			return
+		}
+		lock.Unlock()
+	}}
+	if _, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{RootLock: &lock}); err != nil {
+		t.Fatal(err)
+	}
+	if !lock.TryLock() {
+		t.Error("Drift returned with the lock held")
 	}
 }
 

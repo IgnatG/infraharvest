@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -124,6 +125,13 @@ type DriftOptions struct {
 	// environment's vars/<env>/terraform.tfvars instead; else it needs a
 	// hand edit.
 	Environment string
+	// RootLock, for a root environments share, is held while the root's
+	// own directory is initialised with Environment's backend settings,
+	// its state pulled and its files staged: checks of its other
+	// environments, run at once, reconfigure the backend of the same
+	// directory, and a pull between another's init and its own would read
+	// that environment's state. nil locks nothing.
+	RootLock *sync.Mutex
 
 	// writeFile writes an edited file into the root; nil is
 	// fsutil.WriteFile. For tests.
@@ -265,6 +273,14 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 			return nil, err
 		}
 	}
+	// Checks of the root's other environments wait until its directory is
+	// initialised for this one, its state pulled and its files staged.
+	unlock := func() {}
+	if opts.RootLock != nil {
+		opts.RootLock.Lock()
+		unlock = sync.OnceFunc(opts.RootLock.Unlock)
+		defer unlock()
+	}
 	state, err := pullDriftState(ctx, tf, dir, backend, opts.Environment)
 	if err != nil {
 		return nil, err
@@ -277,7 +293,9 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 		return result, nil
 	}
 	defer os.RemoveAll(staging)
-	if err := stageDrift(dir, staging, []byte(state)); err != nil {
+	err = stageDrift(dir, staging, []byte(state))
+	unlock()
+	if err != nil {
 		return nil, err
 	}
 	// The plans read the environment's var files from the staged copy,
