@@ -514,7 +514,9 @@ func TestMergeRootsUnplanned(t *testing.T) {
 
 func TestRootProvider(t *testing.T) {
 	t.Parallel()
-	p, err := RootProvider(writeRootDir(t, "prd", "222222222222", "60", "", nil), "aws")
+	// A provider block with an alias isn't the root's provider.
+	aliased := "\nprovider \"aws\" {\n  alias  = \"global\"\n  region = \"us-east-1\"\n}\n"
+	p, err := RootProvider(writeRootDir(t, "prd", "222222222222", "60", aliased, nil), "aws")
 	if err != nil {
 		t.Fatal(err)
 	}
