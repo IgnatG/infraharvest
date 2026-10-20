@@ -145,8 +145,11 @@ func (m *DriftMatch) matches(root string, c engine.DriftChange) bool {
 // DriftDecisionEntry is a change drift found and what to do about it.
 type DriftDecisionEntry struct {
 	// Root is the root's path in the output directory.
-	Root    string `yaml:"root"`
-	Address string `yaml:"address"`
+	Root string `yaml:"root"`
+	// Environment is, for a root environments share, the environment
+	// the change is in.
+	Environment string `yaml:"environment,omitempty"`
+	Address     string `yaml:"address"`
 	// Attribute is "" for a resource deleted in the cloud.
 	Attribute string `yaml:"attribute,omitempty"`
 	// Fingerprint is a hash of the change's values as the report shows
@@ -207,9 +210,9 @@ func parseDriftDecisions(path string, content []byte) (*DriftDecisions, error) {
 		case c.Decision != engine.DriftAccept && c.Decision != engine.DriftKeep && c.Decision != DriftUndecided:
 			return nil, fmt.Errorf("%s: change %d (%s %s): decision must be accept, keep or undecided, not %q", path, i+1, c.Address, c.Attribute, c.Decision)
 		}
-		k := driftDecisionKey(c.Root, c.Address, c.Attribute)
+		k := driftDecisionKey(rootName(c.Root, c.Environment), c.Address, c.Attribute)
 		if seen[k] {
-			return nil, fmt.Errorf("%s: change %d (%s %s in %s) is listed twice", path, i+1, c.Address, c.Attribute, c.Root)
+			return nil, fmt.Errorf("%s: change %d (%s %s in %s) is listed twice", path, i+1, c.Address, c.Attribute, rootName(c.Root, c.Environment))
 		}
 		seen[k] = true
 	}
@@ -218,7 +221,8 @@ func parseDriftDecisions(path string, content []byte) (*DriftDecisions, error) {
 }
 
 // driftDecisionKey identifies a change: the same address and attribute
-// can change in several roots.
+// can change in several roots, and in several environments of a root
+// they share, which root then names (see rootName).
 func driftDecisionKey(root, address, attribute string) string {
 	return root + "\n" + address + "\n" + attribute
 }
@@ -227,7 +231,7 @@ func (f *DriftDecisions) index() {
 	f.byKey = make(map[string]*DriftDecisionEntry, len(f.Changes))
 	for i := range f.Changes {
 		c := &f.Changes[i]
-		f.byKey[driftDecisionKey(c.Root, c.Address, c.Attribute)] = c
+		f.byKey[driftDecisionKey(rootName(c.Root, c.Environment), c.Address, c.Attribute)] = c
 	}
 }
 
@@ -280,6 +284,13 @@ type driftDecision struct {
 // deciding: on the command line, they decide over the file, a stale
 // entry's too.
 func (d driftDecider) decide(root string, c engine.DriftChange) driftDecision {
+	return d.decideIn(root, "", c)
+}
+
+// decideIn decides c, a change of the root at root as environment env,
+// for a root environments share, as decide does: its entry in the
+// decisions file is env's.
+func (d driftDecider) decideIn(root, env string, c engine.DriftChange) driftDecision {
 	out := driftDecision{source: report.DriftDecidedByDefault}
 	if f := d.file; f != nil {
 		out.accept, out.source = f.Defaults.Decision == engine.DriftAccept, report.DriftDecidedByDefaults
@@ -291,7 +302,7 @@ func (d driftDecider) decide(root string, c engine.DriftChange) driftDecision {
 				out.accept, out.source = false, report.DriftDecidedByRule
 			}
 		}
-		if e := f.byKey[driftDecisionKey(root, c.Address, c.Attribute)]; e != nil {
+		if e := f.byKey[driftDecisionKey(rootName(root, env), c.Address, c.Attribute)]; e != nil {
 			switch {
 			case e.Fingerprint != driftFingerprint(c.Kind, c.Before, c.After, c.Covers):
 				// The entry was decided for other values: neither it nor
@@ -338,7 +349,7 @@ func (f *DriftDecisions) Merge(changes []report.DriftChange, checked func(root s
 		if !decidable(c.Outcome) {
 			continue
 		}
-		k := driftDecisionKey(c.Root, c.Address, c.Attribute)
+		k := driftDecisionKey(c.Name(), c.Address, c.Attribute)
 		if seen[k] {
 			continue
 		}
@@ -355,14 +366,14 @@ func (f *DriftDecisions) Merge(changes []report.DriftChange, checked func(root s
 			merged = append(merged, m)
 			continue
 		}
-		merged = append(merged, DriftDecisionEntry{Root: c.Root, Address: c.Address, Attribute: c.Attribute, Fingerprint: fp, Decision: DriftUndecided})
+		merged = append(merged, DriftDecisionEntry{Root: c.Root, Environment: c.Environment, Address: c.Address, Attribute: c.Attribute, Fingerprint: fp, Decision: DriftUndecided})
 		added++
 	}
 	for _, e := range f.Changes {
-		if seen[driftDecisionKey(e.Root, e.Address, e.Attribute)] {
+		if seen[driftDecisionKey(rootName(e.Root, e.Environment), e.Address, e.Attribute)] {
 			continue
 		}
-		if checked != nil && !checked(e.Root) {
+		if checked != nil && !checked(rootName(e.Root, e.Environment)) {
 			merged = append(merged, e)
 			continue
 		}
@@ -413,6 +424,9 @@ func (f *DriftDecisions) Save(path string) error {
 		a, b := f.Changes[i], f.Changes[j]
 		if a.Root != b.Root {
 			return a.Root < b.Root
+		}
+		if a.Environment != b.Environment {
+			return a.Environment < b.Environment
 		}
 		if a.Address != b.Address {
 			return a.Address < b.Address
@@ -511,11 +525,17 @@ func decisionsToMerge(options DriftOptions, applied *DriftDecisions) (*DriftDeci
 func writeDriftDecisions(path string, f *DriftDecisions, d *report.Drift) (string, error) {
 	checked := map[string]bool{}
 	for _, r := range d.Roots {
-		checked[r.Path] = r.Error == ""
+		checked[r.Name()] = r.Error == ""
 	}
 	added, undecided, dropped := f.Merge(d.Changes, func(root string) bool { return checked[root] })
 	if err := f.Save(path); err != nil {
 		return "", fmt.Errorf("--write-decisions: %w", err)
 	}
 	return fmt.Sprintf("decisions: %s (%d added, %d undecided again, %d dropped)", path, added, undecided, dropped), nil
+}
+
+// rootName names the root at path, as environment env for a root
+// environments share (see report.DriftRoot.Name).
+func rootName(path, env string) string {
+	return report.DriftRoot{Path: path, Environment: env}.Name()
 }

@@ -114,6 +114,13 @@ type DriftOptions struct {
 	// (see Options.Omit), which the standards check of the edited code
 	// looks for.
 	Omit map[string][]string
+	// Environment is, for a root environments share (see
+	// MergedEnvironments), the environment to check it as: with its
+	// backend settings, vars/<env>/backend.hcl, or, for a root without a
+	// backend, the local state of the workspace named after it, and with
+	// its var files. The environments share the root's code, so a change
+	// accepted for one isn't written into it: it needs a hand edit.
+	Environment string
 
 	// writeFile writes an edited file into the root; nil is
 	// fsutil.WriteFile. For tests.
@@ -246,15 +253,26 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	}
 	result := &RootDrift{Backend: backend}
 	tf = driftWithTimeout(tf, opts.CommandTimeout)
-	if err := initTerraform(ctx, tf, tfexec.Backend(true), tfexec.Reconfigure(true)); err != nil {
-		return nil, fmt.Errorf("terraform init: %w", err)
+	var envVars []tfexec.PlanOption
+	var envVarPaths []string
+	var envImports map[string]string
+	if opts.Environment != "" {
+		if envVars, envVarPaths, err = mergedVarFiles(dir, opts.Environment); err != nil {
+			return nil, err
+		}
+		if envImports, err = MergedImportIDs(dir, opts.Environment); err != nil {
+			return nil, err
+		}
 	}
-	state, err := tf.StatePull(ctx)
+	state, err := pullDriftState(ctx, tf, dir, backend, opts.Environment)
 	if err != nil {
-		return nil, fmt.Errorf("terraform state pull: %w", err)
+		return nil, err
 	}
 	if !stateHasResources(state) {
 		result.NotApplied = notApplied(files, nil)
+		if opts.Environment != "" {
+			result.NotApplied = notImported(envImports, nil)
+		}
 		return result, nil
 	}
 	defer os.RemoveAll(staging)
@@ -276,12 +294,16 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	inState := stateAddresses(shown)
 	result.Resources = len(inState)
 	result.NotApplied = notApplied(files, inState)
+	if opts.Environment != "" {
+		result.NotApplied = notImported(envImports, inState)
+	}
 
 	stagedFiles, err := configFiles(staging)
 	if err != nil {
 		return nil, err
 	}
-	vars, placeholdered := variablePlaceholders(staging, stagedFiles)
+	vars, placeholdered := variablePlaceholders(staging, stagedFiles, envVarPaths...)
+	vars = append(envVars, vars...)
 	result.Placeholders = placeholdered
 
 	refreshPlan := filepath.Join(staging, "refresh.tfplan")
@@ -315,7 +337,14 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	if err != nil {
 		return nil, err
 	}
-	if accepted := decideDrift(result.Changes, sources, opts.Accept); len(accepted) > 0 {
+	accepted := decideDrift(result.Changes, sources, opts.Accept)
+	if opts.Environment != "" {
+		for _, c := range accepted {
+			c.Outcome, c.Reason = DriftManual, fmt.Sprintf("the environments share this root's code, so it isn't edited for %s alone: where a variable sets the value, change it in %s/%s/%s; else edit the code by hand, for every environment", opts.Environment, varsDirName, opts.Environment, envVarsFileName)
+		}
+		accepted = nil
+	}
+	if len(accepted) > 0 {
 		if err := acceptDrift(ctx, stf, dir, staging, root, accepted, code, vars, editor, opts); err != nil {
 			return nil, err
 		}
@@ -520,10 +549,10 @@ func notApplied(files []*hclFile, inState map[string]bool) []string {
 // variablePlaceholders returns -var options with a placeholder value for
 // each variable of files without a default, a TF_VAR_ environment
 // variable or a value in a tfvars file of dir that Terraform reads by
-// itself, and their names, sorted: a plan with -input=false fails
-// without them.
-func variablePlaceholders(dir string, files []*hclFile) ([]tfexec.PlanOption, []string) {
-	set := tfvarsNames(dir)
+// itself, or in varFiles, the other var files the plans read, and their
+// names, sorted: a plan with -input=false fails without them.
+func variablePlaceholders(dir string, files []*hclFile, varFiles ...string) ([]tfexec.PlanOption, []string) {
+	set := tfvarsNames(dir, varFiles...)
 	var names []string
 	types := map[string]string{}
 	for _, f := range files {
@@ -571,11 +600,12 @@ func placeholderFor(typ string) string {
 }
 
 // tfvarsNames returns the variables that terraform.tfvars and the
-// *.auto.tfvars files of dir set.
-func tfvarsNames(dir string) map[string]bool {
+// *.auto.tfvars files of dir set, and those of the var files more.
+func tfvarsNames(dir string, more ...string) map[string]bool {
 	names := map[string]bool{}
 	paths, _ := filepath.Glob(filepath.Join(dir, "*.auto.tfvars"))
 	paths = append(paths, filepath.Join(dir, "terraform.tfvars"))
+	paths = append(paths, more...)
 	for _, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {

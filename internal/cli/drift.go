@@ -24,7 +24,10 @@ func newDriftCmd() *cobra.Command {
 			"revert from those the code absorbs. Nothing is written to the state, and\n" +
 			"plans don't lock it, so read access to it is enough. S3, GCS and azurerm\n" +
 			"backends and local state are supported; HCP Terraform and other remote\n" +
-			"backends are refused.\n\n" +
+			"backends are refused. A root environments share is checked once per\n" +
+			"environment (--environment names which), with its backend settings,\n" +
+			"vars/<env>/backend.hcl, or without a backend its workspace's local state, and\n" +
+			"its var files; as they share its code, accepted changes need a hand edit.\n\n" +
 			"Without --accept or --decisions, the code isn't changed either. With them, the\n" +
 			"cloud's values of the changes they accept are written into the code, once the\n" +
 			"plan of the edited copy, without refreshing again, shows each accepted\n" +
@@ -61,6 +64,7 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().StringVar(&options.Decisions, "decisions", "", "decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it")
 	cmd.Flags().BoolVar(&options.WriteDecisions, "write-decisions", false, "write this run's changes into the decisions file, --decisions or "+importer.DefaultDriftDecisionsFile+" in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
+	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with (default: every environment under its vars/)")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }

@@ -34,6 +34,8 @@ type DriftInput struct {
 	Roots []string `json:"roots,omitempty" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
 	// Parallel is --parallel, 0 for its default.
 	Parallel int `json:"parallel,omitempty" jsonschema:"how many roots to check at once (default 1); each runs its own Terraform"`
+	// Environments are --environment names.
+	Environments []string `json:"environments,omitempty" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with (default: every environment under its vars/)"`
 }
 
 // DriftAcceptInput is the drift_accept tool's input.
@@ -119,6 +121,12 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 			return nil, fmt.Errorf("root pattern %q is empty or has a control character", r)
 		}
 		args = append(args, "--root="+r)
+	}
+	for _, env := range in.Environments {
+		if env == "" || strings.ContainsFunc(env, func(r rune) bool { return r == ',' || unicode.IsControl(r) }) {
+			return nil, fmt.Errorf("environment %q is empty or has a comma or a control character", env)
+		}
+		args = append(args, "--environment="+env)
 	}
 	return args, nil
 }
@@ -384,7 +392,7 @@ func driftResult(d *report.Drift, code int, out string) *DriftResult {
 	}
 	for _, r := range d.Roots {
 		if r.Error != "" {
-			result.FailedRoots = append(result.FailedRoots, r.Path+": "+r.Error)
+			result.FailedRoots = append(result.FailedRoots, r.Name()+": "+r.Error)
 		}
 	}
 	for _, c := range d.Changes {

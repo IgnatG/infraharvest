@@ -100,6 +100,9 @@ type DriftTotals struct {
 // DriftRoot is one root drift checked, or couldn't.
 type DriftRoot struct {
 	Path string `json:"path"`
+	// Environment is, for a root environments share, the environment it
+	// was checked as, with its backend settings and var files.
+	Environment string `json:"environment,omitempty"`
 	// Backend is the type of the backend the state was read from, local
 	// for none.
 	Backend string `json:"backend,omitempty"`
@@ -118,10 +121,13 @@ type DriftRoot struct {
 // DriftChange is one attribute, or one resource, that changed in the
 // cloud since the state last recorded it.
 type DriftChange struct {
-	Root       string `json:"root"`
-	Address    string `json:"address"`
-	Type       string `json:"type"`
-	ModuleCall string `json:"module_call,omitempty"`
+	Root string `json:"root"`
+	// Environment is, for a root environments share, the environment
+	// whose state and cloud the change is in.
+	Environment string `json:"environment,omitempty"`
+	Address     string `json:"address"`
+	Type        string `json:"type"`
+	ModuleCall  string `json:"module_call,omitempty"`
 	// Attribute is the path of what changed, such as tags.Env; empty for
 	// a deleted resource.
 	Attribute string `json:"attribute,omitempty"`
@@ -173,14 +179,40 @@ type DriftSource struct {
 	ModulePath string `json:"module_path,omitempty"`
 }
 
+// Name is the root's path, with, for a root environments share, the
+// environment it was checked as: aws/us-east-1 (dev).
+func (r DriftRoot) Name() string {
+	return rootName(r.Path, r.Environment)
+}
+
+// Name is the name of the root the change is in (see DriftRoot.Name).
+func (c DriftChange) Name() string {
+	return rootName(c.Root, c.Environment)
+}
+
+func rootName(path, env string) string {
+	if env == "" {
+		return path
+	}
+	return path + " (" + env + ")"
+}
+
 // Finish sorts the roots and changes and counts them.
 func (d *Drift) Finish() {
 	d.SchemaVersion = SchemaVersion
-	sort.SliceStable(d.Roots, func(i, j int) bool { return d.Roots[i].Path < d.Roots[j].Path })
+	sort.SliceStable(d.Roots, func(i, j int) bool {
+		if d.Roots[i].Path != d.Roots[j].Path {
+			return d.Roots[i].Path < d.Roots[j].Path
+		}
+		return d.Roots[i].Environment < d.Roots[j].Environment
+	})
 	sort.SliceStable(d.Changes, func(i, j int) bool {
 		a, b := d.Changes[i], d.Changes[j]
 		if a.Root != b.Root {
 			return a.Root < b.Root
+		}
+		if a.Environment != b.Environment {
+			return a.Environment < b.Environment
 		}
 		if a.Address != b.Address {
 			return a.Address < b.Address
@@ -296,13 +328,13 @@ func (d *Drift) Markdown() string {
 	var failed, notApplied, placeholders []string
 	for _, r := range d.Roots {
 		if r.Error != "" {
-			failed = append(failed, fmt.Sprintf("- `%s`: %s", r.Path, oneLine(r.Error)))
+			failed = append(failed, fmt.Sprintf("- `%s`: %s", r.Name(), oneLine(r.Error)))
 		}
 		for _, a := range r.NotApplied {
-			notApplied = append(notApplied, fmt.Sprintf("- `%s` in `%s`", a, r.Path))
+			notApplied = append(notApplied, fmt.Sprintf("- `%s` in `%s`", a, r.Name()))
 		}
 		if len(r.Placeholders) > 0 {
-			placeholders = append(placeholders, fmt.Sprintf("- `%s`: `%s`", r.Path, strings.Join(r.Placeholders, "`, `")))
+			placeholders = append(placeholders, fmt.Sprintf("- `%s`: `%s`", r.Name(), strings.Join(r.Placeholders, "`, `")))
 		}
 	}
 	if len(failed) > 0 {
@@ -320,7 +352,7 @@ func (d *Drift) Markdown() string {
 // driftLine is a change as drift.md lists it.
 func driftLine(c DriftChange) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "- `%s` in `%s`", c.Address, c.Root)
+	fmt.Fprintf(&b, "- `%s` in `%s`", c.Address, c.Name())
 	if c.Kind == DriftDeleted {
 		b.WriteString(": deleted in the cloud")
 	} else {

@@ -217,6 +217,12 @@ Set the root's secret variables with `TF_VAR_` environment variables or an `.aut
 
 S3, GCS and azurerm backends and local state are supported. HCP Terraform (a `cloud` block) and other remote backends, such as `remote`, are refused with an error: their plans run remotely, so drift can't plan a local copy.
 
+## Roots environments share
+
+A root that [environments share](configuration.md#merging-environments) is checked once per environment under its `vars/`, or for each `--environment` you name, with the credentials drift runs with: run it once per environment, with that environment's credentials, and `--environment` naming it. Each check initialises the backend with the environment's settings, `-backend-config=vars/<env>/backend.hcl`, or, for a root without a backend, reads the state of the workspace named after the environment, in `terraform.tfstate.d/<env>/`, as the root's README applies it. Its plans read the environment's var files. The report names the root with the environment, such as `aws/us-east-1 (prod)` (`environment` in `drift.json`), and so does the decisions file.
+
+The environments share the root's code, so drift writes nothing into it for one of them: an accepted change needs a hand edit, in `vars/<env>/terraform.tfvars` where a variable sets the value, else in the code, for every environment.
+
 ## Exit codes
 
 | Code | Meaning |

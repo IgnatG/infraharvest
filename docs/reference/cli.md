@@ -191,6 +191,7 @@ infraharvest drift [output-directory] [flags]
 | `--detailed-exitcode` |  | exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none |
 | `--engine` | `terraform` | terraform or tofu |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit) |
+| `--environment` |  | for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with (default: every environment under its vars/) |
 | `--force-unlock` |  | check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock |
 | `--format` | `text` | text prints a line per root; json prints drift.json |
 | `--keep` |  | keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable) |
