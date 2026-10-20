@@ -42,28 +42,28 @@ import {
 }
 
 import {
-  for_each = var.deploy_db_instance ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_db_instance]
 
   to = aws_db_instance.main[each.value]
   id = var.import_ids["aws_db_instance.main[0]"]
 }
 
 import {
-  for_each = var.deploy_alerts_dev ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_alerts_dev]
 
   to = aws_sns_topic.alerts_dev[each.value]
   id = var.import_ids["aws_sns_topic.alerts_dev[0]"]
 }
 
 import {
-  for_each = var.deploy_alerts_prod ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_alerts_prod]
 
   to = aws_sns_topic.alerts_prod[each.value]
   id = var.import_ids["aws_sns_topic.alerts_prod[0]"]
 }
 
 import {
-  for_each = var.deploy_alerts_stage ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_alerts_stage]
 
   to = aws_sns_topic.alerts_stage[each.value]
   id = var.import_ids["aws_sns_topic.alerts_stage[0]"]
@@ -77,7 +77,7 @@ import {
 }
 
 import {
-  for_each = var.deploy_api_key ? [0] : []
+  for_each = [for k in [0] : k if var.deploy_api_key]
 
   to = aws_ssm_parameter.api_key[each.value]
   id = var.import_ids["aws_ssm_parameter.api_key[0]"]
@@ -240,6 +240,7 @@ variable "shop_prd_api_key" {
   description = "The value of aws_ssm_parameter.api_key."
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "import_ids" {

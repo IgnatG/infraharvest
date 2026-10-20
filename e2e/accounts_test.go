@@ -120,6 +120,9 @@ func checkAccountEnvironments(ctx context.Context, t *testing.T, out, engineName
 		root.SetArgs(append([]string{
 			"import", "aws",
 			"--config=" + config,
+			// The roots per environment, as they are laid out: merging them
+			// is TestAWSEnvironments's.
+			"--merge-environments=false",
 			"--engine=" + engineName,
 			"--terraform-path=" + execPath,
 			"--accounts=111111111111,222222222222",

@@ -102,10 +102,18 @@ func (p plan) run(ctx context.Context, options importer.Options, newProvider fun
 		}
 		return importCalls(ctx, calls)
 	}
+	var err error
 	if p.scopes == nil {
-		return importScope(options, "")
+		err = importScope(options, "")
+	} else {
+		err = importer.ImportEach(options, p.kind, p.scopes, importScope)
 	}
-	return importer.ImportEach(options, p.kind, p.scopes, importScope)
+	if err != nil {
+		return err
+	}
+	// Once every scope is imported: the environments of a stack may be in
+	// different accounts, subscriptions or projects.
+	return importer.MergeEnvironments(ctx)
 }
 
 // define registers the provider d describes.
@@ -164,6 +172,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringVarP(&options.Out, "out", "o", importer.DefaultOut, "directory to write the generated roots and the report to")
 	flags.StringVar(&options.Format, "format", importer.FormatText, "text, or json to also print the import report as JSON on stdout")
 	flags.StringSliceVar(&options.EnvTags, "env-tags", nil, "tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env)")
+	flags.BoolVar(&options.MergeEnvironments, "merge-environments", true, "with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see "+DocsURL+"configuration/#environments)")
 	flags.StringSliceVar(&options.ReportTags, "report-tags", nil, "tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key")
 	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	flags.StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see "+DocsURL+"catalogue/)")

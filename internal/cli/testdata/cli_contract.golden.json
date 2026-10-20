@@ -175,6 +175,13 @@
         "persistent": true
       },
       {
+        "name": "merge-environments",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "modules",
         "type": "string",
         "default": "registry",
@@ -410,6 +417,13 @@
         "persistent": true
       },
       {
+        "name": "merge-environments",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "modules",
         "type": "string",
         "default": "registry",
@@ -636,6 +650,13 @@
         "name": "managed-state",
         "type": "stringSlice",
         "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "merge-environments",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -975,6 +996,13 @@
         "persistent": true
       },
       {
+        "name": "merge-environments",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "modules",
         "type": "string",
         "default": "registry",
@@ -1210,6 +1238,13 @@
         "persistent": true
       },
       {
+        "name": "merge-environments",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "modules",
         "type": "string",
         "default": "registry",
@@ -1439,6 +1474,13 @@
         "persistent": true
       },
       {
+        "name": "merge-environments",
+        "type": "bool",
+        "default": "true",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "modules",
         "type": "string",
         "default": "registry",
@@ -1640,6 +1682,12 @@
         "name": "engine-timeout",
         "type": "duration",
         "default": "1h0m0s",
+        "persistent": false
+      },
+      {
+        "name": "environment",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": false
       },
       {

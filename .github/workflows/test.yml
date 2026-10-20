@@ -338,7 +338,8 @@ jobs:
   # over, run on two more: those of the output (layout, modules, verify)
   # and those of what is imported (report, filters, exit codes). The drift
   # test (TestAWSDrift), which applies and changes its estate many times
-  # over, runs on another. The
+  # over, runs on another, as does the environments test
+  # (TestAWSEnvironments), which imports two accounts four times. The
   # other tests (TestAWSParallelAccounts, TestAWSParallelRegions and
   # TestAWSRegenerateMoves, which create their resources in other
   # accounts) share a last one.
@@ -352,7 +353,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, selection, incremental, options-output, options-input, drift, others]
+        shard: [round-trip, selection, incremental, options-output, options-input, drift, environments, others]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
@@ -372,9 +373,12 @@ jobs:
         - shard: drift
           run: ^TestAWSDrift$
           skip: ""
+        - shard: environments
+          run: ^TestAWSEnvironments$
+          skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift)$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift|Environments)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -98,6 +98,8 @@ func checkpointPath(out, dir string) string {
 // Those are its configuration and versions.tf, with imports.tf and, if
 // the result moves or removes resources, moves.tf, or without both: once
 // the root is applied, its README says to delete them.
+// A root its stack's merge set aside counts as there where its set-aside
+// copy is (see premergeDir).
 func resumed(out, dir, fp string) (*engine.Result, error) {
 	content, err := os.ReadFile(checkpointPath(out, dir))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -111,6 +113,8 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 		return nil, nil // an unreadable checkpoint means generating again
 	}
 	names := append([]string{engine.VersionsFileName}, configurationFiles(c.Result)...)
+	// A root its stack's merge set aside is resumed from there.
+	dir = rootSource(out, dir)
 	imports, err := fileExists(filepath.Join(dir, engine.ImportsFileName))
 	if err != nil {
 		return nil, err

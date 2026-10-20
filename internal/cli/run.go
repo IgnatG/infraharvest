@@ -30,6 +30,9 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 			if err := requireServices(c); err != nil {
 				return err
 			}
+			if err := run.CheckMergeEnvironments(c.Flags()); err != nil {
+				return err
+			}
 			if f := c.Flag("pick"); f != nil {
 				run.OpenPicker = f.Value.String() == "true"
 			}

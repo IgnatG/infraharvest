@@ -72,6 +72,10 @@ type Options struct {
 	Format string
 	// EnvTags are the tag keys whose value names a resource's environment.
 	EnvTags []string
+	// MergeEnvironments merges the roots of a stack's environments, which
+	// the configuration file's environments name, into one root they share
+	// (see MergeEnvironments).
+	MergeEnvironments bool
 	// ReportTags are the tag keys the report counts resources by.
 	ReportTags []string
 	// Modules says which modules hold clusters of resources (see

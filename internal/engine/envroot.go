@@ -17,6 +17,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
@@ -104,17 +105,26 @@ type rootWriter struct {
 // provider argument that differs and isn't a value, or a resource refers
 // to locals or data sources of the roots.
 func mergedRootFiles(m *stackMerge) (map[string][]byte, error) {
+	files, _, err := buildMergedRoot(m)
+	return files, err
+}
+
+// buildMergedRoot is mergedRootFiles, which also returns the writer that
+// wrote the files, which knows their variables.
+func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if len(m.roots) == 0 || len(m.roots) != len(m.envs) {
-		return nil, errors.New("no roots to merge")
+		return nil, nil, errors.New("no roots to merge")
 	}
-	w := &rootWriter{m: m, p: m.roots[0].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true}}
-	for _, root := range m.roots[1:] {
-		if p := root.provider; p.Name != w.p.Name || p.Source != w.p.Source || p.Version != w.p.Version {
-			return nil, fmt.Errorf("the environments use different providers: %s %s and %s %s", w.p.Source, w.p.Version, p.Source, p.Version)
-		}
+	if m.reason != "" {
+		return nil, nil, errors.New(m.reason)
 	}
+	newest, err := newestProvider(m.roots)
+	if err != nil {
+		return nil, nil, err
+	}
+	w := &rootWriter{m: m, p: m.roots[newest].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true}}
 	if w.p.Name == "" {
-		return nil, errors.New("the roots name no provider")
+		return nil, nil, errors.New("the roots name no provider")
 	}
 	for _, v := range m.variables {
 		w.used[v.name] = true
@@ -123,35 +133,39 @@ func mergedRootFiles(m *stackMerge) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	resources, err := w.resourceFiles()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	maps.Copy(files, resources)
-	if err := w.copyVariables(resources); err != nil {
-		return nil, err
+	if len(m.data) > 0 || len(m.rootData) > 0 {
+		files[DataFileName] = w.dataFile()
+	}
+	if err := w.copyVariables(files); err != nil {
+		return nil, nil, err
 	}
 	if len(m.locals) > 0 {
 		files[LocalsFileName] = w.localsFile()
 	}
-	if len(m.data) > 0 {
-		files[DataFileName] = w.dataFile()
+	imports, err := w.importsFile()
+	if err != nil {
+		return nil, nil, err
 	}
-	if imports := w.importsFile(); imports != nil {
+	if imports != nil {
 		files[ImportsFileName] = imports
 	}
 	// The provider block's variables come before variables.tf and the
 	// var files, which hold them too.
 	providers, err := w.providerBlocks()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	variables, err := w.variablesFile()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	files[VariablesFileName] = variables
 	terraform, err := w.terraformBlock(files)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	files[ProvidersFileName] = formatHCL(string(terraform) + string(providers))
 	files[varsDirName+"/"+commonVarsFileName] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in vars/<env>/terraform.tfvars.\n")
@@ -165,7 +179,7 @@ func mergedRootFiles(m *stackMerge) (map[string][]byte, error) {
 	}
 	files[ReadmeFileName] = w.readme()
 	files[".gitignore"] = []byte(mergedGitignore)
-	return files, nil
+	return files, w, nil
 }
 
 // placeResources records the file each resource and forEach goes in: the
@@ -229,7 +243,11 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 		if r.deploy != nil {
 			meta = append(meta, fmt.Sprintf("count = var.%s ? 1 : 0", r.deploy.name))
 		}
-		byFile[w.fileOf[r]] = append(byFile[w.fileOf[r]], block{r.address(), resourceText(r.resourceType, r.label, meta, r.body)})
+		text := resourceText(r.resourceType, r.label, meta, r.body)
+		if r.resourceType == moduleType {
+			text = moduleText(r.label, meta, r.body)
+		}
+		byFile[w.fileOf[r]] = append(byFile[w.fileOf[r]], block{r.address(), text})
 	}
 	for _, g := range w.m.forEach {
 		meta := []string{"for_each = var." + g.variable.name}
@@ -296,10 +314,30 @@ func writeMergedBody(b *strings.Builder, body *mergedBody) {
 func exprText(tokens hclwrite.Tokens) string {
 	src := bytes.TrimSpace(tokens.Bytes())
 	expr, diags := hclsyntax.ParseExpression(src, "", hcl.InitialPos)
-	if wrap, ok := expr.(*hclsyntax.TemplateWrapExpr); ok && !diags.HasErrors() {
-		return string(wrap.Wrapped.Range().SliceBytes(src))
+	if diags.HasErrors() {
+		return string(src)
 	}
-	return string(src)
+	// Each one, as in a tag's value inside an object: the outermost, from
+	// the last, so that the offsets of the others hold.
+	var wraps []*hclsyntax.TemplateWrapExpr
+	_ = hclsyntax.VisitAll(expr, func(n hclsyntax.Node) hcl.Diagnostics {
+		if wrap, ok := n.(*hclsyntax.TemplateWrapExpr); ok {
+			for _, outer := range wraps {
+				if outer.SrcRange.Start.Byte <= wrap.SrcRange.Start.Byte && wrap.SrcRange.End.Byte <= outer.SrcRange.End.Byte {
+					return nil
+				}
+			}
+			wraps = append(wraps, wrap)
+		}
+		return nil
+	})
+	sort.Slice(wraps, func(i, j int) bool { return wraps[i].SrcRange.Start.Byte > wraps[j].SrcRange.Start.Byte })
+	out := slices.Clone(src)
+	for _, wrap := range wraps {
+		inner := wrap.Wrapped.Range()
+		out = slices.Concat(out[:wrap.SrcRange.Start.Byte], src[inner.Start.Byte:inner.End.Byte], out[wrap.SrcRange.End.Byte:])
+	}
+	return string(out)
 }
 
 // copyVariables declares the variables of the roots that the merged
@@ -317,6 +355,9 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 	}
 	for _, d := range w.m.data {
 		declared["data."+d] = true
+	}
+	for _, d := range w.m.rootData {
+		declared["data."+d.address] = true
 	}
 	var missing []string
 	read := map[string]bool{}
@@ -349,32 +390,101 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 			unknown = append(unknown, ref)
 			continue
 		}
+		declaring := make([]*hclwrite.Block, len(w.m.roots))
 		var found *hclwrite.Block
-		for _, root := range w.m.roots {
+		same := true
+		for e, root := range w.m.roots {
 			if root.variables == nil {
 				continue
 			}
 			for _, b := range root.variables.file.Body().Blocks() {
 				if b.Type() == "variable" && len(b.Labels()) == 1 && b.Labels()[0] == name {
-					found = b
+					declaring[e] = b
 					break
 				}
 			}
-			if found != nil {
-				break
+			switch {
+			case declaring[e] == nil:
+			case found == nil:
+				found = declaring[e]
+			case strings.TrimSpace(string(declaring[e].BuildTokens(nil).Bytes())) != strings.TrimSpace(string(found.BuildTokens(nil).Bytes())):
+				same = false
 			}
 		}
 		if found == nil {
 			unknown = append(unknown, ref)
 			continue
 		}
-		w.copied = append(w.copied, found)
 		w.used[name] = true
+		if same {
+			if slices.Contains(declaring, nil) && found.Body().GetAttribute("default") == nil {
+				// Some environments don't set it, such as a secret of a
+				// resource of one environment: null, where they don't.
+				copied, err := copyBlock(found)
+				if err != nil {
+					return err
+				}
+				copied.Body().SetAttributeRaw("default", hclwrite.TokensForValue(cty.NullVal(cty.DynamicPseudoType)))
+				found = copied
+			}
+			w.copied = append(w.copied, found)
+			continue
+		}
+		// The roots declare it otherwise, such as with another default,
+		// the ID of a resource of another root: each environment's value
+		// is its own.
+		w.extra = append(w.extra, declaredVariable(name, declaring, len(w.m.envs)))
 	}
 	if len(unknown) > 0 {
 		return fmt.Errorf("the merged resources read %s, which the merged root doesn't declare", strings.Join(unknown, ", "))
 	}
 	return nil
+}
+
+// declaredVariable returns variable name, which the roots, by
+// environment, declare as declaring has it (nil where a root doesn't)
+// but not all alike, as a variable of the merged root: of the type and
+// description of the first, sensitive if it is, with each environment's
+// default as its value, and a default (see envVariable.setDefault) of
+// envs environments.
+func declaredVariable(name string, declaring []*hclwrite.Block, envs int) *envVariable {
+	v := &envVariable{name: name, what: "value of " + name, ty: cty.DynamicPseudoType, values: map[int]hclwrite.Tokens{}}
+	first := true
+	for e, b := range declaring {
+		if b == nil {
+			continue
+		}
+		body := b.Body()
+		if first {
+			first = false
+			if attr := body.GetAttribute("description"); attr != nil {
+				if d, ok := literalValue(attr.Expr().BuildTokens(nil)); ok && d.Type() == cty.String {
+					v.description = d.AsString()
+				}
+			}
+			if attr := body.GetAttribute("type"); attr != nil {
+				expr, diags := hclsyntax.ParseExpression(attr.Expr().BuildTokens(nil).Bytes(), "", hcl.InitialPos)
+				if !diags.HasErrors() {
+					if ty, diags := typeexpr.TypeConstraint(expr); !diags.HasErrors() {
+						v.ty = ty
+					}
+				}
+			}
+			if attr := body.GetAttribute("sensitive"); attr != nil {
+				if s, ok := literalValue(attr.Expr().BuildTokens(nil)); ok && s.Type() == cty.Bool && s.True() {
+					v.sensitive = true
+				}
+			}
+		}
+		switch attr := body.GetAttribute("default"); {
+		case v.sensitive, attr == nil:
+			v.values[e] = nil
+		default:
+			v.values[e] = attr.Expr().BuildTokens(nil)
+		}
+	}
+	v.setDefault(envs)
+	return v
 }
 
 // referenceName returns what t refers to, as var.x, local.x or
@@ -442,7 +552,18 @@ func (w *rootWriter) localsFile() []byte {
 func (w *rootWriter) dataFile() []byte {
 	var b strings.Builder
 	b.WriteString(dataFileHeader)
+	written := map[string]bool{}
+	for _, d := range w.m.rootData {
+		typ, name, _ := strings.Cut(d.address, ".")
+		fmt.Fprintf(&b, "\ndata %q %q {\n", typ, name)
+		writeMergedBody(&b, d.body)
+		b.WriteString("}\n")
+		written[d.address] = true
+	}
 	for _, d := range w.m.data {
+		if written[d] {
+			continue
+		}
 		typ, name, _ := strings.Cut(d, ".")
 		fmt.Fprintf(&b, "\ndata %q %q {}\n", typ, name)
 	}
@@ -453,7 +574,7 @@ func (w *rootWriter) dataFile() []byte {
 // merged root, whose ID each environment's imports.tfvars gives; for a
 // resource some environments lack, or a forEach, with for_each over what
 // the environment has. It returns nil for none.
-func (w *rootWriter) importsFile() []byte {
+func (w *rootWriter) importsFile() ([]byte, error) {
 	hasID := func(r *stackResource) bool {
 		for _, member := range r.members {
 			if member != nil && member.id != "" {
@@ -465,6 +586,18 @@ func (w *rootWriter) importsFile() []byte {
 	type block struct{ address, text string }
 	var blocks []block
 	for _, r := range w.m.resources {
+		if r.resourceType != moduleType {
+			continue
+		}
+		calls, err := moduleImports(r)
+		if err != nil {
+			return nil, err
+		}
+		for address, text := range calls {
+			blocks = append(blocks, block{address, text})
+		}
+	}
+	for _, r := range w.m.resources {
 		if r.forEach != nil || !hasID(r) {
 			continue
 		}
@@ -474,7 +607,7 @@ func (w *rootWriter) importsFile() []byte {
 			blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nto = %s\nid = %s\n}\n", instance, id)})
 			continue
 		}
-		blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nfor_each = var.%s ? [0] : []\n\nto = %s.%s[each.value]\nid = %s\n}\n", r.deploy.name, r.resourceType, r.label, id)})
+		blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nfor_each = [for k in [0] : k if var.%s]\n\nto = %s.%s[each.value]\nid = %s\n}\n", r.deploy.name, r.resourceType, r.label, id)})
 	}
 	for _, g := range w.m.forEach {
 		if !slices.ContainsFunc(g.keys, hasID) {
@@ -484,7 +617,7 @@ func (w *rootWriter) importsFile() []byte {
 		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = var.%s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.variable.name, g.address(), importIDsVariableName, format)})
 	}
 	if len(blocks) == 0 {
-		return nil
+		return nil, nil
 	}
 	sort.Slice(blocks, func(i, j int) bool { return blocks[i].address < blocks[j].address })
 	var b strings.Builder
@@ -492,7 +625,7 @@ func (w *rootWriter) importsFile() []byte {
 	for _, blk := range blocks {
 		b.WriteString("\n" + blk.text)
 	}
-	return formatHCL(b.String())
+	return formatHCL(b.String()), nil
 }
 
 // providerBlocks writes the provider block and returns it: the arguments
@@ -533,7 +666,7 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 		}
 		delete(keys, "region")
 	}
-	for _, k := range []string{"assume_role", "default_tags", "alias"} {
+	for _, k := range []string{"assume_role", "default_tags", "default_labels", "alias"} {
 		delete(keys, k)
 	}
 	var blocks strings.Builder
@@ -587,8 +720,13 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 	tags := w.defaultTagsText()
 	var out strings.Builder
 	fmt.Fprintf(&out, "\nprovider %q {\n%s%s", w.p.Name, args.String(), blocks.String())
-	if tags != "" {
+	switch {
+	case tags == "":
+	case w.p.Name == "aws":
 		out.WriteString("\ndefault_tags {\ntags = " + tags + "\n}\n")
+	default:
+		// Google applies its labels to every resource with an argument.
+		out.WriteString("default_labels = " + tags + "\n")
 	}
 	out.WriteString("}\n")
 	for _, alias := range w.aliases() {
@@ -606,6 +744,19 @@ func (w *rootWriter) aliases() []string {
 			return
 		}
 		for _, a := range b.attributes {
+			if a.name == "providers" {
+				// A module call's, such as { aws = aws.without_default_tags }.
+				if expr, diags := hclsyntax.ParseExpression(a.value.Bytes(), "", hcl.InitialPos); !diags.HasErrors() {
+					for _, t := range expr.Variables() {
+						if rel := t.SimpleSplit().Rel; len(rel) == 1 && t.RootName() == w.p.Name {
+							if step, ok := rel[0].(hcl.TraverseAttr); ok {
+								found[step.Name] = true
+							}
+						}
+					}
+				}
+				continue
+			}
 			if a.name != "provider" {
 				continue
 			}
@@ -868,6 +1019,9 @@ func (w *rootWriter) variables() []*envVariable {
 
 // describe is the description of variable v.
 func describe(v *envVariable) string {
+	if v.description != "" {
+		return v.description
+	}
 	if rest, ok := strings.CutPrefix(v.what, "whether "); ok {
 		return "Whether " + rest + "."
 	}

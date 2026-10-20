@@ -179,6 +179,9 @@ type Coverage struct {
 	// directories, and the resources in them, though the configuration
 	// file's environments would put those under envs/<env>/ now.
 	KeptRoots []KeptRoot `json:"kept_roots,omitempty"`
+	// Merges are the stacks whose environments' roots were merged into a
+	// root they share, or kept apart, with why.
+	Merges []Merge `json:"merges,omitempty"`
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
@@ -249,6 +252,10 @@ type Directory struct {
 	Checks []Check `json:"checks,omitempty"`
 	// Error is why nothing in the directory was imported.
 	Error string `json:"error,omitempty"`
+	// MergedInto is the root, relative to the output directory, that the
+	// directory's environment shares with the other environments of its
+	// stack, which has its resources now (see Coverage.Merges).
+	MergedInto string `json:"merged_into,omitempty"`
 }
 
 // Resource is an imported resource.
@@ -350,6 +357,50 @@ type KeptRoot struct {
 	Scope        string   `json:"scope,omitempty"`
 }
 
+// Merge is a stack: the roots of its environments, one each, which an
+// import merged into one root they share (Path), with what differs
+// between them in var files per environment, or kept apart, with why
+// (Reason). Paths are relative to the output directory, with forward
+// slashes.
+type Merge struct {
+	Path         string       `json:"path"`
+	Environments []string     `json:"environments"`
+	Roots        []MergedRoot `json:"roots"`
+	// Merged says the environments share the root at Path; else Reason
+	// says why each keeps its own.
+	Merged bool   `json:"merged"`
+	Reason string `json:"reason,omitempty"`
+	// Shared counts the resources and module calls of the merged root
+	// more than one environment has, and Residue are those it keeps as
+	// one environment's root had them, with why.
+	Shared  int            `json:"shared,omitempty"`
+	Residue []MergeResidue `json:"residue,omitempty"`
+	// Variables are the merged root's variables.
+	Variables []string `json:"variables,omitempty"`
+	// Checks are the merged root's gate, for each environment, whose
+	// name each check's details start with.
+	Checks []Check `json:"checks,omitempty"`
+	// Unchanged says a resumed import kept the merged root as an earlier
+	// one wrote it (--resume).
+	Unchanged bool `json:"unchanged,omitempty"`
+}
+
+// MergedRoot is the root of one environment of a stack.
+type MergedRoot struct {
+	Env  string `json:"env"`
+	Path string `json:"path"`
+}
+
+// MergeResidue is a resource of one environment that a merged root keeps
+// as the environment's root had it: Address is its address there, and
+// MergedAddress in the merged root.
+type MergeResidue struct {
+	Env           string `json:"env"`
+	Address       string `json:"address"`
+	MergedAddress string `json:"merged_address"`
+	Reason        string `json:"reason"`
+}
+
 // mergeKeptRoots returns kept sorted by path, with the environments of
 // each root, of every call that kept it, together.
 func mergeKeptRoots(kept []KeptRoot) []KeptRoot {
@@ -429,6 +480,7 @@ func (r *Report) Merge(other *Report) {
 	r.Departed = append(r.Departed, other.Departed...)
 	r.IncompleteHandovers = append(r.IncompleteHandovers, other.IncompleteHandovers...)
 	r.KeptRoots = append(r.KeptRoots, other.KeptRoots...)
+	r.Merges = append(r.Merges, other.Merges...)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.listed = append(r.listed, other.listed...)
@@ -480,6 +532,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	})
 	sort.Strings(r.Failures)
 	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
+	sort.Slice(r.Merges, func(i, j int) bool { return r.Merges[i].Path < r.Merges[j].Path })
 
 	byType := map[string]*CoverageTotal{}
 	count := func(t string) *CoverageTotal {
@@ -875,6 +928,27 @@ func (r *Report) Markdown() string {
 		keptLines = append(keptLines, fmt.Sprintf("- `%s`, of %s", k.Path, strings.Join(k.Environments, ", ")))
 	}
 	section("Kept where they were", "An earlier import generated these roots, so they keep their directories, and the resources in them, though the configuration file's environments would put those under `envs/<env>/` now: a root's state key comes from its path. To lay them out by environment, import into a new `--out`.", keptLines)
+	var mergedLines, apartLines []string
+	for _, m := range r.Merges {
+		roots := make([]string, len(m.Roots))
+		for i, root := range m.Roots {
+			roots[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
+		}
+		if !m.Merged {
+			apartLines = append(apartLines, fmt.Sprintf("- %s: %s", strings.Join(roots, ", "), m.Reason))
+			continue
+		}
+		line := fmt.Sprintf("- `%s`, of %s: %d resources shared", m.Path, strings.Join(roots, ", "), m.Shared)
+		if len(m.Residue) > 0 {
+			line += fmt.Sprintf(", %d kept as their environment's root had them", len(m.Residue))
+		}
+		mergedLines = append(mergedLines, line)
+		for _, res := range m.Residue {
+			mergedLines = append(mergedLines, fmt.Sprintf("  - `%s` of %s, as `%s`: %s", res.Address, res.Env, res.MergedAddress, res.Reason))
+		}
+	}
+	section("Environments merged", "The environments of each of these stacks share one root, with their own values in `vars/<env>/`: each environment's plan of it, with its own credentials, imports what its own root did and changes nothing else. The roots they had are kept under `.infraharvest/premerge/`. Each merged root's README says how to plan and apply an environment.", mergedLines)
+	section("Environments kept apart", "The environments of each of these stacks keep a root each, as they were generated: merging them into one root wouldn't have planned the same.", apartLines)
 	section("Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", incompleteLines)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)

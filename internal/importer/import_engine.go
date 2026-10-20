@@ -217,6 +217,11 @@ type listedCall struct {
 	here *listedHere
 	// byDir are the imports of each root the call generates.
 	byDir map[string][]engine.Import
+	// places are where each root of one of the configuration file's
+	// environments goes when its stack merges (see mergePlaces), and
+	// region is the scope's region.
+	places map[string]memberPlace
+	region string
 	// handovers are what the call's roots hand over to the other roots of
 	// the run, with --regenerate (see planHandovers).
 	handovers *handovers
@@ -385,6 +390,14 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	}
 	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
 	withResourceOmissions(byDir, resourcesByService, cat, importID)
+	var places map[string]memberPlace
+	if options.MergeEnvironments && len(envNames) > 0 {
+		stackLayouts, err := rootLayouts(ctx, provider, stackLayout(pattern))
+		if err != nil {
+			return nil, err
+		}
+		places = mergePlaces(resourcesByService, envOf, dirOf, layoutDirs(stackLayouts[0], options.Out, providerDir(provider), envOf), kept, byDir)
+	}
 
 	run.used = true
 	run.options = options
@@ -426,7 +439,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 		run.leaveOutHeld(byDir, held)
 	}
-	return &listedCall{run: run, provider: provider, options: options, scope: scope, here: here, byDir: byDir, opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
+	return &listedCall{run: run, provider: provider, options: options, scope: scope, here: here, byDir: byDir, places: places, region: scopeRegion(scope), opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
 }
 
 // generate generates the call's roots into its run, each referring to the
@@ -470,8 +483,20 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			}
 			tr.freshEnv = freshTerraformEnv(provider)
 		}
+		// A root its stack's merge set aside (see premergeDir).
+		isPremerged, err := premerged(options.Out, dir)
+		if err != nil {
+			return err
+		}
 		incremental := false
 		if result == nil && options.Incremental {
+			if isPremerged {
+				// Added to as it was, then set aside again, for the merge
+				// phase to merge its stack again (see MergeEnvironments).
+				if err := copyRoot(premergeDir(options.Out, dir), dir); err != nil {
+					return err
+				}
+			}
 			if incremental, err = engine.HasConfiguration(dir); err != nil {
 				return err
 			}
@@ -489,7 +514,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		case result != nil:
 			log.Printf("%s: %s is unchanged since it was generated (--resume)", provider.Name(), dir)
 			if run.lock == nil {
-				run.lock, _ = os.ReadFile(filepath.Join(dir, engine.LockFileName))
+				run.lock, _ = os.ReadFile(filepath.Join(rootSource(options.Out, dir), engine.LockFileName))
 			}
 		case incremental:
 			added, addedResult, holds, err := run.addToRoot(ctx, dir, byDir[dir], dirOpts, tr)
@@ -499,6 +524,14 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			if err == nil && holds != nil {
 				if err := saveCheckpoint(options.Out, dir, fp, holds); err != nil {
 					return err
+				}
+			}
+			if isPremerged {
+				if setErr := setAside(options.Out, dir); setErr != nil {
+					return setErr
+				}
+				if err == nil {
+					c.recordAdded(dir, fp, holds, dirOpts, addedResult)
 				}
 			}
 			if err == nil && addedResult == nil {
@@ -515,6 +548,12 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			// A root that would hand over what a root generated before it
 			// didn't import is left as it was, still holding it.
 			if err = c.handovers.refuseUnreceived(dir); err != nil {
+				c.handovers.record(dir, nil, err)
+				run.addDirectory(dir, byDir[dir], nil, err)
+				continue
+			}
+			if isPremerged && !options.Regenerate && !options.Resume {
+				err = fmt.Errorf("%s was merged into the root its stack's environments share, which may be in use: pass --regenerate to generate both again, or --incremental to add what is new", dir)
 				c.handovers.record(dir, nil, err)
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue
@@ -542,6 +581,11 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			// What the root had keeps its addresses, or moves (see
 			// engine.Options.Previous); the fingerprint doesn't count it.
 			dirOpts.Previous = claimed.previousRoot()
+			if isPremerged {
+				// Its environment applies the merged root, not this one: no
+				// moved block follows what it had.
+				dirOpts.Previous = nil
+			}
 			dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
 			if len(byDir[dir]) == 0 {
 				result, err = engine.Vacate(dir, dirOpts)
@@ -562,10 +606,13 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		}
 		c.handovers.record(dir, result, err)
 		run.addDirectory(dir, byDir[dir], result, err)
+		if err == nil {
+			c.recordMember(dir, fp, result, dirOpts)
+		}
 		if err == nil && run.backend != nil {
 			// After the checks, which run on a local working directory: the
 			// import never needs access to the state backend.
-			if err := os.WriteFile(filepath.Join(dir, BackendFileName), run.backend.File(relativePath(options.Out, dir)), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(rootSource(options.Out, dir), BackendFileName), run.backend.File(relativePath(options.Out, dir)), 0o644); err != nil {
 				return err
 			}
 		}

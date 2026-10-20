@@ -177,3 +177,23 @@ func TestCheckEnvironmentFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckMergeEnvironments(t *testing.T) {
+	t.Parallel()
+	envs := Environments{"dev": {AWS: &AWSScopes{Accounts: []string{"111111111111"}}}}
+	for _, tc := range []struct {
+		envs       Environments
+		merge, set bool
+		fails      bool
+	}{
+		{nil, true, false, false},  // the default, with nothing to merge
+		{nil, false, true, false},  // turned off
+		{nil, true, true, true},    // asked for, with nothing to merge
+		{envs, true, true, false},  // asked for, with environments
+		{envs, false, true, false}, // turned off, with environments
+	} {
+		if err := CheckMergeEnvironments(tc.envs, tc.merge, tc.set); (err != nil) != tc.fails {
+			t.Errorf("CheckMergeEnvironments(%v, %v, %v) = %v", tc.envs, tc.merge, tc.set, err)
+		}
+	}
+}

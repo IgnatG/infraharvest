@@ -62,7 +62,7 @@ environments:
 |---|---|
 | `aws.accounts`, `azure.subscriptions`, `google.projects` | The environment's AWS accounts, Azure subscriptions and Google Cloud projects, by ID |
 | `tags` | Tags (labels on Google Cloud) every resource of the environment has, compared as `--env-tags` compares environments: in lower case, with spaces and other characters made dashes, so `Prod` and `prod` are the same |
-| `tokens` | The words that stand for the environment in resource names, such as `prd`; by default the environment's name. They are checked, but no output uses them yet |
+| `tokens` | The words that stand for the environment in resource names, such as `prd`; by default the environment's name. Merging (see [Merging environments](#merging-environments)) takes them out of names, and the one the names use most is what `var.env` is set to |
 
 Each resource is placed by where it was listed first, then by its tags:
 
@@ -74,6 +74,56 @@ Each resource is placed by where it was listed first, then by its tags:
 An environment's name is a directory's: lower-case letters, digits, dots, dashes and underscores, and not `shared`. `environments` doesn't go with `--env-tags`, which places resources in environments by itself, and a `--layout` of your own needs `{env}`.
 
 A root an earlier import generated into the same `--out` keeps its directory, as its state key comes from its path: the resources the environments would now put under `envs/<env>/` stay in it, with `--regenerate` and `--incremental` too, and the report names each such root. To lay an estate out by environment from the start, import it into a new `--out`.
+
+### Merging environments
+
+With `environments:`, the roots each stack has in its environments merge into one root they share, laid out as hand-written multi-environment code usually is: one set of `.tf` files, and what differs between the environments in var files. A stack is the roots of one provider, region and `{service}`, if the layout has it: `<out>/envs/dev/aws/111111111111/eu-west-2/` and `<out>/envs/prod/aws/222222222222/eu-west-2/` merge into `<out>/aws/eu-west-2/`. With a `--layout` of your own, the merged root's directory is the layout without its segments that hold `{env}`, `{account}`, `{subscription}` or `{project}`. Set `merge-environments: false` under `settings`, or pass `--merge-environments=false`, to keep a root per environment; `--merge-environments` without `environments:` is an error.
+
+Merging runs once every account, subscription and project of the command is imported, as a stack's environments are usually in different ones. It matches each environment's resources by type and import ID, then by label, then by the matched resources they refer to, with the environments' tokens, the account, subscription or project ID and the AWS region taken out of names and IDs first, so `shop-prd-orders` matches `shop-dev-orders`. What differs is written as:
+
+| What differs | In the merged root |
+|---|---|
+| A name holding the environment's token | A named local in `locals.tf`, from `naming_prefix = "<workload>-${var.env}"`: `orders_name = "${local.naming_prefix}-orders"` |
+| The account, subscription or project ID, or the region, in a value | `data.aws_caller_identity`, `data.aws_region`, `data.azurerm_client_config` or `data.google_project`, through locals |
+| A boolean, or an enum-like value, one environment alone has | A condition on the environment: `force_destroy = var.env == "dev"` |
+| Any other value | A variable, typed from the provider's schema and described, set in each environment's `terraform.tfvars`; with three environments or more, the value a strict majority has is its default |
+| Resources some environments only have | `count = var.deploy_<feature> ? 1 : 0`, one `deploy_` variable per feature: resources that refer to one another, or whose names start with the same word |
+| Resources of one type and shape, a different number in each environment | One resource with `for_each` over a map variable, keyed by their names |
+| A resource whose arguments mostly differ, or whose plan would change (see below) | Residue: each environment's resource as its root had it, counted by a `deploy_` variable of its own |
+| A module call | One call, matched by name, its differing arguments variables, counted by a `deploy_` variable where some environments lack it; a call of another source or release in one environment is residue (see [Modules](modules.md#merged-environments)) |
+
+The merged root has:
+
+| File | Contents |
+|---|---|
+| `providers.tf` | `required_version`, the provider requirement, an empty `backend "<type>" {}` where the roots had a backend, and the provider, with `region = var.aws_region`, and `default_tags` (Google: `default_labels`) with `Environment = var.env` where a tag holds the environment's token. No role: each environment plans and applies with its own credentials |
+| `variables.tf` | `env`, with a `validation` of the environments' tokens, then every variable, typed, described, with a default where an environment may leave it out; secrets `sensitive`, never set in a var file; `import_ids` |
+| `locals.tf`, `data.tf` | The naming prefix and the names, the account and region from data sources, and the data sources the roots read |
+| `network.tf`, `s3.tf`, ... | The resources and module calls, in the files their roots had them in |
+| `imports.tf` | An `import` block for each resource, its ID from `var.import_ids`; for one some environments lack, with `for_each`, so that each environment imports what it has |
+| `vars/common.tfvars` | Values every environment shares that the defaults don't give |
+| `vars/<env>/terraform.tfvars` | `env`, then the values the environment sets, grouped by the file of what they are for, its `deploy_` variables first |
+| `vars/<env>/imports.tfvars` | The environment's import IDs, by address. Delete it, with `imports.tf`, after every environment's first apply |
+| `vars/<env>/backend.hcl` | The environment's backend settings, where the roots had a backend, with the state key its root had |
+| `README.md` | The environments, and how to plan and apply each |
+
+Plan and apply each environment as the README says, with that environment's credentials:
+
+```sh
+terraform init -reconfigure -backend-config=vars/prod/backend.hcl
+terraform plan -var-file=vars/common.tfvars -var-file=vars/prod/terraform.tfvars -var-file=vars/prod/imports.tfvars
+```
+
+The merged root has its verification gate too, once per environment, with that environment's credentials and var files (on AWS, the role the environment's root assumed, given to the plan alone through an override file removed after it): each environment's plan must import what its own root imported, and change nothing else. Where a plan changes a resource the environments share, that resource becomes each environment's residue, and every environment plans again, up to three merges. Where the roots can't share a root at all (different providers, or different major releases of the provider; a data source only some environments read; outputs or `moves.tf` of their own), or a plan still changes something, the environments keep their roots as they were generated, and the report says why, under Environments kept apart (`merges` in `coverage.json`, with `merged: false` and a `reason`). Roots that pin different release lines of one provider, as when a module holds one back, merge on the newest of them, with that root's lock file, which every environment's plan then checks.
+
+The roots a stack merged are kept under `<out>/.infraharvest/premerge/`, and `<out>/.infraharvest/merge/` records each merge, so that later runs go on from there:
+
+- `--resume` keeps a merged root whose environments' roots are unchanged, and, where they have changed, merges again from the kept roots, without generating them again.
+- `--incremental` adds what is new to each environment's kept root, then merges again, with what is new its environment's residue, so that what the merged root has keeps its addresses; where it wouldn't, the merged root is left as it was, and the run fails, naming what waits. Run it over every environment of the stack, so that each plans the merged root: a run with only some leaves it as it is. Resources no longer in the cloud are reported at their addresses in the merged root.
+- A plain import refuses a root its stack merged, which may be in use; `--regenerate` generates both again.
+- `infraharvest verify` plans a merged root once per environment, with its var files and the credentials verify runs with; `--environment` names the environments to plan.
+
+Merging takes the roots one run generates: an environment imported in a later run gets roots of its own. The roots of an earlier import without environments, which keep their directories, are never merged.
 
 ## Behind a TLS-intercepting proxy
 

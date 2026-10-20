@@ -71,6 +71,8 @@ type envRoot struct {
 	scope, region, group string
 	file                 *hclFile          // generated.tf
 	importIDs            map[string]string // by resource address
+	// data are the data sources the root reads, nil for none.
+	data *hclFile
 
 	// What the merged root's other files are written from (see
 	// writeMergedRoot): the root's provider, its configuration without
@@ -305,6 +307,12 @@ type envResource struct {
 	normalLabel  string
 	refs         []*envResource // the resources of its root it refers to
 	stack        *stackResource // what it is part of, once matched
+	// isolated keeps it apart from the other environments' resources (see
+	// mergeControls.isolated).
+	isolated bool
+	// moduleIDs are, for a module call, the import IDs of the resources in
+	// it, by their addresses in it, such as aws_s3_bucket.this[0].
+	moduleIDs map[string]string
 }
 
 // stackResource is a resource of a stack's merged root: the resources it
@@ -373,23 +381,36 @@ func (r *stackResource) instance() hcl.Traversal {
 // returns the stack's resources sorted by address, with labels unique per
 // type (see assignLabels).
 func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
+	return matchResourcesWith(roots, norms, nil)
+}
+
+// matchResourcesWith is matchResources, with the resources isolated names,
+// by mergeKey, matched with no other environment's (see
+// mergeControls.isolated).
+func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool) []*stackResource {
 	byEnv := make([][]*envResource, len(roots))
 	labels := make([]map[string]int, len(roots))
 	for e, root := range roots {
 		labels[e] = map[string]int{}
 		index := map[string]*envResource{}
-		for _, b := range root.file.resources() {
+		for _, b := range stackBlocks(root.file) {
 			typ, label, _ := strings.Cut(b.address, ".")
 			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
+			r.isolated = isolated[mergeKey(e, b.address)]
+			if typ == moduleType {
+				r.moduleIDs = moduleImportIDs(root.importIDs, label)
+			}
 			if id := root.importIDs[b.address]; id != "" {
 				r.id, r.normalID = id, norms[e].value(id)
 			}
-			labels[e][typ+"."+r.normalLabel]++
+			if !r.isolated {
+				labels[e][typ+"."+r.normalLabel]++
+			}
 			index[b.address] = r
 			byEnv[e] = append(byEnv[e], r)
 		}
 		for _, r := range byEnv[e] {
-			for _, a := range referencedAddresses(r.block.syntax.Body) {
+			for _, a := range stackReferences(r.block.syntax.Body) {
 				if t, ok := index[a]; ok && t != r {
 					r.refs = append(r.refs, t)
 				}
@@ -469,7 +490,7 @@ func matchBy(byEnv [][]*envResource, key func(*envResource) string, match func([
 	candidates := map[string][][]*envResource{}
 	for e, rs := range byEnv {
 		for _, r := range rs {
-			if r.stack != nil {
+			if r.stack != nil || r.isolated {
 				continue
 			}
 			k := key(r)
@@ -530,6 +551,10 @@ func assignLabels(resources []*stackResource, envs []string) {
 		}
 		if a.base != b.base {
 			return a.base < b.base
+		}
+		// What is kept apart comes last: what was merged keeps its label.
+		if ai, bi := a.r.members[a.first].isolated, b.r.members[b.first].isolated; ai != bi {
+			return !ai
 		}
 		if a.r.coverage() != b.r.coverage() {
 			return a.r.coverage() > b.r.coverage()

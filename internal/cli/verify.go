@@ -19,8 +19,9 @@ func newVerifyCmd() *cobra.Command {
 			"directory: " + importer.DefaultOut + "), for example after editing them. Roots are\n" +
 			"initialised without their backend, so no access to the state is needed; the\n" +
 			"plan reads the cloud. Set secret variables first, with TF_VAR_ environment\n" +
-			"variables or a .auto.tfvars file. Exit code 0 means every check passed, 1 that\n" +
-			"one failed.",
+			"variables or a .auto.tfvars file. A root environments share is planned once\n" +
+			"per environment, with its var files (--environment names which). Exit code 0\n" +
+			"means every check passed, 1 that one failed.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -38,6 +39,7 @@ func newVerifyCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit)")
 	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a summary; json prints each root's checks as JSON")
 	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue (see "+providers.DocsURL+"catalogue/)")
+	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/)")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "verify even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }
