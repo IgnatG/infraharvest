@@ -34,6 +34,11 @@ func TestRequireMinimumVersion(t *testing.T) {
 			files: map[string]string{MovesFileName: "removed {\n  from = aws_sqs_queue.a\n\n  lifecycle {\n    destroy = false\n  }\n}\n"},
 			want:  `">= 1.10, < 2.0"`,
 		},
+		// Terraform takes them from 1.1, OpenTofu from 1.6.
+		"moved blocks": {
+			files: map[string]string{MovesFileName: "moved {\n  from = aws_sqs_queue.a\n  to   = aws_sqs_queue.b\n}\n"},
+			want:  `">= 1.5, < 2.0"`,
+		},
 		"write-only arguments": {
 			files: map[string]string{"ssm.tf": "resource \"aws_ssm_parameter\" \"a\" {\n  name     = \"a\"\n  value_wo = var.a\n}\n"},
 			want:  `">= 1.11, < 2.0"`,

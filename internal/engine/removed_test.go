@@ -123,7 +123,7 @@ func TestGenerateHandsOverWithRemovedBlocks(t *testing.T) {
 		t.Errorf("%s:\n%s", MovesFileName, got)
 	}
 	readme := readFile(t, dir, ReadmeFileName)
-	for _, want := range []string{"## Moves", "| `aws_sqs_queue.jobs` | `aws/prod` |", "Apply this root first", "or as forgotten, not destroyed, for those `moves.tf` removes", "before applying the roots those it removes go to", "Delete `imports.tf` and `moves.tf`"} {
+	for _, want := range []string{"## Moves", "| `aws_sqs_queue.jobs` | `aws/prod` |", "Apply this root first", "or as forgotten, not destroyed, for those `moves.tf` removes", "before applying the roots those it removes go to", "Delete `imports.tf` and `moves.tf`", "so `versions.tf` requires 1.10 or later while `moves.tf` has them"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
 		}
