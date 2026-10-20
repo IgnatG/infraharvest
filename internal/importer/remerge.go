@@ -187,6 +187,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Secrets:   m.result.Secrets,
 			Terraform: runner,
 			Isolated:  m.isolated,
+			Arrivals:  m.result.Arrived,
 		}
 	}
 	// A restored member has no engine options of its own.
