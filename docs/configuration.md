@@ -62,7 +62,7 @@ environments:
 |---|---|
 | `aws.accounts`, `azure.subscriptions`, `google.projects` | The environment's AWS accounts, Azure subscriptions and Google Cloud projects, by ID |
 | `tags` | Tags (labels on Google Cloud) every resource of the environment has, compared as `--env-tags` compares environments: in lower case, with spaces and other characters made dashes, so `Prod` and `prod` are the same |
-| `tokens` | The words that stand for the environment in resource names, such as `prd`; by default the environment's name. Merging (see [Merging environments](#merging-environments)) takes them out of names, and the one the names use most is what `var.env` is set to |
+| `tokens` | The words that stand for the environment in resource names, such as `prd`; by default the environment's name. They match in any case, so `prd`, `Prd` and `PRD` are the same token. Merging (see [Merging environments](#merging-environments)) takes them out of names, and `var.env`, in `variables.tf` and each environment's var file, is set to the one the names use most, as they write it: `PRD` where the names say `shop-PRD-orders` |
 
 Each resource is placed by where it was listed first, then by its tags:
 
@@ -71,7 +71,7 @@ Each resource is placed by where it was listed first, then by its tags:
 - An environment that names no account, subscription or project is found by its tags alone, in the accounts, subscriptions and projects no environment names, and those environments' tags must tell them apart too.
 - An account, subscription or project no environment names, and none found by tags alone, keeps the layout without environments. Where the import can't tell the account, subscription or project, such as when the AWS credentials can't say which account they are in, only the environments found by tags alone apply, and the import warns, in the log and the report (`warnings` in `coverage.json`), that the environments that name an account, subscription or project don't.
 
-An environment's name is a directory's: lower-case letters, digits, dots, dashes and underscores, and not `shared`. `environments` doesn't go with `--env-tags`, which places resources in environments by itself, and a `--layout` of your own needs `{env}`.
+An environment's name is a directory's: lower-case letters, digits, dots, dashes and underscores, and not `shared`. With `--env-tags`, the directory is the tag's value in lower case, with other characters made dashes, so resources tagged `Prod`, `PROD` and `prod` share `envs/prod/`. `environments` doesn't go with `--env-tags`, which places resources in environments by itself, and a `--layout` of your own needs `{env}`.
 
 A root an earlier import generated into the same `--out` keeps its directory, as its state key comes from its path: the resources the environments would now put under `envs/<env>/` stay in it, with `--regenerate` and `--incremental` too, and the report names each such root. To lay an estate out by environment from the start, import it into a new `--out`.
 

@@ -26,6 +26,9 @@ func TestNormaliserValue(t *testing.T) {
 		{"shop-prd-db", "shop-{env}-db"},
 		{"shop-prod-db", "shop-{env}-db"},
 		{"shop_prd.logs", "shop_{env}.logs"},
+		// In any case.
+		{"shop-PRD-db", "shop-{env}-db"},
+		{"Shop-Prod-DB", "Shop-{env}-DB"},
 		{"prd", "{env}"},
 		{"/shop/prd/db_password", "/shop/{env}/db_password"},
 		// Not whole words.
@@ -98,6 +101,25 @@ resource "aws_sqs_queue" "b" {
 	}
 	if n := newNormaliser(envRoot{env: "prod", tokens: []string{"prd", "prod"}}); n.token != "prd" {
 		t.Errorf("token = %q, want prd, the first", n.token)
+	}
+	upper := testEnvRoot(t, "prod", nil, "", `resource "aws_sqs_queue" "a" {
+  name = "shop-PROD-a"
+}
+
+resource "aws_sqs_queue" "b" {
+  name = "shop-PROD-b"
+}
+
+resource "aws_sqs_queue" "c" {
+  name = "shop-prod-c"
+}
+`, nil)
+	n := newNormaliser(upper)
+	if n.token != "PROD" {
+		t.Errorf("token = %q, want PROD, the way the names write it most", n.token)
+	}
+	if got := n.denormalise(n.envValue("shop-PROD-a")); got != "shop-PROD-a" {
+		t.Errorf("denormalise = %q, want the name back", got)
 	}
 }
 
