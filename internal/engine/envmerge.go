@@ -114,21 +114,41 @@ type mergedBlock struct {
 // root writes as one resource with for_each over a variable of each
 // environment's keys, the resources' labels, such as
 // aws_sqs_queue.this["orders"]: so environments may have different
-// numbers of them.
+// numbers of them. Resources every environment has are one too, where
+// there are minRepeated of them or more, with for_each over a local map
+// where every environment's keys are the same (see keysLocal).
 type forEachGroup struct {
 	resourceType, label string
 	keys                []*stackResource // by label
 	// fields are the arguments that differ between the keys, written
 	// each.value.<field>, and variable is the map of each environment's
-	// keys to objects of them.
+	// keys to objects of them; nil where local is.
 	fields   []string
 	variable *envVariable
 	body     *mergedBody
+	// localKeys are, where every environment has every key with the same
+	// fields, or the same once normalised, each key's fields, as keys
+	// are, and local the name of the local map of them its for_each is
+	// over (see render).
+	localKeys []*mergedBody
+	local     string
 }
 
 func (g *forEachGroup) address() string {
 	return g.resourceType + "." + g.label
 }
+
+// source is what g's for_each is over: its local map or its variable.
+func (g *forEachGroup) source() string {
+	if g.variable == nil {
+		return "local." + g.local
+	}
+	return "var." + g.variable.name
+}
+
+// minRepeated is the fewest resources of one shape, every environment
+// having each, that become one resource with for_each.
+const minRepeated = 3
 
 // envVariable is a variable of the merged root and each environment's
 // value of it.
@@ -396,7 +416,10 @@ func (m *stackMerge) labels() map[string]bool {
 
 // groupForEach makes each resource that some environments only have,
 // and isn't residue, a key of a forEach with the other resources of its
-// type it is compatible with (see keysBody), if any.
+// type it is compatible with (see keysBody), if any; then each resource
+// every environment has, where minRepeated of its type, every
+// environment having each, are compatible. No key of a forEach refers to
+// another, as a resource's instances can't refer to one another.
 func (m *stackMerge) groupForEach() {
 	byType := map[string][]*stackResource{}
 	for _, r := range m.resources {
@@ -405,22 +428,25 @@ func (m *stackMerge) groupForEach() {
 		}
 	}
 	used := m.labels()
-	for _, typ := range slices.Sorted(maps.Keys(byType)) {
+	group := func(typ string, full bool) {
 		candidates := byType[typ]
 		for _, seed := range candidates {
-			if seed.forEach != nil || seed.coverage() == len(m.envs) || typ == moduleType {
+			if seed.forEach != nil || (seed.coverage() == len(m.envs)) != full || typ == moduleType {
 				continue
 			}
 			keys := []*stackResource{seed}
 			for _, other := range candidates {
-				if other == seed || other.forEach != nil {
+				if other == seed || other.forEach != nil || (full && other.coverage() < len(m.envs)) {
+					continue
+				}
+				if slices.ContainsFunc(keys, func(k *stackResource) bool { return refersTo(k, other) || refersTo(other, k) }) {
 					continue
 				}
 				if _, _, ok := m.keysBody(append(slices.Clone(keys), other)); ok {
 					keys = append(keys, other)
 				}
 			}
-			if len(keys) < 2 {
+			if len(keys) < 2 || (full && len(keys) < minRepeated) {
 				continue
 			}
 			sort.Slice(keys, func(i, j int) bool { return keys[i].label < keys[j].label })
@@ -429,6 +455,11 @@ func (m *stackMerge) groupForEach() {
 				k.forEach = g
 			}
 			m.forEach = append(m.forEach, g)
+		}
+	}
+	for _, full := range []bool{false, true} {
+		for _, typ := range slices.Sorted(maps.Keys(byType)) {
+			group(typ, full)
 		}
 	}
 	sort.Slice(m.forEach, func(i, j int) bool { return m.forEach[i].address() < m.forEach[j].address() })
@@ -456,6 +487,9 @@ func (m *stackMerge) build() {
 	for _, g := range m.forEach {
 		g.body, g.fields, _ = m.keysBody(g.keys)
 		g.variable = m.keysVariable(g)
+		if keys := m.keysLocal(g); keys != nil {
+			g.variable, g.localKeys = nil, keys
+		}
 	}
 	m.reason = m.mergeData()
 	m.nameVariables()
@@ -619,7 +653,9 @@ func (m *stackMerge) nameVariables() {
 	}
 	for _, g := range m.forEach {
 		collect(g.body)
-		variables = append(variables, g.variable)
+		if g.variable != nil {
+			variables = append(variables, g.variable)
+		}
 	}
 	for _, d := range m.rootData {
 		collect(d.body)
@@ -664,6 +700,7 @@ func (m *stackMerge) render() {
 	}
 	for _, g := range m.forEach {
 		bodies = append(bodies, g.body)
+		bodies = append(bodies, g.localKeys...)
 	}
 	for _, d := range m.rootData {
 		bodies = append(bodies, d.body)
@@ -737,6 +774,22 @@ func (m *stackMerge) render() {
 			a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: a.local}})
 			break
 		}
+	}
+	// Each local forEach's map, of its keys' fields.
+	for _, g := range m.forEach {
+		if g.localKeys == nil {
+			continue
+		}
+		keys := make([]hclwrite.ObjectAttrTokens, len(g.keys))
+		for i, k := range g.keys {
+			var fields []hclwrite.ObjectAttrTokens
+			for _, a := range g.localKeys[i].attributes {
+				fields = append(fields, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForIdentifier(a.name), Value: a.value})
+			}
+			keys[i] = hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(k.label)), Value: hclwrite.TokensForObject(fields)}
+		}
+		g.local = uniqueEnvName(used, pluralName(g.resourceType), g.resourceType)
+		m.locals = append(m.locals, namedLocal{g.local, hclwrite.TokensForObject(keys)})
 	}
 	if holds(templates, resourceGroupPlaceholder) {
 		group := &envVariable{name: resourceGroupVariableName, what: "resource group of the environment", ty: cty.String, values: map[int]hclwrite.Tokens{}}
@@ -813,7 +866,7 @@ func isNameAttribute(resourceType, attr string) bool {
 // variable has the key.
 func (m *stackMerge) presence(r *stackResource) hclwrite.Tokens {
 	if r.forEach != nil {
-		return exprTokens(fmt.Sprintf("contains(keys(var.%s), %q)", r.forEach.variable.name, r.label))
+		return exprTokens(fmt.Sprintf("contains(keys(%s), %q)", r.forEach.source(), r.label))
 	}
 	return hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: r.deploy.name}})
 }
@@ -1344,6 +1397,46 @@ func (m *stackMerge) keysVariable(g *forEachGroup) *envVariable {
 		v.values[e] = hclwrite.TokensForObject(keys)
 	}
 	return v
+}
+
+// keysLocal returns, for g, a forEach whose keys every environment has,
+// each key's fields as one merged body (see forEachGroup.localKeys), in
+// the order of g.keys: a field's value where every environment has the
+// same, or a template where they are the same once normalised. It
+// returns nil where a key's field differs between environments
+// otherwise, or some keys or environments lack it: the variable keeps
+// what each environment's keys have.
+func (m *stackMerge) keysLocal(g *forEachGroup) []*mergedBody {
+	keys := make([]*mergedBody, len(g.keys))
+	for i, k := range g.keys {
+		if k.coverage() < len(m.envs) {
+			return nil
+		}
+		body := &mergedBody{}
+		for _, f := range g.fields {
+			var in []envBody
+			var values []hclwrite.Tokens
+			for e, member := range k.members {
+				attr := member.block.write.Body().GetAttribute(f)
+				if attr == nil {
+					return nil
+				}
+				in = append(in, envBody{e, member.block.write.Body()})
+				values = append(values, attr.Expr().BuildTokens(nil))
+			}
+			if sameExprs(values) {
+				body.attributes = append(body.attributes, &mergedAttribute{name: f, kind: sameValue, value: values[0]})
+				continue
+			}
+			normal, ok := m.template(in, values)
+			if !ok {
+				return nil
+			}
+			body.attributes = append(body.attributes, &mergedAttribute{name: f, kind: templateValue, normal: normal})
+		}
+		keys[i] = body
+	}
+	return keys
 }
 
 // pluralName is the name of a forEach's variable: its resource type

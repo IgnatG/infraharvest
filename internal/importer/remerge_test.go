@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,6 +60,48 @@ func TestReaddressed(t *testing.T) {
 	moved := readdressed(before, map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", `aws_sqs_queue.this["audit"]`: "q2"}})
 	if len(moved) != 1 || !strings.Contains(moved[0], `aws_sqs_queue.audit[0] is now aws_sqs_queue.this["audit"]`) {
 		t.Errorf("moved: %v", moved)
+	}
+}
+
+// With --regenerate, what a merged root has at other addresses once it
+// merges again moves there, after the moved blocks of its moves.tf from
+// before; an address that would move to two, or one in a module call,
+// can't.
+func TestMergedMoves(t *testing.T) {
+	t.Parallel()
+	before := map[string]map[string]string{
+		"dev":  {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.audit": "q2"},
+		"prod": {"aws_sqs_queue.orders": "q3"},
+	}
+	now := map[string]map[string]string{
+		"dev":  {`aws_sqs_queue.this["orders"]`: "q1", `aws_sqs_queue.this["audit"]`: "q2"},
+		"prod": {`aws_sqs_queue.this["orders"]`: "q3"},
+	}
+	kept := []engine.Move{{From: "aws_sqs_queue.orders_old", To: "aws_sqs_queue.orders"}}
+	moves, why := mergedMoves(before, now, kept)
+	want := []engine.Move{kept[0], {From: "aws_sqs_queue.audit", To: `aws_sqs_queue.this["audit"]`}, {From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}
+	if why != "" || !slices.Equal(moves, want) {
+		t.Errorf("moves %+v (%s), want %+v", moves, why, want)
+	}
+	if moves, why := mergedMoves(before, before, kept); why != "" || !slices.Equal(moves, kept) {
+		t.Errorf("nothing moved: %+v (%s), want the kept ones", moves, why)
+	}
+	twice := map[string]map[string]string{
+		"dev":  now["dev"],
+		"prod": {`aws_sqs_queue.this["prod_orders"]`: "q3"},
+	}
+	if _, why := mergedMoves(before, twice, nil); !strings.Contains(why, "both") {
+		t.Errorf("an address moving to two: %q", why)
+	}
+	module := map[string]map[string]string{"dev": {"module.queues.aws_sqs_queue.this": "q1"}}
+	if _, why := mergedMoves(map[string]map[string]string{"dev": {"module.old.aws_sqs_queue.this": "q1"}}, module, nil); !strings.Contains(why, "module calls") {
+		t.Errorf("a resource of a module call: %q", why)
+	}
+
+	// Without --regenerate, the merged root stays as it was.
+	r := NewRun()
+	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil); err != nil || !strings.Contains(why, "other addresses") {
+		t.Errorf("without --regenerate: %q, %v", why, err)
 	}
 }
 

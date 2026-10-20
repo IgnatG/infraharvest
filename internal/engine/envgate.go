@@ -604,3 +604,32 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []Secret) []Secret {
 	}
 	return out
 }
+
+// WriteMergedMoves writes moved, moved blocks from where the merged root
+// in dir, merged before, had resources to where it has them now, into
+// its moves.tf, and lists them in its README, so that each environment's
+// next plan moves them in its state rather than destroying and creating
+// them again. It returns the moves check of them (see checkMoves); the
+// README lists them only once it passes.
+func WriteMergedMoves(dir string, moved []Move) (Check, error) {
+	if err := writeMoves(dir, moved, nil); err != nil {
+		return Check{}, err
+	}
+	check, err := checkMoves(dir)
+	if err != nil || !check.Passed {
+		return check, err
+	}
+	sorted := slices.Clone(moved)
+	sortMoves(sorted)
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## Moved blocks\n\nThese resources have other addresses than when this root was merged before. The moved blocks in `%s` move them in each environment's state, so that its plan shows each as moved rather than destroyed and created again. Delete `%s` once every environment has been applied.\n\n| From | To |\n|---|---|\n", MovesFileName, MovesFileName)
+	for _, m := range sorted {
+		fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
+	}
+	path := filepath.Join(dir, ReadmeFileName)
+	readme, err := os.ReadFile(path)
+	if err != nil {
+		return check, err
+	}
+	return check, fsutil.WriteFile(path, append(readme, b.String()...), 0o644)
+}

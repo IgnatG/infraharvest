@@ -250,7 +250,7 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 		byFile[w.fileOf[r]] = append(byFile[w.fileOf[r]], block{r.address(), text})
 	}
 	for _, g := range w.m.forEach {
-		meta := []string{"for_each = var." + g.variable.name}
+		meta := []string{"for_each = " + g.source()}
 		byFile[w.groupFile[g]] = append(byFile[w.groupFile[g]], block{g.address(), resourceText(g.resourceType, g.label, meta, g.body)})
 	}
 	files := map[string][]byte{}
@@ -527,6 +527,11 @@ func (w *rootWriter) localsFile() []byte {
 			}
 		}
 	}
+	for _, g := range w.m.forEach {
+		if g.local != "" {
+			fileOfLocal[g.local] = w.groupFile[g]
+		}
+	}
 	// The resources' names by file, each file's in the model's order.
 	locals := slices.Clone(w.m.locals)
 	sort.SliceStable(locals, func(i, j int) bool { return fileOfLocal[locals[i].name] < fileOfLocal[locals[j].name] })
@@ -620,7 +625,7 @@ func (w *rootWriter) importsFile() ([]byte, error) {
 			continue
 		}
 		format := string(hclwrite.TokensForValue(cty.StringVal(g.address() + "[%q]")).Bytes())
-		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = var.%s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.variable.name, g.address(), importIDsVariableName, format)})
+		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = %s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.source(), g.address(), importIDsVariableName, format)})
 	}
 	if len(blocks) == 0 {
 		return nil, nil
