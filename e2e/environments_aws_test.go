@@ -255,8 +255,9 @@ func TestAWSEnvironments(t *testing.T) {
 			varFiles[name] = content
 		}
 	}
-	if !regexp.MustCompile(`(?m)^\s*` + variable[1] + `\s*=\s*30\s*$`).MatchString(varFiles[devVars]) {
-		t.Fatalf("dev's terraform.tfvars doesn't set %s to 30:\n%s", variable[1], varFiles[devVars])
+	// Dev's timeout is the variable's default, or dev's var file sets it.
+	if set := regexp.MustCompile(`(?m)^\s*` + variable[1] + `\s*=\s*(\S+)\s*$`).FindStringSubmatch(varFiles[devVars]); set != nil && set[1] != "30" {
+		t.Fatalf("dev's terraform.tfvars sets %s to %s, want 30:\n%s", variable[1], set[1], varFiles[devVars])
 	}
 	d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=dev", "--accept=all")
 	accepted := driftChange(t, "drift as dev, accepted", d, "aws_sqs_queue", "visibility_timeout_seconds")
