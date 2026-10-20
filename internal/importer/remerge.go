@@ -98,7 +98,21 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	}
 	if prev != nil && prev.Merge.Merged {
 		if missing := missingEnvironments(prev, envs); len(missing) > 0 {
-			return r.keepMerged(stack, prev, members, fmt.Sprintf("the import has %s, not %s, which the merged root has too: it stays as it was, and what is new waits in the roots set aside under %s until an import has every environment", strings.Join(envs, ", "), strings.Join(missing, ", "), filepath.ToSlash(filepath.Join(CheckpointDir, premergeDirName))))
+			// The environments the import doesn't have merge again as
+			// their roots were set aside, unplanned.
+			restored, why := r.restoredMembers(stack, prev, missing, members)
+			if why != "" {
+				return r.keepMerged(stack, prev, members, fmt.Sprintf("the import has %s, not %s, which the merged root has too, and %s: it stays as it was, and what is new waits in the roots set aside under %s until an import has every environment", strings.Join(envs, ", "), strings.Join(missing, ", "), why, filepath.ToSlash(filepath.Join(CheckpointDir, premergeDirName))))
+			}
+			members = append(slices.Clone(members), restored...)
+			sort.Slice(members, func(i, j int) bool {
+				if members[i].env != members[j].env {
+					return members[i].env < members[j].env
+				}
+				return members[i].dir < members[j].dir
+			})
+			envs = append(envs, missing...)
+			sort.Strings(envs)
 		}
 	}
 	if len(envs) < 2 {
@@ -117,7 +131,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	if err != nil {
 		return err
 	}
-	if prev != nil && prev.Fingerprint == fp && keptAsMerged(stack, prev, members) {
+	if prev != nil && prev.Fingerprint == fp && keptAsMerged(stack, prev, members) && !plannable(prev, members) {
 		log.Printf("%s is unchanged since it was merged", merge.Path)
 		kept := prev.Merge
 		kept.Unchanged = true
@@ -147,11 +161,15 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 				return err
 			}
 		}
-		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins")}
-		if tr.env, err = terraformEnv(ctx, m.provider); err != nil {
-			return err
+		var runner func(string) (engine.Terraform, error)
+		if !m.restored {
+			tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins")}
+			if tr.env, err = terraformEnv(ctx, m.provider); err != nil {
+				return err
+			}
+			tr.freshEnv = freshTerraformEnv(m.provider)
+			runner = tr.in
 		}
-		tr.freshEnv = freshTerraformEnv(m.provider)
 		roots[i] = engine.MergeRoot{
 			Env:       m.env,
 			Tokens:    m.tokens,
@@ -162,11 +180,12 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Origin:    m.dir,
 			Provider:  m.engineProvider,
 			Secrets:   m.result.Secrets,
-			Terraform: tr.in,
+			Terraform: runner,
 			Isolated:  m.isolated,
 		}
 	}
-	opts := members[0].opts
+	// A restored member has no engine options of its own.
+	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
 	result, err := engine.MergeRoots(ctx, stack, roots, engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout})
 	if err != nil {
 		return errors.Join(err, backup.restore())
@@ -217,6 +236,64 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	r.recordMerge(merge, members)
 	r.readdressNotInCloud(merge, members, result)
 	return writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: fp, Members: checkpointMembers(out, members), Merge: merge, Files: result.Files, Imports: imports})
+}
+
+// restoredMembers returns the members of missing, environments the
+// merged root in stack has that the import, whose members are present,
+// doesn't, as prev, its checkpoint, records them: from their roots set
+// aside when it merged, as they were then. Else it returns why they
+// can't be.
+func (r *Run) restoredMembers(stack string, prev *mergeCheckpoint, missing []string, present []mergeMember) ([]mergeMember, string) {
+	out := r.options.Out
+	var restored []mergeMember
+	for _, pm := range prev.Members {
+		if !slices.Contains(missing, pm.Env) {
+			continue
+		}
+		dir := filepath.Join(out, filepath.FromSlash(pm.Path))
+		if set, err := premerged(out, dir); err != nil || !set {
+			return nil, fmt.Sprintf("the root of %s isn't set aside as %s", pm.Env, filepath.ToSlash(relativePath(out, premergeDir(out, dir))))
+		}
+		if pm.Scope == "" {
+			return nil, "the merge's checkpoint doesn't record what merging " + pm.Env + " again takes"
+		}
+		result, err := checkpointResult(out, dir)
+		if err != nil || result == nil {
+			return nil, "the root of " + pm.Env + " has no checkpoint"
+		}
+		provider, err := engine.RootProvider(premergeDir(out, dir), present[0].engineProvider.Name)
+		if err != nil {
+			return nil, err.Error()
+		}
+		restored = append(restored, mergeMember{
+			dir:            dir,
+			stack:          stack,
+			env:            pm.Env,
+			tokens:         r.environments.EnvironmentTokens(pm.Env),
+			scope:          pm.Scope,
+			account:        pm.Account,
+			region:         pm.Region,
+			group:          pm.Group,
+			engineProvider: provider,
+			fingerprint:    pm.Fingerprint,
+			result:         result,
+			premerged:      true,
+			restored:       true,
+		})
+	}
+	return restored, ""
+}
+
+// plannable reports whether one of members, the stack's now, is of an
+// environment prev, its merge checkpoint, has unplanned, that the import
+// has: the merged root is then planned as it, even where nothing changed.
+func plannable(prev *mergeCheckpoint, members []mergeMember) bool {
+	for _, m := range members {
+		if !m.restored && slices.Contains(prev.Merge.Unplanned, m.env) {
+			return true
+		}
+	}
+	return false
 }
 
 // missingEnvironments returns the environments prev, a merge checkpoint,

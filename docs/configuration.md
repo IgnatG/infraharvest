@@ -114,14 +114,17 @@ terraform init -reconfigure -backend-config=vars/prod/backend.hcl
 terraform plan -var-file=vars/common.tfvars -var-file=vars/prod/terraform.tfvars -var-file=vars/prod/imports.tfvars
 ```
 
+Without a backend, each environment keeps its state in a workspace named after it: `terraform workspace select -or-create prod` after `terraform init`.
+
 The merged root has its verification gate too, once per environment, with that environment's credentials and var files (on AWS, the role the environment's root assumed, given to the plan alone through an override file removed after it): each environment's plan must import what its own root imported, and change nothing else. Where a plan changes a resource the environments share, that resource becomes each environment's residue, and every environment plans again, up to three merges. Where the roots can't share a root at all (different providers, or different major releases of the provider; a data source only some environments read; outputs or `moves.tf` of their own), or a plan still changes something, the environments keep their roots as they were generated, and the report says why, under Environments kept apart (`merges` in `coverage.json`, with `merged: false` and a `reason`). Roots that pin different release lines of one provider, as when a module holds one back, merge on the newest of them, with that root's lock file, which every environment's plan then checks.
 
 The roots a stack merged are kept under `<out>/.infraharvest/premerge/`, and `<out>/.infraharvest/merge/` records each merge, so that later runs go on from there:
 
 - `--resume` keeps a merged root whose environments' roots are unchanged, and, where they have changed, merges again from the kept roots, without generating them again.
-- `--incremental` adds what is new to each environment's kept root, then merges again, with what is new its environment's residue, so that what the merged root has keeps its addresses; where it wouldn't, the merged root is left as it was, and the run fails, naming what waits. Run it over every environment of the stack, so that each plans the merged root: a run with only some leaves it as it is. Resources no longer in the cloud are reported at their addresses in the merged root.
+- `--incremental` adds what is new to each environment's kept root, then merges again, with what is new its environment's residue, so that what the merged root has keeps its addresses; where it wouldn't, the merged root is left as it was, and the run fails, naming what waits. A run with only some of the stack's environments merges the others again from their kept roots, as they were, but can't plan the merged root as them without their credentials: the report says which weren't planned (`unplanned` in `coverage.json`), and `infraharvest verify --environment` plans each, with its credentials, before you apply it. The next run that has them plans them again. Resources no longer in the cloud are reported at their addresses in the merged root.
 - A plain import refuses a root its stack merged, which may be in use; `--regenerate` generates both again.
 - `infraharvest verify` plans a merged root once per environment, with its var files and the credentials verify runs with; `--environment` names the environments to plan.
+- `infraharvest drift` checks a merged root once per environment, with its backend settings and var files; `--environment` names the environments to check (see [Drift](drift.md#roots-environments-share)).
 
 Merging takes the roots one run generates: an environment imported in a later run gets roots of its own. The roots of an earlier import without environments, which keep their directories, are never merged.
 

@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -467,5 +468,66 @@ func TestVerifyMerged(t *testing.T) {
 	}
 	if plan := gate.check(CheckPlan); plan.Passed {
 		t.Errorf("a plan that imports what imports.tf no longer has passes: %+v", plan)
+	}
+}
+
+// TestMergeRootsUnplanned merges a stack of which the run has dev's root
+// only as an earlier import set it aside, with no Terraform runner, and
+// prod's provider as RootProvider reads it from its root: prod runs the
+// whole gate, and dev is merged, but not planned.
+func TestMergeRootsUnplanned(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	var overrides []string
+	roots := mergeRoots(t, dir, nil, &overrides)
+	roots[0].Terraform = nil
+	provider, err := RootProvider(roots[1].Dir, "aws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots[1].Provider = provider
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "" || !result.Passed() {
+		t.Fatalf("not merged: %s %+v", result.Reason, result.Environments)
+	}
+	if !result.Environments[0].Unplanned || result.Environments[1].Unplanned {
+		t.Errorf("unplanned: dev %v, prod %v", result.Environments[0].Unplanned, result.Environments[1].Unplanned)
+	}
+	if g := result.Environments[0].Gate; len(g) != 1 || !g[0].Skipped || !strings.Contains(strings.Join(g[0].Details, " "), "verify --environment dev") {
+		t.Errorf("dev's gate: %+v", g)
+	}
+	if len(overrides) != 1 || !strings.Contains(overrides[0], "arn:aws:iam::222222222222:role/deploy") {
+		t.Errorf("only prod plans, with its own role: %q", overrides)
+	}
+	if got := readFile(t, dir, "vars/dev/imports.tfvars"); !strings.Contains(got, "shop-dev-orders") {
+		t.Errorf("dev's imports.tfvars:\n%s", got)
+	}
+
+	roots[1].Terraform = nil
+	if _, err := MergeRoots(context.Background(), filepath.Join(t.TempDir(), "aws", "eu-west-2"), roots, MergeOptions{}); err == nil {
+		t.Error("merged with no environment to plan as")
+	}
+}
+
+func TestRootProvider(t *testing.T) {
+	t.Parallel()
+	p, err := RootProvider(writeRootDir(t, "prd", "222222222222", "60", "", nil), "aws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Name != "aws" || p.Source != "hashicorp/aws" || p.Version != "~> 6.14" {
+		t.Errorf("provider %s, source %q, version %q", p.Name, p.Source, p.Version)
+	}
+	if p.Config["region"] != "eu-west-2" || fmt.Sprint(p.Config["allowed_account_ids"]) != "[222222222222]" {
+		t.Errorf("config: %#v", p.Config)
+	}
+	if role, ok := p.Config["assume_role"].(map[string]interface{}); !ok || role["role_arn"] != "arn:aws:iam::222222222222:role/deploy" {
+		t.Errorf("assume_role: %#v", p.Config["assume_role"])
+	}
+	if _, err := RootProvider(t.TempDir(), "aws"); err == nil {
+		t.Error("a directory without a provider block has a provider")
 	}
 }

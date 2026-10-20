@@ -107,6 +107,10 @@ type mergeMember struct {
 	// incremental import added to it since (see engine.MergeRoot.Isolated).
 	premerged bool
 	isolated  []string
+	// restored says the import didn't have the member's environment: it
+	// merges again from its set-aside root, unplanned, as the import has
+	// none of its credentials (see restoredMembers).
+	restored bool
 }
 
 // recordMember records that the call generated the root in dir, from
@@ -234,6 +238,9 @@ func fillMerge(merge *report.Merge, result *engine.MergeResult) {
 		merge.Residue = append(merge.Residue, report.MergeResidue{Env: res.Env, Address: res.Address, MergedAddress: res.MergedAddress, Reason: res.Reason})
 	}
 	for _, env := range result.Environments {
+		if env.Unplanned {
+			merge.Unplanned = append(merge.Unplanned, env.Env)
+		}
 		for _, c := range env.Gate {
 			merge.Checks = append(merge.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: append([]string{env.Env}, c.Details...)})
 		}
@@ -348,13 +355,20 @@ type mergeCheckpointMember struct {
 	Env         string `json:"env"`
 	Path        string `json:"path"`
 	Fingerprint string `json:"fingerprint"`
+	// Scope, Account, Region and Group are the member's (see
+	// mergeMember), for an import that doesn't have its environment to
+	// merge the stack again from its set-aside root (see restoredMembers).
+	Scope   string `json:"scope,omitempty"`
+	Account string `json:"account,omitempty"`
+	Region  string `json:"region,omitempty"`
+	Group   string `json:"group,omitempty"`
 }
 
 // checkpointMembers returns members as a merge checkpoint records them.
 func checkpointMembers(out string, members []mergeMember) []mergeCheckpointMember {
 	recorded := make([]mergeCheckpointMember, len(members))
 	for i, m := range members {
-		recorded[i] = mergeCheckpointMember{Env: m.env, Path: relativePath(out, m.dir), Fingerprint: m.fingerprint}
+		recorded[i] = mergeCheckpointMember{Env: m.env, Path: relativePath(out, m.dir), Fingerprint: m.fingerprint, Scope: m.scope, Account: m.account, Region: m.region, Group: m.group}
 	}
 	return recorded
 }
