@@ -45,6 +45,57 @@ const moduleMovesProfile = "infraharvest-e2e-module-moves"
 // The root is applied in a copy of the output with its generated
 // modules, at the same paths, as a team applies it in its repository.
 func TestAWSRegenerateModules(t *testing.T) {
+	checkModuleMoves(t, moduleMoves{
+		fixture:   "aws-module-moves",
+		account:   moduleMovesAccount,
+		profile:   moduleMovesProfile,
+		services:  "iam",
+		modules:   "local",
+		resources: 4,
+		calls:     2,
+	})
+}
+
+// curatedMovesAccount is the account testdata/aws-curated-moves creates
+// its buckets in, which no other test uses.
+const curatedMovesAccount = "989898989898"
+
+// curatedMovesProfile is the profile the test imports curatedMovesAccount
+// as.
+const curatedMovesProfile = "infraharvest-e2e-curated-moves"
+
+// TestAWSRegenerateCuratedModules is TestAWSRegenerateModules with
+// testdata/aws-curated-moves, two buckets each with its versioning, and
+// the public access block and encryption the emulator gives each, and
+// --modules=registry: generated again, each bucket becomes a call of the
+// curated s3-bucket module from the registry, which moves.tf moves its
+// resources into, and, with --modules=none, out of again.
+func TestAWSRegenerateCuratedModules(t *testing.T) {
+	checkModuleMoves(t, moduleMoves{
+		fixture:   "aws-curated-moves",
+		account:   curatedMovesAccount,
+		profile:   curatedMovesProfile,
+		services:  "s3",
+		modules:   "registry",
+		resources: 8,
+		calls:     2,
+	})
+}
+
+// moduleMoves is a root of resources that --modules makes calls of
+// modules: the fixture that creates them, in the account the test imports
+// as the profile, of the services, the --modules that makes them calls,
+// and how many resources and calls the root has.
+type moduleMoves struct {
+	fixture, account, profile, services, modules string
+	resources, calls                             int
+}
+
+// checkModuleMoves imports c's fixture with --modules=none, applies the
+// root, and generates it again with c.modules, then, once moves.tf is
+// deleted, with --modules=none, as TestAWSRegenerateModules says.
+func checkModuleMoves(t *testing.T, c moduleMoves) {
+	t.Helper()
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
 		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
@@ -63,8 +114,8 @@ func TestAWSRegenerateModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugins := filepath.Join(cache, "plugins")
-	seedApplied(ctx, t, "aws-module-moves", execPath, plugins)
-	useAWSAccount(t, moduleMovesAccount, moduleMovesProfile)
+	seedApplied(ctx, t, c.fixture, execPath, plugins)
+	useAWSAccount(t, c.account, c.profile)
 
 	out := t.TempDir()
 	importWith := func(modules string, more ...string) report.Report {
@@ -73,9 +124,9 @@ func TestAWSRegenerateModules(t *testing.T) {
 			"import", "aws",
 			"--engine=" + engineName,
 			"--terraform-path=" + execPath,
-			"--profile=" + moduleMovesProfile,
+			"--profile=" + c.profile,
 			"--regions=us-east-1",
-			"--services=iam",
+			"--services=" + c.services,
 			"--modules=" + modules,
 			"--out=" + out,
 			"--all",
@@ -89,15 +140,16 @@ func TestAWSRegenerateModules(t *testing.T) {
 		t.Fatalf("the first import generated %+v, want one root", first.Directories)
 	}
 	rootPath := first.Directories[0].Path
-	plain := map[string]string{} // by import ID, where the root has it
+	// By type and import ID, as a bucket and its versioning share an ID.
+	plain := map[engine.External]string{} // where the root has each
 	for _, r := range first.Directories[0].Imported {
 		if strings.HasPrefix(r.Address, "module.") {
 			t.Errorf("--modules=none: %s is in a module call", r.Address)
 		}
-		plain[r.ID] = r.Address
+		plain[engine.External{Type: report.ResourceType(r.Address), ID: r.ID}] = r.Address
 	}
-	if len(plain) != 4 {
-		t.Fatalf("%s imports %v, want the two roles and their policies", rootPath, plain)
+	if len(plain) != c.resources {
+		t.Fatalf("%s imports %v, want %d resources", rootPath, plain, c.resources)
 	}
 	root := filepath.Join(out, filepath.FromSlash(rootPath))
 
@@ -112,17 +164,17 @@ func TestAWSRegenerateModules(t *testing.T) {
 
 	// regenerate generates the root again with --modules=modules, and
 	// checks it moves each resource from where from has it to where it is
-	// now, which it returns, by import ID, and that the root, over the
-	// state of the last apply, plans the moves alone, and, applied, no
-	// change.
-	regenerate := func(modules string, from map[string]string) map[string]string {
+	// now, which it returns, by type and import ID, and that the root,
+	// over the state of the last apply, plans the moves alone, and,
+	// applied, no change.
+	regenerate := func(modules string, from map[engine.External]string) map[engine.External]string {
 		t.Helper()
 		coverage := importWith(modules, "--regenerate")
-		now := map[string]string{}
+		now := map[engine.External]string{}
 		for id, address := range from {
-			now[id] = importedAt(t, coverage, rootPath, id)
+			now[id] = importedAs(t, coverage, rootPath, id)
 			if !slices.ContainsFunc(coverage.Moved, func(m report.Move) bool {
-				return m.ID == id && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address && m.To == now[id]
+				return m.Type == id.Type && m.ID == id.ID && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address && m.To == now[id]
 			}) {
 				t.Errorf("--modules=%s: coverage.json doesn't move %s from %s to %s: moved %+v", modules, id, address, now[id], coverage.Moved)
 			}
@@ -168,18 +220,18 @@ func TestAWSRegenerateModules(t *testing.T) {
 		return now
 	}
 
-	// Into calls of a generated local module.
-	called := regenerate("local", plain)
+	// Into calls of modules.
+	called := regenerate(c.modules, plain)
 	calls := map[string]bool{}
 	for _, address := range called {
 		if !strings.HasPrefix(address, "module.") {
-			t.Errorf("--modules=local: %s isn't in a module call", address)
+			t.Errorf("--modules=%s: %s isn't in a module call", c.modules, address)
 			continue
 		}
 		calls[strings.SplitN(address, ".", 3)[1]] = true
 	}
-	if len(calls) != 2 {
-		t.Errorf("--modules=local: the resources are in the calls %v, want one per role", calls)
+	if len(calls) != c.calls {
+		t.Errorf("--modules=%s: the resources are in the calls %v, want %d", c.modules, calls, c.calls)
 	}
 
 	// Out of them again, once the moves are applied and moves.tf deleted.
@@ -224,4 +276,22 @@ func copyModules(t *testing.T, out, work string) {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
+}
+
+// importedAs returns the address coverage has the resource of id at, in
+// the root at path.
+func importedAs(t *testing.T, coverage report.Report, path string, id engine.External) string {
+	t.Helper()
+	for _, d := range coverage.Directories {
+		if d.Path != path {
+			continue
+		}
+		for _, r := range d.Imported {
+			if r.ID == id.ID && report.ResourceType(r.Address) == id.Type {
+				return r.Address
+			}
+		}
+	}
+	t.Fatalf("%s doesn't import %s %s: %+v", path, id.Type, id.ID, coverage.Directories)
+	return ""
 }

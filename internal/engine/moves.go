@@ -215,8 +215,8 @@ func rootLabel(address string) (string, bool) {
 // where its resources are, and sources, the sources of its module calls
 // by name: previous's own moved blocks, then one for each resource of
 // previous now at another address. It leaves out, with why, the moves
-// Terraform rejects: into a module call or out of one it still makes
-// whose module isn't a local one, as moved blocks stay within a module
+// Terraform rejects: into or out of a call that a module from the
+// registry the root calls makes, as moved blocks stay within a module
 // package, and onto an address another resource had. It returns none if
 // the blocks together don't move each resource once: two that move the
 // same one, or to the same address, a chain that comes back to where it
@@ -245,10 +245,10 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move
 			continue
 		}
 		switch {
-		case remoteCall(p.Address, sources) != "":
-			unmoved = append(unmoved, fmt.Sprintf("%s is now %s, and a moved block can't move it out of %s", p.Address, to, remoteCall(p.Address, sources)))
-		case remoteCall(to, sources) != "":
-			unmoved = append(unmoved, fmt.Sprintf("%s is now %s, and a moved block can't move it into %s", p.Address, to, remoteCall(to, sources)))
+		case packagedCall(p.Address, sources) != "":
+			unmoved = append(unmoved, fmt.Sprintf("%s is now %s, and a moved block can't move it out of a call %s makes", p.Address, to, packagedCall(p.Address, sources)))
+		case packagedCall(to, sources) != "":
+			unmoved = append(unmoved, fmt.Sprintf("%s is now %s, and a moved block can't move it into a call %s makes", p.Address, to, packagedCall(to, sources)))
 		case held[to]:
 			unmoved = append(unmoved, fmt.Sprintf("%s is now %s, where another of its resources was", p.Address, to))
 		default:
@@ -271,25 +271,53 @@ func isModuleCall(address string) bool {
 	return strings.HasPrefix(address, "module.") && strings.Count(address, ".") == 1
 }
 
-// remoteCall returns, for address in a module call the root makes, such
-// as module.vpc.aws_vpc.this[0], the call and its source if the module
-// isn't a local one, as module.vpc (terraform-aws-modules/vpc/aws); ""
-// otherwise. A call the root no longer makes counts as local: Terraform
-// lets a moved block take a resource out of it.
-func remoteCall(address string, sources map[string]string) string {
+// packagedCall returns, for address in a module call that a call the
+// root makes of a module that isn't a local one makes in turn, such as
+// module.eks.module.kms.aws_kms_key.this[0], the root's call and its
+// source, as module.eks (terraform-aws-modules/eks/aws); "" otherwise.
+// The inner call is in that module's package, so a moved block of the
+// root can't reach it; a resource of the root's call itself, such as
+// module.vpc.aws_vpc.this[0], it can. A call the root no longer makes
+// counts as local.
+func packagedCall(address string, sources map[string]string) string {
 	rest, ok := strings.CutPrefix(address, "module.")
 	if !ok {
 		return ""
 	}
-	name, _, _ := strings.Cut(rest, ".")
-	if i := strings.IndexByte(name, '['); i >= 0 {
-		name = name[:i]
+	end := strings.IndexAny(rest, ".[")
+	if end < 0 {
+		return ""
+	}
+	name := rest[:end]
+	rest = rest[end:]
+	if strings.HasPrefix(rest, "[") {
+		if rest = afterKey(rest); rest == "" {
+			return ""
+		}
 	}
 	source, ok := sources[name]
-	if !ok || strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
+	if !ok || !strings.HasPrefix(rest, ".module.") || strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
 		return ""
 	}
 	return fmt.Sprintf("module.%s (%s)", name, source)
+}
+
+// afterKey returns what follows the instance key that s starts with, such
+// as `["a.b"]`, keys in quotes taking any character but an unescaped
+// quote; "" if s doesn't end the key.
+func afterKey(s string) string {
+	quoted := false
+	for i := 1; i < len(s); i++ {
+		switch {
+		case quoted && s[i] == '\\':
+			i++
+		case s[i] == '"':
+			quoted = !quoted
+		case !quoted && s[i] == ']':
+			return s[i+1:]
+		}
+	}
+	return ""
 }
 
 // callSources returns the sources of the module calls of calls, by name.
