@@ -489,7 +489,7 @@ func checkRegions(t *testing.T, coverage report.Report, created []*tfjson.StateR
 	roots := map[string][]string{}
 	for _, d := range coverage.Directories {
 		for _, r := range d.Imported {
-			typ, _, _ := strings.Cut(r.Address, ".")
+			typ := report.ResourceType(r.Address)
 			roots[typ+" "+r.ID] = append(roots[typ+" "+r.ID], path.Base(d.Path))
 		}
 	}

@@ -704,9 +704,21 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		r.report.Directories = append(r.report.Directories, reported)
 		return
 	}
+	// Each resource at its address in the root, in the module call
+	// Generate moved it into if any (see engine.Result.Addresses); a
+	// result without addresses, as in a checkpoint an older release
+	// wrote, has only the labels Generate gave them.
+	at := map[engine.External]string{}
+	for _, m := range result.Addresses {
+		at[engine.External{Type: m.Type, ID: m.ID}] = m.Address
+	}
 	reported.Imported = make([]report.Resource, 0, len(result.Imported))
 	for _, imp := range result.Imported {
-		reported.Imported = append(reported.Imported, report.Resource{Address: imp.Type + "." + imp.Name, ID: imp.ID})
+		address, ok := at[engine.External{Type: imp.Type, ID: imp.ID}]
+		if !ok {
+			address = imp.Type + "." + imp.Name
+		}
+		reported.Imported = append(reported.Imported, report.Resource{Address: address, ID: imp.ID})
 	}
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))

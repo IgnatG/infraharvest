@@ -189,6 +189,38 @@ func TestManagedCounts(t *testing.T) {
 }
 
 // What another tool manages, and every count by account and region.
+func TestResourceType(t *testing.T) {
+	t.Parallel()
+	for address, want := range map[string]string{
+		"aws_iam_role.app":                                  "aws_iam_role",
+		"aws_iam_role.app[0]":                               "aws_iam_role",
+		"module.app.aws_iam_role.this":                      "aws_iam_role",
+		"module.app[0].aws_iam_role.this[0]":                "aws_iam_role",
+		`module.app["a.b"].aws_iam_role.this`:               "aws_iam_role",
+		`module.app["a]\".b"].module.inner.aws_s3_bucket.x`: "aws_s3_bucket",
+		"module.app":                                        "module.app",
+	} {
+		if got := ResourceType(address); got != want {
+			t.Errorf("ResourceType(%q) = %q, want %q", address, got, want)
+		}
+	}
+}
+
+// A resource in a module call counts as one of its type.
+func TestFinishCountsResourcesInModuleCalls(t *testing.T) {
+	t.Parallel()
+	r := &Report{Directories: []Directory{{Path: "aws", Imported: []Resource{
+		{Address: "module.app.aws_iam_role.this", ID: "app"},
+		{Address: "aws_iam_role.web", ID: "web"},
+	}}}}
+
+	r.Finish(map[string]int{"aws_iam_role": 2}, nil, false)
+
+	if len(r.Types) != 1 || r.Types[0].Type != "aws_iam_role" || r.Types[0].Imported != 2 || r.ExitCode != ExitOK {
+		t.Errorf("types %+v, exit code %d, want both roles imported", r.Types, r.ExitCode)
+	}
+}
+
 func TestScopeCounts(t *testing.T) {
 	t.Parallel()
 	const prod, dev = "aws/111111111111/eu-west-2", "aws/222222222222/eu-west-2"
