@@ -119,7 +119,7 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if imports && (len(c.Result.Moves) > 0 || len(c.Result.Removed) > 0) {
+	if imports && (len(c.Result.Moves) > 0 || len(c.Result.Removed) > 0 || len(c.Result.Retyped) > 0) {
 		names = append(names, engine.MovesFileName)
 	}
 	for _, name := range names {
@@ -374,7 +374,9 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 // elsewhere, by type and import ID, puts in another root of the run, by
 // its path, unless a removed block of result hands them over (see
 // planHandovers), and resources of imports it leaves out, such as those
-// its plan rejected. Applied on the root's state, its next plan would
+// its plan rejected; each by its type or another name of it (see
+// engine.AliasTypes), which result forgets and imports again (see
+// engine.Retype). Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
 // engine.ReleaseModules). A resource the run no longer imports at all,
@@ -397,12 +399,24 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 		}
 	}
 	for _, p := range c.previous {
-		key := engine.External{Type: p.Type, ID: p.ID}
-		switch root, ok := elsewhere[key]; {
-		case now[key], handed[key]:
-		case ok:
+		if handed[engine.External{Type: p.Type, ID: p.ID}] {
+			continue
+		}
+		var kept, left bool
+		root := ""
+		for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+			key := engine.External{Type: typ, ID: p.ID}
+			kept = kept || now[key]
+			left = left || asked[key]
+			if to, ok := elsewhere[key]; ok && root == "" {
+				root = to
+			}
+		}
+		switch {
+		case kept:
+		case root != "":
 			changed = append(changed, fmt.Sprintf("%s is now in %s", p.Address, root))
-		case asked[key]:
+		case left:
 			changed = append(changed, p.Address+" is left out")
 		}
 	}

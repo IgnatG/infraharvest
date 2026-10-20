@@ -7,6 +7,7 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -200,7 +201,7 @@ func TestMoves(t *testing.T) {
 	}
 	sources := map[string]string{"logs": "../../modules/bucket", "subnets": "./modules/subnets", "vpc": "terraform-aws-modules/vpc/aws"}
 
-	moved, unmoved := moves(previous, now, sources)
+	moved, retyped, unmoved := moves(previous, now, sources)
 
 	want := []Move{
 		{From: "module.vpc.aws_route_table.public[0]", To: "aws_route_table.public"},
@@ -218,8 +219,148 @@ func TestMoves(t *testing.T) {
 	if !reflect.DeepEqual(unmoved, wantUnmoved) {
 		t.Errorf("unmoved: got %q, want %q", unmoved, wantUnmoved)
 	}
-	if moved, unmoved := moves(nil, now, sources); moved != nil || unmoved != nil {
-		t.Errorf("without a previous root: %+v, %q", moved, unmoved)
+	if len(retyped) != 0 {
+		t.Errorf("retyped: %+v, want none", retyped)
+	}
+	if moved, retyped, unmoved := moves(nil, now, sources); moved != nil || retyped != nil || unmoved != nil {
+		t.Errorf("without a previous root: %+v, %+v, %q", moved, retyped, unmoved)
+	}
+}
+
+// A resource of another name of its type now is forgotten where it was,
+// with a removed block: of the whole resource when all of it is of the
+// other name now, else, for some of its instances or a resource of a
+// module call, of a resource of the root alone that a moved block moves
+// it to first. One in a call that a module from the registry makes, which
+// no moved block reaches, or at an address only inferred, isn't.
+func TestMovesRetypes(t *testing.T) {
+	t.Parallel()
+	previous := &Previous{Addresses: []Managed{
+		{Type: "aws_alb", ID: "lb-1", Address: "aws_alb.web"},
+		{Type: "aws_alb_listener", ID: "l-1", Address: "aws_alb_listener.http[0]"},
+		{Type: "aws_alb_listener", ID: "l-2", Address: "aws_alb_listener.http[1]"},
+		{Type: "aws_alb_target_group", ID: "tg-1", Address: `aws_alb_target_group.app["a"]`},
+		{Type: "aws_alb_target_group", ID: "tg-2", Address: `aws_alb_target_group.app["b"]`},
+		{Type: "aws_alb", ID: "lb-2", Address: "module.edge.aws_alb.this"},
+		{Type: "aws_alb", ID: "lb-3", Address: "module.eks.module.ingress.aws_alb.this[0]"},
+		{Type: "aws_alb", ID: "lb-4", Address: "aws_alb.old", Unverified: true},
+		{Type: "aws_s3_bucket", ID: "logs", Address: "aws_s3_bucket.logs"},
+	}}
+	now := []Managed{
+		{Type: "aws_lb", ID: "lb-1", Address: "aws_lb.web"},
+		{Type: "aws_lb_listener", ID: "l-1", Address: "aws_lb_listener.http[0]"},
+		{Type: "aws_lb_listener", ID: "l-2", Address: "aws_lb_listener.http[1]"},
+		{Type: "aws_lb_target_group", ID: "tg-1", Address: "aws_lb_target_group.a"},
+		{Type: "aws_alb_target_group", ID: "tg-2", Address: `aws_alb_target_group.app["b"]`},
+		{Type: "aws_lb", ID: "lb-2", Address: "module.edge.aws_lb.this"},
+		{Type: "aws_lb", ID: "lb-3", Address: "aws_lb.ingress"},
+		{Type: "aws_lb", ID: "lb-4", Address: "aws_lb.old"},
+		{Type: "aws_s3_bucket_policy", ID: "logs", Address: "aws_s3_bucket_policy.logs"},
+	}
+	sources := map[string]string{"edge": "./modules/edge", "eks": "terraform-aws-modules/eks/aws"}
+
+	moved, retyped, unmoved := moves(previous, now, sources)
+
+	want := []Retype{
+		{Type: "aws_alb", ID: "lb-1", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"},
+		{Type: "aws_alb_listener", ID: "l-1", From: "aws_alb_listener.http[0]", To: "aws_lb_listener.http[0]", Removed: "aws_alb_listener.http"},
+		{Type: "aws_alb_listener", ID: "l-2", From: "aws_alb_listener.http[1]", To: "aws_lb_listener.http[1]", Removed: "aws_alb_listener.http"},
+		{Type: "aws_alb_target_group", ID: "tg-1", From: `aws_alb_target_group.app["a"]`, To: "aws_lb_target_group.a", Removed: "aws_alb_target_group.departed_app_a"},
+		{Type: "aws_alb", ID: "lb-2", From: "module.edge.aws_alb.this", To: "module.edge.aws_lb.this", Removed: "aws_alb.departed_edge_this"},
+	}
+	if !reflect.DeepEqual(retyped, want) {
+		t.Errorf("retyped: got %+v, want %+v", retyped, want)
+	}
+	if len(moved) != 0 {
+		t.Errorf("moved: %+v, want none", moved)
+	}
+	for _, why := range []string{
+		"module.eks.module.ingress.aws_alb.this[0] is now aws_lb.ingress, another name of its type, and a moved block can't move it out of a call module.eks (terraform-aws-modules/eks/aws) makes",
+		"aws_alb.old is now aws_lb.old, another name of its type, but where the root has it is only inferred",
+	} {
+		if !slices.ContainsFunc(unmoved, func(u string) bool { return strings.Contains(u, why) }) {
+			t.Errorf("unmoved: %q, want %q", unmoved, why)
+		}
+	}
+	if len(unmoved) != 2 {
+		t.Errorf("unmoved: %q, want two", unmoved)
+	}
+	// A bucket that is a bucket policy now isn't another name of its type.
+	if got := Retyped(previous.Addresses, now); !slices.Contains(got, "aws_s3_bucket.logs is now aws_s3_bucket_policy.logs, of another type, not one infraharvest knows as another name of aws_s3_bucket") || len(got) != 1 {
+		t.Errorf("Retyped: %q", got)
+	}
+
+	dir := t.TempDir()
+	if err := writeMoves(dir, nil, nil, retyped); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(strings.Fields(readFile(t, dir, MovesFileName)), " ")
+	for _, block := range []string{
+		`moved { from = aws_alb_target_group.app["a"] to = aws_alb_target_group.departed_app_a }`,
+		"moved { from = module.edge.aws_alb.this to = aws_alb.departed_edge_this }",
+		"removed { from = aws_alb.web lifecycle { destroy = false } }",
+		"removed { from = aws_alb_listener.http lifecycle { destroy = false } }",
+		"removed { from = aws_alb_target_group.departed_app_a lifecycle { destroy = false } }",
+		"removed { from = aws_alb.departed_edge_this lifecycle { destroy = false } }",
+	} {
+		if !strings.Contains(got, block) {
+			t.Errorf("%s misses %q:\n%s", MovesFileName, block, got)
+		}
+	}
+	if strings.Count(got, "removed {") != 4 {
+		t.Errorf("%s: want one removed block for each resource, got:\n%s", MovesFileName, got)
+	}
+}
+
+// What a moved block moves an instance to, for a removed block to take it
+// alone, is a resource of the root of its type, named after where it
+// was, that the root doesn't have.
+func TestDepartedAddress(t *testing.T) {
+	t.Parallel()
+	taken := map[string]bool{"aws_subnet.departed_a_x": true}
+	for _, tt := range []struct{ address, want string }{
+		{`aws_subnet.a["x"]`, "aws_subnet.departed_a_x_2"},
+		{`aws_subnet.a["x"]`, "aws_subnet.departed_a_x_3"},
+		{"aws_subnet.b[0]", "aws_subnet.departed_b_0"},
+		{"module.vpc.aws_subnet.private[1]", "aws_subnet.departed_vpc_private_1"},
+		{`module.envs["prod-eu"].aws_s3_bucket.logs`, "aws_s3_bucket.departed_envs_prod-eu_logs"},
+		{`module.a.module.b[0].aws_sqs_queue.q["a.b c"]`, "aws_sqs_queue.departed_a_b_0_q_a_b_c"},
+	} {
+		if got := DepartedAddress(tt.address, taken); got != tt.want {
+			t.Errorf("%s: got %s, want %s", tt.address, got, tt.want)
+		}
+	}
+}
+
+// A root generated again, whose load balancer an earlier import gave the
+// type aws_alb, another name of aws_lb, forgets it as that with a removed
+// block, and imports it as aws_lb: the gate passes, and the README says
+// so.
+func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T) {
+	t.Parallel()
+	previous := &Previous{Addresses: []Managed{{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}}}
+	dir, result := generateAgain(t, []Import{{Type: "aws_lb", Name: "web", ID: "arn:lb"}}, previous)
+
+	if want := []Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"}}; !reflect.DeepEqual(result.Retyped, want) {
+		t.Errorf("retyped %+v, want %+v", result.Retyped, want)
+	}
+	if len(result.Unmoved) != 0 || len(result.Moves) != 0 {
+		t.Errorf("unmoved %q, moves %+v", result.Unmoved, result.Moves)
+	}
+	if got := readFile(t, dir, MovesFileName); !strings.Contains(got, "removed {\n  from = aws_alb.web\n\n  lifecycle {\n    destroy = false\n  }\n}\n") {
+		t.Errorf("%s:\n%s", MovesFileName, got)
+	}
+	if got := readFile(t, dir, ImportsFileName); !strings.Contains(got, "aws_lb.web") {
+		t.Errorf("%s doesn't import aws_lb.web:\n%s", ImportsFileName, got)
+	}
+	readme := readFile(t, dir, ReadmeFileName)
+	for _, want := range []string{"## Moves", "| `aws_alb.web` | `aws_lb.web` |", "or as forgotten, not destroyed, for those `moves.tf` removes", "Delete `imports.tf` and `moves.tf`"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README.md misses %q:\n%s", want, readme)
+		}
+	}
+	if !result.Gate.check(CheckMoves).Passed {
+		t.Errorf("moves check: %+v", result.Gate.check(CheckMoves))
 	}
 }
 
@@ -257,7 +398,7 @@ func TestWriteAndReadMoves(t *testing.T) {
 		{From: "aws_subnet.a", To: `module.subnets.aws_subnet.this["a"]`},
 		{From: "aws_s3_bucket.logs", To: "module.logs.aws_s3_bucket.this[0]"},
 	}
-	if err := writeMoves(dir, moved, nil); err != nil {
+	if err := writeMoves(dir, moved, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := `moved {
@@ -280,7 +421,7 @@ moved {
 	if want := []Move{moved[1], moved[0]}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %+v, want %+v", got, want)
 	}
-	if err := writeMoves(dir, nil, nil); err != nil || exists(filepath.Join(dir, MovesFileName)) {
+	if err := writeMoves(dir, nil, nil, nil); err != nil || exists(filepath.Join(dir, MovesFileName)) {
 		t.Errorf("without moves: %v, want moves.tf removed", err)
 	}
 }

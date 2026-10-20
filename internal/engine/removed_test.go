@@ -35,7 +35,7 @@ func TestWriteAndReadRemoved(t *testing.T) {
 	dir := t.TempDir()
 	moved := []Move{{From: "aws_sqs_queue.a", To: "aws_sqs_queue.b"}}
 	removed := []Removal{{From: "module.vpc"}, {From: "aws_subnet.a"}, {From: "aws_subnet.a"}}
-	if err := writeMoves(dir, moved, removed); err != nil {
+	if err := writeMoves(dir, moved, removed, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := `moved {
@@ -74,7 +74,7 @@ removed {
 	}
 
 	// With removed blocks alone.
-	if err := writeMoves(dir, nil, []Removal{{From: "aws_subnet.a"}}); err != nil {
+	if err := writeMoves(dir, nil, []Removal{{From: "aws_subnet.a"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, dir, MovesFileName); !strings.HasPrefix(got, "removed {\n") {

@@ -91,6 +91,48 @@ func TestPlanHandoversBetweenRootsOfTheRun(t *testing.T) {
 	}
 }
 
+// A resource that goes to another root as another name of its type, such
+// as an aws_alb that is an aws_lb now, is handed over too: the root it
+// leaves forgets it as it was, the root it goes to imports it as it is,
+// and the two are told to be one handover.
+func TestPlanHandoversAcrossAnotherNameOfItsType(t *testing.T) {
+	out := t.TempDir()
+	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
+	earlierRoot(t, out, old, engine.Managed{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}, thing("b", "fake_thing.b"))
+	c := regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}}})
+
+	if err := planHandovers(out, []*listedCall{c}); err != nil {
+		t.Fatal(err)
+	}
+	h := c.handovers
+	if err := h.refusal(old); err != nil {
+		t.Fatalf("old refused: %v", err)
+	}
+	departure := engine.Departure{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web", Root: "fake/next"}
+	if got, want := h.removalsOf(old), []engine.Removal{{From: "aws_alb.web", Resources: []engine.Departure{departure}}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("old's removals: got %+v, want %+v", got, want)
+	}
+	arrival := engine.Arrival{Type: "aws_lb", ID: "arn:lb", Root: "fake/old", From: "aws_alb.web", FromType: "aws_alb"}
+	if got := h.arrivalsOf(next); !reflect.DeepEqual(got, []engine.Arrival{arrival}) {
+		t.Errorf("next's arrivals: got %+v, want %+v", got, arrival)
+	}
+	arrival.To = "aws_lb.web"
+	h.record(next, &engine.Result{Arrived: []engine.Arrival{arrival}}, nil)
+	h.record(old, &engine.Result{Removed: h.removalsOf(old)}, nil)
+	if got := h.incomplete(); len(got) != 0 || h.refuseUnreceived(old) != nil {
+		t.Errorf("incomplete handovers %+v", got)
+	}
+
+	// Left out of a root the run doesn't generate, it stays there.
+	c = regenerating(out, map[string][]engine.Import{next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}, thingImport("c")}})
+	if err := planHandovers(out, []*listedCall{c}); err != nil {
+		t.Fatal(err)
+	}
+	if got := excludedIDs(c.run); !slices.Equal(got, []string{"arn:lb fake/old"}) {
+		t.Errorf("excluded %v, want arn:lb, held by fake/old", got)
+	}
+}
+
 // What a root the run doesn't generate has stays there, applied or not:
 // a removed block would need it edited. It is left out of the root it
 // would go to.

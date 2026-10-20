@@ -143,7 +143,7 @@ func arrivalOf(result *engine.Result, d engine.Departure) *engine.Arrival {
 		return nil
 	}
 	for i, a := range result.Arrived {
-		if a.Type == d.Type && a.ID == d.ID {
+		if a.HadType() == d.Type && a.ID == d.ID {
 			return &result.Arrived[i]
 		}
 	}
@@ -244,10 +244,12 @@ func (h *handovers) refusal(dir string) error {
 }
 
 // departing is a resource of an earlier import's root that the run puts
-// in another root, at to.
+// in another root, at to, as now: its type and import ID, or another name
+// of its type (see engine.AliasTypes).
 type departing struct {
 	had engine.Managed
 	to  string
+	now engine.External
 }
 
 // planHandovers works out, for an import with --regenerate whose calls,
@@ -305,7 +307,7 @@ func planHandovers(out string, calls []*listedCall) error {
 			}
 			if len(leaving) < len(previous) {
 				for _, d := range leaving {
-					stays[engine.External{Type: d.had.Type, ID: d.had.ID}] = relativePath(out, dir)
+					stays[d.now] = relativePath(out, dir)
 				}
 				continue
 			}
@@ -344,14 +346,18 @@ func planHandovers(out string, calls []*listedCall) error {
 	for _, dir := range sortedDirs(problems) {
 		h.refused[dir] = fmt.Errorf("generating %s again would hand %d of its resources over to other roots where no removed block can take them, and a plan on its state would destroy them, so it is left as it was, and they are left out of the roots they go to: %s", dir, len(gone[dir]), strings.Join(problems[dir], "; "))
 		for _, d := range gone[dir] {
-			stays[engine.External{Type: d.had.Type, ID: d.had.ID}] = relativePath(out, dir)
+			stays[d.now] = relativePath(out, dir)
 		}
 	}
 	for _, dir := range sortedDirs(h.removals) {
 		root := relativePath(out, dir)
 		for _, d := range gone[dir] {
 			log.Printf("%s: %s goes to %s, and a removed block hands it over (--regenerate)", root, d.had.Address, relativePath(out, d.to))
-			h.arrivals[d.to] = append(h.arrivals[d.to], engine.Arrival{Type: d.had.Type, ID: d.had.ID, Root: root, From: d.had.Address})
+			arrival := engine.Arrival{Type: d.now.Type, ID: d.had.ID, Root: root, From: d.had.Address}
+			if d.now.Type != d.had.Type {
+				arrival.FromType = d.had.Type
+			}
+			h.arrivals[d.to] = append(h.arrivals[d.to], arrival)
 		}
 	}
 	for _, c := range live {
@@ -399,7 +405,9 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 // departures returns, by the directory of each root the checkpoints under
 // out record, the resources an earlier import put in it, by where it put
 // them (see previousAddresses), that assigned, the root of the run each
-// resource goes to by type and import ID, puts in another root now. Only
+// resource goes to by type and import ID, puts in another root now, as
+// their type or, if assigned has none of that, another name of it (see
+// engine.AliasTypes), such as an aws_alb that is an aws_lb now. Only
 // roots that still have configuration count, applied ones too, with
 // their import blocks deleted; a root whose import didn't finish counts
 // only while it is generated again (see checkpoint.Pending). A checkpoint
@@ -432,13 +440,27 @@ func departures(out string, assigned map[engine.External]string) (map[string][]d
 			return nil, err
 		}
 		for _, p := range previous {
-			if to, ok := assigned[engine.External{Type: p.Type, ID: p.ID}]; ok && to != dir {
-				gone[dir] = append(gone[dir], departing{had: p, to: to})
+			if now, to, ok := assignedAs(assigned, p); ok && to != dir {
+				gone[dir] = append(gone[dir], departing{had: p, to: to, now: now})
 			}
 		}
 		sort.Slice(gone[dir], func(i, j int) bool { return gone[dir][i].had.Address < gone[dir][j].had.Address })
 	}
 	return gone, nil
+}
+
+// assignedAs returns the type and import ID assigned, the root of the
+// run each resource goes to, has p, a resource of an earlier import, as:
+// its own, or another name of its type (see engine.AliasTypes); and the
+// root.
+func assignedAs(assigned map[engine.External]string, p engine.Managed) (engine.External, string, bool) {
+	for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+		key := engine.External{Type: typ, ID: p.ID}
+		if to, ok := assigned[key]; ok {
+			return key, to, true
+		}
+	}
+	return engine.External{}, "", false
 }
 
 // handOver returns the removed blocks the root in dir, an earlier
@@ -547,8 +569,10 @@ func sortedDirs[V any](m map[string]V) []string {
 }
 
 // recordMoves records what the result of the root at path, relative to
-// the output directory, moves within it, hands over to other roots, and
-// imports that other roots hand over (see report.Move).
+// the output directory, moves within it, as moved blocks do or, for a
+// resource of another name of its type now, removed and import blocks
+// (see engine.Retype), hands over to other roots, and imports that other
+// roots hand over (see report.Move).
 func (r *Run) recordMoves(path string, result *engine.Result) {
 	types := map[string]engine.Managed{}
 	for _, m := range result.Addresses {
@@ -561,12 +585,15 @@ func (r *Run) recordMoves(path string, result *engine.Result) {
 		}
 		r.report.Moved = append(r.report.Moved, report.Move{Type: had.Type, ID: had.ID, FromRoot: path, From: m.From, ToRoot: path, To: m.To})
 	}
+	for _, rt := range result.Retyped {
+		r.report.Moved = append(r.report.Moved, report.Move{Type: types[rt.To].Type, ID: rt.ID, FromRoot: path, From: rt.From, ToRoot: path, To: rt.To})
+	}
 	for _, removal := range result.Removed {
 		for _, d := range removal.Resources {
 			r.report.Departed = append(r.report.Departed, report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root})
 		}
 	}
 	for _, a := range result.Arrived {
-		r.report.AddArrival(report.Move{Type: a.Type, ID: a.ID, FromRoot: a.Root, From: a.From, ToRoot: path, To: a.To})
+		r.report.AddArrival(report.Move{Type: a.HadType(), ID: a.ID, FromRoot: a.Root, From: a.From, ToRoot: path, To: a.To})
 	}
 }

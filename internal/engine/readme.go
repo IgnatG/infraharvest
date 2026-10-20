@@ -70,12 +70,13 @@ func readmeFile(result *Result) []byte {
 		step++
 	}
 	planned := "Every resource should be planned for import,"
+	removes := len(result.Removed) > 0 || len(result.Retyped) > 0
 	switch {
-	case len(result.Moves) > 0 && len(result.Removed) > 0:
+	case len(result.Moves) > 0 && removes:
 		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves, or as forgotten, not destroyed, for those it removes (see Moves),", MovesFileName)
 	case len(result.Moves) > 0:
 		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves (see Moves),", MovesFileName)
-	case len(result.Removed) > 0:
+	case removes:
 		planned = fmt.Sprintf("Every resource should be planned for import, or as forgotten, not destroyed, for those `%s` removes (see Moves),", MovesFileName)
 	}
 	if stateOnlyUpdates(result.Gate) {
@@ -94,7 +95,7 @@ func readmeFile(result *Result) []byte {
 		apply = "Run `terraform apply` to record the resources in state, after applying the roots the resources it imports from other roots come from (see Moves). It changes nothing in the cloud."
 	}
 	fmt.Fprintf(&b, "%d. %s\n", step+1, apply)
-	if len(result.Moves) > 0 || len(result.Removed) > 0 {
+	if len(result.Moves) > 0 || removes {
 		fmt.Fprintf(&b, "%d. Delete `%s` and `%s`: the import, moved and removed blocks have done their job.\n", step+2, ImportsFileName, MovesFileName)
 	} else {
 		fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, ImportsFileName)
@@ -224,11 +225,13 @@ func notInCloudSection(gone []Import) string {
 
 // movesSection lists what moves.tf moves: the resources of a root
 // generated again at other addresses than before, from where its state
-// has them; what its removed blocks hand over to other roots; and what
-// the root imports that other roots hand over, which must be applied
-// first. It is empty if there is none of these.
+// has them; those of another name of their type now, which its removed
+// blocks forget and its import blocks import again; what its removed
+// blocks hand over to other roots; and what the root imports that other
+// roots hand over, which must be applied first. It is empty if there is
+// none of these.
 func movesSection(result *Result) string {
-	if len(result.Moves) == 0 && len(result.Removed) == 0 && len(result.Arrived) == 0 {
+	if len(result.Moves) == 0 && len(result.Retyped) == 0 && len(result.Removed) == 0 && len(result.Arrived) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -237,6 +240,12 @@ func movesSection(result *Result) string {
 		fmt.Fprintf(&b, "\nThese resources have other addresses than when this root was generated before. The moved blocks in `%s` move them in state, so the plan shows each as moved rather than destroyed and created again.\n\n| From | To |\n|---|---|\n", MovesFileName)
 		for _, m := range result.Moves {
 			fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
+		}
+	}
+	if len(result.Retyped) > 0 {
+		fmt.Fprintf(&b, "\nThese resources are of another name of their type now, which no moved block can follow. The removed blocks in `%s` make this root's state forget them where it had them, without destroying them, and the import blocks in `%s` import them again where they are now.\n\n| Was | Is now |\n|---|---|\n", MovesFileName, ImportsFileName)
+		for _, r := range result.Retyped {
+			fmt.Fprintf(&b, "| `%s` | `%s` |\n", r.From, r.To)
 		}
 	}
 	if len(result.Removed) > 0 {
