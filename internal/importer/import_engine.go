@@ -560,7 +560,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 				continue
 			}
 			var claimed *claim
-			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental); err != nil {
+			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental, run.shared); err != nil {
 				c.handovers.record(dir, nil, err)
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue

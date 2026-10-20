@@ -176,6 +176,24 @@ func TestBackendFile(t *testing.T) {
 	}
 }
 
+// A root's state is where its backend.tf keeps it, named as
+// --managed-state names state objects.
+func TestBackendStateURL(t *testing.T) {
+	for _, tc := range []struct {
+		backend Backend
+		want    string
+	}{
+		{Backend{S3: &S3{Bucket: "acme-state", Region: "eu-west-2", KeyPrefix: "imported"}}, "s3://acme-state/imported/aws/1/eu-west-2/terraform.tfstate"},
+		{Backend{AzureRM: &AzureRM{StorageAccountName: "acmestate", ContainerName: "tfstate"}}, "https://acmestate.blob.core.windows.net/tfstate/aws/1/eu-west-2/terraform.tfstate"},
+		{Backend{GCS: &GCS{Bucket: "acme-state", Prefix: "roots"}}, "gs://acme-state/roots/aws/1/eu-west-2/default.tfstate"},
+		{Backend{}, ""},
+	} {
+		if got := tc.backend.StateURL("aws/1/eu-west-2"); got != tc.want {
+			t.Errorf("%+v: got %q, want %q", tc.backend, got, tc.want)
+		}
+	}
+}
+
 func TestLoadModules(t *testing.T) {
 	t.Parallel()
 	path := write(t, `version: 1

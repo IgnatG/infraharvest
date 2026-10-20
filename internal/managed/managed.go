@@ -4,7 +4,7 @@
 // Package managed finds the resources Terraform already manages, from
 // state, so that an import can leave them out instead of importing them a
 // second time. State can hold secrets: it is read only when asked, and
-// only resource types and IDs are kept.
+// only resource types, IDs and addresses are kept.
 package managed
 
 import (
@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -34,22 +35,33 @@ type ObjectStore interface {
 	Get(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
-// Resources are managed resources: where the state of each is, by
-// "type id" (and "type arn", where a resource has an ARN), as key makes
-// them.
-type Resources map[string]string
+// Resources are managed resources, by "type id" (and "type arn", where a
+// resource has an ARN), as key makes them.
+type Resources map[string]Resource
+
+// Resource is a managed resource: Where its state is, and its Type and
+// Address there, such as module.vpc.aws_subnet.a[0].
+type Resource struct {
+	Where, Type, Address string
+}
 
 // Lookup returns where the state of a resource of typ with any of ids is.
 func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
+	res, ok := r.Find(typ, ids...)
+	return res.Where, ok
+}
+
+// Find returns the managed resource of typ with any of ids.
+func (r Resources) Find(typ string, ids ...string) (Resource, bool) {
 	for _, id := range ids {
 		if id == "" {
 			continue
 		}
-		if where, ok := r[key(typ, id)]; ok {
-			return where, true
+		if res, ok := r[key(typ, id)]; ok {
+			return res, true
 		}
 	}
-	return "", false
+	return Resource{}, false
 }
 
 // typeAliases maps resource types to the type another name of theirs is
@@ -492,14 +504,18 @@ func readStateFile(path string) ([]byte, error) {
 // Parse adds the managed resources of a state file found at where, in
 // format version 4, as Terraform 0.12 and later and OpenTofu write it.
 // Version 3, from Terraform 0.11 and earlier, is refused with a hint to
-// upgrade it.
+// upgrade it. Each resource has its address in the state, or none where
+// the state doesn't name it.
 func (r Resources) Parse(content []byte, where string) error {
 	var state struct {
 		Version   int `json:"version"`
 		Resources []struct {
 			Mode      string `json:"mode"`
+			Module    string `json:"module"`
 			Type      string `json:"type"`
+			Name      string `json:"name"`
 			Instances []struct {
+				IndexKey   any `json:"index_key"`
 				Attributes struct {
 					ID  string `json:"id"`
 					ARN string `json:"arn"`
@@ -524,10 +540,31 @@ func (r Resources) Parse(content []byte, where string) error {
 		for _, i := range res.Instances {
 			for _, id := range []string{i.Attributes.ID, i.Attributes.ARN} {
 				if id != "" {
-					r[key(res.Type, id)] = where
+					r[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: address(res.Module, res.Type, res.Name, i.IndexKey)}
 				}
 			}
 		}
 	}
 	return nil
+}
+
+// address returns the address state gives the instance with index, its
+// instance key (a number for count, a string for for_each, or none), of
+// the resource of typ named name in module, such as
+// module.vpc.aws_subnet.a[0]; "" if the state names no resource.
+func address(module, typ, name string, index any) string {
+	if name == "" {
+		return ""
+	}
+	a := typ + "." + name
+	if module != "" {
+		a = module + "." + a
+	}
+	switch k := index.(type) {
+	case float64:
+		a += "[" + strconv.FormatFloat(k, 'f', -1, 64) + "]"
+	case string:
+		a += "[" + strconv.Quote(k) + "]"
+	}
+	return a
 }
