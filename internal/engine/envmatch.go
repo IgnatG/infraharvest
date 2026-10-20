@@ -86,6 +86,9 @@ type envRoot struct {
 	files           map[string]string
 	backend         []byte
 	variables       *hclFile
+	// arrivals are what the root imports that other roots hand over (see
+	// MergeRoot.Arrivals).
+	arrivals []Arrival
 }
 
 // normaliser puts placeholders in one environment's labels, import IDs

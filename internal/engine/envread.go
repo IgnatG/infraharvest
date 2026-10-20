@@ -53,6 +53,10 @@ type MergeRoot struct {
 	// resource of its environment, matched with no other environment's,
 	// so that what the merged root already has keeps its addresses.
 	Isolated []string
+	// Arrivals are the resources the root imports that other roots hand
+	// over (see Result.Arrived), which the merged root's README names, as
+	// the roots they come from are applied first.
+	Arrivals []Arrival
 }
 
 // readEnvRoot reads the root r as merging reads it (see envRoot): its
@@ -65,7 +69,7 @@ type MergeRoot struct {
 // it can't: it has moved or removed blocks, or outputs, which the merged
 // root doesn't carry.
 func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
-	root := envRoot{env: r.Env, tokens: r.Tokens, scope: r.Scope, region: r.Region, group: r.Group, provider: r.Provider, importIDs: map[string]string{}, files: map[string]string{}}
+	root := envRoot{env: r.Env, tokens: r.Tokens, scope: r.Scope, region: r.Region, group: r.Group, provider: r.Provider, importIDs: map[string]string{}, files: map[string]string{}, arrivals: r.Arrivals}
 	files, err := configFiles(r.Dir)
 	if err != nil {
 		return root, "", err

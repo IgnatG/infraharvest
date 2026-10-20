@@ -511,7 +511,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		text += fmt.Sprintf(" %d handovers between roots aren't finished, as one of their roots failed (see incomplete_handovers and the report): do what each says before applying either root.", n)
 	}
 	if n := len(r.KeptRoots); n > 0 {
-		text += fmt.Sprintf(" %d roots an earlier import generated keep their directories, though the configuration file's environments would put their resources under envs/<env>/ now (see kept_roots and the report): to lay them out by environment, import into a new output directory.", n)
+		text += fmt.Sprintf(" %d roots an earlier import generated keep their directories, though the configuration file's environments would put their resources under envs/<env>/ now (see kept_roots and the report): to lay them out by environment, import into a new output directory, or generate them again with --regenerate, which hands their resources over to the roots of their environments where removed blocks can take them all, the log saying why not.", n)
 	}
 	if n := len(result.Warnings); n > 0 {
 		text += fmt.Sprintf(" %d warnings to look at before using the configuration (see warnings and the report).", n)
