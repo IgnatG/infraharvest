@@ -346,7 +346,8 @@ jobs:
   # (TestAWSRegenerate*), which each apply roots and generate them again
   # in accounts of their own. The other tests (TestAWSParallelAccounts
   # and TestAWSParallelRegions, which create their resources in other
-  # accounts) share a last one.
+  # accounts, and TestAWSRegistryModuleMoves, which only plans) share a
+  # last one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
