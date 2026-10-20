@@ -1537,7 +1537,7 @@ func literalTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		return nil, false
 	}
 	calls := false
-	hclsyntax.VisitAll(expr, func(n hclsyntax.Node) hcl.Diagnostics {
+	_ = hclsyntax.VisitAll(expr, func(n hclsyntax.Node) hcl.Diagnostics {
 		if _, ok := n.(*hclsyntax.FunctionCallExpr); ok {
 			calls = true
 		}
