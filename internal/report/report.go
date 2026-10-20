@@ -157,12 +157,15 @@ type Provider struct {
 
 // Coverage records what an import found and what became of it.
 type Coverage struct {
-	Types       []TypeCount   `json:"types"`
-	Directories []Directory   `json:"directories"`
-	Skipped     []Skipped     `json:"skipped,omitempty"`
-	Excluded    []Excluded    `json:"excluded,omitempty"`
-	Failures    []string      `json:"failures,omitempty"`
-	Totals      CoverageTotal `json:"totals"`
+	Types       []TypeCount `json:"types"`
+	Directories []Directory `json:"directories"`
+	Skipped     []Skipped   `json:"skipped,omitempty"`
+	Excluded    []Excluded  `json:"excluded,omitempty"`
+	Failures    []string    `json:"failures,omitempty"`
+	// Warnings are about how the import ran that people should look at,
+	// such as environments it couldn't apply; a directory's are its own.
+	Warnings []string      `json:"warnings,omitempty"`
+	Totals   CoverageTotal `json:"totals"`
 	// NotInCloud are the resources of roots an incremental import added to
 	// that its listing didn't find, though it listed everything of their
 	// type where they were: they have been deleted since.
@@ -493,6 +496,7 @@ func (r *Report) Merge(other *Report) {
 	r.Merges = append(r.Merges, other.Merges...)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
+	r.Warnings = append(r.Warnings, other.Warnings...)
 	r.listed = append(r.listed, other.listed...)
 	if len(r.TagKeys) == 0 {
 		r.TagKeys = other.TagKeys
@@ -541,6 +545,8 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		return a.From < b.From
 	})
 	sort.Strings(r.Failures)
+	sort.Strings(r.Warnings)
+	r.Warnings = slices.Compact(r.Warnings)
 	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
 	sort.Slice(r.Merges, func(i, j int) bool { return r.Merges[i].Path < r.Merges[j].Path })
 
@@ -918,6 +924,9 @@ func (r *Report) Markdown() string {
 	}
 
 	var leftOut, secrets, warnings, modules, declined, dirErrors []string
+	for _, w := range r.Warnings {
+		warnings = append(warnings, "- "+w+".")
+	}
 	for _, d := range r.Directories {
 		for _, m := range d.Modules {
 			resources := "`" + strings.Join(m.Resources, "`, `") + "`"

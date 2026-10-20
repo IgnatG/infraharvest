@@ -69,7 +69,7 @@ Each resource is placed by where it was listed first, then by its tags:
 - An account, subscription or project one environment names is all that environment's, whatever the resources' tags.
 - One that several environments name, such as `333333333333` above, is split by their tags: a resource goes to the environment whose tags it has. One without them goes as with `--env-tags`: with the resource whose ID its import ID contains, such as a bucket's versioning, a child import with its parent, and anything else to `shared`. Each of these environments needs `tags`, with a key in common whose values differ, so that no resource can be in two; otherwise the file is rejected.
 - An environment that names no account, subscription or project is found by its tags alone, in the accounts, subscriptions and projects no environment names, and those environments' tags must tell them apart too.
-- An account, subscription or project no environment names, and none found by tags alone, keeps the layout without environments.
+- An account, subscription or project no environment names, and none found by tags alone, keeps the layout without environments. Where the import can't tell the account, subscription or project, such as when the AWS credentials can't say which account they are in, only the environments found by tags alone apply, and the import warns, in the log and the report (`warnings` in `coverage.json`), that the environments that name an account, subscription or project don't.
 
 An environment's name is a directory's: lower-case letters, digits, dots, dashes and underscores, and not `shared`. `environments` doesn't go with `--env-tags`, which places resources in environments by itself, and a `--layout` of your own needs `{env}`.
 

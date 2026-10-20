@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/config"
@@ -235,5 +236,34 @@ func TestKeptRoots(t *testing.T) {
 	want := []report.KeptRoot{{Path: "aws/111111111111/us-east-1", Environments: []string{"dev", sharedEnv}, Scope: "aws/111111111111/us-east-1"}}
 	if got := kept.report("aws/111111111111/us-east-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("kept: got %+v, want %+v", got, want)
+	}
+}
+
+// A provider that can't say which account it lists in can't be in an
+// environment that names accounts: the run warns of it, once, in the log
+// and the report, rather than lay its roots out as if there were none.
+func TestWarnUnscoped(t *testing.T) {
+	run := NewRun()
+	run.environments = config.Environments{
+		"prod":   {AWS: &config.AWSScopes{Accounts: []string{"111111111111"}}},
+		"shared": {Tags: map[string]string{"Environment": "shared"}},
+	}
+	aws := &namedProvider{name: "aws"}
+
+	run.warnUnscoped(aws, "aws/111111111111/eu-west-2")
+	if len(run.report.Warnings) != 0 {
+		t.Fatalf("with an account: warned %v", run.report.Warnings)
+	}
+	run.warnUnscoped(&namedProvider{name: "google"}, "")
+	if len(run.report.Warnings) != 0 {
+		t.Fatalf("no environment names a project: warned %v", run.report.Warnings)
+	}
+	run.warnUnscoped(aws, "")
+	run.warnUnscoped(aws, "")
+	if len(run.report.Warnings) != 1 || !strings.Contains(run.report.Warnings[0], "aws couldn't say which account") || !strings.Contains(run.report.Warnings[0], "(prod)") {
+		t.Fatalf("without an account: warned %v, want one warning naming prod", run.report.Warnings)
+	}
+	if md := run.report.Markdown(); !strings.Contains(md, "## Warnings") || !strings.Contains(md, run.report.Warnings[0]) {
+		t.Errorf("report.md doesn't warn:\n%s", md)
 	}
 }

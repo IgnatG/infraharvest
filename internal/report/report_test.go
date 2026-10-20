@@ -322,6 +322,8 @@ func TestMerge(t *testing.T) {
 	second.Directories = []Directory{{Path: "aws/222222222222/eu-west-2", Scope: "aws/222222222222/eu-west-2"}}
 	second.Excluded = []Excluded{{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC", Scope: "aws/222222222222/eu-west-2"}}
 	second.Failures = []string{"aws/222222222222/eu-west-2: a check failed"}
+	first.Warnings = []string{"aws couldn't say which account it lists in"}
+	second.Warnings = first.Warnings
 	second.AddDiscovered("aws/222222222222/eu-west-2", 2)
 	second.AddDiscovered("aws/111111111111/eu-west-2", 1)
 
@@ -336,6 +338,9 @@ func TestMerge(t *testing.T) {
 	}
 	if len(r.Scopes) != 2 || r.Scopes[0].Discovered != 4 || r.Scopes[1].Discovered != 2 {
 		t.Errorf("scopes %+v", r.Scopes)
+	}
+	if r.Finish(nil, nil, false); len(r.Warnings) != 1 {
+		t.Errorf("warnings %v, want the one both have", r.Warnings)
 	}
 }
 
