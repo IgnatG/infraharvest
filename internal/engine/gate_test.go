@@ -210,6 +210,32 @@ provider "pagerduty" {
 	}
 }
 
+// The local state of a root applied without a backend holds the values the
+// provider marks sensitive, but isn't configuration: the scan passes over
+// it, its workspaces' states too.
+func TestScanSecretsSkipsLocalState(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, "resource \"aws_db_instance\" \"a\" {\n  password = var.password\n}\n")
+	state := `{"resources": [{"instances": [{"attributes": {"password": "s3cr3t-value"}}]}]}`
+	for _, name := range []string{"terraform.tfstate", "terraform.tfstate.backup", filepath.Join(workspaceStateDir, "dev", "terraform.tfstate")} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(state), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	check, err := scanSecrets(dir, []string{"s3cr3t-value"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check.Passed {
+		t.Errorf("want a pass, got %v", check.Details)
+	}
+}
+
 // Made-up key halves, built from parts so that secret scanners don't take
 // the source for a leak. betterleaks still takes the secret for a generic
 // API key; the betterleaks:allow comment tells it this one is made up.

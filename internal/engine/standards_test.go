@@ -77,6 +77,38 @@ func TestCheckStandardsPasses(t *testing.T) {
 	}
 }
 
+// A root applied without a backend has its state in its directory, which
+// the output's .gitignore keeps out of version control: that is no state
+// file committed with the configuration, but one in a module is.
+func TestCheckStandardsLocalState(t *testing.T) {
+	t.Parallel()
+	root, module := standardRoot(t)
+	for _, name := range []string{"terraform.tfstate", "terraform.tfstate.backup", ".terraform.tfstate.lock.info"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	check, err := checkStandards(root, omitACL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check.Passed {
+		t.Errorf("want a pass with the root's local state, got %v", check.Details)
+	}
+
+	if err := os.WriteFile(filepath.Join(module, "terraform.tfstate"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check, err = checkStandards(root, omitACL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Passed || len(check.Details) != 1 || !strings.HasPrefix(check.Details[0], "committed-state-file: ") {
+		t.Errorf("want one committed-state-file finding for the module's state, got %v", check.Details)
+	}
+}
+
 func TestCheckStandardsFindings(t *testing.T) {
 	t.Parallel()
 	for rule, breakIt := range map[string]func(t *testing.T, root, module string){
@@ -115,7 +147,8 @@ func TestCheckStandardsFindings(t *testing.T) {
 			writeConfig(t, root, GeneratedFileName, content)
 		},
 		"committed-state-file": func(t *testing.T, root, _ string) {
-			if err := os.WriteFile(filepath.Join(root, "terraform.tfstate"), []byte("{}"), 0o644); err != nil {
+			// A copy of a state, not the root's local state.
+			if err := os.WriteFile(filepath.Join(root, "prod.tfstate"), []byte("{}"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		},
