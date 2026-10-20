@@ -142,7 +142,7 @@ A value the provider marks sensitive, or one infraharvest would take for a secre
 infraharvest drift [output-directory] --write-decisions
 ```
 
-It goes into the output directory, or to the file `--decisions` names. It has an entry for each change the next apply would revert, whatever its outcome; changes the code absorbs, and those not assessable, have nothing to decide and aren't listed:
+It goes into the output directory, to the file `--decisions` names, or to the one `--write-decisions=<file>` names, such as `--write-decisions=decisions/drift.yaml` to keep it outside the output directory. It has an entry for each change the next apply would revert, whatever its outcome; changes the code absorbs, and those not assessable, have nothing to decide and aren't listed:
 
 ```yaml
 version: 1
@@ -165,7 +165,7 @@ Set each change's `decision` to `accept` or `keep`, then apply the file:
 infraharvest drift [output-directory] --decisions infraharvest-out/drift.yaml
 ```
 
-Without `--decisions`, `--write-decisions` doesn't apply the file it writes, so a first run never edits the code.
+Without `--decisions`, `--write-decisions` doesn't apply the file it writes, so a first run never edits the code; nor does `--write-decisions=<file>`, unless `--decisions` names the same file (naming another one is an error).
 
 | Field | Means |
 |---|---|

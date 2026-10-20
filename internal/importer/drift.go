@@ -52,6 +52,10 @@ type DriftOptions struct {
 	// with what the file has (see DriftDecisions.Merge). Without
 	// Decisions, the file it merges into isn't applied.
 	WriteDecisions bool
+	// WriteDecisionsTo, if not "", is the file WriteDecisions writes. One
+	// Decisions doesn't name isn't applied, so that a decisions file kept
+	// outside Out is written again without editing the code.
+	WriteDecisionsTo string
 	// DetailedExitCode exits with report.ExitDrift when drift is found,
 	// and with report.ExitDriftRejected when an accepted change's edit
 	// failed verification.
@@ -231,6 +235,9 @@ func checkDriftOptions(options DriftOptions) error {
 		if _, err := ParseDriftRule(r.String(), r.Accept); err != nil {
 			return err
 		}
+	}
+	if options.WriteDecisionsTo != "" && options.Decisions != "" && filepath.Clean(options.WriteDecisionsTo) != filepath.Clean(options.Decisions) {
+		return fmt.Errorf("--write-decisions=%s: with --decisions, it writes the file --decisions names, %s", options.WriteDecisionsTo, options.Decisions)
 	}
 	return nil
 }

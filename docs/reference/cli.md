@@ -199,7 +199,7 @@ infraharvest drift [output-directory] [flags]
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
-| `--write-decisions` |  | write this run's changes into the decisions file, --decisions or drift.yaml in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped |
+| `--write-decisions` |  | write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else drift.yaml in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped |
 
 ## infraharvest import
 

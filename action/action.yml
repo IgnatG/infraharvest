@@ -58,7 +58,7 @@ inputs:
     description: Before importing, check the roots in the out directory for what changed in the cloud since they were applied (infraharvest drift). off, report (find the changes and write the decisions file, without changing the code) or accept (write the changes drift-decisions or drift-accept accept into the code).
     default: "off"
   drift-decisions:
-    description: With drift accept, a decisions file (drift.yaml) to decide the changes by (--decisions). It is written again with this run's changes (--write-decisions). Without one, the decisions file is drift.yaml in the out directory.
+    description: The decisions file (drift.yaml). With drift report, the file to write this run's changes into, merged with what it has, without applying it (--write-decisions=<file>). With drift accept, the file to decide the changes by (--decisions), written again with this run's changes (--write-decisions). Without one, the decisions file is drift.yaml in the out directory.
     required: false
   drift-accept:
     description: With drift accept, rules for the changes to accept, one a line, as --accept takes them, such as attribute=tags.* or all. A line starting with keep, such as keep type=aws_security_group, is a --keep rule. The last rule that matches a change decides.
@@ -140,13 +140,17 @@ runs:
             fail "drift with an import needs incremental to be true"
           fi
         fi
-        if [[ "$DRIFT" != accept && ( -n "$DRIFT_DECISIONS" || -n "$DRIFT_ACCEPT" ) ]]; then
-          fail "drift-decisions and drift-accept take effect with drift set to accept"
+        if [[ "$DRIFT" == off && -n "$DRIFT_DECISIONS" ]]; then
+          fail "drift-decisions takes effect with drift set to report or accept"
+        fi
+        if [[ "$DRIFT" != accept && -n "$DRIFT_ACCEPT" ]]; then
+          fail "drift-accept takes effect with drift set to accept"
         fi
         if [[ "$DRIFT" == accept && -z "$DRIFT_DECISIONS" && -z "$DRIFT_ACCEPT" ]]; then
           fail "drift accept needs drift-decisions or drift-accept to say which changes to accept"
         fi
-        if [[ -n "$DRIFT_DECISIONS" && ! -f "$DRIFT_DECISIONS" ]]; then
+        # drift report writes the decisions file: on a first run, a new one.
+        if [[ "$DRIFT" == accept && -n "$DRIFT_DECISIONS" && ! -f "$DRIFT_DECISIONS" ]]; then
           fail "drift-decisions: no file $DRIFT_DECISIONS (drift report writes one, drift.yaml in the out directory)"
         fi
     - name: Install Cosign
@@ -209,9 +213,15 @@ runs:
           exit 0
         fi
         bin="${BINARY:-infraharvest}"
-        # Without --decisions, --write-decisions writes drift.yaml in the out
-        # directory without applying it, so drift report never edits the code.
-        args=(drift "$OUT" "--engine=$ENGINE" --format=json --detailed-exitcode --write-decisions)
+        # Without --decisions, --write-decisions writes drift-decisions, or
+        # drift.yaml in the out directory, without applying it, so drift
+        # report never edits the code.
+        args=(drift "$OUT" "--engine=$ENGINE" --format=json --detailed-exitcode)
+        if [[ "$DRIFT" == report && -n "$DRIFT_DECISIONS" ]]; then
+          args+=("--write-decisions=$DRIFT_DECISIONS")
+        else
+          args+=(--write-decisions)
+        fi
         if [[ "$DRIFT" == accept ]]; then
           if [[ -n "$DRIFT_DECISIONS" ]]; then args+=("--decisions=$DRIFT_DECISIONS"); fi
           while IFS= read -r line; do

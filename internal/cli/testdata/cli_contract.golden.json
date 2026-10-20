@@ -867,7 +867,7 @@
       },
       {
         "name": "write-decisions",
-        "type": "bool",
+        "type": "file",
         "default": "false",
         "no_opt_default": "true",
         "persistent": false

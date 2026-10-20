@@ -100,7 +100,8 @@ jobs:
           aws sqs tag-queue --queue-url "$url" --tags Drift=console
       # A scheduled run on a fresh checkout: the roots are there, infraharvest's
       # checkpoints (gitignored) are not, and a queue is new. Drift is checked
-      # first, and only reported: the code stays as it is.
+      # first, and only reported: the code stays as it is, and the decisions
+      # file is written outside out, where the repository keeps it.
       - name: Add a queue
         run: |
           # The resources' files, whose blocks adding to the roots leaves as
@@ -112,6 +113,7 @@ jobs:
             -exec cp --parents {} "$RUNNER_TEMP/before" \;
           test -n "$(find "$RUNNER_TEMP/before" -name '*.tf')"
           rm -rf "$RUNNER_TEMP/out/.infraharvest"
+          mkdir -p "$RUNNER_TEMP/decisions"
           aws sqs create-queue --queue-name infraharvest-action-new
       - name: Run the action again
         id: again
@@ -123,6 +125,7 @@ jobs:
           regions: us-east-1
           out: ${{ runner.temp }}/out
           drift: report
+          drift-decisions: ${{ runner.temp }}/decisions/drift.yaml
       - name: Check the drift was reported
         env:
           DRIFT_FOUND: ${{ steps.again.outputs.drift-found }}
@@ -133,7 +136,8 @@ jobs:
           test "$DRIFT_FOUND" = true
           test -f "$DRIFT_REPORT"
           jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "kept")] | length == 1' "$RUNNER_TEMP/out/report/drift.json"
-          grep -q "decision: undecided" "$RUNNER_TEMP/out/drift.yaml"
+          grep -q "decision: undecided" "$RUNNER_TEMP/decisions/drift.yaml"
+          test ! -e "$RUNNER_TEMP/out/drift.yaml"
       - name: Check the new queue was added
         env:
           EXIT_CODE: ${{ steps.again.outputs.exit-code }}
@@ -158,7 +162,7 @@ jobs:
       # Review the decisions file as a person would: accept the change.
       - name: Decide to accept the drift
         run: |
-          sed -i 's/decision: undecided/decision: accept/' "$RUNNER_TEMP/out/drift.yaml"
+          sed -i 's/decision: undecided/decision: accept/' "$RUNNER_TEMP/decisions/drift.yaml"
       - name: Accept the drift
         id: accept
         uses: ./action
@@ -167,7 +171,7 @@ jobs:
           import: "false"
           out: ${{ runner.temp }}/out
           drift: accept
-          drift-decisions: ${{ runner.temp }}/out/drift.yaml
+          drift-decisions: ${{ runner.temp }}/decisions/drift.yaml
           # Matches nothing here: the file's decision stands.
           drift-accept: |
             # Security groups are reviewed by hand.
