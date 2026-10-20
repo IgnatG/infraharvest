@@ -194,13 +194,14 @@ func (k *keptRoots) dirs(dirOf, unsplit func(string, harvest.Resource) string, e
 // with removed blocks for them, alone if nothing is left in it, and the
 // roots of their environments import them. Without, only a root that has
 // nothing left to hand over does, as one an earlier run handed
-// everything over from. The other roots keep
-// their resources, and the log says why.
+// everything over from. The other roots keep their resources, and the
+// log says why.
 func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirOf, unsplit func(string, harvest.Resource) string, importID func(harvest.Resource) (string, bool), regenerate bool) error {
-	// Where each resource goes, by the root it would be kept in, and the
-	// roots some of the run's resources stay in anyway.
+	// Where each resource goes, by the root it would be kept in, or goes
+	// anyway, as its environment's root was generated (see dirs), and the
+	// roots some of the run's resources stay in.
 	going := map[string]map[engine.External]string{}
-	staying := map[string]bool{}
+	staying, kept := map[string]bool{}, map[string]bool{}
 	for _, service := range slices.Sorted(maps.Keys(resourcesByService)) {
 		for _, r := range resourcesByService[service] {
 			dir, before := dirOf(service, r), unsplit(service, r)
@@ -208,10 +209,11 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 				staying[filepath.Clean(before)] = true
 				continue
 			}
-			if k.isRecorded(dir) || !k.isRecorded(before) {
+			if !k.isRecorded(before) {
 				continue
 			}
 			before = filepath.Clean(before)
+			kept[before] = kept[before] || !k.isRecorded(dir)
 			if going[before] == nil {
 				going[before] = map[engine.External]string{}
 			}
@@ -221,6 +223,9 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 		}
 	}
 	for _, before := range sortedDirs(going) {
+		if !kept[before] {
+			continue // nothing would be kept in it
+		}
 		root := relativePath(k.out, before)
 		c, err := readCheckpoint(k.out, before)
 		if err != nil {
