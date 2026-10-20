@@ -248,7 +248,9 @@ func TestAWSDrift(t *testing.T) {
 	if len(splitDirs) < 2 {
 		t.Fatalf("the import by service generated %v, want a root for sqs and one for s3", splitDirs)
 	}
-	change(map[string]string{"team": "qa", "bucket_team": "qa"})
+	// The emulator drops a bucket's other tags when its team tag alone
+	// changes, so the Project tag changes too.
+	change(map[string]string{"project": "infraharvest-e2e-drift-v3", "team": "qa", "bucket_team": "qa"})
 	drift = driftRun{ctx: ctx, engineName: engineName, execPath: execPath, out: split}
 	code = codeFiles(t, split)
 	d = drift.mustExitJSON(t, report.ExitDrift, "--parallel=3", "--detailed-exitcode")
@@ -262,7 +264,7 @@ func TestAWSDrift(t *testing.T) {
 	if queue.Root == bucket.Root {
 		t.Errorf("--parallel: the queue and the bucket are both in %s", queue.Root)
 	}
-	d = drift.mustExitJSON(t, report.ExitOK, "--parallel=3", "--accept", "attribute=tags.team", "--detailed-exitcode")
+	d = drift.mustExitJSON(t, report.ExitOK, "--parallel=3", "--accept", "attribute=tags.*", "--detailed-exitcode")
 	checkDriftChange(t, "--parallel, accepted", driftChange(t, "--parallel, accepted", d, "aws_sqs_queue", "tags.team"), "ops", "qa", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
 	checkDriftChange(t, "--parallel, accepted", driftChange(t, "--parallel, accepted", d, "aws_s3_bucket", "tags.team"), "ops", "qa", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
 	if !codeMatches(t, split, `team\s*=\s*"qa"`) || codeMatches(t, split, `team\s*=\s*"ops"`) {
