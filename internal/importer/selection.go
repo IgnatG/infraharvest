@@ -348,6 +348,15 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	if err != nil {
 		return nil, err
 	}
+	// A root generated again keeps what it has: left out of it, its
+	// resource blocks would go, and a plan on its state would destroy
+	// what they manage.
+	var held map[engine.External]string
+	if (options.Regenerate || options.Resume) && options.Out != "" {
+		if held, err = generatedResources(options.Out); err != nil {
+			return nil, err
+		}
+	}
 	if defaults == nil {
 		defaults = map[string]string{}
 	}
@@ -355,11 +364,49 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 		for _, res := range resources {
 			id, _ := importID(res)
 			if where, ok := state.Lookup(res.Address.Type, id, res.Observed.ID); ok {
+				if root, ok := held[engine.External{Type: res.Address.Type, ID: id}]; ok {
+					log.Printf("%s %s is in the state %s, and in %s, which an earlier import generated: it stays in that root, which would destroy it if generated again without it", res.Address.Type, id, where, root)
+					continue
+				}
 				defaults[res.Address.Type+" "+res.Observed.ID] = managed.Reason + " (" + where + ")"
 			}
 		}
 	}
 	return defaults, nil
+}
+
+// generatedResources returns, by type and import ID, the root of out,
+// relative to it, that has each resource the roots earlier imports
+// generated there have (see previousAddresses), those still being
+// generated again too. A root whose checkpoint can't be read fails it:
+// what that root has can't be told, and leaving any of it out would make
+// a plan on its state destroy it.
+func generatedResources(out string) (map[engine.External]string, error) {
+	dirs, err := checkpointDirs(out)
+	if err != nil {
+		return nil, err
+	}
+	held := map[engine.External]string{}
+	for _, dir := range dirs {
+		names, err := tfFiles(dir)
+		if err != nil {
+			return nil, err
+		}
+		if len(names) == 0 {
+			continue
+		}
+		previous, err := previousAddresses(out, dir)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w: with --managed-state, generating roots again needs to know what each has, so that none of it is left out", relativePath(out, dir), err)
+		}
+		for _, p := range previous {
+			key := engine.External{Type: p.Type, ID: p.ID}
+			if _, ok := held[key]; !ok {
+				held[key] = relativePath(out, dir)
+			}
+		}
+	}
+	return held, nil
 }
 
 // withProfile adds profile, the import's --profile, to an s3:// source that

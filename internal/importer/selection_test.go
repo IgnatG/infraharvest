@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -290,6 +292,50 @@ func TestExcludeManaged(t *testing.T) {
 	}
 	if _, err := excludeManaged(t.Context(), run, Options{ManagedState: []string{"backend"}}, listedForSelection, nil, importIDForSelection); err == nil {
 		t.Error("want an error for backend without a configured backend")
+	}
+}
+
+// With --regenerate, what a root an earlier import generated has isn't
+// left out as managed, even though state has it: generated again without
+// it, the root would lose its block, and a plan destroy it. A root whose
+// checkpoint can't be read fails the import instead.
+func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terraform.tfstate")
+	content := `{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "old-archive"}}]}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
+	writeRoot(t, dir, engine.VersionsFileName, "storage.tf")
+	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: "old-archive", Address: "aws_s3_bucket.old_archive"}}}
+	if err := writeCheckpoint(out, dir, checkpoint{Result: result}); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, tc := range map[string]struct {
+		options Options
+		managed bool
+	}{
+		"regenerate":  {Options{ManagedState: []string{path}, Out: out, Regenerate: true}, false},
+		"resume":      {Options{ManagedState: []string{path}, Out: out, Resume: true}, false},
+		"incremental": {Options{ManagedState: []string{path}, Out: out, Incremental: true}, true},
+		"a new root":  {Options{ManagedState: []string{path}, Out: t.TempDir(), Regenerate: true}, true},
+	} {
+		defaults, err := excludeManaged(t.Context(), NewRun(), tc.options, listedForSelection, nil, importIDForSelection)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, got := defaults["aws_s3_bucket old-archive"]; got != tc.managed {
+			t.Errorf("%s: left out as managed %v, want %v", name, got, tc.managed)
+		}
+	}
+
+	if err := os.WriteFile(checkpointPath(out, dir), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := excludeManaged(t.Context(), NewRun(), Options{ManagedState: []string{path}, Out: out, Regenerate: true}, listedForSelection, nil, importIDForSelection); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
+		t.Errorf("an unreadable checkpoint: %v", err)
 	}
 }
 
