@@ -375,6 +375,10 @@ type ImportResult struct {
 	// directories, though the configuration file's environments would put
 	// their resources under envs/<env>/ now.
 	KeptRoots []report.KeptRoot `json:"kept_roots,omitempty"`
+	// Warnings are what people should look at before using the
+	// configuration: about the run, such as environments it couldn't
+	// apply, and about a directory's configuration, after its path.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
@@ -493,6 +497,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 
 		IncompleteHandovers: r.IncompleteHandovers,
 		KeptRoots:           r.KeptRoots,
+		Warnings:            warnings(&r),
 	}
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
 		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
@@ -508,10 +513,25 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if n := len(r.KeptRoots); n > 0 {
 		text += fmt.Sprintf(" %d roots an earlier import generated keep their directories, though the configuration file's environments would put their resources under envs/<env>/ now (see kept_roots and the report): to lay them out by environment, import into a new output directory.", n)
 	}
+	if n := len(result.Warnings); n > 0 {
+		text += fmt.Sprintf(" %d warnings to look at before using the configuration (see warnings and the report).", n)
+	}
 	if stopped(code) {
 		text = "The import was stopped before it finished. " + text
 	}
 	return textResult(text), result, nil
+}
+
+// warnings returns the warnings of r: about the run, then about each
+// directory's configuration, after the directory's path.
+func warnings(r *report.Report) []string {
+	w := slices.Clone(r.Warnings)
+	for _, d := range r.Directories {
+		for _, dw := range d.Warnings {
+			w = append(w, d.Path+": "+dw)
+		}
+	}
+	return w
 }
 
 // Exit codes of a run a signal stopped, 128 and the signal's number, as
