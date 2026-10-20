@@ -139,12 +139,13 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 		t.Fatalf("the first import generated %+v, want one root", first.Directories)
 	}
 	rootPath := first.Directories[0].Path
-	plain := map[string]string{} // by import ID, where the root has it
+	// By type and import ID, as a bucket and its versioning share an ID.
+	plain := map[engine.External]string{} // where the root has each
 	for _, r := range first.Directories[0].Imported {
 		if strings.HasPrefix(r.Address, "module.") {
 			t.Errorf("--modules=none: %s is in a module call", r.Address)
 		}
-		plain[r.ID] = r.Address
+		plain[engine.External{Type: report.ResourceType(r.Address), ID: r.ID}] = r.Address
 	}
 	if len(plain) != c.resources {
 		t.Fatalf("%s imports %v, want %d resources", rootPath, plain, c.resources)
@@ -162,17 +163,17 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 
 	// regenerate generates the root again with --modules=modules, and
 	// checks it moves each resource from where from has it to where it is
-	// now, which it returns, by import ID, and that the root, over the
-	// state of the last apply, plans the moves alone, and, applied, no
-	// change.
-	regenerate := func(modules string, from map[string]string) map[string]string {
+	// now, which it returns, by type and import ID, and that the root,
+	// over the state of the last apply, plans the moves alone, and,
+	// applied, no change.
+	regenerate := func(modules string, from map[engine.External]string) map[engine.External]string {
 		t.Helper()
 		coverage := importWith(modules, "--regenerate")
-		now := map[string]string{}
+		now := map[engine.External]string{}
 		for id, address := range from {
-			now[id] = importedAt(t, coverage, rootPath, id)
+			now[id] = importedAs(t, coverage, rootPath, id)
 			if !slices.ContainsFunc(coverage.Moved, func(m report.Move) bool {
-				return m.ID == id && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address && m.To == now[id]
+				return m.Type == id.Type && m.ID == id.ID && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address && m.To == now[id]
 			}) {
 				t.Errorf("--modules=%s: coverage.json doesn't move %s from %s to %s: moved %+v", modules, id, address, now[id], coverage.Moved)
 			}
@@ -274,4 +275,22 @@ func copyModules(t *testing.T, out, work string) {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
+}
+
+// importedAs returns the address coverage has the resource of id at, in
+// the root at path.
+func importedAs(t *testing.T, coverage report.Report, path string, id engine.External) string {
+	t.Helper()
+	for _, d := range coverage.Directories {
+		if d.Path != path {
+			continue
+		}
+		for _, r := range d.Imported {
+			if r.ID == id.ID && report.ResourceType(r.Address) == id.Type {
+				return r.Address
+			}
+		}
+	}
+	t.Fatalf("%s doesn't import %s %s: %+v", path, id.Type, id.ID, coverage.Directories)
+	return ""
 }
