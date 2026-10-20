@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -38,6 +39,10 @@ type DriftInput struct {
 	Environments []string `json:"environments,omitempty" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with (default: every environment under its vars/)"`
 	// Catalogue is --catalogue.
 	Catalogue string `json:"catalogue,omitempty" jsonschema:"the directory of catalogue files the import used, which add to or override the built-in catalogue: the arguments it says are kept only in state aren't drift"`
+	// EngineTimeout is --engine-timeout, "" for its default.
+	EngineTimeout string `json:"engine_timeout,omitempty" jsonschema:"the longest time one Terraform or OpenTofu command, such as the refresh of one root, may run, as a duration such as 30m or 2h (default 1h; 0 for no limit)"`
+	// ForceUnlock is --force-unlock.
+	ForceUnlock bool `json:"force_unlock,omitempty" jsonschema:"check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock"`
 }
 
 // DriftAcceptInput is the drift_accept tool's input.
@@ -128,6 +133,19 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 	}
 	if in.Parallel > 0 {
 		args = append(args, fmt.Sprintf("--parallel=%d", in.Parallel))
+	}
+	if in.EngineTimeout != "" {
+		timeout, err := time.ParseDuration(in.EngineTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("engine_timeout: %w", err)
+		}
+		if timeout < 0 {
+			return nil, errors.New("engine_timeout can't be negative")
+		}
+		args = append(args, "--engine-timeout="+timeout.String())
+	}
+	if in.ForceUnlock {
+		args = append(args, "--force-unlock")
 	}
 	for _, r := range in.Roots {
 		if r == "" || strings.ContainsFunc(r, unicode.IsControl) {

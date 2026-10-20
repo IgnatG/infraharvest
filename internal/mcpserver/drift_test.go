@@ -357,6 +357,8 @@ func TestDriftAcceptRejectsBadInput(t *testing.T) {
 		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Accept: []string{"all"}}, "control character"},
 		"another engine":        {DriftAcceptInput{DriftInput: DriftInput{Out: out, Engine: "pulumi"}, Accept: []string{"all"}}, "terraform or tofu"},
 		"negative parallel":     {DriftAcceptInput{DriftInput: DriftInput{Out: out, Parallel: -1}, Accept: []string{"all"}}, "negative"},
+		"a bad engine timeout":  {DriftAcceptInput{DriftInput: DriftInput{Out: out, EngineTimeout: "soon"}, Accept: []string{"all"}}, "engine_timeout"},
+		"a negative timeout":    {DriftAcceptInput{DriftInput: DriftInput{Out: out, EngineTimeout: "-1m"}, Accept: []string{"all"}}, "negative"},
 		"a bad decisions file":  {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: writeFile(t, dir, "bad.yaml", "version: 9\n")}, "version 9"},
 		"no decisions file":     {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: filepath.Join(dir, "missing.yaml")}, ""},
 	} {
@@ -474,5 +476,28 @@ func TestDriftCatalogue(t *testing.T) {
 	}
 	if len(runner.runs) != 1 {
 		t.Errorf("ran with a catalogue outside the root: %v", runner.runs[1:])
+	}
+}
+
+// engine_timeout and force_unlock set --engine-timeout and --force-unlock,
+// for drift_accept too.
+func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, nil)
+	out := generatedOut(t, dir)
+
+	if res, text := call(t, session, "drift", map[string]any{"out": out, "engine_timeout": "90m", "force_unlock": true}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if res, text := call(t, session, "drift_accept", map[string]any{"out": out, "engine_timeout": "0", "keep": []string{"all"}}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	want := [][]string{
+		{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--engine-timeout=1h30m0s", "--force-unlock", "--", out},
+		{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--engine-timeout=0s", "--keep=all", "--", out},
+	}
+	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
+		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
 }
