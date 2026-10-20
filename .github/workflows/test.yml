@@ -339,9 +339,11 @@ jobs:
   # and those of what is imported (report, filters, exit codes). The drift
   # test (TestAWSDrift), which applies and changes its estate many times
   # over, runs on another, as does the environments test
-  # (TestAWSEnvironments), which imports two accounts four times. The
-  # other tests (TestAWSParallelAccounts, TestAWSParallelRegions and
-  # TestAWSRegenerateMoves, which create their resources in other
+  # (TestAWSEnvironments), which imports two accounts four times, and the
+  # tests of --regenerate's moved and removed blocks
+  # (TestAWSRegenerate*), which each apply roots and generate them again
+  # in accounts of their own. The other tests (TestAWSParallelAccounts
+  # and TestAWSParallelRegions, which create their resources in other
   # accounts) share a last one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
@@ -353,7 +355,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, selection, incremental, options-output, options-input, drift, environments, others]
+        shard: [round-trip, selection, incremental, options-output, options-input, drift, environments, regenerate, others]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
@@ -376,9 +378,12 @@ jobs:
         - shard: environments
           run: ^TestAWSEnvironments$
           skip: ""
+        - shard: regenerate
+          run: ^TestAWSRegenerate(Moves|Layout)$
+          skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift|Environments)$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift|Environments|Regenerate.*)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
