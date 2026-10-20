@@ -52,6 +52,8 @@ jobs:
           # the toolchain go.mod names, as setup-go would install, for
           # golangci-lint and osv-scanner's govulncheck.
           GOTOOLCHAIN: auto
+          # Fetch a module the proxy drops from its repository instead.
+          GOPROXY: https://proxy.golang.org|direct
       - name: Upload the MegaLinter report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
