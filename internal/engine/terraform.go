@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -295,4 +297,46 @@ func (t *timedTerraform) FormatCheck(ctx context.Context, opts ...tfexec.FormatO
 		return err
 	})
 	return formatted, unformatted, err
+}
+
+// emptyStatePattern names the temporary directories withoutLocalState
+// keeps an empty state's path in.
+const emptyStatePattern = "infraharvest-state-"
+
+// withoutLocalState returns tf for dir, whose plans read no state: if dir
+// has the local state of a root applied without a backend (see
+// LocalStateFile), they plan with an empty state outside dir instead, as
+// Generate plans a root with a backend, whose state it never reaches.
+// With dir's state, Terraform would skip the import of each resource the
+// state has, and so generate no configuration for it; the root's own
+// plans, by whoever applies it, skip those imports, and its moved blocks
+// move the state's resources. The state is never written: a plan doesn't write state, and
+// the empty state's lock is outside dir. The function it returns removes
+// the empty state's directory.
+func withoutLocalState(tf Terraform, dir string) (Terraform, func(), error) {
+	if _, err := os.Stat(filepath.Join(dir, stagedStateFile)); errors.Is(err, fs.ErrNotExist) {
+		return tf, func() {}, nil
+	} else if err != nil {
+		return nil, nil, err
+	}
+	empty, err := os.MkdirTemp("", emptyStatePattern)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &statelessTerraform{Terraform: tf, state: filepath.Join(empty, stagedStateFile)}, func() { _ = os.RemoveAll(empty) }, nil
+}
+
+// statelessTerraform is a Terraform whose plans read the state at state,
+// which doesn't exist (see withoutLocalState).
+type statelessTerraform struct {
+	Terraform
+	state string
+}
+
+func (s *statelessTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	// -state is a legacy flag, which Terraform and OpenTofu still take for
+	// the local backend; a backend block for the empty state instead would
+	// change the backend that terraform init records in the root.
+	state := tfexec.State(s.state) //nolint:staticcheck // see above
+	return s.Terraform.PlanJSON(ctx, w, append(slices.Clone(opts), state)...)
 }

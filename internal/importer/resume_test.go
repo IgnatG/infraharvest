@@ -553,3 +553,37 @@ func TestRefuseReaddressedWithMoves(t *testing.T) {
 		t.Errorf("with moves the engine couldn't write: %v", err)
 	}
 }
+
+// A root applied without a backend keeps its local state when it is
+// generated again and put back: claiming it leaves the state, and putting
+// it back neither writes back the state it had, which Terraform may have
+// written since, nor removes the state files Terraform wrote.
+func TestPutBackKeepsLocalState(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "777", "eu-west-2")
+	writeRootFiles(t, dir, map[string]string{"network.tf": "# as applied\n", "terraform.tfstate": "serial 1"})
+	addresses := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}
+	done := &engine.Result{Imported: []engine.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
+	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := claimRoot(out, dir, "fp", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "terraform.tfstate")); err != nil || string(got) != "serial 1" {
+		t.Fatalf("terraform.tfstate once claimed: %q, %v", got, err)
+	}
+	// What generating it wrote, and Terraform since.
+	writeRootFiles(t, dir, map[string]string{"network.tf": "# generated again\n", "terraform.tfstate": "serial 2", "terraform.tfstate.backup": "serial 1"})
+	if err := claimed.putBack(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, want := range map[string]string{"network.tf": "# as applied\n", "terraform.tfstate": "serial 2", "terraform.tfstate.backup": "serial 1"} {
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != want {
+			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
+		}
+	}
+}

@@ -325,7 +325,13 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	}
 	// Several steps need the providers' schemas: read them once per init.
 	// No plan shows the secret values Generate finds (see
-	// redactingTerraform).
+	// redactingTerraform), and none reads the state the root may have
+	// locally (see withoutLocalState).
+	tf, removeEmptyState, err := withoutLocalState(tf, dir)
+	if err != nil {
+		return nil, err
+	}
+	defer removeEmptyState()
 	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
 	imports = relabelled(imports, opts.Taken, opts.TidyLabels, opts.Previous)

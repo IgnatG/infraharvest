@@ -425,7 +425,9 @@ func (c *claim) putBack(dir string) error {
 }
 
 // rootBackup is what a root had before it was generated again: the files
-// directly in its directory, and its checkpoint.
+// directly in its directory, but its local state (see
+// engine.LocalStateFile), and its checkpoint. The state is Terraform's,
+// which may write it in between, so it is never written back or removed.
 type rootBackup struct {
 	dir   string
 	files map[string]savedFile
@@ -451,7 +453,7 @@ func backupRoot(dir, path string, content []byte) (*rootBackup, error) {
 		return nil, err
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() {
+		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -468,15 +470,15 @@ func backupRoot(dir, path string, content []byte) (*rootBackup, error) {
 }
 
 // restore puts the root back as b has it: the files written directly in
-// its directory since are removed, the others written back, and so is
-// the checkpoint.
+// its directory since are removed, but local state, the others written
+// back, and so is the checkpoint.
 func (b *rootBackup) restore() error {
 	entries, err := os.ReadDir(b.dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	for _, e := range entries {
-		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() {
+		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(b.dir, e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
