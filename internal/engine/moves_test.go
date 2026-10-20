@@ -334,14 +334,14 @@ func TestDepartedAddress(t *testing.T) {
 
 // A root generated again, whose load balancer an earlier import gave the
 // type aws_alb, another name of aws_lb, forgets it as that with a removed
-// block, and imports it as aws_lb: the gate passes, and the README says
-// so.
+// block, and imports it as aws_lb.main, the root's only one: the gate
+// passes, and the README says so.
 func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T) {
 	t.Parallel()
 	previous := &Previous{Addresses: []Managed{{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}}}
 	dir, result := generateAgain(t, []Import{{Type: "aws_lb", Name: "web", ID: "arn:lb"}}, previous)
 
-	if want := []Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"}}; !reflect.DeepEqual(result.Retyped, want) {
+	if want := []Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.main", Removed: "aws_alb.web"}}; !reflect.DeepEqual(result.Retyped, want) {
 		t.Errorf("retyped %+v, want %+v", result.Retyped, want)
 	}
 	if len(result.Unmoved) != 0 || len(result.Moves) != 0 {
@@ -350,11 +350,11 @@ func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T
 	if got := readFile(t, dir, MovesFileName); !strings.Contains(got, "removed {\n  from = aws_alb.web\n\n  lifecycle {\n    destroy = false\n  }\n}\n") {
 		t.Errorf("%s:\n%s", MovesFileName, got)
 	}
-	if got := readFile(t, dir, ImportsFileName); !strings.Contains(got, "aws_lb.web") {
-		t.Errorf("%s doesn't import aws_lb.web:\n%s", ImportsFileName, got)
+	if got := readFile(t, dir, ImportsFileName); !strings.Contains(got, "aws_lb.main") {
+		t.Errorf("%s doesn't import aws_lb.main:\n%s", ImportsFileName, got)
 	}
 	readme := readFile(t, dir, ReadmeFileName)
-	for _, want := range []string{"## Moves", "| `aws_alb.web` | `aws_lb.web` |", "or as forgotten, not destroyed, for those `moves.tf` removes", "Delete `imports.tf` and `moves.tf`"} {
+	for _, want := range []string{"## Moves", "| `aws_alb.web` | `aws_lb.main` |", "or as forgotten, not destroyed, for those `moves.tf` removes", "Delete `imports.tf` and `moves.tf`"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
 		}
