@@ -203,16 +203,16 @@ func TestMoves(t *testing.T) {
 	moved, unmoved := moves(previous, now, sources)
 
 	want := []Move{
+		{From: "module.vpc.aws_route_table.public[0]", To: "aws_route_table.public"},
 		{From: "module.old.aws_s3_bucket.this", To: "aws_s3_bucket.state"},
 		{From: "aws_s3_bucket.logs", To: "module.logs.aws_s3_bucket.this"},
 		{From: "aws_subnet.a", To: `module.subnets.aws_subnet.this["a"]`},
+		{From: "aws_vpc.main", To: "module.vpc.aws_vpc.this[0]"},
 	}
 	if !reflect.DeepEqual(moved, want) {
 		t.Errorf("moves: got %+v, want %+v", moved, want)
 	}
 	wantUnmoved := []string{
-		"aws_vpc.main is now module.vpc.aws_vpc.this[0], and a moved block can't move it into module.vpc (terraform-aws-modules/vpc/aws)",
-		"module.vpc.aws_route_table.public[0] is now aws_route_table.public, and a moved block can't move it out of module.vpc (terraform-aws-modules/vpc/aws)",
 		"aws_sqs_queue.a is now aws_sqs_queue.b, where another of its resources was",
 	}
 	if !reflect.DeepEqual(unmoved, wantUnmoved) {
@@ -334,5 +334,23 @@ func TestRelabelledKeepsLabelsAndReservedAddresses(t *testing.T) {
 	}
 	if got := relabelled(imports, nil, true, nil); !reflect.DeepEqual(got, labelled(imports, nil, true)) {
 		t.Errorf("without a previous root: %+v", got)
+	}
+}
+
+func TestPackagedCall(t *testing.T) {
+	t.Parallel()
+	sources := map[string]string{"eks": "terraform-aws-modules/eks/aws", "vpc": "terraform-aws-modules/vpc/aws", "roles": "../../modules/role"}
+	for address, want := range map[string]string{
+		"aws_vpc.main":                                     "",
+		"module.vpc.aws_vpc.this[0]":                       "",
+		"module.eks.module.kms.aws_kms_key.this[0]":        "module.eks (terraform-aws-modules/eks/aws)",
+		`module.eks["a.b"].module.kms.aws_kms_key.this[0]`: "module.eks (terraform-aws-modules/eks/aws)",
+		`module.eks["a.b"].aws_eks_cluster.this[0]`:        "",
+		"module.roles.module.policy.aws_iam_policy.this":   "",
+		"module.gone.module.inner.aws_s3_bucket.this":      "",
+	} {
+		if got := packagedCall(address, sources); got != want {
+			t.Errorf("packagedCall(%s) = %q, want %q", address, got, want)
+		}
 	}
 }
