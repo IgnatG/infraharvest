@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,6 +43,14 @@ type driftRun struct {
 // report it wrote. A root it couldn't check fails the test, as does a
 // report whose schema isn't drift.json's.
 func (r driftRun) run(t *testing.T, args ...string) (int, report.Drift) {
+	t.Helper()
+	code, d, _ := r.output(t, args...)
+	return code, d
+}
+
+// output runs infraharvest drift with args, as run does, and returns what
+// it printed too.
+func (r driftRun) output(t *testing.T, args ...string) (int, report.Drift, string) {
 	t.Helper()
 	all := append([]string{"drift", r.out, "--engine=" + r.engineName, "--terraform-path=" + r.execPath}, args...)
 	// A run that fails before it writes the report mustn't pass for one
@@ -73,7 +83,7 @@ func (r driftRun) run(t *testing.T, args ...string) (int, report.Drift) {
 	if _, err := os.Stat(filepath.Join(r.out, report.Dir, report.DriftMarkdownFile)); err != nil {
 		t.Errorf("infraharvest drift %v wrote no %s: %v", args, report.DriftMarkdownFile, err)
 	}
-	return code, d
+	return code, d, stdout.String()
 }
 
 // mustExit runs infraharvest drift with args and fails the test unless it
@@ -83,6 +93,30 @@ func (r driftRun) mustExit(t *testing.T, want int, args ...string) report.Drift 
 	code, d := r.run(t, args...)
 	if code != want {
 		t.Errorf("infraharvest drift %v: exit %d, want %d; changes:\n%s", args, code, want, driftChanges(d))
+	}
+	return d
+}
+
+// mustExitJSON runs infraharvest drift with args and --format=json, and
+// fails the test unless it exits with want and prints drift.json, as it
+// wrote it, and nothing else.
+func (r driftRun) mustExitJSON(t *testing.T, want int, args ...string) report.Drift {
+	t.Helper()
+	args = append(slices.Clone(args), "--format=json")
+	code, d, stdout := r.output(t, args...)
+	if code != want {
+		t.Errorf("infraharvest drift %v: exit %d, want %d; changes:\n%s", args, code, want, driftChanges(d))
+	}
+	path := filepath.Join(r.out, report.Dir, report.DriftJSONFile)
+	if written := readFile(t, path); stdout != written {
+		t.Errorf("infraharvest drift %v printed other than %s:\n%s\nwant\n%s", args, path, stdout, written)
+	}
+	var printed report.Drift
+	if err := json.Unmarshal([]byte(stdout), &printed); err != nil {
+		t.Fatalf("infraharvest drift %v printed no drift.json: %v", args, err)
+	}
+	if !reflect.DeepEqual(printed, d) {
+		t.Errorf("infraharvest drift %v printed\n%+v\nwant what %s has:\n%+v", args, printed, report.DriftJSONFile, d)
 	}
 	return d
 }

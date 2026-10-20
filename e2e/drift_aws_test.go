@@ -44,6 +44,12 @@ const driftProfile = "infraharvest-e2e-drift"
 //
 // The code with every change accepted then plans no change, and, once the
 // state is refreshed, drift finds nothing.
+//
+// Imported again with a root per service ({service} in --layout) and
+// applied, the queue's and the bucket's tags change in the cloud: drift
+// with --parallel=3 checks both roots at once, and with --format=json
+// prints drift.json as it writes it; it finds each root's change, and,
+// with --accept, writes each into its root, which then plans no change.
 func TestAWSDrift(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -221,6 +227,48 @@ func TestAWSDrift(t *testing.T) {
 	if d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode"); len(d.Changes) != 0 {
 		t.Errorf("with the state refreshed: changes\n%s", driftChanges(d))
 	}
+
+	// A root per service, checked at once (--parallel), with the report
+	// printed (--format=json): each root's change is found and accepted
+	// as it is checked alone.
+	split := t.TempDir()
+	runMovesImport(ctx, t,
+		"import", "aws",
+		"--engine="+engineName,
+		"--terraform-path="+execPath,
+		"--profile="+driftProfile,
+		"--regions=us-east-1",
+		"--services=sqs,s3",
+		"--layout={out}/{provider}/{account}/{region}/{service}/",
+		"--out="+split,
+		"--all",
+	)
+	checkCoverage(t, "the import by service", coverageOf(t, split), nil)
+	splitDirs := applyGenerated(ctx, t, split, execPath, plugins)
+	if len(splitDirs) < 2 {
+		t.Fatalf("the import by service generated %v, want a root for sqs and one for s3", splitDirs)
+	}
+	change(map[string]string{"team": "qa", "bucket_team": "qa"})
+	drift = driftRun{ctx: ctx, engineName: engineName, execPath: execPath, out: split}
+	code = codeFiles(t, split)
+	d = drift.mustExitJSON(t, report.ExitDrift, "--parallel=3", "--detailed-exitcode")
+	checkCodeUnchanged(t, "--parallel", code, split)
+	if len(d.Roots) != len(splitDirs) || d.Totals.Failed != 0 {
+		t.Errorf("--parallel: roots %+v, totals %+v", d.Roots, d.Totals)
+	}
+	queue, bucket := driftChange(t, "--parallel", d, "aws_sqs_queue", "tags.team"), driftChange(t, "--parallel", d, "aws_s3_bucket", "tags.team")
+	checkDriftChange(t, "--parallel", queue, "ops", "qa", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+	checkDriftChange(t, "--parallel", bucket, "ops", "qa", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+	if queue.Root == bucket.Root {
+		t.Errorf("--parallel: the queue and the bucket are both in %s", queue.Root)
+	}
+	d = drift.mustExitJSON(t, report.ExitOK, "--parallel=3", "--accept", "attribute=tags.team", "--detailed-exitcode")
+	checkDriftChange(t, "--parallel, accepted", driftChange(t, "--parallel, accepted", d, "aws_sqs_queue", "tags.team"), "ops", "qa", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	checkDriftChange(t, "--parallel, accepted", driftChange(t, "--parallel, accepted", d, "aws_s3_bucket", "tags.team"), "ops", "qa", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	if !codeMatches(t, split, `team\s*=\s*"qa"`) || codeMatches(t, split, `team\s*=\s*"ops"`) {
+		t.Errorf("--parallel, accepted: the code doesn't have team = \"qa\" in place of \"ops\"")
+	}
+	checkAccepted(ctx, t, splitDirs, execPath, plugins)
 }
 
 // loadDecisions reads the decisions file at path.
