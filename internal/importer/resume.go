@@ -235,13 +235,14 @@ func (c *claim) previousRoot() *engine.Previous {
 // generated, which may be in use, is generated again only with
 // regenerate or, if that import didn't finish, with resume, unless no .tf
 // file of it is left; else claimRoot refuses it. Generating it again
-// first records where its resources were (see previousAddresses) in its
+// first records where its resources were (see previousAddresses, and
+// shared.previousAddressesOf for what s has of its own state) in its
 // checkpoint, then removes what the import generated (see
 // clearGenerated). The checkpoint then has no result: it records that
 // the root's generation started, so that a later run knows the files are
 // infraharvest's even if this one fails, and that the root isn't
 // complete (see unfinishedRoot).
-func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
+func claimRoot(out, dir, fp string, resume, regenerate bool, s *shared) (*claim, error) {
 	names, err := tfFiles(dir)
 	if err != nil {
 		return nil, err
@@ -271,7 +272,7 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 	}
 	claimed := &claim{}
 	if readable {
-		if claimed.previous, err = previousAddresses(out, dir); err != nil {
+		if claimed.previous, err = s.previousAddressesOf(out, dir); err != nil {
 			return nil, err
 		}
 		// A run that stopped while generating the root again removed
@@ -363,6 +364,76 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 		return imported, err
 	}
 	return engine.InferredAddresses(c.Result), nil
+}
+
+// recordStated records m, where the root in dir has a resource as its own
+// state says (see excludeManaged).
+func (s *shared) recordStated(dir string, m engine.Managed) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stated == nil {
+		s.stated = map[string][]engine.Managed{}
+	}
+	dir = filepath.Clean(dir)
+	for _, had := range s.stated[dir] {
+		if had.Type == m.Type && had.ID == m.ID {
+			return
+		}
+	}
+	s.stated[dir] = append(s.stated[dir], m)
+}
+
+// previousAddressesOf returns previousAddresses for the root in dir, with
+// where its own state has its resources, if --managed-state read it (see
+// excludeManaged), in place of the addresses only inferred, and with the
+// resources the state has that the root's checkpoint doesn't say: the
+// state's addresses are the ones a plan on it starts from. A nil s reads
+// no state.
+func (s *shared) previousAddressesOf(out, dir string) ([]engine.Managed, error) {
+	previous, err := previousAddresses(out, dir)
+	if err != nil || s == nil {
+		return previous, err
+	}
+	s.mu.Lock()
+	stated := s.stated[filepath.Clean(dir)]
+	s.mu.Unlock()
+	return withStated(previous, stated), nil
+}
+
+// withStated returns previous with the addresses of stated, where a root's
+// own state has its resources, in place of those previous only infers,
+// and with those of stated it hasn't, sorted by type and import ID.
+func withStated(previous, stated []engine.Managed) []engine.Managed {
+	if len(stated) == 0 {
+		return previous
+	}
+	at := map[engine.External]engine.Managed{}
+	for _, m := range stated {
+		at[engine.External{Type: m.Type, ID: m.ID}] = m
+	}
+	merged := make([]engine.Managed, 0, len(previous)+len(stated))
+	for _, p := range previous {
+		key := engine.External{Type: p.Type, ID: p.ID}
+		if m, ok := at[key]; ok {
+			if p.Unverified {
+				p = m
+			}
+			delete(at, key)
+		}
+		merged = append(merged, p)
+	}
+	for _, m := range stated {
+		if _, ok := at[engine.External{Type: m.Type, ID: m.ID}]; ok {
+			merged = append(merged, m)
+		}
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].Type != merged[j].Type {
+			return merged[i].Type < merged[j].Type
+		}
+		return merged[i].ID < merged[j].ID
+	})
+	return merged
 }
 
 // refuseReaddressed fails when result, of generating the claimed root

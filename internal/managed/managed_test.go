@@ -436,3 +436,31 @@ func TestParseAll(t *testing.T) {
 		t.Errorf("want the failure, got %v", err)
 	}
 }
+
+// Each resource has its address in the state: in a module call, with its
+// count or for_each key; one the state doesn't name has none.
+func TestParseKeepsAddresses(t *testing.T) {
+	r := Resources{}
+	err := r.Parse([]byte(`{"version": 4, "resources": [
+	  {"mode": "managed", "type": "aws_s3_bucket", "name": "logs", "instances": [{"attributes": {"id": "logs"}}]},
+	  {"mode": "managed", "module": "module.vpc", "type": "aws_subnet", "name": "private", "instances": [{"index_key": 0, "attributes": {"id": "subnet-0"}}, {"index_key": 1, "attributes": {"id": "subnet-1"}}]},
+	  {"mode": "managed", "type": "aws_iam_role", "name": "app", "instances": [{"index_key": "web", "attributes": {"id": "web", "arn": "arn:aws:iam::1:role/web"}}]},
+	  {"mode": "managed", "type": "aws_sqs_queue", "instances": [{"attributes": {"id": "jobs"}}]}
+	]}`), "prod.tfstate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		typ, id, want string
+	}{
+		{"aws_s3_bucket", "logs", "aws_s3_bucket.logs"},
+		{"aws_subnet", "subnet-1", "module.vpc.aws_subnet.private[1]"},
+		{"aws_iam_role", "arn:aws:iam::1:role/web", `aws_iam_role.app["web"]`},
+		{"aws_sqs_queue", "jobs", ""},
+	} {
+		res, ok := r.Find(tc.typ, tc.id)
+		if !ok || res.Address != tc.want || res.Type != tc.typ || res.Where != "prod.tfstate" {
+			t.Errorf("Find(%s, %s) = %+v, %v, want address %q", tc.typ, tc.id, res, ok, tc.want)
+		}
+	}
+}

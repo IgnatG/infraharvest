@@ -159,6 +159,9 @@ type keptRoots struct {
 	// splits are the roots whose resources go to the roots of their
 	// environments (see split).
 	splits map[string]bool
+	// shared has where the roots' own states have their resources, if
+	// --managed-state reads them (see shared.previousAddressesOf).
+	shared *shared
 }
 
 func newKeptRoots(out string) *keptRoots {
@@ -232,7 +235,7 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 			log.Printf("%s: %v; it keeps the resources the environments would put under envs/", root, err)
 			continue
 		}
-		previous, err := previousAddresses(k.out, before)
+		previous, err := k.shared.previousAddressesOf(k.out, before)
 		if err != nil {
 			return err
 		}
@@ -253,7 +256,7 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 		case len(leaving) < len(previous) && !staying[before]:
 			why = []string{fmt.Sprintf("the run lists %d of its %d resources, and it hands them over only when every one goes", len(leaving), len(previous))}
 		default:
-			if _, why, err = handOver(k.out, before, leaving); err != nil {
+			if _, why, err = handOver(k.out, before, leaving, k.shared); err != nil {
 				return err
 			}
 		}

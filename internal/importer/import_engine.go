@@ -384,6 +384,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	var kept *keptRoots
 	if len(envNames) > 0 {
 		kept = newKeptRoots(options.Out)
+		kept.shared = run.shared
 		unsplit := layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout))
 		if err := kept.split(resourcesByService, dirOf, unsplit, importID, options.Regenerate); err != nil {
 			return nil, err
@@ -565,7 +566,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 				continue
 			}
 			var claimed *claim
-			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental); err != nil {
+			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental, run.shared); err != nil {
 				c.handovers.record(dir, nil, err)
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue

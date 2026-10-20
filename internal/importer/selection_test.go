@@ -9,9 +9,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -290,6 +293,149 @@ func TestExcludeManaged(t *testing.T) {
 	}
 	if _, err := excludeManaged(t.Context(), run, Options{ManagedState: []string{"backend"}}, listedForSelection, nil, importIDForSelection); err == nil {
 		t.Error("want an error for backend without a configured backend")
+	}
+}
+
+// With --regenerate, what a root an earlier import generated has isn't
+// left out as managed, even though state has it: generated again without
+// it, the root would lose its block, and a plan destroy it. A root whose
+// checkpoint can't be read fails the import instead.
+func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terraform.tfstate")
+	content := `{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "old-archive"}}]}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
+	writeRoot(t, dir, engine.VersionsFileName, "storage.tf")
+	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: "old-archive", Address: "aws_s3_bucket.old_archive"}}}
+	if err := writeCheckpoint(out, dir, checkpoint{Result: result}); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, tc := range map[string]struct {
+		options Options
+		managed bool
+	}{
+		"regenerate":  {Options{ManagedState: []string{path}, Out: out, Regenerate: true}, false},
+		"resume":      {Options{ManagedState: []string{path}, Out: out, Resume: true}, false},
+		"incremental": {Options{ManagedState: []string{path}, Out: out, Incremental: true}, true},
+		"a new root":  {Options{ManagedState: []string{path}, Out: t.TempDir(), Regenerate: true}, true},
+	} {
+		defaults, err := excludeManaged(t.Context(), NewRun(), tc.options, listedForSelection, nil, importIDForSelection)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, got := defaults["aws_s3_bucket old-archive"]; got != tc.managed {
+			t.Errorf("%s: left out as managed %v, want %v", name, got, tc.managed)
+		}
+	}
+
+	if err := os.WriteFile(checkpointPath(out, dir), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := excludeManaged(t.Context(), NewRun(), Options{ManagedState: []string{path}, Out: out, Regenerate: true}, listedForSelection, nil, importIDForSelection); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
+		t.Errorf("an unreadable checkpoint: %v", err)
+	}
+}
+
+// With --regenerate, what a root's own state has stays the root's, at the
+// address the state has it, in place of one only inferred, and with what
+// the root's checkpoint doesn't say; what another state has is left out
+// as managed.
+func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
+	writeRoot(t, dir, engine.VersionsFileName, "storage.tf")
+	// From an older release, with imports.tf deleted: the bucket's address
+	// is only inferred, as the call it was moved into.
+	older := &engine.Result{
+		Imported: []engine.Import{{Type: "aws_s3_bucket", Name: "old_archive", ID: "old-archive"}},
+		Modules:  []engine.ModuleCall{{Name: "archive", Resources: []string{"aws_s3_bucket.old_archive"}}},
+	}
+	if err := writeCheckpoint(out, dir, checkpoint{Result: older}); err != nil {
+		t.Fatal(err)
+	}
+	own := `{"version": 4, "resources": [
+	  {"mode": "managed", "module": "module.archive", "type": "aws_s3_bucket", "name": "this", "instances": [{"index_key": 0, "attributes": {"id": "old-archive"}}]},
+	  {"mode": "managed", "type": "aws_vpc", "name": "main", "instances": [{"attributes": {"id": "vpc-0abc1234"}}]}
+	]}`
+	if err := os.WriteFile(filepath.Join(dir, "terraform.tfstate"), []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(t.TempDir(), "network.tfstate")
+	if err := os.WriteFile(other, []byte(`{"version": 4, "resources": [{"mode": "managed", "type": "aws_vpc", "name": "default", "instances": [{"attributes": {"id": "vpc-default"}}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := NewRun()
+
+	defaults, err := excludeManaged(t.Context(), run, Options{ManagedState: []string{out, other}, Out: out, Regenerate: true}, listedForSelection, nil, importIDForSelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"aws_vpc vpc-default": managed.Reason + " (" + other + ")"}; !reflect.DeepEqual(defaults, want) {
+		t.Errorf("defaults: %v, want %v", defaults, want)
+	}
+	got, err := run.shared.previousAddressesOf(out, dir)
+	want := []engine.Managed{
+		{Type: "aws_s3_bucket", ID: "old-archive", Address: "module.archive.aws_s3_bucket.this[0]"},
+		{Type: "aws_vpc", ID: "vpc-0abc1234", Address: "aws_vpc.main"},
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("previous addresses: %+v, %v, want %+v", got, err, want)
+	}
+	// Without the state, the address stays inferred.
+	if got, _ := NewRun().shared.previousAddressesOf(out, dir); len(got) != 1 || !got[0].Unverified {
+		t.Errorf("without the state: %+v", got)
+	}
+}
+
+// A root's own state is its local terraform.tfstate, and where the
+// configured backend keeps it for a root with backend.tf.
+func TestOwnStates(t *testing.T) {
+	out := t.TempDir()
+	withBackend := filepath.Join(out, "aws", "1", "eu-west-2")
+	local := filepath.Join(out, "aws", "1", "global")
+	writeRoot(t, withBackend, BackendFileName)
+	writeRoot(t, local)
+	backend := &config.Backend{S3: &config.S3{Bucket: "acme-state", Region: "eu-west-2", KeyPrefix: "imported"}}
+
+	own := ownStates(out, []string{withBackend, local}, backend)
+	want := map[string]string{
+		stateLocation(filepath.Join(withBackend, "terraform.tfstate")): withBackend,
+		stateLocation(filepath.Join(local, "terraform.tfstate")):       local,
+		"s3://acme-state/imported/aws/1/eu-west-2/terraform.tfstate":   withBackend,
+	}
+	if !reflect.DeepEqual(own, want) {
+		t.Errorf("got %v, want %v", own, want)
+	}
+}
+
+// What a root's own state says replaces only the addresses previous
+// infers: those it records are where the root's configuration has them,
+// which moved blocks of its moves.tf may not have moved in state yet.
+func TestWithStated(t *testing.T) {
+	t.Parallel()
+	previous := []engine.Managed{
+		{Type: "aws_s3_bucket", ID: "logs", Address: "module.logs", Unverified: true},
+		{Type: "aws_sqs_queue", ID: "jobs", Address: "aws_sqs_queue.jobs"},
+	}
+	stated := []engine.Managed{
+		{Type: "aws_sqs_queue", ID: "jobs", Address: "aws_sqs_queue.old_jobs"},
+		{Type: "aws_s3_bucket", ID: "logs", Address: "module.logs.aws_s3_bucket.this[0]"},
+		{Type: "aws_iam_role", ID: "app", Address: "aws_iam_role.app"},
+	}
+	want := []engine.Managed{
+		{Type: "aws_iam_role", ID: "app", Address: "aws_iam_role.app"},
+		{Type: "aws_s3_bucket", ID: "logs", Address: "module.logs.aws_s3_bucket.this[0]"},
+		{Type: "aws_sqs_queue", ID: "jobs", Address: "aws_sqs_queue.jobs"},
+	}
+	if got := withStated(previous, stated); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if got := withStated(previous, nil); !reflect.DeepEqual(got, previous) {
+		t.Errorf("without state: %+v", got)
 	}
 }
 

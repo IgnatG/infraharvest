@@ -290,7 +290,12 @@ func planHandovers(out string, calls []*listedCall) error {
 			}
 		}
 	}
-	gone, err := departures(out, assigned)
+	// What the roots' own state says they have, if --managed-state read it.
+	var s *shared
+	if live[0].run != nil {
+		s = live[0].run.shared
+	}
+	gone, err := departures(out, assigned, s)
 	if err != nil {
 		return err
 	}
@@ -302,7 +307,7 @@ func planHandovers(out string, calls []*listedCall) error {
 	for _, dir := range sortedDirs(gone) {
 		leaving := gone[dir]
 		if _, inRun := callOf[dir]; !inRun {
-			previous, err := previousAddresses(out, dir)
+			previous, err := s.previousAddressesOf(out, dir)
 			if err != nil {
 				return err
 			}
@@ -319,7 +324,7 @@ func planHandovers(out string, calls []*listedCall) error {
 			owner.byDir[dir] = nil
 			callOf[dir] = owner
 		}
-		removals, why, err := handOver(out, dir, leaving)
+		removals, why, err := handOver(out, dir, leaving, s)
 		if err != nil {
 			return err
 		}
@@ -405,15 +410,16 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 
 // departures returns, by the directory of each root the checkpoints under
 // out record, the resources an earlier import put in it, by where it put
-// them (see previousAddresses), that assigned, the root of the run each
-// resource goes to by type and import ID, puts in another root now, as
-// their type or, if assigned has none of that, another name of it (see
-// engine.AliasTypes), such as an aws_alb that is an aws_lb now. Only
+// them, or where its own state has them (see shared.previousAddressesOf,
+// with s), that assigned, the root of the run each resource goes to by
+// type and import ID, puts in another root now, as their type or, if
+// assigned has none of that, another name of it (see engine.AliasTypes),
+// such as an aws_alb that is an aws_lb now. Only
 // roots that still have configuration count, applied ones too, with
 // their import blocks deleted; a root whose import didn't finish counts
 // only while it is generated again (see checkpoint.Pending). A checkpoint
 // that can't be read is logged and passed over.
-func departures(out string, assigned map[engine.External]string) (map[string][]departing, error) {
+func departures(out string, assigned map[engine.External]string, s *shared) (map[string][]departing, error) {
 	dirs, err := checkpointDirs(out)
 	if err != nil {
 		return nil, err
@@ -436,7 +442,7 @@ func departures(out string, assigned map[engine.External]string) (map[string][]d
 		if c == nil || (c.Result == nil && len(c.Pending) == 0) {
 			continue
 		}
-		previous, err := previousAddresses(out, dir)
+		previous, err := s.previousAddressesOf(out, dir)
 		if err != nil {
 			return nil, err
 		}
@@ -473,9 +479,11 @@ func assignedAs(assigned map[engine.External]string, p engine.Managed) (engine.E
 // (see engine.Removal.Instance), which a resource in a call that a module
 // from the registry makes can't be, as moved blocks stay within a module
 // package. A moved block of its moves.tf that a plan may not have applied
-// yet mustn't move it, nor an address only inferred name it.
-func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string, error) {
-	previous, err := previousAddresses(out, dir)
+// yet mustn't move it, nor an address only inferred name it. Where the
+// root's own state has its resources, s says (see
+// shared.previousAddressesOf).
+func handOver(out, dir string, leaving []departing, s *shared) ([]engine.Removal, []string, error) {
+	previous, err := s.previousAddressesOf(out, dir)
 	if err != nil {
 		return nil, nil, err
 	}
