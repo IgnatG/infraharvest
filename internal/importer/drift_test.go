@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -502,5 +503,52 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	if _, err := run("qa"); err == nil || !strings.Contains(err.Error(), "qa") {
 		t.Errorf("--environment qa: %v, want an error naming it", err)
+	}
+}
+
+// The --catalogue overlay applies to the checks, as to the import: its
+// state-only arguments aren't drift. One that doesn't load fails the run
+// before any root is checked.
+func TestDriftUsesTheCatalogueOverlay(t *testing.T) {
+	t.Parallel()
+	out := driftOutput(t, "aws/1/eu-west-2")
+	dir := t.TempDir()
+	overlay := "provider: aws\ntypes:\n  aws_s3_bucket:\n    state_only: [widget_setting]\n"
+	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var stateOnly []map[string][]string
+	check := func(_ context.Context, _, _ string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+		mu.Lock()
+		stateOnly = append(stateOnly, opts.StateOnly)
+		mu.Unlock()
+		return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+	}
+	options := DriftOptions{
+		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1, Catalogue: dir,
+		Provider: func(name string) harvest.Provider {
+			if name == "aws" {
+				return &catalogueProvider{}
+			}
+			return nil
+		},
+		Names: []string{"aws"},
+		check: check,
+	}
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stateOnly) != 1 || !slices.Contains(stateOnly[0]["aws_s3_bucket"], "widget_setting") {
+		t.Errorf("state-only arguments: %v, want the overlay's widget_setting of aws_s3_bucket", stateOnly)
+	}
+
+	stateOnly = nil
+	options.Catalogue = filepath.Join(dir, "missing")
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "--catalogue") {
+		t.Errorf("a catalogue that doesn't load: got %v, want a --catalogue error", err)
+	}
+	if len(stateOnly) != 0 {
+		t.Error("checked roots with a catalogue that doesn't load")
 	}
 }

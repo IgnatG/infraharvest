@@ -792,6 +792,12 @@
         "persistent": false
       },
       {
+        "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "decisions",
         "type": "string",
         "default": "",

@@ -21,6 +21,7 @@ func TestDriftFlags(t *testing.T) {
 		"terraform-path":    "",
 		"engine-timeout":    "1h0m0s",
 		"format":            "text",
+		"catalogue":         "",
 		"parallel":          "1",
 		"root":              "[]",
 		"detailed-exitcode": "false",
@@ -50,6 +51,7 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 		"--accept":    {"--accept", "everything"},
 		"--keep":      {"--keep", "name=x"},
 		"--decisions": {"--decisions", "no-such-drift.yaml"},
+		"--catalogue": {"--catalogue", "no-such-catalogue"},
 		"arguments":   {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {

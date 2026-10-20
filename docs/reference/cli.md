@@ -187,6 +187,7 @@ infraharvest drift [output-directory] [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--accept` |  | write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep, the last rule that matches a change decides) |
+| `--catalogue` |  | directory of catalogue files the import used to add to or override the built-in catalogue, whose arguments kept only in state aren't drift (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--decisions` |  | decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it |
 | `--detailed-exitcode` |  | exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none |
 | `--engine` | `terraform` | terraform or tofu |

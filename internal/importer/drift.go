@@ -30,6 +30,10 @@ type DriftOptions struct {
 	EngineTimeout time.Duration // how long each engine command may run; 0 means no limit
 	Format        string        // FormatText or FormatJSON
 	Parallel      int           // how many roots to check at once
+	// Catalogue is a directory of catalogue files that extend the
+	// built-in catalogue, as the import's --catalogue: their state-only
+	// arguments, defaults and arguments left out apply to the checks.
+	Catalogue string
 	// Roots are patterns of the roots' paths in Out, as path.Match takes
 	// them, such as aws/*/eu-west-2: a root is checked if one matches its
 	// path or a directory it is in. None checks every root.
@@ -84,6 +88,9 @@ type driftCheck func(ctx context.Context, dir, staging string, opts engine.Drift
 // left makes it exit with report.ExitDrift.
 func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftOptions(options); err != nil {
+		return err
+	}
+	if err := checkDriftCatalogue(options); err != nil {
 		return err
 	}
 	decider := driftDecider{rules: options.Rules}
@@ -228,6 +235,25 @@ func checkDriftOptions(options DriftOptions) error {
 	return nil
 }
 
+// checkDriftCatalogue loads options.Catalogue for each provider, so that
+// a directory that doesn't load fails the run before any root is
+// checked, rather than each root.
+func checkDriftCatalogue(options DriftOptions) error {
+	if options.Catalogue == "" || options.Provider == nil {
+		return nil
+	}
+	for _, name := range options.Names {
+		provider := options.Provider(name)
+		if provider == nil {
+			continue
+		}
+		if _, err := providerCatalogue(provider, options.Catalogue); err != nil {
+			return fmt.Errorf("--catalogue: %w", err)
+		}
+	}
+	return nil
+}
+
 // matchesRoot reports whether one of patterns matches rel, the path of a
 // root, or a directory it is in; no patterns match every root.
 func matchesRoot(patterns []string, rel string) bool {
@@ -335,7 +361,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 		}
 	}
 	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
-		cat, err := providerCatalogue(provider, "")
+		cat, err := providerCatalogue(provider, options.Catalogue)
 		if err != nil {
 			root.Error = err.Error()
 			return root, nil

@@ -36,6 +36,8 @@ type DriftInput struct {
 	Parallel int `json:"parallel,omitempty" jsonschema:"how many roots to check at once (default 1); each runs its own Terraform"`
 	// Environments are --environment names.
 	Environments []string `json:"environments,omitempty" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with (default: every environment under its vars/)"`
+	// Catalogue is --catalogue.
+	Catalogue string `json:"catalogue,omitempty" jsonschema:"the directory of catalogue files the import used, which add to or override the built-in catalogue: the arguments it says are kept only in state aren't drift"`
 }
 
 // DriftAcceptInput is the drift_accept tool's input.
@@ -113,6 +115,17 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 		return nil, errors.New("parallel can't be negative")
 	}
 	args := []string{"drift", "--engine=" + engine, "--format=json", "--detailed-exitcode"}
+	if in.Catalogue != "" {
+		catalogue, err := t.within("catalogue", in.Catalogue)
+		if err != nil {
+			return nil, err
+		}
+		// drift reads every file under it.
+		if err := t.linksStayUnder("catalogue", catalogue); err != nil {
+			return nil, err
+		}
+		args = append(args, "--catalogue="+catalogue)
+	}
 	if in.Parallel > 0 {
 		args = append(args, fmt.Sprintf("--parallel=%d", in.Parallel))
 	}

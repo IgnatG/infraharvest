@@ -446,3 +446,33 @@ func TestDriftResultBoundsTheChanges(t *testing.T) {
 		}
 	}
 }
+
+// The catalogue directory is passed on as --catalogue, and stays under
+// the root as the other files do.
+func TestDriftCatalogue(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, nil)
+	out := generatedOut(t, dir)
+	catalogue := filepath.Join(dir, "catalogue")
+	if err := os.MkdirAll(catalogue, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if res, text := call(t, session, "drift", map[string]any{"out": out, "catalogue": catalogue}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	want := []string{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--catalogue=" + catalogue, "--", out}
+	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
+		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+
+	tools := &tools{run: runner.run, root: dir}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+	if _, _, err := tools.drift(t.Context(), req, DriftInput{Out: out, Catalogue: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "must be under") {
+		t.Errorf("a catalogue outside the root: got %v, want it rejected", err)
+	}
+	if len(runner.runs) != 1 {
+		t.Errorf("ran with a catalogue outside the root: %v", runner.runs[1:])
+	}
+}
