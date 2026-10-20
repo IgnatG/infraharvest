@@ -6,7 +6,8 @@ name: Action test
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against Floci, a local AWS emulator: no AWS account is involved. It also
 # runs when the CLI changes, since the action relies on its flags, report
-# path and exit codes, and checks drift on the roots once they're applied.
+# path and exit codes, and checks drift on the roots once they're applied,
+# and what the action would open its pull request with.
 on:
   pull_request:
     paths:
@@ -185,3 +186,81 @@ jobs:
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
+
+  # The action's pull request can't be opened here: this workflow can't
+  # push, and a pull request of its own would be one more in the
+  # repository for every run. What the action opens it with, worked out by
+  # action/pull-request-details.sh, is checked for each kind of run
+  # instead, the script run as the action runs it; the step that opens the
+  # pull request, peter-evans/create-pull-request, only passes it on.
+  pull-request-details:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Work out the pull request of each kind of run
+        run: |
+          printf '# Import report\n' > "$RUNNER_TEMP/report.md"
+          printf '# Drift report\n' > "$RUNNER_TEMP/drift.md"
+          # details <run> <VAR=value>...: runs the script with only the
+          # variables given, as the action sets them, writing its outputs
+          # to $RUNNER_TEMP/<run>.out and its body under $RUNNER_TEMP/<run>.
+          details() {
+            local run=$1
+            shift
+            mkdir -p "$RUNNER_TEMP/$run"
+            : > "$RUNNER_TEMP/$run.out"
+            env -i PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP/$run" GITHUB_OUTPUT="$RUNNER_TEMP/$run.out" "$@" bash action/pull-request-details.sh
+          }
+          # output <run> <name>: the value of the output name, on one line
+          # or, as add-paths, on several.
+          output() {
+            awk -v name="$2" '
+              index($0, name "<<") == 1 { end = substr($0, length(name) + 3); next }
+              end != "" && $0 == end { end = ""; next }
+              end != "" { print; next }
+              index($0, name "=") == 1 { print substr($0, length(name) + 2) }
+            ' "$RUNNER_TEMP/$1.out"
+          }
+          expect() {
+            local got
+            got=$(output "$1" "$2")
+            if [[ "$got" != "$3" ]]; then
+              echo "::error::$1: $2 is '$got', want '$3'"
+              exit 1
+            fi
+          }
+
+          # A scheduled import.
+          details import IMPORT=true DRIFT=off OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
+            IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT=
+          expect import title "Import existing resources with infraharvest"
+          expect import commit-message "feat: import existing resources with infraharvest"
+          expect import branch infraharvest/import
+          expect import body-path "$RUNNER_TEMP/import/infraharvest-pull-request.md"
+          expect import add-paths infraharvest-out
+          cmp "$RUNNER_TEMP/report.md" "$(output import body-path)"
+
+          # Drift accepted, then an import: both reports, and the decisions
+          # file, wherever it is.
+          details both IMPORT=true DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift.yaml \
+            IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          expect both title "Accept cloud changes (drift) and import new resources"
+          expect both commit-message "fix: accept drift found by infraharvest"
+          expect both branch infraharvest/import
+          expect both add-paths "$(printf 'infraharvest-out\ndecisions/drift.yaml')"
+          printf '# Import report\n\n# Drift report\n' > "$RUNNER_TEMP/both.md"
+          cmp "$RUNNER_TEMP/both.md" "$(output both body-path)"
+
+          # Drift alone, on a branch of its own, with no drift report: on a
+          # first run, out doesn't exist yet.
+          details drift IMPORT=false DRIFT=report OUT=infraharvest-out BRANCH=infraharvest/weekly DRIFT_DECISIONS= \
+            IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/missing/drift.md"
+          expect drift title "Accept cloud changes (drift)"
+          expect drift commit-message "fix: accept drift found by infraharvest"
+          expect drift branch infraharvest/weekly
+          expect drift add-paths infraharvest-out
+          test ! -s "$(output drift body-path)"

@@ -300,41 +300,9 @@ runs:
         BRANCH: ${{ inputs.pull-request-branch }}
         IMPORT_REPORT: ${{ steps.import.outputs.report }}
         DRIFT_REPORT: ${{ steps.drift.outputs.drift-report }}
-      run: |
-        if [[ "$DRIFT" == off ]]; then
-          title="Import existing resources with infraharvest"
-          commit="feat: import existing resources with infraharvest"
-          branch=infraharvest/import
-        elif [[ "$IMPORT" == true ]]; then
-          title="Accept cloud changes (drift) and import new resources"
-          commit="fix: accept drift found by infraharvest"
-          branch=infraharvest/import
-        else
-          title="Accept cloud changes (drift)"
-          commit="fix: accept drift found by infraharvest"
-          branch=infraharvest/drift
-        fi
-        if [[ -n "$BRANCH" ]]; then branch="$BRANCH"; fi
-        # The body is the import's report, then the drift report.
-        body="$RUNNER_TEMP/infraharvest-pull-request.md"
-        : > "$body"
-        for file in "$IMPORT_REPORT" "$DRIFT_REPORT"; do
-          if [[ -n "$file" && -f "$file" ]]; then
-            if [[ -s "$body" ]]; then printf '\n' >> "$body"; fi
-            cat "$file" >> "$body"
-          fi
-        done
-        {
-          echo "title=$title"
-          echo "commit-message=$commit"
-          echo "branch=$branch"
-          echo "body-path=$body"
-          # The decisions file, wherever it is, is part of the change.
-          echo "add-paths<<INFRAHARVEST_PATHS"
-          echo "$OUT"
-          if [[ "$DRIFT" != off && -n "$DRIFT_DECISIONS" ]]; then echo "$DRIFT_DECISIONS"; fi
-          echo "INFRAHARVEST_PATHS"
-        } >> "$GITHUB_OUTPUT"
+      # A script of its own, which action-test checks without opening a pull
+      # request.
+      run: bash "$GITHUB_ACTION_PATH/pull-request-details.sh"
     - name: Open the pull request
       uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       id: pull-request
