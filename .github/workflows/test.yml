@@ -382,7 +382,7 @@ jobs:
           run: ^TestAWSEnvironments$
           skip: ""
         - shard: regenerate
-          run: ^TestAWSRegenerate(Moves|Layout|Modules)$
+          run: ^TestAWSRegenerate(Moves|Layout|Modules|CuratedModules)$
           skip: ""
         - shard: others
           run: ""

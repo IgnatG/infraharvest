@@ -45,6 +45,56 @@ const moduleMovesProfile = "infraharvest-e2e-module-moves"
 // The root is applied in a copy of the output with its generated
 // modules, at the same paths, as a team applies it in its repository.
 func TestAWSRegenerateModules(t *testing.T) {
+	checkModuleMoves(t, moduleMoves{
+		fixture:   "aws-module-moves",
+		account:   moduleMovesAccount,
+		profile:   moduleMovesProfile,
+		services:  "iam",
+		modules:   "local",
+		resources: 4,
+		calls:     2,
+	})
+}
+
+// curatedMovesAccount is the account testdata/aws-curated-moves creates
+// its buckets in, which no other test uses.
+const curatedMovesAccount = "989898989898"
+
+// curatedMovesProfile is the profile the test imports curatedMovesAccount
+// as.
+const curatedMovesProfile = "infraharvest-e2e-curated-moves"
+
+// TestAWSRegenerateCuratedModules is TestAWSRegenerateModules with
+// testdata/aws-curated-moves, two buckets each with its versioning, and
+// --modules=registry: generated again, each bucket becomes a call of the
+// curated s3-bucket module from the registry, which moves.tf moves its
+// resources into, and, with --modules=none, out of again.
+func TestAWSRegenerateCuratedModules(t *testing.T) {
+	checkModuleMoves(t, moduleMoves{
+		fixture:   "aws-curated-moves",
+		account:   curatedMovesAccount,
+		profile:   curatedMovesProfile,
+		services:  "s3",
+		modules:   "registry",
+		resources: 4,
+		calls:     2,
+	})
+}
+
+// moduleMoves is a root of resources that --modules makes calls of
+// modules: the fixture that creates them, in the account the test imports
+// as the profile, of the services, the --modules that makes them calls,
+// and how many resources and calls the root has.
+type moduleMoves struct {
+	fixture, account, profile, services, modules string
+	resources, calls                             int
+}
+
+// checkModuleMoves imports c's fixture with --modules=none, applies the
+// root, and generates it again with c.modules, then, once moves.tf is
+// deleted, with --modules=none, as TestAWSRegenerateModules says.
+func checkModuleMoves(t *testing.T, c moduleMoves) {
+	t.Helper()
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
 		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
@@ -63,8 +113,8 @@ func TestAWSRegenerateModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugins := filepath.Join(cache, "plugins")
-	seedApplied(ctx, t, "aws-module-moves", execPath, plugins)
-	useAWSAccount(t, moduleMovesAccount, moduleMovesProfile)
+	seedApplied(ctx, t, c.fixture, execPath, plugins)
+	useAWSAccount(t, c.account, c.profile)
 
 	out := t.TempDir()
 	importWith := func(modules string, more ...string) report.Report {
@@ -73,9 +123,9 @@ func TestAWSRegenerateModules(t *testing.T) {
 			"import", "aws",
 			"--engine=" + engineName,
 			"--terraform-path=" + execPath,
-			"--profile=" + moduleMovesProfile,
+			"--profile=" + c.profile,
 			"--regions=us-east-1",
-			"--services=iam",
+			"--services=" + c.services,
 			"--modules=" + modules,
 			"--out=" + out,
 			"--all",
@@ -96,8 +146,8 @@ func TestAWSRegenerateModules(t *testing.T) {
 		}
 		plain[r.ID] = r.Address
 	}
-	if len(plain) != 4 {
-		t.Fatalf("%s imports %v, want the two roles and their policies", rootPath, plain)
+	if len(plain) != c.resources {
+		t.Fatalf("%s imports %v, want %d resources", rootPath, plain, c.resources)
 	}
 	root := filepath.Join(out, filepath.FromSlash(rootPath))
 
@@ -168,18 +218,18 @@ func TestAWSRegenerateModules(t *testing.T) {
 		return now
 	}
 
-	// Into calls of a generated local module.
-	called := regenerate("local", plain)
+	// Into calls of modules.
+	called := regenerate(c.modules, plain)
 	calls := map[string]bool{}
 	for _, address := range called {
 		if !strings.HasPrefix(address, "module.") {
-			t.Errorf("--modules=local: %s isn't in a module call", address)
+			t.Errorf("--modules=%s: %s isn't in a module call", c.modules, address)
 			continue
 		}
 		calls[strings.SplitN(address, ".", 3)[1]] = true
 	}
-	if len(calls) != 2 {
-		t.Errorf("--modules=local: the resources are in the calls %v, want one per role", calls)
+	if len(calls) != c.calls {
+		t.Errorf("--modules=%s: the resources are in the calls %v, want %d", c.modules, calls, c.calls)
 	}
 
 	// Out of them again, once the moves are applied and moves.tf deleted.
