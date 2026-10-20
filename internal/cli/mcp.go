@@ -33,9 +33,9 @@ func newMCPCmd() *cobra.Command {
 		Long: "Serve infraharvest to AI agents over the Model Context Protocol, on stdin and\n" +
 			"stdout. The tools run this binary: discover lists resources into a selection file,\n" +
 			"import generates configuration from one after the user confirms it, report\n" +
-			"reads an import's report, drift reports what changed in the cloud since the\n" +
-			"roots were applied, and drift_accept takes such changes into the code after\n" +
-			"the user confirms it. The files they read and write stay under --root.\n" +
+			"reads an import's report or the drift report, drift reports what changed in\n" +
+			"the cloud since the roots were applied, and drift_accept takes such changes\n" +
+			"into the code after the user confirms it. The files they read and write stay under --root.\n" +
 			"Nothing is ever applied, and the state is never changed.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -983,3 +983,46 @@ func TestImportReportsKeptRoots(t *testing.T) {
 		t.Errorf("kept_roots: %+v, want %+v", got.KeptRoots, kept)
 	}
 }
+
+// kind drift reads drift.md; without kind, the import's report.md, or
+// drift.md when the output directory has only that.
+func TestReportReadsTheDriftReport(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "generated")
+	dir := filepath.Join(out, report.Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, report.DriftMarkdownFile), []byte("# Drift\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+	read := func(kind string) (string, error) {
+		res, _, err := tools.report(t.Context(), req, ReportInput{Out: out, Kind: kind})
+		if err != nil {
+			return "", err
+		}
+		return res.Content[0].(*mcp.TextContent).Text, nil
+	}
+
+	for _, kind := range []string{"", "drift"} {
+		if text, err := read(kind); err != nil || text != "# Drift\n" {
+			t.Errorf("kind %q with only drift.md: got %q, %v", kind, text, err)
+		}
+	}
+	if _, err := read("import"); err == nil || !strings.Contains(err.Error(), "no report") {
+		t.Errorf("kind import with only drift.md: got %v, want no report", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for kind, want := range map[string]string{"": "# Report\n", "import": "# Report\n", "drift": "# Drift\n"} {
+		if text, err := read(kind); err != nil || text != want {
+			t.Errorf("kind %q with both: got %q, %v, want %q", kind, text, err, want)
+		}
+	}
+	if _, err := read("verify"); err == nil || !strings.Contains(err.Error(), "kind must be") {
+		t.Errorf("kind verify: got %v, want it rejected", err)
+	}
+}

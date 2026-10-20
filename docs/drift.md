@@ -243,4 +243,4 @@ The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/READ
 
 ## From an AI agent
 
-`infraharvest mcp` serves drift to AI agents as two tools: `drift`, which only reports, and `drift_accept`, which takes changes into the code once the user confirms, seeing how many changes would be accepted (see [AI agents](mcp.md)).
+`infraharvest mcp` serves drift to AI agents as two tools: `drift`, which only reports, and `drift_accept`, which takes changes into the code once the user confirms, seeing how many changes would be accepted; the `report` tool reads `drift.md` with `kind: drift` (see [AI agents](mcp.md)).

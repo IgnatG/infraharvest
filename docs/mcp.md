@@ -6,11 +6,11 @@
 |---|---|
 | `discover` | Lists a provider's resources into a selection file, and summarises what it includes and excludes, with the reasons for the first 50 exclusions and a count of the rest, which the selection file has |
 | `import` | Generates configuration from a selection file. It asks the user to confirm first, through MCP elicitation. A client that can't ask gets the command to run instead |
-| `report` | Returns an import's report: its first 256 KiB, cut after a whole line, and then how much is left out and where the full report is |
+| `report` | Returns an import's report, or with `kind` set to `drift` the drift report, `drift.md` (without `kind`, the drift report when the output directory has no import report): its first 256 KiB, cut after a whole line, and then how much is left out and where the full report is |
 | `drift` | Checks the roots in an output directory for what changed in the cloud since they were applied, as [`infraharvest drift`](drift.md) does, and returns the totals, the first 200 changes, the roots that couldn't be checked and the exit code. It changes neither the code nor the state, so it asks nobody first |
 | `drift_accept` | Takes the cloud's values of the changes that `accept` rules or a `decisions` file accept into the roots' code. It asks the user to confirm first, through MCP elicitation, with how many changes a check without them found the next apply would revert, and how many of those would be accepted and kept. With `write_decisions`, it writes the run's changes into the decisions file. A client that can't ask gets the command to run instead |
 
-Their parameters are named after the flags they set: `provider`, `services` and `selection`, and for `import` also `out`, `engine`, `incremental` and `regenerate`; `report` takes `out`. Where to list is in the provider's own terms, as its command's flags are (see [AWS](aws.md), [Azure](azure.md) and [Google Cloud](google.md)):
+Their parameters are named after the flags they set: `provider`, `services` and `selection`, and for `import` also `out`, `engine`, `incremental` and `regenerate`; `report` takes `out` and `kind` (`import` or `drift`). Where to list is in the provider's own terms, as its command's flags are (see [AWS](aws.md), [Azure](azure.md) and [Google Cloud](google.md)):
 
 | Provider | Parameters | Flags they set |
 |---|---|---|
