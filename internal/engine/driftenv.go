@@ -54,6 +54,65 @@ func pullDriftState(ctx context.Context, tf DriftTerraform, dir, backend, env st
 	return state, nil
 }
 
+// envVarsPath returns the var file of environment env of a root
+// environments share, relative to the root, as drift's edits and reports
+// name it: vars/<env>/terraform.tfvars.
+func envVarsPath(env string) string {
+	return varsDirName + "/" + env + "/" + envVarsFileName
+}
+
+// driftContents returns the contents of the .tf files of dir, by name
+// (see tfContents), and, for environment env of a root environments
+// share, those of its var file, by envVarsPath, where drift takes a value
+// a variable sets.
+func driftContents(dir, env string) (map[string][]byte, error) {
+	contents, err := tfContents(dir)
+	if err != nil || env == "" {
+		return contents, err
+	}
+	content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(envVarsPath(env))))
+	if errors.Is(err, fs.ErrNotExist) {
+		return contents, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	contents[envVarsPath(env)] = content
+	return contents, nil
+}
+
+// stageVarFiles copies the var files environment env plans the root in
+// dir with (see mergedVarFiles) to the same paths under staging, the
+// staged copy, whose plans read them there, as drift edits them.
+func stageVarFiles(dir, staging, env string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	_, paths, err := mergedVarFiles(dir, env)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		rel, err := filepath.Rel(abs, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(staging, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, content, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // notImported returns the addresses of ids, the import IDs of an
 // environment of a root environments share by address (see
 // MergedImportIDs), that inState doesn't have, sorted.

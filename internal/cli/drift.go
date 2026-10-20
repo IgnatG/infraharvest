@@ -27,7 +27,9 @@ func newDriftCmd() *cobra.Command {
 			"backends are refused. A root environments share is checked once per\n" +
 			"environment (--environment names which), with its backend settings,\n" +
 			"vars/<env>/backend.hcl, or without a backend its workspace's local state, and\n" +
-			"its var files; as they share its code, accepted changes need a hand edit.\n\n" +
+			"its var files; as they share its code, an accepted change is written into\n" +
+			"vars/<env>/terraform.tfvars where a variable sets the value, else needs a\n" +
+			"hand edit.\n\n" +
 			"Without --accept or --decisions, the code isn't changed either. With them, the\n" +
 			"cloud's values of the changes they accept are written into the code, once the\n" +
 			"plan of the edited copy, without refreshing again, shows each accepted\n" +

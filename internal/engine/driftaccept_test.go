@@ -18,8 +18,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// acceptRoot writes files as a root at aws/123/eu-west-2 of an output
-// directory, and returns the root and where Drift stages it.
+// acceptRoot writes files, by slash-separated paths, as a root at
+// aws/123/eu-west-2 of an output directory, and returns the root and
+// where Drift stages it.
 func acceptRoot(t *testing.T, files map[string]string) (dir, staging string) {
 	t.Helper()
 	out := t.TempDir()
@@ -28,7 +29,11 @@ func acceptRoot(t *testing.T, files map[string]string) (dir, staging string) {
 		t.Fatal(err)
 	}
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
