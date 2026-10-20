@@ -20,11 +20,30 @@ import (
 // its ID, so no bucket gets another address: moved blocks are the AWS
 // test's.
 func TestGoogleRegenerateMoves(t *testing.T) {
+	googleHandover(t, "infraharvest-e2e-moves").check(t)
+}
+
+// TestGoogleRegenerateHalfDone imports testdata/google-moves, with
+// buckets of its own, and hands a bucket over as TestGoogleRegenerateMoves
+// does, but the root the bucket leaves can't be written, so generating it
+// again fails after the root it goes to imported the bucket: the import
+// warns the handover isn't finished (see handover.checkHalfDone). Generated
+// again, the roots then apply in order with no change left.
+func TestGoogleRegenerateHalfDone(t *testing.T) {
+	googleHandover(t, "infraharvest-e2e-half").checkHalfDone(t)
+}
+
+// googleHandover applies testdata/google-moves, its buckets' names
+// starting with prefix, and returns the test of its bucket handed over
+// from the dev root to the prod root.
+func googleHandover(t *testing.T, prefix string) handover {
+	t.Helper()
 	e := seedGoogle(t)
-	fixture := seedApplied(e.ctx, t, "google-moves", e.execPath, e.plugins)
+	named := tfexec.Var("prefix=" + prefix)
+	fixture := seedApplied(e.ctx, t, "google-moves", e.execPath, e.plugins, named)
 	useAssetSearch(t, e, fixture.resources(e.ctx, t))
 	out := t.TempDir()
-	handover{
+	return handover{
 		ctx: e.ctx, execPath: e.execPath, plugins: e.plugins,
 		typ:    "google_storage_bucket",
 		handed: stateValue(t, fixture.resources(e.ctx, t), "google_storage_bucket", "handed", "name"),
@@ -45,10 +64,10 @@ func TestGoogleRegenerateMoves(t *testing.T) {
 		},
 		out: out,
 		change: func(t *testing.T) {
-			fixture.apply(e.ctx, t, tfexec.Var("handed_env=prod"))
+			fixture.apply(e.ctx, t, named, tfexec.Var("handed_env=prod"))
 			// A stand-in of its own, whose search the import doesn't
 			// have from before, with the bucket's new label.
 			useAssetSearch(t, e, fixture.resources(e.ctx, t))
 		},
-	}.check(t)
+	}
 }

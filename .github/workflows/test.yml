@@ -338,13 +338,16 @@ jobs:
   # over, run on two more: those of the output (layout, modules, verify)
   # and those of what is imported (report, filters, exit codes). The drift
   # test (TestAWSDrift), which applies and changes its estate many times
-  # over, runs on another, as does the environments test
+  # over, runs on another, with the shorter drift tests of an S3 backend
+  # (TestAWSDriftBackend) and of the MCP server's drift tools
+  # (TestAWSDriftMCP), as does the environments test
   # (TestAWSEnvironments), which imports two accounts four times, and the
   # tests of --regenerate's moved and removed blocks
   # (TestAWSRegenerate*), which each apply roots and generate them again
   # in accounts of their own. The other tests (TestAWSParallelAccounts
   # and TestAWSParallelRegions, which create their resources in other
-  # accounts) share a last one.
+  # accounts, and TestAWSRegistryModuleMoves, which only plans) share a
+  # last one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
@@ -373,7 +376,7 @@ jobs:
           run: ^TestAWSOptions(Report|Filters|ExitCodes)$
           skip: ""
         - shard: drift
-          run: ^TestAWSDrift$
+          run: ^TestAWSDrift(Backend|MCP)?$
           skip: ""
         - shard: environments
           run: ^TestAWSEnvironments$
@@ -383,7 +386,7 @@ jobs:
           skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift|Environments|Regenerate.*)$
+          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift.*|Environments|Regenerate.*)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
