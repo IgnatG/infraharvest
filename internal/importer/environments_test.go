@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -63,7 +65,7 @@ func TestEnvironments(t *testing.T) {
 	}
 	parents := map[string]string{tagKey(child): tagKey(bucket)}
 
-	got := environments(resources, tags, byTagKeys(defaultEnvTags), parents, importID)
+	got := environments(resources, tags, byTagKeys(defaultEnvTags), parents, importID, untaggedEnv(""))
 	want := map[string]string{
 		tagKey(bucket):      "prod",
 		tagKey(versioning):  "prod",       // the bucket's ID is its import ID
@@ -74,6 +76,14 @@ func TestEnvironments(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// With --default-env, what nothing places goes to that environment,
+	// named as a tag value would be; the rest is placed as before.
+	got = environments(resources, tags, byTagKeys(defaultEnvTags), parents, importID, untaggedEnv("Dev"))
+	want[tagKey(vpc)] = "dev"
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("--default-env: got %v, want %v", got, want)
 	}
 }
 
@@ -265,5 +275,29 @@ func TestWarnUnscoped(t *testing.T) {
 	}
 	if md := run.report.Markdown(); !strings.Contains(md, "## Warnings") || !strings.Contains(md, run.report.Warnings[0]) {
 		t.Errorf("report.md doesn't warn:\n%s", md)
+	}
+}
+
+// --default-env goes with --env-tags, not with the configuration file's
+// environments, which place resources by tags of their own.
+func TestCheckEnvironmentFlagsDefaultEnv(t *testing.T) {
+	envs := &config.File{Environments: config.Environments{"dev": {Tags: map[string]string{"Environment": "dev"}}}}
+	for _, tc := range []struct {
+		file       *config.File
+		defaultEnv string
+		wantErr    bool
+	}{
+		{envs, "", false},
+		{envs, "dev", true},
+		{&config.File{}, "dev", false},
+	} {
+		flags := pflag.NewFlagSet("import", pflag.ContinueOnError)
+		flags.String("default-env", "", "")
+		if err := flags.Set("default-env", tc.defaultEnv); err != nil {
+			t.Fatal(err)
+		}
+		if err := checkEnvironmentFlags(tc.file, flags); (err != nil) != tc.wantErr {
+			t.Errorf("--default-env=%q, %d environments: %v", tc.defaultEnv, len(tc.file.Environments), err)
+		}
 	}
 }
