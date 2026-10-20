@@ -121,9 +121,16 @@ func TestAWSEnvironments(t *testing.T) {
 		`count = var.deploy_alerts ? 1 : 0`,
 		"visibility_timeout_seconds = var.",
 		`naming_prefix = "shop-${var.env}"`,
+		// Each environment's events queue is named from a local too.
+		`_name = "${local.naming_prefix}-events"`,
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(files), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Errorf("the merged root misses %q:\n%s", want, files)
+		}
+	}
+	for _, name := range []string{`"shop-dev-events"`, `"shop-prd-events"`} {
+		if strings.Contains(files, name) {
+			t.Errorf("the merged root names a queue %s, not from a local:\n%s", name, files)
 		}
 	}
 	if strings.Contains(files, "assume_role") {
@@ -165,6 +172,9 @@ func TestAWSEnvironments(t *testing.T) {
 	}
 	if prod := readFile(t, filepath.Join(dir, "vars", "prod", "imports.tfvars")); strings.Contains(prod, "shop-dev-audit") {
 		t.Errorf("prod imports dev's new queue:\n%s", prod)
+	}
+	if files := configuration(t, dir); strings.Contains(files, `"shop-dev-audit"`) || !strings.Contains(files, `"${local.naming_prefix}-audit"`) {
+		t.Errorf("--incremental: dev's new queue isn't named from a local:\n%s", files)
 	}
 	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
 	if imported["dev"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sqs_queue"] != 3 {

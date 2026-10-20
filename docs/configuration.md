@@ -89,7 +89,7 @@ Merging runs once every account, subscription and project of the command is impo
 | Any other value | A variable, typed from the provider's schema and described, set in each environment's `terraform.tfvars`; with three environments or more, the value a strict majority has is its default |
 | Resources some environments only have | `count = var.deploy_<feature> ? 1 : 0`, one `deploy_` variable per feature: resources that refer to one another, or whose names start with the same word |
 | Resources of one type and shape, a different number in each environment | One resource with `for_each` over a map variable, keyed by their names |
-| A resource whose arguments mostly differ, or whose plan would change (see below) | Residue: each environment's resource as its root had it, counted by a `deploy_` variable of its own |
+| A resource whose arguments mostly differ, or whose plan would change (see below) | Residue: each environment's resource as its root had it, counted by a `deploy_` variable of its own, its name a named local beside the others: from `local.naming_prefix` where it holds the environment's token, as it is otherwise |
 | A module call | One call, matched by name, its differing arguments variables, counted by a `deploy_` variable where some environments lack it; a call of another source or release in one environment is residue (see [Modules](modules.md#merged-environments)) |
 
 The merged root has:
