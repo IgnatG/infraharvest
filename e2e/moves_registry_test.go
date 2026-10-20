@@ -9,7 +9,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,10 +18,9 @@ import (
 // TestAWSRegistryModuleMoves plans the roots of testdata/aws-registry-moves
 // with the engine: one moves a bucket into a call of the curated s3-bucket
 // module, from the registry, and the other moves one out of such a call
-// the root still makes. The engine rejects both moved blocks, as moved
-// blocks stay within a module package, which is why --regenerate writes
-// no such moved block, and leaves the root as it was instead (see the
-// engine's moves).
+// the root still makes. The engine accepts both moved blocks: moved
+// blocks stay within a module package, but the call is the root's own,
+// and only the module's own calls are in its package.
 func TestAWSRegistryModuleMoves(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -55,9 +53,8 @@ func TestAWSRegistryModuleMoves(t *testing.T) {
 		if err := tf.Init(ctx); err != nil {
 			t.Fatalf("%s: terraform init: %v", fixture, err)
 		}
-		_, err = tf.Plan(ctx)
-		if err == nil || !strings.Contains(err.Error(), "Cross-package move statement") {
-			t.Errorf("%s: terraform plan: %v, want the moved block rejected as a cross-package move", fixture, err)
+		if _, err := tf.Plan(ctx); err != nil {
+			t.Errorf("%s: terraform plan: %v, want the moved block accepted", fixture, err)
 		}
 	}
 }

@@ -1,8 +1,8 @@
 # A root that moves a bucket into a call of a module from the registry,
 # the curated s3-bucket module at the release its adapter pins, as a root
 # generated again would if its bucket became a call of the module
-# (moves_registry_test.go). Terraform rejects the moved block, as moved
-# blocks stay within a module package. The endpoint, region and
+# (moves_registry_test.go). Terraform and OpenTofu accept the moved block:
+# the call is the root's own. The endpoint, region and
 # credentials come from the environment the test sets.
 
 terraform {

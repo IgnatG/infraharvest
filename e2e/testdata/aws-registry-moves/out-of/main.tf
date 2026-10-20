@@ -2,8 +2,8 @@
 # the curated s3-bucket module at the release its adapter pins, into a
 # resource of the root, as a root generated again would if its bucket were
 # no longer a call of the module (moves_registry_test.go). The call stays,
-# without the bucket. Terraform rejects the moved block, as moved
-# blocks stay within a module package. The endpoint, region and
+# without the bucket. Terraform and OpenTofu accept the moved block: the
+# call is the root's own. The endpoint, region and
 # credentials come from the environment the test sets.
 
 terraform {
