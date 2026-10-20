@@ -595,6 +595,12 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if err != nil {
+				// A root an earlier import generated, which may be in use,
+				// keeps the files it had, and its checkpoint, rather than
+				// none: a later run generates it again.
+				err = errors.Join(err, claimed.putBack(dir))
+			}
 			if err == nil && dirOpts.Previous != nil {
 				err = claimed.refuseReaddressed(dir, result, byDir[dir], inOtherRoots(options.Out, roots, dir))
 			}
