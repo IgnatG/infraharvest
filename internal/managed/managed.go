@@ -21,6 +21,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/IgnatG/infraharvest/internal/engine"
 )
 
 // Reason starts the reason an import gives for leaving out a resource
@@ -52,35 +54,15 @@ func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
 	return "", false
 }
 
-// typeAliases maps resource types to the type another name of theirs is
-// matched as: a load balancer managed as aws_alb is the aws_lb listed, and
-// an Azure virtual machine managed as azurerm_virtual_machine is the
-// azurerm_linux_virtual_machine or azurerm_windows_virtual_machine listed.
-// The types of each group have the same IDs.
-var typeAliases = map[string]string{
-	"aws_alb":                                        "aws_lb",
-	"aws_alb_listener":                               "aws_lb_listener",
-	"aws_alb_listener_certificate":                   "aws_lb_listener_certificate",
-	"aws_alb_listener_rule":                          "aws_lb_listener_rule",
-	"aws_alb_target_group":                           "aws_lb_target_group",
-	"aws_alb_target_group_attachment":                "aws_lb_target_group_attachment",
-	"azurerm_linux_virtual_machine":                  "azurerm_virtual_machine",
-	"azurerm_windows_virtual_machine":                "azurerm_virtual_machine",
-	"azurerm_linux_virtual_machine_scale_set":        "azurerm_virtual_machine_scale_set",
-	"azurerm_windows_virtual_machine_scale_set":      "azurerm_virtual_machine_scale_set",
-	"azurerm_orchestrated_virtual_machine_scale_set": "azurerm_virtual_machine_scale_set",
-	"google_compute_instance_from_template":          "google_compute_instance",
-}
-
 // key is how Resources keys a resource of typ with id: by the type its
-// aliases share (see typeAliases), and an Azure resource ID in lower case,
-// since Azure doesn't keep one case for them: resourceGroups/App in
-// Resource Graph can be resourcegroups/app in state. ARNs and Google
-// self-links keep their case, which matters for them.
+// other names share (see engine.CanonicalType), so that a load balancer
+// managed as aws_alb is the aws_lb listed, and an Azure resource ID in
+// lower case, since Azure doesn't keep one case for them:
+// resourceGroups/App in Resource Graph can be resourcegroups/app in
+// state. ARNs and Google self-links keep their case, which matters for
+// them.
 func key(typ, id string) string {
-	if alias, ok := typeAliases[typ]; ok {
-		typ = alias
-	}
+	typ = engine.CanonicalType(typ)
 	if isAzureID(id) {
 		id = strings.ToLower(id)
 	}

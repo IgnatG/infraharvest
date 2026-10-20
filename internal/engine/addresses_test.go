@@ -104,22 +104,25 @@ func TestReaddressed(t *testing.T) {
 	}
 }
 
-// A resource now of another type with the same import ID is retyped; one
-// that shares its ID with a resource of another type in both isn't.
+// A resource now of another type with the same import ID is retyped,
+// unless that type is another name of its own (see Retype); one that
+// shares its ID with a resource of another type in both isn't.
 func TestRetyped(t *testing.T) {
 	t.Parallel()
 	previous := []Managed{
 		{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"},
+		{Type: "aws_s3_bucket", ID: "data", Address: "aws_s3_bucket.data"},
 		{Type: "aws_s3_bucket", ID: "logs", Address: "aws_s3_bucket.logs"},
 		{Type: "aws_s3_bucket_versioning", ID: "logs", Address: "aws_s3_bucket_versioning.logs"},
 		{Type: "aws_sqs_queue", ID: "gone", Address: "aws_sqs_queue.gone"},
 	}
 	now := []Managed{
 		{Type: "aws_lb", ID: "arn:lb", Address: "aws_lb.web"},
+		{Type: "aws_s3_bucket_policy", ID: "data", Address: "aws_s3_bucket_policy.data"},
 		{Type: "aws_s3_bucket", ID: "logs", Address: "aws_s3_bucket.logs"},
 		{Type: "aws_s3_bucket_versioning", ID: "logs", Address: "aws_s3_bucket_versioning.logs"},
 	}
-	want := []string{"aws_alb.web is now aws_lb.web, of another type"}
+	want := []string{"aws_s3_bucket.data is now aws_s3_bucket_policy.data, of another type, not one infraharvest knows as another name of aws_s3_bucket"}
 	if got := Retyped(previous, now); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}

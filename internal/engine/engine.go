@@ -181,6 +181,11 @@ type Result struct {
 	// roots hand over (see Options.Arrivals).
 	Removed []Removal `json:",omitempty"`
 	Arrived []Arrival `json:",omitempty"`
+	// Retyped are the resources of such a root that are of another type now,
+	// another name of the one they were, which its removed blocks forget
+	// at the addresses they had and its import blocks import again (see
+	// Retype).
+	Retyped []Retype `json:",omitempty"`
 	// Unmoved are the resources of such a root at other addresses that no
 	// moved block can follow, with why; a checkpoint doesn't keep them.
 	Unmoved []string `json:"-"`
@@ -604,10 +609,10 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	}
 	// Last, once the addresses are final: the gate's plans read the moved
 	// and removed blocks too, and they may need a later release.
-	result.Moves, result.Unmoved = moves(opts.Previous, result.Addresses, callSources(result.Modules))
+	result.Moves, result.Retyped, result.Unmoved = moves(opts.Previous, result.Addresses, callSources(result.Modules))
 	result.Removed = removals(opts.Previous, result.Addresses)
 	result.Arrived = arrived(opts.Arrivals, result.Addresses)
-	if err := writeMoves(dir, result.Moves, result.Removed); err != nil {
+	if err := writeMoves(dir, result.Moves, result.Removed, result.Retyped); err != nil {
 		return nil, err
 	}
 	if err := requireMinimumVersion(dir); err != nil {

@@ -764,6 +764,9 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	if len(result.Removed) > 0 {
 		log.Printf("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), engine.MovesFileName)
 	}
+	if len(result.Retyped) > 0 {
+		log.Printf("%s: %d resources are of another name of their type now: removed blocks forget them where they were, and import blocks import them again (see %s)", dir, len(result.Retyped), engine.MovesFileName)
+	}
 	if len(result.Arrived) > 0 {
 		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))
 	}
