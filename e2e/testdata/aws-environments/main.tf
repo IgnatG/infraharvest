@@ -27,6 +27,12 @@ provider "aws" {
   secret_key = "test"
 }
 
+variable "dev_orders_timeout" {
+  description = "The visibility timeout of dev's orders queue, which the test changes once the merged root is applied, for drift."
+  type        = number
+  default     = 30
+}
+
 variable "audit" {
   description = "Whether dev has an audit queue, which the test creates after the first import."
   type        = bool
@@ -41,7 +47,7 @@ locals {
 resource "aws_sqs_queue" "dev_orders" {
   provider                   = aws.dev
   name                       = "shop-dev-orders"
-  visibility_timeout_seconds = 30
+  visibility_timeout_seconds = var.dev_orders_timeout
   tags                       = local.dev
 }
 
@@ -81,6 +87,19 @@ resource "aws_sqs_queue" "prod_alerts" {
   provider = aws.prod
   name     = "shop-prd-alerts"
   tags     = local.prod
+}
+
+variable "reports" {
+  description = "Whether dev has a reports queue, which the test creates for an incremental import of dev alone."
+  type        = bool
+  default     = false
+}
+
+resource "aws_sqs_queue" "dev_reports" {
+  count    = var.reports ? 1 : 0
+  provider = aws.dev
+  name     = "shop-dev-reports"
+  tags     = local.dev
 }
 
 # Created once the stack is merged, for --incremental.

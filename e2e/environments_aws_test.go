@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -47,7 +48,9 @@ environments:
 // environments' roots in the merged root's directory keeps them apart,
 // and the report says why. --resume keeps the merged root as it is, and
 // --incremental adds a queue dev gets since, as dev's, every environment
-// still planning with no changes.
+// still planning with no changes; with dev alone, it merges prod again as
+// its root was kept, unplanned. Applied into each environment's
+// workspace, the merged root is checked for drift as each environment.
 func TestAWSEnvironments(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -70,6 +73,7 @@ func TestAWSEnvironments(t *testing.T) {
 	fixture := seedApplied(ctx, t, "aws-environments", execPath, plugins)
 	config := writeConfig(t, environmentsConfig)
 
+	accounts := environmentAccounts["dev"] + "," + environmentAccounts["prod"]
 	importInto := func(out string, more ...string) {
 		t.Helper()
 		root := cli.NewCmdRoot()
@@ -78,7 +82,7 @@ func TestAWSEnvironments(t *testing.T) {
 			"--config=" + config,
 			"--engine=" + engineName,
 			"--terraform-path=" + execPath,
-			"--accounts=" + environmentAccounts["dev"] + "," + environmentAccounts["prod"],
+			"--accounts=" + accounts,
 			"--parallel=2",
 			"--regions=us-east-1",
 			"--services=sqs,sns",
@@ -165,6 +169,73 @@ func TestAWSEnvironments(t *testing.T) {
 	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
 	if imported["dev"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sqs_queue"] != 3 {
 		t.Errorf("--incremental: imported %v", imported)
+	}
+
+	// An incremental import of dev alone merges prod again from its kept
+	// root, as it was, without planning as prod, and says so; prod's plan
+	// stays the same.
+	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"))
+	accounts = environmentAccounts["dev"]
+	importInto(out, "--incremental")
+	accounts = environmentAccounts["dev"] + "," + environmentAccounts["prod"]
+	coverage = coverageOf(t, out)
+	checkCoverage(t, "--incremental of dev", coverage, nil)
+	merge = checkMerged(t, out, coverage, "aws/us-east-1", "dev", "prod")
+	if strings.Join(merge.Unplanned, ",") != "prod" {
+		t.Errorf("--incremental of dev: unplanned %v, want prod", merge.Unplanned)
+	}
+	if dev := readFile(t, filepath.Join(dir, "vars", "dev", "imports.tfvars")); !strings.Contains(dev, "shop-dev-reports") {
+		t.Errorf("--incremental of dev didn't add dev's reports queue:\n%s", dev)
+	}
+	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
+	if imported["dev"]["aws_sqs_queue"] != 4 || imported["prod"]["aws_sqs_queue"] != 3 {
+		t.Errorf("--incremental of dev: imported %v", imported)
+	}
+
+	// Each environment applies the merged root into its workspace, as the
+	// README says for a root without a backend. Then dev's queue changes in
+	// the cloud: drift as dev finds it, and needs a hand edit to accept
+	// it, as the environments share the code; drift as prod finds none.
+	for _, env := range []string{"dev", "prod"} {
+		credentials(env)
+		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tf.Init(ctx); err != nil {
+			t.Fatalf("%s: terraform init: %v", env, err)
+		}
+		if err := tf.WorkspaceNew(ctx, env); err != nil {
+			t.Fatalf("terraform workspace new %s: %v", env, err)
+		}
+		var vars []tfexec.ApplyOption
+		for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
+			vars = append(vars, tfexec.VarFile(filepath.Join(dir, "vars", filepath.FromSlash(name))))
+		}
+		if err := tf.Apply(ctx, vars...); err != nil {
+			t.Fatalf("%s: terraform apply: %v", env, err)
+		}
+	}
+	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"), tfexec.Var("dev_orders_timeout=90"))
+	drift := driftRun{ctx: ctx, engineName: engineName, execPath: execPath, out: out}
+	code := codeFiles(t, out)
+	credentials("dev")
+	d := drift.mustExit(t, report.ExitDrift, "--detailed-exitcode", "--environment=dev")
+	if len(d.Roots) != 1 || d.Roots[0].Path != "aws/us-east-1" || d.Roots[0].Environment != "dev" || d.Roots[0].Resources == 0 {
+		t.Errorf("drift as dev: roots %+v", d.Roots)
+	}
+	timeout := driftChange(t, "drift as dev", d, "aws_sqs_queue", "visibility_timeout_seconds")
+	checkDriftChange(t, "drift as dev", timeout, "30", "90", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+	if timeout.Environment != "dev" {
+		t.Errorf("drift as dev: the change is of %q", timeout.Environment)
+	}
+	d = drift.mustExit(t, report.ExitDrift, "--detailed-exitcode", "--environment=dev", "--accept=all")
+	accepted := driftChange(t, "drift as dev, accepted", d, "aws_sqs_queue", "visibility_timeout_seconds")
+	checkDriftChange(t, "drift as dev, accepted", accepted, "30", "90", report.DriftAccept, report.DriftDecidedByFlag, report.DriftManual)
+	checkCodeUnchanged(t, "drift as dev, accepted", code, out)
+	credentials("prod")
+	if d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=prod"); len(d.Changes) != 0 {
+		t.Errorf("drift as prod:\n%s", driftChanges(d))
 	}
 
 	// A layout that puts the environments' roots in the merged root's
