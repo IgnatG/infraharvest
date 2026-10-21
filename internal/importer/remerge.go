@@ -243,12 +243,15 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
 	mergeOptions := engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
 	result, err := engine.MergeRoots(ctx, stack, roots, mergeOptions)
-	// A merged root told from its files doesn't say which of its
-	// resources an earlier merge kept apart, as what an incremental import
-	// added (see mergeMember.isolated): what would get another address
-	// is kept apart too, and the stack merges again, as many times as
-	// that takes, up to maxKeptApart.
-	for attempt := 0; err == nil && adopted && !r.options.Regenerate && result.Reason == "" && attempt < maxKeptApart; attempt++ {
+	// Nothing says which of the resources of a stack merged before an
+	// earlier merge kept apart, as what an incremental import added (see
+	// mergeMember.isolated), nor the labels it gave them, which came from
+	// their roots then, and differ from those of the roots generated since,
+	// or told from the merged root's files: what would get another
+	// address is kept apart, with the label the merged root has for it,
+	// and the stack merges again, as many times as that takes, up to
+	// maxKeptApart. With --regenerate, moved blocks follow it instead.
+	for attempt := 0; err == nil && prev != nil && prev.Merge.Merged && !r.options.Regenerate && result.Reason == "" && attempt < maxKeptApart; attempt++ {
 		now := map[string]map[string]string{}
 		for _, env := range result.Environments {
 			now[env.Env] = env.Imports
