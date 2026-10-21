@@ -58,7 +58,7 @@ environments:
 // workspaces adds a queue prod gets since into the merged root, and
 // nothing else. Imported again with an S3 backend, the merged root's
 // drift is checked with each environment's backend settings (see
-// checkEnvironmentsDrift). Before that, the merged root is checked for
+// checkEnvironmentsDrift). After that, the merged root is checked for
 // what is no longer in the cloud, and generated again (see
 // checkMergedRegenerate).
 func TestAWSEnvironments(t *testing.T) {
@@ -377,10 +377,13 @@ func TestAWSEnvironments(t *testing.T) {
 		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
 	}
 
-	// Not in the cloud, then --regenerate, on the merged root.
-	checkMergedRegenerate(ctx, t, fixture, importInto, credentials, out, execPath, plugins)
-
 	checkEnvironmentsDrift(ctx, t, fixture, engineName, execPath, plugins, credentials)
+
+	// Not in the cloud, then --regenerate, on the merged root. After the
+	// drift step, which imports again into an output of its own: the
+	// regenerate step gives dev the alerts feature, which that step needs
+	// prod alone to have.
+	checkMergedRegenerate(ctx, t, fixture, importInto, credentials, out, execPath, plugins)
 }
 
 // TestAWSEnvironmentsData imports testdata/aws-environments-data, in two

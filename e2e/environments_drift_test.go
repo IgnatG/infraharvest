@@ -115,7 +115,7 @@ func checkEnvironmentsDrift(ctx context.Context, t *testing.T, fixture *appliedF
 		}
 	}
 
-	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"), tfexec.Var("dev_orders_timeout=90"),
+	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"), tfexec.Var("dev_orders_timeout=90"), tfexec.Var("billing=true"),
 		tfexec.Var("dev_email_retention=7200"), tfexec.Var("alerts_delay=30"))
 	drift := driftRun{ctx: ctx, engineName: engineName, execPath: execPath, out: out}
 	code := codeFiles(t, out)
