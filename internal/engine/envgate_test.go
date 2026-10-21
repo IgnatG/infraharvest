@@ -291,6 +291,75 @@ func TestMergeRoots(t *testing.T) {
 	}
 }
 
+// stateCounter counts the plans of a Terraform runner, and those given a
+// state file (-state).
+type stateCounter struct {
+	Terraform
+	plans, stateless *int
+}
+
+func (c *stateCounter) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	*c.plans++
+	for _, opt := range opts {
+		if _, ok := opt.(*tfexec.StateOption); ok {
+			*c.stateless++
+		}
+	}
+	return c.Terraform.PlanJSON(ctx, w, opts...)
+}
+
+// The merged root's plans read no state, such as the workspace states of
+// environments applied without a backend: each plans with an empty state
+// outside the root, removed after, and the root's states stay as they
+// were.
+func TestMergeRootsPlansWithoutLocalState(t *testing.T) {
+	temp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, temp)
+	}
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	states := map[string]string{"terraform.tfstate": "default", "terraform.tfstate.d/dev/terraform.tfstate": "dev"}
+	for name, content := range states {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var overrides []string
+	roots := mergeRoots(t, dir, nil, &overrides)
+	plans, stateless := 0, 0
+	for i := range roots {
+		next := roots[i].Terraform
+		roots[i].Terraform = func(d string) (Terraform, error) {
+			tf, err := next(d)
+			return &stateCounter{Terraform: tf, plans: &plans, stateless: &stateless}, err
+		}
+	}
+
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Reason != "" {
+		t.Fatalf("not merged: %s", result.Reason)
+	}
+	if plans == 0 || stateless != plans {
+		t.Errorf("%d of %d plans were given a state, want all", stateless, plans)
+	}
+	if left, err := filepath.Glob(filepath.Join(temp, emptyStatePattern+"*")); err != nil || len(left) > 0 {
+		t.Errorf("empty states left: %v, %v", left, err)
+	}
+	for name, want := range states {
+		if got := readFile(t, dir, filepath.FromSlash(name)); got != want {
+			t.Errorf("%s: %q, want it as it was", name, got)
+		}
+	}
+}
+
 func TestMergeRootsResidue(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")

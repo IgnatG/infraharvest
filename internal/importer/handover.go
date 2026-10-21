@@ -143,7 +143,7 @@ func arrivalOf(result *engine.Result, d engine.Departure) *engine.Arrival {
 		return nil
 	}
 	for i, a := range result.Arrived {
-		if a.Type == d.Type && a.ID == d.ID {
+		if a.HadType() == d.Type && a.ID == d.ID {
 			return &result.Arrived[i]
 		}
 	}
@@ -244,10 +244,12 @@ func (h *handovers) refusal(dir string) error {
 }
 
 // departing is a resource of an earlier import's root that the run puts
-// in another root, at to.
+// in another root, at to, as now: its type and import ID, or another name
+// of its type (see engine.AliasTypes).
 type departing struct {
 	had engine.Managed
 	to  string
+	now engine.External
 }
 
 // planHandovers works out, for an import with --regenerate whose calls,
@@ -261,9 +263,10 @@ type departing struct {
 // incremental import does (see leaveOutHeld). But a root whose every
 // resource goes to roots of the run is generated with removed blocks
 // alone (see engine.Vacate), by the call of the first root they go to.
-// A root of the run whose resources a removed block can't hand over,
-// as it takes no instance keys, is left as it was and reported as
-// failed, and they are left out of the roots they would go to too.
+// A root of the run whose resources removed blocks can't hand over,
+// such as part of a call a module from the registry makes (see
+// handOver), is left as it was and reported as failed, and they are left
+// out of the roots they would go to too.
 func planHandovers(out string, calls []*listedCall) error {
 	var live []*listedCall
 	for _, c := range calls {
@@ -287,7 +290,12 @@ func planHandovers(out string, calls []*listedCall) error {
 			}
 		}
 	}
-	gone, err := departures(out, assigned)
+	// What the roots' own state says they have, if --managed-state read it.
+	var s *shared
+	if live[0].run != nil {
+		s = live[0].run.shared
+	}
+	gone, err := departures(out, assigned, s)
 	if err != nil {
 		return err
 	}
@@ -299,13 +307,13 @@ func planHandovers(out string, calls []*listedCall) error {
 	for _, dir := range sortedDirs(gone) {
 		leaving := gone[dir]
 		if _, inRun := callOf[dir]; !inRun {
-			previous, err := previousAddresses(out, dir)
+			previous, err := s.previousAddressesOf(out, dir)
 			if err != nil {
 				return err
 			}
 			if len(leaving) < len(previous) {
 				for _, d := range leaving {
-					stays[engine.External{Type: d.had.Type, ID: d.had.ID}] = relativePath(out, dir)
+					stays[d.now] = relativePath(out, dir)
 				}
 				continue
 			}
@@ -316,7 +324,7 @@ func planHandovers(out string, calls []*listedCall) error {
 			owner.byDir[dir] = nil
 			callOf[dir] = owner
 		}
-		removals, why, err := handOver(out, dir, leaving)
+		removals, why, err := handOver(out, dir, leaving, s)
 		if err != nil {
 			return err
 		}
@@ -344,14 +352,18 @@ func planHandovers(out string, calls []*listedCall) error {
 	for _, dir := range sortedDirs(problems) {
 		h.refused[dir] = fmt.Errorf("generating %s again would hand %d of its resources over to other roots where no removed block can take them, and a plan on its state would destroy them, so it is left as it was, and they are left out of the roots they go to: %s", dir, len(gone[dir]), strings.Join(problems[dir], "; "))
 		for _, d := range gone[dir] {
-			stays[engine.External{Type: d.had.Type, ID: d.had.ID}] = relativePath(out, dir)
+			stays[d.now] = relativePath(out, dir)
 		}
 	}
 	for _, dir := range sortedDirs(h.removals) {
 		root := relativePath(out, dir)
 		for _, d := range gone[dir] {
 			log.Printf("%s: %s goes to %s, and a removed block hands it over (--regenerate)", root, d.had.Address, relativePath(out, d.to))
-			h.arrivals[d.to] = append(h.arrivals[d.to], engine.Arrival{Type: d.had.Type, ID: d.had.ID, Root: root, From: d.had.Address})
+			arrival := engine.Arrival{Type: d.now.Type, ID: d.had.ID, Root: root, From: d.had.Address}
+			if d.now.Type != d.had.Type {
+				arrival.FromType = d.had.Type
+			}
+			h.arrivals[d.to] = append(h.arrivals[d.to], arrival)
 		}
 	}
 	for _, c := range live {
@@ -398,13 +410,16 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 
 // departures returns, by the directory of each root the checkpoints under
 // out record, the resources an earlier import put in it, by where it put
-// them (see previousAddresses), that assigned, the root of the run each
-// resource goes to by type and import ID, puts in another root now. Only
+// them, or where its own state has them (see shared.previousAddressesOf,
+// with s), that assigned, the root of the run each resource goes to by
+// type and import ID, puts in another root now, as their type or, if
+// assigned has none of that, another name of it (see engine.AliasTypes),
+// such as an aws_alb that is an aws_lb now. Only
 // roots that still have configuration count, applied ones too, with
 // their import blocks deleted; a root whose import didn't finish counts
 // only while it is generated again (see checkpoint.Pending). A checkpoint
 // that can't be read is logged and passed over.
-func departures(out string, assigned map[engine.External]string) (map[string][]departing, error) {
+func departures(out string, assigned map[engine.External]string, s *shared) (map[string][]departing, error) {
 	dirs, err := checkpointDirs(out)
 	if err != nil {
 		return nil, err
@@ -427,13 +442,13 @@ func departures(out string, assigned map[engine.External]string) (map[string][]d
 		if c == nil || (c.Result == nil && len(c.Pending) == 0) {
 			continue
 		}
-		previous, err := previousAddresses(out, dir)
+		previous, err := s.previousAddressesOf(out, dir)
 		if err != nil {
 			return nil, err
 		}
 		for _, p := range previous {
-			if to, ok := assigned[engine.External{Type: p.Type, ID: p.ID}]; ok && to != dir {
-				gone[dir] = append(gone[dir], departing{had: p, to: to})
+			if now, to, ok := assignedAs(assigned, p); ok && to != dir {
+				gone[dir] = append(gone[dir], departing{had: p, to: to, now: now})
 			}
 		}
 		sort.Slice(gone[dir], func(i, j int) bool { return gone[dir][i].had.Address < gone[dir][j].had.Address })
@@ -441,14 +456,34 @@ func departures(out string, assigned map[engine.External]string) (map[string][]d
 	return gone, nil
 }
 
+// assignedAs returns the type and import ID assigned, the root of the
+// run each resource goes to, has p, a resource of an earlier import, as:
+// its own, or another name of its type (see engine.AliasTypes); and the
+// root.
+func assignedAs(assigned map[engine.External]string, p engine.Managed) (engine.External, string, bool) {
+	for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+		key := engine.External{Type: typ, ID: p.ID}
+		if to, ok := assigned[key]; ok {
+			return key, to, true
+		}
+	}
+	return engine.External{}, "", false
+}
+
 // handOver returns the removed blocks the root in dir, an earlier
 // import's, gets for leaving, those of its resources that go to other
-// roots now, or what keeps them from it: a removed block takes a whole
-// resource, with no instance key, or a whole module call, so all of it
-// must go; and a moved block of its moves.tf that a plan may not have
-// applied yet mustn't move it, nor an address only inferred name it.
-func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string, error) {
-	previous, err := previousAddresses(out, dir)
+// roots now, or what keeps them from it. A removed block takes a whole
+// resource, with no instance key, or a whole module call: when only some
+// of it goes, each resource that goes gets a removed block of its own,
+// of a resource of the root alone that a moved block moves it to first
+// (see engine.Removal.Instance), which a resource in a call that a module
+// from the registry makes can't be, as moved blocks stay within a module
+// package. A moved block of its moves.tf that a plan may not have applied
+// yet mustn't move it, nor an address only inferred name it. Where the
+// root's own state has its resources, s says (see
+// shared.previousAddressesOf).
+func handOver(out, dir string, leaving []departing, s *shared) ([]engine.Removal, []string, error) {
+	previous, err := s.previousAddressesOf(out, dir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -456,10 +491,31 @@ func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string,
 	if err != nil {
 		return nil, nil, err
 	}
+	c, err := readCheckpoint(out, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	var calls []engine.ModuleCall
+	if c != nil && c.Result != nil {
+		calls = c.Result.Modules
+	}
+	pending, err := engine.ReadRemoved(dir)
+	if err != nil {
+		return nil, nil, err
+	}
 	members := map[string]int{}
+	var addresses []string
 	for _, p := range previous {
 		members[engine.RemovedFrom(p.Address)]++
+		addresses = append(addresses, p.Address)
 	}
+	for _, m := range moved {
+		addresses = append(addresses, m.From, m.To)
+	}
+	for _, r := range pending {
+		addresses = append(addresses, r.From)
+	}
+	taken := engine.RootResources(addresses...)
 	byFrom := map[string][]departing{}
 	for _, d := range leaving {
 		from := engine.RemovedFrom(d.had.Address)
@@ -480,23 +536,28 @@ func handOver(out, dir string, leaving []departing) ([]engine.Removal, []string,
 			}
 		}
 		where := strings.Join(slices.Sorted(maps.Keys(roots)), ", ")
-		switch {
-		case problem != "":
-		case len(going) < members[from] && strings.HasPrefix(from, "module."):
-			problem = fmt.Sprintf("only part of %s goes to %s, and a removed block takes the whole module call", from, where)
-		case len(going) < members[from]:
-			problem = fmt.Sprintf("only some instances of %s go to %s, and a removed block takes no instance keys", from, where)
+		partial := len(going) < members[from]
+		for _, d := range going {
+			if call := engine.PackagedCall(d.had.Address, calls); problem == "" && partial && call != "" {
+				problem = fmt.Sprintf("only part of %s goes to %s: a removed block takes only the whole module call, and a moved block can't move %s out of a call %s makes for one to take it alone", from, where, d.had.Address, call)
+			}
 		}
 		for _, m := range moved {
 			if problem == "" && (engine.RemovedFrom(m.From) == from || engine.RemovedFrom(m.To) == from) {
 				problem = fmt.Sprintf("%s goes to %s, and %s still moves it: plan and apply the root, and delete %s, before generating it again", from, where, engine.MovesFileName, engine.MovesFileName)
 			}
 		}
-		if problem != "" {
+		switch {
+		case problem != "":
 			problems = append(problems, problem)
-			continue
+		case partial:
+			// Only some of it goes: each resource that goes alone.
+			for _, d := range removal.Resources {
+				removals = append(removals, engine.Removal{From: engine.DepartedAddress(d.Address, taken), Resources: []engine.Departure{d}, Instance: d.Address})
+			}
+		default:
+			removals = append(removals, removal)
 		}
-		removals = append(removals, removal)
 	}
 	return removals, problems, nil
 }
@@ -547,8 +608,10 @@ func sortedDirs[V any](m map[string]V) []string {
 }
 
 // recordMoves records what the result of the root at path, relative to
-// the output directory, moves within it, hands over to other roots, and
-// imports that other roots hand over (see report.Move).
+// the output directory, moves within it, as moved blocks do or, for a
+// resource of another name of its type now, removed and import blocks
+// (see engine.Retype), hands over to other roots, and imports that other
+// roots hand over (see report.Move).
 func (r *Run) recordMoves(path string, result *engine.Result) {
 	types := map[string]engine.Managed{}
 	for _, m := range result.Addresses {
@@ -561,12 +624,15 @@ func (r *Run) recordMoves(path string, result *engine.Result) {
 		}
 		r.report.Moved = append(r.report.Moved, report.Move{Type: had.Type, ID: had.ID, FromRoot: path, From: m.From, ToRoot: path, To: m.To})
 	}
+	for _, rt := range result.Retyped {
+		r.report.Moved = append(r.report.Moved, report.Move{Type: types[rt.To].Type, ID: rt.ID, FromRoot: path, From: rt.From, ToRoot: path, To: rt.To})
+	}
 	for _, removal := range result.Removed {
 		for _, d := range removal.Resources {
 			r.report.Departed = append(r.report.Departed, report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root})
 		}
 	}
 	for _, a := range result.Arrived {
-		r.report.AddArrival(report.Move{Type: a.Type, ID: a.ID, FromRoot: a.Root, From: a.From, ToRoot: path, To: a.To})
+		r.report.AddArrival(report.Move{Type: a.HadType(), ID: a.ID, FromRoot: a.Root, From: a.From, ToRoot: path, To: a.To})
 	}
 }

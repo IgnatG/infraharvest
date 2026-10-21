@@ -54,6 +54,32 @@ removed {
 removed {
   from = module.old
 }
+
+moved {
+  from = aws_alb.web[1]
+  to   = aws_alb.departed_web_1
+}
+
+removed {
+  from = aws_alb.departed_web_1
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+moved {
+  from = aws_subnet.c[2]
+  to   = aws_subnet.departed_c_2
+}
+
+removed {
+  from = aws_subnet.departed_c_2
+
+  lifecycle {
+    destroy = false
+  }
+}
 `)
 	check, err := checkMoves(dir)
 	if err != nil {
@@ -86,7 +112,16 @@ func TestCheckMovesFindings(t *testing.T) {
   from = aws_subnet.a
   to   = aws_subnet.missing
 }
-`, "moves.tf:1: moved block to aws_subnet.missing, which the root doesn't declare"},
+`, "moves.tf:1: moved block to aws_subnet.missing, which the root doesn't declare, and no removed block takes"},
+		{"moved to an instance a removed block can't take", `moved {
+  from = aws_subnet.a
+  to   = aws_subnet.gone[0]
+}
+
+removed {
+  from = aws_subnet.gone
+}
+`, "moved block to aws_subnet.gone[0], which the root doesn't declare"},
 		{"moved into a module call not made", `moved {
   from = aws_subnet.a
   to   = module.missing.aws_subnet.a
@@ -136,7 +171,7 @@ func TestCheckMovesFindings(t *testing.T) {
 removed {
   from = aws_subnet.b
 }
-`, "where a moved block moves aws_subnet.a"},
+`, "removed block from aws_subnet.b, which the root still declares"},
 		{"two moves onto one address", `moved {
   from = aws_subnet.a
   to   = aws_subnet.b

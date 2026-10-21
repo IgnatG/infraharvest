@@ -109,7 +109,7 @@ func DefaultScanners() []Scanner {
 			// Cloud platform, which an API key in the environment would
 			// otherwise upload the configuration to. Its secrets scan reads
 			// every file but the local state of a root applied without a
-			// backend, which holds secret values (see localStateFile).
+			// backend, which holds secret values (see LocalStateFile).
 			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--skip-path", `\.tfstate`, "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
 			if err != nil {
 				return nil, err

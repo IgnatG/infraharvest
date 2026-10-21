@@ -737,7 +737,7 @@ func nondeterministicCalls(rel, content string) []string {
 
 // walkOutput calls visit with each file Generate wrote into dir, by path
 // relative to dir, skipping Terraform's working files, and the local state
-// of a root applied without a backend (see localStateFile), which no
+// of a root applied without a backend (see LocalStateFile), which no
 // check reads: it holds the secret values the configuration mustn't.
 func walkOutput(dir string, visit func(rel, content string)) error {
 	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -750,7 +750,7 @@ func walkOutput(dir string, visit func(rel, content string)) error {
 			}
 			return nil
 		}
-		if d.Name() == LockFileName || localStateFile(d.Name()) {
+		if d.Name() == LockFileName || LocalStateFile(d.Name()) {
 			return nil
 		}
 		content, err := os.ReadFile(path)

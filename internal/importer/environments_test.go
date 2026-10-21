@@ -249,6 +249,88 @@ func TestKeptRoots(t *testing.T) {
 	}
 }
 
+// With --regenerate, a root an earlier import generated hands its
+// resources over to the roots of their environments where removed blocks
+// can take them all: it isn't kept. One of whose resources the run lists
+// only some, or whose addresses are only inferred, keeps them. Without
+// --regenerate, every root keeps them but one with none left, as one an
+// earlier run handed everything over from.
+func TestKeptRootsSplit(t *testing.T) {
+	out := t.TempDir()
+	rootOf := func(account string) string { return filepath.Join(out, "aws", account, "us-east-1") }
+	queue := func(id, name string) engine.Managed {
+		return engine.Managed{Type: "aws_sqs_queue", ID: id, Address: "aws_sqs_queue." + name}
+	}
+	inferred := queue("q-5", "five")
+	inferred.Unverified = true
+	for account, had := range map[string][]engine.Managed{
+		"111111111111": {queue("q-1", "one"), queue("q-2", "two")},
+		"222222222222": {queue("q-3", "three"), queue("q-4", "four")},
+		"333333333333": {inferred},
+		"444444444444": nil,
+	} {
+		if err := writeCheckpoint(out, rootOf(account), checkpoint{Result: &engine.Result{Addresses: had}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	envOf := func(r harvest.Resource) string {
+		if r.Observed.ID == "q-2" {
+			return "prod"
+		}
+		return "dev"
+	}
+	dirOf := func(_ string, r harvest.Resource) string {
+		return filepath.Join(out, "envs", envOf(r), "aws", r.RawName, "us-east-1")
+	}
+	unsplit := func(_ string, r harvest.Resource) string { return rootOf(r.RawName) }
+	importID := func(r harvest.Resource) (string, bool) { return r.Observed.ID, true }
+	resources := map[string][]harvest.Resource{"sqs": {
+		harvest.RecordBare("q-1", "111111111111", "aws_sqs_queue", "aws"),
+		harvest.RecordBare("q-2", "111111111111", "aws_sqs_queue", "aws"),
+		harvest.RecordBare("q-3", "222222222222", "aws_sqs_queue", "aws"),
+		harvest.RecordBare("q-5", "333333333333", "aws_sqs_queue", "aws"),
+		harvest.RecordBare("q-6", "444444444444", "aws_sqs_queue", "aws"),
+	}}
+	for _, tc := range []struct {
+		regenerate bool
+		want       map[string]string // by import ID, the root
+		kept       []string
+	}{
+		{true, map[string]string{
+			"q-1": dirOf("", resources["sqs"][0]),
+			"q-2": dirOf("", resources["sqs"][1]),
+			"q-3": rootOf("222222222222"),
+			"q-5": rootOf("333333333333"),
+			"q-6": dirOf("", resources["sqs"][4]),
+		}, []string{"aws/222222222222/us-east-1", "aws/333333333333/us-east-1"}},
+		{false, map[string]string{
+			"q-1": rootOf("111111111111"),
+			"q-2": rootOf("111111111111"),
+			"q-3": rootOf("222222222222"),
+			"q-5": rootOf("333333333333"),
+			"q-6": dirOf("", resources["sqs"][4]),
+		}, []string{"aws/111111111111/us-east-1", "aws/222222222222/us-east-1", "aws/333333333333/us-east-1"}},
+	} {
+		kept := newKeptRoots(out)
+		if err := kept.split(resources, dirOf, unsplit, importID, tc.regenerate); err != nil {
+			t.Fatal(err)
+		}
+		dirs := kept.dirs(dirOf, unsplit, envOf)
+		for _, r := range resources["sqs"] {
+			if got := dirs("sqs", r); got != tc.want[r.Observed.ID] {
+				t.Errorf("regenerate %v: %s goes to %s, want %s", tc.regenerate, r.Observed.ID, got, tc.want[r.Observed.ID])
+			}
+		}
+		var paths []string
+		for _, k := range kept.report("aws") {
+			paths = append(paths, k.Path)
+		}
+		if !reflect.DeepEqual(paths, tc.kept) {
+			t.Errorf("regenerate %v: kept %v, want %v", tc.regenerate, paths, tc.kept)
+		}
+	}
+}
+
 // A provider that can't say which account it lists in can't be in an
 // environment that names accounts: the run warns of it, once, in the log
 // and the report, rather than lay its roots out as if there were none.

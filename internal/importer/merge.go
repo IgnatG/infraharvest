@@ -199,7 +199,8 @@ func MergeEnvironments(ctx context.Context) error {
 // mergeRefusal returns why members, the roots of the stack whose merged
 // root is stack, aren't merged, if they aren't: an environment has
 // several of them, the merged root would be one of them or hold one, or
-// its directory holds a root no merge wrote.
+// its directory holds a root no merge wrote, or one of them has local
+// state, which merging would leave where no root is.
 func mergeRefusal(out, stack string, members []mergeMember) string {
 	byEnv := map[string][]string{}
 	for _, m := range members {
@@ -213,6 +214,11 @@ func mergeRefusal(out, stack string, members []mergeMember) string {
 			return fmt.Sprintf("%s has %d roots in the stack (%s): merging takes one root of each environment", env, len(byEnv[env]), strings.Join(byEnv[env], ", "))
 		}
 	}
+	for _, m := range members {
+		if reason := localStateRefusal(out, m.dir); reason != "" {
+			return reason
+		}
+	}
 	names, err := tfFiles(stack)
 	if err == nil && len(names) > 0 {
 		if c, _ := readMergeCheckpoint(out, stack); c == nil {
@@ -220,6 +226,30 @@ func mergeRefusal(out, stack string, members []mergeMember) string {
 		}
 	}
 	return ""
+}
+
+// localStateRefusal returns why the root in dir, under out, isn't merged,
+// if it holds local state, such as the terraform.tfstate of a root
+// applied without a backend (see engine.LocalStateFile): merging sets the
+// root aside, and its state stays where it is, with no root to apply it.
+func localStateRefusal(out, dir string) string {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ""
+	}
+	if err != nil {
+		return fmt.Sprintf("%s can't be read: %v", relativePath(out, dir), err)
+	}
+	var state []string
+	for _, e := range entries {
+		if engine.LocalStateFile(e.Name()) {
+			state = append(state, e.Name())
+		}
+	}
+	if len(state) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s has local state (%s), which merging would leave where no root is: migrate it to a backend first, with a backend block and terraform init -migrate-state, and move the local files out of the root once the backend has the state", relativePath(out, dir), strings.Join(state, ", "))
 }
 
 // inside reports whether dir is parent or a directory under it.
@@ -278,7 +308,8 @@ func premergeDir(out, dir string) string {
 }
 
 // copyRoot copies the files directly in the root at from, but Terraform's
-// working directory, into to, which it empties first.
+// working directory and local state (see engine.LocalStateFile), into
+// to, which it empties first: the state stays where Terraform keeps it.
 func copyRoot(from, to string) error {
 	if err := os.RemoveAll(to); err != nil {
 		return err
@@ -291,7 +322,7 @@ func copyRoot(from, to string) error {
 		return err
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() {
+		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
 		content, err := os.ReadFile(filepath.Join(from, e.Name()))
@@ -306,9 +337,9 @@ func copyRoot(from, to string) error {
 }
 
 // removeRoot removes the root in dir, which its stack's merged root takes
-// the place of: the files directly in it and Terraform's working
-// directory, then dir and the directories above it, up to out, that hold
-// nothing else.
+// the place of: the files directly in it, but its local state, which
+// stays where Terraform keeps it, and Terraform's working directory, then
+// dir and the directories above it, up to out, that hold nothing else.
 func removeRoot(out, dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -320,7 +351,7 @@ func removeRoot(out, dir string) error {
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
 		switch {
-		case e.Type().IsRegular():
+		case e.Type().IsRegular() && !engine.LocalStateFile(e.Name()):
 			if err := os.Remove(path); err != nil {
 				return err
 			}

@@ -193,6 +193,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Secrets:   m.result.Secrets,
 			Terraform: runner,
 			Isolated:  m.isolated,
+			Arrivals:  m.result.Arrived,
 		}
 	}
 	// A restored member has no engine options of its own.
@@ -594,7 +595,9 @@ func (r *Run) readdressNotInCloud(merge report.Merge, members []mergeMember, res
 }
 
 // treeBackup is what a directory held: each file under it, but in
-// Terraform's working directory, by path relative to it.
+// Terraform's working directory and local state (see
+// engine.LocalStateFile), such as its workspaces' in terraform.tfstate.d,
+// by path relative to it: restoring it never writes state back.
 type treeBackup struct {
 	dir   string
 	files map[string][]byte
@@ -610,8 +613,11 @@ func backupTree(dir string) (*treeBackup, error) {
 			}
 			return err
 		}
-		if d.IsDir() && d.Name() == ".terraform" {
+		if d.IsDir() && (d.Name() == ".terraform" || engine.LocalStateFile(d.Name())) {
 			return filepath.SkipDir
+		}
+		if engine.LocalStateFile(d.Name()) {
+			return nil
 		}
 		if !d.Type().IsRegular() {
 			return nil

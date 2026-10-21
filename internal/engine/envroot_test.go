@@ -560,6 +560,28 @@ func TestMergedRootFiles(t *testing.T) {
 		}
 	})
 
+	t.Run("handed over", func(t *testing.T) {
+		// What another root hands prod's root over is named at its address
+		// in the merged root, with the root it comes from.
+		roots := devProdRoots(t)
+		roots[1].arrivals = []Arrival{{Type: "aws_sqs_queue", ID: "https://sqs.eu-west-2.amazonaws.com/222222222222/shop-prd-orders", Root: "aws/222222222222/eu-west-2", From: "aws_sqs_queue.shop_prd_orders", To: "aws_sqs_queue.orders_prd"}}
+		files, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas))
+		if err != nil {
+			t.Fatal(err)
+		}
+		readme := string(files[ReadmeFileName])
+		if want := "| prod | `aws_sqs_queue.orders` | `aws/222222222222/eu-west-2` | `aws_sqs_queue.shop_prd_orders` |"; !strings.Contains(readme, "## Moves") || !strings.Contains(readme, want) {
+			t.Errorf("the README doesn't name %s:\n%s", want, readme)
+		}
+		files, err = mergedRootFiles(mergeStack("aws", devProdRoots(t), rootSchemas))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if readme := string(files[ReadmeFileName]); strings.Contains(readme, "## Moves") {
+			t.Errorf("a README of moves without any:\n%s", readme)
+		}
+	})
+
 	t.Run("a local of the roots", func(t *testing.T) {
 		const generated = `resource "aws_sqs_queue" "orders" {
   name = "shop-%s-orders"

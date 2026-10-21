@@ -984,6 +984,45 @@ func TestImportReportsKeptRoots(t *testing.T) {
 	}
 }
 
+// The warnings about the run, and those about a directory's configuration
+// after its path, are in the result, and its text points to them.
+func TestImportReportsWarnings(t *testing.T) {
+	r := report.Report{Coverage: report.Coverage{
+		Totals:      report.CoverageTotal{Discovered: 1, Imported: 1},
+		Warnings:    []string{"aws can't tell which environment account 123456789012 is"},
+		Directories: []report.Directory{{Path: "aws/123456789012/eu-west-2/vpc", Warnings: []string{"a tag is named after an access key ID"}}},
+	}}
+	runner := &fakeRunner{importReport: &r}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+
+	res, text := call(t, session, "import", importArgs(path, filepath.Join(dir, "generated")))
+	if res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if !strings.Contains(text, "2 warnings to look at") {
+		t.Errorf("text %q doesn't point to the warnings", text)
+	}
+	content, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ImportResult
+	if err := json.Unmarshal(content, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{r.Warnings[0], "aws/123456789012/eu-west-2/vpc: a tag is named after an access key ID"}
+	if !slices.Equal(got.Warnings, want) {
+		t.Errorf("warnings: %q, want %q", got.Warnings, want)
+	}
+}
+
 // kind drift reads drift.md; without kind, the import's report.md, or
 // drift.md when the output directory has only that.
 func TestReportReadsTheDriftReport(t *testing.T) {

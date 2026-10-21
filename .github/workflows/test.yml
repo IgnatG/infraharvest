@@ -314,7 +314,8 @@ jobs:
         if-no-files-found: ignore
 
   # Runs the Terraform engine end to end against real Terraform and the
-  # random provider (no cloud credentials needed).
+  # random provider (no cloud credentials needed), and plans the moved and
+  # removed blocks of --regenerate with Terraform and OpenTofu.
   engine-integration:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -330,6 +331,11 @@ jobs:
       with:
         go-version-file: go.mod
         cache: true
+    # Terraform downloads itself; OpenTofu is installed.
+    - name: Install OpenTofu
+      uses: ./.github/actions/setup-engines
+      with:
+        engine: tofu
     - name: Test
       run: go test -tags integration ./internal/engine/...
 

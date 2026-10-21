@@ -119,7 +119,7 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if imports && (len(c.Result.Moves) > 0 || len(c.Result.Removed) > 0) {
+	if imports && (len(c.Result.Moves) > 0 || len(c.Result.Removed) > 0 || len(c.Result.Retyped) > 0) {
 		names = append(names, engine.MovesFileName)
 	}
 	for _, name := range names {
@@ -235,13 +235,14 @@ func (c *claim) previousRoot() *engine.Previous {
 // generated, which may be in use, is generated again only with
 // regenerate or, if that import didn't finish, with resume, unless no .tf
 // file of it is left; else claimRoot refuses it. Generating it again
-// first records where its resources were (see previousAddresses) in its
+// first records where its resources were (see previousAddresses, and
+// shared.previousAddressesOf for what s has of its own state) in its
 // checkpoint, then removes what the import generated (see
 // clearGenerated). The checkpoint then has no result: it records that
 // the root's generation started, so that a later run knows the files are
 // infraharvest's even if this one fails, and that the root isn't
 // complete (see unfinishedRoot).
-func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
+func claimRoot(out, dir, fp string, resume, regenerate bool, s *shared) (*claim, error) {
 	names, err := tfFiles(dir)
 	if err != nil {
 		return nil, err
@@ -271,7 +272,7 @@ func claimRoot(out, dir, fp string, resume, regenerate bool) (*claim, error) {
 	}
 	claimed := &claim{}
 	if readable {
-		if claimed.previous, err = previousAddresses(out, dir); err != nil {
+		if claimed.previous, err = s.previousAddressesOf(out, dir); err != nil {
 			return nil, err
 		}
 		// A run that stopped while generating the root again removed
@@ -365,6 +366,76 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 	return engine.InferredAddresses(c.Result), nil
 }
 
+// recordStated records m, where the root in dir has a resource as its own
+// state says (see excludeManaged).
+func (s *shared) recordStated(dir string, m engine.Managed) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stated == nil {
+		s.stated = map[string][]engine.Managed{}
+	}
+	dir = filepath.Clean(dir)
+	for _, had := range s.stated[dir] {
+		if had.Type == m.Type && had.ID == m.ID {
+			return
+		}
+	}
+	s.stated[dir] = append(s.stated[dir], m)
+}
+
+// previousAddressesOf returns previousAddresses for the root in dir, with
+// where its own state has its resources, if --managed-state read it (see
+// excludeManaged), in place of the addresses only inferred, and with the
+// resources the state has that the root's checkpoint doesn't say: the
+// state's addresses are the ones a plan on it starts from. A nil s reads
+// no state.
+func (s *shared) previousAddressesOf(out, dir string) ([]engine.Managed, error) {
+	previous, err := previousAddresses(out, dir)
+	if err != nil || s == nil {
+		return previous, err
+	}
+	s.mu.Lock()
+	stated := s.stated[filepath.Clean(dir)]
+	s.mu.Unlock()
+	return withStated(previous, stated), nil
+}
+
+// withStated returns previous with the addresses of stated, where a root's
+// own state has its resources, in place of those previous only infers,
+// and with those of stated it hasn't, sorted by type and import ID.
+func withStated(previous, stated []engine.Managed) []engine.Managed {
+	if len(stated) == 0 {
+		return previous
+	}
+	at := map[engine.External]engine.Managed{}
+	for _, m := range stated {
+		at[engine.External{Type: m.Type, ID: m.ID}] = m
+	}
+	merged := make([]engine.Managed, 0, len(previous)+len(stated))
+	for _, p := range previous {
+		key := engine.External{Type: p.Type, ID: p.ID}
+		if m, ok := at[key]; ok {
+			if p.Unverified {
+				p = m
+			}
+			delete(at, key)
+		}
+		merged = append(merged, p)
+	}
+	for _, m := range stated {
+		if _, ok := at[engine.External{Type: m.Type, ID: m.ID}]; ok {
+			merged = append(merged, m)
+		}
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].Type != merged[j].Type {
+			return merged[i].Type < merged[j].Type
+		}
+		return merged[i].ID < merged[j].ID
+	})
+	return merged
+}
+
 // refuseReaddressed fails when result, of generating the claimed root
 // again from imports, would change what the root's state has in a way
 // no moved block of result follows, naming what: resources of it at
@@ -374,7 +445,9 @@ func previousAddresses(out, dir string) ([]engine.Managed, error) {
 // elsewhere, by type and import ID, puts in another root of the run, by
 // its path, unless a removed block of result hands them over (see
 // planHandovers), and resources of imports it leaves out, such as those
-// its plan rejected. Applied on the root's state, its next plan would
+// its plan rejected; each by its type or another name of it (see
+// engine.AliasTypes), which result forgets and imports again (see
+// engine.Retype). Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
 // engine.ReleaseModules). A resource the run no longer imports at all,
@@ -397,12 +470,24 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 		}
 	}
 	for _, p := range c.previous {
-		key := engine.External{Type: p.Type, ID: p.ID}
-		switch root, ok := elsewhere[key]; {
-		case now[key], handed[key]:
-		case ok:
+		if handed[engine.External{Type: p.Type, ID: p.ID}] {
+			continue
+		}
+		var kept, left bool
+		root := ""
+		for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+			key := engine.External{Type: typ, ID: p.ID}
+			kept = kept || now[key]
+			left = left || asked[key]
+			if to, ok := elsewhere[key]; ok && root == "" {
+				root = to
+			}
+		}
+		switch {
+		case kept:
+		case root != "":
 			changed = append(changed, fmt.Sprintf("%s is now in %s", p.Address, root))
-		case asked[key]:
+		case left:
 			changed = append(changed, p.Address+" is left out")
 		}
 	}
@@ -425,7 +510,9 @@ func (c *claim) putBack(dir string) error {
 }
 
 // rootBackup is what a root had before it was generated again: the files
-// directly in its directory, and its checkpoint.
+// directly in its directory, but its local state (see
+// engine.LocalStateFile), and its checkpoint. The state is Terraform's,
+// which may write it in between, so it is never written back or removed.
 type rootBackup struct {
 	dir   string
 	files map[string]savedFile
@@ -451,7 +538,7 @@ func backupRoot(dir, path string, content []byte) (*rootBackup, error) {
 		return nil, err
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() {
+		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -468,15 +555,15 @@ func backupRoot(dir, path string, content []byte) (*rootBackup, error) {
 }
 
 // restore puts the root back as b has it: the files written directly in
-// its directory since are removed, the others written back, and so is
-// the checkpoint.
+// its directory since are removed, but local state, the others written
+// back, and so is the checkpoint.
 func (b *rootBackup) restore() error {
 	entries, err := os.ReadDir(b.dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	for _, e := range entries {
-		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() {
+		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(b.dir, e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {

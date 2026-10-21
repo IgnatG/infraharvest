@@ -76,10 +76,11 @@ func parseRefactorAddress(attr *hclsyntax.Attribute, src []byte) (refactorAddres
 
 // checkMoves checks the moved and removed blocks of the root in dir: each
 // moved block moves a resource to one the root declares, or into a
-// module call it makes, and keeps its type; no moved or removed block
-// starts from what the root still declares, and a removed block names no
-// instance; and the moves together move each resource once, with no
-// cycle and no two onto one address (see conflictingMoves).
+// module call it makes, or to one a removed block then forgets, and keeps
+// its type; no moved or removed block starts from what the root still
+// declares, and a removed block names no instance; and the moves together
+// move each resource once, with no cycle and no two onto one address (see
+// conflictingMoves).
 func checkMoves(dir string) (Check, error) {
 	check := Check{Name: CheckMoves, Passed: true}
 	fail := func(format string, args ...any) {
@@ -122,8 +123,20 @@ func checkMoves(dir string) (Check, error) {
 		}
 		return false
 	}
+	// What the removed blocks take, which a moved block may move a
+	// resource to first, as one instance or one resource of a module call
+	// that keeps others (see Removal.Instance and Retype.Removed).
+	removed := map[string]bool{}
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if attr, ok := b.Body.Attributes["from"]; ok && b.Type == "removed" {
+				if from, ok := parseRefactorAddress(attr, f.src); ok {
+					removed[from.text] = true
+				}
+			}
+		}
+	}
 	var moved []Move
-	removed := map[string]string{}
 	for _, f := range files {
 		where := func(b *hclsyntax.Block) string {
 			return fmt.Sprintf("%s:%d", rel(dir, f.path), b.DefRange().Start.Line)
@@ -149,7 +162,6 @@ func checkMoves(dir string) (Check, error) {
 				case stillDeclared(from):
 					fail("%s: removed block from %s, which the root still declares", where(b), from.text)
 				}
-				removed[from.text] = where(b)
 				continue
 			}
 			toAttr, ok := b.Body.Attributes["to"]
@@ -162,12 +174,15 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: moved block's to isn't an address", where(b))
 				continue
 			}
-			if !declares(to) {
-				fail("%s: moved block to %s, which the root doesn't declare", where(b), to.text)
+			if !declares(to) && (to.keyed || !removed[to.text]) {
+				fail("%s: moved block to %s, which the root doesn't declare, and no removed block takes", where(b), to.text)
 			}
 			// Within one resource or module call, a moved block only changes
-			// instance keys, as from aws_subnet.a to aws_subnet.a[0].
-			if from.resource() != to.resource() && stillDeclared(from) {
+			// instance keys, as from aws_subnet.a to aws_subnet.a[0]. An
+			// instance may leave a resource the root still declares, as
+			// aws_subnet.a["x"] to aws_subnet.departed_a_x, if the resource
+			// no longer has its key, which only the plan can tell.
+			if from.resource() != to.resource() && !from.keyed && stillDeclared(from) {
 				fail("%s: moved block from %s, which the root still declares", where(b), from.text)
 			}
 			switch {
@@ -178,11 +193,6 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: moved block from %s to %s changes the resource type", where(b), from.text, to.text)
 			}
 			moved = append(moved, Move{From: from.text, To: to.text})
-		}
-	}
-	for _, m := range moved {
-		if at, ok := removed[m.To]; ok {
-			fail("%s: removed block from %s, where a moved block moves %s", at, m.To, m.From)
 		}
 	}
 	if problem := conflictingMoves(moved, nil); problem != "" {

@@ -1246,6 +1246,7 @@ func (w *rootWriter) readme() []byte {
 	}
 	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
 	b.WriteString("## After the first apply\n\nOnce every environment has been applied, delete `imports.tf` and each `vars/<env>/imports.tfvars`, and leave `-var-file=vars/<env>/imports.tfvars` out of the commands.\n")
+	b.WriteString(w.arrivals())
 	var secrets []string
 	for _, v := range w.variables() {
 		if v.sensitive {
@@ -1271,4 +1272,29 @@ func (w *rootWriter) title() string {
 		parts = append(parts, r)
 	}
 	return path.Join(parts...)
+}
+
+// arrivals lists what each environment's part of the merged root imports
+// that other roots of the output hand over (see MergeRoot.Arrivals), at
+// its address in the merged root, for the order to apply them in. It is
+// empty if there is none.
+func (w *rootWriter) arrivals() string {
+	var rows strings.Builder
+	for e, root := range w.m.roots {
+		ids := w.m.imports(e)
+		for _, a := range root.arrivals {
+			at := a.To
+			for _, address := range slices.Sorted(maps.Keys(ids)) {
+				if ids[address] == a.ID && (strings.HasPrefix(address, a.Type+".") || strings.Contains(address, "."+a.Type+".")) {
+					at = address
+					break
+				}
+			}
+			fmt.Fprintf(&rows, "| %s | `%s` | `%s` | `%s` |\n", w.m.envs[e], at, a.Root, a.From)
+		}
+	}
+	if rows.Len() == 0 {
+		return ""
+	}
+	return "\n## Moves\n\nThese resources come from other roots of the output, whose removed blocks make their state forget them. Apply the root each comes from first, then this root as the environment, which imports it: until then, both would manage it.\n\n| Environment | Imported | Comes from | Was |\n|---|---|---|---|\n" + rows.String()
 }
