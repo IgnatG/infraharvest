@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -119,10 +120,13 @@ func Readdressed(previous, now []Managed, moved []Move) []string {
 
 // Retyped returns the resources of previous that now, the resources a
 // root imports once generated again, has as another type with the same
-// import ID, such as an aws_alb that is an aws_lb now, as "<from> is now
-// <to>, of another type", sorted. No moved block can follow that: a plan
-// would replace the resource. A resource of both types in both, such as
-// a bucket and its versioning, which share an ID, isn't retyped.
+// import ID that isn't another name of theirs (see AliasTypes), as
+// "<from> is now <to>, of another type", sorted. No moved block can
+// follow that, and nothing says the two are one resource: a plan would
+// replace it. One of another name of its type, such as an aws_alb that is
+// an aws_lb now, a removed block forgets and the root imports again (see
+// Retype). A resource of both types in both, such as a bucket and its
+// versioning, which share an ID, isn't retyped.
 func Retyped(previous, now []Managed) []string {
 	had := map[External]bool{}
 	for _, p := range previous {
@@ -142,8 +146,11 @@ func Retyped(previous, now []Managed) []string {
 		if stays[External{Type: p.Type, ID: p.ID}] {
 			continue
 		}
+		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return SameType(m.Type, p.Type) }) {
+			continue
+		}
 		for _, m := range byID[p.ID] {
-			changed = append(changed, fmt.Sprintf("%s is now %s, of another type", p.Address, m.Address))
+			changed = append(changed, fmt.Sprintf("%s is now %s, of another type, not one infraharvest knows as another name of %s", p.Address, m.Address, p.Type))
 		}
 	}
 	sort.Strings(changed)

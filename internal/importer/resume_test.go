@@ -137,7 +137,7 @@ func TestClaimRoot(t *testing.T) {
 	unrelated := filepath.Join(out, "aws", "111", "eu-west-2")
 	writeRoot(t, unrelated, "main.tf", engine.VariablesFileName, engine.ReadmeFileName)
 	for _, flags := range [][2]bool{{false, false}, {true, false}, {false, true}} {
-		_, err := claimRoot(out, unrelated, "fp", flags[0], flags[1])
+		_, err := claimRoot(out, unrelated, "fp", flags[0], flags[1], nil)
 		if err == nil || !strings.Contains(err.Error(), unrelated) || !strings.Contains(err.Error(), "main.tf") {
 			t.Errorf("resume, regenerate=%v: want an error naming the directory and main.tf, got %v", flags, err)
 		}
@@ -154,7 +154,7 @@ func TestClaimRoot(t *testing.T) {
 	// A new root is claimed: its checkpoint records that it started, which
 	// --resume doesn't take as a generated root.
 	fresh := filepath.Join(out, "aws", "222", "eu-west-2")
-	if _, err := claimRoot(out, fresh, "fp", false, false); err != nil {
+	if _, err := claimRoot(out, fresh, "fp", false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !exists(checkpointPath(out, fresh)) {
@@ -166,13 +166,13 @@ func TestClaimRoot(t *testing.T) {
 	}
 
 	// Without a flag, a root whose import didn't finish is refused.
-	if _, err := claimRoot(out, fresh, "fp", false, false); err == nil || !strings.Contains(err.Error(), "--resume") {
+	if _, err := claimRoot(out, fresh, "fp", false, false, nil); err == nil || !strings.Contains(err.Error(), "--resume") {
 		t.Errorf("an unfinished root without --resume: got %v", err)
 	}
 
 	// --resume clears what the import wrote there, and only that.
 	writeRoot(t, fresh, engine.VariablesFileName, engine.ReadmeFileName, "notes.md")
-	if _, err := claimRoot(out, fresh, "fp", true, false); err != nil {
+	if _, err := claimRoot(out, fresh, "fp", true, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]bool{engine.ImportsFileName: false, engine.GeneratedFileName: false, engine.VariablesFileName: false, engine.ReadmeFileName: false, "notes.md": true} {
@@ -204,7 +204,7 @@ func TestClaimRootRefusesARootAnImportFinished(t *testing.T) {
 			}
 			writeRoot(t, dir, files...)
 			for _, resume := range []bool{false, true} {
-				_, err := claimRoot(out, dir, "fp", resume, false)
+				_, err := claimRoot(out, dir, "fp", resume, false, nil)
 				if err == nil || !strings.Contains(err.Error(), dir) || !strings.Contains(err.Error(), "--regenerate") || !strings.Contains(err.Error(), "--incremental") {
 					t.Errorf("resume=%v: want an error naming the root, --regenerate and --incremental, got %v", resume, err)
 				}
@@ -222,7 +222,7 @@ func TestClaimRootRefusesARootAnImportFinished(t *testing.T) {
 
 	// With --regenerate it is cleared, but for what no import writes.
 	writeRoot(t, dir, "notes.md")
-	if _, err := claimRoot(out, dir, "fp", false, true); err != nil {
+	if _, err := claimRoot(out, dir, "fp", false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]bool{"network.tf": false, engine.VersionsFileName: true, "notes.md": true} {
@@ -236,7 +236,7 @@ func TestClaimRootRefusesARootAnImportFinished(t *testing.T) {
 	if err := saveCheckpoint(out, gone, "earlier", done); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := claimRoot(out, gone, "fp", false, false); err != nil {
+	if _, err := claimRoot(out, gone, "fp", false, false, nil); err != nil {
 		t.Errorf("a root with no .tf file left: %v", err)
 	}
 }
@@ -324,7 +324,7 @@ func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T)
 		t.Fatal(err)
 	}
 
-	claimed, err := claimRoot(out, dir, "fp", false, true)
+	claimed, err := claimRoot(out, dir, "fp", false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T)
 	// The run stops here, with network.tf written again: --resume clears
 	// it, and keeps the addresses.
 	writeRoot(t, dir, "network.tf")
-	claimed, err = claimRoot(out, dir, "fp", true, false)
+	claimed, err = claimRoot(out, dir, "fp", true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestRefuseReaddressed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claimed, err := claimRoot(out, dir, "fp", false, true)
+	claimed, err := claimRoot(out, dir, "fp", false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestClaimRootKeepsTheMovesOfMovesTF(t *testing.T) {
 	}
 	want := []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}
 
-	claimed, err := claimRoot(out, dir, "fp", false, true)
+	claimed, err := claimRoot(out, dir, "fp", false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +506,7 @@ func TestClaimRootKeepsTheMovesOfMovesTF(t *testing.T) {
 	}
 
 	// A run that stopped on the way: the checkpoint still has them.
-	again, err := claimRoot(out, dir, "fp", true, false)
+	again, err := claimRoot(out, dir, "fp", true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,40 +516,80 @@ func TestClaimRootKeepsTheMovesOfMovesTF(t *testing.T) {
 }
 
 // With moved blocks for what moved, a root is still refused for what
-// leaves it, is of another type now, or the engine couldn't move.
+// leaves it, is of another type now, but for another name of its type,
+// or the engine couldn't move.
 func TestRefuseReaddressedWithMoves(t *testing.T) {
 	claimed := &claim{previous: []engine.Managed{
 		{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"},
 		{Type: "aws_subnet", ID: "subnet-2", Address: "aws_subnet.b"},
+		{Type: "aws_s3_bucket", ID: "data", Address: "aws_s3_bucket.data"},
 		{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"},
+		{Type: "aws_alb", ID: "arn:edge", Address: "aws_alb.edge"},
 	}}
 	result := &engine.Result{
 		Addresses: []engine.Managed{
 			{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"},
 			{Type: "aws_lb", ID: "arn:lb", Address: "aws_lb.web"},
+			{Type: "aws_s3_bucket_policy", ID: "data", Address: "aws_s3_bucket_policy.data"},
 		},
-		Moves: []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}},
+		Moves:   []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}},
+		Retyped: []engine.Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"}},
 	}
-	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2"}
-	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves}, nil, nil); err != nil {
-		t.Errorf("only what moved blocks follow: %v", err)
+	// An aws_alb another root imports as an aws_lb is in that root now.
+	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2", {Type: "aws_lb", ID: "arn:edge"}: "envs/prod/aws/111/eu-west-2"}
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:2], Moves: result.Moves, Retyped: result.Retyped}, nil, nil); err != nil {
+		t.Errorf("only what moved and removed blocks follow: %v", err)
 	}
 
 	err := claimed.refuseReaddressed("root", result, nil, elsewhere)
 	if err == nil {
 		t.Fatal("want the root refused")
 	}
-	for _, want := range []string{"2 of its resources", "aws_subnet.b is now in envs/prod/aws/111/eu-west-2", "aws_alb.web is now aws_lb.web, of another type"} {
+	for _, want := range []string{"3 of its resources", "aws_subnet.b is now in envs/prod/aws/111/eu-west-2", "aws_alb.edge is now in envs/prod/aws/111/eu-west-2", "aws_s3_bucket.data is now aws_s3_bucket_policy.data, of another type"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("%v misses %q", err, want)
 		}
 	}
-	if strings.Contains(err.Error(), "aws_subnet.a") {
-		t.Errorf("%v names what a moved block follows", err)
+	if strings.Contains(err.Error(), "aws_subnet.a") || strings.Contains(err.Error(), "aws_alb.web") {
+		t.Errorf("%v names what a moved or removed block follows", err)
 	}
 
 	result.Unmoved = []string{"the moves from aws_subnet.x come back to aws_subnet.x"}
 	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves, Unmoved: result.Unmoved}, nil, nil); err == nil || !strings.Contains(err.Error(), "come back") {
 		t.Errorf("with moves the engine couldn't write: %v", err)
+	}
+}
+
+// A root applied without a backend keeps its local state when it is
+// generated again and put back: claiming it leaves the state, and putting
+// it back neither writes back the state it had, which Terraform may have
+// written since, nor removes the state files Terraform wrote.
+func TestPutBackKeepsLocalState(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "777", "eu-west-2")
+	writeRootFiles(t, dir, map[string]string{"network.tf": "# as applied\n", "terraform.tfstate": "serial 1"})
+	addresses := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}
+	done := &engine.Result{Imported: []engine.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
+	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := claimRoot(out, dir, "fp", false, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "terraform.tfstate")); err != nil || string(got) != "serial 1" {
+		t.Fatalf("terraform.tfstate once claimed: %q, %v", got, err)
+	}
+	// What generating it wrote, and Terraform since.
+	writeRootFiles(t, dir, map[string]string{"network.tf": "# generated again\n", "terraform.tfstate": "serial 2", "terraform.tfstate.backup": "serial 1"})
+	if err := claimed.putBack(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, want := range map[string]string{"network.tf": "# as applied\n", "terraform.tfstate": "serial 2", "terraform.tfstate.backup": "serial 1"} {
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != want {
+			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
+		}
 	}
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -81,6 +82,10 @@ type shared struct {
 	// managed is the state --managed-state names, by its sources as
 	// resolved (see managedState).
 	managed map[string]managed.Resources
+	// stated are where the roots earlier imports generated have their
+	// resources, as their own state, which --managed-state reads, says,
+	// by root directory (see excludeManaged and previousAddressesOf).
+	stated map[string][]engine.Managed
 
 	// own are the adapters of the organisation's own modules, by the
 	// provider they were fetched for (see ownAdapters).

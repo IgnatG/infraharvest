@@ -11,10 +11,13 @@ import (
 	"log"
 	"maps"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -348,18 +351,117 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	if err != nil {
 		return nil, err
 	}
+	// A root generated again keeps what it has: left out of it, its
+	// resource blocks would go, and a plan on its state would destroy
+	// what they manage. What the root's own state has is the root's too,
+	// at the address the state has it (see shared.previousAddressesOf).
+	var held map[engine.External]string
+	var own map[string]string
+	if (options.Regenerate || options.Resume) && options.Out != "" {
+		var dirs []string
+		if held, dirs, err = generatedResources(options.Out); err != nil {
+			return nil, err
+		}
+		own = ownStates(options.Out, dirs, run.backend)
+	}
 	if defaults == nil {
 		defaults = map[string]string{}
 	}
 	for _, resources := range listed {
 		for _, res := range resources {
 			id, _ := importID(res)
-			if where, ok := state.Lookup(res.Address.Type, id, res.Observed.ID); ok {
-				defaults[res.Address.Type+" "+res.Observed.ID] = managed.Reason + " (" + where + ")"
+			found, ok := state.Find(res.Address.Type, id, res.Observed.ID)
+			if !ok {
+				continue
 			}
+			if dir, ok := own[stateLocation(found.Where)]; ok {
+				// An address of another type would move it to a resource
+				// of another type, which a moved block can't.
+				if id != "" && found.Address != "" && found.Type == res.Address.Type {
+					run.shared.recordStated(dir, engine.Managed{Type: res.Address.Type, ID: id, Address: found.Address})
+				}
+				continue
+			}
+			if dir, ok := held[engine.External{Type: res.Address.Type, ID: id}]; ok {
+				log.Printf("%s %s is in the state %s, and in %s, which an earlier import generated: it stays in that root, which would destroy it if generated again without it", res.Address.Type, id, found.Where, relativePath(options.Out, dir))
+				continue
+			}
+			defaults[res.Address.Type+" "+res.Observed.ID] = managed.Reason + " (" + found.Where + ")"
 		}
 	}
 	return defaults, nil
+}
+
+// generatedResources returns the roots earlier imports generated in out
+// that still have configuration, and by type and import ID, the root that
+// has each of their resources (see previousAddresses), those of roots
+// still being generated again too. A root whose checkpoint can't be read
+// fails it: what that root has can't be told, and leaving any of it out
+// would make a plan on its state destroy it.
+func generatedResources(out string) (map[engine.External]string, []string, error) {
+	dirs, err := checkpointDirs(out)
+	if err != nil {
+		return nil, nil, err
+	}
+	held := map[engine.External]string{}
+	var roots []string
+	for _, dir := range dirs {
+		dir = filepath.Clean(dir)
+		names, err := tfFiles(dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(names) == 0 {
+			continue
+		}
+		previous, err := previousAddresses(out, dir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w: with --managed-state, generating roots again needs to know what each has, so that none of it is left out", relativePath(out, dir), err)
+		}
+		roots = append(roots, dir)
+		for _, p := range previous {
+			key := engine.External{Type: p.Type, ID: p.ID}
+			if _, ok := held[key]; !ok {
+				held[key] = dir
+			}
+		}
+	}
+	return held, roots, nil
+}
+
+// ownStates returns the root of dirs whose own state each state location
+// (see stateLocation) is: its local terraform.tfstate, and the state
+// backend, the configured backend, if any, keeps for a root with a
+// backend.tf. The states of other workspaces aren't the root's.
+func ownStates(out string, dirs []string, backend *config.Backend) map[string]string {
+	own := map[string]string{}
+	for _, dir := range dirs {
+		own[stateLocation(filepath.Join(dir, localStateFile))] = dir
+		if backend == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, BackendFileName)); err == nil {
+			if location := backend.StateURL(relativePath(out, dir)); location != "" {
+				own[location] = dir
+			}
+		}
+	}
+	return own
+}
+
+// localStateFile is the state of a root applied without a backend.
+const localStateFile = "terraform.tfstate"
+
+// stateLocation returns where, a state managed.Load read, as ownStates
+// names roots' states: a URL as it is, and a file by its absolute path.
+func stateLocation(where string) string {
+	if strings.Contains(where, "://") {
+		return where
+	}
+	if abs, err := filepath.Abs(where); err == nil {
+		return abs
+	}
+	return filepath.Clean(where)
 }
 
 // withProfile adds profile, the import's --profile, to an s3:// source that

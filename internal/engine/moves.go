@@ -38,6 +38,30 @@ type Removal struct {
 	// Resources are what From has, each with the root it goes to; none
 	// for a removed block of moves.tf whose resources no checkpoint says.
 	Resources []Departure `json:",omitempty"`
+	// Instance, if set, is where the root has the one resource From
+	// takes: an instance of a resource, or a resource of a module call,
+	// others of which stay. As a removed block takes no instance keys and
+	// only a whole module call, a moved block moves it to From, a
+	// resource of the root alone (see DepartedAddress), first.
+	Instance string `json:",omitempty"`
+}
+
+// Retype is a resource of a root generated again that is of another type
+// now, another name of the one it was (see AliasTypes), with the same
+// import ID, such as an aws_alb that is an aws_lb: Type and From are the
+// type and address the root had it at, and To where it imports it now.
+// No moved block can follow it, as the providers don't move state from
+// one type to another, so a removed block, with destroy = false, makes
+// the root's state forget it, and its import block imports it again.
+type Retype struct {
+	Type, ID string
+	From, To string
+	// Removed is what the removed block takes: From without its instance
+	// key, when all of that resource is of the other type now; else, as a
+	// removed block takes no instance keys and a whole module call, a
+	// resource of the root alone that a moved block moves From to first
+	// (see DepartedAddress).
+	Removed string
 }
 
 // Departure is a resource a root hands over to another root: Address is
@@ -55,6 +79,19 @@ type Departure struct {
 type Arrival struct {
 	Type, ID       string
 	Root, From, To string
+	// FromType, if set, is the type Root has the resource as, another
+	// name of Type (see AliasTypes): its removed block forgets it as
+	// that, and this root imports it as Type.
+	FromType string `json:",omitempty"`
+}
+
+// HadType returns the type the root a hands the resource over from has
+// it as: FromType, or else Type.
+func (a Arrival) HadType() string {
+	if a.FromType != "" {
+		return a.FromType
+	}
+	return a.Type
 }
 
 // RemovedFrom returns what a removed block takes to forget the resource
@@ -214,16 +251,19 @@ func rootLabel(address string) (string, bool) {
 // moves returns the moved blocks of a root generated again, given now,
 // where its resources are, and sources, the sources of its module calls
 // by name: previous's own moved blocks, then one for each resource of
-// previous now at another address. It leaves out, with why, the moves
+// previous now at another address; and the resources of previous now of
+// another type (see retypes). It leaves out, with why, the moves
 // Terraform rejects: into or out of a call that a module from the
 // registry the root calls makes, as moved blocks stay within a module
 // package, and onto an address another resource had. It returns none if
-// the blocks together don't move each resource once: two that move the
-// same one, or to the same address, a chain that comes back to where it
-// started, or a move from an address a resource has now.
-func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move, []string) {
+// the blocks together, with those that move what removed blocks take
+// alone first (see departureMoves), don't move each resource once: two
+// that move the same one, or to the same address, a chain that comes
+// back to where it started, or a move from an address a resource has
+// now.
+func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move, []Retype, []string) {
 	if previous == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	at := map[External]string{}
 	declared := map[string]bool{}
@@ -255,14 +295,179 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move
 			moved = append(moved, Move{From: p.Address, To: to})
 		}
 	}
-	if problem := conflictingMoves(moved, declared); problem != "" {
+	retyped, why := retypes(previous, now, sources)
+	unmoved = append(unmoved, why...)
+	if problem := conflictingMoves(append(slices.Clone(moved), departureMoves(previous.Removed, retyped)...), declared); problem != "" {
 		if len(previous.Moved) > 0 {
 			problem += fmt.Sprintf(": plan and apply the root, and delete %s, before generating it again", MovesFileName)
 		}
-		return nil, append(unmoved, problem)
+		return nil, nil, append(unmoved, problem)
 	}
 	sortMoves(moved)
-	return moved, unmoved
+	return moved, retyped, unmoved
+}
+
+// retypes returns the resources of previous that now, where the root's
+// resources are, has as another name of their type with the same import
+// ID (see AliasTypes), with the removed block that forgets each (see
+// Retype.Removed), sorted by where the root had them. It leaves out,
+// with why, those it can't forget: in a call that a module from the
+// registry the root calls makes, by sources, which a moved block can't
+// reach, and those whose addresses are only inferred (see
+// Managed.Unverified). Resources now of other types with the same ID are
+// left to Retyped.
+func retypes(previous *Previous, now []Managed, sources map[string]string) ([]Retype, []string) {
+	at := map[External]string{}
+	taken := map[string]bool{}
+	declared := map[string]bool{}
+	for _, m := range now {
+		at[External{Type: m.Type, ID: m.ID}] = m.Address
+		declared[RemovedFrom(m.Address)] = true
+		addTaken(taken, m.Address)
+	}
+	members := map[string]int{}
+	for _, p := range previous.Addresses {
+		members[RemovedFrom(p.Address)]++
+		addTaken(taken, p.Address)
+	}
+	for _, m := range previous.Moved {
+		addTaken(taken, m.From)
+		addTaken(taken, m.To)
+	}
+	for _, r := range previous.Removed {
+		addTaken(taken, r.From)
+	}
+	var retyped []Retype
+	var why []string
+	byFrom := map[string]int{}
+	for _, p := range previous.Addresses {
+		if _, ok := at[External{Type: p.Type, ID: p.ID}]; ok {
+			continue
+		}
+		for _, typ := range AliasTypes(p.Type) {
+			to, ok := at[External{Type: typ, ID: p.ID}]
+			if !ok {
+				continue
+			}
+			switch {
+			case p.Unverified:
+				why = append(why, fmt.Sprintf("%s is now %s, another name of its type, but where the root has it is only inferred, as its import blocks are deleted", p.Address, to))
+			case packagedCall(p.Address, sources) != "":
+				why = append(why, fmt.Sprintf("%s is now %s, another name of its type, and a moved block can't move it out of a call %s makes for a removed block to take it alone", p.Address, to, packagedCall(p.Address, sources)))
+			default:
+				retyped = append(retyped, Retype{Type: p.Type, ID: p.ID, From: p.Address, To: to})
+				byFrom[RemovedFrom(p.Address)]++
+			}
+			break
+		}
+	}
+	sort.Slice(retyped, func(i, j int) bool { return retyped[i].From < retyped[j].From })
+	for i, r := range retyped {
+		from := RemovedFrom(r.From)
+		if !strings.HasPrefix(from, "module.") && byFrom[from] == members[from] && !declared[from] {
+			retyped[i].Removed = from
+			continue
+		}
+		retyped[i].Removed = DepartedAddress(r.From, taken)
+	}
+	return retyped, why
+}
+
+// RootResources returns the resources of the root that addresses name,
+// as type.label, such as aws_subnet.a for aws_subnet.a[0], leaving out
+// those in module calls: what DepartedAddress takes as taken.
+func RootResources(addresses ...string) map[string]bool {
+	taken := map[string]bool{}
+	for _, address := range addresses {
+		addTaken(taken, address)
+	}
+	return taken
+}
+
+// addTaken adds the resource of the root that address names, as
+// type.label, to taken; nothing for one in a module call.
+func addTaken(taken map[string]bool, address string) {
+	if typ, label, ok := rootResource(address); ok {
+		taken[typ+"."+label] = true
+	}
+}
+
+// departureMoves returns the moved blocks that move what the removed
+// blocks of removed and retyped take alone to the resources of the root
+// those blocks take (see Removal.Instance and Retype.Removed), sorted.
+func departureMoves(removed []Removal, retyped []Retype) []Move {
+	var moved []Move
+	for _, r := range removed {
+		if r.Instance != "" {
+			moved = append(moved, Move{From: r.Instance, To: r.From})
+		}
+	}
+	for _, r := range retyped {
+		if r.Removed != RemovedFrom(r.From) {
+			moved = append(moved, Move{From: r.From, To: r.Removed})
+		}
+	}
+	sortMoves(moved)
+	return slices.Compact(moved)
+}
+
+// DepartedAddress returns the address a moved block moves address, an
+// instance of a resource or a resource in a module call, to for a
+// removed block to take it alone (see Removal.Instance): a resource of
+// the root of its type, labelled departed_ and what address names, such
+// as aws_subnet.departed_vpc_a_x for module.vpc.aws_subnet.a["x"], that
+// taken, the root's resources as type.label (see RootResources), doesn't
+// have yet. It adds the address to taken.
+func DepartedAddress(address string, taken map[string]bool) string {
+	var names []string
+	rest := address
+	for {
+		after, ok := strings.CutPrefix(rest, "module.")
+		if !ok {
+			break
+		}
+		end := strings.IndexAny(after, ".[")
+		if end < 0 {
+			break
+		}
+		names = append(names, after[:end])
+		rest = after[end:]
+		if strings.HasPrefix(rest, "[") {
+			tail := afterKey(rest)
+			names = append(names, rest[:len(rest)-len(tail)])
+			rest = tail
+		}
+		rest = strings.TrimPrefix(rest, ".")
+	}
+	typ, label, _ := strings.Cut(rest, ".")
+	base := typ + ".departed_" + identifier(strings.Join(append(names, label), "_"))
+	departed := base
+	for n := 2; taken[departed]; n++ {
+		departed = fmt.Sprintf("%s_%d", base, n)
+	}
+	taken[departed] = true
+	return departed
+}
+
+// identifier returns s with each run of underscores and characters a
+// label can't have, such as the brackets and quotes of an instance key,
+// as one underscore, and none at either end.
+func identifier(s string) string {
+	var b strings.Builder
+	gap := false
+	for _, r := range s {
+		label := r == '-' || ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')
+		if !label {
+			gap = true
+			continue
+		}
+		if gap && b.Len() > 0 {
+			b.WriteByte('_')
+		}
+		gap = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // isModuleCall reports whether address is a module call alone, such as
@@ -300,6 +505,13 @@ func packagedCall(address string, sources map[string]string) string {
 		return ""
 	}
 	return fmt.Sprintf("module.%s (%s)", name, source)
+}
+
+// PackagedCall returns, for address in a module call that a call of calls
+// makes of a module that isn't a local one makes in turn, the call and its
+// source, which a moved block can't reach (see packagedCall); "" otherwise.
+func PackagedCall(address string, calls []ModuleCall) string {
+	return packagedCall(address, callSources(calls))
 }
 
 // afterKey returns what follows the instance key that s starts with, such
@@ -370,18 +582,20 @@ func sortMoves(moved []Move) {
 	})
 }
 
-// writeMoves writes moved into dir's moves.tf, sorted by where they move
-// to, then removed, sorted by what they remove, each with destroy =
-// false; it removes the file if there are none.
-func writeMoves(dir string, moved []Move, removed []Removal) error {
+// writeMoves writes moved into dir's moves.tf, with the moves of what
+// the removed blocks of removed and retyped take alone (see
+// departureMoves), sorted by where they move to, then those removed
+// blocks, sorted by what they remove, each with destroy = false; it
+// removes the file if there are none.
+func writeMoves(dir string, moved []Move, removed []Removal, retyped []Retype) error {
 	path := filepath.Join(dir, MovesFileName)
-	if len(moved) == 0 && len(removed) == 0 {
+	if len(moved) == 0 && len(removed) == 0 && len(retyped) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
-	sorted := append([]Move(nil), moved...)
+	sorted := append(slices.Clone(moved), departureMoves(removed, retyped)...)
 	sortMoves(sorted)
 	var b strings.Builder
 	for i, m := range sorted {
@@ -393,6 +607,9 @@ func writeMoves(dir string, moved []Move, removed []Removal) error {
 	froms := make([]string, 0, len(removed))
 	for _, r := range removed {
 		froms = append(froms, r.From)
+	}
+	for _, r := range retyped {
+		froms = append(froms, r.Removed)
 	}
 	sort.Strings(froms)
 	for i, from := range slices.Compact(froms) {
@@ -494,7 +711,7 @@ func Vacate(dir string, opts Options) (*Result, error) {
 		}
 	}
 	result := &Result{Removed: removals(opts.Previous, nil)}
-	if err := writeMoves(dir, nil, result.Removed); err != nil {
+	if err := writeMoves(dir, nil, result.Removed, nil); err != nil {
 		return nil, err
 	}
 	if err := requireMinimumVersion(dir); err != nil {

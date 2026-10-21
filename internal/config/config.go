@@ -355,6 +355,22 @@ func (b *Backend) File(rootPath string) []byte {
 	return hclwrite.Format(f.Bytes())
 }
 
+// StateURL returns where the backend File renders for the root at
+// rootPath keeps its state, as --managed-state names state objects:
+// s3://<bucket>/<key>, gs://<bucket>/<prefix>/default.tfstate, or
+// https://<account>.blob.core.windows.net/<container>/<key>.
+func (b *Backend) StateURL(rootPath string) string {
+	switch {
+	case b.S3 != nil:
+		return "s3://" + b.S3.Bucket + "/" + path.Join(b.S3.KeyPrefix, rootPath, "terraform.tfstate")
+	case b.AzureRM != nil:
+		return "https://" + b.AzureRM.StorageAccountName + ".blob.core.windows.net/" + b.AzureRM.ContainerName + "/" + path.Join(b.AzureRM.KeyPrefix, rootPath, "terraform.tfstate")
+	case b.GCS != nil:
+		return "gs://" + b.GCS.Bucket + "/" + path.Join(b.GCS.Prefix, rootPath, "default.tfstate")
+	}
+	return ""
+}
+
 // gitRef returns the ref a git module source pins, from its query, as in
 // git::https://example.com/modules.git//bucket?ref=v1.4.0, or "".
 func gitRef(source string) string {

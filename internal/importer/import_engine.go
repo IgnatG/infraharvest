@@ -306,7 +306,8 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	run.warnUnscoped(provider, scope)
 	pattern := withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(envNames) > 0)
 	// Where the roots would be without the file's environments, for those
-	// an earlier import generated there, which stay (see keptRoots).
+	// an earlier import generated there, which keep their resources, or
+	// with --regenerate hand them over (see keptRoots).
 	layouts, err := rootLayouts(ctx, provider, pattern, withEnvLayout(options.Layout, len(options.EnvTags) > 0))
 	if err != nil {
 		return nil, err
@@ -383,7 +384,12 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	var kept *keptRoots
 	if len(envNames) > 0 {
 		kept = newKeptRoots(options.Out)
-		dirOf = kept.dirs(dirOf, layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout)), envOf)
+		kept.shared = run.shared
+		unsplit := layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout))
+		if err := kept.split(resourcesByService, dirOf, unsplit, importID, options.Regenerate); err != nil {
+			return nil, err
+		}
+		dirOf = kept.dirs(dirOf, unsplit, envOf)
 	}
 	nameOf := resourceNames(provider.Name(), listed, resourcesByService)
 	fileOf := func(service string, r harvest.Resource) string {
@@ -560,7 +566,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 				continue
 			}
 			var claimed *claim
-			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental); err != nil {
+			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental, run.shared); err != nil {
 				c.handovers.record(dir, nil, err)
 				run.addDirectory(dir, byDir[dir], nil, err)
 				continue
@@ -758,6 +764,9 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	}
 	if len(result.Removed) > 0 {
 		log.Printf("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), engine.MovesFileName)
+	}
+	if len(result.Retyped) > 0 {
+		log.Printf("%s: %d resources are of another name of their type now: removed blocks forget them where they were, and import blocks import them again (see %s)", dir, len(result.Retyped), engine.MovesFileName)
 	}
 	if len(result.Arrived) > 0 {
 		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))

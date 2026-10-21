@@ -28,7 +28,7 @@ func FuzzParse(f *testing.F) {
 			return
 		}
 		for key, at := range r {
-			if !strings.Contains(key, " ") || at != where {
+			if !strings.Contains(key, " ") || at.Where != where {
 				t.Errorf("entry %q at %q", key, at)
 			}
 		}

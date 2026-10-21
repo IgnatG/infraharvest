@@ -201,6 +201,8 @@ type fakeTerraform struct {
 	// generatingMode is the directory's mode when generated.tf was
 	// written.
 	generatingMode os.FileMode
+	// statePlans counts the plans given a state file (-state).
+	statePlans int
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
@@ -234,6 +236,9 @@ func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.
 				}
 				f.varFiles[path] = string(content)
 			}
+		}
+		if _, ok := opt.(*tfexec.StateOption); ok {
+			f.statePlans++
 		}
 		if _, ok := opt.(*tfexec.GenerateConfigOutOption); ok {
 			if info, err := os.Stat(f.dir); err == nil {
@@ -412,6 +417,51 @@ func TestGenerate(t *testing.T) {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
 		}
+	}
+}
+
+// A root applied without a backend keeps its state in terraform.tfstate,
+// which Generate's plans don't read: with it, Terraform would skip the
+// import of each resource it has, and generate no configuration for it.
+// They plan with an empty state outside the root instead, removed after,
+// and the root's state stays as it was.
+func TestGeneratePlansWithoutTheRootsLocalState(t *testing.T) {
+	temp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, temp)
+	}
+	const state = `{"version": 4, "resources": [{"mode": "managed", "type": "aws_sqs_queue", "name": "orders"}]}`
+	for name, local := range map[string]bool{"local state": true, "no state": false} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if local {
+				if err := os.WriteFile(filepath.Join(dir, "terraform.tfstate"), []byte(state), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tf := &fakeTerraform{dir: dir}
+
+			if _, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_sqs_queue", Name: "orders", ID: "a"}}, Options{}); err != nil {
+				t.Fatal(err)
+			}
+
+			plans := strings.Count(strings.Join(tf.calls, ","), "plan")
+			want := 0
+			if local {
+				want = plans
+			}
+			if tf.statePlans != want {
+				t.Errorf("%d of %d plans were given a state, want %d", tf.statePlans, plans, want)
+			}
+			if left, err := filepath.Glob(filepath.Join(temp, emptyStatePattern+"*")); err != nil || len(left) > 0 {
+				t.Errorf("empty states left: %v, %v", left, err)
+			}
+			if local {
+				if got := readFile(t, dir, "terraform.tfstate"); got != state {
+					t.Errorf("terraform.tfstate: %s, want it as it was", got)
+				}
+			}
+		})
 	}
 }
 

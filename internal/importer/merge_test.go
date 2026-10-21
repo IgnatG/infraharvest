@@ -59,6 +59,34 @@ func TestMergeRefusal(t *testing.T) {
 	}
 }
 
+// A root with local state isn't merged: merging would set it aside, and
+// its state would stay where no root is.
+func TestMergeRefusalOfLocalState(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"terraform.tfstate", "terraform.tfstate.backup", "terraform.tfstate.d"} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			stack := filepath.Join(out, "aws", "eu-west-2")
+			dev := mergeMember{env: "dev", dir: filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2")}
+			prod := mergeMember{env: "prod", dir: filepath.Join(out, "envs", "prod", "aws", "222222222222", "eu-west-2")}
+			writeRootFiles(t, dev.dir, map[string]string{"sqs.tf": "# queues\n"})
+			if name == "terraform.tfstate.d" {
+				writeRootFiles(t, filepath.Join(prod.dir, name, "prod"), map[string]string{"terraform.tfstate": "{}"})
+			} else {
+				writeRootFiles(t, prod.dir, map[string]string{name: "{}"})
+			}
+
+			reason := mergeRefusal(out, stack, []mergeMember{dev, prod})
+
+			for _, want := range []string{"envs/prod/aws/222222222222/eu-west-2 has local state (" + name + ")", "migrate it to a backend first"} {
+				if !strings.Contains(reason, want) {
+					t.Errorf("reason %q misses %q", reason, want)
+				}
+			}
+		})
+	}
+}
+
 func TestCopyAndRemoveRoot(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
@@ -97,6 +125,36 @@ func TestCopyAndRemoveRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(out, "envs", "prod")); err != nil {
 		t.Errorf("another environment's directory is removed: %v", err)
+	}
+}
+
+// Setting a root aside, and removing it, leave its local state where it
+// is: never copied, never removed.
+func TestCopyAndRemoveRootLeaveLocalState(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	dir := filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2")
+	writeRootFiles(t, dir, map[string]string{"sqs.tf": "# queues\n", "terraform.tfstate": "state", "terraform.tfstate.backup": "backup"})
+	writeRootFiles(t, filepath.Join(dir, "terraform.tfstate.d", "dev"), map[string]string{"terraform.tfstate": "dev"})
+	premerge := premergeDir(out, dir)
+	if err := copyRoot(dir, premerge); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"terraform.tfstate", "terraform.tfstate.backup", "terraform.tfstate.d"} {
+		if _, err := os.Stat(filepath.Join(premerge, name)); err == nil {
+			t.Errorf("%s is copied", name)
+		}
+	}
+	if err := removeRoot(out, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sqs.tf")); err == nil {
+		t.Errorf("sqs.tf isn't removed")
+	}
+	for name, want := range map[string]string{"terraform.tfstate": "state", "terraform.tfstate.backup": "backup", filepath.Join("terraform.tfstate.d", "dev", "terraform.tfstate"): "dev"} {
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != want {
+			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
+		}
 	}
 }
 
