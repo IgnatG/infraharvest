@@ -151,14 +151,24 @@ func MergedRootFiles(dir string) ([]string, error) {
 }
 
 // VerifyMerged runs the verification gate on the root environments share
-// in dir as environment env plans it, with tf, a Terraform runner with
-// env's credentials: with its var files, vars/common.tfvars,
+// in root as environment env plans it, with a Terraform runner newTF
+// returns with env's credentials, on a private copy of the root without
+// its backend (see verifyCopy): with its var files, vars/common.tfvars,
 // vars/<env>/terraform.tfvars and, until it is deleted after the first
 // apply, vars/<env>/imports.tfvars, whose every import the plan must
-// make. It initialises the root without its backend, as Verify does.
+// make. It initialises the copy without a backend, as Verify does.
 // Secret variables need values, from TF_VAR_ environment variables or a
 // .auto.tfvars file.
-func VerifyMerged(ctx context.Context, tf Terraform, dir, env string, opts Options) (Gate, error) {
+func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts Options) (Gate, error) {
+	dir, remove, err := verifyCopy(root)
+	if err != nil {
+		return nil, err
+	}
+	defer remove()
+	tf, err := newTF(dir)
+	if err != nil {
+		return nil, err
+	}
 	tf = withTimeout(tf, opts.CommandTimeout)
 	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)

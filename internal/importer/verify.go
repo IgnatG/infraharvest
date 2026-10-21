@@ -84,9 +84,9 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			v := lockedProviderVersion(dir, binary.Registry, provider)
 			opts.Omit, opts.StateOnly = cat.OmitFor(v), cat.StateOnlyFor(v)
 		}
-		tf, err := engine.NewTerraform(dir, execPath, filepath.Join(cacheDir, "plugins"), nil)
-		if err != nil {
-			return err
+		// Each check runs in a private copy of the root (see engine.Verify).
+		newTF := func(d string) (engine.Terraform, error) {
+			return engine.NewTerraform(d, execPath, filepath.Join(cacheDir, "plugins"), nil)
 		}
 		record := func(root verifiedRoot, gate engine.Gate) {
 			name := root.Path
@@ -108,7 +108,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			return err
 		}
 		if len(envs) == 0 {
-			gate, err := engine.Verify(ctx, tf, dir, opts)
+			gate, err := engine.Verify(ctx, newTF, dir, opts)
 			if err != nil {
 				return fmt.Errorf("%s: %w", dir, err)
 			}
@@ -119,7 +119,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if len(options.Environments) > 0 && !slices.Contains(options.Environments, env) {
 				continue
 			}
-			gate, err := engine.VerifyMerged(ctx, tf, dir, env, opts)
+			gate, err := engine.VerifyMerged(ctx, newTF, dir, env, opts)
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
@@ -173,7 +173,8 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 }
 
 // generatedRoots returns the directories under out that an import
-// generated, sorted: those with a providers.tf, outside .terraform, the
+// generated, sorted: those with a providers.tf, outside .terraform and
+// the copies verify checks roots in (see engine.IsVerifyCopy), the
 // generated modules, the bootstrap root and the checkpoints, where an
 // incremental import stages what it adds (see stagingDir).
 func generatedRoots(out string) ([]string, error) {
@@ -183,7 +184,7 @@ func generatedRoots(out string) ([]string, error) {
 			return err
 		}
 		topLevel := path != out && filepath.Dir(path) == filepath.Clean(out)
-		if d.IsDir() && (d.Name() == ".terraform" || (topLevel && (d.Name() == engine.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
+		if d.IsDir() && (d.Name() == ".terraform" || engine.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == engine.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
 			return filepath.SkipDir
 		}
 		// Every root configures its provider; modules don't.

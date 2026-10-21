@@ -184,7 +184,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 		// The gate plans without the backend, which its init leaves out, as
 		// a root's backend.tf is written only once its gate passes.
 		gated := maps.Clone(files)
-		gated[ProvidersFileName] = withoutBackend(files[ProvidersFileName])
+		gated[ProvidersFileName] = dropBackend(files[ProvidersFileName])
 		if err := g.write(gated); err != nil {
 			return nil, err
 		}
@@ -706,32 +706,4 @@ func WriteMergedNotInCloud(dir string, gone map[string][]Import) error {
 		return err
 	}
 	return fsutil.WriteFile(path, append(readme, b.String()...), 0o644)
-}
-
-// withoutBackend returns src, a configuration file, without the backend
-// and cloud blocks of its terraform blocks: the merged root as its gate
-// plans it, initialised with -backend=false, which a plan of a root with
-// a backend it hasn't initialised refuses ("Backend initialization
-// required").
-func withoutBackend(src []byte) []byte {
-	f, diags := hclwrite.ParseConfig(src, ProvidersFileName, hcl.InitialPos)
-	if diags.HasErrors() {
-		return src
-	}
-	changed := false
-	for _, b := range f.Body().Blocks() {
-		if b.Type() != "terraform" {
-			continue
-		}
-		for _, inner := range b.Body().Blocks() {
-			if inner.Type() == "backend" || inner.Type() == "cloud" {
-				b.Body().RemoveBlock(inner)
-				changed = true
-			}
-		}
-	}
-	if !changed {
-		return src
-	}
-	return hclwrite.Format(f.Bytes())
 }

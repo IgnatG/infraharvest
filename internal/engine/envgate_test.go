@@ -579,10 +579,12 @@ func TestVerifyMerged(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
+	// Each runs in a copy of the root, beside it.
+	prodFake := func(d string) (Terraform, error) { return &mergeFake{env: "prod", dir: d, overrides: &overrides}, nil }
 	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
-	gate, err := VerifyMerged(context.Background(), &mergeFake{env: "prod", dir: dir, overrides: &overrides}, dir, "prod", Options{})
+	gate, err := VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +595,7 @@ func TestVerifyMerged(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
-	gate, err = VerifyMerged(context.Background(), &mergeFake{env: "prod", dir: dir, overrides: &overrides}, dir, "prod", Options{})
+	gate, err = VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
