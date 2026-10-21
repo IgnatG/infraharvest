@@ -35,6 +35,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -271,8 +272,17 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
+	// discover saves what it lists under the output directory: the default
+	// one, but under the root rather than where the server runs.
+	out, err := t.within("out", importer.DefaultOut)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := t.linksStayUnder("out", out); err != nil {
+		return nil, nil, err
+	}
 	// Never the picker: the client talks to this process over stdio.
-	args = append(args, "--pick=false", "--selection="+in.Selection)
+	args = append(args, "--pick=false", "--out="+out, "--selection="+in.Selection)
 	_, stderr, code, err := t.run(ctx, args)
 	if err != nil {
 		return nil, nil, err
@@ -342,7 +352,7 @@ type ImportInput struct {
 	Out       string `json:"out" jsonschema:"the directory to write the configuration and report to"`
 	Engine    string `json:"engine,omitempty" jsonschema:"terraform (the default) or tofu"`
 	// Incremental adds to the roots Out already has (--incremental).
-	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, in files of their own, without changing what they have; needed to import into an output directory again"`
+	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, after the blocks of the file of their type, without changing what they have; needed to import into an output directory again"`
 	// Regenerate generates the roots Out already has again (--regenerate).
 	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed"`
 }
@@ -440,7 +450,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	message := fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never applies anything.",
 		summary.Included, in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	if in.Incremental {
-		message = fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, in files of their own? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
+		message = fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, after the blocks of the file of their type? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
 			in.Selection, summary.Excluded, in.Out, scopeText(in.Scope))
 	}
 	if in.Regenerate {

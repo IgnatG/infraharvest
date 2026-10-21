@@ -430,13 +430,13 @@ func (r *stackResource) instance() hcl.Traversal {
 // returns the stack's resources sorted by address, with labels unique per
 // type (see assignLabels).
 func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
-	return matchResourcesWith(roots, norms, nil)
+	return matchResourcesWith(roots, norms, nil, nil)
 }
 
 // matchResourcesWith is matchResources, with the resources isolated names,
 // by mergeKey, matched with no other environment's (see
-// mergeControls.isolated).
-func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool) []*stackResource {
+// mergeControls.isolated), labelled as keptLabels says, where it does.
+func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool, keptLabels map[string]string) []*stackResource {
 	byEnv := make([][]*envResource, len(roots))
 	labels := make([]map[string]int, len(roots))
 	for e, root := range roots {
@@ -446,6 +446,9 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 			typ, label, _ := strings.Cut(b.address, ".")
 			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
 			r.isolated = isolated[mergeKey(e, b.address)]
+			if l := keptLabels[mergeKey(e, b.address)]; r.isolated && l != "" {
+				r.normalLabel = l
+			}
 			if typ == moduleType {
 				r.moduleIDs = moduleImportIDs(root.importIDs, label)
 			}

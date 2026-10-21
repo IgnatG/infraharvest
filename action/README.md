@@ -60,6 +60,8 @@ With the default `github.token`, the repository's (or organisation's) setting **
 
 Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go after the blocks of the files of their types, such as `network.tf`, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
 
+A root environments share (see [Merging environments](../docs/configuration.md#merging-environments)) works the same way, although the job's checkout has no `.infraharvest/`, where an import records what it merged, as the generated `.gitignore` leaves it out: the action tells the merged root from its own files, generates each environment's roots again, and merges them again with what is new kept apart as its environment's, so that nothing the merged root has is imported twice or gets another address. Each run must import every environment of the stack: every account, subscription or project the configuration file maps to one. Once the import blocks are deleted, `managed-state` must read each environment's state, such as `backend`, which holds the state key each `vars/<env>/backend.hcl` names.
+
 ## Drift
 
 Once the roots are applied, people still change things in the cloud. With `drift` set, the action runs [`infraharvest drift`](../docs/drift.md) on the roots in `out` before importing: it refreshes each root once, with read access to its state, and reports which changes the next `terraform apply` would revert. The report, `drift.md`, goes into the job summary, and the `drift-found` output says whether drift is left.
@@ -142,6 +144,42 @@ jobs:
 ```
 
 Set the roots' secret variables as `TF_VAR_<name>` in the job's `env`, from your secret store: a variable without a value gets a placeholder, and what it sets is reported as not assessable.
+
+### Roots environments share
+
+With `environments:` in the configuration file (`config`), the roots of each stack's environments [merge into one root](../docs/configuration.md#merging-environments), with what differs in `vars/<env>/`. Drift checks such a root once per environment, each time with the job's credentials, so the environments that aren't in the job's account, subscription or project would look deleted. Run a job per environment, with that environment's credentials, and `environment` naming it (`--environment`): a matrix does it. The action fails, before checking anything, when `out` has roots more than one environment shares and `environment` isn't set; set it to `all` when the job's credentials reach every environment, as when one account holds them all, split by tags.
+
+Each job opens its own pull request, on `infraharvest/drift-<env>`, titled with the environment, such as "Accept cloud changes (drift) in prod". Give each environment a decisions file of its own, so that the pull requests don't change the same file:
+
+```yaml
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: dev
+            role: arn:aws:iam::111111111111:role/infraharvest-drift
+          - environment: prod
+            role: arn:aws:iam::222222222222:role/infraharvest-drift
+    steps:
+      - uses: actions/checkout@<sha>
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: ${{ matrix.role }}
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          import: "false"
+          drift: report
+          environment: ${{ matrix.environment }}
+          drift-decisions: decisions/drift-${{ matrix.environment }}.yaml
+          pull-request: "true"
+```
+
+The import of such roots can't run a job per environment: merging needs every environment's resources in one run. Run it in a job of its own, with `config` naming the environments and the accounts, subscriptions or projects to import (on AWS, `accounts` and `assume-role` under `providers.aws`), and credentials that can assume the role in each; `environment` doesn't go with `import: "true"`, but for `all`.
 
 ## Permissions for drift
 
@@ -236,14 +274,15 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `engine` | `terraform` | `terraform` or `tofu` |
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
-| `incremental` | `true` | Add what is new to the roots `out` already has, in files of their own (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
+| `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `drift` | `off` | `off`, `report` or `accept`: check the roots in `out` for changes in the cloud before importing (see [Drift](#drift)) |
 | `drift-decisions` | | The decisions file. With `drift: report`, the file to write this run's changes into, without applying it (`--write-decisions=<file>`); with `drift: accept`, the file to decide the changes by (`--decisions`), written again with this run's changes. Without one, the decisions file is `drift.yaml` in `out` |
 | `drift-accept` | | With `drift: accept`, rules for the changes to accept, one a line, such as `attribute=tags.*`; `keep <rule>` keeps what it matches |
+| `environment` | | For roots environments share, the environment to check drift as (`--environment`), with the job's credentials, which must be that environment's; several, comma-separated, share them, and `all` checks every one. Required when `out` has roots more than one environment shares; with `import: "true"`, only `all` (see [Roots environments share](#roots-environments-share)) |
 | `pull-request` | `false` | Open or update a pull request with the output |
-| `pull-request-branch` | `infraharvest/import`, or `infraharvest/drift` with `import: "false"` | The pull request's branch |
+| `pull-request-branch` | `infraharvest/import`, or `infraharvest/drift` with `import: "false"` (`infraharvest/drift-<env>` with `environment`) | The pull request's branch |
 | `pull-request-token` | `github.token` | Token to push the branch and open the pull request with: see [Checks on the pull request](#checks-on-the-pull-request) |
 
 ## Outputs

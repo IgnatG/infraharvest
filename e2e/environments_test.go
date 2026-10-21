@@ -9,11 +9,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -100,4 +103,60 @@ func checkMergedPlans(ctx context.Context, t *testing.T, dir, execPath, plugins 
 		imported[env] = checkNoChanges(ctx, t, dir, execPath, plugins, mergedVars(dir, env))
 	}
 	return imported
+}
+
+// resourceAddresses returns the addresses of the resource blocks of the
+// root in dir, such as aws_sqs_queue.orders.
+func resourceAddresses(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	addresses := map[string]bool{}
+	for _, b := range configBlocks(t, dir) {
+		if b.Type == "resource" {
+			addresses[strings.Join(b.Labels, ".")] = true
+		}
+	}
+	return addresses
+}
+
+// selectWorkspace selects workspace in the root in dir, initialised.
+func selectWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, workspace string) {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx); err != nil {
+		t.Fatalf("%s: terraform init: %v", dir, err)
+	}
+	if err := tf.WorkspaceSelect(ctx, workspace); err != nil {
+		t.Fatalf("%s: terraform workspace select %s: %v", dir, workspace, err)
+	}
+}
+
+// checkWorkspacePlan plans the merged root in dir as environment env, in
+// its workspace, with its var files, and reports every resource the plan
+// changes; it returns the addresses of those it imports, sorted. An
+// import block of what the state already has imports nothing.
+func checkWorkspacePlan(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) []string {
+	t.Helper()
+	selectWorkspace(ctx, t, dir, execPath, plugins, env)
+	plan := planRoot(ctx, t, dir, execPath, plugins, mergedVars(dir, env)...)
+	var imports []string
+	for _, rc := range plan.ResourceChanges {
+		if rc.Mode != tfjson.ManagedResourceMode {
+			continue
+		}
+		if !rc.Change.Actions.NoOp() {
+			changed := changedAttributes(rc.Change.Before, rc.Change.After)
+			if rc.Change.Importing == nil || !rc.Change.Actions.Update() || !stateOnly(rc.Type, changed) {
+				t.Errorf("%s, as %s: %s is planned to %v: %v", dir, env, rc.Address, rc.Change.Actions, changed)
+				continue
+			}
+		}
+		if rc.Change.Importing != nil {
+			imports = append(imports, rc.Address)
+		}
+	}
+	sort.Strings(imports)
+	return imports
 }

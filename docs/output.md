@@ -176,7 +176,7 @@ After generating a directory, infraharvest runs its verification gate on it and 
 
 A failed check counts like a resource that couldn't be imported (exit code 1, or 3 with `--allow-partial`).
 
-To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, initialising each without its backend, so it needs no access to the state; set secret variables first. Without the state, its plan relies on the import blocks, so run it before you delete `imports.tf`: on a root without them, the plan would create every resource. After `terraform apply`, `infraharvest drift [output-directory]` shows what has changed in the cloud since, with read access to the state (see [Drift](drift.md)). `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
+To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, each in a private copy beside it (a hidden directory, removed once checked) without its backend block, its state or `.terraform`, initialised without a backend, so it needs no access to the state and leaves the root as it was, a merged root's `backend` in `providers.tf` included; set secret variables first. Without the state, its plan relies on the import blocks, so run it before you delete `imports.tf`: on a root without them, the plan would create every resource. After `terraform apply`, `infraharvest drift [output-directory]` shows what has changed in the cloud since, with read access to the state (see [Drift](drift.md)). `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
 
 ## Exit codes
 

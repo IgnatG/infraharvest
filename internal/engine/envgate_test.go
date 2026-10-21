@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -469,6 +470,13 @@ func TestMergeStackIsolated(t *testing.T) {
 	if got := addresses["prod aws_sqs_queue.orders"]; got != "aws_sqs_queue.orders " {
 		t.Errorf("the shared queue: %q", got)
 	}
+	// Kept apart with the label an earlier merge gave it, it keeps it.
+	m = mergeStackWith("aws", []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}, labels: map[string]string{mergeKey(1, "aws_sqs_queue.audit"): "shop_audit"}})
+	for _, r := range m.resources {
+		if r.members[1] != nil && r.members[1].block.address == "aws_sqs_queue.audit" && r.label != "shop_audit" {
+			t.Errorf("prod's new queue, labelled: %s", r.address())
+		}
+	}
 }
 
 func TestMergedImportIDs(t *testing.T) {
@@ -508,16 +516,75 @@ func TestMergedImportIDs(t *testing.T) {
 	}
 }
 
+// An environment's state is its workspace's, and the state its
+// backend.hcl names, of any backend type a merged root writes.
+func TestMergedStateLocations(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	workspace := filepath.Join(dir, "terraform.tfstate.d", "prod", "terraform.tfstate")
+	for backend, want := range map[string]string{
+		"": "",
+		"bucket = \"acme-state\"\nkey = \"envs/prod/aws/2/eu-west-2/terraform.tfstate\"\nregion = \"eu-west-2\"\n":                                        "s3://acme-state/envs/prod/aws/2/eu-west-2/terraform.tfstate",
+		"bucket = \"acme-state\"\nprefix = \"envs/prod/google/p/europe-west2\"\n":                                                                         "gs://acme-state/envs/prod/google/p/europe-west2/default.tfstate",
+		"resource_group_name = \"state\"\nstorage_account_name = \"acme\"\ncontainer_name = \"tfstate\"\nkey = \"envs/prod/azure/s/terraform.tfstate\"\n": "https://acme.blob.core.windows.net/tfstate/envs/prod/azure/s/terraform.tfstate",
+		"# The prod root had no s3 backend: set these.\n# bucket = \"\"\n":                                                                                "",
+	} {
+		path := filepath.Join(dir, varsDirName, "prod", backendConfigFileName)
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+		if backend != "" {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(backend), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		locations, err := MergedStateLocations(dir, "prod")
+		wanted := []string{workspace}
+		if want != "" {
+			wanted = append(wanted, want)
+		}
+		if err != nil || strings.Join(locations, " ") != strings.Join(wanted, " ") {
+			t.Errorf("%q: got %v, %v, want %v", backend, locations, err, wanted)
+		}
+	}
+}
+
+// MergedRootFiles returns the files a merge writes: the root's .tf files,
+// README.md and its var files, not those of Terraform or of others.
+func TestMergedRootFilesOnDisk(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"providers.tf", "sqs.tf", ReadmeFileName, ".gitignore", LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := MergedRootFiles(dir)
+	want := []string{".gitignore", ReadmeFileName, "providers.tf", "sqs.tf", "vars/common.tfvars", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
+	if err != nil || strings.Join(files, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, %v, want %v", files, err, want)
+	}
+}
+
 // VerifyMerged plans a merged root as one environment, with its var
 // files, and expects its imports.
 func TestVerifyMerged(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
+	// Each runs in a copy of the root, beside it.
+	prodFake := func(d string) (Terraform, error) { return &mergeFake{env: "prod", dir: d, overrides: &overrides}, nil }
 	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
-	gate, err := VerifyMerged(context.Background(), &mergeFake{env: "prod", dir: dir, overrides: &overrides}, dir, "prod", Options{})
+	gate, err := VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +595,7 @@ func TestVerifyMerged(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
-	gate, err = VerifyMerged(context.Background(), &mergeFake{env: "prod", dir: dir, overrides: &overrides}, dir, "prod", Options{})
+	gate, err = VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +681,7 @@ func TestWriteMergedMoves(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}})
+	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, nil)
 	if err != nil || !check.Passed {
 		t.Fatalf("the moves check: %+v, %v", check, err)
 	}
@@ -637,10 +704,128 @@ func TestWriteMergedMoves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if check, err := WriteMergedMoves(other, []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}); err != nil || check.Passed {
+	if check, err := WriteMergedMoves(other, []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}, nil); err != nil || check.Passed {
 		t.Errorf("moves from what the root declares: %+v, %v", check, err)
 	}
 	if readme, err := os.ReadFile(filepath.Join(other, ReadmeFileName)); err != nil || strings.Contains(string(readme), "Moved blocks") {
 		t.Errorf("README.md lists moves that failed the check: %s %v", readme, err)
+	}
+}
+
+// A merged root merged again without a resource that goes to another root
+// gets a removed block for it, with destroy = false, beside its moved
+// blocks: its required_version, in providers.tf, is raised to what removed
+// blocks with a lifecycle block need, and its README says where each goes.
+// One instance of a resource that stays is moved to a resource of the
+// root alone first; a removed block of what the root still declares fails
+// the moves check.
+func TestWriteMergedMovesRemoved(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"providers.tf": "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
+		"sqs.tf":       "resource \"aws_sqs_queue\" \"this\" {\n  for_each = var.sqs_queues\n\n  name = each.value.name\n}\n",
+		ReadmeFileName: "# aws/eu-west-2\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed := []Removal{
+		{From: "aws_sqs_queue.reports_dev", Resources: []Departure{{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.reports_dev[0]", Root: "envs/shared/aws/111111111111/eu-west-2"}}},
+		{From: "aws_sqs_queue.departed_this_audit", Instance: `aws_sqs_queue.this["audit"]`, Resources: []Departure{{Type: "aws_sqs_queue", ID: "q2", Address: `aws_sqs_queue.this["audit"]`, Root: "envs/shared/aws/111111111111/eu-west-2"}}},
+	}
+	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, removed)
+	if err != nil || !check.Passed {
+		t.Fatalf("the moves check: %+v, %v", check, err)
+	}
+	gone, err := ReadRemoved(dir)
+	if err != nil || len(gone) != 2 || gone[0].From != "aws_sqs_queue.departed_this_audit" || gone[1].From != "aws_sqs_queue.reports_dev" {
+		t.Errorf("removed blocks: %+v, %v", gone, err)
+	}
+	moves, err := ReadMoves(dir)
+	if err != nil || len(moves) != 2 {
+		t.Errorf("moved blocks: %+v, %v", moves, err)
+	}
+	providers := readFile(t, dir, "providers.tf")
+	if !strings.Contains(providers, `required_version = ">= 1.10, < 2.0"`) {
+		t.Errorf("providers.tf doesn't require what removed blocks need:\n%s", providers)
+	}
+	readme := readFile(t, dir, ReadmeFileName)
+	if !strings.Contains(readme, "## Moved blocks") || !strings.Contains(readme, "## Handed over to other roots") || !strings.Contains(readme, "| `aws_sqs_queue.reports_dev[0]` | `envs/shared/aws/111111111111/eu-west-2` |") {
+		t.Errorf("README.md:\n%s", readme)
+	}
+
+	if check, err := WriteMergedMoves(dir, nil, []Removal{{From: "aws_sqs_queue.this"}}); err != nil || check.Passed {
+		t.Errorf("a removed block of what the root declares: %+v, %v", check, err)
+	}
+}
+
+// A merged root's README lists what an environment's incremental import
+// found no longer in the cloud, by environment.
+func TestWriteMergedNotInCloud(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gone := map[string][]Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}
+	if err := WriteMergedNotInCloud(dir, gone); err != nil {
+		t.Fatal(err)
+	}
+	readme := readFile(t, dir, ReadmeFileName)
+	if !strings.Contains(readme, "## No longer in the cloud") || !strings.Contains(readme, "- `aws_sqs_queue.this[\"orders\"]` (`q1`), of dev") {
+		t.Errorf("README.md:\n%s", readme)
+	}
+}
+
+// backendWatcher records, at each plan, whether the merged root's
+// providers.tf in dir configures a backend.
+type backendWatcher struct {
+	Terraform
+	dir     string
+	planned *[]bool
+}
+
+func (b *backendWatcher) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	content, _ := os.ReadFile(filepath.Join(b.dir, ProvidersFileName))
+	*b.planned = append(*b.planned, strings.Contains(string(content), "backend \""))
+	return b.Terraform.PlanJSON(ctx, w, opts...)
+}
+
+// The gate inits the merged root without its backend, so its plans plan
+// it without the backend block, as Terraform refuses a plan of a backend
+// it hasn't initialised; the merged root then keeps the block, which each
+// environment's backend.hcl configures.
+func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	var overrides []string
+	roots := mergeRoots(t, dir, nil, &overrides)
+	var planned []bool
+	for i, account := range []string{"111111111111", "222222222222"} {
+		backend := "terraform {\n  backend \"s3\" {\n    bucket = \"state\"\n    key    = \"imported/aws/" + account + "/eu-west-2/terraform.tfstate\"\n    region = \"eu-west-2\"\n  }\n}\n"
+		if err := os.WriteFile(filepath.Join(roots[i].Dir, "backend.tf"), []byte(backend), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		next := roots[i].Terraform
+		roots[i].Terraform = func(d string) (Terraform, error) {
+			tf, err := next(d)
+			return &backendWatcher{Terraform: tf, dir: dir, planned: &planned}, err
+		}
+	}
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "" {
+		t.Fatalf("not merged: %s", result.Reason)
+	}
+	if len(planned) == 0 || slices.Contains(planned, true) {
+		t.Errorf("plans with a backend in providers.tf: %v, want none", planned)
+	}
+	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, `backend "s3"`) {
+		t.Errorf("providers.tf has no backend once merged:\n%s", got)
+	}
+	if got := readFile(t, dir, filepath.Join(varsDirName, "prod", backendConfigFileName)); !strings.Contains(got, "222222222222") {
+		t.Errorf("prod's backend.hcl:\n%s", got)
 	}
 }

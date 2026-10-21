@@ -31,15 +31,15 @@ func TestMergeRefusal(t *testing.T) {
 	stack := filepath.Join(out, "aws", "eu-west-2")
 	dev := mergeMember{env: "dev", dir: filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2")}
 	prod := mergeMember{env: "prod", dir: filepath.Join(out, "envs", "prod", "aws", "222222222222", "eu-west-2")}
-	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}); reason != "" {
+	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, false); reason != "" {
 		t.Errorf("refused: %s", reason)
 	}
 	other := mergeMember{env: "prod", dir: filepath.Join(out, "envs", "prod", "aws", "333333333333", "eu-west-2")}
-	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod, other}); !strings.Contains(reason, "prod has 2 roots") {
+	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod, other}, false); !strings.Contains(reason, "prod has 2 roots") {
 		t.Errorf("two roots of prod: %q", reason)
 	}
 	nested := mergeMember{env: "prod", dir: filepath.Join(stack, "prod")}
-	if reason := mergeRefusal(out, stack, []mergeMember{dev, nested}); !strings.Contains(reason, "in the merged root's directory") {
+	if reason := mergeRefusal(out, stack, []mergeMember{dev, nested}, false); !strings.Contains(reason, "in the merged root's directory") {
 		t.Errorf("a root in the merged root's directory: %q", reason)
 	}
 	if err := os.MkdirAll(stack, 0o755); err != nil {
@@ -48,13 +48,16 @@ func TestMergeRefusal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stack, "main.tf"), []byte("# hand-written\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}); !strings.Contains(reason, "no merge by infraharvest wrote") {
+	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, false); !strings.Contains(reason, "no merge by infraharvest wrote") {
 		t.Errorf("a directory with configuration of its own: %q", reason)
+	}
+	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, true); reason != "" {
+		t.Errorf("a merged root told from its files: %q", reason)
 	}
 	if err := writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}); reason != "" {
+	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, false); reason != "" {
 		t.Errorf("a merged root an earlier merge wrote: %q", reason)
 	}
 }
@@ -76,7 +79,7 @@ func TestMergeRefusalOfLocalState(t *testing.T) {
 				writeRootFiles(t, prod.dir, map[string]string{name: "{}"})
 			}
 
-			reason := mergeRefusal(out, stack, []mergeMember{dev, prod})
+			reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, false)
 
 			for _, want := range []string{"envs/prod/aws/222222222222/eu-west-2 has local state (" + name + ")", "migrate it to a backend first"} {
 				if !strings.Contains(reason, want) {

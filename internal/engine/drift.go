@@ -120,10 +120,12 @@ type DriftOptions struct {
 	// backend settings, vars/<env>/backend.hcl, or, for a root without a
 	// backend, the local state of the workspace named after it, and with
 	// its var files. The environments share the root's code, so a change
-	// accepted for one isn't written into it: where a variable no other
-	// argument uses sets the whole value, it is written into the
-	// environment's vars/<env>/terraform.tfvars instead; else it needs a
-	// hand edit.
+	// accepted for one isn't written into it: where a variable sets the
+	// whole value, or the instance's key of a map variable for_each is
+	// over, and every other argument it reaches has the cloud's value too,
+	// it is written into the environment's vars/<env>/terraform.tfvars
+	// instead; in a block only the environment has, counted by a variable
+	// only it sets true, the block is edited; else it needs a hand edit.
 	Environment string
 	// RootLock, for a root environments share, is held while the root's
 	// own directory is initialised with Environment's backend settings,
@@ -367,6 +369,9 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	editor.syncModules(root)
 	if opts.Environment != "" {
 		editor.env, editor.envVars = opts.Environment, envVarsPath(opts.Environment)
+		if editor.ownFlags, err = envOnlyFlags(dir, opts.Environment, files); err != nil {
+			return nil, err
+		}
 	}
 	if result.Changes, err = shareTags(result.Changes, root, refresh, code, editor); err != nil {
 		return nil, err

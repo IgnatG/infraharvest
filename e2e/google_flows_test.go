@@ -145,9 +145,12 @@ func countListings(t *testing.T, target string) (*httptest.Server, *atomic.Int64
 
 // TestGoogleIncremental checks --incremental adds a resource created
 // after an import to the root that import generated: a Pub/Sub topic
-// (testdata/google-incremental), in a file of its own in global's root,
-// with what the roots had as it was, and the roots plan as imports with
-// no changes. Another import with --incremental adds nothing.
+// (testdata/google-incremental), after the blocks of its type's file
+// in global's root or in a new one, with what the roots had as it was,
+// and the roots plan as imports with no changes. Another import with
+// --incremental adds nothing.
+// Deleted out of band, the topic is reported no longer in the cloud, as
+// Cloud Asset Inventory lists every topic of the project.
 //
 // It adds to the estate the other Google Cloud tests import, so CI runs
 // it on a runner of its own.
@@ -156,7 +159,8 @@ func TestGoogleIncremental(t *testing.T) {
 	useAssetSearch(t, e, e.state)
 	out := importGoogle(t, e, "", "--all")
 	before := outputFiles(t, out)
-	added := seed(e.ctx, t, "google-incremental", e.execPath, e.plugins)
+	fixture := seedApplied(e.ctx, t, "google-incremental", e.execPath, e.plugins)
+	added := fixture.resources(e.ctx, t)
 	created := append(slices.Clone(e.state), added...)
 	useAssetSearch(t, e, created)
 
@@ -179,5 +183,20 @@ func TestGoogleIncremental(t *testing.T) {
 	importGoogle(t, e, out, "--all", "--incremental")
 	for name := range addedConfiguration(t, after, outputFiles(t, out)) {
 		t.Errorf("--incremental with nothing new wrote to %s", name)
+	}
+
+	// The topic is deleted out of band, and the search no longer finds it.
+	if err := fixture.tf.Destroy(e.ctx); err != nil {
+		t.Fatalf("delete the added topic: %v", err)
+	}
+	useAssetSearch(t, e, e.state)
+	importGoogle(t, e, out, "--all", "--incremental")
+	coverage = coverageOf(t, out)
+	checkCoverage(t, "--incremental after deleting the topic", coverage, nil)
+	if len(coverage.NotInCloud) != 1 {
+		t.Fatalf("--incremental after deleting the topic: no longer in the cloud %+v, want the topic", coverage.NotInCloud)
+	}
+	if gone := coverage.NotInCloud[0]; gone.Path != "google/"+googleProject+"/global" || !strings.HasPrefix(gone.Address, "google_pubsub_topic.") || !strings.HasSuffix(gone.ID, "infraharvest-e2e-added") || gone.Scope == "" {
+		t.Errorf("no longer in the cloud: got %+v, want the deleted topic", gone)
 	}
 }

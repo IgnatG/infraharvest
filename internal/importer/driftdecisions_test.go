@@ -489,3 +489,57 @@ func TestDriftWritesDecisionsToAFile(t *testing.T) {
 		t.Error("checked roots anyway")
 	}
 }
+
+// A decisions file decides the changes of a root environments share by
+// environment: an entry of one environment's change, at an address and
+// attribute another environment's change has too, decides only its own,
+// and --write-decisions keeps an entry per environment.
+func TestDriftDecidesEachEnvironmentOfAMergedRoot(t *testing.T) {
+	t.Parallel()
+	out := driftOutput(t, "aws/us-east-1")
+	for _, env := range []string{"dev", "prod"} {
+		path := filepath.Join(out, "aws", "us-east-1", "vars", env, "terraform.tfvars")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("env = \""+env+"\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	decisions := filepath.Join(t.TempDir(), "decisions.yaml")
+	content := "version: 1\ndefaults: { decision: accept }\nchanges:\n" +
+		"  - { root: aws/us-east-1, environment: dev, address: aws_s3_bucket.logs, attribute: tags.Env, fingerprint: " + envFingerprint + ", decision: keep }\n"
+	if err := os.WriteFile(decisions, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/us-east-1": reverting}, accepted: report.DriftWritten}
+	options := driftOptions(out, f)
+	options.Decisions, options.WriteDecisions = decisions, true
+	var stdout bytes.Buffer
+	if err := Drift(context.Background(), options, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]report.DriftChange{}
+	for _, c := range readDrift(t, out).Changes {
+		if c.Attribute == "tags.Env" {
+			got[c.Environment] = c
+		}
+	}
+	if c := got["dev"]; c.Outcome != report.DriftKept || c.DecisionSource != report.DriftDecidedByEntry {
+		t.Errorf("dev: %s by %s, want %s by %s", c.Outcome, c.DecisionSource, report.DriftKept, report.DriftDecidedByEntry)
+	}
+	if c := got["prod"]; c.Outcome != report.DriftWritten || c.DecisionSource != report.DriftDecidedByDefaults {
+		t.Errorf("prod: %s by %s, want %s by %s", c.Outcome, c.DecisionSource, report.DriftWritten, report.DriftDecidedByDefaults)
+	}
+	written, err := LoadDriftDecisions(decisions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DriftDecisionEntry{
+		{Root: "aws/us-east-1", Environment: "dev", Address: "aws_s3_bucket.logs", Attribute: "tags.Env", Fingerprint: envFingerprint, Decision: engine.DriftKeep},
+		{Root: "aws/us-east-1", Environment: "prod", Address: "aws_s3_bucket.logs", Attribute: "tags.Env", Fingerprint: envFingerprint, Decision: DriftUndecided},
+	}
+	if !reflect.DeepEqual(written.Changes, want) {
+		t.Errorf("decisions file\n%+v\nwant\n%+v", written.Changes, want)
+	}
+}

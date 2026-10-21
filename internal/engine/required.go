@@ -250,3 +250,40 @@ func setsWriteOnly(body *hclsyntax.Body) bool {
 	}
 	return false
 }
+
+// raiseRequiredVersion raises the required_version of the root in dir,
+// in whichever of its files has it, such as a merged root's providers.tf,
+// to the oldest release its blocks work with (see featuresNeed), where
+// that is later: as for the removed blocks a merged root gets once
+// written (see WriteMergedMoves). Unlike requireMinimumVersion, it never
+// lowers it, as what the root's modules need isn't known here.
+func raiseRequiredVersion(dir string) error {
+	files, err := configFiles(dir)
+	if err != nil {
+		return err
+	}
+	need := featuresNeed(files)
+	want := fmt.Sprintf(">= %s, < %d.0", shortVersion(need), need.Segments()[0]+1)
+	for _, f := range files {
+		blocks := f.file.Body().Blocks()
+		changed := false
+		for i, b := range f.syntax.Blocks {
+			if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) {
+				continue
+			}
+			if lower, err := lowerBound(stringAttribute(b.Body, "required_version")); err == nil {
+				if v, err := version.NewVersion(strings.TrimPrefix(lower, ">= ")); err == nil && !need.GreaterThan(v) {
+					continue
+				}
+			}
+			blocks[i].Body().SetAttributeValue("required_version", cty.StringVal(want))
+			changed = true
+		}
+		if changed {
+			if err := f.save(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

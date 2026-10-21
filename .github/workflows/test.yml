@@ -345,15 +345,17 @@ jobs:
   # The same round trip with each engine: the output must work on both.
   # The tests that seed testdata/aws (TestAWSRoundTrip, TestAWSSelection,
   # TestAWSIncremental) take most of the time, so each runs on a runner of
-  # its own, with its own Floci. The options tests (TestAWSOptions*), which
+  # its own, with its own Floci, TestAWSSelection with the test of its
+  # rules (TestAWSSelectionRules). The options tests (TestAWSOptions*), which
   # import testdata/aws-options in an account of their own many times
   # over, run on two more: those of the output (layout, modules, verify)
   # and those of what is imported (report, filters, exit codes). The drift
   # test (TestAWSDrift), which applies and changes its estate many times
   # over, runs on another, with the shorter drift tests of an S3 backend
   # (TestAWSDriftBackend) and of the MCP server's drift tools
-  # (TestAWSDriftMCP), as does the environments test
-  # (TestAWSEnvironments), which imports two accounts four times, with the
+  # (TestAWSDriftMCP), as does the test of the MCP server's other tools
+  # and of its drift tool with environments (TestAWSMCP), and the
+  # environments test (TestAWSEnvironments), which imports two accounts four times, with the
   # test of a feature's data sources there (TestAWSEnvironmentsData), and the
   # tests of --regenerate's moved and removed blocks
   # (TestAWSRegenerate*), which each apply roots and generate them again
@@ -366,18 +368,18 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, selection, incremental, options-output, options-input, drift, environments, regenerate, others]
+        shard: [round-trip, selection, incremental, options-output, options-input, drift, mcp, environments, regenerate, others]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
           skip: ""
         - shard: selection
-          run: ^TestAWSSelection$
+          run: ^TestAWSSelection(Rules)?$
           skip: ""
         - shard: incremental
           run: ^TestAWSIncremental$
@@ -391,6 +393,9 @@ jobs:
         - shard: drift
           run: ^TestAWSDrift(Backend|MCP)?$
           skip: ""
+        - shard: mcp
+          run: ^TestAWSMCP$
+          skip: ""
         - shard: environments
           run: ^TestAWSEnvironments(Data)?$
           skip: ""
@@ -399,7 +404,7 @@ jobs:
           skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection|Incremental|Options.*|Drift.*|Environments(Data)?|Regenerate.*)$
+          skip: ^TestAWS(RoundTrip|Selection(Rules)?|Incremental|Options.*|Drift.*|MCP|Environments(Data)?|Regenerate.*)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -436,7 +441,7 @@ jobs:
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
         SKIP: ${{ matrix.skip }}
-      run: go test -tags e2e,minimal,aws -timeout 25m -v -run "$RUN" -skip "$SKIP" ./e2e/
+      run: go test -tags e2e,minimal,aws -timeout 45m -v -run "$RUN" -skip "$SKIP" ./e2e/
     - name: Floci logs
       if: failure()
       run: docker compose -f e2e/compose.yaml logs

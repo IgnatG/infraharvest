@@ -264,6 +264,9 @@ type mergeControls struct {
 	// mergeKey: what an incremental import added since the stack was
 	// merged (see MergeRoot.Isolated).
 	isolated map[string]bool
+	// labels are the labels of resources kept apart, by mergeKey, that
+	// they had in the merged root before (see MergeRoot.Labels).
+	labels map[string]string
 }
 
 // mergeStackWith is mergeStack, with the resources controls name split
@@ -286,7 +289,7 @@ func mergeStackWith(provider string, roots []envRoot, schemas *tfjson.ProviderSc
 		}
 		m.norms = append(m.norms, n)
 	}
-	m.resources = matchResourcesWith(roots, m.norms, controls.isolated)
+	m.resources = matchResourcesWith(roots, m.norms, controls.isolated, controls.labels)
 	for _, r := range m.resources {
 		for _, member := range r.members {
 			if member != nil && member.isolated {

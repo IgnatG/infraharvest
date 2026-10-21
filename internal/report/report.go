@@ -315,11 +315,14 @@ type Excluded struct {
 // NotInCloud is a resource a root has, by its address in the root, that
 // is no longer in the cloud: Path is the root's, relative to the output
 // directory, with forward slashes, and Scope where it was looked for.
+// In a root environments share, Environment is the environment whose
+// resource it is.
 type NotInCloud struct {
-	Path    string `json:"path"`
-	Address string `json:"address"`
-	ID      string `json:"id"`
-	Scope   string `json:"scope,omitempty"`
+	Path        string `json:"path"`
+	Address     string `json:"address"`
+	ID          string `json:"id"`
+	Scope       string `json:"scope,omitempty"`
+	Environment string `json:"environment,omitempty"`
 }
 
 // Move is a resource a moved block moves within a root, or that a
@@ -961,7 +964,11 @@ func (r *Report) Markdown() string {
 	section("Warnings", "Look at these before using the configuration.", warnings)
 	var gone []string
 	for _, g := range r.NotInCloud {
-		gone = append(gone, fmt.Sprintf("- `%s` `%s` in `%s`", g.Address, g.ID, g.Path))
+		line := fmt.Sprintf("- `%s` `%s` in `%s`", g.Address, g.ID, g.Path)
+		if g.Environment != "" {
+			line += ", of " + g.Environment
+		}
+		gone = append(gone, line)
 	}
 	section("No longer in the cloud", "The roots have these resources, but the import didn't find them, though it listed every resource of their type where they were: they have been deleted since, and the next plan of the root would create them again. Delete each one's import block, if the root's `imports.tf` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again. The import changed nothing the roots have.", gone)
 	var movedLines, departedLines []string
