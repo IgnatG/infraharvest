@@ -600,6 +600,12 @@ func (w *rootWriter) dataFile() []byte {
 // resource some environments lack, or a forEach, with for_each over what
 // the environment has. It returns nil for none.
 func (w *rootWriter) importsFile() ([]byte, error) {
+	return w.importsFileWithout(nil)
+}
+
+// importsFileWithout is importsFile without the import blocks of skip,
+// resources of the merged root that aren't of a forEach.
+func (w *rootWriter) importsFileWithout(skip map[*stackResource]bool) ([]byte, error) {
 	hasID := func(r *stackResource) bool {
 		for _, member := range r.members {
 			if member != nil && member.id != "" {
@@ -623,7 +629,7 @@ func (w *rootWriter) importsFile() ([]byte, error) {
 		}
 	}
 	for _, r := range w.m.resources {
-		if r.forEach != nil || !hasID(r) {
+		if r.forEach != nil || !hasID(r) || skip[r] {
 			continue
 		}
 		instance := string(hclwrite.TokensForTraversal(r.instance()).Bytes())

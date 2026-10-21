@@ -236,6 +236,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Terraform: runner,
 			Isolated:  m.isolated,
 			Labels:    m.labels,
+			Gone:      r.goneFrom(m.dir),
 			Arrivals:  m.result.Arrived,
 		}
 	}
@@ -727,6 +728,22 @@ func (r *Run) readdressNotInCloud(path string, members []mergeMember, imports ma
 		typ := engine.AddressType(g.Address)
 		gone[env] = append(gone[env], engine.Import{Type: typ, Name: strings.TrimPrefix(g.Address, typ+"."), ID: g.ID})
 	}
+	return gone
+}
+
+// goneFrom returns the addresses of the resources of the root in dir an
+// incremental import found no longer in the cloud (see addToRoot), sorted:
+// merged again, its stack keeps them as the root has them, and plans
+// without importing them (see engine.MergeRoot.Gone).
+func (r *Run) goneFrom(dir string) []string {
+	path := relativePath(r.options.Out, dir)
+	var gone []string
+	for _, g := range r.report.NotInCloud {
+		if g.Path == path && g.Environment == "" {
+			gone = append(gone, g.Address)
+		}
+	}
+	sort.Strings(gone)
 	return gone
 }
 

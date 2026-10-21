@@ -189,6 +189,17 @@ const stateOnlyChange = "only state-only or secret arguments change"
 // stateOnly arguments of the resource's type. An expected below zero
 // doesn't check the number of imports.
 func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stateOnly map[string][]string, expected int) Check {
+	return planCheckWith(p, diags, secrets, stateOnly, expected, nil)
+}
+
+// goneChange is what the plan check's details say of a resource no longer
+// in the cloud that the plan creates again (see planCheckWith).
+const goneChange = "no longer in the cloud: the plan creates it again"
+
+// planCheckWith is planCheck, where the plan may also create gone, the
+// addresses of resources no longer in the cloud, whose import it leaves
+// out (see MergeRoot.Gone).
+func planCheckWith(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stateOnly map[string][]string, expected int, gone map[string]bool) Check {
 	check := Check{Name: CheckPlan}
 	if len(diags) > 0 || p == nil {
 		for _, d := range diags {
@@ -218,6 +229,10 @@ func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stat
 		change := PlannedChange{Address: rc.Address}
 		for _, a := range rc.Change.Actions {
 			change.Actions = append(change.Actions, string(a))
+		}
+		if gone[rc.Address] && rc.Change.Actions.Create() {
+			check.Details = append(check.Details, fmt.Sprintf("%s: %s", rc.Address, goneChange))
+			continue
 		}
 		if !rc.Change.Actions.Update() {
 			check.Passed = false
