@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/zclconf/go-cty/cty"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
 
 // stagedModulesDir is the directory of drift's staged copy of a root that
@@ -176,10 +178,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		}
 	}
 	name := uniqueVariable(Label(strings.Join(words, "_")), m.cfg.variables)
-	typeLine := ""
-	if ty != cty.NilType && !ty.HasDynamicTypes() {
-		typeLine = "type = " + typeexpr.TypeString(ty) + "\n"
-	}
+	typeLine := "type = " + variableType(value, ty) + "\n"
 	resource := res.b.Labels[0] + "." + res.b.Labels[1]
 
 	// The module: the literal is the variable, whose default it is.
@@ -240,6 +239,24 @@ func uniqueVariable[T any](name string, variables map[string]T) string {
 		}
 		unique = fmt.Sprintf("%s_%d", name, n)
 	}
+}
+
+// variableType returns the type of a variable for value: ty where the
+// schemas give it, else the type its JSON implies, else any, as every
+// variable has a type (G4).
+func variableType(value any, ty cty.Type) string {
+	if ty != cty.NilType && !ty.HasDynamicTypes() {
+		return typeexpr.TypeString(ty)
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "any"
+	}
+	implied, err := ctyjson.ImpliedType(raw)
+	if err != nil || implied.HasDynamicTypes() {
+		return "any"
+	}
+	return typeexpr.TypeString(implied)
 }
 
 // variableBlock writes a variable block of name, with description, a
