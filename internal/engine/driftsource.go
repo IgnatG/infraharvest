@@ -77,6 +77,9 @@ type Source struct {
 	Also []SourceEdit
 	// Reason says why there is no Edit.
 	Reason string
+	// instance says Edit is of the instance's own value, its key's in the
+	// map the block's for_each is over (see eachValue).
+	instance bool
 	// Secret says the value is a secret, which is never written.
 	Secret bool
 	// Module says, for a resource in a module call, how the module gets
@@ -129,12 +132,27 @@ type driftEditor struct {
 	modules map[string]*driftModule
 	// env is, for a root environments share, the environment checked:
 	// its code is every environment's, so only env's var file, envVars
-	// (see envVarsPath), is edited, for a value a variable sets.
+	// (see envVarsPath), is edited, for a value a variable sets, or a
+	// block only env has (see ownBlock).
 	env, envVars string
+	// ownFlags are, for a root environments share, the bool variables
+	// only env sets true (see envOnlyFlags).
+	ownFlags map[string]bool
+	// current are the values the plan of the code has each resource of
+	// the root module at, by address, which the refresh made the cloud's;
+	// nil for one it creates.
+	current map[string]any
 }
 
 func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *driftEditor {
-	e := &driftEditor{resources: map[string]refreshedResource{}, defaults: defaults, providerTagged: map[string]string{}}
+	e := &driftEditor{resources: map[string]refreshedResource{}, defaults: defaults, providerTagged: map[string]string{}, current: map[string]any{}}
+	if code != nil {
+		for _, rc := range code.ResourceChanges {
+			if rc.Mode == tfjson.ManagedResourceMode && rc.ModuleAddress == "" && rc.Change != nil {
+				e.current[rc.Address] = rc.Change.Before
+			}
+		}
+	}
 	if refresh != nil {
 		for _, rc := range refresh.ResourceDrift {
 			if rc.Mode == tfjson.ManagedResourceMode && rc.Change != nil {
@@ -397,7 +415,7 @@ func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) Source {
 			src.Reason = "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store"
 		}
 	}
-	if e.env != "" && src.Edit != nil && src.Edit.File != e.envVars {
+	if e.env != "" && src.Edit != nil && src.Edit.File != e.envVars && !e.ownBlock(cfg, c, src) {
 		src.Edit, src.Also = nil, nil
 		src.Reason = fmt.Sprintf("the environments share this root's code, so it isn't edited for %s alone: edit it by hand, for every environment", e.env)
 	}
@@ -457,16 +475,19 @@ func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) Source {
 	if c.Kind == DriftDeleted {
 		return w.manual(SourceResource, b.b.DefRange(), "deleted in the cloud: remove the resource from the code by hand, or apply to create it again")
 	}
-	for _, meta := range []string{"count", "for_each"} {
-		if _, ok := b.b.Body.Attributes[meta]; ok {
-			return w.manual(SourceExpression, b.b.DefRange(), "the block makes several resources with "+meta+": edit it by hand")
-		}
+	if reason := w.instances(b.b); reason != "" {
+		return w.manual(SourceExpression, b.b.DefRange(), reason)
 	}
 	w.steps = splitPath(c.Attribute, e.pathValues(c.Address)...)
 	if len(w.steps) == 0 || w.steps[0].isIndex {
 		return w.manual(SourceExpression, b.b.DefRange(), "edit it by hand")
 	}
-	return w.body(b.b, nil, 0)
+	src := w.body(b.b, nil, 0)
+	if w.each != nil && src.Edit != nil && !src.instance {
+		// What the block sets but through each.value, every instance gets.
+		return Source{File: src.File, Range: src.Range, Kind: src.Kind, Reason: "every instance of the block's for_each gets it: edit it by hand, or give each key its own value in the map for_each is over"}
+	}
+	return src
 }
 
 // pathValues are the values the path of a change of the resource at
@@ -501,6 +522,9 @@ type driftWalk struct {
 	// mod is set for the walk of a module call's argument, whose steps
 	// aren't the resource's path (see callWalk).
 	mod *callWalk
+	// each is set for the walk of a resource's block with for_each: the
+	// instance the change is of (see eachValue).
+	each *eachInstance
 }
 
 // holder is what holds an expression: an argument of a block, an item of
@@ -788,7 +812,12 @@ func (w *driftWalk) traversal(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 			return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
 		}
 		return w.variable(x, name, path, i)
-	case "each", "count", "path", "terraform", "self":
+	case "each":
+		if w.each != nil && w.mod == nil {
+			return w.eachValue(x, path, i)
+		}
+		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+	case "count", "path", "terraform", "self":
 		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
 	}
 	return w.reference(x, path, i)
@@ -862,8 +891,9 @@ func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path 
 // environment's var file gives the variable, or, where the file doesn't
 // set it, x, with an edit that adds it to the file. The value is set
 // only where it is the whole of what changed, written as the schema
-// types the argument at path, and no other argument refers to the
-// variable, whose value would reach it too.
+// types the argument at path, and every other argument that refers to
+// the variable, whose value would reach it too, has the cloud's value as
+// well in the environment (see variableUses).
 func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
 	file := w.e.envVars
 	f := w.cfg.files[file]
@@ -872,10 +902,13 @@ func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, pa
 		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
 	case w.mod != nil || i != len(w.steps):
 		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
-	case w.cfg.varUses[name] > 1:
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s, which other arguments use too, sets it: change it in %s by hand if they should all take the cloud's value", name, file))
 	case w.c.value == nil:
 		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
+	}
+	if w.cfg.varUses[name] > 1 {
+		if reason := w.variableUses(name); reason != "" {
+			return w.manual(SourceVariable, x.Range(), reason)
+		}
 	}
 	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
