@@ -29,6 +29,9 @@ import (
 // every project of a run shares, so Google's rate limit is shared too.
 func ImportEach(options Options, kind string, scopes []string, importOne func(Options, string) error) error {
 	run := activeRun
+	if run != nil {
+		run.shared.scopes = scopes
+	}
 	if run == nil || options.Parallel <= 1 || len(scopes) < 2 {
 		for _, scope := range scopes {
 			err := importSafely(importOne, options, scope)

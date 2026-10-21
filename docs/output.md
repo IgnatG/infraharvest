@@ -47,7 +47,7 @@ Some resources need a decision first:
 
 ### Roots between which resources move
 
-With `--regenerate`, a resource can go from one root to another, such as when `--env-tags` or `--layout` changes. If the run generates both roots, the root it leaves gets a `removed` block for it in `moves.tf`, with `destroy = false`, and the root it goes to imports it; if the run generates only the root it goes to, it stays where it is, and is left out of the other. A root left with no resources keeps only `versions.tf`, `providers.tf`, `moves.tf` and its README. Both READMEs list these resources under Moves, and so do the report and `coverage.json` (`departed`).
+With `--regenerate`, a resource can go from one root to another, such as when `--env-tags` or `--layout` changes. If the run generates both roots, the root it leaves gets a `removed` block for it in `moves.tf`, with `destroy = false`, and the root it goes to imports it; if the run generates only the root it goes to, it stays where it is, and is left out of the other. A root left with no resources keeps only `versions.tf`, `providers.tf`, `moves.tf` and its README. A root environments share that the run leaves with no resources, in any environment, keeps only what each environment plans it with, and `moves.tf` (see [Merging environments](configuration.md#merging-environments)). Both READMEs list these resources under Moves, and so do the report and `coverage.json` (`departed`).
 
 Apply the root the resource leaves first: its plan says Terraform will forget the resource, not destroy it, and its apply removes it from that root's state. Then plan and apply the root it goes to, which imports it. Applied first, the new root would import a resource the old root's state still has, and both would manage it.
 

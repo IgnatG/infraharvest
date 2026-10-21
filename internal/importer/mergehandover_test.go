@@ -186,3 +186,129 @@ func TestMoveMergedHandsOver(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// vacatable records, under out, the merged root fake/stack that an
+// earlier import merged from the roots of dev, in account 111, and prod,
+// in account 222, each with an orders thing, o1 and o2. It returns the
+// merged root's directory.
+func vacatable(t *testing.T, out string) string {
+	t.Helper()
+	stack := filepath.Join(out, "fake", "stack")
+	writeRootFiles(t, stack, map[string]string{
+		"providers.tf":        "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
+		"main.tf":             "resource \"fake_thing\" \"orders\" {\n  name = \"orders\"\n}\n",
+		engine.ReadmeFileName: "# fake/stack\n",
+	})
+	for _, env := range []string{"dev", "prod"} {
+		writeRootFiles(t, filepath.Join(stack, "vars", env), map[string]string{"terraform.tfvars": "env = \"" + env + "\"\n", "imports.tfvars": "import_ids = {}\n"})
+	}
+	c := mergeCheckpoint{
+		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/fake", Account: "111"}, {Env: "prod", Path: "envs/prod/fake", Account: "222"}},
+		Merge:   report.Merge{Path: "fake/stack", Merged: true},
+		Files:   []string{engine.ReadmeFileName, "main.tf", "providers.tf", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars", "vars/prod/terraform.tfvars"},
+		Imports: map[string]map[string]string{"dev": {"fake_thing.orders": "o1"}, "prod": {"fake_thing.orders": "o2"}},
+	}
+	if err := writeMergeCheckpoint(out, stack, c); err != nil {
+		t.Fatal(err)
+	}
+	return stack
+}
+
+// regeneratingIn is regenerating, as the call of the scope of account,
+// of a command that imports scopes.
+func regeneratingIn(out, account string, scopes []string, byDir map[string][]engine.Import) *listedCall {
+	c := regenerating(out, byDir)
+	c.scope = "fake/" + account + "/global"
+	c.run.shared.scopes = scopes
+	return c
+}
+
+// A merged root no root of the run merges into, such as after a changed
+// --layout, all of whose resources go to roots of the run, is vacated:
+// each scope hands over what its environment has there, the roots it
+// goes to import it, and once every environment's have, the merged root
+// keeps only the removed blocks that make each environment's state
+// forget them.
+func TestVacateMergedRoot(t *testing.T) {
+	out := t.TempDir()
+	stack := vacatable(t, out)
+	dev, prod := filepath.Join(out, "envs", "dev", "new"), filepath.Join(out, "envs", "prod", "new")
+	scopes := []string{"111", "222"}
+	c1 := regeneratingIn(out, "111", scopes, map[string][]engine.Import{dev: {thingImport("o1")}})
+	c2 := regeneratingIn(out, "222", scopes, map[string][]engine.Import{prod: {thingImport("o2")}})
+	for _, c := range []*listedCall{c1, c2} {
+		if err := planHandovers(out, []*listedCall{c}); err != nil {
+			t.Fatal(err)
+		}
+		if len(c.run.report.Excluded) != 0 || len(c.run.vacating) != 1 {
+			t.Errorf("%s: excluded %+v, vacating %d", c.scope, c.run.report.Excluded, len(c.run.vacating))
+		}
+	}
+	if got := c1.handovers.arrivalsOf(dev); len(got) != 1 || got[0].Root != "fake/stack" || got[0].From != "fake_thing.orders" || got[0].ID != "o1" {
+		t.Errorf("dev's arrivals: %+v", got)
+	}
+	c1.handovers.record(dev, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
+	c2.handovers.record(prod, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "o2", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
+
+	r := NewRun()
+	r.options.Out = out
+	r.vacating = slices.Concat(c1.run.vacating, c2.run.vacating)
+	if err := r.vacateMergedRoots(nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.failures) != 0 || len(r.report.IncompleteHandovers) != 0 {
+		t.Fatalf("failures %v, incomplete %+v", r.failures, r.report.IncompleteHandovers)
+	}
+	if _, err := os.Stat(filepath.Join(stack, "main.tf")); !os.IsNotExist(err) {
+		t.Errorf("main.tf is still there: %v", err)
+	}
+	if got, err := engine.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "fake_thing.orders" {
+		t.Errorf("moves.tf removes %+v, %v", got, err)
+	}
+	if len(r.report.Departed) != 2 || r.report.Departed[0].FromRoot != "fake/stack" {
+		t.Errorf("departed %+v", r.report.Departed)
+	}
+	c, err := readMergeCheckpoint(out, stack)
+	if err != nil || c == nil || len(c.Imports) != 0 || !slices.Contains(c.Files, engine.MovesFileName) || slices.Contains(c.Files, "main.tf") {
+		t.Errorf("the checkpoint: %+v, %v", c, err)
+	}
+}
+
+// A merged root of which the run hands over only some environments'
+// resources stays as it was, the run fails, and what the roots of the run
+// imported is reported as an incomplete handover. Where the command
+// doesn't import every environment's account, what an environment has
+// stays in the merged root, left out of the roots it would go to.
+func TestVacateMergedRootPartly(t *testing.T) {
+	out := t.TempDir()
+	stack := vacatable(t, out)
+	dev := filepath.Join(out, "envs", "dev", "new")
+	c := regeneratingIn(out, "111", []string{"111", "222"}, map[string][]engine.Import{dev: {thingImport("o1")}})
+	if err := planHandovers(out, []*listedCall{c}); err != nil {
+		t.Fatal(err)
+	}
+	c.handovers.record(dev, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
+	r := NewRun()
+	r.options.Out = out
+	r.vacating = c.run.vacating
+	if err := r.vacateMergedRoots(nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.failures) != 1 || len(r.report.IncompleteHandovers) != 1 || r.report.IncompleteHandovers[0].FailedRoot != "fake/stack" {
+		t.Errorf("failures %v, incomplete %+v", r.failures, r.report.IncompleteHandovers)
+	}
+	if _, err := os.Stat(filepath.Join(stack, "main.tf")); err != nil {
+		t.Errorf("main.tf: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stack, engine.MovesFileName)); !os.IsNotExist(err) {
+		t.Errorf("moves.tf: %v", err)
+	}
+
+	c = regeneratingIn(out, "111", []string{"111"}, map[string][]engine.Import{dev: {thingImport("o1")}})
+	if err := planHandovers(out, []*listedCall{c}); err != nil {
+		t.Fatal(err)
+	}
+	if got := excludedIDs(c.run); !slices.Equal(got, []string{"o1 fake/stack"}) || len(c.run.vacating) != 0 {
+		t.Errorf("without prod's account: excluded %v, vacating %d", got, len(c.run.vacating))
+	}
+}
