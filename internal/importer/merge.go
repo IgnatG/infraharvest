@@ -173,16 +173,21 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 // engine.MergeRoots). A stack whose roots don't merge so that every
 // environment's plan stays the same keeps them, and the report says why.
 // The roots of a merged stack are set aside under the output's
-// checkpoints (see premergeDir). It returns an error only where the run
-// can't go on, such as when it is interrupted.
+// checkpoints (see premergeDir). Then a merged root none of whose
+// environments' roots the run generated, all of whose resources the run
+// put in other roots, keeps only the removed blocks that hand them over
+// (see vacateMergedRoots). It returns an error only where the run can't
+// go on, such as when it is interrupted.
 func MergeEnvironments(ctx context.Context) error {
 	run := activeRun
-	if run == nil || len(run.members) == 0 || !run.options.MergeEnvironments {
+	if run == nil {
 		return nil
 	}
 	byStack := map[string][]mergeMember{}
-	for _, m := range run.members {
-		byStack[m.stack] = append(byStack[m.stack], m)
+	if run.options.MergeEnvironments {
+		for _, m := range run.members {
+			byStack[m.stack] = append(byStack[m.stack], m)
+		}
 	}
 	for _, stack := range slices.Sorted(maps.Keys(byStack)) {
 		members := byStack[stack]
@@ -199,6 +204,14 @@ func MergeEnvironments(ctx context.Context) error {
 			log.Printf("%s: %v", stack, err)
 			run.recordFailure(run.options, fmt.Errorf("merging %s: %w", relativePath(run.options.Out, stack), err))
 		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// The merged roots all of whose resources go to other roots now.
+	if err := run.vacateMergedRoots(byStack); err != nil {
+		log.Print(err)
+		run.recordFailure(run.options, fmt.Errorf("handing over what merged roots have: %w", err))
 	}
 	return nil
 }

@@ -60,6 +60,11 @@ type Run struct {
 	// members are the roots the run generated of the configuration file's
 	// environments, which the merge phase merges (see MergeEnvironments).
 	members []mergeMember
+	// vacating are the handovers of the run's scopes that plan to vacate
+	// merged roots, all of whose resources go to other roots now (see
+	// handovers.vacating), which the merge phase vacates (see
+	// vacateMergedRoots).
+	vacating []*handovers
 	// shared is what the run and its children work out once.
 	shared *shared
 	// OpenPicker opens the picker on the selection file discover writes,
@@ -87,6 +92,11 @@ type shared struct {
 	// resources, as their own state, which --managed-state reads, says,
 	// by root directory (see excludeManaged and previousAddressesOf).
 	stated map[string][]engine.Managed
+
+	// scopes are the accounts, subscriptions or projects the command
+	// imports, where it names them (see ImportEach); none where it imports
+	// the one its credentials reach. Set before any scope starts.
+	scopes []string
 
 	// own are the adapters of the organisation's own modules, by the
 	// provider they were fetched for (see ownAdapters).
@@ -278,6 +288,7 @@ func (r *Run) merge(child *Run) {
 	}
 	r.failures = append(r.failures, child.failures...)
 	r.members = append(r.members, child.members...)
+	r.vacating = append(r.vacating, child.vacating...)
 	r.listed = append(r.listed, child.listed...)
 	maps.Copy(r.covered, child.covered)
 	r.filtered = r.filtered || child.filtered

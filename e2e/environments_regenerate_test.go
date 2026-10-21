@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,7 +49,9 @@ environments:
 // --regenerate gives the merged root a moved block for each of prod's
 // alerts resources and a removed block for the reports queue, which the
 // shared root imports. Applied in order, the merged root as each
-// environment, then the shared root, every plan has no changes.
+// environment, then the shared root, every plan has no changes. Then
+// every resource leaves both for roots of each service (see
+// checkMergedRelayout).
 func checkMergedRegenerate(ctx context.Context, t *testing.T, fixture *appliedFixture, importInto func(out string, more ...string), credentials func(env string), out, execPath, plugins string) {
 	t.Helper()
 	dir := filepath.Join(out, "aws", "us-east-1")
@@ -142,4 +145,126 @@ func checkMergedRegenerate(ctx context.Context, t *testing.T, fixture *appliedFi
 	}
 	credentials("dev")
 	checkPlannedNothing(t, shared, planRoot(ctx, t, sharedDir, execPath, plugins))
+
+	checkMergedRelayout(ctx, t, importInto, credentials, out, execPath, plugins)
+}
+
+// relayout puts each service of each environment in a root of its own,
+// whose stacks merge into aws/<service>/us-east-1.
+const relayout = "--layout={out}/{provider}/{service}/{env}/{account}/{region}/"
+
+// checkMergedRelayout goes on from checkMergedRegenerate, whose merged
+// root in out, aws/us-east-1, each environment has applied, and dev's
+// shared root too: with the merged root's moves.tf deleted, as its README
+// says once every environment has applied it, --regenerate with a root
+// per service (relayout) puts every resource of both in other roots. The
+// merged root keeps only the removed blocks that hand them over, with
+// what each environment plans it with, and the shared root likewise; the
+// roots of each service merge into aws/sqs/us-east-1 and
+// aws/sns/us-east-1, which import them. Applied in order, the roots they
+// leave first, every plan has no changes.
+func checkMergedRelayout(ctx context.Context, t *testing.T, importInto func(out string, more ...string), credentials func(env string), out, execPath, plugins string) {
+	t.Helper()
+	dir := filepath.Join(out, "aws", "us-east-1")
+	if err := os.Remove(filepath.Join(dir, engine.MovesFileName)); err != nil {
+		t.Fatal(err)
+	}
+	importInto(out, "--regenerate", "--config="+writeConfig(t, regenerateConfig), relayout)
+	coverage := coverageOf(t, out)
+	checkCoverage(t, "--regenerate with a root per service", coverage, nil)
+	stacks := []string{"aws/sns/us-east-1", "aws/sqs/us-east-1"}
+	for _, stack := range stacks {
+		checkMerged(t, out, coverage, stack, "dev", "prod")
+	}
+	if len(coverage.IncompleteHandovers) != 0 {
+		t.Errorf("--regenerate with a root per service: incomplete handovers %+v", coverage.IncompleteHandovers)
+	}
+	departed := map[string]int{}
+	for _, d := range coverage.Departed {
+		departed[d.FromRoot]++
+		if d.FromRoot == "aws/us-east-1" && !strings.HasPrefix(d.ToRoot, "aws/sqs/") && !strings.HasPrefix(d.ToRoot, "aws/sns/") {
+			t.Errorf("--regenerate with a root per service: %s (%s) goes from the merged root to %s", d.From, d.ID, d.ToRoot)
+		}
+	}
+	oldShared := "envs/shared/aws/" + environmentAccounts["dev"] + "/us-east-1"
+	if departed["aws/us-east-1"] == 0 || departed[oldShared] == 0 {
+		t.Errorf("--regenerate with a root per service: departed %v, want what the merged root and the shared root had", departed)
+	}
+	if left := resourceAddresses(t, dir); len(left) != 0 {
+		t.Errorf("the merged root still has %v", left)
+	}
+	for _, name := range []string{"imports.tf", "vars/dev/imports.tfvars", "vars/prod/imports.tfvars"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); !os.IsNotExist(err) {
+			t.Errorf("the merged root still has %s: %v", name, err)
+		}
+	}
+	if moves := readFile(t, filepath.Join(dir, engine.MovesFileName)); !strings.Contains(moves, "removed {") || !strings.Contains(moves, "destroy = false") {
+		t.Errorf("the merged root's %s:\n%s", engine.MovesFileName, moves)
+	}
+	if readme := readFile(t, filepath.Join(dir, engine.ReadmeFileName)); !strings.Contains(readme, "# Handed over resources") || !strings.Contains(readme, "`aws/sqs/") {
+		t.Errorf("the merged root's README doesn't say what it hands over:\n%s", readme)
+	}
+
+	// The roots resources leave first: the merged root as each
+	// environment, in its workspace, then the shared root.
+	handedOverVars := func(root, env string) []string {
+		return []string{filepath.Join(root, "vars", "common.tfvars"), filepath.Join(root, "vars", env, "terraform.tfvars")}
+	}
+	for _, env := range []string{"dev", "prod"} {
+		credentials(env)
+		tf := workspace(ctx, t, dir, execPath, plugins, env)
+		apply := []tfexec.ApplyOption{tfexec.Lock(false)}
+		for _, f := range handedOverVars(dir, env) {
+			apply = append(apply, tfexec.VarFile(f))
+		}
+		if err := tf.Apply(ctx, apply...); err != nil {
+			t.Fatalf("%s: terraform apply, handed over: %v", env, err)
+		}
+	}
+	credentials("dev")
+	applyRoot(ctx, t, filepath.Join(out, filepath.FromSlash(oldShared)), execPath, plugins, nil)
+	// Then the roots they go to, each environment's merged root in a new
+	// workspace.
+	for _, stack := range stacks {
+		stackDir := filepath.Join(out, filepath.FromSlash(stack))
+		for _, env := range []string{"dev", "prod"} {
+			credentials(env)
+			tf, err := engine.NewTerraform(stackDir, execPath, plugins, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tf.Init(ctx); err != nil {
+				t.Fatalf("%s as %s: terraform init: %v", stack, env, err)
+			}
+			if err := tf.WorkspaceNew(ctx, env); err != nil {
+				t.Fatalf("%s: terraform workspace new %s: %v", stack, env, err)
+			}
+			apply := []tfexec.ApplyOption{tfexec.Lock(false)}
+			for _, f := range mergedVarFiles(stackDir, env) {
+				apply = append(apply, tfexec.VarFile(f))
+			}
+			if err := tf.Apply(ctx, apply...); err != nil {
+				t.Fatalf("%s as %s: terraform apply: %v", stack, env, err)
+			}
+		}
+	}
+	credentials("dev")
+	newShared := filepath.Join(out, "aws", "sqs", "shared", environmentAccounts["dev"], "us-east-1")
+	applyRoot(ctx, t, newShared, execPath, plugins, nil)
+
+	for _, env := range []string{"dev", "prod"} {
+		credentials(env)
+		selectWorkspace(ctx, t, dir, execPath, plugins, env)
+		var plan []tfexec.PlanOption
+		for _, f := range handedOverVars(dir, env) {
+			plan = append(plan, tfexec.VarFile(f))
+		}
+		checkPlannedNothing(t, "the merged root handed over, as "+env, planRoot(ctx, t, dir, execPath, plugins, plan...))
+		for _, stack := range stacks {
+			checkPlannedNothing(t, stack+" as "+env, planWorkspace(ctx, t, filepath.Join(out, filepath.FromSlash(stack)), execPath, plugins, env))
+		}
+	}
+	credentials("dev")
+	checkPlannedNothing(t, oldShared, planRoot(ctx, t, filepath.Join(out, filepath.FromSlash(oldShared)), execPath, plugins))
+	checkPlannedNothing(t, "aws/sqs/shared", planRoot(ctx, t, newShared, execPath, plugins))
 }
