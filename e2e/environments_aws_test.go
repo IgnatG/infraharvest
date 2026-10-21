@@ -52,7 +52,9 @@ environments:
 // still planning with no changes; with dev alone, it merges prod again as
 // its root was kept, unplanned. Applied into each environment's
 // workspace, the merged root is checked for drift as each environment,
-// and a change dev accepts is written into dev's var file.
+// and a change dev accepts is written into dev's var file. Then the merged
+// root is checked for what is no longer in the cloud, and generated again
+// (see checkMergedRegenerate).
 func TestAWSEnvironments(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -63,7 +65,7 @@ func TestAWSEnvironments(t *testing.T) {
 	}
 	isolateAWSConfig(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 	cache := t.TempDir()
 	engineName, binary := e2eEngine(t)
@@ -298,6 +300,9 @@ func TestAWSEnvironments(t *testing.T) {
 		credentials(env)
 		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
 	}
+
+	// Not in the cloud, then --regenerate, on the merged root.
+	checkMergedRegenerate(ctx, t, fixture, importInto, credentials, out, execPath, plugins)
 }
 
 // TestAWSEnvironmentsData imports testdata/aws-environments-data, in two
