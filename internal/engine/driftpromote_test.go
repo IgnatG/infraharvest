@@ -39,7 +39,7 @@ func TestGoldenDriftPromotedLiterals(t *testing.T) {
 	}{
 		{name: "calls", files: map[string]string{"main.tf": bucketCalls}, calls: 2},
 		{name: "environments", env: "dev", calls: 1, files: map[string]string{
-			"main.tf":                   bucketCalls[:strings.Index(bucketCalls, "\nmodule \"data\"")],
+			"main.tf":                   strings.SplitN(bucketCalls, "\nmodule \"data\"", 2)[0],
 			"variables.tf":              "variable \"env\" {\n  description = \"The token that stands for the environment in names.\"\n  type        = string\n}\n",
 			"vars/dev/terraform.tfvars": "env = \"dev\"\n",
 		}},
