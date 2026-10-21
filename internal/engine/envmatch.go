@@ -435,8 +435,8 @@ func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
 
 // matchResourcesWith is matchResources, with the resources isolated names,
 // by mergeKey, matched with no other environment's (see
-// mergeControls.isolated), labelled as labels says, where it does.
-func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool, labels map[string]string) []*stackResource {
+// mergeControls.isolated), labelled as keptLabels says, where it does.
+func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool, keptLabels map[string]string) []*stackResource {
 	byEnv := make([][]*envResource, len(roots))
 	labels := make([]map[string]int, len(roots))
 	for e, root := range roots {
@@ -446,7 +446,7 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 			typ, label, _ := strings.Cut(b.address, ".")
 			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
 			r.isolated = isolated[mergeKey(e, b.address)]
-			if l := labels[mergeKey(e, b.address)]; r.isolated && l != "" {
+			if l := keptLabels[mergeKey(e, b.address)]; r.isolated && l != "" {
 				r.normalLabel = l
 			}
 			if typ == moduleType {
