@@ -4,7 +4,8 @@
 # region come from the environment the test sets. The environment's name
 # is in the queues' names and tags, as in hand-written multi-environment
 # code. Applied again with another team, it changes a queue's tag out of
-# band of the roots the import generated.
+# band of the roots the import generated. The import lists SQS only, so
+# the role --accounts assumes isn't imported.
 
 terraform {
   required_providers {
@@ -44,4 +45,22 @@ resource "aws_sqs_queue" "orders" {
 resource "aws_sqs_queue" "jobs" {
   name = "mcp-${var.env}-jobs"
   tags = { Environment = var.env }
+}
+
+# The role --accounts assumes in the account, which the emulator lets the
+# test's own account assume.
+locals {
+  trust_caller = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::000000000000:root" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role" "readonly" {
+  name               = "infraharvest-readonly"
+  assume_role_policy = local.trust_caller
 }

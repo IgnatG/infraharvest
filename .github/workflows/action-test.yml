@@ -389,6 +389,12 @@ jobs:
           docker compose -f e2e/compose.yaml up -d --wait
           AWS_ACCESS_KEY_ID=$DEV aws sqs create-queue --queue-name shop-dev-orders --tags Environment=dev
           AWS_ACCESS_KEY_ID=$PROD aws sqs create-queue --queue-name shop-prd-orders --tags Environment=prd
+          # The role the import assumes in each account (--accounts), which
+          # the emulator lets the job's own account assume.
+          trust='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":"sts:AssumeRole"}]}'
+          for account in "$DEV" "$PROD"; do
+            AWS_ACCESS_KEY_ID=$account aws iam create-role --role-name infraharvest-readonly --assume-role-policy-document "$trust"
+          done
           cat > "$RUNNER_TEMP/infraharvest.yaml" << EOF
           version: 1
           providers:
