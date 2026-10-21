@@ -518,19 +518,20 @@ jobs:
 
   # TestAzureIncremental adds to the estate the other tests import, and
   # TestAzureDrift changes it, so each runs on a runner of its own, with
-  # its own floci-az, as does the round trip; the other tests share a
-  # fourth.
+  # its own floci-az, as does the round trip, and TestAzureEnvironments,
+  # which takes merged environments through the whole chain; the other
+  # tests share a fifth.
   e2e-azure:
     name: e2e-azure (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         engine: [terraform, tofu]
-        shard: [round-trip, incremental, drift, others]
+        shard: [round-trip, incremental, drift, environments, others]
         include:
         - shard: round-trip
           run: ^TestAzureRoundTrip$
@@ -541,9 +542,12 @@ jobs:
         - shard: drift
           run: ^TestAzureDrift$
           skip: ""
+        - shard: environments
+          run: ^TestAzureEnvironments$
+          skip: ""
         - shard: others
           run: ^TestAzure
-          skip: ^TestAzure(RoundTrip|Incremental|Drift)$
+          skip: ^TestAzure(RoundTrip|Incremental|Drift|Environments)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -580,7 +584,7 @@ jobs:
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
         SKIP: ${{ matrix.skip }}
-      run: go test -tags e2e,minimal,azure -timeout 20m -v -run "$RUN" -skip "$SKIP" ./e2e/
+      run: go test -tags e2e,minimal,azure -timeout 40m -v -run "$RUN" -skip "$SKIP" ./e2e/
     - name: floci-az logs
       if: failure()
       run: docker compose -f e2e/compose.yaml --profile azure logs floci-az

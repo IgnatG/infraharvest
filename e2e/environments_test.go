@@ -160,3 +160,83 @@ func checkWorkspacePlan(ctx context.Context, t *testing.T, dir, execPath, plugin
 	sort.Strings(imports)
 	return imports
 }
+
+// applyMergedWorkspaces applies the merged root in dir as each of envs,
+// into the workspace named after it, with its var files and the
+// credentials credentials sets for it, as the root's README says for a
+// root without a backend.
+func applyMergedWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plugins string, credentials func(env string), envs ...string) {
+	t.Helper()
+	for _, env := range envs {
+		credentials(env)
+		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tf.Init(ctx); err != nil {
+			t.Fatalf("%s: terraform init: %v", env, err)
+		}
+		if err := tf.WorkspaceNew(ctx, env); err != nil {
+			t.Fatalf("terraform workspace new %s: %v", env, err)
+		}
+		var vars []tfexec.ApplyOption
+		for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
+			vars = append(vars, tfexec.VarFile(filepath.Join(dir, "vars", filepath.FromSlash(name))))
+		}
+		if err := tf.Apply(ctx, vars...); err != nil {
+			t.Fatalf("%s: terraform apply: %v", env, err)
+		}
+	}
+}
+
+// workspace returns Terraform in the merged root in dir, initialised, in
+// env's workspace, which the environment has applied it into.
+func workspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *engine.Runner {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx); err != nil {
+		t.Fatalf("%s: terraform init: %v", env, err)
+	}
+	if err := tf.WorkspaceSelect(ctx, env); err != nil {
+		t.Fatalf("terraform workspace select %s: %v", env, err)
+	}
+	return tf
+}
+
+// mergedVarFiles are the var files environment env applies the merged
+// root in dir with, as its README says.
+func mergedVarFiles(dir, env string) []string {
+	var files []string
+	for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
+		files = append(files, filepath.Join(dir, "vars", filepath.FromSlash(name)))
+	}
+	return files
+}
+
+// checkPlannedNothing checks that plan, of what, changes no resource.
+func checkPlannedNothing(t *testing.T, what string, plan *tfjson.Plan) {
+	t.Helper()
+	for _, rc := range plan.ResourceChanges {
+		if rc.Mode == tfjson.ManagedResourceMode && !rc.Change.Actions.NoOp() {
+			t.Errorf("%s: %s is planned to %v, applied", what, rc.Address, rc.Change.Actions)
+		}
+	}
+}
+
+// applyInWorkspace applies the merged root in dir as environment env,
+// into its workspace, which it has applied the root into before, with
+// its var files.
+func applyInWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) {
+	t.Helper()
+	tf := workspace(ctx, t, dir, execPath, plugins, env)
+	apply := []tfexec.ApplyOption{tfexec.Lock(false)}
+	for _, f := range mergedVarFiles(dir, env) {
+		apply = append(apply, tfexec.VarFile(f))
+	}
+	if err := tf.Apply(ctx, apply...); err != nil {
+		t.Fatalf("%s: terraform apply in its workspace: %v", env, err)
+	}
+}

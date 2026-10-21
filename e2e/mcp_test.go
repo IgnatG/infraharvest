@@ -208,31 +208,3 @@ environments:
 		t.Errorf("the tools asked the user %q, want the import's confirmation alone", asked)
 	}
 }
-
-// applyMergedWorkspaces applies the merged root in dir as each of envs,
-// into the workspace named after it, with its var files and the
-// credentials credentials sets for it, as the root's README says for a
-// root without a backend.
-func applyMergedWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plugins string, credentials func(env string), envs ...string) {
-	t.Helper()
-	for _, env := range envs {
-		credentials(env)
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := tf.Init(ctx); err != nil {
-			t.Fatalf("%s: terraform init: %v", env, err)
-		}
-		if err := tf.WorkspaceNew(ctx, env); err != nil {
-			t.Fatalf("terraform workspace new %s: %v", env, err)
-		}
-		var vars []tfexec.ApplyOption
-		for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
-			vars = append(vars, tfexec.VarFile(filepath.Join(dir, "vars", filepath.FromSlash(name))))
-		}
-		if err := tf.Apply(ctx, vars...); err != nil {
-			t.Fatalf("%s: terraform apply: %v", env, err)
-		}
-	}
-}
