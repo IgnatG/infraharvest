@@ -46,7 +46,7 @@ inputs:
     description: infraharvest configuration file (--config), for example with the state backend.
     required: false
   incremental:
-    description: Add what is new to the roots already in the out directory (--incremental), in files of their own, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
+    description: Add what is new to the roots already in the out directory (--incremental), after the blocks of the file of their type, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
     default: "true"
   managed-state:
     description: State that says what Terraform already manages (--managed-state), such as backend for the configuration file's S3 backend. Needed to add to roots whose import blocks were deleted after they were applied.

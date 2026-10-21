@@ -520,10 +520,10 @@ func checkRegions(t *testing.T, coverage report.Report, created []*tfjson.StateR
 
 // checkSandboxIncremental creates the estate's extra log group, then
 // imports into out again with --incremental: the import adds the log
-// group to the root of region, in a file of its own, and leaves the rest
-// as it was, reporting nothing the roots have as gone. Every root still
-// plans with no changes, importing what imported counts and the log
-// group, nothing twice.
+// group to the root of region, after the blocks of its type's file or
+// in a new one, and leaves the rest as it was, reporting nothing the
+// roots have as gone. Every root still plans with no changes, importing
+// what imported counts and the log group, nothing twice.
 func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, imported map[string]int) []*tfjson.StateResource {
 	t.Helper()
 	out, region := s.out, s.region

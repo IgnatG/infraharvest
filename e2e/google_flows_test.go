@@ -145,9 +145,10 @@ func countListings(t *testing.T, target string) (*httptest.Server, *atomic.Int64
 
 // TestGoogleIncremental checks --incremental adds a resource created
 // after an import to the root that import generated: a Pub/Sub topic
-// (testdata/google-incremental), in a file of its own in global's root,
-// with what the roots had as it was, and the roots plan as imports with
-// no changes. Another import with --incremental adds nothing.
+// (testdata/google-incremental), after the blocks of its type's file
+// in global's root or in a new one, with what the roots had as it was,
+// and the roots plan as imports with no changes. Another import with
+// --incremental adds nothing.
 //
 // It adds to the estate the other Google Cloud tests import, so CI runs
 // it on a runner of its own.
