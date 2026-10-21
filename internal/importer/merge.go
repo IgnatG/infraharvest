@@ -117,6 +117,10 @@ type mergeMember struct {
 	// handovers are those of the scope that generated it, with --regenerate,
 	// which say what the merged root hands over (see planMergedHandovers).
 	handovers *handovers
+	// here is what the listing of the call that generated it found (see
+	// listedHere), with --incremental; nil where it can't tell what is
+	// gone.
+	here *listedHere
 }
 
 // recordMember records that the call generated the root in dir, from
@@ -162,6 +166,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		premerged:      set,
 		isolated:       isolated,
 		handovers:      c.handovers,
+		here:           c.here,
 	})
 }
 

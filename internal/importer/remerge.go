@@ -122,6 +122,15 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 					members[i].isolated = newSinceMerge(m.result, ids)
 				}
 			}
+			// What it has that is no longer in the cloud, which the roots
+			// generated afresh lack, it keeps as it was.
+			why, err := r.keepGone(stack, prev, members)
+			if err != nil {
+				return err
+			}
+			if why != "" {
+				return r.keepMerged(stack, prev, members, why)
+			}
 		}
 	}
 	joining := joiningEnvironments(prev, members)
@@ -301,7 +310,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	if result.Reason == "" && prev != nil && prev.Merge.Merged {
 		if gone := leftOutOfMerge(prev.Imports, imports); adopted && len(gone) > 0 {
 			// The roots generated afresh have only what this run lists.
-			result.Reason = "merging it again from what this run lists would leave out what the merged root has (no longer in the cloud, or not listed with these services and filters): " + strings.Join(gone, "; ")
+			result.Reason = "merging it again from what this run lists would leave out what the merged root has that this run doesn't list, but can't tell is no longer in the cloud (not listed in full with these services, filters and layout, or in another root): " + strings.Join(gone, "; ")
 		} else {
 			removed, incomplete, result.Reason = mergedHandovers(out, stack, members, imports)
 			if result.Reason == "" {
