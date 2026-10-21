@@ -141,6 +141,19 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		kept := prev.Merge
 		kept.Unchanged = true
 		r.recordMerge(kept, members)
+		r.readdressNotInCloud(kept.Path, members, prev.Imports)
+		return nil
+	}
+	if r.options.Incremental && prev != nil && prev.Merge.Merged && keptAsMerged(stack, prev, members) && !plannable(prev, members) && !slices.ContainsFunc(members, func(m mergeMember) bool { return len(m.isolated) > 0 }) {
+		// An incremental import added nothing to the roots set aside,
+		// which are as they were when the stack merged, though what it
+		// listed has changed, such as resources gone from the cloud,
+		// whose import a plan of the merged root would fail on.
+		log.Printf("%s: nothing new to merge (--incremental)", merge.Path)
+		kept := prev.Merge
+		kept.Unchanged = true
+		r.recordMerge(kept, members)
+		r.readdressNotInCloud(kept.Path, members, prev.Imports)
 		return nil
 	}
 
@@ -276,7 +289,13 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		}
 	}
 	r.recordMerge(merge, members)
-	r.readdressNotInCloud(merge, members, result)
+	if merge.Merged {
+		if gone := r.readdressNotInCloud(merge.Path, members, imports); len(gone) > 0 {
+			if err := engine.WriteMergedNotInCloud(stack, gone); err != nil {
+				return err
+			}
+		}
+	}
 	return writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: fp, Members: checkpointMembers(out, members), Merge: merge, Files: result.Files, Imports: imports})
 }
 
@@ -453,6 +472,8 @@ func (r *Run) keepMerged(stack string, prev *mergeCheckpoint, members []mergeMem
 		kept.Apart, kept.ApartReason = apartRoots(out, apart), why
 	}
 	r.recordMerge(kept, members)
+	// The roots of members are set aside, as the merged root has them.
+	r.readdressNotInCloud(kept.Path, members, prev.Imports)
 	err := fmt.Errorf("%s: %s", relativePath(out, stack), why)
 	log.Print(err)
 	r.recordFailure(r.options, err)
@@ -611,29 +632,35 @@ func clearMerged(stack string, files []string) error {
 }
 
 // readdressNotInCloud makes each resource an incremental import found no
-// longer in the cloud, in the root of members, of the stack merge says
-// merged, one of the merged root, at its address there (see
-// engine.MergedEnvironment.Addresses): the root it was in is set aside.
-func (r *Run) readdressNotInCloud(merge report.Merge, members []mergeMember, result *engine.MergeResult) {
-	if !merge.Merged {
-		return
+// longer in the cloud, in the root of one of members, the roots set aside
+// of the stack whose merged root is at path, relative to the output
+// directory, one of the merged root, of the member's environment: at its
+// address there, as imports, the import IDs of each environment's
+// resources in it by address, has it. It returns them, by environment,
+// with their addresses in the merged root.
+func (r *Run) readdressNotInCloud(path string, members []mergeMember, imports map[string]map[string]string) map[string][]engine.Import {
+	envOf := map[string]string{}
+	for _, m := range members {
+		envOf[relativePath(r.options.Out, m.dir)] = m.env
 	}
-	addresses := map[string]map[string]string{}
-	for i, m := range members {
-		if i < len(result.Environments) {
-			addresses[relativePath(r.options.Out, m.dir)] = result.Environments[i].Addresses
-		}
-	}
+	gone := map[string][]engine.Import{}
 	for i, g := range r.report.NotInCloud {
-		byAddress, ok := addresses[g.Path]
+		env, ok := envOf[g.Path]
 		if !ok {
 			continue
 		}
-		r.report.NotInCloud[i].Path = merge.Path
-		if to, ok := byAddress[g.Address]; ok {
-			r.report.NotInCloud[i].Address = to
+		g.Path, g.Environment = path, env
+		for _, address := range slices.Sorted(maps.Keys(imports[env])) {
+			if strings.EqualFold(imports[env][address], g.ID) {
+				g.Address = address
+				break
+			}
 		}
+		r.report.NotInCloud[i] = g
+		typ := engine.AddressType(g.Address)
+		gone[env] = append(gone[env], engine.Import{Type: typ, Name: strings.TrimPrefix(g.Address, typ+"."), ID: g.ID})
 	}
+	return gone
 }
 
 // treeBackup is what a directory held: each file under it, but in

@@ -667,3 +667,24 @@ func WriteMergedMoves(dir string, moved []Move, removed []Removal) (Check, error
 	}
 	return check, fsutil.WriteFile(path, append(readme, b.String()...), 0o644)
 }
+
+// WriteMergedNotInCloud lists in the README of the merged root in dir
+// gone, by environment, the resources of each environment that the
+// incremental import which merged it again didn't find in the cloud,
+// though it listed every resource of their type where they were, at
+// their addresses in the merged root (see notInCloudSection).
+func WriteMergedNotInCloud(dir string, gone map[string][]Import) error {
+	var b strings.Builder
+	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `vars/<env>/imports.tfvars` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")
+	for _, env := range slices.Sorted(maps.Keys(gone)) {
+		for _, g := range gone[env] {
+			fmt.Fprintf(&b, "- `%s.%s` (`%s`), of %s\n", g.Type, g.Name, g.ID, env)
+		}
+	}
+	path := filepath.Join(dir, ReadmeFileName)
+	readme, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFile(path, append(readme, b.String()...), 0o644)
+}

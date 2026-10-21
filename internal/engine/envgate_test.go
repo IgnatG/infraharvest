@@ -692,3 +692,20 @@ func TestWriteMergedMovesRemoved(t *testing.T) {
 		t.Errorf("a removed block of what the root declares: %+v, %v", check, err)
 	}
 }
+
+// A merged root's README lists what an environment's incremental import
+// found no longer in the cloud, by environment.
+func TestWriteMergedNotInCloud(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gone := map[string][]Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}
+	if err := WriteMergedNotInCloud(dir, gone); err != nil {
+		t.Fatal(err)
+	}
+	readme := readFile(t, dir, ReadmeFileName)
+	if !strings.Contains(readme, "## No longer in the cloud") || !strings.Contains(readme, "- `aws_sqs_queue.this[\"orders\"]` (`q1`), of dev") {
+		t.Errorf("README.md:\n%s", readme)
+	}
+}
