@@ -100,7 +100,7 @@ func TestMergedMoves(t *testing.T) {
 
 	// Without --regenerate, the merged root stays as it was.
 	r := NewRun()
-	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil); err != nil || !strings.Contains(why, "other addresses") {
+	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil, nil); err != nil || !strings.Contains(why, "other addresses") {
 		t.Errorf("without --regenerate: %q, %v", why, err)
 	}
 }

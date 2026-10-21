@@ -614,7 +614,7 @@ func TestWriteMergedMoves(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}})
+	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, nil)
 	if err != nil || !check.Passed {
 		t.Fatalf("the moves check: %+v, %v", check, err)
 	}
@@ -637,10 +637,58 @@ func TestWriteMergedMoves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if check, err := WriteMergedMoves(other, []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}); err != nil || check.Passed {
+	if check, err := WriteMergedMoves(other, []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}, nil); err != nil || check.Passed {
 		t.Errorf("moves from what the root declares: %+v, %v", check, err)
 	}
 	if readme, err := os.ReadFile(filepath.Join(other, ReadmeFileName)); err != nil || strings.Contains(string(readme), "Moved blocks") {
 		t.Errorf("README.md lists moves that failed the check: %s %v", readme, err)
+	}
+}
+
+// A merged root merged again without a resource that goes to another root
+// gets a removed block for it, with destroy = false, beside its moved
+// blocks: its required_version, in providers.tf, is raised to what removed
+// blocks with a lifecycle block need, and its README says where each goes.
+// One instance of a resource that stays is moved to a resource of the
+// root alone first; a removed block of what the root still declares fails
+// the moves check.
+func TestWriteMergedMovesRemoved(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"providers.tf": "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
+		"sqs.tf":       "resource \"aws_sqs_queue\" \"this\" {\n  for_each = var.sqs_queues\n\n  name = each.value.name\n}\n",
+		ReadmeFileName: "# aws/eu-west-2\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed := []Removal{
+		{From: "aws_sqs_queue.reports_dev", Resources: []Departure{{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.reports_dev[0]", Root: "envs/shared/aws/111111111111/eu-west-2"}}},
+		{From: "aws_sqs_queue.departed_this_audit", Instance: `aws_sqs_queue.this["audit"]`, Resources: []Departure{{Type: "aws_sqs_queue", ID: "q2", Address: `aws_sqs_queue.this["audit"]`, Root: "envs/shared/aws/111111111111/eu-west-2"}}},
+	}
+	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, removed)
+	if err != nil || !check.Passed {
+		t.Fatalf("the moves check: %+v, %v", check, err)
+	}
+	gone, err := ReadRemoved(dir)
+	if err != nil || len(gone) != 2 || gone[0].From != "aws_sqs_queue.departed_this_audit" || gone[1].From != "aws_sqs_queue.reports_dev" {
+		t.Errorf("removed blocks: %+v, %v", gone, err)
+	}
+	moves, err := ReadMoves(dir)
+	if err != nil || len(moves) != 2 {
+		t.Errorf("moved blocks: %+v, %v", moves, err)
+	}
+	providers := readFile(t, dir, "providers.tf")
+	if !strings.Contains(providers, `required_version = ">= 1.10, < 2.0"`) {
+		t.Errorf("providers.tf doesn't require what removed blocks need:\n%s", providers)
+	}
+	readme := readFile(t, dir, ReadmeFileName)
+	if !strings.Contains(readme, "## Moved blocks") || !strings.Contains(readme, "## Handed over to other roots") || !strings.Contains(readme, "| `aws_sqs_queue.reports_dev[0]` | `envs/shared/aws/111111111111/eu-west-2` |") {
+		t.Errorf("README.md:\n%s", readme)
+	}
+
+	if check, err := WriteMergedMoves(dir, nil, []Removal{{From: "aws_sqs_queue.this"}}); err != nil || check.Passed {
+		t.Errorf("a removed block of what the root declares: %+v, %v", check, err)
 	}
 }

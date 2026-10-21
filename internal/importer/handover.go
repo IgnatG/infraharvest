@@ -32,6 +32,10 @@ type handovers struct {
 	removals map[string][]engine.Removal
 	arrivals map[string][]engine.Arrival
 	refused  map[string]error
+	// merged are the removed blocks of the merged roots environments share,
+	// by the merged root's directory, which its moves.tf gets once its
+	// stack merges again (see planMergedHandovers).
+	merged map[string][]engine.Removal
 	// mu guards generated, as the calls of a scope may generate their
 	// roots at once.
 	mu        sync.Mutex
@@ -299,7 +303,7 @@ func planHandovers(out string, calls []*listedCall) error {
 	if err != nil {
 		return err
 	}
-	h := &handovers{out: out, removals: map[string][]engine.Removal{}, arrivals: map[string][]engine.Arrival{}, refused: map[string]error{}, generated: map[string]*engine.Result{}}
+	h := &handovers{out: out, removals: map[string][]engine.Removal{}, arrivals: map[string][]engine.Arrival{}, refused: map[string]error{}, merged: map[string][]engine.Removal{}, generated: map[string]*engine.Result{}}
 	// What stays in the root it was in, by type and import ID, with that
 	// root relative to out.
 	stays := map[engine.External]string{}
@@ -354,6 +358,10 @@ func planHandovers(out string, calls []*listedCall) error {
 		for _, d := range gone[dir] {
 			stays[d.now] = relativePath(out, dir)
 		}
+	}
+	// And what goes from the roots environments share to other roots.
+	if err := planMergedHandovers(out, h, callOf, assigned, stays); err != nil {
+		return err
 	}
 	for _, dir := range sortedDirs(h.removals) {
 		root := relativePath(out, dir)
