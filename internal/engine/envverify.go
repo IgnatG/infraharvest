@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -76,6 +77,77 @@ func MergedImportIDs(dir, env string) (map[string]string, error) {
 		ids[k.AsString()] = id.AsString()
 	}
 	return ids, nil
+}
+
+// MergedStateLocations returns where environment env keeps the state of
+// the root environments share in dir, as --managed-state names state
+// (see managed.Load): the state its vars/<env>/backend.hcl names, as
+// s3://<bucket>/<key>, gs://<bucket>/<prefix>/default.tfstate or
+// https://<account>.blob.core.windows.net/<container>/<key>; and, as a
+// root without a backend keeps each environment's state in a workspace
+// named after it, terraform.tfstate.d/<env>/terraform.tfstate in dir.
+func MergedStateLocations(dir, env string) ([]string, error) {
+	locations := []string{filepath.Join(dir, "terraform.tfstate.d", env, "terraform.tfstate")}
+	path := filepath.Join(dir, varsDirName, env, backendConfigFileName)
+	src, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return locations, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	f, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("%s: %w", path, diags)
+	}
+	settings := map[string]string{}
+	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
+		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
+			settings[name] = v.AsString()
+		}
+	}
+	bucket, key, prefix := settings["bucket"], settings["key"], settings["prefix"]
+	switch account, container := settings["storage_account_name"], settings["container_name"]; {
+	case account != "" && container != "" && key != "":
+		locations = append(locations, "https://"+account+".blob.core.windows.net/"+container+"/"+key)
+	case bucket != "" && key != "":
+		locations = append(locations, "s3://"+bucket+"/"+key)
+	case bucket != "" && prefix != "":
+		locations = append(locations, "gs://"+bucket+"/"+strings.TrimSuffix(prefix, "/")+"/default.tfstate")
+	}
+	return locations, nil
+}
+
+// MergedRootFiles returns the files of the root environments share in
+// dir that a merge writes (see writeMergedRoot), by path in dir with
+// forward slashes, sorted: its .tf files, README.md, .gitignore, and the
+// var files and backend settings under vars/.
+func MergedRootFiles(dir string) ([]string, error) {
+	envs, err := MergedEnvironments(dir)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, path := range paths {
+		files = append(files, filepath.Base(path))
+	}
+	candidates := []string{ReadmeFileName, ".gitignore", varsDirName + "/" + commonVarsFileName}
+	for _, env := range envs {
+		for _, name := range []string{envVarsFileName, importVarsFileName, backendConfigFileName} {
+			candidates = append(candidates, varsDirName+"/"+env+"/"+name)
+		}
+	}
+	for _, name := range candidates {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err == nil {
+			files = append(files, name)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // VerifyMerged runs the verification gate on the root environments share

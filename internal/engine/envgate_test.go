@@ -508,6 +508,63 @@ func TestMergedImportIDs(t *testing.T) {
 	}
 }
 
+// An environment's state is its workspace's, and the state its
+// backend.hcl names, of any backend type a merged root writes.
+func TestMergedStateLocations(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	workspace := filepath.Join(dir, "terraform.tfstate.d", "prod", "terraform.tfstate")
+	for backend, want := range map[string]string{
+		"": "",
+		"bucket = \"acme-state\"\nkey = \"envs/prod/aws/2/eu-west-2/terraform.tfstate\"\nregion = \"eu-west-2\"\n":                                        "s3://acme-state/envs/prod/aws/2/eu-west-2/terraform.tfstate",
+		"bucket = \"acme-state\"\nprefix = \"envs/prod/google/p/europe-west2\"\n":                                                                         "gs://acme-state/envs/prod/google/p/europe-west2/default.tfstate",
+		"resource_group_name = \"state\"\nstorage_account_name = \"acme\"\ncontainer_name = \"tfstate\"\nkey = \"envs/prod/azure/s/terraform.tfstate\"\n": "https://acme.blob.core.windows.net/tfstate/envs/prod/azure/s/terraform.tfstate",
+		"# The prod root had no s3 backend: set these.\n# bucket = \"\"\n":                                                                                "",
+	} {
+		path := filepath.Join(dir, varsDirName, "prod", backendConfigFileName)
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+		if backend != "" {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(backend), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		locations, err := MergedStateLocations(dir, "prod")
+		wanted := []string{workspace}
+		if want != "" {
+			wanted = append(wanted, want)
+		}
+		if err != nil || strings.Join(locations, " ") != strings.Join(wanted, " ") {
+			t.Errorf("%q: got %v, %v, want %v", backend, locations, err, wanted)
+		}
+	}
+}
+
+// MergedRootFiles returns the files a merge writes: the root's .tf files,
+// README.md and its var files, not those of Terraform or of others.
+func TestMergedRootFilesOnDisk(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"providers.tf", "sqs.tf", ReadmeFileName, ".gitignore", LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := MergedRootFiles(dir)
+	want := []string{".gitignore", ReadmeFileName, "providers.tf", "sqs.tf", "vars/common.tfvars", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
+	if err != nil || strings.Join(files, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, %v, want %v", files, err, want)
+	}
+}
+
 // VerifyMerged plans a merged root as one environment, with its var
 // files, and expects its imports.
 func TestVerifyMerged(t *testing.T) {

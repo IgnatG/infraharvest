@@ -199,9 +199,10 @@ func MergeEnvironments(ctx context.Context) error {
 // mergeRefusal returns why members, the roots of the stack whose merged
 // root is stack, aren't merged, if they aren't: an environment has
 // several of them, the merged root would be one of them or hold one, or
-// its directory holds a root no merge wrote, or one of them has local
-// state, which merging would leave where no root is.
-func mergeRefusal(out, stack string, members []mergeMember) string {
+// its directory holds a root no merge wrote, unless adopted says it is
+// a merged root told from its files (see adoptedCheckpoint), or one of
+// them has local state, which merging would leave where no root is.
+func mergeRefusal(out, stack string, members []mergeMember, adopted bool) string {
 	byEnv := map[string][]string{}
 	for _, m := range members {
 		byEnv[m.env] = append(byEnv[m.env], relativePath(out, m.dir))
@@ -221,7 +222,7 @@ func mergeRefusal(out, stack string, members []mergeMember) string {
 	}
 	names, err := tfFiles(stack)
 	if err == nil && len(names) > 0 {
-		if c, _ := readMergeCheckpoint(out, stack); c == nil {
+		if c, _ := readMergeCheckpoint(out, stack); c == nil && !adopted {
 			return fmt.Sprintf("%s already holds %s, which no merge by infraharvest wrote", relativePath(out, stack), strings.Join(names, ", "))
 		}
 	}

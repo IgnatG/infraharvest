@@ -364,6 +364,17 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 		}
 		own = ownStates(options.Out, dirs, run.backend)
 	}
+	// What the state of an environment of a root environments share has
+	// is that root's: its stack merges again from the environments' roots
+	// generated with it (see adoptedCheckpoint). With --incremental alone,
+	// only where no merge checkpoint keeps those roots: the import adds to
+	// the kept ones otherwise, which have it.
+	var mergedOwn map[string]mergedState
+	if (options.Regenerate || options.Resume || options.Incremental) && options.Out != "" {
+		if mergedOwn, err = mergedOwnStates(options.Out, !options.Regenerate && !options.Resume); err != nil {
+			return nil, err
+		}
+	}
 	if defaults == nil {
 		defaults = map[string]string{}
 	}
@@ -380,6 +391,9 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 				if id != "" && found.Address != "" && found.Type == res.Address.Type {
 					run.shared.recordStated(dir, engine.Managed{Type: res.Address.Type, ID: id, Address: found.Address})
 				}
+				continue
+			}
+			if _, ok := mergedOwn[stateLocation(found.Where)]; ok {
 				continue
 			}
 			if dir, ok := held[engine.External{Type: res.Address.Type, ID: id}]; ok {
@@ -432,7 +446,9 @@ func generatedResources(out string) (map[engine.External]string, []string, error
 // ownStates returns the root of dirs whose own state each state location
 // (see stateLocation) is: its local terraform.tfstate, and the state
 // backend, the configured backend, if any, keeps for a root with a
-// backend.tf. The states of other workspaces aren't the root's.
+// backend.tf. The states of other workspaces aren't the root's; those of
+// the environments of a root environments share are that root's (see
+// mergedOwnStates).
 func ownStates(out string, dirs []string, backend *config.Backend) map[string]string {
 	own := map[string]string{}
 	for _, dir := range dirs {

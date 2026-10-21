@@ -100,6 +100,30 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	if err != nil {
 		return err
 	}
+	// A merged root no checkpoint records, as in a fresh checkout of the
+	// output, merges again from the roots the import generated afresh,
+	// with what it has told from its files (see adoptedCheckpoint); a
+	// plain import refuses it (see mergeRefusal).
+	adopted := false
+	if prev == nil && (r.options.Incremental || r.options.Resume || r.options.Regenerate) {
+		c, why, err := r.adoptedCheckpoint(stack, members)
+		if err != nil {
+			return err
+		}
+		if why != "" {
+			return r.keepMerged(stack, c, members, why)
+		}
+		prev, adopted = c, c != nil
+		if adopted && r.options.Incremental {
+			// What the merged root doesn't have yet is kept apart, as an
+			// incremental import adds it to a kept root.
+			for i, m := range members {
+				if ids, ok := prev.Imports[m.env]; ok {
+					members[i].isolated = newSinceMerge(m.result, ids)
+				}
+			}
+		}
+	}
 	joining := joiningEnvironments(prev, members)
 	if prev != nil && prev.Merge.Merged {
 		if missing := missingEnvironments(prev, envs); len(missing) > 0 {
@@ -127,7 +151,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	for _, m := range members {
 		merge.Roots = append(merge.Roots, report.MergedRoot{Env: m.env, Path: relativePath(out, m.dir)})
 	}
-	if reason := mergeRefusal(out, stack, members); reason != "" {
+	if reason := mergeRefusal(out, stack, members, adopted); reason != "" {
 		merge.Reason = reason
 		r.recordMerge(merge, members)
 		return nil
@@ -207,7 +231,10 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		imports[env.Env] = env.Imports
 	}
 	if result.Reason == "" && prev != nil && prev.Merge.Merged {
-		if result.Reason, err = r.moveMerged(stack, result, prev.Imports, imports, kept); err != nil {
+		if gone := leftOutOfMerge(prev.Imports, imports); adopted && len(gone) > 0 {
+			// The roots generated afresh have only what this run lists.
+			result.Reason = "merging it again from what this run lists would leave out what the merged root has (no longer in the cloud, or not listed with these services and filters): " + strings.Join(gone, "; ")
+		} else if result.Reason, err = r.moveMerged(stack, result, prev.Imports, imports, kept); err != nil {
 			return err
 		}
 		if result.Reason != "" {
