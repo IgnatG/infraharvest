@@ -621,7 +621,7 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []Secret) []Secret {
 // them again. It returns the moves check of them (see checkMoves); the
 // README lists them only once it passes.
 func WriteMergedMoves(dir string, moved []Move) (Check, error) {
-	if err := writeMoves(dir, moved, nil); err != nil {
+	if err := writeMoves(dir, moved, nil, nil); err != nil {
 		return Check{}, err
 	}
 	check, err := checkMoves(dir)
