@@ -10,8 +10,9 @@ name: Action test
 # OpenTofu, through a selection file, with environments that share roots,
 # and with managed-state; checks drift on the roots once they're applied,
 # per environment for roots environments share; and checks what the action
-# would open its pull request with. On main, it opens a real pull request
-# too (see the pull-request job).
+# would open its pull request with. On main, once the repository lets
+# workflows open pull requests, it opens a real one too (see the
+# pull-request job).
 on:
   pull_request:
     paths:
@@ -585,11 +586,13 @@ jobs:
   # both branches, whatever happened. Only the report goes into it: the
   # generated configuration stays out of the repository, git excluding it
   # in this checkout. It runs on main and by hand, never for a pull
-  # request, whose token from a fork couldn't push. With github.token, the
+  # request, whose token from a fork couldn't push. It opens it with
+  # github.token, so that GitHub starts no workflow for it, which needs the
   # repository's "Allow GitHub Actions to create and approve pull requests"
-  # setting must be on; GitHub starts no workflow for the pull request.
+  # setting on: the repository variable ACTION_TEST_PULL_REQUEST, set to
+  # true, says it is.
   pull-request:
-    if: github.event_name != 'pull_request' && github.repository == 'IgnatG/infraharvest'
+    if: github.event_name != 'pull_request' && github.repository == 'IgnatG/infraharvest' && vars.ACTION_TEST_PULL_REQUEST == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
