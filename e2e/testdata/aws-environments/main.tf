@@ -3,8 +3,10 @@
 # their own, dev and prod, which takes a 12-digit access key ID as the
 # account. The endpoint and region come from the environment the test
 # sets. The same queue is of another size in each; prod alone has an
-# alerts feature, a topic and its queue; and a queue of each environment
-# is configured too differently to merge.
+# alerts feature, a topic and its queue; a queue of each environment is
+# configured too differently to merge; three queues of one shape in each,
+# with each environment's retention, become one resource with for_each;
+# and each account has a bucket for the merged root's state.
 
 terraform {
   required_providers {
@@ -83,10 +85,72 @@ resource "aws_sns_topic" "prod_alerts" {
   tags     = local.prod
 }
 
+variable "alerts_delay" {
+  description = "The delay of prod's alerts queue, which the test changes once the merged root is applied, for drift."
+  type        = number
+  default     = 0
+}
+
 resource "aws_sqs_queue" "prod_alerts" {
-  provider = aws.prod
-  name     = "shop-prd-alerts"
-  tags     = local.prod
+  provider      = aws.prod
+  name          = "shop-prd-alerts"
+  delay_seconds = var.alerts_delay
+  tags          = local.prod
+}
+
+variable "dev_email_retention" {
+  description = "The retention of dev's email queue, which the test changes once the merged root is applied, for drift."
+  type        = number
+  default     = 3600
+}
+
+# Three queues of one shape in each environment, whose retention differs
+# between the environments: the merged root makes them one resource with
+# for_each over a map variable each environment sets.
+locals {
+  channels = {
+    email = { dev = var.dev_email_retention, prod = 86400 }
+    sms   = { dev = 7200, prod = 172800 }
+    push  = { dev = 10800, prod = 259200 }
+  }
+}
+
+resource "aws_sqs_queue" "dev_channels" {
+  for_each                   = local.channels
+  provider                   = aws.dev
+  name                       = "shop-dev-${each.key}"
+  message_retention_seconds  = each.value.dev
+  delay_seconds              = 15
+  max_message_size           = 4096
+  receive_wait_time_seconds  = 5
+  visibility_timeout_seconds = 60
+  tags                       = local.dev
+}
+
+resource "aws_sqs_queue" "prod_channels" {
+  for_each                   = local.channels
+  provider                   = aws.prod
+  name                       = "shop-prd-${each.key}"
+  message_retention_seconds  = each.value.prod
+  delay_seconds              = 15
+  max_message_size           = 4096
+  receive_wait_time_seconds  = 5
+  visibility_timeout_seconds = 60
+  tags                       = local.prod
+}
+
+# The buckets of the merged root's S3 backend, one in each environment's
+# account, which the import leaves out (--services=sqs,sns).
+resource "aws_s3_bucket" "dev_state" {
+  provider      = aws.dev
+  bucket        = "shop-dev-tfstate"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket" "prod_state" {
+  provider      = aws.prod
+  bucket        = "shop-prd-tfstate"
+  force_destroy = true
 }
 
 variable "reports" {
