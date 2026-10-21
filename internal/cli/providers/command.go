@@ -139,6 +139,9 @@ func (d definition) command(options importer.Options) *cobra.Command {
 		if ctx == nil {
 			ctx = context.Background()
 		}
+		// --format=json prints the report where the command prints, as
+		// an MCP server or a test running it in process captures it.
+		options.Stdout = c.OutOrStdout()
 		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
 			return err
 		}

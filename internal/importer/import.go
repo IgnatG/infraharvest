@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
 	"slices"
@@ -70,6 +71,9 @@ type Options struct {
 	// Format is FormatText, or FormatJSON to also print the report on
 	// stdout.
 	Format string
+	// Stdout is where FormatJSON prints the report: the command's output,
+	// os.Stdout if nil.
+	Stdout io.Writer
 	// EnvTags are the tag keys whose value names a resource's environment.
 	EnvTags []string
 	// DefaultEnv is the environment of what no environment tag places,

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"maps"
 	"os"
@@ -224,7 +225,11 @@ func (r *Run) finish(err error) error {
 	}
 	log.Printf("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.Out, report.Dir, "report.md"))
 	if r.options.Format == FormatJSON {
-		if writeErr := r.report.WriteJSON(os.Stdout); writeErr != nil {
+		var stdout io.Writer = os.Stdout
+		if r.options.Stdout != nil {
+			stdout = r.options.Stdout
+		}
+		if writeErr := r.report.WriteJSON(stdout); writeErr != nil {
 			return couldNotRun(err, writeErr)
 		}
 	}
