@@ -574,7 +574,7 @@ func TestPutBackKeepsLocalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claimed, err := claimRoot(out, dir, "fp", false, true)
+	claimed, err := claimRoot(out, dir, "fp", false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
