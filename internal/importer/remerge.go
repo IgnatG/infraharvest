@@ -251,6 +251,12 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	// address is kept apart, with the label the merged root has for it,
 	// and the stack merges again, as many times as that takes, up to
 	// maxKeptApart. With --regenerate, moved blocks follow it instead.
+	// What the merged root matched across environments isn't kept apart:
+	// it would get another address all the same.
+	var shared map[string]bool
+	if prev != nil {
+		shared = sharedAddresses(prev.Imports)
+	}
 	for attempt := 0; err == nil && prev != nil && prev.Merge.Merged && !r.options.Regenerate && result.Reason == "" && attempt < maxKeptApart; attempt++ {
 		now := map[string]map[string]string{}
 		for _, env := range result.Environments {
@@ -258,7 +264,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		}
 		again := false
 		for i, m := range members {
-			if more := movedApart(m, prev.Imports[m.env], now[m.env]); len(more) > 0 {
+			if more := movedApart(m, prev.Imports[m.env], now[m.env], shared); len(more) > 0 {
 				if members[i].labels == nil {
 					members[i].labels = map[string]string{}
 				}

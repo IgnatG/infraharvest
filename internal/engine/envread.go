@@ -216,8 +216,9 @@ func localValues(locals map[string]hclsyntax.Expression) map[string]cty.Value {
 }
 
 // inlinedFile parses src, blocks of root r, with each reference to a
-// local of values made its value, and the sources of local module calls
-// made relative to target.
+// local of values made its value, a merge of objects that leaves made
+// the object it gives (see mergedObject), and the sources of local
+// module calls made relative to target.
 func inlinedFile(name, src string, values map[string]cty.Value, r MergeRoot, target string) (*hclFile, error) {
 	f, diags := hclwrite.ParseConfig([]byte(src), name, hcl.InitialPos)
 	if diags.HasErrors() {
@@ -228,6 +229,9 @@ func inlinedFile(name, src string, values map[string]cty.Value, r MergeRoot, tar
 		for attrName, attr := range body.Attributes() {
 			tokens := attr.Expr().BuildTokens(nil)
 			replaced := replaceLocals(tokens, values)
+			if folded, ok := mergedObject(replaced); ok {
+				replaced = folded
+			}
 			if exprKey(replaced) != exprKey(tokens) {
 				body.SetAttributeRaw(attrName, replaced)
 			}
@@ -297,6 +301,40 @@ func replaceLocals(tokens hclwrite.Tokens, values map[string]cty.Value) hclwrite
 		out = append(out, t)
 	}
 	return out
+}
+
+// mergedObject returns tokens, an expression, as the object it gives
+// where it is a merge of object literals only, such as
+// merge({ env = "dev" }, { owner = "alice" }) once the local of a tag
+// lift is put in (see referTags): false otherwise. A root lifts the tags
+// its resources share only where two or more have them, so the same
+// resource reads alike in a root that lifted its tags and one that
+// didn't, as when an environment gains a resource the others lack;
+// else its tags couldn't merge, and it would be each environment's.
+func mergedObject(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
+	expr, diags := hclsyntax.ParseExpression(tokens.Bytes(), "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, false
+	}
+	call, ok := expr.(*hclsyntax.FunctionCallExpr)
+	if !ok || call.Name != "merge" || call.ExpandFinal || len(call.Args) == 0 {
+		return nil, false
+	}
+	attrs := map[string]cty.Value{}
+	for _, arg := range call.Args {
+		if _, ok := arg.(*hclsyntax.ObjectConsExpr); !ok || len(arg.Variables()) > 0 {
+			return nil, false
+		}
+		v, diags := arg.Value(nil)
+		if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || !v.Type().IsObjectType() {
+			return nil, false
+		}
+		for it := v.ElementIterator(); it.Next(); {
+			k, value := it.Element()
+			attrs[k.AsString()] = value
+		}
+	}
+	return hclwrite.TokensForValue(cty.ObjectVal(attrs)), true
 }
 
 // defaultTagsIn returns the tags a provider block applies to every

@@ -268,11 +268,15 @@ func TestMovedApart(t *testing.T) {
 	}}}
 	before := map[string]string{"aws_sqs_queue.audit[0]": "q-audit", "aws_sqs_queue.reports[0]": "q-reports", "aws_sqs_queue.orders": "q-orders"}
 	now := map[string]string{`aws_sqs_queue.this["audit"]`: "q-audit", `aws_sqs_queue.this["reports"]`: "q-reports", "aws_sqs_queue.orders": "q-orders", "aws_sqs_queue.billing[0]": "q-billing"}
-	if got := movedApart(m, before, now); !reflect.DeepEqual(got, map[string]string{"aws_sqs_queue.shop_dev_audit": "audit", "aws_sqs_queue.shop_dev_reports": "reports"}) {
+	if got := movedApart(m, before, now, nil); !reflect.DeepEqual(got, map[string]string{"aws_sqs_queue.shop_dev_audit": "audit", "aws_sqs_queue.shop_dev_reports": "reports"}) {
 		t.Errorf("got %v", got)
 	}
+	// One the merged root matched with other environments' stays merged.
+	if got := movedApart(m, before, now, map[string]bool{"aws_sqs_queue.audit[0]": true}); !reflect.DeepEqual(got, map[string]string{"aws_sqs_queue.shop_dev_reports": "reports"}) {
+		t.Errorf("shared: got %v", got)
+	}
 	m.isolated = append(m.isolated, "aws_sqs_queue.shop_dev_audit", "aws_sqs_queue.shop_dev_reports")
-	if got := movedApart(m, before, now); len(got) != 0 {
+	if got := movedApart(m, before, now, nil); len(got) != 0 {
 		t.Errorf("kept apart already: %v", got)
 	}
 }
@@ -288,5 +292,16 @@ func TestMergedLabel(t *testing.T) {
 		if got := mergedLabel(address); got != want {
 			t.Errorf("mergedLabel(%q) = %q, want %q", address, got, want)
 		}
+	}
+}
+
+func TestSharedAddresses(t *testing.T) {
+	t.Parallel()
+	got := sharedAddresses(map[string]map[string]string{
+		"dev":  {"google_storage_bucket.main": "dev-orders", "google_pubsub_topic.main[0]": "dev-events"},
+		"prod": {"google_storage_bucket.main": "prd-orders"},
+	})
+	if !reflect.DeepEqual(got, map[string]bool{"google_storage_bucket.main": true}) {
+		t.Errorf("got %v", got)
 	}
 }
