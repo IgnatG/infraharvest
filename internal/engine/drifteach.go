@@ -1,0 +1,572 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package engine
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
+)
+
+// How drift takes a change of a resource whose block makes it with count
+// or for_each, as a root environments share writes the resources some
+// environments only have (count = var.deploy_<feature> ? 1 : 0) and the
+// resources of one shape (for_each over a map of each key's fields).
+
+// eachInstance is the instance of a block with for_each a change is of:
+// its key, and what the block's for_each is over.
+type eachInstance struct {
+	block   *hclsyntax.Block
+	forEach hclsyntax.Expression
+	key     string
+}
+
+// instances checks the count or for_each of block, the resource c is of:
+// a count of at most one makes one instance, whose arguments are its own;
+// a for_each, the instance at c's key, whose own values are only those
+// each.value reads (see eachValue). It returns why the block's instances
+// can't be told apart, or "".
+func (w *driftWalk) instances(block *hclsyntax.Block) string {
+	if attr, ok := block.Body.Attributes["count"]; ok && !atMostOne(attr.Expr) {
+		return "the block makes several resources with count: edit it by hand"
+	}
+	attr, ok := block.Body.Attributes["for_each"]
+	if !ok {
+		return ""
+	}
+	key, ok := forEachKey(w.c.Address)
+	if !ok {
+		return "the block makes several resources with for_each: edit it by hand"
+	}
+	w.each = &eachInstance{block: block, forEach: attr.Expr, key: key}
+	return ""
+}
+
+// atMostOne reports whether expr, a count, is 0 or 1, or a conditional
+// of the two, such as var.deploy_alerts ? 1 : 0.
+func atMostOne(expr hclsyntax.Expression) bool {
+	switch x := expr.(type) {
+	case *hclsyntax.ParenthesesExpr:
+		return atMostOne(x.Expression)
+	case *hclsyntax.ConditionalExpr:
+		return atMostOne(x.TrueResult) && atMostOne(x.FalseResult)
+	}
+	if len(expr.Variables()) > 0 {
+		return false
+	}
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || !v.IsKnown() || v.IsNull() || !v.Type().Equals(cty.Number) {
+		return false
+	}
+	return v.Equals(cty.Zero).True() || v.Equals(cty.NumberIntVal(1)).True()
+}
+
+// forEachKey returns the string key of the instance at address, such as
+// orders for aws_sqs_queue.this["orders"].
+func forEachKey(address string) (string, bool) {
+	t, diags := hclsyntax.ParseTraversalAbs([]byte(address), "", hcl.InitialPos)
+	if diags.HasErrors() || len(t) != 3 {
+		return "", false
+	}
+	idx, ok := t[2].(hcl.TraverseIndex)
+	if !ok {
+		return "", false
+	}
+	k, ok := keyOf(idx.Key)
+	return k.key, ok && k.hasKey
+}
+
+// eachValue is the source of an attribute each.value.<field>, which x is,
+// sets from step i of the path, the argument at path or in it: the field
+// of the instance's key in the map the block's for_each is over, as the
+// person who wrote the map edits it. The map is a local's object literal,
+// or, in a root environments share, the value the environment's var file
+// gives a map variable, or, where the file doesn't set it, the variable's
+// default, which the edit then adds to the file with the key's field
+// changed. Where the block reads the field more than once, or anything
+// but the block and its import blocks refers to the map, an edit of it
+// would reach more than the instance: a hand edit.
+func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i int) Source {
+	ref := w.text(x.Range())
+	field := ""
+	if t := x.Traversal; len(t) == 3 {
+		value, isAttr := t[1].(hcl.TraverseAttr)
+		name, isField := t[2].(hcl.TraverseAttr)
+		if isAttr && isField && value.Name == "value" {
+			field = name.Name
+		}
+	}
+	if field == "" {
+		return w.manual(SourceExpression, x.Range(), ref+" sets it: edit it by hand")
+	}
+	if eachFieldUses(w.each.block, field) > 1 {
+		return w.manual(SourceExpression, x.Range(), ref+", which other arguments of the block read too, sets it: edit it by hand")
+	}
+	over, ok := w.each.forEach.(*hclsyntax.ScopeTraversalExpr)
+	name := ""
+	if ok && len(over.Traversal) == 2 {
+		if step, isAttr := over.Traversal[1].(hcl.TraverseAttr); isAttr {
+			name = step.Name
+		}
+	}
+	root := ""
+	if name != "" {
+		root = over.Traversal.RootName()
+	}
+	source := root + "." + name
+	switch root {
+	case "local":
+		def, ok := w.cfg.locals[name]
+		if !ok {
+			return w.manual(SourceLocal, x.Range(), source+" sets it, which the root doesn't define: edit it by hand")
+		}
+		if w.cfg.uses[name] > blockUses(w.each.block, root, name)+importUses(w.cfg, root, name, w.address) {
+			return w.manual(SourceSharedLocal, x.Range(), source+", which other blocks use too, sets it: edit it by hand")
+		}
+		inner := *w
+		inner.file, inner.f, inner.depth = def.file, def.f, w.depth+1
+		src := inner.entry(def.attr.Expr, source, field, path, i)
+		if src.Kind == SourceLiteral || src.Kind == SourceAbsent {
+			src.Kind = SourceLocal
+		}
+		return src
+	case "var":
+		return w.eachVariable(x, name, field, path, i)
+	}
+	return w.manual(SourceExpression, x.Range(), "the block's for_each isn't a local or a variable: edit it by hand")
+}
+
+// eachVariable is eachValue for a for_each over var.name.
+func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field string, path []string, i int) Source {
+	source := "var." + name
+	v := w.cfg.variables[name]
+	switch {
+	case v == nil:
+		return w.manual(SourceVariable, x.Range(), source+" sets it, which the root doesn't declare: edit it by hand")
+	case sensitiveVariable(v):
+		return w.manual(SourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which %s sets: update it in your secret store, or TF_VAR_%s", source, name))
+	case w.e.env == "":
+		return w.manual(SourceVariable, x.Range(), source+" sets it: change the value the root is given")
+	case w.cfg.varUses[name] > blockUses(w.each.block, "var", name)+importUses(w.cfg, "var", name, w.address):
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
+	}
+	file := w.e.envVars
+	f := w.cfg.files[file]
+	if f == nil {
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s sets it, and the root has no %s: give it the value by hand", source, file))
+	}
+	if attr, ok := f.syntax.Attributes[name]; ok {
+		inner := *w
+		inner.file, inner.f = file, f
+		src := inner.entry(attr.Expr, source+" in "+file, field, path, i)
+		if src.Edit != nil || src.Kind == SourceLiteral || src.Kind == SourceAbsent {
+			src.Kind = SourceVariable
+		}
+		return src
+	}
+	// The default holds the environment's value: the file gets it, with
+	// the key's field changed.
+	def, ok := v.Body.Attributes["default"]
+	vf := w.cfg.variableFile(v)
+	if !ok || vf == nil {
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+	}
+	inner := *w
+	inner.file, inner.f = vf.name, vf.f
+	src := inner.entry(def.Expr, "the default of "+source, field, path, i)
+	if src.Edit == nil {
+		src.Kind = SourceVariable
+		return src
+	}
+	rng := def.Expr.Range()
+	edit := src.Edit
+	if len(src.Also) > 0 || edit.File != vf.name || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+	}
+	value := string(vf.f.src[rng.Start.Byte:edit.Start]) + string(edit.Text) + string(vf.f.src[edit.End:rng.End.Byte])
+	line := []byte(name + " = " + value + "\n")
+	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
+		line = append([]byte("\n"), line...)
+	}
+	return Source{File: w.file, Range: x.Range(), Kind: SourceVariable, instance: true, Edit: &SourceEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+}
+
+// entry follows the path from step i into field of the item at the
+// instance's key of obj, the object literal source, the map for_each is
+// over: as for any expression (see expr), adding the field where the key
+// doesn't set it.
+func (w *driftWalk) entry(obj hclsyntax.Expression, source, field string, path []string, i int) Source {
+	m, ok := obj.(*hclsyntax.ObjectConsExpr)
+	if !ok {
+		return w.manual(SourceExpression, obj.Range(), source+" isn't an object literal: edit it by hand")
+	}
+	key := w.each.key
+	item, ok := objectItem(m, key).(*hclsyntax.ObjectConsExpr)
+	if !ok {
+		return w.manual(SourceExpression, m.Range(), fmt.Sprintf("%s has no object literal at the key %q: edit it by hand", source, key))
+	}
+	var src Source
+	set := false
+	for j := range item.Items {
+		if keyName(item.Items[j].KeyExpr) == field {
+			src = w.expr(item.Items[j].ValueExpr, holder{}, path, i)
+			set = true
+			break
+		}
+	}
+	switch {
+	case set:
+	case i == len(w.steps):
+		src = w.insertKey(item, field, path, i)
+	default:
+		return w.manual(SourceExpression, item.Range(), fmt.Sprintf("%s doesn't set %s at the key %q: edit it by hand", source, field, key))
+	}
+	src.instance = src.Edit != nil
+	return src
+}
+
+// eachFieldUses counts the references in block to each.value.<field>.
+func eachFieldUses(block *hclsyntax.Block, field string) int {
+	n := 0
+	for _, t := range allTraversals(block.Body) {
+		if t.RootName() != "each" || len(t) < 3 {
+			continue
+		}
+		value, isValue := t[1].(hcl.TraverseAttr)
+		name, isName := t[2].(hcl.TraverseAttr)
+		if isValue && isName && value.Name == "value" && name.Name == field {
+			n++
+		}
+	}
+	return n
+}
+
+// importUses counts the references to root.name, such as var.sqs_queues,
+// in the import blocks of cfg into the resource at address: those of a
+// for_each's import block, for_each = var.sqs_queues, go with the block.
+func importUses(cfg *driftConfig, root, name, address string) int {
+	n := 0
+	for _, f := range cfg.files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type != "import" {
+				continue
+			}
+			to, ok := b.Body.Attributes["to"]
+			if !ok {
+				continue
+			}
+			rng := to.Expr.Range()
+			if rng.End.Byte > len(f.src) || trimInstanceKey(strings.Join(strings.Fields(string(f.src[rng.Start.Byte:rng.End.Byte])), "")) != address {
+				continue
+			}
+			n += blockUses(b, root, name)
+		}
+	}
+	return n
+}
+
+// namedFile is a file of a driftConfig, with its name.
+type namedFile struct {
+	name string
+	f    *hclFile
+}
+
+// variableFile returns the file that declares v, or nil.
+func (cfg *driftConfig) variableFile(v *hclsyntax.Block) *namedFile {
+	for name, f := range cfg.files {
+		for _, b := range f.syntax.Blocks {
+			if b == v {
+				return &namedFile{name: name, f: f}
+			}
+		}
+	}
+	return nil
+}
+
+// ownBlock reports whether src's edits, of a root environments share,
+// are all in the block of c's resource, where only the environment
+// checked has it: its count is a bool variable's, count = var.<name> ? 1
+// : 0, which no other environment sets true (see envOnlyFlags), as for a
+// feature, or residue, only it has. The other environments have no
+// instance of the block, so the edit reaches only this one's.
+func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src Source) bool {
+	if c.ModuleAddress != "" || c.shared != nil || src.Edit == nil {
+		return false
+	}
+	b, ok := cfg.blocks[trimInstanceKey(c.Address)]
+	if !ok {
+		return false
+	}
+	count, ok := b.b.Body.Attributes["count"]
+	if !ok {
+		return false
+	}
+	cond, ok := count.Expr.(*hclsyntax.ConditionalExpr)
+	if !ok || !atMostOne(cond) {
+		return false
+	}
+	flag, ok := cond.Condition.(*hclsyntax.ScopeTraversalExpr)
+	if !ok || len(flag.Traversal) != 2 || flag.Traversal.RootName() != "var" {
+		return false
+	}
+	step, ok := flag.Traversal[1].(hcl.TraverseAttr)
+	if !ok || !e.ownFlags[step.Name] {
+		return false
+	}
+	rng := b.b.Range()
+	for _, edit := range append([]SourceEdit{*src.Edit}, src.Also...) {
+		if edit.File != b.file || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
+			return false
+		}
+	}
+	return true
+}
+
+// envOnlyFlags returns the bool variables, declared in files, of the root
+// environments share in dir that environment env alone sets true, such as
+// the deploy_ variables of the features, and residue, only it has: as the
+// var files, vars/common.tfvars then each environment's
+// vars/<env>/terraform.tfvars, set them, over their defaults. A variable
+// whose value can't be told for an environment isn't one.
+func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
+	envs, err := MergedEnvironments(dir)
+	if err != nil {
+		return nil, err
+	}
+	defaults := map[string]cty.Value{}
+	for _, f := range files {
+		for _, b := range f.syntax.Blocks {
+			if b.Type != "variable" || len(b.Labels) != 1 {
+				continue
+			}
+			typ, ok := b.Body.Attributes["type"]
+			if !ok || hcl.ExprAsKeyword(typ.Expr) != "bool" {
+				continue
+			}
+			value := cty.NullVal(cty.Bool)
+			if def, ok := b.Body.Attributes["default"]; ok {
+				v, diags := def.Expr.Value(nil)
+				if diags.HasErrors() {
+					continue
+				}
+				value = v
+			}
+			defaults[b.Labels[0]] = value
+		}
+	}
+	common, err := varFileValues(filepath.Join(dir, varsDirName, commonVarsFileName))
+	if err != nil {
+		return nil, err
+	}
+	values := func(e string) (map[string]cty.Value, error) {
+		own, err := varFileValues(filepath.Join(dir, varsDirName, e, envVarsFileName))
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]cty.Value{}
+		for name, def := range defaults {
+			out[name] = def
+			if v, ok := common[name]; ok {
+				out[name] = v
+			}
+			if v, ok := own[name]; ok {
+				out[name] = v
+			}
+		}
+		return out, nil
+	}
+	isTrue := func(v cty.Value) bool {
+		return v.IsKnown() && !v.IsNull() && v.Type().Equals(cty.Bool) && v.True()
+	}
+	isFalse := func(v cty.Value) bool {
+		return v.IsKnown() && !v.IsNull() && v.Type().Equals(cty.Bool) && v.False()
+	}
+	mine, err := values(env)
+	if err != nil {
+		return nil, err
+	}
+	flags := map[string]bool{}
+	for name, v := range mine {
+		if isTrue(v) {
+			flags[name] = true
+		}
+	}
+	for _, other := range envs {
+		if other == env {
+			continue
+		}
+		theirs, err := values(other)
+		if err != nil {
+			return nil, err
+		}
+		for name := range flags {
+			if !isFalse(theirs[name]) {
+				delete(flags, name)
+			}
+		}
+	}
+	return flags, nil
+}
+
+// varFileValues returns the values the var file at path sets, by name, of
+// those that are literals; none where there is no file.
+func varFileValues(path string) (map[string]cty.Value, error) {
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	f, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("%s: %w", path, diags)
+	}
+	values := map[string]cty.Value{}
+	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
+		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
+			values[name] = v
+		}
+	}
+	return values, nil
+}
+
+// variableUses returns why var.name, which other arguments use too,
+// can't take the cloud's value, c's, in the environment's var file: what
+// else refers to it, or an argument it sets as it is, in a resource of
+// the environment, that doesn't have the cloud's value. "" where every
+// argument it reaches has it, as when they changed alike in the cloud:
+// the var file's value then takes them all, each of their changes
+// accepted with it, or rejected by the plan where it is kept (see
+// judgeDrift). A resource the environment hasn't, where its block is
+// counted, as a feature another environment has, isn't reached.
+func (w *driftWalk) variableUses(name string) string {
+	file := w.e.envVars
+	shared := fmt.Sprintf("var.%s, which other arguments use too, sets it: change it in %s by hand if they should all take the cloud's value", name, file)
+	for _, fileName := range sortedKeys(w.cfg.files) {
+		if fileName == file {
+			continue
+		}
+		f := w.cfg.files[fileName]
+		for _, b := range f.syntax.Blocks {
+			if b.Type == "variable" || b.Type == "output" || blockUses(b, "var", name) == 0 {
+				continue
+			}
+			if b.Type != "resource" || len(b.Labels) != 2 {
+				return shared
+			}
+			address := b.Labels[0] + "." + b.Labels[1]
+			var paths []string
+			if !varPaths(b.Body, "", name, &paths) {
+				return shared
+			}
+			instances := 0
+			for _, instance := range sortedKeys(w.e.current) {
+				if trimInstanceKey(instance) != address {
+					continue
+				}
+				instances++
+				values := w.e.current[instance]
+				if values == nil {
+					return fmt.Sprintf("var.%s sets %s too, which the environment hasn't applied yet: change it in %s by hand if it should take the cloud's value", name, instance, file)
+				}
+				for _, p := range paths {
+					v, _ := valueAt(values, splitPath(p, values))
+					if !reflect.DeepEqual(v, w.c.value) {
+						return fmt.Sprintf("var.%s sets %s %s too, which doesn't have the cloud's value: change it in %s by hand if it should take it too", name, instance, p, file)
+					}
+				}
+			}
+			_, counted := b.Body.Attributes["count"]
+			_, each := b.Body.Attributes["for_each"]
+			if instances == 0 && !counted && !each {
+				return fmt.Sprintf("var.%s sets %s too, which the environment's state doesn't have: change it in %s by hand if it should take the cloud's value", name, address, file)
+			}
+		}
+	}
+	return ""
+}
+
+// varPaths adds to paths the path of each argument of body, at prefix,
+// that var.name sets as it is, or a key of whose object literal it sets,
+// such as tags.Env; it reports false where anything else reads var.name,
+// such as a template, a function or a dynamic block.
+func varPaths(body *hclsyntax.Body, prefix, name string, paths *[]string) bool {
+	for attrName, attr := range body.Attributes {
+		if !exprVarPaths(attr.Expr, joinPath(prefix, attrName), name, paths) {
+			return false
+		}
+	}
+	counts := map[string]int{}
+	for _, b := range body.Blocks {
+		if b.Type == "dynamic" || b.Type == "lifecycle" {
+			if blockUses(b, "var", name) > 0 {
+				return false
+			}
+			continue
+		}
+		at := fmt.Sprintf("%s[%d]", joinPath(prefix, b.Type), counts[b.Type])
+		counts[b.Type]++
+		if !varPaths(b.Body, at, name, paths) {
+			return false
+		}
+	}
+	return true
+}
+
+// exprVarPaths is varPaths for expr, an argument's value at path.
+func exprVarPaths(expr hclsyntax.Expression, path, name string, paths *[]string) bool {
+	switch x := expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		if len(x.Traversal) == 2 && x.Traversal.RootName() == "var" {
+			if step, ok := x.Traversal[1].(hcl.TraverseAttr); ok && step.Name == name {
+				*paths = append(*paths, path)
+				return true
+			}
+		}
+	case *hclsyntax.ObjectConsExpr:
+		for _, item := range x.Items {
+			key := keyName(item.KeyExpr)
+			if key == "" {
+				if usesVariable(item.KeyExpr, name) || usesVariable(item.ValueExpr, name) {
+					return false
+				}
+				continue
+			}
+			if !exprVarPaths(item.ValueExpr, path+"."+key, name, paths) {
+				return false
+			}
+		}
+		return true
+	}
+	return !usesVariable(expr, name)
+}
+
+// usesVariable reports whether expr refers to var.name.
+func usesVariable(expr hclsyntax.Expression, name string) bool {
+	for _, t := range expr.Variables() {
+		if t.RootName() != "var" || len(t) < 2 {
+			continue
+		}
+		if step, ok := t[1].(hcl.TraverseAttr); ok && step.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func joinPath(prefix, name string) string {
+	if prefix == "" {
+		return name
+	}
+	return prefix + "." + name
+}

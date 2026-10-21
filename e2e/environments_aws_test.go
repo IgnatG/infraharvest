@@ -56,7 +56,9 @@ environments:
 // checkout of the output, without .infraharvest and with the import
 // blocks deleted, --incremental with --managed-state on the environments'
 // workspaces adds a queue prod gets since into the merged root, and
-// nothing else.
+// nothing else. Imported again with an S3 backend, the merged root's
+// drift is checked with each environment's backend settings (see
+// checkEnvironmentsDrift).
 func TestAWSEnvironments(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -147,7 +149,7 @@ func TestAWSEnvironments(t *testing.T) {
 		t.Errorf("prod's terraform.tfvars:\n%s", prodVars)
 	}
 	imported := checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
-	if imported["dev"]["aws_sqs_queue"] != 2 || imported["prod"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sns_topic"] != 1 || imported["dev"]["aws_sns_topic"] != 0 {
+	if imported["dev"]["aws_sqs_queue"] != 5 || imported["prod"]["aws_sqs_queue"] != 6 || imported["prod"]["aws_sns_topic"] != 1 || imported["dev"]["aws_sns_topic"] != 0 {
 		t.Errorf("imported: %v", imported)
 	}
 
@@ -183,7 +185,7 @@ func TestAWSEnvironments(t *testing.T) {
 		t.Errorf("--incremental: dev's new queue isn't named from a local:\n%s", files)
 	}
 	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
-	if imported["dev"]["aws_sqs_queue"] != 3 || imported["prod"]["aws_sqs_queue"] != 3 {
+	if imported["dev"]["aws_sqs_queue"] != 6 || imported["prod"]["aws_sqs_queue"] != 6 {
 		t.Errorf("--incremental: imported %v", imported)
 	}
 
@@ -204,7 +206,7 @@ func TestAWSEnvironments(t *testing.T) {
 		t.Errorf("--incremental of dev didn't add dev's reports queue:\n%s", dev)
 	}
 	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
-	if imported["dev"]["aws_sqs_queue"] != 4 || imported["prod"]["aws_sqs_queue"] != 3 {
+	if imported["dev"]["aws_sqs_queue"] != 7 || imported["prod"]["aws_sqs_queue"] != 6 {
 		t.Errorf("--incremental of dev: imported %v", imported)
 	}
 
@@ -372,6 +374,8 @@ func TestAWSEnvironments(t *testing.T) {
 		credentials(env)
 		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
 	}
+
+	checkEnvironmentsDrift(ctx, t, fixture, engineName, execPath, plugins, credentials)
 }
 
 // TestAWSEnvironmentsData imports testdata/aws-environments-data, in two
