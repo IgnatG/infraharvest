@@ -132,9 +132,12 @@ func TestAWSDriftMCP(t *testing.T) {
 func mcpSession(ctx context.Context, t *testing.T, root, execPath string, elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) *mcp.ClientSession {
 	t.Helper()
 	run := func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
-		// The engine the test found, before the arguments after "--".
+		// The engine the test found: for drift, before the arguments after
+		// "--"; for import, at the end.
 		if i := slices.Index(args, "--"); i >= 0 {
 			args = slices.Insert(slices.Clone(args), i, "--terraform-path="+execPath)
+		} else if len(args) > 0 && args[0] == "import" {
+			args = append(slices.Clone(args), "--terraform-path="+execPath)
 		}
 		var stdout, stderr bytes.Buffer
 		cmd := cli.NewCmdRoot()
@@ -162,6 +165,16 @@ func mcpSession(ctx context.Context, t *testing.T, root, execPath string, elicit
 // result, failing the test if the call fails or returns an error.
 func callDriftTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, name string, args map[string]any) mcpserver.DriftResult {
 	t.Helper()
+	var r mcpserver.DriftResult
+	callTool(ctx, t, session, name, args, &r)
+	return r
+}
+
+// callTool calls the tool name with args, decodes its structured result
+// into result unless it is nil, and returns its text, failing the test if
+// the call fails or returns an error.
+func callTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, name string, args map[string]any, result any) string {
+	t.Helper()
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
@@ -176,15 +189,16 @@ func callDriftTool(ctx context.Context, t *testing.T, session *mcp.ClientSession
 	if res.IsError {
 		t.Fatalf("%s returned an error: %s", name, strings.Join(text, "\n"))
 	}
-	content, err := json.Marshal(res.StructuredContent)
-	if err != nil {
-		t.Fatal(err)
+	if result != nil {
+		content, err := json.Marshal(res.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(content, result); err != nil {
+			t.Fatalf("%s: %s: %v", name, content, err)
+		}
 	}
-	var r mcpserver.DriftResult
-	if err := json.Unmarshal(content, &r); err != nil {
-		t.Fatalf("%s: %s: %v", name, content, err)
-	}
-	return r
+	return strings.Join(text, "\n")
 }
 
 // mcpChange returns the change of a queue to attribute that r lists,

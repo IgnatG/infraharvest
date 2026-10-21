@@ -12,8 +12,9 @@
 # action-test runs it on its own.
 #
 # Usage: IMPORT=true|false DRIFT=off|report|accept OUT=<dir>
-#   [DRIFT_DECISIONS=<file>] [BRANCH=<branch>] [IMPORT_REPORT=<report.md>]
-#   [DRIFT_REPORT=<drift.md>] pull-request-details.sh
+#   [DRIFT_DECISIONS=<file>] [BRANCH=<branch>] [ENVIRONMENT=<env>]
+#   [IMPORT_REPORT=<report.md>] [DRIFT_REPORT=<drift.md>]
+#   pull-request-details.sh
 set -euo pipefail
 
 # drift accept writes accepted changes into the code; drift report accepts
@@ -46,6 +47,14 @@ case "$DRIFT/$IMPORT" in
     branch=infraharvest/drift
     ;;
 esac
+# Drift checked as some environments, in a job per environment: each
+# job's pull request is that environment's, on a branch of its own, so
+# that the jobs of a matrix don't push to one branch.
+if [[ "$DRIFT" != off && -n "${ENVIRONMENT-}" && "$ENVIRONMENT" != all ]]; then
+  title="$title in $ENVIRONMENT"
+  commit="$commit in $ENVIRONMENT"
+  branch="$branch-${ENVIRONMENT//,/-}"
+fi
 if [[ -n "${BRANCH-}" ]]; then branch="$BRANCH"; fi
 # The body is the import's report, then the drift report.
 body="$RUNNER_TEMP/infraharvest-pull-request.md"
