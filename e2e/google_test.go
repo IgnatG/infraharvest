@@ -273,7 +273,7 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 // and Cloud DNS's zone list, in front of the emulator at endpoint, which
 // gets every other request. The search finds the resources state lists,
 // named as Cloud Asset Inventory names them, with the project's number as
-// their project, and the default network and one of its firewall rules,
+// their project and the labels of buckets and topics, and the default network and one of its firewall rules,
 // which Google Cloud creates in a project. It finds only the asset types asked for,
 // two at a time. The project has no DNS zones.
 func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *httptest.Server {
@@ -302,6 +302,7 @@ func assetSearch(t *testing.T, endpoint string, state []*tfjson.StateResource) *
 			res["labels"] = v["labels"]
 		case "google_pubsub_topic":
 			res["assetType"], res["name"] = "pubsub.googleapis.com/Topic", "//pubsub.googleapis.com/"+v["id"].(string)
+			res["labels"] = v["labels"]
 		case "google_pubsub_subscription":
 			res["assetType"], res["name"] = "pubsub.googleapis.com/Subscription", "//pubsub.googleapis.com/"+v["id"].(string)
 		case "google_service_account":

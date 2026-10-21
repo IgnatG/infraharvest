@@ -160,3 +160,52 @@ func checkWorkspacePlan(ctx context.Context, t *testing.T, dir, execPath, plugin
 	sort.Strings(imports)
 	return imports
 }
+
+// workspace returns Terraform in the merged root in dir, initialised, in
+// env's workspace, which the environment has applied it into.
+func workspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *engine.Runner {
+	t.Helper()
+	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.Init(ctx); err != nil {
+		t.Fatalf("%s: terraform init: %v", env, err)
+	}
+	if err := tf.WorkspaceSelect(ctx, env); err != nil {
+		t.Fatalf("terraform workspace select %s: %v", env, err)
+	}
+	return tf
+}
+
+// mergedVarFiles are the var files environment env applies the merged
+// root in dir with, as its README says.
+func mergedVarFiles(dir, env string) []string {
+	var files []string
+	for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
+		files = append(files, filepath.Join(dir, "vars", filepath.FromSlash(name)))
+	}
+	return files
+}
+
+// applyWorkspace applies the merged root in dir as environment env, in
+// its workspace, with its var files and opts.
+func applyWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string, opts ...tfexec.ApplyOption) {
+	t.Helper()
+	tf := workspace(ctx, t, dir, execPath, plugins, env)
+	apply := []tfexec.ApplyOption{tfexec.Lock(false)}
+	for _, f := range mergedVarFiles(dir, env) {
+		apply = append(apply, tfexec.VarFile(f))
+	}
+	if err := tf.Apply(ctx, append(apply, opts...)...); err != nil {
+		t.Fatalf("%s: terraform apply in its workspace: %v", env, err)
+	}
+}
+
+// planWorkspace plans the merged root in dir as environment env, in its
+// workspace, with its var files, and returns the plan.
+func planWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *tfjson.Plan {
+	t.Helper()
+	selectWorkspace(ctx, t, dir, execPath, plugins, env)
+	return planRoot(ctx, t, dir, execPath, plugins, mergedVars(dir, env)...)
+}
