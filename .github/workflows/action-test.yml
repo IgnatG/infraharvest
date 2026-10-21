@@ -4,25 +4,37 @@
 name: Action test
 
 # Runs the GitHub Action (action/) with a binary built from this commit
-# against Floci, a local AWS emulator: no AWS account is involved. It also
-# runs when the CLI changes, since the action relies on its flags, report
-# path and exit codes, and checks drift on the roots once they're applied,
-# and what the action would open its pull request with.
+# against the Floci emulators of AWS and Azure: no cloud account is
+# involved. It also runs when the CLI changes, since the action relies on
+# its flags, report path and exit codes. It imports with Terraform and
+# OpenTofu, through a selection file, with environments that share roots,
+# and with managed-state; checks drift on the roots once they're applied,
+# per environment for roots environments share; and checks what the action
+# would open its pull request with. On main, it opens a real pull request
+# too (see the pull-request job).
 on:
   pull_request:
     paths:
       - action/**
       - internal/cli/**
-      - internal/engine/drift*.go
+      - internal/engine/**
       - internal/importer/**
       - internal/report/**
+      - internal/selection/**
       - main.go
       - go.mod
       - go.sum
       - e2e/compose.yaml
+      - e2e/testdata/azure/**
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
+  # Only the pull-request job runs on a push: a pull request ran the rest.
+  push:
+    branches: [main]
+    paths:
+      - action/**
+      - .github/workflows/action-test.yml
   workflow_dispatch:
 
 permissions:
@@ -40,13 +52,21 @@ concurrency:
 
 jobs:
   action:
+    # Terraform's keeps the name the job had before OpenTofu's.
+    name: ${{ matrix.engine == 'terraform' && 'action' || format('action ({0})', matrix.engine) }}
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [terraform, tofu]
     env:
       AWS_ENDPOINT_URL: http://localhost:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-east-1
+      ENGINE: ${{ matrix.engine }}
     steps:
       - name: Check out the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,7 +85,7 @@ jobs:
       - name: Install the engine and scanners
         uses: ./.github/actions/setup-engines
         with:
-          engine: terraform
+          engine: ${{ matrix.engine }}
       - name: Start Floci and create a queue
         run: |
           docker compose -f e2e/compose.yaml up -d --wait
@@ -75,6 +95,7 @@ jobs:
         uses: ./action
         with:
           binary: ${{ runner.temp }}/infraharvest
+          engine: ${{ matrix.engine }}
           provider: aws
           services: sqs
           regions: us-east-1
@@ -99,8 +120,8 @@ jobs:
             root=$(dirname "$file")
             n=$((n + 1))
             printf 'terraform {\n  backend "local" {\n    path = "%s"\n  }\n}\n' "$RUNNER_TEMP/state/$n.tfstate" > "$root/backend.tf"
-            terraform -chdir="$root" init -input=false
-            terraform -chdir="$root" apply -input=false -auto-approve
+            "$ENGINE" -chdir="$root" init -input=false
+            "$ENGINE" -chdir="$root" apply -input=false -auto-approve
           done
           url=$(aws sqs get-queue-url --queue-name infraharvest-action --query QueueUrl --output text)
           aws sqs tag-queue --queue-url "$url" --tags Drift=console
@@ -126,6 +147,7 @@ jobs:
         uses: ./action
         with:
           binary: ${{ runner.temp }}/infraharvest
+          engine: ${{ matrix.engine }}
           provider: aws
           services: sqs
           regions: us-east-1
@@ -174,6 +196,7 @@ jobs:
         uses: ./action
         with:
           binary: ${{ runner.temp }}/infraharvest
+          engine: ${{ matrix.engine }}
           import: "false"
           out: ${{ runner.temp }}/out
           drift: accept
@@ -193,16 +216,464 @@ jobs:
           test "$DRIFT_FOUND" = false
           jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "written")] | length == 1' "$RUNNER_TEMP/out/report/drift.json"
           grep -rq --include='*.tf' -E 'Drift += +"console"' "$RUNNER_TEMP/out"
+      # The steady state: the roots applied with what the runs added, their
+      # import blocks deleted, and infraharvest's checkpoints not checked
+      # out. Only their state, kept outside them, says what they have: a
+      # scheduled run finds it through managed-state, and adds only what is
+      # new.
+      - name: Apply the roots, delete their import blocks and add a queue
+        id: applied
+        run: |
+          find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' | while IFS= read -r file; do
+            "$ENGINE" -chdir="$(dirname "$file")" apply -input=false -auto-approve
+            rm "$file"
+          done
+          rm -rf "$RUNNER_TEMP/out/.infraharvest" "$RUNNER_TEMP/before"
+          mkdir "$RUNNER_TEMP/before"
+          cd "$RUNNER_TEMP/out"
+          find . -name '*.tf' -not -path '*/.terraform/*' \
+            -not -name imports.tf -not -name data.tf -not -name variables.tf -not -name locals.tf \
+            -exec cp --parents {} "$RUNNER_TEMP/before" \;
+          echo "states=$(find "$RUNNER_TEMP/state" -name '*.tfstate' | sort | paste -sd, -)" >> "$GITHUB_OUTPUT"
+          aws sqs create-queue --queue-name infraharvest-action-managed
+      - name: Run the action on the applied roots
+        id: managed
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          engine: ${{ matrix.engine }}
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: ${{ runner.temp }}/out
+          managed-state: ${{ steps.applied.outputs.states }}
+      - name: Check only the new queue was added
+        env:
+          EXIT_CODE: ${{ steps.managed.outputs.exit-code }}
+        run: |
+          test "$EXIT_CODE" = 0
+          added=""
+          cd "$RUNNER_TEMP/out"
+          while IFS= read -r file; do
+            if [ -f "$RUNNER_TEMP/before/$file" ]; then
+              size=$(wc -c < "$RUNNER_TEMP/before/$file")
+              cmp -n "$size" "$RUNNER_TEMP/before/$file" "$file"
+              added+=$(tail -c +"$((size + 1))" "$file")
+            else
+              added+=$(cat "$file")
+            fi
+          done < <(find . -name '*.tf' -not -path '*/.terraform/*' \
+            -not -name imports.tf -not -name data.tf -not -name variables.tf -not -name locals.tf)
+          grep -q "infraharvest-action-managed" <<< "$added"
+          # The state has the others: none is added again.
+          ! grep -q -E '"infraharvest-action(-new)?"' <<< "$added"
+          # The new import blocks import the new queue alone.
+          imports=$(find . -name imports.tf -not -path '*/.terraform/*' -exec cat {} +)
+          test "$(grep -c '^import {' <<< "$imports")" = 1
+          grep -q "infraharvest-action-managed" <<< "$imports"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
 
-  # The action's pull request can't be opened here: this workflow can't
-  # push, and a pull request of its own would be one more in the
-  # repository for every run. What the action opens it with, worked out by
-  # action/pull-request-details.sh, is checked for each kind of run
-  # instead, the script run as the action runs it; the step that opens the
-  # pull request, peter-evans/create-pull-request, only passes it on.
+  # Imports through a selection file whose rules choose the queues by name,
+  # as a person writes it before the first discover: an include rule with a
+  # name glob, an exclude rule after it that wins, and the defaults
+  # excluding the rest.
+  selection:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
+      - name: Build
+        run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
+        with:
+          engine: terraform
+      - name: Start Floci, create queues and write the selection file
+        run: |
+          docker compose -f e2e/compose.yaml up -d --wait
+          for name in shop-orders shop-orders-dlq audit; do
+            aws sqs create-queue --queue-name "$name"
+          done
+          cat > "$RUNNER_TEMP/selection.yaml" << 'EOF'
+          version: 1
+          defaults:
+            include: false
+          rules:
+            - include: { type: aws_sqs_queue, name: "shop-*" }
+            - exclude: { type: aws_sqs_queue, name: "*-dlq" }
+          resources: []
+          EOF
+      - name: Run the action
+        id: infraharvest
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          selection: ${{ runner.temp }}/selection.yaml
+          out: ${{ runner.temp }}/out
+      - name: Check what the rules chose
+        env:
+          EXIT_CODE: ${{ steps.infraharvest.outputs.exit-code }}
+        run: |
+          test "$EXIT_CODE" = 0
+          imports=$(find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' -exec cat {} +)
+          test "$(grep -c '^import {' <<< "$imports")" = 1
+          grep -q '/shop-orders"' <<< "$imports"
+          coverage="$RUNNER_TEMP/out/report/coverage.json"
+          jq -e '[.excluded[] | select(.type == "aws_sqs_queue" and (.id | endswith("/shop-orders-dlq")) and .reason == "excluded by a rule in the selection file")] | length == 1' "$coverage"
+          jq -e '[.excluded[] | select(.type == "aws_sqs_queue" and (.id | endswith("/audit")) and .reason == "excluded by the selection file'"'"'s defaults")] | length == 1' "$coverage"
+      - name: Floci logs
+        if: failure()
+        run: docker compose -f e2e/compose.yaml logs
+
+  # A configuration file with environments in two accounts of the emulator,
+  # which takes the access key ID as the account: their roots merge into one
+  # root they share, which each environment applies into its workspace, as
+  # its README says. Drift then runs as a matrix job per environment would,
+  # with environment and that environment's credentials; without
+  # environment, the action refuses the root.
+  environments:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      DEV: "131313131313"
+      PROD: "242424242424"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
+      - name: Build
+        run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
+        with:
+          engine: terraform
+      - name: Start Floci, create a queue in each environment and write the configuration
+        run: |
+          docker compose -f e2e/compose.yaml up -d --wait
+          AWS_ACCESS_KEY_ID=$DEV aws sqs create-queue --queue-name shop-dev-orders --tags Environment=dev
+          AWS_ACCESS_KEY_ID=$PROD aws sqs create-queue --queue-name shop-prd-orders --tags Environment=prd
+          cat > "$RUNNER_TEMP/infraharvest.yaml" << EOF
+          version: 1
+          providers:
+            aws:
+              accounts: ["$DEV", "$PROD"]
+          environments:
+            dev:
+              aws: { accounts: ["$DEV"] }
+            prod:
+              aws: { accounts: ["$PROD"] }
+              tokens: [prd]
+          EOF
+      - name: Run the action
+        id: infraharvest
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          config: ${{ runner.temp }}/infraharvest.yaml
+          out: ${{ runner.temp }}/out
+      - name: Check the roots merged, and apply each environment
+        env:
+          EXIT_CODE: ${{ steps.infraharvest.outputs.exit-code }}
+        run: |
+          test "$EXIT_CODE" = 0
+          root="$RUNNER_TEMP/out/aws/us-east-1"
+          test -f "$root/vars/dev/terraform.tfvars"
+          test -f "$root/vars/prod/terraform.tfvars"
+          jq -e '[.merges[] | select(.path == "aws/us-east-1" and .merged)] | length == 1' "$RUNNER_TEMP/out/report/coverage.json"
+          terraform -chdir="$root" init -input=false
+          for env in dev prod; do
+            if [[ "$env" == dev ]]; then account=$DEV; else account=$PROD; fi
+            vars=()
+            for file in vars/common.tfvars "vars/$env/terraform.tfvars" "vars/$env/imports.tfvars"; do
+              if [[ -f "$root/$file" ]]; then vars+=("-var-file=$file"); fi
+            done
+            terraform -chdir="$root" workspace new "$env"
+            AWS_ACCESS_KEY_ID=$account terraform -chdir="$root" apply -input=false -auto-approve "${vars[@]}"
+          done
+          url=$(AWS_ACCESS_KEY_ID=$DEV aws sqs get-queue-url --queue-name shop-dev-orders --query QueueUrl --output text)
+          AWS_ACCESS_KEY_ID=$DEV aws sqs tag-queue --queue-url "$url" --tags Drift=console
+          mkdir -p "$RUNNER_TEMP/decisions"
+      - name: Check drift without environment
+        id: refused
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          import: "false"
+          out: ${{ runner.temp }}/out
+          drift: report
+      - name: Check the action refused the root
+        env:
+          OUTCOME: ${{ steps.refused.outcome }}
+          DRIFT_EXIT_CODE: ${{ steps.refused.outputs.drift-exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          # It refused before checking anything.
+          test -z "$DRIFT_EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/out/report/drift.json"
+      - name: Check drift as dev
+        id: dev
+        uses: ./action
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.DEV }}
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          import: "false"
+          out: ${{ runner.temp }}/out
+          drift: report
+          environment: dev
+          drift-decisions: ${{ runner.temp }}/decisions/drift-dev.yaml
+      - name: Check dev's drift was found
+        env:
+          DRIFT_FOUND: ${{ steps.dev.outputs.drift-found }}
+          DRIFT_EXIT_CODE: ${{ steps.dev.outputs.drift-exit-code }}
+        run: |
+          test "$DRIFT_EXIT_CODE" = 4
+          test "$DRIFT_FOUND" = true
+          drift="$RUNNER_TEMP/out/report/drift.json"
+          jq -e '[.roots[] | .path + " " + .environment] == ["aws/us-east-1 dev"]' "$drift"
+          jq -e '[.changes[] | select(.environment == "dev" and .attribute == "tags.Drift" and .outcome == "kept")] | length == 1' "$drift"
+          grep -q "decision: undecided" "$RUNNER_TEMP/decisions/drift-dev.yaml"
+      - name: Check drift as prod
+        id: prod
+        uses: ./action
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.PROD }}
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          import: "false"
+          out: ${{ runner.temp }}/out
+          drift: report
+          environment: prod
+          drift-decisions: ${{ runner.temp }}/decisions/drift-prod.yaml
+      - name: Check prod has no drift
+        env:
+          DRIFT_FOUND: ${{ steps.prod.outputs.drift-found }}
+          DRIFT_EXIT_CODE: ${{ steps.prod.outputs.drift-exit-code }}
+        run: |
+          test "$DRIFT_EXIT_CODE" = 0
+          test "$DRIFT_FOUND" = false
+          drift="$RUNNER_TEMP/out/report/drift.json"
+          jq -e '[.roots[] | .path + " " + .environment] == ["aws/us-east-1 prod"] and (.changes // []) == []' "$drift"
+      - name: Floci logs
+        if: failure()
+        run: docker compose -f e2e/compose.yaml logs
+
+  # The action with Azure, on floci-az: testdata/azure, the Azure e2e
+  # tests' resources, imported from its resource group, which the
+  # configuration file names. floci-az has no Resource Graph, which reads
+  # tags, so the import is partial (exit code 3) or complete. Google Cloud
+  # has no job: its listers search Cloud Asset Inventory, which floci-gcp
+  # lacks and the e2e tests stand in for from Go.
+  azure:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ARM_ENVIRONMENT: stack
+      ARM_METADATA_HOSTNAME: localhost:4577
+      ARM_SUBSCRIPTION_ID: 00000000-0000-0000-0000-000000000001
+      ARM_TENANT_ID: 00000000-0000-0000-0000-000000000002
+      ARM_USE_MSI: "true"
+      ARM_MSI_ENDPOINT: https://localhost:4577/metadata/identity/oauth2/token
+      ARM_USE_CLI: "false"
+      ARM_RESOURCE_PROVIDER_REGISTRATIONS: none
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build -tags minimal,azure -o "$RUNNER_TEMP/infraharvest" .
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
+        with:
+          engine: terraform
+      # The azurerm provider and the listers reach floci-az over HTTPS:
+      # trust the CA it generates at startup.
+      - name: Start floci-az
+        run: |
+          docker compose -f e2e/compose.yaml --profile azure up -d floci-az
+          for _ in $(seq 60); do
+            if curl -sf http://localhost:4577/_floci/tls-cert -o floci-az.crt && grep -q "BEGIN CERTIFICATE" floci-az.crt; then
+              sudo cp floci-az.crt /usr/local/share/ca-certificates/floci-az.crt
+              sudo update-ca-certificates
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "floci-az didn't start"; exit 1
+      - name: Create the resources and write the configuration
+        run: |
+          mkdir "$RUNNER_TEMP/seed"
+          cp e2e/testdata/azure/main.tf "$RUNNER_TEMP/seed/"
+          terraform -chdir="$RUNNER_TEMP/seed" init -input=false
+          terraform -chdir="$RUNNER_TEMP/seed" apply -input=false -auto-approve
+          printf 'version: 1\nproviders:\n  azure:\n    resource-group: infraharvest-e2e\n' > "$RUNNER_TEMP/infraharvest.yaml"
+      - name: Run the action
+        id: infraharvest
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: azure
+          services: managed_identity,network_interface,network_security_group,public_ip,resource_group,subnet,virtual_network
+          config: ${{ runner.temp }}/infraharvest.yaml
+          allow-partial: "true"
+          out: ${{ runner.temp }}/out
+      - name: Check the output
+        env:
+          EXIT_CODE: ${{ steps.infraharvest.outputs.exit-code }}
+          REPORT: ${{ steps.infraharvest.outputs.report }}
+        run: |
+          [[ "$EXIT_CODE" == 0 || "$EXIT_CODE" == 3 ]]
+          test -f "$REPORT"
+          imports=$(find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' -exec cat {} +)
+          grep -q "azurerm_virtual_network" <<< "$imports"
+          grep -q "azurerm_network_security_group" <<< "$imports"
+          # Nothing failed but the tags floci-az can't list.
+          jq -e '.totals.failed == 0 and .totals.left_out == 0 and all(.failures[]?; startswith("tags:"))' "$RUNNER_TEMP/out/report/coverage.json"
+      - name: floci-az logs
+        if: failure()
+        run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
+
+  # Opens a real pull request with the action, from a branch of the run's
+  # own into another of its own, made from this commit, and checks it is
+  # there with the import report as its body; then closes it and deletes
+  # both branches, whatever happened. Only the report goes into it: the
+  # generated configuration stays out of the repository, git excluding it
+  # in this checkout. It runs on main and by hand, never for a pull
+  # request, whose token from a fork couldn't push. With github.token, the
+  # repository's "Allow GitHub Actions to create and approve pull requests"
+  # setting must be on; GitHub starts no workflow for the pull request.
+  pull-request:
+    if: github.event_name != 'pull_request' && github.repository == 'IgnatG/infraharvest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      BASE_BRANCH: action-test/base-${{ github.run_id }}-${{ github.run_attempt }}
+      PR_BRANCH: action-test/pull-request-${{ github.run_id }}-${{ github.run_attempt }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
+      - name: Build
+        run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
+        with:
+          engine: terraform
+      - name: Start Floci and create a queue
+        run: |
+          docker compose -f e2e/compose.yaml up -d --wait
+          aws sqs create-queue --queue-name infraharvest-action
+      # The pull request goes into the branch checked out.
+      - name: Create the base branch
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/heads/$BASE_BRANCH" -f "sha=$GITHUB_SHA" > /dev/null
+          git checkout -b "$BASE_BRANCH"
+          printf '/action-test-out/*\n!/action-test-out/report/\n' >> .git/info/exclude
+      - name: Run the action
+        id: infraharvest
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: action-test-out
+          pull-request: "true"
+          pull-request-branch: ${{ env.PR_BRANCH }}
+      - name: Check the pull request
+        env:
+          URL: ${{ steps.infraharvest.outputs.pull-request-url }}
+          REPORT: ${{ steps.infraharvest.outputs.report }}
+        run: |
+          test -n "$URL"
+          pr="$RUNNER_TEMP/pull-request.json"
+          gh pr view "$URL" -R "$GITHUB_REPOSITORY" --json title,body,baseRefName,headRefName,state,files > "$pr"
+          jq -e --arg base "$BASE_BRANCH" --arg head "$PR_BRANCH" \
+            '.title == "Import existing resources with infraharvest" and .baseRefName == $base and .headRefName == $head and .state == "OPEN"' "$pr"
+          # The report alone, and nothing generated.
+          jq -e '(.files | length) > 0 and all(.files[]; .path | startswith("action-test-out/report/"))' "$pr"
+          # The body is the import report, as GitHub keeps it.
+          normalise() { tr -d '\r' | sed 's/[[:space:]]*$//' | grep -v '^$'; }
+          cmp <(jq -r .body "$pr" | normalise) <(normalise < "$REPORT")
+      - name: Close the pull request and delete the branches
+        if: always()
+        run: |
+          gh pr close "$PR_BRANCH" -R "$GITHUB_REPOSITORY" --comment "Opened by the action test, run $GITHUB_RUN_ID; closed once checked." || true
+          for branch in "$PR_BRANCH" "$BASE_BRANCH"; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" > /dev/null 2>&1 || true
+          done
+      - name: Floci logs
+        if: failure()
+        run: docker compose -f e2e/compose.yaml logs
+
+  # What the action opens its pull request with, worked out by
+  # action/pull-request-details.sh, is checked for each kind of run, the
+  # script run as the action runs it; the step that opens the pull
+  # request, peter-evans/create-pull-request, only passes it on. The
+  # pull-request job opens one for an import only.
   pull-request-details:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -292,3 +763,19 @@ jobs:
           expect drift branch infraharvest/weekly
           expect drift add-paths infraharvest-out
           test ! -s "$(output drift body-path)"
+
+          # Drift accepted as one environment, in a matrix job of its own:
+          # that environment's pull request, on a branch of its own.
+          details prod IMPORT=false DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift-prod.yaml \
+            ENVIRONMENT=prod IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          expect prod title "Accept cloud changes (drift) in prod"
+          expect prod commit-message "fix: accept drift found by infraharvest in prod"
+          expect prod branch infraharvest/drift-prod
+          expect prod add-paths "$(printf 'infraharvest-out\ndecisions/drift-prod.yaml')"
+
+          # Every environment at once, with one set of credentials: as
+          # without environment.
+          details all IMPORT=true DRIFT=report OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
+            ENVIRONMENT=all IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          expect all title "Import new resources, and record cloud changes (drift) for review"
+          expect all branch infraharvest/import
