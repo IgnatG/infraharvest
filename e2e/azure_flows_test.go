@@ -105,6 +105,10 @@ func TestAzureReuseInventory(t *testing.T) {
 // (testdata/azure-incremental), in a file of its own, with what the root
 // had as it was, and the root plans as imports with no changes. Another
 // import with --incremental adds nothing.
+// It doesn't check what is no longer in the cloud: the catalogue maps
+// every Azure Resource Manager type it imports to resource_graph, which
+// maps resources to types one at a time, so no type counts as listed in
+// full (see importer.typesListedInFull), and an import reports none.
 //
 // It adds to the estate the other Azure tests import, so CI runs it on a
 // runner of its own.

@@ -160,11 +160,17 @@ variable "reports" {
   default     = false
 }
 
+variable "reports_tagged" {
+  description = "Whether dev's reports queue has dev's tags; without, it leaves dev for the shared root, for --regenerate of the merged root."
+  type        = bool
+  default     = true
+}
+
 resource "aws_sqs_queue" "dev_reports" {
   count    = var.reports ? 1 : 0
   provider = aws.dev
   name     = "shop-dev-reports"
-  tags     = local.dev
+  tags     = var.reports_tagged ? local.dev : { Project = "shop" }
 }
 
 # Created once the stack is merged, for --incremental.
@@ -172,6 +178,39 @@ resource "aws_sqs_queue" "dev_audit" {
   count    = var.audit ? 1 : 0
   provider = aws.dev
   name     = "shop-dev-audit"
+  tags     = local.dev
+}
+
+variable "dev_alerts" {
+  description = "Whether dev has the alerts feature too, for --regenerate of the merged root: every environment then has it."
+  type        = bool
+  default     = false
+}
+
+resource "aws_sns_topic" "dev_alerts" {
+  count    = var.dev_alerts ? 1 : 0
+  provider = aws.dev
+  name     = "shop-dev-alerts"
+  tags     = local.dev
+}
+
+resource "aws_sqs_queue" "dev_alerts" {
+  count    = var.dev_alerts ? 1 : 0
+  provider = aws.dev
+  name     = "shop-dev-alerts"
+  tags     = local.dev
+}
+
+variable "scratch" {
+  description = "Whether dev has a scratch queue, which the test adds to the merged root, then deletes, for what --incremental finds no longer in the cloud."
+  type        = bool
+  default     = false
+}
+
+resource "aws_sqs_queue" "dev_scratch" {
+  count    = var.scratch ? 1 : 0
+  provider = aws.dev
+  name     = "shop-dev-scratch"
   tags     = local.dev
 }
 

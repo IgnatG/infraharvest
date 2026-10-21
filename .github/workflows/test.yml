@@ -366,7 +366,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -436,7 +436,7 @@ jobs:
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
         SKIP: ${{ matrix.skip }}
-      run: go test -tags e2e,minimal,aws -timeout 25m -v -run "$RUN" -skip "$SKIP" ./e2e/
+      run: go test -tags e2e,minimal,aws -timeout 45m -v -run "$RUN" -skip "$SKIP" ./e2e/
     - name: Floci logs
       if: failure()
       run: docker compose -f e2e/compose.yaml logs

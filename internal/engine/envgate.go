@@ -618,11 +618,20 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []Secret) []Secret {
 // in dir, merged before, had resources to where it has them now, into
 // its moves.tf, and lists them in its README, so that each environment's
 // next plan moves them in its state rather than destroying and creating
-// them again. It returns the moves check of them (see checkMoves); the
-// README lists them only once it passes.
-func WriteMergedMoves(dir string, moved []Move) (Check, error) {
-	if err := writeMoves(dir, moved, nil, nil); err != nil {
+// them again. With them go removed, the removed blocks, with destroy =
+// false, of what the merged root hands over to other roots, which import
+// it (see Removal): each environment's next plan forgets it, as the
+// environments share the merged root's code, and its required_version is
+// raised to what removed blocks need. It returns the moves check of them
+// (see checkMoves); the README lists them only once it passes.
+func WriteMergedMoves(dir string, moved []Move, removed []Removal) (Check, error) {
+	if err := writeMoves(dir, moved, removed, nil); err != nil {
 		return Check{}, err
+	}
+	if len(removed) > 0 {
+		if err := raiseRequiredVersion(dir); err != nil {
+			return Check{}, err
+		}
 	}
 	check, err := checkMoves(dir)
 	if err != nil || !check.Passed {
@@ -631,9 +640,25 @@ func WriteMergedMoves(dir string, moved []Move) (Check, error) {
 	sorted := slices.Clone(moved)
 	sortMoves(sorted)
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n## Moved blocks\n\nThese resources have other addresses than when this root was merged before. The moved blocks in `%s` move them in each environment's state, so that its plan shows each as moved rather than destroyed and created again. Delete `%s` once every environment has been applied.\n\n| From | To |\n|---|---|\n", MovesFileName, MovesFileName)
-	for _, m := range sorted {
-		fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
+	if len(sorted) > 0 {
+		fmt.Fprintf(&b, "\n## Moved blocks\n\nThese resources have other addresses than when this root was merged before. The moved blocks in `%s` move them in each environment's state, so that its plan shows each as moved rather than destroyed and created again. Delete `%s` once every environment has been applied.\n\n| From | To |\n|---|---|\n", MovesFileName, MovesFileName)
+		for _, m := range sorted {
+			fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
+		}
+	}
+	if len(removed) > 0 {
+		fmt.Fprintf(&b, "\n## Handed over to other roots\n\nThese resources go to other roots now, which import them. The removed blocks in `%s`, with `destroy = false`, make each environment's state forget them, without destroying them: apply this root, as each environment, before the roots they go to. Delete `%s` once every environment has been applied.\n\n| Resource | Goes to |\n|---|---|\n", MovesFileName, MovesFileName)
+		for _, r := range removed {
+			if len(r.Resources) == 0 {
+				fmt.Fprintf(&b, "| `%s` | |\n", r.From)
+			}
+			for _, d := range r.Resources {
+				fmt.Fprintf(&b, "| `%s` | `%s` |\n", d.Address, d.Root)
+			}
+		}
+	}
+	if b.Len() == 0 {
+		return check, nil
 	}
 	path := filepath.Join(dir, ReadmeFileName)
 	readme, err := os.ReadFile(path)
@@ -641,4 +666,25 @@ func WriteMergedMoves(dir string, moved []Move) (Check, error) {
 		return check, err
 	}
 	return check, fsutil.WriteFile(path, append(readme, b.String()...), 0o644)
+}
+
+// WriteMergedNotInCloud lists in the README of the merged root in dir
+// gone, by environment, the resources of each environment that the
+// incremental import which merged it again didn't find in the cloud,
+// though it listed every resource of their type where they were, at
+// their addresses in the merged root (see notInCloudSection).
+func WriteMergedNotInCloud(dir string, gone map[string][]Import) error {
+	var b strings.Builder
+	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `vars/<env>/imports.tfvars` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")
+	for _, env := range slices.Sorted(maps.Keys(gone)) {
+		for _, g := range gone[env] {
+			fmt.Fprintf(&b, "- `%s.%s` (`%s`), of %s\n", g.Type, g.Name, g.ID, env)
+		}
+	}
+	path := filepath.Join(dir, ReadmeFileName)
+	readme, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFile(path, append(readme, b.String()...), 0o644)
 }

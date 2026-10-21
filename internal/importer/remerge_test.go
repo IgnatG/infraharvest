@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -100,7 +101,7 @@ func TestMergedMoves(t *testing.T) {
 
 	// Without --regenerate, the merged root stays as it was.
 	r := NewRun()
-	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil); err != nil || !strings.Contains(why, "other addresses") {
+	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil, nil); err != nil || !strings.Contains(why, "other addresses") {
 		t.Errorf("without --regenerate: %q, %v", why, err)
 	}
 }
@@ -215,10 +216,17 @@ func TestReaddressNotInCloud(t *testing.T) {
 	run.options.Out = "out"
 	run.report.NotInCloud = []report.NotInCloud{{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.orders", ID: "q1"}}
 	members := []mergeMember{{env: "dev", dir: filepath.Join("out", "envs", "dev", "aws", "111111111111", "eu-west-2")}}
-	result := &engine.MergeResult{Environments: []engine.MergedEnvironment{{Env: "dev", Addresses: map[string]string{"aws_sqs_queue.orders": `aws_sqs_queue.this["orders"]`}}}}
-	run.readdressNotInCloud(report.Merge{Path: "aws/eu-west-2", Merged: true}, members, result)
-	if g := run.report.NotInCloud[0]; g.Path != "aws/eu-west-2" || g.Address != `aws_sqs_queue.this["orders"]` {
+	run.report.NotInCloud = append(run.report.NotInCloud, report.NotInCloud{Path: "aws/222222222222/eu-west-2", Address: "aws_sqs_queue.jobs", ID: "q9"})
+	imports := map[string]map[string]string{"dev": {`aws_sqs_queue.this["orders"]`: "Q1", "aws_sqs_queue.events": "q2"}}
+	gone := run.readdressNotInCloud("aws/eu-west-2", members, imports)
+	if g := run.report.NotInCloud[0]; g.Path != "aws/eu-west-2" || g.Address != `aws_sqs_queue.this["orders"]` || g.Environment != "dev" {
 		t.Errorf("not in cloud: %+v", g)
+	}
+	if g := run.report.NotInCloud[1]; g.Path != "aws/222222222222/eu-west-2" || g.Environment != "" {
+		t.Errorf("not in cloud in a root of its own: %+v", g)
+	}
+	if want := map[string][]engine.Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}; !reflect.DeepEqual(gone, want) {
+		t.Errorf("gone: %+v, want %+v", gone, want)
 	}
 }
 

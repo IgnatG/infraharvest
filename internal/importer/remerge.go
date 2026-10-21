@@ -165,13 +165,28 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		kept := prev.Merge
 		kept.Unchanged = true
 		r.recordMerge(kept, members)
+		r.readdressNotInCloud(kept.Path, members, prev.Imports)
+		return nil
+	}
+	if r.options.Incremental && prev != nil && prev.Merge.Merged && keptAsMerged(stack, prev, members) && !plannable(prev, members) && !slices.ContainsFunc(members, func(m mergeMember) bool { return len(m.isolated) > 0 }) {
+		// An incremental import added nothing to the roots set aside,
+		// which are as they were when the stack merged, though what it
+		// listed has changed, such as resources gone from the cloud,
+		// whose import a plan of the merged root would fail on.
+		log.Printf("%s: nothing new to merge (--incremental)", merge.Path)
+		kept := prev.Merge
+		kept.Unchanged = true
+		r.recordMerge(kept, members)
+		r.readdressNotInCloud(kept.Path, members, prev.Imports)
 		return nil
 	}
 
 	var backup *treeBackup
-	// The moved blocks of its moves.tf, while it is there: those of an
-	// earlier merge with --regenerate, not yet applied and deleted.
+	// The moved and removed blocks of its moves.tf, while it is there:
+	// those of an earlier merge with --regenerate, not yet applied and
+	// deleted.
 	var kept []engine.Move
+	var keptRemoved []engine.Removal
 	if prev != nil && prev.Merge.Merged {
 		// Merged again: what it had goes, and comes back if this merge
 		// fails.
@@ -179,6 +194,9 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			return err
 		}
 		if kept, err = engine.ReadMoves(stack); err != nil {
+			return err
+		}
+		if keptRemoved, err = engine.ReadRemoved(stack); err != nil {
 			return err
 		}
 		for _, name := range prev.Files {
@@ -224,18 +242,28 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
 	result, err := engine.MergeRoots(ctx, stack, roots, engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout})
 	if err != nil {
+		r.warnMergedIncomplete(stack, members, err.Error())
 		return errors.Join(err, backup.restore())
 	}
 	imports := map[string]map[string]string{}
 	for _, env := range result.Environments {
 		imports[env.Env] = env.Imports
 	}
+	// What the merged root hands over to other roots (see
+	// planMergedHandovers), and the handovers it can't finish.
+	var removed []engine.Removal
+	var incomplete []report.IncompleteHandover
 	if result.Reason == "" && prev != nil && prev.Merge.Merged {
 		if gone := leftOutOfMerge(prev.Imports, imports); adopted && len(gone) > 0 {
 			// The roots generated afresh have only what this run lists.
 			result.Reason = "merging it again from what this run lists would leave out what the merged root has (no longer in the cloud, or not listed with these services and filters): " + strings.Join(gone, "; ")
-		} else if result.Reason, err = r.moveMerged(stack, result, prev.Imports, imports, kept); err != nil {
-			return err
+		} else {
+			removed, incomplete, result.Reason = mergedHandovers(out, stack, members, imports)
+			if result.Reason == "" {
+				if result.Reason, err = r.moveMerged(stack, result, prev.Imports, imports, kept, append(removed, stillRemoved(keptRemoved, imports, removed)...)); err != nil {
+					return err
+				}
+			}
 		}
 		if result.Reason != "" {
 			if err := clearMerged(stack, result.Files); err != nil {
@@ -276,6 +304,13 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		}
 	} else {
 		log.Printf("%s: %s share one root; their own roots are kept under %s", merge.Path, strings.Join(envs, ", "), filepath.Join(out, CheckpointDir, premergeDirName))
+		if prev != nil && prev.Merge.Merged {
+			r.recordMergedMoves(merge.Path, prev.Imports, imports, removed)
+		}
+		for _, i := range incomplete {
+			log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
+			r.report.IncompleteHandovers = append(r.report.IncompleteHandovers, i)
+		}
 		for _, m := range members {
 			if err := removeRoot(out, m.dir); err != nil {
 				return err
@@ -283,7 +318,13 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		}
 	}
 	r.recordMerge(merge, members)
-	r.readdressNotInCloud(merge, members, result)
+	if merge.Merged {
+		if gone := r.readdressNotInCloud(merge.Path, members, imports); len(gone) > 0 {
+			if err := engine.WriteMergedNotInCloud(stack, gone); err != nil {
+				return err
+			}
+		}
+	}
 	return writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: fp, Members: checkpointMembers(out, members), Merge: merge, Files: result.Files, Imports: imports})
 }
 
@@ -452,6 +493,7 @@ func (r *Run) keepMerged(stack string, prev *mergeCheckpoint, members []mergeMem
 			}
 		}
 	}
+	r.warnMergedIncomplete(stack, members, why)
 	kept := prev.Merge
 	kept.Unchanged = true
 	kept.Reason = why
@@ -459,6 +501,8 @@ func (r *Run) keepMerged(stack string, prev *mergeCheckpoint, members []mergeMem
 		kept.Apart, kept.ApartReason = apartRoots(out, apart), why
 	}
 	r.recordMerge(kept, members)
+	// The roots of members are set aside, as the merged root has them.
+	r.readdressNotInCloud(kept.Path, members, prev.Imports)
 	err := fmt.Errorf("%s: %s", relativePath(out, stack), why)
 	log.Print(err)
 	r.recordFailure(r.options, err)
@@ -515,11 +559,16 @@ func readdressed(before, now map[string]map[string]string) []string {
 // resources in it by address, has that now has at another, from there to
 // that one. It returns why there can't be, where there can't: an address
 // that would move to two, or one in a module call, which moved blocks
-// can't take out of a module package.
+// can't take out of a module package; or one that moves in some
+// environments and stays in others, as the environments share the merged
+// root's code, so a moved block moves it in every environment's state.
 func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) ([]engine.Move, string) {
 	to := map[string]string{}
+	// The environment each address moves in, and one it stays in.
+	movedIn, staysIn := map[string]string{}, map[string]string{}
 	for _, m := range kept {
 		to[m.From] = m.To
+		movedIn[m.From] = engine.MovesFileName
 	}
 	moves := slices.Clone(kept)
 	for _, env := range slices.Sorted(maps.Keys(before)) {
@@ -529,8 +578,17 @@ func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) (
 		}
 		for _, address := range slices.Sorted(maps.Keys(before[env])) {
 			after, ok := at[before[env][address]]
-			if !ok || after == address {
+			if !ok {
 				continue
+			}
+			if after == address {
+				if _, ok := staysIn[address]; !ok {
+					staysIn[address] = env
+				}
+				continue
+			}
+			if _, ok := movedIn[address]; !ok {
+				movedIn[address] = env
 			}
 			if strings.HasPrefix(address, "module.") || strings.HasPrefix(after, "module.") {
 				return nil, fmt.Sprintf("%s: %s is now %s, and moved blocks don't move resources of module calls", env, address, after)
@@ -545,6 +603,11 @@ func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) (
 			moves = append(moves, engine.Move{From: address, To: after})
 		}
 	}
+	for _, m := range moves {
+		if env, ok := staysIn[m.From]; ok {
+			return nil, fmt.Sprintf("%s: %s is now %s, but %s keeps it at %s, and a moved block would move it in every environment's state, as they share the merged root's code", movedIn[m.From], m.From, m.To, env, m.From)
+		}
+	}
 	return moves, ""
 }
 
@@ -556,8 +619,10 @@ func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) (
 // merge without --regenerate writes back as they were. It returns why it
 // can't merge again, where it can't: without --regenerate, as what it
 // has would get other addresses; with it, as no moved blocks take them
-// there, or the moves check of them fails.
-func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now map[string]map[string]string, kept []engine.Move) (string, error) {
+// there, or the moves check of them fails. With them go removed, the
+// removed blocks of what it hands over to other roots (see
+// mergedHandovers), and those of its moves.tf from before.
+func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now map[string]map[string]string, kept []engine.Move, removed []engine.Removal) (string, error) {
 	moved := readdressed(before, now)
 	if len(moved) > 0 && !r.options.Regenerate {
 		return "merging it again would give what the merged root has other addresses: " + strings.Join(moved, "; "), nil
@@ -566,17 +631,17 @@ func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now m
 	if why != "" {
 		return "merging it again would give what the merged root has other addresses, and " + why, nil
 	}
-	if len(moves) == 0 {
+	if len(moves) == 0 && len(removed) == 0 {
 		return "", nil
 	}
 	result.Files = append(result.Files, engine.MovesFileName)
 	sort.Strings(result.Files)
-	check, err := engine.WriteMergedMoves(stack, moves)
+	check, err := engine.WriteMergedMoves(stack, moves, removed)
 	if err != nil {
 		return "", err
 	}
 	if !check.Passed {
-		return "merging it again would give what the merged root has other addresses, and the moved blocks to them fail the moves check: " + strings.Join(check.Details, "; "), nil
+		return "merging it again would give what the merged root has other addresses, or hand it over to other roots, and the moved and removed blocks fail the moves check: " + strings.Join(check.Details, "; "), nil
 	}
 	if len(moved) > 0 {
 		log.Printf("%s: moved blocks in %s move what has other addresses now (--regenerate): %s", relativePath(r.options.Out, stack), engine.MovesFileName, strings.Join(moved, "; "))
@@ -596,29 +661,35 @@ func clearMerged(stack string, files []string) error {
 }
 
 // readdressNotInCloud makes each resource an incremental import found no
-// longer in the cloud, in the root of members, of the stack merge says
-// merged, one of the merged root, at its address there (see
-// engine.MergedEnvironment.Addresses): the root it was in is set aside.
-func (r *Run) readdressNotInCloud(merge report.Merge, members []mergeMember, result *engine.MergeResult) {
-	if !merge.Merged {
-		return
+// longer in the cloud, in the root of one of members, the roots set aside
+// of the stack whose merged root is at path, relative to the output
+// directory, one of the merged root, of the member's environment: at its
+// address there, as imports, the import IDs of each environment's
+// resources in it by address, has it. It returns them, by environment,
+// with their addresses in the merged root.
+func (r *Run) readdressNotInCloud(path string, members []mergeMember, imports map[string]map[string]string) map[string][]engine.Import {
+	envOf := map[string]string{}
+	for _, m := range members {
+		envOf[relativePath(r.options.Out, m.dir)] = m.env
 	}
-	addresses := map[string]map[string]string{}
-	for i, m := range members {
-		if i < len(result.Environments) {
-			addresses[relativePath(r.options.Out, m.dir)] = result.Environments[i].Addresses
-		}
-	}
+	gone := map[string][]engine.Import{}
 	for i, g := range r.report.NotInCloud {
-		byAddress, ok := addresses[g.Path]
+		env, ok := envOf[g.Path]
 		if !ok {
 			continue
 		}
-		r.report.NotInCloud[i].Path = merge.Path
-		if to, ok := byAddress[g.Address]; ok {
-			r.report.NotInCloud[i].Address = to
+		g.Path, g.Environment = path, env
+		for _, address := range slices.Sorted(maps.Keys(imports[env])) {
+			if strings.EqualFold(imports[env][address], g.ID) {
+				g.Address = address
+				break
+			}
 		}
+		r.report.NotInCloud[i] = g
+		typ := engine.AddressType(g.Address)
+		gone[env] = append(gone[env], engine.Import{Type: typ, Name: strings.TrimPrefix(g.Address, typ+"."), ID: g.ID})
 	}
+	return gone
 }
 
 // treeBackup is what a directory held: each file under it, but in

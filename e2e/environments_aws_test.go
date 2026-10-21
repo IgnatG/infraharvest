@@ -58,7 +58,9 @@ environments:
 // workspaces adds a queue prod gets since into the merged root, and
 // nothing else. Imported again with an S3 backend, the merged root's
 // drift is checked with each environment's backend settings (see
-// checkEnvironmentsDrift).
+// checkEnvironmentsDrift). Before that, the merged root is checked for
+// what is no longer in the cloud, and generated again (see
+// checkMergedRegenerate).
 func TestAWSEnvironments(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -69,7 +71,7 @@ func TestAWSEnvironments(t *testing.T) {
 	}
 	isolateAWSConfig(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 	cache := t.TempDir()
 	engineName, binary := e2eEngine(t)
@@ -374,6 +376,9 @@ func TestAWSEnvironments(t *testing.T) {
 		credentials(env)
 		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
 	}
+
+	// Not in the cloud, then --regenerate, on the merged root.
+	checkMergedRegenerate(ctx, t, fixture, importInto, credentials, out, execPath, plugins)
 
 	checkEnvironmentsDrift(ctx, t, fixture, engineName, execPath, plugins, credentials)
 }

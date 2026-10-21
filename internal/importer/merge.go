@@ -111,6 +111,9 @@ type mergeMember struct {
 	// merges again from its set-aside root, unplanned, as the import has
 	// none of its credentials (see restoredMembers).
 	restored bool
+	// handovers are those of the scope that generated it, with --regenerate,
+	// which say what the merged root hands over (see planMergedHandovers).
+	handovers *handovers
 }
 
 // recordMember records that the call generated the root in dir, from
@@ -155,6 +158,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		cacheDir:       c.cacheDir,
 		premerged:      set,
 		isolated:       isolated,
+		handovers:      c.handovers,
 	})
 }
 
