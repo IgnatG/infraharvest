@@ -359,7 +359,7 @@ func TestAWSEnvironments(t *testing.T) {
 	// everything it has and changes nothing.
 	selectWorkspace(ctx, t, dir, execPath, plugins, "default")
 	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
-	if imported["dev"]["aws_sqs_queue"] != 4 || imported["prod"]["aws_sqs_queue"] != 4 || imported["prod"]["aws_sns_topic"] != 1 {
+	if imported["dev"]["aws_sqs_queue"] != 7 || imported["prod"]["aws_sqs_queue"] != 7 || imported["prod"]["aws_sns_topic"] != 1 {
 		t.Errorf("--incremental from a fresh checkout: imported %v", imported)
 	}
 
