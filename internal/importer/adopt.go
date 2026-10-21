@@ -299,8 +299,11 @@ const maxKeptApart = 3
 // again, has at another address than before, those of the merged root
 // told from its files, had it, each with the label it had there: the
 // earlier merge kept them apart, as what an incremental import added,
-// so they are kept apart again, with the labels it gave them.
-func movedApart(m mergeMember, before, now map[string]string) map[string]string {
+// so they are kept apart again, with the labels it gave them. A resource
+// at an address of shared, which other environments have too, is left
+// out: the earlier merge matched it with theirs, and kept apart it would
+// get another address all the same.
+func movedApart(m mergeMember, before, now map[string]string, shared map[string]bool) map[string]string {
 	if m.result == nil || len(before) == 0 {
 		return nil
 	}
@@ -310,7 +313,7 @@ func movedApart(m mergeMember, before, now map[string]string) map[string]string 
 	}
 	moved := map[engine.External]string{}
 	for address, id := range before {
-		if to, ok := at[id]; ok && to != address {
+		if to, ok := at[id]; ok && to != address && !shared[address] {
 			moved[engine.External{Type: engine.AddressType(address), ID: id}] = address
 		}
 	}
@@ -337,4 +340,23 @@ func mergedLabel(address string) string {
 	}
 	_, label, _ := strings.Cut(block, ".")
 	return label
+}
+
+// sharedAddresses returns the addresses of imports, the import IDs of
+// each environment's resources in a merged root by address, that more
+// than one environment has: what the merge matched across them.
+func sharedAddresses(imports map[string]map[string]string) map[string]bool {
+	count := map[string]int{}
+	for _, ids := range imports {
+		for address := range ids {
+			count[address]++
+		}
+	}
+	shared := map[string]bool{}
+	for address, n := range count {
+		if n > 1 {
+			shared[address] = true
+		}
+	}
+	return shared
 }
