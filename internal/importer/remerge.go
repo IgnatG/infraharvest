@@ -240,7 +240,35 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	}
 	// A restored member has no engine options of its own.
 	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
-	result, err := engine.MergeRoots(ctx, stack, roots, engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout})
+	mergeOptions := engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
+	result, err := engine.MergeRoots(ctx, stack, roots, mergeOptions)
+	// A merged root told from its files doesn't say which of its
+	// resources an earlier merge kept apart, as what an incremental import
+	// added (see mergeMember.isolated): what would get another address
+	// is kept apart too, and the stack merges again, as many times as
+	// that takes, up to maxKeptApart.
+	for attempt := 0; err == nil && adopted && !r.options.Regenerate && result.Reason == "" && attempt < maxKeptApart; attempt++ {
+		now := map[string]map[string]string{}
+		for _, env := range result.Environments {
+			now[env.Env] = env.Imports
+		}
+		again := false
+		for i, m := range members {
+			if more := movedApart(m, prev.Imports[m.env], now[m.env]); len(more) > 0 {
+				members[i].isolated = append(members[i].isolated, more...)
+				roots[i].Isolated = members[i].isolated
+				again = true
+			}
+		}
+		if !again {
+			break
+		}
+		log.Printf("%s: merging again, with what would get another address kept apart as its environment's", merge.Path)
+		if err := clearMerged(stack, result.Files); err != nil {
+			return errors.Join(err, backup.restore())
+		}
+		result, err = engine.MergeRoots(ctx, stack, roots, mergeOptions)
+	}
 	if err != nil {
 		r.warnMergedIncomplete(stack, members, err.Error())
 		return errors.Join(err, backup.restore())
@@ -282,16 +310,10 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	}
 	if !merge.Merged && backup != nil {
 		// The merged root an earlier import wrote, which may be in use,
-		// stays; so do the roots set aside, with what is new in them.
+		// stays; so do the roots set aside, with what is new in them, which
+		// keepMerged sets aside.
 		if err := backup.restore(); err != nil {
 			return err
-		}
-		for _, m := range members {
-			if !m.premerged {
-				if err := removeRoot(out, m.dir); err != nil {
-					return err
-				}
-			}
 		}
 		return r.keepMerged(stack, prev, members, "merging it again failed, so it stays as it was, and what is new waits in the roots set aside under "+filepath.ToSlash(filepath.Join(CheckpointDir, premergeDirName))+": "+merge.Reason)
 	}

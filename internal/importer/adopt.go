@@ -287,3 +287,38 @@ func leftOutOfMerge(before, now map[string]map[string]string) []string {
 	sort.Strings(gone)
 	return gone
 }
+
+// maxKeptApart is how many times a merged root told from its files
+// merges again with more of what would get another address kept apart
+// (see movedApart).
+const maxKeptApart = 3
+
+// movedApart returns the addresses of the blocks of m, a root of its
+// environment, not yet kept apart, that hold a resource now, the import
+// IDs of the environment's resources by address in the stack merged
+// again, has at another address than before, those of the merged root
+// told from its files, had it: the earlier merge kept them apart, as
+// what an incremental import added, so they are kept apart again.
+func movedApart(m mergeMember, before, now map[string]string) []string {
+	if m.result == nil || len(before) == 0 {
+		return nil
+	}
+	at := map[string]string{}
+	for address, id := range now {
+		at[id] = address
+	}
+	moved := map[engine.External]bool{}
+	for address, id := range before {
+		if to, ok := at[id]; ok && to != address {
+			moved[engine.External{Type: engine.AddressType(address), ID: id}] = true
+		}
+	}
+	var more []string
+	for _, res := range resultResources(m.result) {
+		if moved[engine.External{Type: res.Type, ID: res.ID}] && !slices.Contains(m.isolated, res.Address) && !slices.Contains(more, res.Address) {
+			more = append(more, res.Address)
+		}
+	}
+	sort.Strings(more)
+	return more
+}

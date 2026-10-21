@@ -255,3 +255,24 @@ func TestLeftOutOfMerge(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// What a merge from a root's files would give another address, an earlier
+// merge kept apart: its blocks are kept apart again, once.
+func TestMovedApart(t *testing.T) {
+	t.Parallel()
+	m := mergeMember{env: "dev", isolated: []string{"aws_sqs_queue.shop_dev_billing"}, result: &engine.Result{Addresses: []engine.Managed{
+		{Type: "aws_sqs_queue", ID: "q-audit", Address: "aws_sqs_queue.shop_dev_audit"},
+		{Type: "aws_sqs_queue", ID: "q-reports", Address: "aws_sqs_queue.shop_dev_reports"},
+		{Type: "aws_sqs_queue", ID: "q-orders", Address: "aws_sqs_queue.shop_dev_orders"},
+		{Type: "aws_sqs_queue", ID: "q-billing", Address: "aws_sqs_queue.shop_dev_billing"},
+	}}}
+	before := map[string]string{"aws_sqs_queue.audit[0]": "q-audit", "aws_sqs_queue.reports[0]": "q-reports", "aws_sqs_queue.orders": "q-orders"}
+	now := map[string]string{`aws_sqs_queue.this["audit"]`: "q-audit", `aws_sqs_queue.this["reports"]`: "q-reports", "aws_sqs_queue.orders": "q-orders", "aws_sqs_queue.billing[0]": "q-billing"}
+	if got := movedApart(m, before, now); !reflect.DeepEqual(got, []string{"aws_sqs_queue.shop_dev_audit", "aws_sqs_queue.shop_dev_reports"}) {
+		t.Errorf("got %v", got)
+	}
+	m.isolated = append(m.isolated, "aws_sqs_queue.shop_dev_audit", "aws_sqs_queue.shop_dev_reports")
+	if got := movedApart(m, before, now); len(got) != 0 {
+		t.Errorf("kept apart already: %v", got)
+	}
+}
