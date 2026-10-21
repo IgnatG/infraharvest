@@ -4,7 +4,7 @@
 name: Action test
 
 # Runs the GitHub Action (action/) with a binary built from this commit
-# against the Floci emulators of AWS and Azure: no cloud account is
+# against the Floci emulators of AWS, Azure and Google Cloud: no cloud account is
 # involved. It also runs when the CLI changes, since the action relies on
 # its flags, report path and exit codes. It imports with Terraform and
 # OpenTofu, through a selection file, with environments that share roots,
@@ -27,6 +27,7 @@ on:
       - go.sum
       - e2e/compose.yaml
       - e2e/testdata/azure/**
+      - e2e/testdata/google/**
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
@@ -508,9 +509,7 @@ jobs:
   # The action with Azure, on floci-az: testdata/azure, the Azure e2e
   # tests' resources, imported from its resource group, which the
   # configuration file names. floci-az has no Resource Graph, which reads
-  # tags, so the import is partial (exit code 3) or complete. Google Cloud
-  # has no job: its listers search Cloud Asset Inventory, which floci-gcp
-  # lacks and the e2e tests stand in for from Go.
+  # tags, so the import is partial (exit code 3) or complete.
   azure:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -585,6 +584,167 @@ jobs:
       - name: floci-az logs
         if: failure()
         run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
+
+  # The action with Google Cloud, on floci-gcp: the bucket and the topic of
+  # testdata/google, the Google Cloud e2e tests' resources, imported from
+  # the project GOOGLE_CLOUD_PROJECT names. cloud_asset lists through Cloud
+  # Asset Inventory, which floci-gcp lacks: as the e2e tests do (see
+  # assetSearch in e2e/google_test.go), a stand-in answers its search with
+  # the two resources and passes every other request on to floci-gcp. The
+  # listers reach it through INFRAHARVEST_GOOGLE_ENDPOINT, the Terraform
+  # provider floci-gcp through its custom endpoints.
+  google:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4589
+      GOOGLE_CLOUD_PROJECT: infraharvest-e2e
+      GOOGLE_OAUTH_ACCESS_TOKEN: e2e-placeholder
+      GOOGLE_COMPUTE_CUSTOM_ENDPOINT: http://localhost:4588/compute/v1/
+      GOOGLE_STORAGE_CUSTOM_ENDPOINT: http://localhost:4588/storage/v1/
+      GOOGLE_PUBSUB_CUSTOM_ENDPOINT: http://localhost:4588/v1/
+      GOOGLE_RESOURCE_MANAGER_CUSTOM_ENDPOINT: http://localhost:4588/v1/
+      GOOGLE_SERVICE_USAGE_CUSTOM_ENDPOINT: http://localhost:4588/v1/
+      GOOGLE_IAM_BETA_CUSTOM_ENDPOINT: http://localhost:4588/v1/
+      GOOGLE_KMS_CUSTOM_ENDPOINT: http://localhost:4588/v1/
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build -tags minimal,google -o "$RUNNER_TEMP/infraharvest" .
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
+        with:
+          engine: terraform
+      - name: Start floci-gcp
+        run: |
+          docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
+          for _ in $(seq 60); do curl -s -o /dev/null http://localhost:4588/ && exit 0; sleep 2; done
+          echo "floci-gcp didn't start"; exit 1
+      - name: Create the resources
+        run: |
+          mkdir "$RUNNER_TEMP/seed"
+          cp e2e/testdata/google/main.tf "$RUNNER_TEMP/seed/"
+          terraform -chdir="$RUNNER_TEMP/seed" init -input=false
+          terraform -chdir="$RUNNER_TEMP/seed" apply -input=false -auto-approve \
+            -target=google_storage_bucket.assets -target=google_pubsub_topic.events
+      # What Cloud Asset Inventory would find of them, named as it names
+      # them, with the project's number as their project.
+      - name: Start the Cloud Asset Inventory stand-in
+        run: |
+          cat > "$RUNNER_TEMP/assets.json" << 'EOF'
+          [
+            {"assetType": "storage.googleapis.com/Bucket", "name": "//storage.googleapis.com/infraharvest-e2e-assets",
+             "displayName": "infraharvest-e2e-assets", "location": "us", "labels": {"team": "web", "env": "prod"},
+             "project": "projects/123456789012"},
+            {"assetType": "pubsub.googleapis.com/Topic", "name": "//pubsub.googleapis.com/projects/infraharvest-e2e/topics/infraharvest-e2e-events",
+             "displayName": "infraharvest-e2e-events", "location": "global", "project": "projects/123456789012"}
+          ]
+          EOF
+          cat > "$RUNNER_TEMP/asset-search.py" << 'EOF'
+          import json
+          import sys
+          import urllib.error
+          import urllib.request
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from urllib.parse import parse_qs, unquote, urlsplit
+
+          EMULATOR = "http://localhost:4588"
+          SCOPE = "/v1/projects/infraharvest-e2e:searchAllResources"
+          with open(sys.argv[1], encoding="utf-8") as f:
+              RESULTS = json.load(f)
+
+
+          class Handler(BaseHTTPRequestHandler):
+              def answer(self, status, body, content_type="application/json"):
+                  self.send_response(status)
+                  self.send_header("Content-Type", content_type)
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def search(self, path, query):
+                  if path != SCOPE:
+                      self.answer(400, b"unexpected scope " + path.encode(), "text/plain")
+                      return
+                  types = parse_qs(query).get("assetTypes", [])
+                  found = [r for r in RESULTS if r["assetType"] in types]
+                  self.answer(200, json.dumps({"results": found}).encode())
+
+              def forward(self):
+                  length = int(self.headers.get("Content-Length") or 0)
+                  body = self.rfile.read(length) if length else None
+                  headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length", "connection")}
+                  req = urllib.request.Request(EMULATOR + self.path, data=body, headers=headers, method=self.command)
+                  try:
+                      with urllib.request.urlopen(req) as resp:
+                          status, ctype, data = resp.status, resp.headers.get("Content-Type", ""), resp.read()
+                  except urllib.error.HTTPError as err:
+                      status, ctype, data = err.code, err.headers.get("Content-Type", ""), err.read()
+                  self.answer(status, data, ctype)
+
+              def route(self):
+                  url = urlsplit(self.path)
+                  path = unquote(url.path)
+                  if path.endswith(":searchAllResources"):
+                      self.search(path, url.query)
+                  else:
+                      self.forward()
+
+              do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = route
+
+
+          ThreadingHTTPServer(("127.0.0.1", 4589), Handler).serve_forever()
+          EOF
+          nohup python3 "$RUNNER_TEMP/asset-search.py" "$RUNNER_TEMP/assets.json" > "$RUNNER_TEMP/asset-search.log" 2>&1 &
+          for _ in $(seq 30); do curl -s -o /dev/null http://localhost:4589/ && exit 0; sleep 1; done
+          echo "the stand-in didn't start"; exit 1
+      - name: Run the action
+        id: infraharvest
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: google
+          services: cloud_asset
+          regions: global
+          out: ${{ runner.temp }}/out
+      - name: Check the output
+        env:
+          EXIT_CODE: ${{ steps.infraharvest.outputs.exit-code }}
+          REPORT: ${{ steps.infraharvest.outputs.report }}
+        run: |
+          test "$EXIT_CODE" = 0
+          test -f "$REPORT"
+          root="$RUNNER_TEMP/out/google/infraharvest-e2e/global"
+          test -f "$root/imports.tf"
+          grep -q "google_storage_bucket" "$root/imports.tf"
+          grep -q "google_pubsub_topic" "$root/imports.tf"
+          # The labels are in the code, not only in the state.
+          grep -rqE '"?team"?[[:space:]]*=[[:space:]]*"web"' --include='*.tf' "$root"
+          # Nothing failed or was left out, and every check of the root,
+          # its plan with no changes among them, passed.
+          coverage="$RUNNER_TEMP/out/report/coverage.json"
+          jq -e '.totals.failed == 0 and .totals.left_out == 0 and (.failures // []) == []' "$coverage"
+          jq -e '[.directories[].path] == ["google/infraharvest-e2e/global"] and all(.directories[].checks[]?; .passed)' "$coverage"
+          # Planned again, the root imports the two and changes nothing.
+          terraform -chdir="$root" init -input=false
+          terraform -chdir="$root" plan -input=false -out=tfplan
+          terraform -chdir="$root" show -json tfplan > "$RUNNER_TEMP/plan.json"
+          rm "$root/tfplan"
+          jq -e '[.resource_changes[] | select(.mode == "managed")] as $c
+            | ($c | length) == 2 and all($c[]; .change.actions == ["no-op"] and .change.importing != null)' "$RUNNER_TEMP/plan.json"
+      - name: floci-gcp and stand-in logs
+        if: failure()
+        run: |
+          docker compose -f e2e/compose.yaml --profile google logs floci-gcp
+          cat "$RUNNER_TEMP/asset-search.log" || true
 
   # Opens a real pull request with the action, from a branch of the run's
   # own into another of its own, made from this commit, and checks it is
