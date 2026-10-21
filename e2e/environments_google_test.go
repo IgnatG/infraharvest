@@ -58,7 +58,8 @@ const googleEventsTopic = "infraharvest-e2e-dev-events"
 //     nothing else. In its workspace, dev imports the topic alone and prod
 //     nothing; with no state, each imports all it has.
 //  4. The topic, applied into dev's workspace, is deleted out of band, as
-//     prod gets a reports bucket: --incremental adds the bucket into the
+//     prod gets a reports bucket: from a fresh checkout again, without
+//     .infraharvest, --incremental adds the bucket into the
 //     merged root as prod's, and reports the topic no longer in the cloud,
 //     as dev's, at its address in the merged root, which keeps it, with
 //     dev's import of it, and every other address. The topic is then
@@ -257,6 +258,11 @@ func TestGoogleEnvironments(t *testing.T) {
 	// Inventory lists every topic of the project, so the topic counts as
 	// gone; buckets would too, but not in a module call (see
 	// docs/usage.md).
+	// Again from a fresh checkout, without .infraharvest: the topic comes
+	// back into dev's root generated afresh from the merged root.
+	if err := os.RemoveAll(filepath.Join(out, ".infraharvest")); err != nil {
+		t.Fatal(err)
+	}
 	had = resourceAddresses(t, dir)
 	apply("events=false", "reports=true")
 	coverage = importInto("--incremental")
