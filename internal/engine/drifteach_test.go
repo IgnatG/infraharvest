@@ -318,6 +318,137 @@ func TestDriftEditsInstances(t *testing.T) {
 	}
 }
 
+// nsgTags is the code of a merged root's group whose tags a map variable
+// each environment sets gives it.
+const nsgTags = `variable "network_security_group_tags" {
+  description = "The tags of azurerm_network_security_group.main."
+  type        = map(string)
+}
+
+resource "azurerm_network_security_group" "main" {
+  name = "nsg"
+  tags = var.network_security_group_tags
+}
+`
+
+// nsgVars is dev's value of var.network_security_group_tags.
+const nsgVars = `network_security_group_tags = {
+  env   = "dev"
+  owner = "team-a"
+}
+`
+
+// A key of a map a variable sets as a whole, in a root environments
+// share, is taken into the key of the literal the environment's var file
+// sets the variable to, the rest kept; where the file doesn't set it, or
+// its value reaches an argument without the cloud's, it is a hand edit.
+func TestDriftEditsEnvironmentMapKeys(t *testing.T) {
+	t.Parallel()
+	const address = "azurerm_network_security_group.main"
+	other := nsgTags + "\nresource \"azurerm_network_security_group\" \"other\" {\n  name = \"other\"\n  tags = var.network_security_group_tags\n}\n"
+	for _, tc := range []struct {
+		name   string
+		files  map[string]string
+		change *DriftChange
+		// after is the cloud's tags of the group.
+		after map[string]any
+		// current are the values the plan of the code has, by address.
+		current map[string]any
+		// want are the files the edit changes; none means there is no
+		// edit, for reason.
+		want   map[string]string
+		reason string
+	}{
+		{
+			name:   "a key the var file sets",
+			files:  map[string]string{"main.tf": nsgTags, "vars/dev/terraform.tfvars": nsgVars},
+			change: driftAt(address, "tags.owner", "team-c"),
+			after:  map[string]any{"env": "dev", "owner": "team-c"},
+			want:   map[string]string{"vars/dev/terraform.tfvars": formatted(strings.Replace(nsgVars, "team-a", "team-c", 1))},
+		},
+		{
+			name:   "a key the cloud added",
+			files:  map[string]string{"main.tf": nsgTags, "vars/dev/terraform.tfvars": nsgVars},
+			change: driftAt(address, "tags.team", "ops"),
+			after:  map[string]any{"env": "dev", "owner": "team-a", "team": "ops"},
+			want:   map[string]string{"vars/dev/terraform.tfvars": formatted(strings.Replace(nsgVars, "}\n", "  team = \"ops\"\n}\n", 1))},
+		},
+		{
+			name:   "a key the cloud removed",
+			files:  map[string]string{"main.tf": nsgTags, "vars/dev/terraform.tfvars": nsgVars},
+			change: driftAt(address, "tags.env", nil),
+			after:  map[string]any{"owner": "team-a"},
+			want:   map[string]string{"vars/dev/terraform.tfvars": formatted("network_security_group_tags = {\n  owner = \"team-a\"\n}\n")},
+		},
+		{
+			name:   "a key of a variable the var file doesn't set",
+			files:  map[string]string{"main.tf": nsgTags, "vars/dev/terraform.tfvars": "env = \"dev\"\n"},
+			change: driftAt(address, "tags.owner", "team-c"),
+			after:  map[string]any{"env": "dev", "owner": "team-c"},
+			reason: "vars/dev/terraform.tfvars doesn't set it",
+		},
+		{
+			name:    "a key of a variable another group uses, which changed alike",
+			files:   map[string]string{"main.tf": other, "vars/dev/terraform.tfvars": nsgVars},
+			change:  driftAt(address, "tags.owner", "team-c"),
+			after:   map[string]any{"env": "dev", "owner": "team-c"},
+			current: map[string]any{address: map[string]any{"tags": map[string]any{"env": "dev", "owner": "team-c"}}, "azurerm_network_security_group.other": map[string]any{"tags": map[string]any{"env": "dev", "owner": "team-c"}}},
+			want:    map[string]string{"vars/dev/terraform.tfvars": formatted(strings.Replace(nsgVars, "team-a", "team-c", 1))},
+		},
+		{
+			name:    "a key of a variable another group uses, which didn't change",
+			files:   map[string]string{"main.tf": other, "vars/dev/terraform.tfvars": nsgVars},
+			change:  driftAt(address, "tags.owner", "team-c"),
+			after:   map[string]any{"env": "dev", "owner": "team-c"},
+			current: map[string]any{address: map[string]any{"tags": map[string]any{"env": "dev", "owner": "team-c"}}, "azurerm_network_security_group.other": map[string]any{"tags": map[string]any{"env": "dev", "owner": "team-a"}}},
+			reason:  "var.network_security_group_tags sets azurerm_network_security_group.other tags too, which doesn't have the cloud's value",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := testEditor(map[string]map[string]any{address: {"tags": tc.after}})
+			devEnvironment(e)
+			if tc.current != nil {
+				e.current = tc.current
+			}
+			contents := byteFiles(tc.files)
+			before := maps.Clone(contents)
+			names, applied, failed, err := e.apply(contents, []*DriftChange{tc.change})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == nil {
+				src, ok := failed[tc.change]
+				if !ok {
+					t.Fatalf("edited %v as %+v, want no edit", names, applied[tc.change])
+				}
+				if src.Kind != SourceVariable || !strings.Contains(src.Reason, tc.reason) {
+					t.Errorf("source %s: %q, want %s saying %q", src.Kind, src.Reason, SourceVariable, tc.reason)
+				}
+				if !reflect.DeepEqual(contents, before) {
+					t.Errorf("the files changed: %v", names)
+				}
+				return
+			}
+			if src, ok := failed[tc.change]; ok {
+				t.Fatalf("no edit: %s: %s", src.Kind, src.Reason)
+			}
+			if src := applied[tc.change]; src.Kind != SourceVariable || src.File != "vars/dev/terraform.tfvars" {
+				t.Errorf("source %s in %s, want %s in vars/dev/terraform.tfvars", src.Kind, src.File, SourceVariable)
+			}
+			for name, content := range contents {
+				want, ok := tc.want[name]
+				if !ok {
+					want = tc.files[name]
+				}
+				if string(content) != want {
+					t.Errorf("%s:\n%s\nwant:\n%s", name, content, want)
+				}
+			}
+		})
+	}
+}
+
 func devEnvironment(e *driftEditor) {
 	e.env, e.envVars = "dev", envVarsPath("dev")
 }

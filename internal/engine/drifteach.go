@@ -441,15 +441,16 @@ func varFileValues(path string) (map[string]cty.Value, error) {
 }
 
 // variableUses returns why var.name, which other arguments use too,
-// can't take the cloud's value, c's, in the environment's var file: what
-// else refers to it, or an argument it sets as it is, in a resource of
-// the environment, that doesn't have the cloud's value. "" where every
+// can't take the cloud's value, c's, in the environment's var file, at
+// the steps sub into the variable, such as a key of a map: what else
+// refers to it, or an argument it sets as it is, in a resource of the
+// environment, that doesn't have the cloud's value there. "" where every
 // argument it reaches has it, as when they changed alike in the cloud:
 // the var file's value then takes them all, each of their changes
 // accepted with it, or rejected by the plan where it is kept (see
 // judgeDrift). A resource the environment hasn't, where its block is
 // counted, as a feature another environment has, isn't reached.
-func (w *driftWalk) variableUses(name string) string {
+func (w *driftWalk) variableUses(name string, sub []pathStep) string {
 	file := w.e.envVars
 	shared := fmt.Sprintf("var.%s, which other arguments use too, sets it: change it in %s by hand if they should all take the cloud's value", name, file)
 	for _, fileName := range sortedKeys(w.cfg.files) {
@@ -481,6 +482,7 @@ func (w *driftWalk) variableUses(name string) string {
 				}
 				for _, p := range paths {
 					v, _ := valueAt(values, splitPath(p, values))
+					v, _ = valueAt(v, sub)
 					if !reflect.DeepEqual(v, w.c.value) {
 						return fmt.Sprintf("var.%s sets %s %s too, which doesn't have the cloud's value: change it in %s by hand if it should take it too", name, instance, p, file)
 					}
