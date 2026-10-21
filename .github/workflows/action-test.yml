@@ -587,7 +587,7 @@ jobs:
 
   # The action with Google Cloud, on floci-gcp: the bucket and the topic of
   # testdata/google, the Google Cloud e2e tests' resources, imported from
-  # the project GOOGLE_CLOUD_PROJECT names. cloud_asset lists through Cloud
+  # the project the args input names. cloud_asset lists through Cloud
   # Asset Inventory, which floci-gcp lacks: as the e2e tests do (see
   # assetSearch in e2e/google_test.go), a stand-in answers its search with
   # the two resources and passes every other request on to floci-gcp. The
@@ -714,6 +714,7 @@ jobs:
           provider: google
           services: cloud_asset
           regions: global
+          args: --projects=infraharvest-e2e
           out: ${{ runner.temp }}/out
       - name: Check the output
         env:

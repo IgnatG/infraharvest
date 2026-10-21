@@ -275,6 +275,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
 | `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
+| `args` | | More flags for the import, one a line, each starting with `--`: for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `drift` | `off` | `off`, `report` or `accept`: check the roots in `out` for changes in the cloud before importing (see [Drift](#drift)) |

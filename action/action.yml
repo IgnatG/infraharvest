@@ -48,6 +48,9 @@ inputs:
   incremental:
     description: Add what is new to the roots already in the out directory (--incremental), after the blocks of the file of their type, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
     default: "true"
+  args:
+    description: More flags for the import, one a line, each starting with --, such as --projects=my-project for Google Cloud, which names no project by default, or --organization, --folders, --resource-group or --layout.
+    required: false
   managed-state:
     description: State that says what Terraform already manages (--managed-state), such as backend for the configuration file's S3 backend. Needed to add to roots whose import blocks were deleted after they were applied.
     required: false
@@ -307,6 +310,7 @@ runs:
         CONFIG: ${{ inputs.config }}
         ALLOW_PARTIAL: ${{ inputs.allow-partial }}
         INCREMENTAL: ${{ inputs.incremental }}
+        ARGS: ${{ inputs.args }}
         MANAGED_STATE: ${{ inputs.managed-state }}
       run: |
         if [[ ! "$PROVIDER" =~ ^[a-z][a-z0-9_]*$ ]]; then
@@ -321,6 +325,16 @@ runs:
         [[ "$INCREMENTAL" == true ]] && args+=(--incremental)
         [[ -n "$MANAGED_STATE" ]] && args+=("--managed-state=$MANAGED_STATE")
         if [[ -n "$SELECTION" ]]; then args+=("--selection=$SELECTION"); else args+=(--all); fi
+        while IFS= read -r line; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          line="${line%"${line##*[![:space:]]}"}"
+          [[ -z "$line" ]] && continue
+          if [[ "$line" != --* ]]; then
+            echo "::error::args: '$line' isn't a flag; give one --flag a line"
+            exit 1
+          fi
+          args+=("$line")
+        done <<< "$ARGS"
         code=0
         "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
         report="$OUT/report/report.md"

@@ -343,8 +343,14 @@ func TestGoogleEnvironments(t *testing.T) {
 	if got := readFile(t, varFile("prod")); got != prodVars {
 		t.Errorf("drift as dev, accepted: prod's terraform.tfvars changed:\n%s", got)
 	}
-	if d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=prod"); len(d.Changes) != 0 {
-		t.Errorf("drift as prod:\n%s", driftChanges(d))
+	// Prod's state may lag the cloud on what only the cloud sets, such as
+	// a bucket's updated time, which drift reports as absorbed.
+	d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=prod")
+	for _, c := range d.Changes {
+		if c.Outcome != report.DriftAbsorbed {
+			t.Errorf("drift as prod:\n%s", driftChanges(d))
+			break
+		}
 	}
 	// Each environment plans no change but, with Google, to the labels
 	// kept only in state (see docs/drift.md); applied, that changes only
