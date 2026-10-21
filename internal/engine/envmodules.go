@@ -18,8 +18,9 @@ import (
 
 // moduleType is what merging takes for the type of a module call, whose
 // address is module.<name>: calls are matched across environments as
-// resources are, by name, and the merged root writes each as one call,
-// counted by a deploy_ variable where some environments lack it (see
+// resources are, by the import IDs of the resources in them, then by
+// name, and the merged root writes each as one call, counted by a
+// deploy_ variable where some environments lack it (see
 // stackMerge.features), its differing arguments variables.
 const moduleType = "module"
 

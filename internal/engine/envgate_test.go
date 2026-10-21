@@ -599,3 +599,48 @@ func TestRootProvider(t *testing.T) {
 		t.Error("a directory without a provider block has a provider")
 	}
 }
+
+// A merged root merged again with its resources at other addresses gets
+// moved blocks to them in moves.tf, which its README lists once they
+// pass the moves check; moved blocks from what it still declares fail
+// it.
+func TestWriteMergedMoves(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"sqs.tf":       "resource \"aws_sqs_queue\" \"this\" {\n  for_each = local.sqs_queues\n\n  name = each.value.name\n}\n",
+		ReadmeFileName: "# aws/eu-west-2\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}})
+	if err != nil || !check.Passed {
+		t.Fatalf("the moves check: %+v, %v", check, err)
+	}
+	moves, err := ReadMoves(dir)
+	if err != nil || len(moves) != 1 || moves[0].To != `aws_sqs_queue.this["orders"]` {
+		t.Errorf("moves.tf: %+v, %v", moves, err)
+	}
+	readme, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), "## Moved blocks") || !strings.Contains(string(readme), "| `aws_sqs_queue.orders` | `aws_sqs_queue.this[\"orders\"]` |") {
+		t.Errorf("README.md:\n%s", readme)
+	}
+
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "sqs.tf"), []byte("resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if check, err := WriteMergedMoves(other, []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}); err != nil || check.Passed {
+		t.Errorf("moves from what the root declares: %+v, %v", check, err)
+	}
+	if readme, err := os.ReadFile(filepath.Join(other, ReadmeFileName)); err != nil || strings.Contains(string(readme), "Moved blocks") {
+		t.Errorf("README.md lists moves that failed the check: %s %v", readme, err)
+	}
+}

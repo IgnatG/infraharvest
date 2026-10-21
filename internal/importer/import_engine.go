@@ -373,7 +373,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		if len(keys) == 0 {
 			keys = defaultEnvTags
 		}
-		envs := environments(resourcesByService, listed.tags, byTagKeys(keys), parents, importID)
+		envs := environments(resourcesByService, listed.tags, byTagKeys(keys), parents, importID, untaggedEnv(options.DefaultEnv))
 		return func(r harvest.Resource) string { return envs[tagKey(r)] }
 	}
 	envOf := byEnvTags(options.Layout)

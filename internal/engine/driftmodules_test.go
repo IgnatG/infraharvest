@@ -147,6 +147,42 @@ variable "tags" {
 `,
 }
 
+// A local module of a queue whose variables have a null default, another
+// default, or none, and one it doesn't declare.
+var defaultsModule = map[string]string{
+	"main.tf": `resource "aws_sqs_queue" "this" {
+  name                      = var.name
+  kms_master_key_id         = var.kms_key
+  delay_seconds             = var.delay
+  message_retention_seconds = var.retention
+}
+`,
+	"variables.tf": `variable "name" {
+  type = string
+}
+
+variable "kms_key" {
+  type    = string
+  default = null
+}
+
+variable "delay" {
+  type    = number
+  default = 0
+}
+`,
+}
+
+const defaultsCall = `module "work" {
+  source = "../../../modules/defaults_0a1b2c3d"
+
+  name      = "work"
+  kms_key   = "alias/work"
+  delay     = 5
+  retention = 60
+}
+`
+
 const bucketCalls = `module "logs" {
   source = "../../../modules/s3_0a1b2c3d"
 
@@ -224,6 +260,7 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 			"fleet.queue": queue, "fleet.counted": queue,
 			"logs": bucket, "data": bucket,
 			"jobs": queue, "queues": queue, "teams": queue,
+			"work":   testModule(t, "../../../modules/defaults_0a1b2c3d", 1, defaultsModule),
 			"deploy": testModule(t, ".terraform/modules/deploy", 1, iamRoleModule),
 		}
 	}
@@ -243,6 +280,8 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 		// environment of a root environments share.
 		files map[string]string
 		env   string
+		// note is what the edit's Note says.
+		note string
 	}{
 		{
 			name:   "var.x",
@@ -474,6 +513,36 @@ module "teams" {
 			contains: "\n  name = \"deploy\"\n",
 		},
 		{
+			name:   "removed in the cloud, where the module's default is null",
+			file:   defaultsCall,
+			after:  map[string]any{"name": "work"},
+			change: moduleDrift("module.work.aws_sqs_queue.this", "aws_sqs_queue", "kms_master_key_id", nil),
+			want:   strings.Replace(defaultsCall, "  kms_key   = \"alias/work\"\n", "", 1),
+		},
+		{
+			name:   "removed in the cloud, where the module's default isn't null",
+			file:   defaultsCall,
+			after:  map[string]any{"name": "work"},
+			change: moduleDrift("module.work.aws_sqs_queue.this", "aws_sqs_queue", "delay_seconds", nil),
+			want:   strings.Replace(defaultsCall, "delay     = 5", "delay     = null", 1),
+			note:   "the default of var.delay in the module ../../../modules/defaults_0a1b2c3d differs from the cloud's value",
+		},
+		{
+			name:   "removed in the cloud, where the module has no default",
+			file:   defaultsCall,
+			after:  map[string]any{"name": "work"},
+			change: moduleDrift("module.work.aws_sqs_queue.this", "aws_sqs_queue", "name", nil),
+			want:   strings.Replace(defaultsCall, "name      = \"work\"", "name      = null", 1),
+			note:   "has no default for var.name",
+		},
+		{
+			name:   "removed in the cloud, where the module doesn't declare the variable",
+			file:   defaultsCall,
+			after:  map[string]any{"name": "work"},
+			change: moduleDrift("module.work.aws_sqs_queue.this", "aws_sqs_queue", "message_retention_seconds", nil),
+			want:   strings.Replace(defaultsCall, "retention = 60", "retention = null", 1),
+		},
+		{
 			name:   "a curated module's attribute without an Inverse entry",
 			file:   iamRoleCall,
 			after:  map[string]any{"name": "other"},
@@ -505,6 +574,9 @@ module "teams" {
 			}
 			if tc.module != "" && src.Module != tc.module {
 				t.Errorf("module path %q, want %q", src.Module, tc.module)
+			}
+			if (tc.note == "") != (src.Note == "") || !strings.Contains(src.Note, tc.note) {
+				t.Errorf("note %q, want one saying %q", src.Note, tc.note)
 			}
 			if tc.want == "" && tc.contains == "" {
 				if edited {

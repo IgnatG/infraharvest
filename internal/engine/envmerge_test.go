@@ -196,6 +196,26 @@ func TestMergeStackTemplates(t *testing.T) {
 	}
 }
 
+func TestMergeStackTokenCase(t *testing.T) {
+	m := mergeDevProd(t, `resource "aws_sqs_queue" "orders" {
+  name = "shop-DEV-orders"
+}
+`, `resource "aws_sqs_queue" "orders" {
+  name = "shop-PRD-orders"
+}
+`, map[string]string{"aws_sqs_queue.orders": "shop-DEV-orders"}, map[string]string{"aws_sqs_queue.orders": "shop-PRD-orders"})
+	queue := resourceAt(t, m, "aws_sqs_queue.orders")
+	if a := attributeOf(t, queue, "name"); a.kind != templateValue {
+		t.Errorf("name = %s (kind %d), want a template of var.env", flatExpr(a.value), a.kind)
+	}
+	// var.env keeps the case the names write the token in.
+	for e, want := range []string{`"DEV"`, `"PRD"`} {
+		if got := tfvarsOf(m, e)["env"]; got != want {
+			t.Errorf("%s: env = %s, want %s", m.envs[e], got, want)
+		}
+	}
+}
+
 func TestMergeStackConditions(t *testing.T) {
 	bucket := func(env, forceDestroy, billing string) string {
 		return `resource "aws_s3_bucket" "logs" {

@@ -198,7 +198,8 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 // nor --all, a selection file or catalogue that doesn't load, a
 // managed state source that doesn't parse or isn't there, a --layout
 // that leads out of --out, has a placeholder nothing fills in, or no
-// {env} for --env-tags, and a negative number of a flag that counts.
+// {env} for --env-tags, --default-env without --env-tags or {env}, and a
+// negative number of a flag that counts.
 func TestCheckOptions(t *testing.T) {
 	p := &servicesProvider{}
 	dir := t.TempDir()
@@ -248,6 +249,9 @@ func TestCheckOptions(t *testing.T) {
 		{Options{All: true, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
 		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
 		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
+		{Options{All: true, EnvTags: []string{"Environment"}, DefaultEnv: "dev"}, ""},
+		{Options{All: true, DefaultEnv: "dev", Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{All: true, DefaultEnv: "dev", Layout: DefaultLayout}, "use it with --env-tags"},
 		{Options{All: true, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
 		{Options{All: true, RateLimit: -1}, "--rate-limit can't be negative"},
 		{Options{All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},

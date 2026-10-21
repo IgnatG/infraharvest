@@ -147,7 +147,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | Use the result in a script | `--format json` prints the report on stdout, and logs go to stderr; the exit code says whether the import is complete (see [Exit codes](output.md#exit-codes)) |
 | Keep what imported when something fails | `--allow-partial`: what failed is left out and reported, and the run exits 3 instead of 1 |
 | Import faster | `--parallel` for accounts, subscriptions, projects and regions, `--list-parallel` for services (see [Running in parallel](#running-in-parallel)) |
-| Split roots by environment | `--env-tags=Environment`, or `{env}` in `--layout` (see [Layout](output.md#layout)) |
+| Split roots by environment | `--env-tags=Environment`, or `{env}` in `--layout`; `--default-env=dev` puts what no tag places in `dev` instead of `shared` (see [Layout](output.md#layout)) |
 | Share one root between environments | `environments:` in the [configuration file](configuration.md#environments): each stack's roots of its environments merge into one root, with each environment's values in `vars/<env>/`; `--merge-environments=false` keeps a root per environment (see [Merging environments](configuration.md#merging-environments)) |
 | Check a root environments share | `infraharvest verify [output-directory]` plans it once per environment, with its var files; `--environment=prod` plans one, with that environment's credentials. `infraharvest drift --environment=prod` checks it for drift likewise |
 | Choose what becomes a module call | `--modules`: `registry` (the default), `latest-untested`, `local` or `none`; your own modules go in the [configuration file](configuration.md) (see [Modules](modules.md)) |
@@ -176,6 +176,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | A merged stack with `--incremental` | A run with only some of the stack's environments merges the others from their kept roots, unplanned: plan each with `infraharvest verify --environment`, with its credentials |
 | A merged stack and a new environment | An environment the merged root doesn't have yet joins it: the stack merges again with every environment, those the run lacks from their kept roots, unplanned. Where that would give what the merged root has other addresses, the new environment keeps roots of its own, and the report says why |
 | `--env-tags` with `--layout` | A layout of your own needs `{env}`; `{env}` without `--env-tags` reads `Environment`, `environment`, `Env` or `env` |
+| `--default-env` | Needs `--env-tags` or `{env}` in `--layout`, and doesn't go with `environments:` in the configuration file |
 | AWS `--accounts`, `--organization` | One or the other; with either, `--assume-role` must contain `{account}` |
 | Azure `--subscriptions`, `--management-group` | Combine, and without either the import covers `ARM_SUBSCRIPTION_ID`; `--resource-group` narrows each subscription to that group |
 | Google Cloud `--projects`, `--organization`, `--folders` | Combine; at least one is required |

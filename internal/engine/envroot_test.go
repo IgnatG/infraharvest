@@ -402,18 +402,23 @@ func TestGoldenMergedRoots(t *testing.T) {
 }
 
 // goldenRoot compares files, a merged root's, with
-// testdata/envroot/<name>.golden.txt, each file after a -- path -- line,
-// or rewrites it under -update.
+// testdata/envroot/<name>.golden.txt (see goldenFiles).
 func goldenRoot(t *testing.T, name string, files map[string][]byte) {
 	t.Helper()
+	goldenFiles(t, filepath.Join("testdata", "envroot", name+".golden.txt"), files)
+}
+
+// goldenFiles compares files with the golden file at path, each file
+// after a -- path -- line, or rewrites it under -update.
+func goldenFiles(t *testing.T, path string, files map[string][]byte) {
+	t.Helper()
 	var b strings.Builder
-	for _, path := range slices.Sorted(maps.Keys(files)) {
-		fmt.Fprintf(&b, "-- %s --\n%s", path, files[path])
-		if !strings.HasSuffix(string(files[path]), "\n") {
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		fmt.Fprintf(&b, "-- %s --\n%s", name, files[name])
+		if !strings.HasSuffix(string(files[name]), "\n") {
 			b.WriteString("\n")
 		}
 	}
-	path := filepath.Join("testdata", "envroot", name+".golden.txt")
 	if *updateGolden {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -596,4 +601,82 @@ func TestMergedRootFiles(t *testing.T) {
 // flatText is s with each run of spaces, tabs and newlines one space.
 func flatText(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// Resources of one shape every environment has become one resource with
+// for_each, minRepeated of them or more: over a local map where every
+// environment's keys are the same, once normalised, else over a
+// variable; references to them are to their keys.
+func TestMergedRepeatedShapes(t *testing.T) {
+	queues := func(env string, names []string, timeout string) string {
+		var b strings.Builder
+		for _, name := range names {
+			fmt.Fprintf(&b, "resource \"aws_sqs_queue\" %q {\n  name                       = \"shop-%s-%s\"\n  visibility_timeout_seconds = %s\n  delay_seconds              = 0\n  max_message_size           = 262144\n}\n\n", name, env, name, timeout)
+		}
+		b.WriteString("resource \"aws_sqs_queue_policy\" \"orders\" {\n  queue_url = aws_sqs_queue.orders.url\n  policy    = \"{}\"\n}\n")
+		return b.String()
+	}
+	ids := func(env, account string, names []string) map[string]string {
+		m := map[string]string{"aws_sqs_queue_policy.orders": "https://sqs.eu-west-2.amazonaws.com/" + account + "/shop-" + env + "-orders"}
+		for _, name := range names {
+			m["aws_sqs_queue."+name] = "https://sqs.eu-west-2.amazonaws.com/" + account + "/shop-" + env + "-" + name
+		}
+		return m
+	}
+	roots := func(names []string, prodTimeout string) []envRoot {
+		return []envRoot{
+			awsEnvRoot(t, "dev", nil, "111111111111", queues("dev", names, "30"), ids("dev", "111111111111", names), nil, nil, ""),
+			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", queues("prd", names, prodTimeout), ids("prd", "222222222222", names), nil, nil, ""),
+		}
+	}
+	three := []string{"audit", "events", "orders"}
+
+	t.Run("the same in every environment", func(t *testing.T) {
+		files, err := mergedRootFiles(mergeStack("aws", roots(three, "30"), rootSchemas))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b strings.Builder
+		for _, name := range slices.Sorted(maps.Keys(files)) {
+			fmt.Fprintf(&b, "-- %s --\n%s\n", name, files[name])
+		}
+		all := flatText(b.String())
+		for _, want := range []string{
+			`resource "aws_sqs_queue" "this" { for_each = local.sqs_queues`,
+			"name = each.value.name",
+			`"orders" = { name = "${local.naming_prefix}-orders" }`,
+			`queue_url = aws_sqs_queue.this["orders"].url`,
+			"import { for_each = local.sqs_queues to = aws_sqs_queue.this[each.key]",
+		} {
+			if !strings.Contains(all, flatText(want)) {
+				t.Errorf("the merged root misses %s:\n%s", want, all)
+			}
+		}
+		if strings.Contains(all, "variable \"sqs_queues\"") {
+			t.Errorf("a variable of the queues:\n%s", all)
+		}
+		if got := string(files["vars/dev/imports.tfvars"]); !strings.Contains(got, `"aws_sqs_queue.this[\"audit\"]"`) {
+			t.Errorf("dev's imports.tfvars doesn't import the audit queue at its key:\n%s", got)
+		}
+	})
+
+	t.Run("different in an environment", func(t *testing.T) {
+		files, err := mergedRootFiles(mergeStack("aws", roots(three, "60"), rootSchemas))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(files["sqs.tf"]) + string(files[mainFileName]); !strings.Contains(got, "for_each = var.sqs_queues") {
+			t.Errorf("the queues aren't over a variable:\n%s", got)
+		}
+		if got := string(files["vars/prod/terraform.tfvars"]); !strings.Contains(got, "sqs_queues") {
+			t.Errorf("prod's terraform.tfvars doesn't set its queues:\n%s", got)
+		}
+	})
+
+	t.Run("too few", func(t *testing.T) {
+		m := mergeStack("aws", roots(three[:2], "30"), rootSchemas)
+		if len(m.forEach) != 0 {
+			t.Errorf("two queues are one resource: %s", m.forEach[0].address())
+		}
+	})
 }

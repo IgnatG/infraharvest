@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -92,7 +93,14 @@ type rootWriter struct {
 	// used are the names of the variables, so that extra ones get names
 	// of their own.
 	used map[string]bool
+	// noEnv is set when nothing reads var.env, such as where no name has
+	// an environment token: the root then declares none, which would be
+	// an unused declaration, and the var files set none.
+	noEnv bool
 }
+
+// readsEnv matches a reference to var.env.
+var readsEnv = regexp.MustCompile(`\bvar\.` + envVariableName + `\b`)
 
 // mergedRootFiles returns the files of m's merged root, by path with
 // forward slashes: providers.tf, with the terraform block and its partial
@@ -157,6 +165,12 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	providers, err := w.providerBlocks()
 	if err != nil {
 		return nil, nil, err
+	}
+	w.noEnv = !readsEnv.Match(providers)
+	for _, src := range files {
+		if readsEnv.Match(src) {
+			w.noEnv = false
+		}
 	}
 	variables, err := w.variablesFile()
 	if err != nil {
@@ -250,7 +264,7 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 		byFile[w.fileOf[r]] = append(byFile[w.fileOf[r]], block{r.address(), text})
 	}
 	for _, g := range w.m.forEach {
-		meta := []string{"for_each = var." + g.variable.name}
+		meta := []string{"for_each = " + g.source()}
 		byFile[w.groupFile[g]] = append(byFile[w.groupFile[g]], block{g.address(), resourceText(g.resourceType, g.label, meta, g.body)})
 	}
 	files := map[string][]byte{}
@@ -527,6 +541,11 @@ func (w *rootWriter) localsFile() []byte {
 			}
 		}
 	}
+	for _, g := range w.m.forEach {
+		if g.local != "" {
+			fileOfLocal[g.local] = w.groupFile[g]
+		}
+	}
 	// The resources' names by file, each file's in the model's order.
 	locals := slices.Clone(w.m.locals)
 	sort.SliceStable(locals, func(i, j int) bool { return fileOfLocal[locals[i].name] < fileOfLocal[locals[j].name] })
@@ -620,7 +639,7 @@ func (w *rootWriter) importsFile() ([]byte, error) {
 			continue
 		}
 		format := string(hclwrite.TokensForValue(cty.StringVal(g.address() + "[%q]")).Bytes())
-		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = var.%s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.variable.name, g.address(), importIDsVariableName, format)})
+		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = %s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.source(), g.address(), importIDsVariableName, format)})
 	}
 	if len(blocks) == 0 {
 		return nil, nil
@@ -1007,7 +1026,9 @@ func (w *rootWriter) variables() []*envVariable {
 	var rest []*envVariable
 	for _, v := range append(slices.Clone(w.m.variables), w.extra...) {
 		if v.name == envVariableName {
-			env = v
+			if !w.noEnv {
+				env = v
+			}
 			continue
 		}
 		rest = append(rest, v)
@@ -1109,7 +1130,9 @@ func (w *rootWriter) tfvarsFile(env int) []byte {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# The %s environment's values that differ from the defaults in\n# variables.tf. Secrets are never set here: see README.md.\n", w.m.envs[env])
-	fmt.Fprintf(&b, "%s = %s\n", envVariableName, string(hclwrite.TokensForValue(cty.StringVal(w.m.norms[env].token)).Bytes()))
+	if !w.noEnv {
+		fmt.Fprintf(&b, "%s = %s\n", envVariableName, string(hclwrite.TokensForValue(cty.StringVal(w.m.norms[env].token)).Bytes()))
+	}
 	order := slices.Sorted(maps.Keys(sections))
 	for _, section := range order {
 		vars := sections[section]

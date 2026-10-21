@@ -63,16 +63,6 @@ resource "azurerm_storage_account" "logs" {
   account_tier             = "Standard"
 }
 -- variables.tf --
-variable "env" {
-  description = "The token that stands for the environment in names."
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "prd"], var.env)
-    error_message = "env must be one of dev, prd."
-  }
-}
-
 variable "logs_name" {
   description = "The name of azurerm_storage_account.logs."
   type        = any
@@ -112,7 +102,6 @@ import_ids = {
 -- vars/dev/terraform.tfvars --
 # The dev environment's values that differ from the defaults in
 # variables.tf. Secrets are never set here: see README.md.
-env = "dev"
 
 resource_group_name = "rg-blue"
 
@@ -137,7 +126,6 @@ import_ids = {
 -- vars/prod/terraform.tfvars --
 # The prod environment's values that differ from the defaults in
 # variables.tf. Secrets are never set here: see README.md.
-env = "prd"
 
 resource_group_name = "rg-green"
 

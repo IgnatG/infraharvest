@@ -33,6 +33,9 @@ type driftModule struct {
 	// calls counts the module calls, of the root and of its modules, that
 	// call the directory.
 	calls int
+	// inContents says it was parsed from the contents drift edits (see
+	// syncModules), which have its files.
+	inContents bool
 }
 
 // loadDriftModules reads the modules the root in dir calls, by their keys
@@ -327,7 +330,7 @@ func (t *moduleTracer) expr(file string, e hclsyntax.Expression, i, depth int) t
 	}
 	if literalExpr(e) {
 		r := t.fail(file, e.Range(), "")
-		r.literal = true
+		r.literal, r.at = true, i
 		return r
 	}
 	return t.fail(file, e.Range(), "an expression in the module computes it")
@@ -532,7 +535,8 @@ func (w *driftWalk) known(n int) bool {
 // its code says (see moduleTracer), followed through the calls of other
 // modules inside it, or, in a curated module, as its adapter's Inverse
 // says; then as for a resource's argument (see driftWalk) in that
-// argument. Nothing under the modules is ever edited.
+// argument. Nothing under the modules is edited, but a literal of a
+// generated module that calls or environments share (see promoteLiteral).
 func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 	manual := func(reason string) Source {
 		return Source{Kind: SourceModule, Reason: "in the module call " + c.ModuleAddress + ": " + reason}
@@ -602,6 +606,11 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 		}
 		tr := &moduleTracer{m: m, steps: steps, block: b.b, key: key}
 		if t = tr.body(b.file, b.b, 0); t.variable == "" {
+			if t.literal && len(calls) == 1 {
+				if src, ok := e.promoteLiteral(cfg, c, blocks[0], calls[0].name, m, b, t, steps); ok {
+					return src
+				}
+			}
 			return e.moduleManual(c, m, t)
 		}
 		via = append(via, e.viaText(m, t))
@@ -892,6 +901,30 @@ func (cw *callWalk) fits(variable string, value any) bool {
 		}
 	}
 	return true
+}
+
+// nullDefault reports whether the module's variable has null for its
+// default, so that a call that leaves it out gets none, as one that sets
+// it to null does. Where it has another default, or none, a note says the
+// call sets it to null all the same; where the module's code doesn't
+// say, there is no note.
+func (cw *callWalk) nullDefault(variable string) (bool, string) {
+	v := cw.module.cfg.variables[variable]
+	if v == nil {
+		return false, ""
+	}
+	attr, ok := v.Body.Attributes["default"]
+	if !ok {
+		return false, fmt.Sprintf("set to null, as the module %s has no default for var.%s", cw.module.dir, variable)
+	}
+	value, diags := attr.Expr.Value(nil)
+	switch {
+	case diags.HasErrors():
+		return false, ""
+	case value.IsNull():
+		return true, ""
+	}
+	return false, fmt.Sprintf("set to null, as the default of var.%s in the module %s differs from the cloud's value", variable, cw.module.dir)
 }
 
 // resourceTypeAt returns the type of what steps go to in a resource of

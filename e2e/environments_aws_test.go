@@ -299,3 +299,100 @@ func TestAWSEnvironments(t *testing.T) {
 		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
 	}
 }
+
+// TestAWSEnvironmentsData imports testdata/aws-environments-data, in two
+// accounts the configuration file maps to dev and prod, at once, with a
+// catalogue overlay that leaves prod's alerts policy out: the role of
+// prod's alerts feature reads the policy through a data source, which
+// only prod's root has. The merged root counts the data source with the
+// feature's deploy_ variable, and refers to data.aws_iam_policy.<name>[0];
+// planned as each environment, it imports what that environment has and
+// changes nothing.
+func TestAWSEnvironmentsData(t *testing.T) {
+	endpoint := os.Getenv("AWS_ENDPOINT_URL")
+	if endpoint == "" {
+		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
+	}
+	if !isLoopback(endpoint) {
+		t.Fatalf("AWS_ENDPOINT_URL=%s: the test creates resources, so it only runs against a local emulator", endpoint)
+	}
+	isolateAWSConfig(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	cache := t.TempDir()
+	engineName, binary := e2eEngine(t)
+	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(cache, "plugins")
+	seedApplied(ctx, t, "aws-environments-data", execPath, plugins)
+	accounts := map[string]string{"dev": "717171717171", "prod": "818181818181"}
+	config := writeConfig(t, `version: 1
+environments:
+  dev:
+    aws: { accounts: ["717171717171"] }
+  prod:
+    aws: { accounts: ["818181818181"] }
+    tokens: [prd]
+`)
+	overlay, err := filepath.Abs(filepath.Join("testdata", "catalogue", "environments-data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	root := cli.NewCmdRoot()
+	root.SetArgs([]string{
+		"import", "aws",
+		"--config=" + config,
+		"--engine=" + engineName,
+		"--terraform-path=" + execPath,
+		"--accounts=" + accounts["dev"] + "," + accounts["prod"],
+		"--parallel=2",
+		"--regions=us-east-1",
+		"--services=iam",
+		// Resources of the root, so that the attachment that reads the
+		// data source is one of its own.
+		"--modules=none",
+		"--catalogue=" + overlay,
+		"--out=" + out,
+		"--all",
+	})
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("infraharvest import: %v", err)
+	}
+	coverage := coverageOf(t, out)
+	checkCoverage(t, "the import", coverage, nil)
+	checkMerged(t, out, coverage, "aws/global", "dev", "prod")
+	dir := filepath.Join(out, "aws", "global")
+
+	data := readFile(t, filepath.Join(dir, "data.tf"))
+	gate := regexp.MustCompile(`data "aws_iam_policy" "(\w+)" \{\s*count\s*=\s*var\.(deploy_\w+) \? 1 : 0\s`).FindStringSubmatch(data)
+	if gate == nil {
+		t.Fatalf("data.tf doesn't count the alerts policy with a deploy_ variable:\n%s", data)
+	}
+	files := configuration(t, dir)
+	if !strings.Contains(files, "data.aws_iam_policy."+gate[1]+"[0].") {
+		t.Errorf("the merged root doesn't refer to data.aws_iam_policy.%s[0]:\n%s", gate[1], files)
+	}
+	attachment := regexp.MustCompile(`resource "aws_iam_role_policy_attachment" "\w+" \{\s*count\s*=\s*var\.` + gate[2] + ` \? 1 : 0\s`)
+	if !attachment.MatchString(files) {
+		t.Errorf("the alerts role's policy attachment isn't counted by %s, as its data source is:\n%s", gate[2], files)
+	}
+	if prod := readFile(t, filepath.Join(dir, "vars", "prod", "terraform.tfvars")); !regexp.MustCompile(`(?m)^\s*` + gate[2] + `\s*=\s*true\s*$`).MatchString(prod) {
+		t.Errorf("prod's terraform.tfvars doesn't set %s:\n%s", gate[2], prod)
+	}
+	if dev := readFile(t, filepath.Join(dir, "vars", "dev", "terraform.tfvars")); regexp.MustCompile(`(?m)^\s*` + gate[2] + `\s*=\s*true\s*$`).MatchString(dev) {
+		t.Errorf("dev's terraform.tfvars sets %s:\n%s", gate[2], dev)
+	}
+
+	// Each environment plans with its own account's credentials.
+	defer t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	credentials := func(env string) { t.Setenv("AWS_ACCESS_KEY_ID", accounts[env]) }
+	imported := checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
+	if imported["prod"]["aws_iam_role_policy_attachment"] != 1 || imported["dev"]["aws_iam_role_policy_attachment"] != 0 || imported["prod"]["aws_iam_policy"] != 0 {
+		t.Errorf("imported: %v", imported)
+	}
+}

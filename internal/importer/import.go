@@ -72,6 +72,9 @@ type Options struct {
 	Format string
 	// EnvTags are the tag keys whose value names a resource's environment.
 	EnvTags []string
+	// DefaultEnv is the environment of what no environment tag places,
+	// instead of sharedEnv; "" for sharedEnv.
+	DefaultEnv string
 	// MergeEnvironments merges the roots of a stack's environments, which
 	// the configuration file's environments name, into one root they share
 	// (see MergeEnvironments).
@@ -187,7 +190,8 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // call could do, before any account, region or project is planned: an
 // unknown --engine, --format or --modules, a filter that doesn't parse,
 // an import that says neither --selection nor --all, --services or --skip
-// names provider has no service of, a --layout checkLayout rejects, a
+// names provider has no service of, a --layout checkLayout rejects,
+// --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
 // selection file and managed state sources it can tell are wrong (see
@@ -238,6 +242,9 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	if err := checkLayout(options.Layout, options.EnvTags); err != nil {
 		return err
 	}
+	if options.DefaultEnv != "" && len(options.EnvTags) == 0 && !strings.Contains(options.Layout, "{env}") {
+		return errDefaultEnvWithoutSplit
+	}
 	for _, f := range []struct {
 		flag     string
 		negative bool
@@ -254,6 +261,10 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	}
 	return checkSources(options)
 }
+
+// errDefaultEnvWithoutSplit is the error for --default-env where no
+// environment tag splits the roots.
+var errDefaultEnvWithoutSplit = errors.New("--default-env names the environment of what no environment tag places: use it with --env-tags, or {env} in --layout")
 
 // layoutPlaceholders are the placeholders a --layout may use.
 var layoutPlaceholders = []string{"{out}", "{provider}", "{account}", "{region}", "{service}", "{env}"}

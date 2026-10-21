@@ -145,10 +145,16 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	}
 
 	var backup *treeBackup
+	// The moved blocks of its moves.tf, while it is there: those of an
+	// earlier merge with --regenerate, not yet applied and deleted.
+	var kept []engine.Move
 	if prev != nil && prev.Merge.Merged {
 		// Merged again: what it had goes, and comes back if this merge
 		// fails.
 		if backup, err = backupTree(stack); err != nil {
+			return err
+		}
+		if kept, err = engine.ReadMoves(stack); err != nil {
 			return err
 		}
 		for _, name := range prev.Files {
@@ -201,8 +207,10 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		imports[env.Env] = env.Imports
 	}
 	if result.Reason == "" && prev != nil && prev.Merge.Merged {
-		if moved := readdressed(prev.Imports, imports); len(moved) > 0 {
-			result.Reason = "merging it again would give what the merged root has other addresses: " + strings.Join(moved, "; ")
+		if result.Reason, err = r.moveMerged(stack, result, prev.Imports, imports, kept); err != nil {
+			return err
+		}
+		if result.Reason != "" {
 			if err := clearMerged(stack, result.Files); err != nil {
 				return err
 			}
@@ -432,8 +440,8 @@ func (r *Run) keepMerged(stack string, prev *mergeCheckpoint, members []mergeMem
 
 // keptAsMerged reports whether the merged root in stack, of which prev is
 // the checkpoint, stands as prev has it for members: merged, with its
-// files, and members set aside; or kept apart, with members' roots where
-// they are.
+// files but moves.tf, and members set aside; or kept apart, with
+// members' roots where they are.
 func keptAsMerged(stack string, prev *mergeCheckpoint, members []mergeMember) bool {
 	for _, m := range members {
 		if m.premerged != prev.Merge.Merged {
@@ -444,6 +452,9 @@ func keptAsMerged(stack string, prev *mergeCheckpoint, members []mergeMember) bo
 		return true
 	}
 	for _, name := range prev.Files {
+		if name == engine.MovesFileName {
+			continue // deleted once applied, as the README says
+		}
 		if _, err := os.Stat(filepath.Join(stack, filepath.FromSlash(name))); err != nil {
 			return false
 		}
@@ -469,6 +480,81 @@ func readdressed(before, now map[string]map[string]string) []string {
 	}
 	sort.Strings(moved)
 	return moved
+}
+
+// mergedMoves returns the moved blocks of a merged root merged again
+// with --regenerate: kept, those of its moves.tf from before, then one
+// from each address before, the import IDs of each environment's
+// resources in it by address, has that now has at another, from there to
+// that one. It returns why there can't be, where there can't: an address
+// that would move to two, or one in a module call, which moved blocks
+// can't take out of a module package.
+func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) ([]engine.Move, string) {
+	to := map[string]string{}
+	for _, m := range kept {
+		to[m.From] = m.To
+	}
+	moves := slices.Clone(kept)
+	for _, env := range slices.Sorted(maps.Keys(before)) {
+		at := map[string]string{}
+		for address, id := range now[env] {
+			at[id] = address
+		}
+		for _, address := range slices.Sorted(maps.Keys(before[env])) {
+			after, ok := at[before[env][address]]
+			if !ok || after == address {
+				continue
+			}
+			if strings.HasPrefix(address, "module.") || strings.HasPrefix(after, "module.") {
+				return nil, fmt.Sprintf("%s: %s is now %s, and moved blocks don't move resources of module calls", env, address, after)
+			}
+			if other, ok := to[address]; ok {
+				if other != after {
+					return nil, fmt.Sprintf("%s would move to both %s and %s", address, other, after)
+				}
+				continue
+			}
+			to[address] = after
+			moves = append(moves, engine.Move{From: address, To: after})
+		}
+	}
+	return moves, ""
+}
+
+// moveMerged writes the moved blocks of the merged root in stack, merged
+// again into result, where before, the import IDs of each environment's
+// resources in it by address, has some that now has at other addresses:
+// with --regenerate, a moved block from there to here for each (see
+// mergedMoves), after kept, those of its moves.tf from before, which a
+// merge without --regenerate writes back as they were. It returns why it
+// can't merge again, where it can't: without --regenerate, as what it
+// has would get other addresses; with it, as no moved blocks take them
+// there, or the moves check of them fails.
+func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now map[string]map[string]string, kept []engine.Move) (string, error) {
+	moved := readdressed(before, now)
+	if len(moved) > 0 && !r.options.Regenerate {
+		return "merging it again would give what the merged root has other addresses: " + strings.Join(moved, "; "), nil
+	}
+	moves, why := mergedMoves(before, now, kept)
+	if why != "" {
+		return "merging it again would give what the merged root has other addresses, and " + why, nil
+	}
+	if len(moves) == 0 {
+		return "", nil
+	}
+	result.Files = append(result.Files, engine.MovesFileName)
+	sort.Strings(result.Files)
+	check, err := engine.WriteMergedMoves(stack, moves)
+	if err != nil {
+		return "", err
+	}
+	if !check.Passed {
+		return "merging it again would give what the merged root has other addresses, and the moved blocks to them fail the moves check: " + strings.Join(check.Details, "; "), nil
+	}
+	if len(moved) > 0 {
+		log.Printf("%s: moved blocks in %s move what has other addresses now (--regenerate): %s", relativePath(r.options.Out, stack), engine.MovesFileName, strings.Join(moved, "; "))
+	}
+	return "", nil
 }
 
 // clearMerged removes files, those engine.MergeRoots wrote in stack, with

@@ -26,6 +26,9 @@ func TestNormaliserValue(t *testing.T) {
 		{"shop-prd-db", "shop-{env}-db"},
 		{"shop-prod-db", "shop-{env}-db"},
 		{"shop_prd.logs", "shop_{env}.logs"},
+		// In any case.
+		{"shop-PRD-db", "shop-{env}-db"},
+		{"Shop-Prod-DB", "Shop-{env}-DB"},
 		{"prd", "{env}"},
 		{"/shop/prd/db_password", "/shop/{env}/db_password"},
 		// Not whole words.
@@ -98,6 +101,25 @@ resource "aws_sqs_queue" "b" {
 	}
 	if n := newNormaliser(envRoot{env: "prod", tokens: []string{"prd", "prod"}}); n.token != "prd" {
 		t.Errorf("token = %q, want prd, the first", n.token)
+	}
+	upper := testEnvRoot(t, "prod", nil, "", `resource "aws_sqs_queue" "a" {
+  name = "shop-PROD-a"
+}
+
+resource "aws_sqs_queue" "b" {
+  name = "shop-PROD-b"
+}
+
+resource "aws_sqs_queue" "c" {
+  name = "shop-prod-c"
+}
+`, nil)
+	n := newNormaliser(upper)
+	if n.token != "PROD" {
+		t.Errorf("token = %q, want PROD, the way the names write it most", n.token)
+	}
+	if got := n.denormalise(n.envValue("shop-PROD-a")); got != "shop-PROD-a" {
+		t.Errorf("denormalise = %q, want the name back", got)
 	}
 }
 
@@ -173,6 +195,58 @@ func TestMatchResources(t *testing.T) {
 			devIDs:  map[string]string{"aws_iam_policy.ci": "arn:aws:iam::111111111111:policy/ci"},
 			prodIDs: map[string]string{"aws_iam_policy.deploy": "arn:aws:iam::222222222222:policy/ci"},
 			want:    []string{"aws_iam_policy.ci id dev=aws_iam_policy.ci prod=aws_iam_policy.deploy"},
+		},
+		{
+			name: "by import ID, labelled main in one environment",
+			dev:  `resource "aws_iam_role" "main" { name = "infraharvest-readonly" }`,
+			prod: `resource "aws_iam_role" "alerts" { name = "alerts" }
+resource "aws_iam_role" "infraharvest_readonly" { name = "infraharvest-readonly" }`,
+			devIDs:  map[string]string{"aws_iam_role.main": "infraharvest-readonly"},
+			prodIDs: map[string]string{"aws_iam_role.alerts": "alerts", "aws_iam_role.infraharvest_readonly": "infraharvest-readonly"},
+			want: []string{
+				"aws_iam_role.alerts none prod=aws_iam_role.alerts",
+				"aws_iam_role.main id dev=aws_iam_role.main prod=aws_iam_role.infraharvest_readonly",
+			},
+		},
+		{
+			name: "module calls by the import IDs of the resources in them",
+			dev: `module "iam_role" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role"
+  name   = "infraharvest-readonly"
+}`,
+			prod: `module "alerts" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role"
+  name   = "alerts"
+}
+
+module "infraharvest_readonly" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role"
+  name   = "infraharvest-readonly"
+}`,
+			devIDs: map[string]string{"module.iam_role.aws_iam_role.this[0]": "infraharvest-readonly"},
+			prodIDs: map[string]string{
+				"module.alerts.aws_iam_role.this[0]":                                  "alerts",
+				`module.alerts.aws_iam_role_policy_attachment.this["ReadOnlyAccess"]`: "alerts/arn:aws:iam::aws:policy/ReadOnlyAccess",
+				"module.infraharvest_readonly.aws_iam_role.this[0]":                   "infraharvest-readonly",
+			},
+			want: []string{
+				"module.alerts none prod=module.alerts",
+				"module.iam_role id dev=module.iam_role prod=module.infraharvest_readonly",
+			},
+		},
+		{
+			name: "module calls whose resources' IDs differ match by label",
+			dev: `module "logs" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+  bucket = "shop-dev-logs"
+}`,
+			prod: `module "logs" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+  bucket = "shop-prd-archive"
+}`,
+			devIDs:  map[string]string{"module.logs.aws_s3_bucket.this[0]": "shop-dev-logs"},
+			prodIDs: map[string]string{"module.logs.aws_s3_bucket.this[0]": "shop-prd-archive"},
+			want:    []string{"module.logs label dev=module.logs prod=module.logs"},
 		},
 		{
 			name:    "by label, where the IDs are the cloud's",

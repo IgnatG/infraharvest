@@ -1,0 +1,53 @@
+-- ../../../modules/s3_0a1b2c3d/main.tf --
+resource "aws_s3_bucket" "this" {
+  bucket        = var.bucket
+  force_destroy = var.force_destroy
+  tags          = var.tags
+}
+
+resource "aws_s3_bucket_versioning" "versioning" {
+  bucket = aws_s3_bucket.this.id
+
+  versioning_configuration {
+    status = var.versioning_versioning_configuration_status
+  }
+}
+-- ../../../modules/s3_0a1b2c3d/variables.tf --
+variable "bucket" {
+  type = string
+}
+
+variable "tags" {
+  type = map(string)
+}
+
+variable "versioning_versioning_configuration_status" {
+  type = string
+}
+
+variable "force_destroy" {
+  description = "The force_destroy of aws_s3_bucket.this, the same for every call that doesn't set it."
+  type        = bool
+  default     = false
+}
+-- main.tf --
+module "logs" {
+  source = "../../../modules/s3_0a1b2c3d"
+
+  bucket = "logs"
+  tags = {
+    Env = "prod"
+  }
+  versioning_versioning_configuration_status = "Enabled"
+  force_destroy                              = true
+}
+
+module "data" {
+  source = "../../../modules/s3_0a1b2c3d"
+
+  bucket = "data"
+  tags = {
+    Env = "prod"
+  }
+  versioning_versioning_configuration_status = "Enabled"
+}
