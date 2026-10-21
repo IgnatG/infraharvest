@@ -422,7 +422,7 @@ func (r *stackResource) instance() hcl.Traversal {
 
 // matchResources matches the resources of roots, one per environment of
 // a stack, whose normalisers are norms, in order: by type and normalised
-// import ID; by type and normalised label, where the label is unique in
+// import ID, a module call's by those of the resources in it; by type and normalised label, where the label is unique in
 // its root; and by type and the matched resources they refer to, where
 // one resource of each root is left. Each match takes each root's only
 // candidate, so two resources of one root never match one. A resource
@@ -481,6 +481,19 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 		}
 		return r.resourceType + "\x00" + r.normalID
 	}, func(members []*envResource) { add(byImportID, members) })
+	// A module call has no import ID of its own: it matches by those of
+	// the resources in it, one address in it at a time, as each
+	// environment's calls may be named apart, such as main where a root
+	// has one call of a module and by name where it has two.
+	for _, rest := range moduleAddresses(byEnv) {
+		matchBy(byEnv, func(r *envResource) string {
+			id := r.moduleIDs[rest]
+			if r.resourceType != moduleType || id == "" {
+				return ""
+			}
+			return moduleType + "\x00" + rest + "\x00" + norms[r.env].value(id)
+		}, func(members []*envResource) { add(byImportID, members) })
+	}
 	matchBy(byEnv, func(r *envResource) string {
 		if labels[r.env][r.resourceType+"."+r.normalLabel] != 1 {
 			return ""
@@ -506,6 +519,20 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 	assignLabels(stack, envs)
 	sort.Slice(stack, func(i, j int) bool { return stack[i].address() < stack[j].address() })
 	return stack
+}
+
+// moduleAddresses returns the addresses, in their calls, of the resources
+// in the module calls of byEnv, sorted.
+func moduleAddresses(byEnv [][]*envResource) []string {
+	addresses := map[string]bool{}
+	for _, rs := range byEnv {
+		for _, r := range rs {
+			for rest := range r.moduleIDs {
+				addresses[rest] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(addresses))
 }
 
 // referenceKey is the key of a match by references: the resource's type
