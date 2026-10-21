@@ -734,13 +734,20 @@ jobs:
           coverage="$RUNNER_TEMP/out/report/coverage.json"
           jq -e '.totals.failed == 0 and .totals.left_out == 0 and (.failures // []) == []' "$coverage"
           jq -e '[.directories[].path] == ["google/infraharvest-e2e/global"] and all(.directories[].checks[]?; .passed)' "$coverage"
-          # Planned again, the root imports the two and changes nothing.
+          # Planned again, the root imports the two and changes nothing but,
+          # with Google, the labels the provider keeps only in the state
+          # (terraform_labels, effective_labels; see docs/drift.md).
           terraform -chdir="$root" init -input=false
           terraform -chdir="$root" plan -input=false -out=tfplan
           terraform -chdir="$root" show -json tfplan > "$RUNNER_TEMP/plan.json"
           rm "$root/tfplan"
           jq -e '[.resource_changes[] | select(.mode == "managed")] as $c
-            | ($c | length) == 2 and all($c[]; .change.actions == ["no-op"] and .change.importing != null)' "$RUNNER_TEMP/plan.json"
+            | ($c | length) == 2 and all($c[]; .change.importing != null and (
+                .change.actions == ["no-op"] or (.change.actions == ["update"]
+                  and (.change.before as $b | .change.after as $a
+                    | [($b | keys[]), ($a | keys[])] | unique
+                    | map(select($b[.] != $a[.]))
+                    | all(. == "terraform_labels" or . == "effective_labels"))))))' "$RUNNER_TEMP/plan.json"
       - name: floci-gcp and stand-in logs
         if: failure()
         run: |
