@@ -88,12 +88,15 @@ func TestAWSSelectionRules(t *testing.T) {
 		t.Errorf("%s %s isn't reported left out, as %q", typ, id, reason)
 	}
 	excluded("aws_s3_bucket", "infraharvest-e2e-logs", "excluded by a rule in the selection file")
-	excluded("aws_s3_bucket_versioning", "infraharvest-e2e-logs", "excluded by a rule in the selection file")
 	excluded("aws_s3_bucket", "infraharvest-e2e-cfn-assets", "CloudFormation stack infraharvest-e2e-app")
 	for _, id := range []string{"infraharvest-e2e-logs", "infraharvest-e2e-cfn-assets"} {
 		if importedID("aws_s3_bucket", id) {
 			t.Errorf("the bucket %s is imported", id)
 		}
+	}
+	// A bucket's configuration follows it, by its name too.
+	if importedID("aws_s3_bucket_versioning", "infraharvest-e2e-logs") {
+		t.Error("the logs bucket's versioning is imported")
 	}
 	vpcs := 0
 	for _, x := range coverage.Excluded {
