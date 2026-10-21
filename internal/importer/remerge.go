@@ -235,6 +235,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Secrets:   m.result.Secrets,
 			Terraform: runner,
 			Isolated:  m.isolated,
+			Labels:    m.labels,
 			Arrivals:  m.result.Arrived,
 		}
 	}
@@ -255,8 +256,14 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		again := false
 		for i, m := range members {
 			if more := movedApart(m, prev.Imports[m.env], now[m.env]); len(more) > 0 {
-				members[i].isolated = append(members[i].isolated, more...)
-				roots[i].Isolated = members[i].isolated
+				if members[i].labels == nil {
+					members[i].labels = map[string]string{}
+				}
+				for _, address := range slices.Sorted(maps.Keys(more)) {
+					members[i].isolated = append(members[i].isolated, address)
+					members[i].labels[address] = more[address]
+				}
+				roots[i].Isolated, roots[i].Labels = members[i].isolated, members[i].labels
 				again = true
 			}
 		}

@@ -469,6 +469,13 @@ func TestMergeStackIsolated(t *testing.T) {
 	if got := addresses["prod aws_sqs_queue.orders"]; got != "aws_sqs_queue.orders " {
 		t.Errorf("the shared queue: %q", got)
 	}
+	// Kept apart with the label an earlier merge gave it, it keeps it.
+	m = mergeStackWith("aws", []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}, labels: map[string]string{mergeKey(1, "aws_sqs_queue.audit"): "shop_audit"}})
+	for _, r := range m.resources {
+		if r.members[1] != nil && r.members[1].block.address == "aws_sqs_queue.audit" && r.label != "shop_audit" {
+			t.Errorf("prod's new queue, labelled: %s", r.address())
+		}
+	}
 }
 
 func TestMergedImportIDs(t *testing.T) {

@@ -173,7 +173,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 	if err != nil {
 		return nil, err
 	}
-	controls := &mergeControls{split: map[string]string{}, isolated: isolatedKeys(g.roots)}
+	controls := &mergeControls{split: map[string]string{}, isolated: isolatedKeys(g.roots), labels: isolatedLabels(g.roots)}
 	var failures []string
 	for round := 0; round < maxMergeRounds; round++ {
 		m := mergeStackWith(g.roots[0].Provider.Name, envRoots, schemas, controls)
@@ -217,6 +217,18 @@ func isolatedKeys(roots []MergeRoot) map[string]bool {
 		}
 	}
 	return keys
+}
+
+// isolatedLabels returns the labels roots give the resources they keep
+// apart (see MergeRoot.Labels), by mergeKey.
+func isolatedLabels(roots []MergeRoot) map[string]string {
+	labels := map[string]string{}
+	for e, r := range roots {
+		for address, label := range r.Labels {
+			labels[mergeKey(e, address)] = label
+		}
+	}
+	return labels
 }
 
 // schemas returns the provider's schemas, which type the merged root's

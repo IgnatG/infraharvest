@@ -53,6 +53,10 @@ type MergeRoot struct {
 	// resource of its environment, matched with no other environment's,
 	// so that what the merged root already has keeps its addresses.
 	Isolated []string
+	// Labels are, by the address of a block of Isolated, the label it has
+	// in the merged root, where an earlier merge gave it one: kept apart
+	// again, it keeps it, rather than one from its label in the root.
+	Labels map[string]string
 	// Arrivals are the resources the root imports that other roots hand
 	// over (see Result.Arrived), which the merged root's README names, as
 	// the roots they come from are applied first.

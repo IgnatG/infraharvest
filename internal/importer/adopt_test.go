@@ -268,11 +268,25 @@ func TestMovedApart(t *testing.T) {
 	}}}
 	before := map[string]string{"aws_sqs_queue.audit[0]": "q-audit", "aws_sqs_queue.reports[0]": "q-reports", "aws_sqs_queue.orders": "q-orders"}
 	now := map[string]string{`aws_sqs_queue.this["audit"]`: "q-audit", `aws_sqs_queue.this["reports"]`: "q-reports", "aws_sqs_queue.orders": "q-orders", "aws_sqs_queue.billing[0]": "q-billing"}
-	if got := movedApart(m, before, now); !reflect.DeepEqual(got, []string{"aws_sqs_queue.shop_dev_audit", "aws_sqs_queue.shop_dev_reports"}) {
+	if got := movedApart(m, before, now); !reflect.DeepEqual(got, map[string]string{"aws_sqs_queue.shop_dev_audit": "audit", "aws_sqs_queue.shop_dev_reports": "reports"}) {
 		t.Errorf("got %v", got)
 	}
 	m.isolated = append(m.isolated, "aws_sqs_queue.shop_dev_audit", "aws_sqs_queue.shop_dev_reports")
 	if got := movedApart(m, before, now); len(got) != 0 {
 		t.Errorf("kept apart already: %v", got)
+	}
+}
+
+func TestMergedLabel(t *testing.T) {
+	t.Parallel()
+	for address, want := range map[string]string{
+		"aws_sqs_queue.shop_audit[0]":       "shop_audit",
+		`aws_sqs_queue.this["orders"]`:      "this",
+		"module.logs[0].aws_s3_bucket.this": "logs",
+		"aws_sqs_queue.orders":              "orders",
+	} {
+		if got := mergedLabel(address); got != want {
+			t.Errorf("mergedLabel(%q) = %q, want %q", address, got, want)
+		}
 	}
 }

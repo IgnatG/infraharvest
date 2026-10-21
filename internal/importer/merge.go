@@ -107,6 +107,9 @@ type mergeMember struct {
 	// incremental import added to it since (see engine.MergeRoot.Isolated).
 	premerged bool
 	isolated  []string
+	// labels are the labels the merged root had for some of isolated (see
+	// engine.MergeRoot.Labels).
+	labels map[string]string
 	// restored says the import didn't have the member's environment: it
 	// merges again from its set-aside root, unplanned, as the import has
 	// none of its credentials (see restoredMembers).

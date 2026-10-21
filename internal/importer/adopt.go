@@ -293,13 +293,14 @@ func leftOutOfMerge(before, now map[string]map[string]string) []string {
 // (see movedApart).
 const maxKeptApart = 3
 
-// movedApart returns the addresses of the blocks of m, a root of its
+// movedApart returns, by address, the blocks of m, a root of its
 // environment, not yet kept apart, that hold a resource now, the import
 // IDs of the environment's resources by address in the stack merged
 // again, has at another address than before, those of the merged root
-// told from its files, had it: the earlier merge kept them apart, as
-// what an incremental import added, so they are kept apart again.
-func movedApart(m mergeMember, before, now map[string]string) []string {
+// told from its files, had it, each with the label it had there: the
+// earlier merge kept them apart, as what an incremental import added,
+// so they are kept apart again, with the labels it gave them.
+func movedApart(m mergeMember, before, now map[string]string) map[string]string {
 	if m.result == nil || len(before) == 0 {
 		return nil
 	}
@@ -307,18 +308,33 @@ func movedApart(m mergeMember, before, now map[string]string) []string {
 	for address, id := range now {
 		at[id] = address
 	}
-	moved := map[engine.External]bool{}
+	moved := map[engine.External]string{}
 	for address, id := range before {
 		if to, ok := at[id]; ok && to != address {
-			moved[engine.External{Type: engine.AddressType(address), ID: id}] = true
+			moved[engine.External{Type: engine.AddressType(address), ID: id}] = address
 		}
 	}
-	var more []string
+	more := map[string]string{}
 	for _, res := range resultResources(m.result) {
-		if moved[engine.External{Type: res.Type, ID: res.ID}] && !slices.Contains(m.isolated, res.Address) && !slices.Contains(more, res.Address) {
-			more = append(more, res.Address)
+		had, ok := moved[engine.External{Type: res.Type, ID: res.ID}]
+		if !ok || slices.Contains(m.isolated, res.Address) {
+			continue
+		}
+		if _, seen := more[res.Address]; !seen {
+			more[res.Address] = mergedLabel(had)
 		}
 	}
-	sort.Strings(more)
 	return more
+}
+
+// mergedLabel returns the label of the block an address in a merged root
+// is of: shop_audit for aws_sqs_queue.shop_audit[0], and logs for
+// module.logs[0].aws_s3_bucket.this.
+func mergedLabel(address string) string {
+	block := blockAddress(address)
+	if name, ok := strings.CutPrefix(block, "module."); ok {
+		return name
+	}
+	_, label, _ := strings.Cut(block, ".")
+	return label
 }
