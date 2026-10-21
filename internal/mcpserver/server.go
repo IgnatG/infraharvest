@@ -35,6 +35,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
