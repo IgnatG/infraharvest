@@ -245,7 +245,7 @@ Changes written into the code, and those the code absorbs, exit 0. A root that c
 
 ## In GitHub Actions
 
-The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#drift) runs drift on a schedule with `drift: report` or `drift: accept`, before an import or on its own (`import: "false"`). It adds `drift.md` to the job summary, sets the `drift-found` output, and can open a pull request with the accepted edits and the decisions file, whose body is the reports. Exit code 4 (drift left) doesn't fail its step; 1 and 2 do.
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#drift) runs drift on a schedule with `drift: report` or `drift: accept`, before an import or on its own (`import: "false"`). It adds `drift.md` to the job summary, sets the `drift-found` output, and can open a pull request with the accepted edits and the decisions file, whose body is the reports. Exit code 4 (drift left) doesn't fail its step; 1 and 2 do. For roots environments share, its `environment` input is `--environment`: run a job per environment, such as a matrix, each with that environment's credentials (see [Roots environments share](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#roots-environments-share)); without it, the action refuses roots more than one environment shares, unless set to `all`.
 
 ## From an AI agent
 
