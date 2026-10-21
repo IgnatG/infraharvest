@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
@@ -428,6 +429,116 @@ func TestReplaceLocals(t *testing.T) {
 	got := string(replaceLocals(tokens, map[string]cty.Value{"tags": cty.MapVal(map[string]cty.Value{"a": cty.StringVal("b")}), "name": cty.StringVal("x")}).Bytes())
 	if !strings.Contains(got, `"x"`) || !strings.Contains(got, "local.other") || strings.Contains(got, "local.tags") {
 		t.Errorf("got %s", got)
+	}
+}
+
+// sameLiteral reports whether tokens, a literal, give the value want, a
+// literal's source, does.
+func sameLiteral(tokens hclwrite.Tokens, want string) bool {
+	got, ok := literalValue(tokens)
+	value, wantOK := literalValue(exprTokens(want))
+	return ok && wantOK && got.Equals(value).True()
+}
+
+func TestMergedObject(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ in, want string }{
+		{`merge({ env = "dev", team = "ops" }, { owner = "alice", team = "shop" })`, `{ env = "dev", owner = "alice", team = "shop" }`},
+		{`merge({ env = "dev" })`, `{ env = "dev" }`},
+		// Not a merge of object literals only.
+		{`merge(local.tags, { owner = "alice" })`, ""},
+		{`merge({ env = var.env }, { owner = "alice" })`, ""},
+		{`concat(["a"], ["b"])`, ""},
+		{`{ env = "dev" }`, ""},
+	} {
+		got, ok := mergedObject(exprTokens(tc.in))
+		switch {
+		case tc.want == "" && ok:
+			t.Errorf("%s: folded into %s", tc.in, flatExpr(got))
+		case tc.want != "" && (!ok || !sameLiteral(got, tc.want)):
+			t.Errorf("%s: got %s (%v), want %s", tc.in, flatExpr(got), ok, tc.want)
+		}
+	}
+}
+
+// A root that lifted the labels its resources share, as one with two
+// resources or more does, merges with one that has a resource alone and
+// lifted none: dev, which gained a topic since the stack merged, and prod
+// still match their buckets, which keep the address they had, and only
+// the topic, kept apart, is dev's.
+func TestMergeStackLiftedLabels(t *testing.T) {
+	t.Parallel()
+	bucket := func(env, labels string) string {
+		return `resource "google_storage_bucket" "main" {
+  labels   = ` + labels + `
+  location = "US"
+  name     = "infraharvest-e2e-` + env + `-orders"
+}
+`
+	}
+	write := func(files map[string]string) string {
+		dir := t.TempDir()
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	dev := write(map[string]string{
+		"locals.tf": "locals {\n  labels = {\n    env = \"dev\"\n  }\n}\n",
+		"generated.tf": bucket("dev", `merge(local.labels, { owner = "alice", team = "shop" })`) + `
+resource "google_pubsub_topic" "main" {
+  labels = local.labels
+  name   = "infraharvest-e2e-dev-events"
+}
+`,
+		"imports.tf": `import {
+  to = google_storage_bucket.main
+  id = "infraharvest-e2e/infraharvest-e2e-dev-orders"
+}
+
+import {
+  to = google_pubsub_topic.main
+  id = "projects/infraharvest-e2e/topics/infraharvest-e2e-dev-events"
+}
+`,
+	})
+	prod := write(map[string]string{
+		"generated.tf": bucket("prd", `{ env = "prd", owner = "bob", team = "shop" }`),
+		"imports.tf": `import {
+  to = google_storage_bucket.main
+  id = "infraharvest-e2e/infraharvest-e2e-prd-orders"
+}
+`,
+	})
+	target := t.TempDir()
+	var roots []envRoot
+	for _, r := range []MergeRoot{
+		{Env: "dev", Scope: "infraharvest-e2e", Dir: dev, Provider: Provider{Name: "google"}},
+		{Env: "prod", Tokens: []string{"prd"}, Scope: "infraharvest-e2e", Dir: prod, Provider: Provider{Name: "google"}},
+	} {
+		root, reason, err := readEnvRoot(r, target)
+		if err != nil || reason != "" {
+			t.Fatalf("readEnvRoot %s: %v %s", r.Env, err, reason)
+		}
+		roots = append(roots, root)
+	}
+	m := mergeStackWith("google", roots, nil, &mergeControls{isolated: map[string]bool{mergeKey(0, "google_pubsub_topic.main"): true}})
+	b := resourceAt(t, m, "google_storage_bucket.main")
+	if b.residue != "" || b.members[0] == nil || b.members[1] == nil || b.deploy != nil {
+		t.Errorf("the buckets aren't merged at google_storage_bucket.main: %q", b.residue)
+	}
+	if a := attributeOf(t, b, "labels"); a.variable == nil {
+		t.Errorf("labels = %s, want a variable of each environment's", flatExpr(a.value))
+	} else if dev := a.variable.values[0]; !sameLiteral(dev, `{ env = "dev", owner = "alice", team = "shop" }`) {
+		t.Errorf("dev's labels: %s", flatExpr(dev))
+	}
+	if topic := resourceAt(t, m, "google_pubsub_topic.main"); topic.residue == "" || topic.members[1] != nil {
+		t.Errorf("the topic isn't dev's alone: %q", topic.residue)
+	}
+	if got := m.imports(0)["google_storage_bucket.main"]; got != "infraharvest-e2e/infraharvest-e2e-dev-orders" {
+		t.Errorf("dev imports its bucket at google_storage_bucket.main: %v", m.imports(0))
 	}
 }
 

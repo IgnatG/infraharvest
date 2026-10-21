@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
-	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -143,41 +142,4 @@ func checkMergedRegenerate(ctx context.Context, t *testing.T, fixture *appliedFi
 	}
 	credentials("dev")
 	checkPlannedNothing(t, shared, planRoot(ctx, t, sharedDir, execPath, plugins))
-}
-
-// workspace returns Terraform in the merged root in dir, initialised, in
-// env's workspace, which the environment has applied it into.
-func workspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *engine.Runner {
-	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tf.Init(ctx); err != nil {
-		t.Fatalf("%s: terraform init: %v", env, err)
-	}
-	if err := tf.WorkspaceSelect(ctx, env); err != nil {
-		t.Fatalf("terraform workspace select %s: %v", env, err)
-	}
-	return tf
-}
-
-// mergedVarFiles are the var files environment env applies the merged
-// root in dir with, as its README says.
-func mergedVarFiles(dir, env string) []string {
-	var files []string
-	for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
-		files = append(files, filepath.Join(dir, "vars", filepath.FromSlash(name)))
-	}
-	return files
-}
-
-// checkPlannedNothing checks that plan, of what, changes no resource.
-func checkPlannedNothing(t *testing.T, what string, plan *tfjson.Plan) {
-	t.Helper()
-	for _, rc := range plan.ResourceChanges {
-		if rc.Mode == tfjson.ManagedResourceMode && !rc.Change.Actions.NoOp() {
-			t.Errorf("%s: %s is planned to %v, applied", what, rc.Address, rc.Change.Actions)
-		}
-	}
 }

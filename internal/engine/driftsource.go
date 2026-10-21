@@ -890,23 +890,26 @@ func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path 
 // from step i of the path in a root environments share: the value the
 // environment's var file gives the variable, or, where the file doesn't
 // set it, x, with an edit that adds it to the file. The value is set
-// only where it is the whole of what changed, written as the schema
-// types the argument at path, and every other argument that refers to
-// the variable, whose value would reach it too, has the cloud's value as
-// well in the environment (see variableUses).
+// only where it is the whole of what changed, or a key of the object or
+// map literal the file sets the variable to (see envVariableKey), written
+// as the schema types the argument at path, and every other argument
+// that refers to the variable, whose value would reach it too, has the
+// cloud's value as well in the environment (see variableUses).
 func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
 	file := w.e.envVars
 	f := w.cfg.files[file]
 	switch {
 	case f == nil:
 		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
-	case w.mod != nil || i != len(w.steps):
+	case w.mod != nil:
 		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
+	case i != len(w.steps):
+		return w.envVariableKey(x, name, f, path, i)
 	case w.c.value == nil:
 		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
 	}
 	if w.cfg.varUses[name] > 1 {
-		if reason := w.variableUses(name); reason != "" {
+		if reason := w.variableUses(name, nil); reason != "" {
 			return w.manual(SourceVariable, x.Range(), reason)
 		}
 	}
@@ -923,6 +926,60 @@ func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, pa
 		line = slices.Concat([]byte("\n"), line)
 	}
 	return Source{File: w.file, Range: x.Range(), Kind: SourceVariable, Edit: &SourceEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+}
+
+// envVariableKey is envVariable for what var.name sets below step i of
+// the path, such as the owner key of tags = var.tags: the element of the
+// object or map literal the environment's var file, f, sets the variable
+// to, edited alone with the cloud's value, or the key added to it,
+// keeping the rest. A hand edit where the file doesn't set the variable,
+// as when its default holds the environment's value, or sets it to
+// anything but a literal with the keys the path goes through.
+func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string, f *hclFile, path []string, i int) Source {
+	file := w.e.envVars
+	attr, ok := f.syntax.Attributes[name]
+	switch {
+	case !ok:
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value, and %s doesn't set it: add it to the file by hand", name, file))
+	case !literalExpr(attr.Expr) || !literalKeys(attr.Expr, w.steps[i:]):
+		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
+	}
+	if w.cfg.varUses[name] > 1 {
+		if reason := w.variableUses(name, w.steps[i:]); reason != "" {
+			return w.manual(SourceVariable, x.Range(), reason)
+		}
+	}
+	inner := *w
+	inner.file, inner.f = file, f
+	src := inner.expr(attr.Expr, holder{}, path, i)
+	src.Kind = SourceVariable
+	if src.Edit == nil && src.Reason != "" {
+		src.Reason = fmt.Sprintf("var.%s sets it, in %s: %s", name, file, src.Reason)
+	}
+	return src
+}
+
+// literalKeys reports whether expr, an object or map literal, has the
+// keys steps go through, but for the last, which may be one to add.
+func literalKeys(expr hclsyntax.Expression, steps []pathStep) bool {
+	for n, s := range steps {
+		obj, ok := expr.(*hclsyntax.ObjectConsExpr)
+		if !ok || s.isIndex {
+			return false
+		}
+		var next hclsyntax.Expression
+		for j := range obj.Items {
+			if keyName(obj.Items[j].KeyExpr) == s.name {
+				next = obj.Items[j].ValueExpr
+				break
+			}
+		}
+		if next == nil {
+			return n == len(steps)-1
+		}
+		expr = next
+	}
+	return true
 }
 
 // sensitiveVariable reports whether a variable block says sensitive =
