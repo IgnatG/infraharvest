@@ -353,6 +353,9 @@ environments:
 		"--parallel=2",
 		"--regions=us-east-1",
 		"--services=iam",
+		// Resources of the root, so that the attachment that reads the
+		// data source is one of its own.
+		"--modules=none",
 		"--catalogue=" + overlay,
 		"--out=" + out,
 		"--all",
