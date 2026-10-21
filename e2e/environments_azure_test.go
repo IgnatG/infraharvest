@@ -219,7 +219,7 @@ func TestAzureEnvironments(t *testing.T) {
 	}
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
-		applyInWorkspace(ctx, t, dir, execPath, plugins, env)
+		applyWorkspace(ctx, t, dir, execPath, plugins, env)
 	}
 
 	// dev's owner tag changes in the cloud: drift as dev finds it, and
@@ -302,7 +302,7 @@ func TestAzureEnvironments(t *testing.T) {
 	}
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
-		applyInWorkspace(ctx, t, dir, execPath, plugins, env)
+		applyWorkspace(ctx, t, dir, execPath, plugins, env)
 	}
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
