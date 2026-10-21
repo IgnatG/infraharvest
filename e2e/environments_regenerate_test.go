@@ -37,8 +37,9 @@ environments:
 
 // checkMergedRegenerate goes on from TestAWSEnvironments, whose merged
 // root in out, aws/us-east-1, each environment has applied into its
-// workspace, with fixture applied with the audit and reports queues and
-// dev's orders timeout of 90. First, dev's scratch queue, added to the
+// workspace, with fixture applied with the audit, reports and billing
+// queues and dev's orders timeout of 90; prod's workspace doesn't have
+// its billing queue yet, which its next apply imports. First, dev's scratch queue, added to the
 // merged root with --incremental, is deleted: the next --incremental,
 // with nothing new, leaves the merged root as it is and reports the queue
 // no longer in the cloud, at its address in the merged root, as dev's.

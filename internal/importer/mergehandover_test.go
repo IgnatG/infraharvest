@@ -18,12 +18,11 @@ import (
 // mergedEarlier records, under out, the merged root fake/stack that an
 // earlier import merged from the roots of dev and prod, which it set
 // aside, with imports, the import IDs of each environment's resources in
-// it by address. It returns the merged root's directory and the roots of
-// dev and prod.
-func mergedEarlier(t *testing.T, out string, imports map[string]map[string]string) (stack, dev, prod string) {
+// it by address. It returns the merged root's directory and dev's root.
+func mergedEarlier(t *testing.T, out string, imports map[string]map[string]string) (stack, dev string) {
 	t.Helper()
 	stack = filepath.Join(out, "fake", "stack")
-	dev, prod = filepath.Join(out, "envs", "dev", "fake"), filepath.Join(out, "envs", "prod", "fake")
+	dev = filepath.Join(out, "envs", "dev", "fake")
 	writeRootFiles(t, stack, map[string]string{"main.tf": "# merged\n"})
 	c := mergeCheckpoint{
 		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/fake"}, {Env: "prod", Path: "envs/prod/fake"}},
@@ -33,7 +32,7 @@ func mergedEarlier(t *testing.T, out string, imports map[string]map[string]strin
 	if err := writeMergeCheckpoint(out, stack, c); err != nil {
 		t.Fatal(err)
 	}
-	return stack, dev, prod
+	return stack, dev
 }
 
 // What leaves a merged root for another root of the run is handed over
@@ -43,7 +42,7 @@ func mergedEarlier(t *testing.T, out string, imports map[string]map[string]strin
 // The root it goes to imports it, knowing where from.
 func TestPlanMergedHandovers(t *testing.T) {
 	out := t.TempDir()
-	stack, dev, _ := mergedEarlier(t, out, map[string]map[string]string{
+	stack, dev := mergedEarlier(t, out, map[string]map[string]string{
 		"dev":  {"fake_thing.orders": "o1", "fake_thing.reports_dev[0]": "r1", `fake_thing.this["audit"]`: "a1"},
 		"prod": {"fake_thing.orders": "o2", `fake_thing.this["alerts"]`: "a2"},
 	})
@@ -80,7 +79,7 @@ func TestPlanMergedHandovers(t *testing.T) {
 // over.
 func TestPlanMergedHandoversKeepsWhatAnotherEnvironmentHas(t *testing.T) {
 	out := t.TempDir()
-	_, dev, _ := mergedEarlier(t, out, map[string]map[string]string{
+	_, dev := mergedEarlier(t, out, map[string]map[string]string{
 		"dev":  {"fake_thing.orders": "o1", "fake_thing.events": "e1"},
 		"prod": {"fake_thing.orders": "o2"},
 	})
