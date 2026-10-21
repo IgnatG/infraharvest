@@ -19,9 +19,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// readsVariable matches a reference to a variable, its name the first
+// variableReference matches a reference to a variable, its name the first
 // group.
-var readsVariable = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
+var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 
 // VacateMerged writes the merged root in dir, which environments share
 // (see writeMergedRoot), all of whose resources, in every environment, go
@@ -58,7 +58,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 		return nil, Check{}, err
 	}
 	reads := map[string]bool{}
-	for _, m := range readsVariable.FindAllSubmatch(providers, -1) {
+	for _, m := range variableReference.FindAllSubmatch(providers, -1) {
 		reads[string(m[1])] = true
 	}
 	var left []string
