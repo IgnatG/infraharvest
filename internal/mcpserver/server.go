@@ -271,8 +271,17 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
+	// discover saves what it lists under the output directory: the default
+	// one, but under the root rather than where the server runs.
+	out, err := t.within("out", importer.DefaultOut)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := t.linksStayUnder("out", out); err != nil {
+		return nil, nil, err
+	}
 	// Never the picker: the client talks to this process over stdio.
-	args = append(args, "--pick=false", "--selection="+in.Selection)
+	args = append(args, "--pick=false", "--out="+out, "--selection="+in.Selection)
 	_, stderr, code, err := t.run(ctx, args)
 	if err != nil {
 		return nil, nil, err
