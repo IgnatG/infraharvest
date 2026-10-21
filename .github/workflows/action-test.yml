@@ -267,7 +267,7 @@ jobs:
             -not -name imports.tf -not -name data.tf -not -name variables.tf -not -name locals.tf)
           grep -q "infraharvest-action-managed" <<< "$added"
           # The state has the others: none is added again.
-          ! grep -q -E '"infraharvest-action(-new)?"' <<< "$added"
+          if grep -q -E '"infraharvest-action(-new)?"' <<< "$added"; then exit 1; fi
           # The new import blocks import the new queue alone.
           imports=$(find . -name imports.tf -not -path '*/.terraform/*' -exec cat {} +)
           test "$(grep -c '^import {' <<< "$imports")" = 1
