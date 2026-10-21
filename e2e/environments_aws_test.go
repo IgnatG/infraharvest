@@ -52,7 +52,11 @@ environments:
 // still planning with no changes; with dev alone, it merges prod again as
 // its root was kept, unplanned. Applied into each environment's
 // workspace, the merged root is checked for drift as each environment,
-// and a change dev accepts is written into dev's var file.
+// and a change dev accepts is written into dev's var file. From a fresh
+// checkout of the output, without .infraharvest and with the import
+// blocks deleted, --incremental with --managed-state on the environments'
+// workspaces adds a queue prod gets since into the merged root, and
+// nothing else.
 func TestAWSEnvironments(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -283,6 +287,76 @@ func TestAWSEnvironments(t *testing.T) {
 	credentials("prod")
 	if d = drift.mustExit(t, report.ExitOK, "--detailed-exitcode", "--environment=prod"); len(d.Changes) != 0 {
 		t.Errorf("drift as prod:\n%s", driftChanges(d))
+	}
+
+	// A fresh checkout of the output has no .infraharvest, which its
+	// .gitignore leaves out, and, applied, a team deletes imports.tf and
+	// each environment's imports.tfvars. prod gets a queue: --incremental,
+	// with --managed-state reading each environment's workspace state,
+	// tells the merged root from its files and adds the queue into it as
+	// prod's, and nothing else. Planned in its workspace, each environment
+	// changes nothing, prod importing its new queue alone.
+	had := resourceAddresses(t, dir)
+	for _, path := range []string{
+		filepath.Join(out, ".infraharvest"),
+		filepath.Join(dir, "imports.tf"),
+		filepath.Join(dir, "vars", "dev", "imports.tfvars"),
+		filepath.Join(dir, "vars", "prod", "imports.tfvars"),
+	} {
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"), tfexec.Var("dev_orders_timeout=90"), tfexec.Var("billing=true"))
+	importInto(out, "--incremental", "--managed-state="+filepath.Join(dir, "terraform.tfstate.d"))
+	coverage = coverageOf(t, out)
+	checkCoverage(t, "--incremental from a fresh checkout", coverage, nil)
+	merge = checkMerged(t, out, coverage, "aws/us-east-1", "dev", "prod")
+	if len(merge.Unplanned) != 0 {
+		t.Errorf("--incremental from a fresh checkout: unplanned %v", merge.Unplanned)
+	}
+	var added []string
+	now := resourceAddresses(t, dir)
+	for address := range now {
+		if !had[address] {
+			added = append(added, address)
+		}
+	}
+	for address := range had {
+		if !now[address] {
+			t.Errorf("--incremental from a fresh checkout: %s is gone from the merged root", address)
+		}
+	}
+	if len(added) != 1 || !strings.Contains(added[0], "billing") {
+		t.Errorf("--incremental from a fresh checkout added %v, want prod's billing queue alone", added)
+	}
+	if !slices.ContainsFunc(merge.Residue, func(r report.MergeResidue) bool {
+		return r.Env == "prod" && strings.Contains(r.MergedAddress, "billing")
+	}) {
+		t.Errorf("--incremental from a fresh checkout: prod's billing queue isn't prod's: %+v", merge.Residue)
+	}
+	if prod := readFile(t, filepath.Join(dir, "vars", "prod", "imports.tfvars")); !strings.Contains(prod, "shop-prd-billing") {
+		t.Errorf("prod doesn't import its billing queue:\n%s", prod)
+	}
+	if dev := readFile(t, filepath.Join(dir, "vars", "dev", "imports.tfvars")); strings.Contains(dev, "shop-prd-billing") {
+		t.Errorf("dev imports prod's billing queue:\n%s", dev)
+	}
+	for _, env := range []string{"dev", "prod"} {
+		credentials(env)
+		imports := checkWorkspacePlan(ctx, t, dir, execPath, plugins, env)
+		switch {
+		case env == "dev" && len(imports) != 0:
+			t.Errorf("dev's workspace plan imports %v, which its state has", imports)
+		case env == "prod" && (len(imports) != 1 || !strings.Contains(imports[0], "billing")):
+			t.Errorf("prod's workspace plan imports %v, want its billing queue alone", imports)
+		}
+	}
+	// Planned with no state, as the gate does, each environment imports
+	// everything it has and changes nothing.
+	selectWorkspace(ctx, t, dir, execPath, plugins, "default")
+	imported = checkMergedPlans(ctx, t, dir, execPath, plugins, credentials, "dev", "prod")
+	if imported["dev"]["aws_sqs_queue"] != 4 || imported["prod"]["aws_sqs_queue"] != 4 || imported["prod"]["aws_sns_topic"] != 1 {
+		t.Errorf("--incremental from a fresh checkout: imported %v", imported)
 	}
 
 	// A layout that puts the environments' roots in the merged root's

@@ -4,7 +4,8 @@
 # account. The endpoint and region come from the environment the test
 # sets. The same queue is of another size in each; prod alone has an
 # alerts feature, a topic and its queue; and a queue of each environment
-# is configured too differently to merge.
+# is configured too differently to merge. Some resources are created only
+# later, for the incremental imports.
 
 terraform {
   required_providers {
@@ -133,4 +134,17 @@ resource "aws_iam_role" "prod" {
   provider           = aws.prod
   name               = "infraharvest-readonly"
   assume_role_policy = local.trust_caller
+}
+
+variable "billing" {
+  description = "Whether prod has a billing queue, which the test creates for an incremental import from a fresh checkout of the output."
+  type        = bool
+  default     = false
+}
+
+resource "aws_sqs_queue" "prod_billing" {
+  count    = var.billing ? 1 : 0
+  provider = aws.prod
+  name     = "shop-prd-billing"
+  tags     = local.prod
 }
