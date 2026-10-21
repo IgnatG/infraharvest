@@ -8,9 +8,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
@@ -84,31 +86,43 @@ func verifyCopy(dir string) (string, func(), error) {
 }
 
 // dropBackend returns src, a configuration file, without the backend and
-// cloud blocks of its terraform blocks, formatted only where src was, so
-// that the format check finds what it would in the root; src as it is
-// where it has none, or doesn't parse.
+// cloud blocks of its terraform blocks, cut out of it, with their lines
+// where nothing else is on them: the rest stays byte for byte, so that the
+// format check finds what it would in the root, but where src was
+// formatted, which it stays. It returns src as it is where it has none,
+// or doesn't parse.
 func dropBackend(src []byte) []byte {
-	f, diags := hclwrite.ParseConfig(src, "", hcl.InitialPos)
+	f, diags := hclsyntax.ParseConfig(src, "", hcl.InitialPos)
 	if diags.HasErrors() {
 		return src
 	}
-	changed := false
-	for _, b := range f.Body().Blocks() {
-		if b.Type() != "terraform" {
+	var cuts [][2]int
+	for _, b := range f.Body.(*hclsyntax.Body).Blocks {
+		if b.Type != "terraform" {
 			continue
 		}
-		for _, inner := range b.Body().Blocks() {
-			if inner.Type() == "backend" || inner.Type() == "cloud" {
-				b.Body().RemoveBlock(inner)
-				changed = true
+		for _, inner := range b.Body.Blocks {
+			if inner.Type != "backend" && inner.Type != "cloud" {
+				continue
 			}
+			rng := inner.Range()
+			start, end := rng.Start.Byte, rng.End.Byte
+			if ls, le := lineStart(src, start), lineEnd(src, end); len(bytes.TrimSpace(src[ls:start])) == 0 && len(bytes.TrimSpace(src[end:le])) == 0 {
+				start, end = ls, le
+			}
+			cuts = append(cuts, [2]int{start, end})
 		}
 	}
-	if !changed {
+	if len(cuts) == 0 {
 		return src
 	}
-	if bytes.Equal(hclwrite.Format(src), src) {
-		return hclwrite.Format(f.Bytes())
+	formatted := bytes.Equal(hclwrite.Format(src), src)
+	out := slices.Clone(src)
+	for i := len(cuts) - 1; i >= 0; i-- {
+		out = slices.Concat(out[:cuts[i][0]], out[cuts[i][1]:])
 	}
-	return f.Bytes()
+	if formatted {
+		return hclwrite.Format(out)
+	}
+	return out
 }
