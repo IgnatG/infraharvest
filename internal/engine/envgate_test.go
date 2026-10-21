@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -771,5 +772,58 @@ func TestWriteMergedNotInCloud(t *testing.T) {
 	readme := readFile(t, dir, ReadmeFileName)
 	if !strings.Contains(readme, "## No longer in the cloud") || !strings.Contains(readme, "- `aws_sqs_queue.this[\"orders\"]` (`q1`), of dev") {
 		t.Errorf("README.md:\n%s", readme)
+	}
+}
+
+// backendWatcher records, at each plan, whether the merged root's
+// providers.tf in dir configures a backend.
+type backendWatcher struct {
+	Terraform
+	dir     string
+	planned *[]bool
+}
+
+func (b *backendWatcher) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	content, _ := os.ReadFile(filepath.Join(b.dir, ProvidersFileName))
+	*b.planned = append(*b.planned, strings.Contains(string(content), "backend \""))
+	return b.Terraform.PlanJSON(ctx, w, opts...)
+}
+
+// The gate inits the merged root without its backend, so its plans plan
+// it without the backend block, as Terraform refuses a plan of a backend
+// it hasn't initialised; the merged root then keeps the block, which each
+// environment's backend.hcl configures.
+func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	var overrides []string
+	roots := mergeRoots(t, dir, nil, &overrides)
+	var planned []bool
+	for i, account := range []string{"111111111111", "222222222222"} {
+		backend := "terraform {\n  backend \"s3\" {\n    bucket = \"state\"\n    key    = \"imported/aws/" + account + "/eu-west-2/terraform.tfstate\"\n    region = \"eu-west-2\"\n  }\n}\n"
+		if err := os.WriteFile(filepath.Join(roots[i].Dir, "backend.tf"), []byte(backend), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		next := roots[i].Terraform
+		roots[i].Terraform = func(d string) (Terraform, error) {
+			tf, err := next(d)
+			return &backendWatcher{Terraform: tf, dir: dir, planned: &planned}, err
+		}
+	}
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "" {
+		t.Fatalf("not merged: %s", result.Reason)
+	}
+	if len(planned) == 0 || slices.Contains(planned, true) {
+		t.Errorf("plans with a backend in providers.tf: %v, want none", planned)
+	}
+	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, `backend "s3"`) {
+		t.Errorf("providers.tf has no backend once merged:\n%s", got)
+	}
+	if got := readFile(t, dir, filepath.Join(varsDirName, "prod", backendConfigFileName)); !strings.Contains(got, "222222222222") {
+		t.Errorf("prod's backend.hcl:\n%s", got)
 	}
 }
