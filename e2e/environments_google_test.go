@@ -57,10 +57,13 @@ const googleEventsTopic = "infraharvest-e2e-dev-events"
 //     workspaces' states, adds it into the merged root as dev's, and
 //     nothing else. In its workspace, dev imports the topic alone and prod
 //     nothing; with no state, each imports all it has.
-//  4. The topic, applied into dev's workspace, is deleted out of band:
-//     --incremental reports it no longer in the cloud, as dev's, at its
-//     address in the merged root, which stays as it is. It is then created
-//     again, as it was.
+//  4. The topic, applied into dev's workspace, is deleted out of band, as
+//     prod gets a reports bucket: --incremental adds the bucket into the
+//     merged root as prod's, and reports the topic no longer in the cloud,
+//     as dev's, at its address in the merged root, which keeps it, with
+//     dev's import of it, and every other address. The topic is then
+//     created again, as it was, and each environment applies the merged
+//     root into its workspace.
 //  5. Dev's bucket gets another owner label out of band: drift as dev
 //     reports it, kept, and, accepted, writes it into dev's var file
 //     alone; drift as prod finds nothing. As docs/drift.md says, the next
@@ -249,15 +252,43 @@ func TestGoogleEnvironments(t *testing.T) {
 	}
 
 	// 4. Deleted out of band, the topic is reported no longer in the
-	// cloud, as dev's, at its address in the merged root. Cloud Asset
+	// cloud, as dev's, at its address in the merged root, as prod gets a
+	// reports bucket, which the same run adds as prod's. Cloud Asset
 	// Inventory lists every topic of the project, so the topic counts as
 	// gone; buckets would too, but not in a module call (see
 	// docs/usage.md).
-	apply("events=false")
+	had = resourceAddresses(t, dir)
+	apply("events=false", "reports=true")
 	coverage = importInto("--incremental")
 	checkCoverage(t, "--incremental after deleting dev's topic", coverage, nil)
-	if m := mergeOf(t, coverage, "google/global"); !m.Merged || !m.Unchanged {
-		t.Errorf("--incremental with nothing new: merged %v, unchanged %v (%s)", m.Merged, m.Unchanged, m.Reason)
+	merge = checkMerged(t, out, coverage, "google/global", envs...)
+	if merge.Unchanged {
+		t.Errorf("--incremental with prod's new bucket: the merged root is unchanged")
+	}
+	added, now = nil, resourceAddresses(t, dir)
+	for address := range now {
+		if !had[address] {
+			added = append(added, address)
+		}
+	}
+	for address := range had {
+		if !now[address] {
+			t.Errorf("--incremental after deleting dev's topic: %s is gone from the merged root", address)
+		}
+	}
+	if len(added) != 1 || !strings.HasPrefix(added[0], "google_storage_bucket.") {
+		t.Errorf("--incremental after deleting dev's topic added %v, want prod's reports bucket alone", added)
+	} else if !slices.ContainsFunc(merge.Residue, func(r report.MergeResidue) bool {
+		return r.Env == "prod" && strings.HasPrefix(r.MergedAddress, added[0])
+	}) {
+		t.Errorf("--incremental after deleting dev's topic: prod's reports bucket isn't prod's: %+v", merge.Residue)
+	}
+	if prod := readFile(t, filepath.Join(dir, "vars", "prod", "imports.tfvars")); !strings.Contains(prod, "infraharvest-e2e-prd-reports") {
+		t.Errorf("prod doesn't import its reports bucket:\n%s", prod)
+	}
+	// Dev's import of the topic stays, as plain --incremental leaves it.
+	if dev := readFile(t, filepath.Join(dir, "vars", "dev", "imports.tfvars")); !strings.Contains(dev, googleEventsTopic) || strings.Contains(dev, "infraharvest-e2e-prd-reports") {
+		t.Errorf("dev's imports after deleting its topic:\n%s", dev)
 	}
 	if len(coverage.NotInCloud) != 1 {
 		t.Fatalf("--incremental after deleting dev's topic: no longer in the cloud %+v, want the topic", coverage.NotInCloud)
@@ -270,8 +301,12 @@ func TestGoogleEnvironments(t *testing.T) {
 	if md := readFile(t, filepath.Join(out, report.Dir, "report.md")); !strings.Contains(md, "`"+gone.Address+"`") || !strings.Contains(md, "of dev") {
 		t.Errorf("report.md doesn't list %s as dev's, no longer in the cloud:\n%s", gone.Address, md)
 	}
-	// The topic comes back as it was, which dev's workspace still has.
+	// The topic comes back as it was, which dev's workspace still has, and
+	// prod imports its reports bucket into its workspace.
 	apply("events=true")
+	for _, env := range envs {
+		applyWorkspace(ctx, t, dir, execPath, plugins, env)
+	}
 
 	// 5. Drift as each environment: dev's change, accepted, goes into
 	// dev's var file alone.
