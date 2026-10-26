@@ -737,7 +737,7 @@ jobs:
           jq -e '[.directories[].path] == ["google/infraharvest-e2e/global"] and all(.directories[].checks[]?; .passed)' "$coverage"
           # Planned again, the root imports the two and changes nothing but,
           # with Google, the labels the provider keeps only in the state
-          # (terraform_labels, effective_labels; see docs/drift.md).
+          # (labels, terraform_labels, effective_labels; see docs/drift.md).
           terraform -chdir="$root" init -input=false
           terraform -chdir="$root" plan -input=false -out=tfplan
           terraform -chdir="$root" show -json tfplan > "$RUNNER_TEMP/plan.json"
@@ -751,7 +751,7 @@ jobs:
           jq -e "[.resource_changes[] | select(.mode == \"managed\")] as \$c
             | (\$c | length) == 2 and all(\$c[]; .change.importing != null and (
                 .change.actions == [\"no-op\"] or (.change.actions == [\"update\"]
-                  and (($changed) | all(. == \"terraform_labels\" or . == \"effective_labels\")))))" "$RUNNER_TEMP/plan.json"
+                  and (($changed) | all(. == \"labels\" or . == \"terraform_labels\" or . == \"effective_labels\")))))" "$RUNNER_TEMP/plan.json"
       - name: floci-gcp and stand-in logs
         if: failure()
         run: |
@@ -1100,7 +1100,7 @@ jobs:
           remote="$RUNNER_TEMP/remote/infraharvest.git"
           work="$RUNNER_TEMP/work"
           other="$RUNNER_TEMP/other"
-          git init --quiet --bare "$remote"
+          git init --quiet --bare -b main "$remote"
           git init --quiet -b main "$work"
           cd "$work"
           git config user.name test
