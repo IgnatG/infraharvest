@@ -407,7 +407,9 @@ func TestGenerateResolvesConflictsBeforeValidation(t *testing.T) {
 	}
 	before, after := run(t, nil), run(t, subnetMetadata())
 	t.Logf("terraform plan: %d without the metadata, %d with it; terraform validate: %d, %d", count(before, "plan"), count(after, "plan"), count(before, "validate"), count(after, "validate"))
-	if count(after, "plan") >= count(before, "plan") || count(after, "validate") >= count(before, "validate") {
-		t.Errorf("want fewer plans and validations with the metadata:\nwithout: %v\nwith:    %v", before, after)
+	// The plan of the sorted configuration no longer fails, so neither repair's
+	// two validations nor the plan after it are needed.
+	if count(before, "plan")-count(after, "plan") != 1 || count(before, "validate")-count(after, "validate") != 2 {
+		t.Errorf("want one plan and two validations fewer with the metadata:\nwithout: %v\nwith:    %v", before, after)
 	}
 }
