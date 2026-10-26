@@ -72,7 +72,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, opts Options, se
 		}
 	}
 	// First, so the steps below see only the arguments that matter.
-	rules := defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty}
+	rules := defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty, hints: schemaHintsFor(dir, opts.SchemaMetadata)}
 	if et := opts.EffectiveTags; et != nil {
 		rules.tags = et.Attribute
 	}
