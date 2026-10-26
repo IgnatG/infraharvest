@@ -13,9 +13,10 @@ name: Remote tasks
 #           -update: ./internal/catalogue (the default), ./internal/cli (the
 #           command-line contract and the generated references,
 #           docs/reference/cli.md and docs/reference/services.md),
-#           ./internal/engine (the roots environments share) and
-#           ./internal/harvest. No other package takes -update, so go test
-#           fails on it. It uploads them as the artifact golden; pushing a
+#           ./internal/engine (the roots environments share),
+#           ./internal/harvest and ./pkg/cfn (CloudFormation templates
+#           converted). No other package takes -update, so go test fails
+#           on it. It uploads them as the artifact golden; pushing a
 #           branch named golden/<anything> does the same:
 #             gh workflow run remote.yml --ref <branch> -f task=golden -f packages=./internal/catalogue
 #   tidy    runs go mod tidy and uploads go.mod and go.sum as the artifact
