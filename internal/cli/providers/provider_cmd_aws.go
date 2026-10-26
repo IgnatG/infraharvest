@@ -142,6 +142,15 @@ func planAWSStacks(ctx context.Context, options importer.Options) (plan, error) 
 	return plan{
 		calls: func(callOptions importer.Options, _ string) []call {
 			callOptions.Regions, callOptions.Services, callOptions.RoleARN = options.Regions, options.Services, roleARN
+			if len(callOptions.Services) == 0 {
+				// Nothing to list, as where every resource is a custom
+				// resource: one call, in the stacks' first region, still
+				// reports the stacks, with what keeps each from being safe
+				// to delete.
+				log.Printf("aws: no service lists a resource of the stacks: importing nothing, to report on the stacks")
+				callOptions.Regions = callOptions.Regions[:1]
+				return []call{awsCall(callOptions, callOptions.Regions[0], "region "+callOptions.Regions[0])}
+			}
 			return awsCalls(callOptions)
 		},
 		newProvider: func() harvest.Provider {

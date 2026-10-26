@@ -5,7 +5,9 @@ package importer
 
 import (
 	"context"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -76,5 +78,46 @@ func TestImportScope(t *testing.T) {
 	unchanged, err := NewRun().applyImportScope(t.Context(), &fakeProvider{}, &listed, map[string]string{"a b": "c"}, scope)
 	if err != nil || !reflect.DeepEqual(unchanged, map[string]string{"a b": "c"}) {
 		t.Errorf("unscoped: %v, %v", unchanged, err)
+	}
+}
+
+// stackOnlyProvider is scoped to a stack that has nothing any service
+// lists: a custom resource alone.
+type stackOnlyProvider struct {
+	rootsProvider
+}
+
+func (*stackOnlyProvider) ImportScope(context.Context, []harvest.Resource) (*harvest.ImportScope, error) {
+	return &harvest.ImportScope{Inside: map[string]bool{}, Outside: map[string]string{}, Stacks: []report.CloudFormationStack{{
+		Name: "seeds", ID: "stack/seeds", Region: "eu-west-2", Status: "CREATE_COMPLETE",
+		Resources: []report.CloudFormationResource{{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Retain: []string{"DeletionPolicy is Delete, the default"}}},
+	}}}, nil
+}
+
+// An import scoped to a stack no service lists anything of lists nothing,
+// but still reports the stack, with what keeps it from being safe to
+// delete.
+func TestImportScopeWithNothingToList(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	run := NewRun()
+	c, err := listCall(t.Context(), run, &stackOnlyProvider{}, pathOptions(out, &fakeEngine{}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.generate(t.Context(), c.byDir); err != nil {
+		t.Fatal(err)
+	}
+	err = run.finish(nil)
+
+	r, readErr := report.Read(out)
+	if readErr != nil {
+		t.Fatalf("no report (%v): %v", err, readErr)
+	}
+	if len(r.CloudFormationStacks) != 1 {
+		t.Fatalf("stacks %+v", r.CloudFormationStacks)
+	}
+	s := r.CloudFormationStacks[0]
+	if s.SafeToDelete || !strings.Contains(strings.Join(s.Blockers, "\n"), "Seed (Custom::Seed) can't be imported") {
+		t.Errorf("stack %+v", s)
 	}
 }
