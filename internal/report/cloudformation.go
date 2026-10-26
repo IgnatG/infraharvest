@@ -301,6 +301,22 @@ func (r *Report) finishStacks() {
 		}
 		s.SafeToDelete = len(s.Blockers) == 0
 	}
+	// Deleting a stack deletes the stacks nested in it, so what keeps one of
+	// those from being deleted keeps each stack it is nested in too.
+	own := map[string][]string{}
+	byID := map[string]*CloudFormationStack{}
+	for i := range r.CloudFormationStacks {
+		s := &r.CloudFormationStacks[i]
+		own[s.ID], byID[s.ID] = slices.Clone(s.Blockers), s
+	}
+	for _, s := range r.CloudFormationStacks {
+		for parent := byID[s.Parent]; parent != nil && !parent.Deleted; parent = byID[parent.Parent] {
+			for _, blocker := range own[s.ID] {
+				parent.Blockers = append(parent.Blockers, "in nested stack "+s.Name+": "+blocker)
+			}
+			parent.SafeToDelete = parent.SafeToDelete && len(own[s.ID]) == 0
+		}
+	}
 }
 
 // stackOutcome returns what became of res, a resource of s, and why:

@@ -183,3 +183,27 @@ func TestStackCustomResources(t *testing.T) {
 		t.Errorf("must remove: %v", got.Blockers)
 	}
 }
+
+// Deleting a stack deletes the stacks nested in it, so what keeps one of
+// those from being safe to delete keeps the stack it is nested in too.
+func TestStackNestedBlockers(t *testing.T) {
+	parent := scopedStack(nil)
+	nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "stack/app-Network-1ABC", Region: "eu-west-2", Parent: parent.ID, Resources: []CloudFormationResource{
+		{LogicalID: "Alerts", Type: "AWS::SNS::Topic", PhysicalID: "alerts", Status: "CREATE_COMPLETE", Retain: []string{"DeletionPolicy is Delete, the default"}, Matches: []CloudFormationMatch{{Scope: stackScope, Type: "aws_sns_topic", ID: "alerts"}}},
+	}}
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{parent, nested})
+	r.Directories = []Directory{imports()}
+	r.Directories[0].Imported = append(r.Directories[0].Imported, Resource{Address: "aws_sns_topic.alerts", ID: "alerts"})
+
+	r.Finish(nil, nil, false)
+
+	for _, s := range r.CloudFormationStacks {
+		if s.SafeToDelete {
+			t.Errorf("%s is safe to delete", s.Name)
+		}
+		if s.Name == "app" && !strings.Contains(strings.Join(s.Blockers, "\n"), "in nested stack app-Network-1ABC: Alerts (AWS::SNS::Topic) isn't retained") {
+			t.Errorf("app's blockers: %v", s.Blockers)
+		}
+	}
+}
