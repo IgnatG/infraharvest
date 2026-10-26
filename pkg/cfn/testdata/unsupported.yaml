@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Everything the converter can't carry over, each of which it must report.
+Transform:
+  - AWS::Serverless-2016-10-31
+  - AcmeMacro
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups: []
+
+Rules:
+  ProdNeedsLargeInstances:
+    RuleCondition: !Equals [!Ref Environment, prod]
+    Assertions:
+      - Assert: !Contains [[m6i.large], !Ref InstanceType]
+
+Hooks:
+  Deploy:
+    Type: AWS::CodeDeploy::BlueGreen
+
+Parameters:
+  Environment:
+    Type: String
+  InstanceType:
+    Type: String
+
+Resources:
+  Seeder:
+    Type: Custom::DatabaseSeeder
+    Properties:
+      ServiceToken: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:seeder"
+      Rows: 10
+
+  Child:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://example.com/child.yaml
+
+  Api:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+
+  Widget:
+    Type: Acme::Widgets::Widget
+    Properties:
+      Size: 3
+
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:abc
+
+  Queue:
+    Type: AWS::SQS::Queue
+    CreationPolicy:
+      ResourceSignal: {Count: 1}
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages: {}
+    Properties:
+      QueueName: !Bogus [a, b]
+      DelaySeconds: !GetAtt Seeder.Delay
+      MessageRetentionPeriod: !Ref Missing
+      VisibilityTimeout: !FindInMap [NoSuchMap, a, b]
+      Tags: !Ref AWS::NoValue
+      RedrivePolicy:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters: {Location: s3://bucket/redrive.json}
+
+  Fn::ForEach::Topics:
+    - TopicName
+    - [Alerts, Events]
+    - Topic${TopicName}:
+        Type: AWS::SNS::Topic
+
+Outputs:
+  SeederResult:
+    Value: !GetAtt Seeder.Result
+  QueueUrl:
+    Condition: NoSuchCondition
+    Value: !Ref Queue

@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: A VPC with public subnets in two zones, and a NAT gateway in production.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Which environment the network is for.
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+    AllowedPattern: '(\d{1,3}\.){3}\d{1,3}/\d{1,2}'
+    ConstraintDescription: must be an IPv4 CIDR block
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair for the bastion.
+  AdminCidrs:
+    Type: CommaDelimitedList
+    Default: "203.0.113.0/24, 198.51.100.0/24"
+
+Mappings:
+  EnvironmentSize:
+    dev:
+      NatCount: 0
+      InstanceType: t3.micro
+    prod:
+      NatCount: 1
+      InstanceType: m6i.large
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  IsNotDev: !Not [!Equals [!Ref Environment, dev]]
+  WantsNat: !And
+    - !Condition IsProd
+    - !Condition IsNotDev
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc"
+        - Key: Environment
+          Value: !Ref Environment
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [0, !Cidr [!GetAtt Vpc.CidrBlock, 4, 8]]
+      MapPublicIpOnLaunch: true
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [1, !Cidr ["10.20.0.0/16", 4, 8]]
+      MapPublicIpOnLaunch: true
+
+  PublicRoutes:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRoutes
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  NatAddress:
+    Type: AWS::EC2::EIP
+    Condition: WantsNat
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: WantsNat
+    Properties:
+      AllocationId: !GetAtt NatAddress.AllocationId
+      SubnetId: !Ref PublicSubnetA
+
+  BastionGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "SSH to the ${Environment} bastion"
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Select [0, !Ref AdminCidrs]
+        - !If
+          - IsProd
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: !Select [1, !Ref AdminCidrs]
+          - !Ref AWS::NoValue
+
+Outputs:
+  VpcId:
+    Description: The VPC.
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+  PublicSubnets:
+    Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+  NatAddress:
+    Condition: WantsNat
+    Value: !Ref NatAddress
+  InstanceType:
+    Value: !FindInMap [EnvironmentSize, !Ref Environment, InstanceType]
+  Region:
+    Value: !Sub "${AWS::Region} in ${AWS::Partition} for ${AWS::AccountId}"

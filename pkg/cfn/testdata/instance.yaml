@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: An instance whose image comes from SSM, configured by user data.
+Transform: AWS::LanguageExtensions
+
+Parameters:
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  Ports:
+    Type: List<Number>
+    Default: "80,443"
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+
+Mappings:
+  Sizes:
+    small: {Type: t3.small}
+    large: {Type: m6i.large}
+
+Resources:
+  Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [web]
+
+  Server:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Snapshot
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !FindInMap [Sizes, medium, Type, {DefaultValue: t3.medium}]
+      SubnetId: !Select [0, !Ref Subnets]
+      IamInstanceProfile: !Ref Profile
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            echo "port count: ${PortCount}" > /etc/motd
+            echo "region ${AWS::Region}, stack ${AWS::StackName}"
+            export DB_PASSWORD='${DbPassword}'
+            echo "literal ${!HOME} and 100%{done}"
+          - PortCount: !Length [80, 443]
+      Tags:
+        - Key: Ports
+          Value: !ToJsonString [80, 443]
+
+  Disk:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !GetAtt Server.AvailabilityZone
+      Size: 20
+      Encrypted: true
+
+Outputs:
+  PrivateIp:
+    Value: !GetAtt Server.PrivateIp
+  Disk:
+    Value: !Ref Disk
