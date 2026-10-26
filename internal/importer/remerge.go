@@ -231,7 +231,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	// A restored member has no engine options of its own.
 	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
 	mergeOptions := engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
-	result, err := engine.MergeRoots(ctx, stack, roots, mergeOptions)
+	result, err := r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	// Nothing says which of the resources of a stack merged before an
 	// earlier merge kept apart, as what an incremental import added (see
 	// mergeMember.isolated), nor the labels it gave them, which came from
@@ -272,7 +272,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		if err := clearMerged(stack, result.Files); err != nil {
 			return errors.Join(err, backup.restore())
 		}
-		result, err = engine.MergeRoots(ctx, stack, roots, mergeOptions)
+		result, err = r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	}
 	if err != nil {
 		r.warnMergedIncomplete(stack, members, err.Error())

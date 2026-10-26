@@ -96,7 +96,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if err != nil {
 		return added, nil, nil, err
 	}
-	result, err := engine.Add(ctx, tf, rootTF, staging, dir, added, opts, existing)
+	result, err := r.options.tools.add(ctx, tf, rootTF, staging, dir, added, opts, existing)
 	if err != nil {
 		return added, nil, nil, err
 	}

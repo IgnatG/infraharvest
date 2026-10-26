@@ -47,8 +47,10 @@ func (s *rootsService) List() error {
 }
 
 // fakeEngine stands in for the engine binary, the registry and the
-// engine's generation of a root: each root it generates gets the files a
-// resumed root must have, and imports what it was asked to.
+// engine's writing of each root: each root it generates gets the files a
+// resumed root must have, and imports what it was asked to; what it adds
+// to a root goes in a file of its own; and the roots of a stack's
+// environments merge as mergeReason says.
 type fakeEngine struct {
 	mu sync.Mutex
 	// generated are the roots generated, in order, and opts the engine
@@ -66,6 +68,12 @@ type fakeEngine struct {
 	// say an earlier import generated that is at another address now, as
 	// the engine does.
 	moves bool
+	// added are the imports added to each root, by directory, and merged
+	// the roots of each merge, in order.
+	added  map[string][]engine.Import
+	merged [][]engine.MergeRoot
+	// mergeReason, if set, is why the roots of a stack don't merge.
+	mergeReason string
 }
 
 func (f *fakeEngine) tools() *callTools {
@@ -143,6 +151,33 @@ func (f *fakeEngine) tools() *callTools {
 				}
 			}
 			return result, nil
+		},
+		addTo: func(_ context.Context, _, _ engine.Terraform, _, root string, imports []engine.Import, _ engine.Options, _ map[engine.External]string) (*engine.Result, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.added == nil {
+				f.added = map[string][]engine.Import{}
+			}
+			f.added[filepath.Base(root)] = imports
+			name := engine.AddedFileName(2)
+			return &engine.Result{Imported: imports, Files: []string{name}}, os.WriteFile(filepath.Join(root, name), []byte("# fake\n"), 0o644)
+		},
+		merge: func(_ context.Context, dir string, roots []engine.MergeRoot, _ engine.MergeOptions) (*engine.MergeResult, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.merged = append(f.merged, roots)
+			result := &engine.MergeResult{Reason: f.mergeReason}
+			if f.mergeReason != "" {
+				return result, nil
+			}
+			result.Files = []string{"main.tf"}
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return nil, err
+			}
+			for _, r := range roots {
+				result.Environments = append(result.Environments, engine.MergedEnvironment{Env: r.Env})
+			}
+			return result, os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# merged\n"), 0o644)
 		},
 	}
 }

@@ -586,7 +586,7 @@ func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []engine.R
 		}
 		return backup.restore()
 	}
-	left, check, err := engine.VacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
+	left, check, err := r.options.tools.vacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
 	if err != nil {
 		return err.Error(), restore()
 	}

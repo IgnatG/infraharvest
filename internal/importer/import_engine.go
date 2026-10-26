@@ -657,7 +657,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	}
 	dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
 	if len(imports) == 0 {
-		result, err = engine.Vacate(dir, dirOpts)
+		result, err = options.tools.vacate(dir, dirOpts)
 	} else {
 		result, err = options.tools.generateDir(ctx, dir, tr, imports, dirOpts, lock)
 		if err == nil && untemplated {
