@@ -47,9 +47,12 @@ Outputs:
 	run := NewRun()
 	run.report.AddCloudFormationStacks([]report.CloudFormationStack{stack})
 	c := &listedCall{run: run, provider: &fakeProvider{}, scope: "123456789012/eu-west-2"}
-	refine := c.stackIntent()
+	refine, key := c.stackIntent()
 	if refine == nil {
 		t.Fatal("no Refine for a scoped call")
+	}
+	if key == "" {
+		t.Error("no RefineKey for a scoped call")
 	}
 
 	dir := t.TempDir()
@@ -83,7 +86,7 @@ Outputs:
 
 	// A call that lists none of the stack's resources has nothing to refine.
 	other := &listedCall{run: run, provider: &fakeProvider{}, scope: "210987654321/eu-west-2"}
-	if other.stackIntent() != nil {
+	if refine, _ := other.stackIntent(); refine != nil {
 		t.Error("a Refine for a call with none of the stack's resources")
 	}
 }
