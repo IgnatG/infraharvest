@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "infraharvest",
+    "version": "v0.0.0-20261026074054-eb77d91e90ee"
+  },
+  "engine": {
+    "name": "terraform",
+    "version": "1.16.6"
+  },
+  "provider": {
+    "source": "registry.terraform.io/hashicorp/aws",
+    "constraint": "~\u003e 6.70",
+    "version": "6.70.0"
+  }
+}
