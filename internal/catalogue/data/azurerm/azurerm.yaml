@@ -121,6 +121,33 @@ types:
       - reason: a diagnostic setting an Azure Policy DeployIfNotExists assignment deploys and keeps as the policy has it (setByPolicy...); select it to import it
         ignore_case: true
         attribute_prefixes: { name: [setByPolicy] }
+  azurerm_role_assignment:
+    service: role_assignment
+    # The lister records each assignment's name, scope, principal type,
+    # the resource group of its scope and what manages that group, so the
+    # rules for every type leave out the assignments in the groups they
+    # leave out, such as those AKS makes in its MC_* group, and whether its
+    # role is a custom role the service lists (role_definition_listed).
+    skip:
+      - reason: assigned at a management group, the tenant root or another subscription, and inherited by this one; import it with what manages that scope
+        attributes: { inherited: "true" }
+    # azurerm takes exactly one of role_definition_id and
+    # role_definition_name, and reads both back: a built-in role, or a
+    # custom role the import doesn't list, goes by its name, as it is
+    # written by hand; a custom role the import lists, by its ID, which
+    # then refers to its azurerm_role_definition. principal_type is
+    # optional and computed, and azurerm accepts only User, Group and
+    # ServicePrincipal: left out, the assignment keeps the type Azure
+    # reports for a foreign group or a device.
+    omit:
+      - role_definition_id when !@role_definition_listed
+      - role_definition_name when @role_definition_listed
+      - principal_type=ForeignGroup
+      - principal_type=Device
+  azurerm_role_definition:
+    # The custom roles that can be assigned only in the subscription, or
+    # only in --resource-group and what is in it.
+    service: role_assignment
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource

@@ -28,7 +28,7 @@ Without Terraform, attach `ReadOnlyAccess` and `deny-data-reads.json` (as an inl
 
 ## Azure
 
-Assigns the built-in **Reader** role to a user, group, service principal or managed identity. The scope is a subscription by default, or a management group. Reader has no data actions, so it can't read blob contents, Key Vault secrets or database rows. Its `*/read` covers what the opt-in services read too, such as `Microsoft.Insights/diagnosticSettings/read` for `diagnostic_setting`.
+Assigns the built-in **Reader** role to a user, group, service principal or managed identity. The scope is a subscription by default, or a management group. Reader has no data actions, so it can't read blob contents, Key Vault secrets or database rows. Its `*/read` covers what every service reads, such as the role assignments and role definitions `role_assignment` lists (`Microsoft.Authorization/roleAssignments/read`, `Microsoft.Authorization/roleDefinitions/read`), which Resource Graph shows it, and which the generated roots' plans read again, and `Microsoft.Insights/diagnosticSettings/read` for the opt-in `diagnostic_setting`.
 
 ```sh
 cd permissions/azure

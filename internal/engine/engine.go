@@ -562,6 +562,11 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
+	// Once the references are made: what is still a literal is no
+	// resource's.
+	if _, err := notePrincipals(generated); err != nil {
+		return nil, err
+	}
 	moved, err := movedAddresses(dir, before)
 	if err != nil {
 		return nil, err

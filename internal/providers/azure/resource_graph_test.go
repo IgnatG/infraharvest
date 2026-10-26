@@ -124,7 +124,7 @@ func TestWildcardListsResourceGraph(t *testing.T) {
 		}
 	}
 	slices.Sort(wildcard)
-	want := []string{"management_lock", resourceGraphService, "security_center_contact", "security_center_subscription_pricing"}
+	want := []string{"management_lock", resourceGraphService, "role_assignment", "security_center_contact", "security_center_subscription_pricing"}
 	if !slices.Equal(wildcard, want) {
 		t.Errorf("* lists %v, want %v", wildcard, want)
 	}

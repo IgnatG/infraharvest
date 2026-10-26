@@ -47,6 +47,7 @@ var services = map[string]func() harvest.Lister{
 	resourceGraphService:                   func() harvest.Lister { return &ResourceGraphLister{} },
 	diagnosticSettingService:               func() harvest.Lister { return &DiagnosticSettingLister{} },
 	"management_lock":                      func() harvest.Lister { return &ManagementLockLister{} },
+	"role_assignment":                      func() harvest.Lister { return &RoleAssignmentLister{} },
 	"security_center_contact":              func() harvest.Lister { return &SecurityCenterContactLister{} },
 	"security_center_subscription_pricing": func() harvest.Lister { return &SecurityCenterSubscriptionPricingLister{} },
 	"managed_identity":                     func() harvest.Lister { return &ManagedIdentityLister{} },
