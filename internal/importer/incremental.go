@@ -154,16 +154,6 @@ func stagingDir(out, dir string) string {
 	return filepath.Join(base, hex.EncodeToString(sum[:])[:16])
 }
 
-// checkpointResult returns the result the checkpoint of dir records, from
-// whichever run; nil if there is none.
-func checkpointResult(out, dir string) (*engine.Result, error) {
-	c, err := readCheckpoint(out, dir)
-	if err != nil || c == nil {
-		return nil, err
-	}
-	return c.Result, nil
-}
-
 // InOtherRootReason is why an incremental import leaves out a resource
 // another root of the output imports, which the reason names after it.
 const InOtherRootReason = "already in another root of the output"

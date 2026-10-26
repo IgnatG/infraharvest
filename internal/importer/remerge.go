@@ -21,27 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
-// premerged reports whether the root in dir, under out, is one its
-// stack's merge set aside (see premergeDir): its files are there, and dir
-// has no configuration of its own.
-func premerged(out, dir string) (bool, error) {
-	set, err := fileExists(filepath.Join(premergeDir(out, dir), engine.VersionsFileName))
-	if err != nil || !set {
-		return false, err
-	}
-	names, err := tfFiles(dir)
-	return len(names) == 0, err
-}
-
-// rootSource returns where the files of the root in dir, under out, are:
-// in dir, or where its stack's merge set them aside.
-func rootSource(out, dir string) string {
-	if set, err := premerged(out, dir); err == nil && set {
-		return premergeDir(out, dir)
-	}
-	return dir
-}
-
 // setAside moves the root in dir, under out, to where its stack's merge
 // sets it aside (see premergeDir), as it is now.
 func setAside(out, dir string) error {
