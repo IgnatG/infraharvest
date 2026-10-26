@@ -1,0 +1,28 @@
+infraharvest
+Copyright 2026 Gabriel Ignat
+
+infraharvest is licensed under the GNU Affero General Public License,
+version 3 only (AGPL-3.0-only): see LICENSE.
+
+It embeds data read out of the following works, which are licensed under
+the Mozilla Public License, version 2.0 (MPL-2.0): see LICENSES/MPL-2.0.txt
+or https://mozilla.org/MPL/2.0/. The data is the arguments' defaults and
+the constraints between them that each provider's resource schemas
+declare, at the release named, and it stays under MPL-2.0; the rest of
+infraharvest is a larger work under AGPL-3.0-only (MPL-2.0 section 3.3).
+
+internal/catalogue/schemameta/aws.json.gz
+  from terraform-provider-aws 6.70.0, Copyright IBM Corp. and HashiCorp, Inc.
+  source: https://github.com/hashicorp/terraform-provider-aws/tree/v6.70.0
+
+internal/catalogue/schemameta/azurerm.json.gz
+  from terraform-provider-azurerm 5.11.0, Copyright IBM Corp. and HashiCorp, Inc.
+  source: https://github.com/hashicorp/terraform-provider-azurerm/tree/v5.11.0
+
+internal/catalogue/schemameta/google.json.gz
+  from terraform-provider-google 8.8.1, Copyright IBM Corp. and HashiCorp, Inc.
+  source: https://github.com/hashicorp/terraform-provider-google/tree/v8.8.1
+
+These files are the data's Source Code Form, one resource type to a line,
+gzipped: `gzip -dc <file>` reads one. They are in infraharvest's source at
+the same release, at the paths above.
