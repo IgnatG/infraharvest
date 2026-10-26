@@ -162,7 +162,7 @@ func TestKnownTypesSkipsTheQuery(t *testing.T) {
 	resources := graphResources([]azlist.AzureResource{
 		listed(t, workspace, nil),
 		listed(t, source, map[string]interface{}{"kind": "WindowsEvent", "tags": map[string]interface{}{"team": "ops"}}),
-	}, catalogue.MustBuiltin("azurerm"), query)
+	}, catalogue.MustBuiltin("azurerm"), query, nil)
 
 	if !reflect.DeepEqual(asked, []string{workspace}) {
 		t.Errorf("asked aztft about %v, want only the workspace", asked)

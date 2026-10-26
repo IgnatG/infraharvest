@@ -24,6 +24,7 @@ func TestServiceSettingsRoundTrip(t *testing.T) {
 		clientOptions:  &arm.ClientOptions{},
 		catalogue:      catalogue.MustBuiltin("azurerm"),
 		listed:         []harvest.Resource{harvest.RecordBare("/subscriptions/sub/resourceGroups/rg1", "rg1", "azurerm_resource_group", "azurerm")},
+		azapi:          true,
 	}
 	if got := settingsOf(want.args()); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)

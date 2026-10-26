@@ -53,7 +53,9 @@ var resourceManagerServices = []string{
 // import ID, reading what the ID alone can't say, as between a function
 // app and a web app, from what the listing returned, and asking Resource
 // Manager only for what it didn't (see graphResources and newLookup).
-// The catalogue's skip rules leave out what another resource manages
+// With --azapi, what Resource Graph returned that azurerm has no type for
+// is imported as azapi_resource instead of left out (see
+// azapiCandidates). The catalogue's skip rules leave out what another resource manages
 // (managedBy), such as an AKS cluster's nodes or a virtual machine's OS
 // disk, but not a data disk attached to a machine, and what Azure creates
 // itself, such as NetworkWatcherRG and its network watchers. What is in a
@@ -151,12 +153,19 @@ func (g *ResourceGraphLister) List() error {
 	}
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
-	g.Resources = graphResources(found, cat, knownTypes(sourceTypes, query))
+	var viaAzapi map[string]bool
+	if settingsOf(g.Settings()).azapi {
+		viaAzapi = azapiCandidates(rows)
+	}
+	g.Resources = graphResources(found, cat, knownTypes(sourceTypes, query), viaAzapi)
 	if err := g.Context().Err(); err != nil {
 		return err
 	}
 	if g.Verbose() {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
+	}
+	if n := countType(g.Resources, azapiType); n > 0 {
+		log.Printf("azurerm: resource_graph: %d resources azurerm has no type for come through the azapi provider, as %s (--azapi)", n, azapiType)
 	}
 	// Both are partial or nil; joined, they are partial only as wrapped.
 	return harvest.Partial(errors.Join(childErr, sourceErr))
@@ -339,8 +348,10 @@ type queryType func(id string) (types []aztft.Type, ids []string, exact bool, er
 // are recorded first, from the listing, so a resource they leave out,
 // such as a built-in table, is still recorded, with its type, for the
 // report. Resources azurerm has no type for, or several it can't choose
-// between, are logged and left out.
-func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, query queryType) []harvest.Resource {
+// between, are logged and left out, but for those of viaAzapi (by
+// upper-case ID; see azapiCandidates) that azurerm has no type for, which
+// are recorded as azapi_resource (see azapiMapping).
+func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, query queryType, viaAzapi map[string]bool) []harvest.Resource {
 	owners := listedOwners{groups: managedResourceGroups(listed), osDisks: machineOSDisks(listed)}
 	attributes := make([]map[string]string, len(listed))
 	mapped := make([][]harvest.Resource, len(listed))
@@ -365,7 +376,11 @@ func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, que
 	}
 	inParallel(lookups, func(i int) {
 		id := listed[i].Id.String()
-		mapped[i] = fromQuery(id, query).records(id, attributes[i])
+		m := fromQuery(id, query)
+		if m.untyped && viaAzapi[strings.ToUpper(id)] {
+			m = azapiMapping(listed[i].Id)
+		}
+		mapped[i] = m.records(id, attributes[i])
 	})
 	var resources []harvest.Resource
 	for _, records := range mapped {

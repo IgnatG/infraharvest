@@ -83,18 +83,21 @@ func TestInitTakesTheScope(t *testing.T) {
 	for _, tc := range []struct {
 		args                        []string
 		subscription, resourceGroup string
+		azapi                       bool
 	}{
-		{[]string{""}, "env-sub", ""},
-		{[]string{"rg1"}, "env-sub", "rg1"},
-		{[]string{"rg1", ""}, "env-sub", "rg1"},
-		{[]string{"", "sub-2"}, "sub-2", ""},
+		{[]string{""}, "env-sub", "", false},
+		{[]string{"rg1"}, "env-sub", "rg1", false},
+		{[]string{"rg1", ""}, "env-sub", "rg1", false},
+		{[]string{"", "sub-2"}, "sub-2", "", false},
+		{[]string{"", "", "azapi"}, "env-sub", "", true},
+		{[]string{"rg1", "sub-2", ""}, "sub-2", "rg1", false},
 	} {
 		p := &Provider{}
 		if err := p.Init(t.Context(), tc.args); err != nil {
 			t.Fatalf("%q: %v", tc.args, err)
 		}
-		if p.subscriptionID != tc.subscription || p.resourceGroup != tc.resourceGroup {
-			t.Errorf("%q: subscription %q, resource group %q", tc.args, p.subscriptionID, p.resourceGroup)
+		if p.subscriptionID != tc.subscription || p.resourceGroup != tc.resourceGroup || p.azapi != tc.azapi {
+			t.Errorf("%q: subscription %q, resource group %q, azapi %v", tc.args, p.subscriptionID, p.resourceGroup, p.azapi)
 		}
 		if p.credential == nil || p.clientOptions == nil {
 			t.Errorf("%q: credential %v, client options %v", tc.args, p.credential, p.clientOptions)
@@ -278,6 +281,7 @@ func TestSelect(t *testing.T) {
 		"resource_group":  "rg1",
 		"catalogue":       cat,
 		"listed":          listed,
+		"azapi":           false,
 	}
 	if got := s.Settings(); !reflect.DeepEqual(got, want) {
 		t.Errorf("args %#v, want %#v", got, want)

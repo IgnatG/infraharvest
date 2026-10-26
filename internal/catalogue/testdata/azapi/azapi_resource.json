@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.AzureFleet/fleets/batch", "name": "batch", "attributes": {"name": "batch", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Easm/workspaces/surface", "name": "surface", "attributes": {"name": "surface", "resource_group_name": "rg-app"}}
+]}

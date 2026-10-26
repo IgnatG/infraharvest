@@ -25,6 +25,7 @@ const (
 	clientOptionsKey  = "client_options"
 	catalogueKey      = "catalogue"
 	listedKey         = "listed"
+	azapiKey          = "azapi"
 )
 
 // serviceSettings are the settings Provider.Select passes each service,
@@ -44,6 +45,9 @@ type serviceSettings struct {
 	// listed is what the import's other services listed, for the services
 	// that list from it (see Provider.DependentServices).
 	listed []harvest.Resource
+	// azapi is --azapi: resource_graph imports what azurerm has no type
+	// for as azapi_resource (see azapiCandidates).
+	azapi bool
 }
 
 // args returns the settings as a service's settings map.
@@ -55,6 +59,7 @@ func (s serviceSettings) args() map[string]interface{} {
 		resourceGroupKey:  s.resourceGroup,
 		catalogueKey:      s.catalogue,
 		listedKey:         s.listed,
+		azapiKey:          s.azapi,
 	}
 }
 
@@ -69,6 +74,7 @@ func settingsOf(settings map[string]interface{}) serviceSettings {
 	s.clientOptions, _ = settings[clientOptionsKey].(*arm.ClientOptions)
 	s.catalogue, _ = settings[catalogueKey].(*catalogue.Catalogue)
 	s.listed, _ = settings[listedKey].([]harvest.Resource)
+	s.azapi, _ = settings[azapiKey].(bool)
 	return s
 }
 
