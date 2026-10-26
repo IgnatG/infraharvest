@@ -73,7 +73,7 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 	if len(subscriptions) == 0 {
 		// The provider takes the subscription from ARM_SUBSCRIPTION_ID.
 		return plan{calls: func(scopeOptions importer.Options, _ string) []call {
-			return []call{{options: scopeOptions, args: []string{scopeOptions.ResourceGroup, "", s.providerType()}}}
+			return []call{{options: scopeOptions, args: s.args(scopeOptions.ResourceGroup, "")}}
 		}}, nil
 	}
 	if len(subscriptions) > 1 {
@@ -82,15 +82,21 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 		}
 	}
 	return plan{kind: "subscription", scopes: subscriptions, calls: func(scopeOptions importer.Options, subscription string) []call {
-		return []call{{options: scopeOptions, args: []string{scopeOptions.ResourceGroup, subscription, s.providerType()}}}
+		return []call{{options: scopeOptions, args: s.args(scopeOptions.ResourceGroup, subscription)}}
 	}}, nil
 }
 
-// providerType is the provider's type, as the Azure provider's Init reads
-// it: "azapi" for --azapi, else "".
-func (s *azureScopes) providerType() string {
-	if s.azapi {
-		return "azapi"
+// args are what the provider's Init reads for one call: the resource group
+// ("" for the whole subscription), the subscription ("" for
+// ARM_SUBSCRIPTION_ID's) and, with --azapi only, the provider type, so that
+// the args, which name the call's inventory, are as they were without it.
+func (s *azureScopes) args(resourceGroup, subscription string) []string {
+	args := []string{resourceGroup}
+	if subscription != "" || s.azapi {
+		args = append(args, subscription)
 	}
-	return ""
+	if s.azapi {
+		args = append(args, "azapi")
+	}
+	return args
 }
