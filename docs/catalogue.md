@@ -101,6 +101,20 @@ An import applies the entries whose constraint accepts the provider version it p
 
 Defaults of optional arguments that the provider doesn't compute need no entry: infraharvest finds them by plan (see [Tidying](output.md#tidying)). What needs a `defaults` entry is a default the cloud sets for an argument the provider computes, which a plan can't tell from a setting. The entry for every type, `"*"`, takes no `defaults`.
 
+## Schema metadata
+
+`terraform providers schema -json` says which arguments are optional or computed, but not what an argument defaults to, nor which arguments exclude or need each other. The providers' code says both: each Plugin SDK argument's `Default`, `ConflictsWith`, `ExactlyOneOf`, `AtLeastOneOf` and `RequiredWith`. `internal/catalogue/schemameta` holds them, one JSON file per provider (`aws.json`, `azurerm.json`, `google.json`), each with the provider release it was read from, built into the binary. A file lists only the arguments that have metadata, by their path through nested blocks without indexes (`root_block_device.volume_type`); a Plugin Framework resource, as newer AWS ones are, is marked `framework` and has only its defaults, since its constraints are validators the provider doesn't expose. The engine uses them to leave out defaults and settle conflicting arguments with fewer plans (see [Tidying](output.md#tidying)): fully where the root uses the file's release, as suggestions the plan checks where it doesn't, which it logs once.
+
+The files are generated, never edited by hand. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release, the one generated roots pin, or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, and uploads the files as the artifact `schema-metadata`:
+
+```sh
+make ci-schema-metadata                      # or VERSIONS="aws=6.70.0"
+make ci-download RUN=<id> NAME=schema-metadata
+git diff internal/catalogue/schemameta       # review, then commit
+```
+
+Regenerate them when the providers release, with the catalogue's schema check (see [Golden tests](#golden-tests)); a file of an older release costs plans, never correctness.
+
 ## Inventory types
 
 The services that list a whole subscription or project through the cloud's inventory API, `resource_graph` for Azure and `cloud_asset` for Google, map what it lists to Terraform types through `inventory` entries:

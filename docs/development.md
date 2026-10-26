@@ -15,7 +15,7 @@ Everything but `main.go` is under `internal/`: infraharvest has no Go API for ot
 | `internal/importer` | The orchestration of an import, with no Cobra in it: `Options`, `Import`, `ImportEach`, `Run`, `Verify`, the report and the exit codes. Anything a command does that can be tested without a command goes here. |
 | `internal/harvest` | The API listers implement and the importer drives: `Provider`, `Lister`, `ListerBase`, `Resource`, `Registry`, filters, tags and labels. |
 | `internal/providers/aws`, `azure`, `google` | The listers: the only code that calls the clouds' APIs. |
-| `internal/catalogue` | What infraharvest knows about each Terraform resource type, as YAML under `data/`, its schema and its golden tests (see [Catalogue](catalogue.md)). |
+| `internal/catalogue` | What infraharvest knows about each Terraform resource type, as YAML under `data/`, its schema and its golden tests (see [Catalogue](catalogue.md)), and in `schemameta`, the defaults and argument constraints read out of the providers' code, with their generator (see [Schema metadata](catalogue.md#schema-metadata)). |
 | `internal/engine` | Runs Terraform or OpenTofu: import blocks, `plan -generate-config-out`, repairs, references, locals, modules, secrets, and the verification gate. It never writes state and never applies. |
 | `internal/adapters` | Curated module adapters (module, exact version, mapping), the snapshots of module interfaces they are checked against, and `cmd/adaptercheck`, which the nightly `adapters` workflow runs. |
 | `internal/discovery` | Runs the listing: one discoverer per service and scope (account and region, subscription, project), each with its deadline, a bounded number at a time. |
@@ -203,6 +203,7 @@ The `release` workflow publishes a release from `main`: it runs the tests in a j
 | Golden files | `make golden` (compiles) | `make ci-golden PKG=...` |
 | `go mod tidy` | none | `make ci-tidy`; `tests` checks it |
 | Benchmarks, CPU profiles | `go test -bench` (compiles) | `make ci-bench BENCH=... BASE=<sha>`: the `bench` task of `remote` profiles the benchmarks and, with `BASE`, compares them with benchstat |
+| Schema metadata (defaults and argument constraints read out of the providers' code) | none: it builds each provider | `make ci-schema-metadata` (the `schema-metadata` task of `remote`), then `make ci-download NAME=schema-metadata` (see [Schema metadata](catalogue.md#schema-metadata)) |
 | Emulator round trips, race detector, Windows, macOS, arm64 builds | none | `tests` on every pull request and after each merge to `main` |
 
 The fast checks need only the tools they run (gofmt, goimports, shellcheck, actionlint, Node.js), each optional: the hook skips a check whose tool is missing and says how to install it, and CI runs it anyway. Run the compiling checks locally only if your machine can take it; otherwise push the branch and use the `ci-*` targets, which need the [GitHub CLI](https://cli.github.com/). `make help` lists every target.
