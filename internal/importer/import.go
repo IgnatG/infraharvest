@@ -193,19 +193,29 @@ type Options struct {
 // for the scope args name (provider.Init reads them), and generates their
 // Terraform configuration with the engine options.Engine names.
 func Import(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
-	switch options.Engine {
-	case "", EngineTerraform, EngineTofu:
-		return importWithEngine(ctx, provider, options, args)
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
+	return importWithEngine(ctx, provider, options, args)
+}
+
+// checkEngine rejects an --engine other than EngineTerraform or
+// EngineTofu; "" stands for EngineTerraform. import, drift and verify all
+// check it here, so that each says the same.
+func checkEngine(name string) error {
+	switch name {
+	case "", EngineTerraform, EngineTofu:
+		return nil
+	}
+	return fmt.Errorf("unknown --engine %q: use %s or %s", name, EngineTerraform, EngineTofu)
 }
 
 // CheckOptions rejects what a provider command was told that no Import
 // call could do, before any account, region or project is planned: an
 // unknown --engine, --format or --modules, a filter that doesn't parse,
-// an import that says neither --selection nor --all, --services or --skip
-// names provider has no service of, a --layout checkLayout rejects,
+// an import that says neither --selection nor --all, no --services where
+// no --cfn-stack says which to list, --services or --skip naming services
+// provider has no service of, a --layout checkLayout rejects,
 // --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
@@ -215,16 +225,20 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // it covers, instead of failing each scope and reading as a partial
 // import.
 func CheckOptions(provider harvest.Provider, options Options) error {
-	switch options.Engine {
-	case "", EngineTerraform, EngineTofu:
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
 	if err := checkImportOptions(options); err != nil {
 		return err
 	}
 	if err := checkSelectionOptions(options); err != nil {
 		return err
+	}
+	// Checked once the configuration file has had its chance to set
+	// --services. A command scoped to CloudFormation stacks needs none: the
+	// types of the stacks' resources say which services to list.
+	if len(options.Services) == 0 && len(options.CloudFormationStacks) == 0 {
+		return errNoServices
 	}
 	// An overlay can add services, such as an AWS cloud_control entry of
 	// a new service, so the provider knows of them before the names are
@@ -276,6 +290,10 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	}
 	return checkSources(options)
 }
+
+// errNoServices is the error for a provider command that says no
+// services to list.
+var errNoServices = errors.New("--services is required (flag or config file)")
 
 // errDefaultEnvWithoutSplit is the error for --default-env where no
 // environment tag splits the roots.

@@ -5,7 +5,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 
 	"github.com/spf13/cobra"
 
@@ -27,9 +26,6 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 					return err
 				}
 			}
-			if err := requireServices(c); err != nil {
-				return err
-			}
 			if err := run.CheckMergeEnvironments(c.Flags()); err != nil {
 				return err
 			}
@@ -49,29 +45,4 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 		// An interrupted run exits with the signal's code, in the report too.
 		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args)) })
 	}
-}
-
-var errNoServices = errors.New("--services is required (flag or config file)")
-
-// requireServices fails a provider command run without --services, after
-// the configuration file has had its chance to set it. A command scoped to
-// CloudFormation stacks (--cfn-stack) needs none: the types of the stacks'
-// resources say which services to list.
-func requireServices(c *cobra.Command) error {
-	if c.Flags().Lookup("services") == nil {
-		return nil
-	}
-	if f := c.Flags().Lookup("cfn-stack"); f != nil {
-		if stacks, err := c.Flags().GetStringArray("cfn-stack"); err == nil && len(stacks) > 0 {
-			return nil
-		}
-	}
-	services, err := c.Flags().GetStringSlice("services")
-	if err != nil {
-		return err
-	}
-	if len(services) == 0 {
-		return errNoServices
-	}
-	return nil
 }

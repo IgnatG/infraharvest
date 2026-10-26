@@ -53,10 +53,8 @@ func ImportCalls(ctx context.Context, calls []Call) error {
 		return nil
 	}
 	options := calls[0].Options
-	switch options.Engine {
-	case "", EngineTerraform, EngineTofu:
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
 	if len(calls) == 1 {
 		calls[0].logWhere()
