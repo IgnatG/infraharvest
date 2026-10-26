@@ -15,16 +15,70 @@ locals {
   data_reads = jsondecode(file("${path.module}/../aws/deny-data-reads.json")).Statement[0].Action
 }
 
+# Trusts the principals listed, and GitHub Actions workflows whose OIDC
+# token's subject matches one of github_oidc_subjects.
 data "aws_iam_policy_document" "trust" {
-  statement {
-    sid     = "AllowTrustedPrincipals"
-    actions = ["sts:AssumeRole"]
+  dynamic "statement" {
+    for_each = length(var.trusted_principal_arns) > 0 ? [var.trusted_principal_arns] : []
 
-    principals {
-      type        = "AWS"
-      identifiers = var.trusted_principal_arns
+    content {
+      sid     = "AllowTrustedPrincipals"
+      actions = ["sts:AssumeRole"]
+
+      principals {
+        type        = "AWS"
+        identifiers = statement.value
+      }
     }
   }
+
+  # The audience is the one aws-actions/configure-aws-credentials asks for.
+  dynamic "statement" {
+    for_each = length(var.github_oidc_subjects) > 0 ? [var.github_oidc_subjects] : []
+
+    content {
+      sid     = "AllowGitHubActions"
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+
+      principals {
+        type        = "Federated"
+        identifiers = [local.github_oidc_provider_arn]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:aud"
+        values   = ["sts.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringLike"
+        variable = "token.actions.githubusercontent.com:sub"
+        values   = statement.value
+      }
+    }
+  }
+}
+
+# GitHub Actions' OIDC provider. An account has one per URL: created here
+# when create_github_oidc_provider is true, else the account's own is
+# looked up, and only when a subject is listed.
+resource "aws_iam_openid_connect_provider" "github" {
+  count = var.create_github_oidc_provider ? 1 : 0
+
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+  tags           = var.tags
+}
+
+data "aws_iam_openid_connect_provider" "github" {
+  count = !var.create_github_oidc_provider && length(var.github_oidc_subjects) > 0 ? 1 : 0
+
+  url = "https://token.actions.githubusercontent.com"
+}
+
+locals {
+  github_oidc_provider_arn = one(concat(aws_iam_openid_connect_provider.github[*].arn, data.aws_iam_openid_connect_provider.github[*].arn))
 }
 
 # Applying drift's saved refresh plan to its private copy configures the
@@ -37,6 +91,13 @@ resource "aws_iam_role" "drift" {
   assume_role_policy   = data.aws_iam_policy_document.trust.json
   max_session_duration = var.max_session_duration
   tags                 = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = length(var.trusted_principal_arns) > 0 || length(var.github_oidc_subjects) > 0
+      error_message = "List at least one IAM principal ARN in trusted_principal_arns or GitHub Actions subject in github_oidc_subjects."
+    }
+  }
 }
 
 # Reads every service's configuration, which refreshing the roots needs.
