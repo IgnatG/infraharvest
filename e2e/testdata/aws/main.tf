@@ -470,7 +470,7 @@ resource "aws_cloudformation_stack" "app" {
   name = "${local.name}-app"
   # A parameter and an output, which --cfn-stack carries into the root:
   # the bucket's name becomes var.bucket_name, its ARN an output.
-  parameters    = { BucketName = "${local.name}-cfn-assets" }
+  parameters = { BucketName = "${local.name}-cfn-assets" }
   template_body = jsonencode({
     Parameters = {
       BucketName = { Type = "String" }
