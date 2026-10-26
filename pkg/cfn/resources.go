@@ -187,7 +187,7 @@ func (c *converter) property(w *hclWriter, cfnType string, prop []string, v Node
 		return
 	}
 	if p.Kind == KindOmit {
-		c.report(Error, path, fmt.Sprintf("%s is left out: %s", key, p.Reason))
+		c.report(Warning, path, fmt.Sprintf("%s is left out: %s", key, p.Reason))
 		c.keep(v)
 		return
 	}
@@ -311,7 +311,7 @@ func (c *converter) propertyObject(m Map, path string, sc *scope) string {
 			continue
 		}
 		if p.Kind == KindOmit {
-			c.report(Error, fpath, fmt.Sprintf("%s is left out: %s", f.Key, p.Reason))
+			c.report(Warning, fpath, fmt.Sprintf("%s is left out: %s", f.Key, p.Reason))
 			c.keep(f.Value)
 			continue
 		}
