@@ -20,7 +20,7 @@ terraform apply -var 'trusted_principal_arns=["arn:aws:iam::123456789012:role/pl
 
 Then run infraharvest with a profile that assumes the role (`role_arn = <role_arn output>` in `~/.aws/config`).
 
-`ReadOnlyAccess` also lets infraharvest read Resource Explorer's index and search it, for `--resource-explorer` (see [Resource Explorer](aws.md#resource-explorer)).
+`ReadOnlyAccess` also lets infraharvest read Resource Explorer's index and search it, for `--resource-explorer` (see [Resource Explorer](aws.md#resource-explorer)), and read CloudFormation stacks, their resources and their templates (`cloudformation:DescribeStacks`, `ListStacks`, `ListStackResources` and `GetTemplate`), for the default selection and `--cfn-stack` (see [Migrating a CloudFormation stack](aws.md#migrating-a-cloudformation-stack)).
 
 Trade-off: `kms:Decrypt` is denied, so SSM `SecureString` parameters fail to import instead of having their decrypted values written into the generated code.
 
