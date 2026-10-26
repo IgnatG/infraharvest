@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 )
 
 // paramType is what a parameter type becomes.
@@ -152,10 +154,10 @@ func (c *converter) paramDefault(pi *paramInfo, path string) (string, bool) {
 	return c.expr(pi.p.Default, path, nil), true
 }
 
-// numberLiteral returns s as a number (see NumberLiteral), or reports, as an
-// error, that it isn't one.
+// numberLiteral returns s as a number (see cfnhcl.NumberLiteral), or
+// reports, as an error, that it isn't one.
 func (c *converter) numberLiteral(s, path string) (string, bool) {
-	if lit, ok := NumberLiteral(s); ok {
+	if lit, ok := cfnhcl.NumberLiteral(s); ok {
 		return lit, true
 	}
 	c.report(Error, path, fmt.Sprintf("%q isn't a number Terraform can read, so it is left out", s))
@@ -231,7 +233,7 @@ func (c *converter) validations(pi *paramInfo, path string) []validation {
 		if n == "" {
 			return
 		}
-		lit, ok := NumberLiteral(string(n))
+		lit, ok := cfnhcl.NumberLiteral(string(n))
 		if !ok {
 			c.report(Warning, path+"."+field, fmt.Sprintf("%s %q isn't a number, so it isn't checked", field, string(n)))
 			return

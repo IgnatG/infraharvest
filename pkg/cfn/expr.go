@@ -8,6 +8,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 )
 
 // scope says how to convert the keys of a mapping in a value: as properties
@@ -254,7 +256,7 @@ func (c *converter) function(f Func, path string, sc *scope) string {
 // index, which a template may write as a string ("0").
 func (c *converter) numberExpr(n Node, path string) string {
 	if s, ok := scalar(n); ok {
-		if lit, ok := NumberLiteral(s); ok {
+		if lit, ok := cfnhcl.NumberLiteral(s); ok {
 			return lit
 		}
 	}
@@ -805,7 +807,7 @@ func (c *converter) isNumberParam(n Node) bool {
 
 func (c *converter) equalsOperand(n Node, path string, numeric bool) string {
 	if s, ok := scalar(n); ok {
-		if lit, ok := NumberLiteral(s); ok && numeric {
+		if lit, ok := cfnhcl.NumberLiteral(s); ok && numeric {
 			return lit
 		}
 		return quote(s)

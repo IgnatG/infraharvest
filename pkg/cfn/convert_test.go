@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -353,6 +354,35 @@ func topicTemplate(name string) string {
 	return `{"Resources": {"T": {"Type": "AWS::SNS::Topic", "Properties": {"TopicName": ` + name + `}}}}`
 }
 
+// widgetMapper embeds BaseMapper and answers only for its own type, as
+// BaseMapper's documentation says a caller's mapper should.
+type widgetMapper struct{ BaseMapper }
+
+func (m widgetMapper) ResourceType(t string) (Mapped, bool) {
+	if t == "Acme::Widget::Thing" {
+		return Mapped{Name: "acme_widget"}, true
+	}
+	return m.BaseMapper.ResourceType(t)
+}
+
+func TestEmbeddedBaseMapper(t *testing.T) {
+	res := mustConvert(t, `
+Resources:
+  W:
+    Type: Acme::Widget::Thing
+  V:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+`, Options{Mapper: widgetMapper{}})
+	main := squash(res.Files["main.tf"])
+	for _, want := range []string{`resource "acme_widget" "w" {`, `resource "aws_vpc" "v" {`, `cidr_block = "10.0.0.0/16"`} {
+		if !strings.Contains(main, want) {
+			t.Errorf("main.tf lacks %s:\n%s", want, main)
+		}
+	}
+}
+
 // Fn::Sub variables that each use the one inside four times would write
 // 4^depth copies of the innermost value; the conversion stops at its
 // budget and fails instead.
@@ -449,23 +479,33 @@ func TestGolden(t *testing.T) {
 	}
 }
 
-// The package imports nothing else of infraharvest's, so that it can move
-// to a module of its own.
+// The package imports nothing else of infraharvest's but internal/cfnhcl,
+// which imports nothing of infraharvest's itself, so that the two can move
+// to a module of their own.
 func TestNoInternalImports(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fset := token.NewFileSet()
-	for _, file := range files {
-		f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
+	const shared = "github.com/IgnatG/infraharvest/internal/cfnhcl"
+	for dir, allowed := range map[string][]string{
+		".":                     {"github.com/IgnatG/infraharvest/pkg/cfn", shared},
+		"../../internal/cfnhcl": {shared},
+	} {
+		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, imp := range f.Imports {
-			path := strings.Trim(imp.Path.Value, `"`)
-			if strings.HasPrefix(path, "github.com/IgnatG/infraharvest") && path != "github.com/IgnatG/infraharvest/pkg/cfn" {
-				t.Errorf("%s imports %s", file, path)
+		if len(files) == 0 {
+			t.Fatalf("no Go files in %s", dir)
+		}
+		fset := token.NewFileSet()
+		for _, file := range files {
+			f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, imp := range f.Imports {
+				path := strings.Trim(imp.Path.Value, `"`)
+				if strings.HasPrefix(path, "github.com/IgnatG/infraharvest") && !slices.Contains(allowed, path) {
+					t.Errorf("%s imports %s", file, path)
+				}
 			}
 		}
 	}

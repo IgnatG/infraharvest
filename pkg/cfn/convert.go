@@ -12,6 +12,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 )
 
 // Options configures Convert. The zero value converts with DefaultMapper.
@@ -178,12 +180,6 @@ const (
 	dataPartition = "aws_partition"
 )
 
-// reservedVariables are names Terraform doesn't allow for a variable.
-var reservedVariables = map[string]bool{
-	"source": true, "version": true, "providers": true, "count": true, "for_each": true,
-	"lifecycle": true, "depends_on": true, "locals": true,
-}
-
 type paramInfo struct {
 	p    *Parameter
 	typ  paramType
@@ -285,7 +281,7 @@ func newConverter(t *Template, opts Options) *converter {
 	// stand-in variable is the one that gets a suffix if they clash.
 	varNames := newNameSet()
 	for _, p := range t.Parameters {
-		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(VariableName(p.Name))}
+		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(cfnhcl.VariableName(p.Name))}
 	}
 	for _, s := range standInVariables {
 		c.standIn[s.pseudo] = varNames.claim(s.name)
