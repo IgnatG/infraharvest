@@ -96,7 +96,7 @@ func (*stackOnlyProvider) ImportScope(context.Context, []harvest.Resource) (*har
 
 // An import scoped to a stack no service lists anything of lists nothing,
 // but still reports the stack, with what keeps it from being safe to
-// delete.
+// delete: the run writes its report, and, as nothing failed, succeeds.
 func TestImportScopeWithNothingToList(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	run := NewRun()
@@ -107,11 +107,16 @@ func TestImportScopeWithNothingToList(t *testing.T) {
 	if err := c.generate(t.Context(), c.byDir); err != nil {
 		t.Fatal(err)
 	}
-	err = run.finish(nil)
+	if err := run.finish(nil); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
 
-	r, readErr := report.Read(out)
-	if readErr != nil {
-		t.Fatalf("no report (%v): %v", err, readErr)
+	r, err := report.Read(out)
+	if err != nil {
+		t.Fatalf("no report: %v", err)
+	}
+	if r.ExitCode != report.ExitOK {
+		t.Errorf("exit code %d", r.ExitCode)
 	}
 	if len(r.CloudFormationStacks) != 1 {
 		t.Fatalf("stacks %+v", r.CloudFormationStacks)
