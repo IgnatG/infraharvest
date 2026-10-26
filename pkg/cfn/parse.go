@@ -14,12 +14,16 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// maxDepth bounds how deeply a template may nest values, and maxNodes how
-// many values it may hold once YAML aliases are expanded, so that a hostile
-// template can't exhaust the stack or memory.
+// maxDepth bounds how deeply a template may nest values, maxNodes how many
+// values and maxBytes how many bytes of text it may hold once YAML aliases
+// are expanded, and maxInput how large it may be, so that a hostile
+// template can't exhaust the stack or memory. CloudFormation itself takes
+// templates of up to 1 MB.
 const (
 	maxDepth = 512
 	maxNodes = 1 << 20
+	maxBytes = 64 << 20
+	maxInput = 16 << 20
 )
 
 // Parse reads a CloudFormation template in JSON or YAML, including YAML's
@@ -33,9 +37,12 @@ const (
 // leaves references, function arguments and types to Convert, which
 // reports problems with them as diagnostics.
 func Parse(r io.Reader) (*Template, error) {
-	src, err := io.ReadAll(r)
+	src, err := io.ReadAll(io.LimitReader(r, maxInput+1))
 	if err != nil {
 		return nil, fmt.Errorf("read the template: %w", err)
+	}
+	if len(src) > maxInput {
+		return nil, fmt.Errorf("the template is larger than %d MiB", maxInput>>20)
 	}
 	root, err := parseDocument(src)
 	if err != nil {
@@ -154,7 +161,7 @@ func parseYAML(src []byte) (Node, error) {
 	if doc.Kind == 0 {
 		return nil, errors.New("the template is empty")
 	}
-	y := &yamlReader{budget: maxNodes}
+	y := &yamlReader{budget: maxNodes, bytes: maxBytes}
 	n, err := y.read(&doc, 0)
 	if err != nil {
 		return nil, fmt.Errorf("parse the YAML template: %w", err)
@@ -164,12 +171,19 @@ func parseYAML(src []byte) (Node, error) {
 
 // yamlReader turns a YAML node tree into Nodes. budget counts down the
 // values it may still produce, which bounds alias expansion.
+// bytes counts down the bytes of text, so that an alias of a long string
+// costs its length each time.
 type yamlReader struct {
 	budget int
+	bytes  int
 }
 
 func (y *yamlReader) read(n *yaml.Node, depth int) (Node, error) {
 	y.budget--
+	y.bytes -= len(n.Value)
+	if y.bytes < 0 {
+		return nil, fmt.Errorf("the template holds more than %d MiB of text once its aliases are expanded", maxBytes>>20)
+	}
 	if y.budget < 0 {
 		return nil, errors.New("the template holds too many values once its aliases are expanded")
 	}
@@ -231,6 +245,7 @@ func (y *yamlReader) readMapping(n *yaml.Node, depth int) (Map, error) {
 		if k.Kind != yaml.ScalarNode {
 			return nil, fmt.Errorf("line %d: a mapping key must be a plain value", k.Line)
 		}
+		y.bytes -= len(k.Value)
 		value, err := y.read(v, depth+1)
 		if err != nil {
 			return nil, err

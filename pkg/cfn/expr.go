@@ -60,7 +60,7 @@ func (c *converter) convert(n Node, path string, sc *scope) string {
 	case Number:
 		return number(string(v))
 	case String:
-		return quote(string(v))
+		return c.stringValue(string(v), path, false)
 	case List:
 		elems := make([]string, len(v))
 		optional := false
@@ -79,8 +79,18 @@ func (c *converter) convert(n Node, path string, sc *scope) string {
 			return c.propertyObject(v, path, sc)
 		}
 		attrs := make([]objectAttr, 0, len(v))
+		optional := false
 		for _, f := range v {
+			// CloudFormation drops a key whose value is AWS::NoValue, as in
+			// a policy statement's Condition; Terraform keeps a null.
+			if isRefTo(f.Value, "AWS::NoValue") {
+				continue
+			}
+			optional = optional || mayBeNoValue(f.Value)
 			attrs = append(attrs, objectAttr{objectKey(f.Key), c.expr(f.Value, path+"."+f.Key, nil)})
+		}
+		if optional {
+			return "{ for k, v in " + objectExpr(attrs) + " : k => v if v != null }"
 		}
 		return objectExpr(attrs)
 	case Func:
@@ -94,11 +104,10 @@ func (c *converter) convert(n Node, path string, sc *scope) string {
 func (c *converter) topExpr(n Node, path string, sc *scope) string {
 	switch v := n.(type) {
 	case String:
-		if d, ok := heredocDelimiter(string(v)); ok {
-			var b strings.Builder
-			writeHeredocLiteral(&b, string(v))
-			return "<<" + d + "\n" + b.String() + d + "\n"
+		if c.tooLarge {
+			return "null"
 		}
+		return c.spend(c.stringValue(string(v), path, true))
 	case Func:
 		if v.Name == "Fn::Sub" {
 			return c.sub(v, path+".Fn::Sub", true)
@@ -244,8 +253,10 @@ func (c *converter) function(f Func, path string, sc *scope) string {
 // numberExpr converts a value that should be a number, such as Fn::Select's
 // index, which a template may write as a string ("0").
 func (c *converter) numberExpr(n Node, path string) string {
-	if s, ok := scalar(n); ok && numberPattern.MatchString(s) {
-		return s
+	if s, ok := scalar(n); ok {
+		if lit, ok := NumberLiteral(s); ok {
+			return lit
+		}
 	}
 	return c.operand(n, path, nil)
 }
@@ -303,6 +314,9 @@ func (c *converter) ref(f Func, path string) string {
 	}
 	if m.Guessed {
 		c.guess(path, fmt.Sprintf("Ref to %s reads the attribute %s, which the mapper guessed", name, m.Name))
+	}
+	if m.Sensitive {
+		c.sensitive = true
 	}
 	return address + "." + m.Name
 }
@@ -431,6 +445,9 @@ func (c *converter) getAtt(f Func, path string) string {
 	if m.Guessed {
 		c.guess(path, fmt.Sprintf("%s.%s is the attribute %s, which the mapper guessed", id, attr, m.Name))
 	}
+	if m.Sensitive {
+		c.sensitive = true
+	}
 	return address + "." + m.Name
 }
 
@@ -519,60 +536,29 @@ func (c *converter) sub(f Func, path string, heredoc bool) string {
 	case len(parts) == 1 && parts[0].isVar:
 		return c.subVar(parts[0].text, vars, path)
 	}
-	exprs := make([]string, len(parts))
 	// Each variable is converted once, however often the string uses it.
 	converted := map[string]string{}
-	var shape strings.Builder // the text with each variable as ${}, to choose the form
-	for i, p := range parts {
-		if p.isVar {
-			e, ok := converted[p.text]
+	var segs []segment
+	for _, p := range parts {
+		if !p.isVar {
+			lit, ok := c.literalSegments(p.text, path)
 			if !ok {
-				e = c.subVar(p.text, vars, path)
-				converted[p.text] = e
+				return "null"
 			}
-			exprs[i] = c.spend(e)
-			shape.WriteString("${}")
-		} else {
-			shape.WriteString(p.text)
+			segs = append(segs, lit...)
+			continue
 		}
-	}
-	var b strings.Builder
-	d, useHeredoc := heredocDelimiter(shape.String())
-	useHeredoc = useHeredoc && heredoc
-	if useHeredoc {
-		b.WriteString("<<" + d + "\n")
-	} else {
-		b.WriteByte('"')
-	}
-	for i, p := range parts {
-		switch {
-		case p.isVar:
-			if text, ok := plainString(exprs[i]); ok {
-				// A variable that is a literal, such as one a Resolver gives,
-				// is text of the template, not an interpolation.
-				if useHeredoc {
-					writeHeredocLiteral(&b, text)
-				} else {
-					writeLiteral(&b, text)
-				}
-				continue
-			}
-			b.WriteString("${" + exprs[i] + "}")
-		case useHeredoc:
-			writeHeredocLiteral(&b, p.text)
-		default:
-			writeLiteral(&b, p.text)
+		e, ok := converted[p.text]
+		if !ok {
+			e = c.subVar(p.text, vars, path)
+			converted[p.text] = e
 		}
-	}
-	if useHeredoc {
-		b.WriteString(d + "\n")
-	} else {
-		b.WriteByte('"')
+		segs = append(segs, segment{expr: c.spend(e), isExpr: true})
 	}
 	if c.tooLarge {
 		return "null"
 	}
-	return c.spend(b.String())
+	return c.spend(renderSegments(segs, heredoc))
 }
 
 // plainString returns the text of a quoted string expression that needs
@@ -763,9 +749,6 @@ func (c *converter) conditionRef(n Node, path string) string {
 		c.report(Error, path, fmt.Sprintf("there is no condition %s; it is false instead", name))
 		return "false"
 	}
-	if c.sensitiveLocals[local] {
-		c.sensitive = true
-	}
 	return "local." + local
 }
 
@@ -822,8 +805,8 @@ func (c *converter) isNumberParam(n Node) bool {
 
 func (c *converter) equalsOperand(n Node, path string, numeric bool) string {
 	if s, ok := scalar(n); ok {
-		if numeric && numberPattern.MatchString(s) {
-			return s
+		if lit, ok := NumberLiteral(s); ok && numeric {
+			return lit
 		}
 		return quote(s)
 	}

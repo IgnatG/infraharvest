@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 )
 
 // Node is a value in a template: one of Null, Bool, Number, String, List,
@@ -158,27 +159,111 @@ func marshal(v any) ([]byte, error) {
 	return bytes.TrimRight(b.Bytes(), "\n"), nil
 }
 
+// keptLimit bounds the JSON of a value the converter writes into a comment
+// or a diagnostic: a template's aliases can repeat a large value many
+// times over, and the comment only has to say what the value was.
+const keptLimit = 64 << 10
+
+// boundedJSON returns n as one line of JSON, cut at limit bytes, and
+// whether it was cut. It stops walking the value once it is cut, so a
+// value that expands to far more costs no more than limit.
+func boundedJSON(n Node, limit int) (string, bool) {
+	w := &limitedBuilder{limit: limit}
+	writeNodeJSON(w, n)
+	return w.b.String(), w.cut
+}
+
+// limitedBuilder is a strings.Builder that keeps at most limit bytes.
+type limitedBuilder struct {
+	b     strings.Builder
+	limit int
+	cut   bool
+}
+
+func (w *limitedBuilder) write(s string) {
+	if w.cut {
+		return
+	}
+	if room := w.limit - w.b.Len(); len(s) > room {
+		// At a character's start, so that what is kept stays UTF-8.
+		for room > 0 && !utf8.RuneStart(s[room]) {
+			room--
+		}
+		w.b.WriteString(s[:room])
+		w.cut = true
+		return
+	}
+	w.b.WriteString(s)
+}
+
+func writeNodeJSON(w *limitedBuilder, n Node) {
+	if w.cut {
+		return
+	}
+	switch v := n.(type) {
+	case nil, Null:
+		w.write("null")
+	case Bool, Number, String:
+		b, err := marshal(v)
+		if err != nil {
+			w.write("null")
+			return
+		}
+		w.write(string(b))
+	case List:
+		w.write("[")
+		for i, e := range v {
+			if i > 0 {
+				w.write(",")
+			}
+			writeNodeJSON(w, e)
+			if w.cut {
+				return
+			}
+		}
+		w.write("]")
+	case Map:
+		w.write("{")
+		for i, f := range v {
+			if i > 0 {
+				w.write(",")
+			}
+			k, _ := marshal(f.Key)
+			w.write(string(k) + ":")
+			writeNodeJSON(w, f.Value)
+			if w.cut {
+				return
+			}
+		}
+		w.write("}")
+	case Func:
+		writeNodeJSON(w, Map{{Key: v.Name, Value: v.Arg}})
+	}
+}
+
 // toJSON returns n as indented JSON, for the comments that keep what the
-// converter couldn't convert.
+// converter couldn't convert; a value cut at keptLimit stays on one line,
+// as it is no longer valid JSON.
 func toJSON(n Node) string {
-	compact, err := marshal(n)
-	if err != nil {
-		return "(unprintable value)"
+	compact, cut := boundedJSON(n, keptLimit)
+	if cut {
+		return compact + " …"
 	}
 	var b bytes.Buffer
-	if err := json.Indent(&b, compact, "", "  "); err != nil {
-		return string(compact)
+	if err := json.Indent(&b, []byte(compact), "", "  "); err != nil {
+		return compact
 	}
 	return b.String()
 }
 
-// compactJSON returns n as one line of JSON, for diagnostics.
+// compactJSON returns n as one line of JSON, for diagnostics, cut at
+// keptLimit.
 func compactJSON(n Node) string {
-	compact, err := marshal(n)
-	if err != nil {
-		return "(unprintable value)"
+	compact, cut := boundedJSON(n, keptLimit)
+	if cut {
+		return compact + " …"
 	}
-	return string(compact)
+	return compact
 }
 
 // scalar returns the text of a String, Number or Bool, and whether n is one.

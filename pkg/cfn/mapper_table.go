@@ -290,8 +290,9 @@ var builtinTypes = map[string]typeEntry{
 		props: map[string]Property{"TableName": arg("name"), "BillingMode": arg("billing_mode"), "Tags": tagsProp},
 	},
 	"AWS::SSM::Parameter": {
-		tf:  "aws_ssm_parameter",
-		ref: "name",
+		tf:    "aws_ssm_parameter",
+		ref:   "name",
+		attrs: map[string]string{"Type": "type", "Value": "value"},
 		props: map[string]Property{
 			"Name": arg("name"), "Type": arg("type"), "Value": arg("value"), "Description": arg("description"),
 			"AllowedPattern": arg("allowed_pattern"), "Tier": arg("tier"), "DataType": arg("data_type"),

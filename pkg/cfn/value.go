@@ -80,6 +80,7 @@ func ConvertValue(t *Template, n Node, path string, opts Options) (*Value, error
 			v.Data = append(v.Data, "data "+quote(d)+" \"current\" {}\n")
 		}
 	}
+	v.Data = append(v.Data, c.dynamicBlocks...)
 	sort.Strings(v.Data)
 	return v, nil
 }
@@ -89,4 +90,16 @@ func ConvertValue(t *Template, n Node, path string, opts Options) (*Value, error
 // becomes vpc_gateway_attachment, MyS3Bucket my_s3_bucket.
 func Name(s string) string {
 	return ident(s)
+}
+
+// VariableName returns a parameter's name as the name of the Terraform
+// variable Convert declares for it: Name, with _value added to a name
+// Terraform reserves for its own meta-arguments, such as version or count,
+// which no variable may have.
+func VariableName(s string) string {
+	name := ident(s)
+	if reservedVariables[name] {
+		name += "_value"
+	}
+	return name
 }

@@ -90,7 +90,9 @@ func (c *converter) writeVariable(w *hclWriter, pi *paramInfo) {
 		if p.NoEcho {
 			c.report(Warning, path+".Default", "the default of a NoEcho parameter isn't written, so that the secret stays out of the configuration: set the variable from a secret store")
 		} else {
-			body.attr("default", c.paramDefault(pi, path+".Default"))
+			if d, ok := c.paramDefault(pi, path+".Default"); ok {
+				body.attr("default", d)
+			}
 		}
 	}
 	if p.NoEcho {
@@ -120,40 +122,44 @@ func describe(desc, extra string) string {
 // paramDefault converts a parameter's default. CloudFormation writes every
 // default as a string: a list's as comma-separated values (each trimmed of
 // spaces, as CloudFormation trims them), a number's as its digits.
-func (c *converter) paramDefault(pi *paramInfo, path string) string {
+func (c *converter) paramDefault(pi *paramInfo, path string) (string, bool) {
 	pt := pi.typ
 	s, isScalar := scalar(pi.p.Default)
 	switch {
 	case pt.list && isScalar:
 		if strings.TrimSpace(s) == "" {
-			return "[]"
+			return "[]", true
 		}
 		var items []string
 		for _, item := range strings.Split(s, ",") {
 			item = strings.TrimSpace(item)
-			if pt.number {
-				items = append(items, c.numberLiteral(item, path))
-			} else {
+			if !pt.number {
 				items = append(items, quote(item))
+				continue
 			}
+			lit, ok := c.numberLiteral(item, path)
+			if !ok {
+				return "", false
+			}
+			items = append(items, lit)
 		}
-		return listExpr(items)
+		return listExpr(items), true
 	case pt.number && isScalar:
 		return c.numberLiteral(s, path)
 	case isScalar:
-		return quote(s)
+		return quote(s), true
 	}
-	return c.expr(pi.p.Default, path, nil)
+	return c.expr(pi.p.Default, path, nil), true
 }
 
-// numberLiteral returns s as a number, or quoted with a warning when it
-// isn't one.
-func (c *converter) numberLiteral(s, path string) string {
-	if numberPattern.MatchString(s) {
-		return s
+// numberLiteral returns s as a number (see NumberLiteral), or reports, as an
+// error, that it isn't one.
+func (c *converter) numberLiteral(s, path string) (string, bool) {
+	if lit, ok := NumberLiteral(s); ok {
+		return lit, true
 	}
-	c.report(Warning, path, fmt.Sprintf("%q isn't a number", s))
-	return quote(s)
+	c.report(Error, path, fmt.Sprintf("%q isn't a number Terraform can read, so it is left out", s))
+	return "", false
 }
 
 // validation is a variable's validation block.
@@ -191,7 +197,11 @@ func (c *converter) validations(pi *paramInfo, path string) []validation {
 				continue
 			}
 			if pt.number {
-				values = append(values, c.numberLiteral(s, fmt.Sprintf("%s.AllowedValues[%d]", path, i)))
+				lit, ok := c.numberLiteral(s, fmt.Sprintf("%s.AllowedValues[%d]", path, i))
+				if !ok {
+					continue
+				}
+				values = append(values, lit)
 			} else {
 				values = append(values, quote(s))
 			}
@@ -221,10 +231,12 @@ func (c *converter) validations(pi *paramInfo, path string) []validation {
 		if n == "" {
 			return
 		}
-		if !numberPattern.MatchString(string(n)) {
+		lit, ok := NumberLiteral(string(n))
+		if !ok {
 			c.report(Warning, path+"."+field, fmt.Sprintf("%s %q isn't a number, so it isn't checked", field, string(n)))
 			return
 		}
+		n = Number(lit)
 		out = append(out, validation{
 			each(func(x string) string { return fmt.Sprintf(check, x) + " " + op + " " + string(n) }),
 			message(fmt.Sprintf(msg, p.Name, string(n))),
