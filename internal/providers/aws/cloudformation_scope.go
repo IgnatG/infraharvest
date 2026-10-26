@@ -53,10 +53,14 @@ type scopedStack struct {
 	parent string
 	// deleted says CloudFormation deleted it: its stack ID still reads it,
 	// for 90 days, and the resources it retained are what is left.
-	deleted   bool
-	warnings  []string
-	template  *stackTemplate
-	resources []*scopedResource
+	deleted bool
+	// unreadable says why a nested stack couldn't be read, as when its
+	// deleted parent deleted it longer ago than CloudFormation keeps it,
+	// or the role may not describe it: what it holds is unknown.
+	unreadable string
+	warnings   []string
+	template   *stackTemplate
+	resources  []*scopedResource
 
 	// parameters are the values of its parameters, by name, for a stack
 	// --cfn-stack names (DescribeStacks gives them): an SSM parameter
@@ -158,7 +162,10 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 // then each stack nested in it, but for one the scope has already, as when
 // --cfn-stack names a nested stack before its parent. A nested stack has
 // no status yet: one DescribeStacks call gives it, whether a deleted parent
-// deleted it or retained it (DELETE_SKIPPED), which leaves it live.
+// deleted it or retained it (DELETE_SKIPPED), which leaves it live. One
+// that call fails for is added as unreadable, with the reason, and the
+// rest is read: the report keeps it, and each stack it is nested in, from
+// being safe to delete.
 func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, stack *scopedStack, types map[string][]string) error {
 	if slices.ContainsFunc(s.stacks, func(have *scopedStack) bool { return have.id == stack.id }) {
 		return nil
@@ -166,7 +173,16 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 	if stack.status == "" {
 		out, err := client.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack.id)})
 		if err != nil {
-			return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
+			if ctx.Err() != nil {
+				return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
+			}
+			stack.unreadable = err.Error()
+			var apiErr smithy.APIError
+			if errors.As(err, &apiErr) {
+				stack.unreadable = apiErr.ErrorCode() + ": " + apiErr.ErrorMessage()
+			}
+			s.stacks = append(s.stacks, stack)
+			return nil
 		}
 		if len(out.Stacks) > 0 {
 			stack.status = string(out.Stacks[0].StackStatus)
@@ -316,6 +332,10 @@ func (s *StackScope) Summary() []string {
 			if len(r.retain) > 0 {
 				notRetained = append(notRetained, r.logicalID)
 			}
+		}
+		if stack.unreadable != "" {
+			lines = append(lines, fmt.Sprintf("CloudFormation stack %s (%s), nested in %s: couldn't be read, so what it holds is unknown, and neither it nor a stack it is nested in is safe to delete: %s", stack.name, stack.region, stack.parent, stack.unreadable))
+			continue
 		}
 		line := fmt.Sprintf("CloudFormation stack %s (%s, %s): %d resources", stack.name, stack.region, stack.status, len(stack.resources))
 		if stack.deleted {
@@ -487,7 +507,7 @@ func reassignShared(matches []stackMatch, types map[string][]string) {
 // report returns the stack as the report has it, each resource with the
 // listed resources byResource says it is.
 func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormationMatch) report.CloudFormationStack {
-	stack := report.CloudFormationStack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Warnings: s.warnings}
+	stack := report.CloudFormationStack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Unreadable: s.unreadable, Warnings: s.warnings}
 	stack.SetParameters(s.parameters)
 	var unretained []string
 	for _, r := range s.resources {
