@@ -442,12 +442,6 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	// Arguments the provider says conflict fail validation: settle them
-	// now, as repair would once the plan below reported them.
-	resolved, err := resolveConflicts(generated, hints)
-	if err != nil {
-		return nil, err
-	}
 	omitted, err := OmitArguments(generated, withResourceOmissions(opts.Omit, imports))
 	if err != nil {
 		return nil, err
@@ -457,6 +451,14 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	lifecycled, err := SetLifecycles(generated, opts.Lifecycles)
+	if err != nil {
+		return nil, err
+	}
+	// Arguments the provider says conflict fail validation: settle them
+	// now, as repair would once the plan below reported them. After the
+	// omissions, so that of a pair the catalogue leaves one out of, such
+	// as an event rule's is_enabled beside its state, the other stays.
+	resolved, err := resolveConflicts(generated, hints)
 	if err != nil {
 		return nil, err
 	}

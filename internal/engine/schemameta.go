@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -22,14 +23,25 @@ import (
 )
 
 // schemaHints is what a provider's code says about its arguments (see
-// schemameta), for one root: exact says the metadata is of the provider
-// release the root's lock file records. Only exact metadata proves a
-// default without a plan, or a value a setting; metadata of another
-// release, or none recorded, only adds candidates the plan then checks.
+// schemameta), for one root, and how far it goes there, by how the
+// provider release the root's lock file records compares with the
+// metadata's:
+//
+//   - the same release (exact): defaults are proven (see provenDefault),
+//     values other than a default are settings (see provenSetting), and
+//     conflicting arguments are settled before validation (see
+//     resolveConflicts);
+//   - another release of the same major version: defaults are proven,
+//     which plans still correct (see stripDefaults), but nothing else;
+//   - another major version, or a release the lock file doesn't record:
+//     defaults only add candidates the plan checks.
+//
 // The zero value knows nothing.
 type schemaHints struct {
-	file  *schemameta.File
-	exact bool
+	file *schemameta.File
+	// exact says the root uses the release the metadata is of, and
+	// defaults that it uses one of the same major version, or that.
+	exact, defaults bool
 	// constrained are, by type, the paths of the arguments a constraint
 	// that needs arguments set names (ExactlyOneOf, AtLeastOneOf and
 	// RequiredWith), on either side: leaving one out can make the
@@ -37,36 +49,63 @@ type schemaHints struct {
 	constrained map[string]map[string]bool
 }
 
-// hintsLogged remembers the releases schemaHintsFor has said differ, so
-// that an import of many roots says it once.
+// hintsLogged remembers the releases schemaHintsFor has said how far the
+// metadata goes for, so that an import of many roots says it once.
 var hintsLogged sync.Map
 
 // constrainedPaths caches constrained (see schemaHints) by file.
 var constrainedPaths sync.Map
 
 // schemaHintsFor returns the hints of file for the root in dir, after
-// init: exact where its lock file records the release file is of.
+// init, by the release its lock file records, whether Terraform's
+// registry or OpenTofu's wrote it (see lockedVersionOf).
 func schemaHintsFor(dir string, file *schemameta.File) schemaHints {
 	if file == nil {
 		return schemaHints{}
 	}
 	h := schemaHints{file: file, constrained: constrainedOf(file)}
-	lock, err := os.ReadFile(filepath.Join(dir, LockFileName))
 	used := ""
-	if err == nil {
-		used = LockedVersion(lock, file.Provider)
-	}
-	h.exact = used == file.Version
-	if !h.exact {
-		key := file.Provider + " " + file.Version + " " + used
-		if _, logged := hintsLogged.LoadOrStore(key, true); !logged {
-			if used == "" {
-				used = "a release the lock file doesn't record"
-			}
-			log.Printf("%s: the built-in schema metadata is of %s, and the root uses %s: it only suggests defaults, which plans check, and settles no conflicting arguments", file.Provider, file.Version, used)
+	if lock, err := os.ReadFile(filepath.Join(dir, LockFileName)); err == nil {
+		// The source without its registry: hashicorp/aws.
+		source := file.Provider
+		if parts := strings.Split(source, "/"); len(parts) == 3 {
+			source = parts[1] + "/" + parts[2]
 		}
+		used = lockedVersionOf(lock, source)
+	}
+	h.exact = used != "" && used == file.Version
+	h.defaults = h.exact || sameMajor(used, file.Version)
+	var how string
+	switch {
+	case h.exact:
+		how = "it proves defaults and settles conflicting arguments"
+	case h.defaults:
+		how = "it proves defaults, which plans correct where they are wrong, and settles no conflicting arguments"
+	default:
+		how = "it only suggests defaults, which plans check, and settles no conflicting arguments"
+	}
+	if used == "" {
+		used = "a release the lock file doesn't record"
+	}
+	key := file.Provider + " " + file.Version + " " + used
+	if _, logged := hintsLogged.LoadOrStore(key, true); !logged {
+		log.Printf("%s: the built-in schema metadata is of %s, and the root uses %s: %s", file.Provider, file.Version, used, how)
 	}
 	return h
+}
+
+// sameMajor reports whether releases a and b are versions of the same
+// major version.
+func sameMajor(a, b string) bool {
+	va, err := version.NewVersion(a)
+	if err != nil {
+		return false
+	}
+	vb, err := version.NewVersion(b)
+	if err != nil {
+		return false
+	}
+	return va.Segments()[0] == vb.Segments()[0]
 }
 
 // constrainedOf returns, by type, the paths of the arguments of file that
@@ -108,12 +147,15 @@ func (h schemaHints) argument(typ string, path []string) (*schemameta.Argument, 
 }
 
 // provenDefault reports whether expr, the value of the argument at path of
-// typ, is the default the provider gives it, as exact metadata of a
-// Plugin SDK resource says: the provider plans the same without it, so
-// leaving it out needs no plan to tell. Arguments a constraint names
-// aren't: their absence can make the configuration invalid.
+// typ, is the default the provider gives it, as metadata of a Plugin SDK
+// resource of the root's major version says: the provider plans the same
+// without it, so leaving it out needs no validation, and where the plan
+// differs all the same, as it may for another release than the
+// metadata's, the plan corrects it (see stripDefaults). Arguments a
+// constraint names aren't: their absence can make the configuration
+// invalid.
 func (h schemaHints) provenDefault(typ string, path []string, expr hclsyntax.Expression) bool {
-	if !h.exact {
+	if !h.defaults {
 		return false
 	}
 	a, sdk := h.argument(typ, path)
@@ -126,7 +168,9 @@ func (h schemaHints) provenDefault(typ string, path []string, expr hclsyntax.Exp
 // provenSetting reports whether expr, a constant, is a value other than
 // the default exact metadata of a Plugin SDK resource names for the
 // argument at path of typ: left out, the argument would plan as the
-// default, a change, so it isn't one to try leaving out.
+// default, a change, so it isn't one to try leaving out. Only the exact
+// release's metadata says so: nothing would correct a wrong one but a
+// default kept.
 func (h schemaHints) provenSetting(typ string, path []string, expr hclsyntax.Expression) bool {
 	if !h.exact || !isConstant(expr) {
 		return false
@@ -175,7 +219,11 @@ func equalsDefault(expr hclsyntax.Expression, def any) bool {
 // errors validation would report, so that the same one of each pair goes
 // as repair would remove. Terraform generates both of such a pair from
 // the same remote value, such as a subnet's availability_zone and
-// availability_zone_id. Only exact metadata settles them: another release
+// availability_zone_id. Only a resource's own arguments are settled, not
+// those of its nested blocks: the Plugin SDK checks a nested argument's
+// constraint, such as blk.0.x, against the first block only, so in
+// another block the same pair may not conflict. Only exact metadata
+// settles them: another release
 // may let both be set, and then the arguments stay for validation and
 // repair to judge, as without metadata. It reports whether it changed the
 // file.
@@ -190,8 +238,8 @@ func resolveConflicts(path string, h schemaHints) (bool, error) {
 }
 
 // conflictDiagnostics returns the errors validation reports about the
-// conflicting arguments of syntax's resources, worded as the Plugin SDK
-// words them.
+// conflicting top-level arguments of syntax's resources, worded as the
+// Plugin SDK words them.
 func conflictDiagnostics(syntax *hclsyntax.Body, h schemaHints, filename string) []tfjson.Diagnostic {
 	var diags []tfjson.Diagnostic
 	for _, b := range syntax.Blocks {
@@ -199,17 +247,15 @@ func conflictDiagnostics(syntax *hclsyntax.Body, h schemaHints, filename string)
 			continue
 		}
 		if r := h.file.Resource(b.Labels[0]); r != nil && !r.Framework {
-			diags = append(diags, bodyConflicts(b.Body, r, "", filename)...)
+			diags = append(diags, bodyConflicts(b.Body, r, filename)...)
 		}
 	}
 	return diags
 }
 
-// bodyConflicts returns the conflict errors of body, the body of a
-// resource or of one of its nested blocks at prefix, and of its blocks.
-// Only constraints between arguments of the same body count: the
-// generated configuration names no others the same way.
-func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, prefix, filename string) []tfjson.Diagnostic {
+// bodyConflicts returns the conflict errors of body, a resource's: those
+// between its own arguments, and between an argument and a nested block.
+func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, filename string) []tfjson.Diagnostic {
 	set := func(name string) bool {
 		if attr, ok := body.Attributes[name]; ok {
 			return !isNullLiteral(attr.Expr)
@@ -221,9 +267,10 @@ func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, prefix, filenam
 		}
 		return false
 	}
-	inBody := func(path string) (string, bool) {
-		name, ok := strings.CutPrefix(path, prefix)
-		return name, ok && !strings.Contains(name, ".")
+	// topLevel returns the argument a constraint names, if it is one of the
+	// resource's own.
+	topLevel := func(path string) (string, bool) {
+		return path, !strings.Contains(path, ".")
 	}
 	names := make([]string, 0, len(body.Attributes))
 	for name := range body.Attributes {
@@ -233,7 +280,7 @@ func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, prefix, filenam
 	var diags []tfjson.Diagnostic
 	for _, name := range names {
 		attr := body.Attributes[name]
-		a := r.Arguments[prefix+name]
+		a := r.Arguments[name]
 		if a == nil || isNullLiteral(attr.Expr) {
 			continue
 		}
@@ -246,13 +293,13 @@ func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, prefix, filenam
 			})
 		}
 		for _, p := range a.ConflictsWith {
-			if other, ok := inBody(p); ok && other != name && set(other) {
+			if other, ok := topLevel(p); ok && other != name && set(other) {
 				at(fmt.Sprintf("%q: conflicts with %s", name, other))
 			}
 		}
 		var members, specified []string
 		for _, p := range a.ExactlyOneOf {
-			if member, ok := inBody(p); ok {
+			if member, ok := topLevel(p); ok {
 				members = append(members, member)
 				if set(member) {
 					specified = append(specified, member)
@@ -262,9 +309,6 @@ func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, prefix, filenam
 		if len(specified) > 1 {
 			at(fmt.Sprintf("%q: only one of `%s` can be specified, but `%s` were specified.", name, strings.Join(members, ","), strings.Join(specified, ",")))
 		}
-	}
-	for _, b := range body.Blocks {
-		diags = append(diags, bodyConflicts(b.Body, r, prefix+b.Type+".", filename)...)
 	}
 	return diags
 }

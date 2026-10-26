@@ -37,9 +37,11 @@ type defaultCandidate struct {
 	// what a provider's check that an argument is set is about.
 	setting bool
 	// proven says its value is the default the provider gives it, as
-	// exact schema metadata says (see schemaHints.provenDefault): leaving
-	// it out plans the same, so no difference in a plan puts it back, and
-	// on its own it needs no validation.
+	// schema metadata of the root's major version says (see
+	// schemaHints.provenDefault): leaving it out plans the same, so on its
+	// own it needs no validation. Where a plan differs all the same, it is
+	// put back as any other candidate is: the metadata may be of another
+	// release, or wrong.
 	proven bool
 }
 
@@ -108,16 +110,22 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 	keep := map[string]bool{}
 	// What the plan can't settle keeps its constants; nulls still go, as
 	// Terraform treats null as an omitted argument, and so do proven
-	// defaults (see defaultCandidate.proven) where the configuration still
-	// validates without them.
+	// defaults (see defaultCandidate.proven) of the metadata's own release
+	// where the configuration still validates without them: no plan would
+	// correct a wrong one.
 	nullsOnly := func() (bool, *shownPlan, error) {
-		verified := rules
-		verified.verifiedOnly = true
-		// Without schemas, only nulls are candidates.
-		for _, pass := range []struct {
+		type pass struct {
 			schemas *tfjson.ProviderSchemas
 			rules   defaultRules
-		}{{schemas, verified}, {nil, defaultRules{}}} {
+		}
+		// Without schemas, only nulls are candidates.
+		passes := []pass{{nil, defaultRules{}}}
+		if rules.hints.exact {
+			verified := rules
+			verified.verifiedOnly = true
+			passes = append([]pass{{schemas, verified}}, passes...)
+		}
+		for _, p := range passes {
 			if err := restore(); err != nil {
 				return false, nil, err
 			}
@@ -125,7 +133,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if err != nil {
 				return false, nil, err
 			}
-			removed := removeDefaults(f, pass.schemas, pass.rules, keep)
+			removed := removeDefaults(f, p.schemas, p.rules, keep)
 			if len(removed) == 0 {
 				return false, nil, restore()
 			}
@@ -200,10 +208,11 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if noWorse(changeSignature(rc), changes[rc.Address]) {
 				continue
 			}
-			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.verified() && c.address == rc.Address }) {
-				// Nothing of it was left out but what changes nothing:
-				// the plan differs from the one before by itself, as an
-				// emulator's may.
+			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
+				// Nothing of it was left out: the plan differs from the
+				// one before by itself, as an emulator's may. Proven
+				// defaults count: where the plan differs, the metadata
+				// may be wrong, and the plan corrects it.
 				noise = true
 				continue
 			}
@@ -211,7 +220,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if round == maxDefaultRounds-2 {
 				// There is one round left: keep the resource's constants
 				// rather than plan again.
-				keepUnproven(removed, rc.Address, keep)
+				keepAll(removed, rc.Address, keep)
 				continue
 			}
 			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
@@ -346,32 +355,20 @@ func keepAll(removed []defaultCandidate, address string, keep map[string]bool) {
 	}
 }
 
-// keepUnproven keeps every constant candidate of address but the proven
-// defaults, for a plan that differs: leaving those out plans the same, so
-// they aren't behind the difference.
-func keepUnproven(removed []defaultCandidate, address string, keep map[string]bool) {
-	for _, c := range removed {
-		if !c.verified() && c.address == address {
-			keep[c.key()] = true
-		}
-	}
-}
-
 // keepChanged keeps the constant candidates of address behind changed,
 // the newly changed top-level arguments: under each, those on the path of
 // an attribute the plan changes (see changedPaths), or all of them if
 // none is, so that a cache behaviour whose grpc_config block changes
 // keeps that block, not its compress = false too; and all of the
 // resource's if none is under changed. Nulls never count: Terraform
-// treats null as an omitted argument, nor do proven defaults, which plan
-// the same.
+// treats null as an omitted argument.
 func keepChanged(removed []defaultCandidate, address string, changed, paths []string, keep map[string]bool) {
 	matched := false
 	for _, top := range changed {
 		var under []defaultCandidate
 		onPath := false
 		for _, c := range removed {
-			if c.verified() || c.address != address || c.path[0] != top {
+			if c.null || c.address != address || c.path[0] != top {
 				continue
 			}
 			under = append(under, c)
@@ -391,7 +388,7 @@ func keepChanged(removed []defaultCandidate, address string, changed, paths []st
 		}
 	}
 	if !matched {
-		keepUnproven(removed, address, keep)
+		keepAll(removed, address, keep)
 	}
 }
 
