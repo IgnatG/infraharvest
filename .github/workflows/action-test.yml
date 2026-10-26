@@ -741,13 +741,16 @@ jobs:
           terraform -chdir="$root" plan -input=false -out=tfplan
           terraform -chdir="$root" show -json tfplan > "$RUNNER_TEMP/plan.json"
           rm "$root/tfplan"
-          jq -e '[.resource_changes[] | select(.mode == "managed")] as $c
-            | ($c | length) == 2 and all($c[]; .change.importing != null and (
-                .change.actions == ["no-op"] or (.change.actions == ["update"]
-                  and (.change.before as $b | .change.after as $a
-                    | [($b | keys[]), ($a | keys[])] | unique
-                    | map(select($b[.] != $a[.]))
-                    | all(. == "terraform_labels" or . == "effective_labels")))))' "$RUNNER_TEMP/plan.json"
+          # Each change's attributes that differ, leaving out what is known
+          # only after the apply.
+          changed='.change as $ch | ($ch.after_unknown // {}) as $u
+            | [($ch.before // {} | keys[]), ($ch.after // {} | keys[])] | unique
+            | map(select(($u[.] // false) != true and $ch.before[.] != $ch.after[.]))'
+          jq "[.resource_changes[] | select(.mode == \"managed\") | {address, actions: .change.actions, changed: ($changed)}]" "$RUNNER_TEMP/plan.json"
+          jq -e "[.resource_changes[] | select(.mode == \"managed\")] as \$c
+            | (\$c | length) == 2 and all(\$c[]; .change.importing != null and (
+                .change.actions == [\"no-op\"] or (.change.actions == [\"update\"]
+                  and (($changed) | all(. == \"terraform_labels\" or . == \"effective_labels\")))))" "$RUNNER_TEMP/plan.json"
       - name: floci-gcp and stand-in logs
         if: failure()
         run: |
@@ -835,9 +838,12 @@ jobs:
             '.title == "Import existing resources with infraharvest" and .baseRefName == $base and .headRefName == $head and .state == "OPEN"' "$pr"
           # The report alone, and nothing generated.
           jq -e '(.files | length) > 0 and all(.files[]; .path | startswith("action-test-out/report/"))' "$pr"
-          # The body is the import report, as GitHub keeps it.
+          # The body is the import report, as GitHub keeps it, and as the
+          # pull request's branch has it: the action leaves the checkout on
+          # the base branch, without the report.
           normalise() { tr -d '\r' | sed 's/[[:space:]]*$//' | grep -v '^$'; }
-          cmp <(jq -r .body "$pr" | normalise) <(normalise < "$REPORT")
+          gh api "repos/$GITHUB_REPOSITORY/contents/$REPORT?ref=$PR_BRANCH" --jq .content | base64 -d > "$RUNNER_TEMP/report.md"
+          cmp <(jq -r .body "$pr" | normalise) <(normalise < "$RUNNER_TEMP/report.md")
       - name: Close the pull request and delete the branches
         if: always()
         run: |
