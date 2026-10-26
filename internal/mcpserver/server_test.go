@@ -181,7 +181,7 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
 	}
-	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=", "--out=" + out, "--format=json"}
+	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--selection=", "--out=" + out, "--format=json"}
 	if len(runner.runs) != 1 {
 		t.Fatalf("runs: %v, want one", runner.runs)
 	}
@@ -237,7 +237,7 @@ func TestImportIncremental(t *testing.T) {
 }
 
 // An import with regenerate writes the roots the output directory has
-// again, and the user is told so; it doesn't go with incremental.
+// again, and the user is told so.
 func TestImportRegenerate(t *testing.T) {
 	runner := &fakeRunner{}
 	var asked string
@@ -261,15 +261,6 @@ func TestImportRegenerate(t *testing.T) {
 	}
 	if len(runner.runs) != 1 || !slices.Contains(runner.runs[0], "--regenerate") || slices.Contains(runner.runs[0], "--incremental") {
 		t.Errorf("runs: %v, want --regenerate", runner.runs)
-	}
-
-	tools := &tools{run: runner.run, root: dir}
-	in := ImportInput{Scope: Scope{Provider: "aws", Services: []string{"vpc"}}, Selection: path, Out: filepath.Join(dir, "generated"), Incremental: true, Regenerate: true}
-	if _, _, err := tools.importSelection(t.Context(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}, in); err == nil || !strings.Contains(err.Error(), "not both") {
-		t.Errorf("with incremental too: want an error, got %v", err)
-	}
-	if len(runner.runs) != 1 {
-		t.Errorf("imported with incremental and regenerate: %v", runner.runs)
 	}
 }
 
@@ -305,10 +296,13 @@ func TestImportNeedsTheUser(t *testing.T) {
 	}
 }
 
-func TestScopeArgsKeepValuesOutOfFlags(t *testing.T) {
+// A provider the binary doesn't have is rejected: it is the one argument
+// that isn't a --flag=value. Every other value stays in its flag.
+func TestCommandArgsKeepValuesOutOfFlags(t *testing.T) {
 	for _, provider := range []string{"--help", "aws --all", "", "AWS", "gcp"} {
-		if _, err := scopeArgs("import", Scope{Provider: provider, Services: []string{"vpc"}}); err == nil {
-			t.Errorf("provider %q accepted", provider)
+		scope := Scope{Provider: provider, Services: []string{"vpc"}}
+		if _, err := commandArgs("import", scope, scope); err == nil || !strings.Contains(err.Error(), "unknown provider") {
+			t.Errorf("provider %q: got %v, want it rejected", provider, err)
 		}
 	}
 	for _, tc := range []struct {
@@ -319,15 +313,16 @@ func TestScopeArgsKeepValuesOutOfFlags(t *testing.T) {
 		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "--folders=1"}, []string{"import", "google", "--services=iam", "--organization=--folders=1"}},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, ResourceGroup: "-g x"}, []string{"import", "azure", "--services=resource_graph", "--resource-group=-g x"}},
 	} {
-		args, err := scopeArgs("import", tc.scope)
+		args, err := commandArgs("import", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
-			t.Errorf("scopeArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
+			t.Errorf("commandArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
 		}
 	}
 }
 
-// Each provider's scope fields become the flags its command has.
-func TestScopeArgsByProvider(t *testing.T) {
+// Each scope field becomes the flag its tag names; what a provider's
+// command makes of them is for the command to check.
+func TestCommandArgsByProvider(t *testing.T) {
 	for name, tc := range map[string]struct {
 		scope Scope
 		want  []string
@@ -361,65 +356,27 @@ func TestScopeArgsByProvider(t *testing.T) {
 		},
 		"azure through azapi": {
 			Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true},
-			[]string{"discover", "azure", "--services=resource_graph", "--azapi=true"},
+			[]string{"discover", "azure", "--services=resource_graph", "--azapi"},
 		},
 	} {
-		args, err := scopeArgs("discover", tc.scope)
+		args, err := commandArgs("discover", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
-			t.Errorf("%s: scopeArgs: got %v, %v, want %v", name, args, err, tc.want)
+			t.Errorf("%s: commandArgs: got %v, %v, want %v", name, args, err, tc.want)
 		}
 	}
 }
 
-// A field the provider's command has no flag for is rejected with a
-// message naming it. Before the fix, Azure scopes passed --regions and
-// --profile, which the azure command fails on as unknown flags, and Google
-// scopes had no way to name a project, so the google command always
-// failed.
-func TestScopeArgsRejectsWhatTheProviderDoesNotTake(t *testing.T) {
-	for name, tc := range map[string]struct {
-		scope Scope
-		want  []string
-	}{
-		"azure regions and profile": {
-			Scope{Provider: "azure", Services: []string{"resource_graph"}, Regions: []string{"westeurope"}, Profile: "prod"},
-			[]string{"azure doesn't take regions", "azure doesn't take profile"},
-		},
-		"aws projects and resource group": {
-			Scope{Provider: "aws", Services: []string{"vpc"}, Projects: []string{"one"}, ResourceGroup: "rg"},
-			[]string{"aws doesn't take projects", "aws doesn't take resource_group"},
-		},
-		"aws azapi": {
-			Scope{Provider: "aws", Services: []string{"vpc"}, Azapi: true},
-			[]string{"aws doesn't take azapi, which is for azure only"},
-		},
-		"google subscriptions": {
-			Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one"}, Subscriptions: []string{"sub-1"}},
-			[]string{"google doesn't take subscriptions, which is for azure only"},
-		},
-		"google profile and accounts": {
-			Scope{Provider: "google", Services: []string{"iam"}, Folders: []string{"456"}, Profile: "prod", Accounts: []string{"111111111111"}},
-			[]string{"google doesn't take profile", "google doesn't take accounts"},
-		},
-		"google without projects": {
-			Scope{Provider: "google", Services: []string{"iam"}, Regions: []string{"global"}},
-			[]string{"google needs projects, organization or folders"},
-		},
-		"no services": {
-			Scope{Provider: "google", Projects: []string{"one"}},
-			[]string{"services is required"},
-		},
-	} {
-		args, err := scopeArgs("discover", tc.scope)
-		if err == nil {
-			t.Errorf("%s: scopeArgs accepted it: %v", name, args)
-			continue
-		}
-		for _, want := range tc.want {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("%s: error %q misses %q", name, err, want)
-			}
-		}
+// A run the command rejects, such as one with a field the provider's
+// command has no flag for, returns the command's error.
+func TestDiscoverReturnsTheCommandsError(t *testing.T) {
+	runner := &fakeRunner{discoverExit: report.ExitCouldNotRun, discoverStderr: "unknown flag: --regions\n"}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, nil)
+
+	res, text := call(t, session, "discover", map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}, "selection": filepath.Join(dir, "selection.yaml")})
+
+	if !res.IsError || !strings.Contains(text, "unknown flag: --regions") {
+		t.Errorf("want an error result with the command's error, got %s", text)
 	}
 }
 
@@ -446,12 +403,10 @@ func TestScopeText(t *testing.T) {
 }
 
 // Through the tools: a Google scope reaches the google command with its
-// projects, and a rejected scope runs nothing.
+// projects.
 func TestDiscoverScopes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
-	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
-
 	runner := &fakeRunner{}
 	session := connect(t, runner, dir, nil)
 	res, text := call(t, session, "discover", map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"my-project"}, "selection": path})
@@ -461,23 +416,6 @@ func TestDiscoverScopes(t *testing.T) {
 	want := []string{"discover", "google", "--services=iam", "--projects=my-project", "--pick=false", "--out=" + filepath.Join(dir, "infraharvest-out"), "--selection=" + path}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
-	}
-
-	runner = &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
-	for name, scope := range map[string]Scope{
-		"azure regions":           {Provider: "azure", Services: []string{"resource_graph"}, Regions: []string{"westeurope"}},
-		"google without projects": {Provider: "google", Services: []string{"iam"}},
-	} {
-		if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: path}); err == nil {
-			t.Errorf("discover %s: accepted", name)
-		}
-		if _, _, err := tools.importSelection(t.Context(), req, ImportInput{Scope: scope, Selection: path, Out: filepath.Join(dir, "generated")}); err == nil {
-			t.Errorf("import %s: accepted", name)
-		}
-	}
-	if len(runner.runs) != 0 {
-		t.Errorf("ran a rejected scope: %v", runner.runs)
 	}
 }
 
@@ -695,11 +633,11 @@ func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
 	}
 	out := filepath.Join(dir, "generated")
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
-	args, err := scopeArgs("import", scope)
+	args, err := commandArgs("import", scope, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	args = append(args, "--engine=terraform", "--selection="+path, "--out="+out, "--format=json")
+	args = append(args, "--selection="+path, "--out="+out, "--format=json")
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -755,7 +693,7 @@ func TestValuesShownToTheUser(t *testing.T) {
 		"a profile with a newline":  {Provider: "aws", Services: []string{"vpc"}, Profile: "prod\nImport nothing"},
 		"a project with a carriage": {Provider: "google", Services: []string{"iam"}, Projects: []string{"one\r"}},
 	} {
-		if _, err := scopeArgs("import", scope); err == nil {
+		if _, err := commandArgs("import", scope, scope); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}

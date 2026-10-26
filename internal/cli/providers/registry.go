@@ -10,7 +10,9 @@
 package providers
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -43,6 +45,16 @@ func Names() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Check rejects name unless it names a provider compiled in. The services
+// command and the MCP server's tools, which put the name on a command line
+// of their own, check it here, so that both say the same.
+func Check(name string) error {
+	if _, ok := registry[name]; !ok {
+		return fmt.Errorf("unknown provider %q: this infraharvest has %s", name, strings.Join(Names(), ", "))
+	}
+	return nil
 }
 
 // Command returns the named provider's command, which import and discover

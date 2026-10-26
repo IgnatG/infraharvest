@@ -24,10 +24,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -35,6 +37,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -208,32 +211,33 @@ func resolve(path string) (string, error) {
 }
 
 // Scope is what to list: a provider command, its services, and where to
-// list them, in the provider's own terms. Each field sets the flag of the
-// same name, and only the providers whose command has that flag take it.
+// list them, in the provider's own terms. Each field but Provider sets the
+// flag its flag tag names (see flagArgs), and only the providers whose
+// command has that flag take it: the command rejects the others.
 type Scope struct {
 	Provider string   `json:"provider" jsonschema:"the provider command: aws, azure or google"`
-	Services []string `json:"services,omitempty" jsonschema:"services to list, such as vpc, s3 and iam; with cfn_stacks, those of the stacks' resource types when left out"`
+	Services []string `json:"services,omitempty" flag:"services" jsonschema:"services to list, such as vpc, s3 and iam; with cfn_stacks, those of the stacks' resource types when left out"`
 	// Regions is for aws and google.
-	Regions []string `json:"regions,omitempty" jsonschema:"aws and google only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
+	Regions []string `json:"regions,omitempty" flag:"regions" jsonschema:"aws and google only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
 	// Profile and Accounts are for aws.
-	Profile  string   `json:"profile,omitempty" jsonschema:"aws only: the AWS profile whose credentials to use"`
-	Accounts []string `json:"accounts,omitempty" jsonschema:"aws only: accounts to list, each through the role infraharvest-readonly in it"`
+	Profile  string   `json:"profile,omitempty" flag:"profile" jsonschema:"aws only: the AWS profile whose credentials to use"`
+	Accounts []string `json:"accounts,omitempty" flag:"accounts" jsonschema:"aws only: accounts to list, each through the role infraharvest-readonly in it"`
 	// CloudFormationStacks and CloudFormationIgnore are for aws: the
 	// stacks whose resources alone to import, and those of their resources
 	// Terraform can't import that they may be deleted without.
-	CloudFormationStacks []string `json:"cfn_stacks,omitempty" jsonschema:"aws only: CloudFormation stacks, by name or stack ID (ARN), whose resources and nested stacks' alone to import; the report says whether each can be deleted once they are in Terraform"`
-	CloudFormationIgnore []string `json:"cfn_ignore,omitempty" jsonschema:"aws only, with cfn_stacks: resources of the stacks Terraform can't import, such as custom resources, by logical ID or as <stack>/<logical ID>, which the stacks may be deleted without"`
+	CloudFormationStacks []string `json:"cfn_stacks,omitempty" flag:"cfn-stack,each" jsonschema:"aws only: CloudFormation stacks, by name or stack ID (ARN), whose resources and nested stacks' alone to import; the report says whether each can be deleted once they are in Terraform"`
+	CloudFormationIgnore []string `json:"cfn_ignore,omitempty" flag:"cfn-ignore,each" jsonschema:"aws only, with cfn_stacks: resources of the stacks Terraform can't import, such as custom resources, by logical ID or as <stack>/<logical ID>, which the stacks may be deleted without"`
 	// Projects, Organization and Folders are for google, which needs at
 	// least one of them.
-	Projects     []string `json:"projects,omitempty" jsonschema:"google only: projects to list; google needs projects, organization or folders"`
-	Organization string   `json:"organization,omitempty" jsonschema:"google only: an organization ID, to list every active project of it, in its folders too"`
-	Folders      []string `json:"folders,omitempty" jsonschema:"google only: folder IDs, to list every active project of them, in their subfolders too"`
+	Projects     []string `json:"projects,omitempty" flag:"projects" jsonschema:"google only: projects to list; google needs projects, organization or folders"`
+	Organization string   `json:"organization,omitempty" flag:"organization" jsonschema:"google only: an organization ID, to list every active project of it, in its folders too"`
+	Folders      []string `json:"folders,omitempty" flag:"folders" jsonschema:"google only: folder IDs, to list every active project of them, in their subfolders too"`
 	// Subscriptions, ManagementGroup and ResourceGroup are for azure.
-	Subscriptions   []string `json:"subscriptions,omitempty" jsonschema:"azure only: subscription IDs to list (default: ARM_SUBSCRIPTION_ID's)"`
-	ManagementGroup string   `json:"management_group,omitempty" jsonschema:"azure only: a management group ID, to list every enabled subscription under it, in its child groups too"`
-	ResourceGroup   string   `json:"resource_group,omitempty" jsonschema:"azure only: the resource group to list (default: the whole subscription)"`
-	// Azapi is for azure: --azapi.
-	Azapi bool `json:"azapi,omitempty" jsonschema:"azure only: import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out"`
+	Subscriptions   []string `json:"subscriptions,omitempty" flag:"subscriptions" jsonschema:"azure only: subscription IDs to list (default: ARM_SUBSCRIPTION_ID's)"`
+	ManagementGroup string   `json:"management_group,omitempty" flag:"management-group" jsonschema:"azure only: a management group ID, to list every enabled subscription under it, in its child groups too"`
+	ResourceGroup   string   `json:"resource_group,omitempty" flag:"resource-group" jsonschema:"azure only: the resource group to list (default: the whole subscription)"`
+	// Azapi is for azure.
+	Azapi bool `json:"azapi,omitempty" flag:"azapi" jsonschema:"azure only: import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out"`
 }
 
 // DiscoverInput is the discover tool's input.
@@ -269,7 +273,7 @@ type TypeCount struct {
 }
 
 func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in DiscoverInput) (*mcp.CallToolResult, *SelectionSummary, error) {
-	args, err := scopeArgs("discover", in.Scope)
+	args, err := commandArgs("discover", in.Scope, in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -357,11 +361,11 @@ type ImportInput struct {
 	Scope
 	Selection string `json:"selection" jsonschema:"the selection file to import, from discover"`
 	Out       string `json:"out" jsonschema:"the directory to write the configuration and report to"`
-	Engine    string `json:"engine,omitempty" jsonschema:"terraform (the default) or tofu"`
+	Engine    string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
 	// Incremental adds to the roots Out already has (--incremental).
-	Incremental bool `json:"incremental,omitempty" jsonschema:"add what is new to the roots the output directory already has, after the blocks of the file of their type, without changing what they have; needed to import into an output directory again"`
+	Incremental bool `json:"incremental,omitempty" flag:"incremental" jsonschema:"add what is new to the roots the output directory already has, after the blocks of the file of their type, without changing what they have; needed to import into an output directory again"`
 	// Regenerate generates the roots Out already has again (--regenerate).
-	Regenerate bool `json:"regenerate,omitempty" jsonschema:"generate the roots the output directory already has again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed"`
+	Regenerate bool `json:"regenerate,omitempty" flag:"regenerate" jsonschema:"generate the roots the output directory already has again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed"`
 }
 
 // ImportResult is what an import did.
@@ -399,15 +403,12 @@ type ImportResult struct {
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
-	args, err := scopeArgs("import", in.Scope)
+	args, err := commandArgs("import", in.Scope, in)
 	if err != nil {
 		return nil, nil, err
 	}
 	if in.Selection == "" || in.Out == "" {
 		return nil, nil, errors.New("selection and out are required")
-	}
-	if in.Incremental && in.Regenerate {
-		return nil, nil, errors.New("set incremental or regenerate, not both")
 	}
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
@@ -418,20 +419,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err := t.linksStayUnder("out", in.Out); err != nil {
 		return nil, nil, err
 	}
-	engine := in.Engine
-	if engine == "" {
-		engine = "terraform"
-	}
-	if engine != "terraform" && engine != "tofu" {
-		return nil, nil, fmt.Errorf("engine must be terraform or tofu, not %q", engine)
-	}
-	args = append(args, "--engine="+engine, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
-	if in.Incremental {
-		args = append(args, "--incremental")
-	}
-	if in.Regenerate {
-		args = append(args, "--regenerate")
-	}
+	args = append(args, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
 	// The selection file is read once: the user confirms these bytes, and the
 	// import reads them from a private copy, so a file the agent changes in
 	// between, such as with a discover running at the same time, isn't what
@@ -758,102 +746,86 @@ func (t *tools) linksStayUnder(what, dir string) error {
 	return err
 }
 
-// providers are the provider commands the tools run.
-var providers = []string{"aws", "azure", "google"}
-
-// scopeField is one of Scope's fields that say where to list: the name an
-// agent sends it by, the flag it sets, the providers whose command has
-// that flag, and its values (none when it isn't set).
-type scopeField struct {
-	name      string
-	flag      string
-	providers []string
-	values    func(Scope) []string
-	// repeat passes the flag once per value, for a flag that takes one
-	// value each time, such as --cfn-stack, rather than a list.
-	repeat bool
-}
-
-// scopeFields are Scope's fields that say where to list, in the order
-// their flags are passed.
-var scopeFields = []scopeField{
-	{"regions", "regions", []string{"aws", "google"}, func(s Scope) []string { return s.Regions }, false},
-	{"profile", "profile", []string{"aws"}, func(s Scope) []string { return nonEmpty(s.Profile) }, false},
-	{"accounts", "accounts", []string{"aws"}, func(s Scope) []string { return s.Accounts }, false},
-	{"projects", "projects", []string{"google"}, func(s Scope) []string { return s.Projects }, false},
-	{"organization", "organization", []string{"google"}, func(s Scope) []string { return nonEmpty(s.Organization) }, false},
-	{"folders", "folders", []string{"google"}, func(s Scope) []string { return s.Folders }, false},
-	{"subscriptions", "subscriptions", []string{"azure"}, func(s Scope) []string { return s.Subscriptions }, false},
-	{"management_group", "management-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ManagementGroup) }, false},
-	{"resource_group", "resource-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ResourceGroup) }, false},
-	{"azapi", "azapi", []string{"azure"}, func(s Scope) []string { return ifSet(s.Azapi) }, false},
-	{"cfn_stacks", "cfn-stack", []string{"aws"}, func(s Scope) []string { return s.CloudFormationStacks }, true},
-	{"cfn_ignore", "cfn-ignore", []string{"aws"}, func(s Scope) []string { return s.CloudFormationIgnore }, true},
-}
-
-// ifSet returns true as the only value of a boolean field that is set,
-// or none.
-func ifSet(set bool) []string {
-	if !set {
-		return nil
-	}
-	return []string{"true"}
-}
-
-// nonEmpty returns value as the only value of a field, or none if it is
-// empty.
-func nonEmpty(value string) []string {
-	if value == "" {
-		return nil
-	}
-	return []string{value}
-}
-
 // scopeHelp says which provider takes which of Scope's fields, for the
 // tools' descriptions.
 const scopeHelp = "Where to list depends on the provider: aws takes regions, profile and accounts, and cfn_stacks to import CloudFormation stacks, with cfn_ignore; azure takes subscriptions, management_group, resource_group and azapi; google takes regions and needs projects, organization or folders."
 
-// scopeArgs returns the arguments for command on scope. Every value is
-// part of a --flag=value argument, so none can become a flag of its own.
-// A field the provider's command has no flag for is rejected rather than
-// left for the command to fail on, and so is a Google scope without a
-// project, organization or folder.
-func scopeArgs(command string, s Scope) ([]string, error) {
-	if !slices.Contains(providers, s.Provider) {
-		return nil, fmt.Errorf("unknown provider %q: use %s", s.Provider, strings.Join(providers, ", "))
-	}
-	if len(s.Services) == 0 && len(s.CloudFormationStacks) == 0 {
-		return nil, errors.New("services is required, unless cfn_stacks names the stacks to import")
-	}
-	if err := checkScopeValues(s); err != nil {
+// commandArgs returns the arguments of command on scope's provider, with
+// the flags of in, a tool's input that has scope in it (see flagArgs).
+// What the provider's command makes of them, such as a field it has no
+// flag for or a Google scope without a project, is left for the command
+// to check, whose error the tool returns.
+func commandArgs(command string, scope Scope, in any) ([]string, error) {
+	// The provider is the one argument that isn't a --flag=value: one the
+	// binary doesn't have would be taken for something else, such as a
+	// flag.
+	if err := providers.Check(scope.Provider); err != nil {
 		return nil, err
 	}
-	args := []string{command, s.Provider}
-	if len(s.Services) > 0 {
-		args = append(args, "--services="+strings.Join(s.Services, ","))
-	}
-	var errs []error
-	for _, f := range scopeFields {
-		values := f.values(s)
-		if len(values) == 0 {
-			continue
-		}
-		if !slices.Contains(f.providers, s.Provider) {
-			errs = append(errs, fmt.Errorf("%s doesn't take %s, which is for %s only", s.Provider, f.name, strings.Join(f.providers, " and ")))
-			continue
-		}
-		if !f.repeat {
-			values = []string{strings.Join(values, ",")}
-		}
-		for _, v := range values {
-			args = append(args, "--"+f.flag+"="+v)
-		}
-	}
-	if s.Provider == "google" && len(s.Projects) == 0 && s.Organization == "" && len(s.Folders) == 0 {
-		errs = append(errs, errors.New("google needs projects, organization or folders to say which projects to list"))
-	}
-	if err := errors.Join(errs...); err != nil {
+	if err := checkScopeNames(scope); err != nil {
 		return nil, err
+	}
+	flags, err := flagArgs(in)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string{command, scope.Provider}, flags...), nil
+}
+
+// flagArgs returns the flags that in, a tool's input, sets: for each field
+// with a flag tag, in this one place, the flag that tag names, with the
+// field's value, or none when the field isn't set. A list goes into one
+// flag, comma-separated, or with ",each" in the tag, as a flag that takes
+// one value each time such as --cfn-stack, into a flag per value. Every
+// value is part of a --flag=value argument, so none can become a flag of
+// its own; one with a control character, such as a newline, which could
+// make the confirmation the user is shown say something else, is
+// rejected. The fields of an embedded struct come in its place.
+func flagArgs(in any) ([]string, error) {
+	var args []string
+	v := reflect.ValueOf(in)
+	for i := range v.NumField() {
+		field, value := v.Type().Field(i), v.Field(i)
+		if field.Anonymous {
+			embedded, err := flagArgs(value.Interface())
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, embedded...)
+			continue
+		}
+		tag, ok := field.Tag.Lookup("flag")
+		if !ok {
+			continue
+		}
+		name, mode, _ := strings.Cut(tag, ",")
+		var values []string
+		switch value.Kind() {
+		case reflect.Bool:
+			if value.Bool() {
+				args = append(args, "--"+name)
+			}
+			continue
+		case reflect.Int:
+			if value.Int() != 0 {
+				values = []string{strconv.FormatInt(value.Int(), 10)}
+			}
+		case reflect.String:
+			if value.String() != "" {
+				values = []string{value.String()}
+			}
+		case reflect.Slice:
+			values = value.Interface().([]string)
+			if len(values) > 0 && mode != "each" {
+				values = []string{strings.Join(values, ",")}
+			}
+		}
+		for _, value := range values {
+			if strings.ContainsFunc(value, unicode.IsControl) {
+				return nil, fmt.Errorf("%q has a control character", value)
+			}
+			args = append(args, "--"+name+"="+value)
+		}
 	}
 	return args, nil
 }
@@ -862,22 +834,12 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 // resource_graph, eu-west-2, global, or * for all.
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9_*.-]+$`)
 
-// checkScopeValues rejects a service or region that isn't named like one,
-// and any value with a control character, such as a newline, which could
-// make the confirmation the user is shown say something else.
-func checkScopeValues(s Scope) error {
+// checkScopeNames rejects a service or region that isn't named like one,
+// which the confirmation the user is shown names.
+func checkScopeNames(s Scope) error {
 	for _, v := range append(slices.Clone(s.Services), s.Regions...) {
 		if !namePattern.MatchString(v) {
 			return fmt.Errorf("%q isn't a service or a region", v)
-		}
-	}
-	values := []string{s.Profile, s.Organization, s.ManagementGroup, s.ResourceGroup}
-	for _, list := range [][]string{s.Accounts, s.Projects, s.Folders, s.Subscriptions, s.CloudFormationStacks, s.CloudFormationIgnore} {
-		values = append(values, list...)
-	}
-	for _, v := range values {
-		if strings.ContainsFunc(v, unicode.IsControl) {
-			return fmt.Errorf("%q has a control character", v)
 		}
 	}
 	return nil
@@ -905,7 +867,7 @@ func shellQuote(s string) string {
 
 // scopeText says what an import reads, for the user to confirm: the
 // provider's accounts, subscriptions or projects, where in them, and the
-// services. scope has passed scopeArgs.
+// services. scope has passed commandArgs.
 func scopeText(s Scope) string {
 	var text string
 	switch s.Provider {

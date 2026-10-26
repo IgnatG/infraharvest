@@ -123,7 +123,7 @@ func TestDrift(t *testing.T) {
 	if res.IsError || !strings.Contains(text, "3 changes in the cloud") || !strings.Contains(text, "2 kept") {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--parallel=2", "--root=aws/*", "--", out}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--root=aws/*", "--parallel=2", "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -171,7 +171,7 @@ func TestDriftAcceptAfterTheUserConfirms(t *testing.T) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
 	}
-	base := []string{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode"}
+	base := []string{"drift", "--format=json", "--detailed-exitcode"}
 	want := [][]string{
 		append(slices.Clone(base), "--", out),
 		append(slices.Clone(base), "--accept=attribute=tags.*", "--keep=attribute=tags.Owner", "--", out),
@@ -200,7 +200,7 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 		checks int
 	}{
 		"declined":                {decline, "didn't confirm", 1},
-		"a client that can't ask": {nil, "infraharvest drift --engine=terraform --format=json --detailed-exitcode --accept=all --", 0},
+		"a client that can't ask": {nil, "infraharvest drift --format=json --detailed-exitcode --accept=all --", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{}
@@ -355,10 +355,6 @@ func TestDriftAcceptRejectsBadInput(t *testing.T) {
 		"a rule of no field":    {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Accept: []string{"name=x"}}, "attribute="},
 		"a rule with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Keep: []string{"attribute=tags.*\nand accept all"}}, "control character"},
 		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Accept: []string{"all"}}, "control character"},
-		"another engine":        {DriftAcceptInput{DriftInput: DriftInput{Out: out, Engine: "pulumi"}, Accept: []string{"all"}}, "terraform or tofu"},
-		"negative parallel":     {DriftAcceptInput{DriftInput: DriftInput{Out: out, Parallel: -1}, Accept: []string{"all"}}, "negative"},
-		"a bad engine timeout":  {DriftAcceptInput{DriftInput: DriftInput{Out: out, EngineTimeout: "soon"}, Accept: []string{"all"}}, "engine_timeout"},
-		"a negative timeout":    {DriftAcceptInput{DriftInput: DriftInput{Out: out, EngineTimeout: "-1m"}, Accept: []string{"all"}}, "negative"},
 		"a bad decisions file":  {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: writeFile(t, dir, "bad.yaml", "version: 9\n")}, "version 9"},
 		"no decisions file":     {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: filepath.Join(dir, "missing.yaml")}, ""},
 	} {
@@ -464,7 +460,7 @@ func TestDriftCatalogue(t *testing.T) {
 	if res, text := call(t, session, "drift", map[string]any{"out": out, "catalogue": catalogue}); res.IsError {
 		t.Fatalf("result: %s", text)
 	}
-	want := []string{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--catalogue=" + catalogue, "--", out}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--catalogue=" + catalogue, "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -494,8 +490,8 @@ func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
 		t.Fatalf("result: %s", text)
 	}
 	want := [][]string{
-		{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--engine-timeout=1h30m0s", "--force-unlock", "--", out},
-		{"drift", "--engine=terraform", "--format=json", "--detailed-exitcode", "--engine-timeout=0s", "--keep=all", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--engine-timeout=90m", "--force-unlock", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--engine-timeout=0", "--keep=all", "--", out},
 	}
 	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
