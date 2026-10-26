@@ -80,15 +80,25 @@ func TestCfnConvertCommand(t *testing.T) {
 		t.Errorf("variables.tf:\n%s\nmain.tf:\n%s", vars, main)
 	}
 
+	// A property the mapper leaves out on purpose, such as a bucket's
+	// versioning, is a warning, which doesn't fail the command.
+	omitted := filepath.Join(t.TempDir(), "omitted.yaml")
+	if err := os.WriteFile(omitted, []byte("Resources:\n  B:\n    Type: AWS::S3::Bucket\n    Properties:\n      VersioningConfiguration: {Status: Enabled}\n      BucketEncryption: {ServerSideEncryptionConfiguration: [{ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}}]}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr, err = run("", "cfn", "convert", omitted, "--out", t.TempDir())
+	if err != nil || !strings.Contains(stderr, "warning: Resources.B.Properties.VersioningConfiguration") || !strings.Contains(stderr, "warning: Resources.B.Properties.BucketEncryption") {
+		t.Errorf("err = %v, stderr:\n%s", err, stderr)
+	}
+
 	file := filepath.Join(t.TempDir(), "t.yaml")
-	if err := os.WriteFile(file, []byte("Resources:\n  B:\n    Type: AWS::S3::Bucket\n    Properties:\n      VersioningConfiguration: {Status: Enabled}\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("Resources:\n  B:\n    Type: Custom::Seeder\n    Properties:\n      ServiceToken: arn:aws:lambda:x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var exit *importer.ExitError
-	// A property left out, such as a bucket's versioning, counts as not
-	// converted.
+	// A custom resource isn't converted.
 	stderr, err = run("", "cfn", "convert", file, "--out", t.TempDir())
-	if !errors.As(err, &exit) || exit.Code != report.ExitIncomplete || !strings.Contains(stderr, "error: Resources.B.Properties.VersioningConfiguration") {
+	if !errors.As(err, &exit) || exit.Code != report.ExitIncomplete || !strings.Contains(stderr, "error: Resources.B: a custom resource") {
 		t.Errorf("err = %v, stderr:\n%s", err, stderr)
 	}
 	_, err = run("", "cfn", "convert", file, "--out", t.TempDir(), "--allow-partial")

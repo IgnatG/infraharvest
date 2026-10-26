@@ -83,8 +83,9 @@ const (
 	// CloudFormation also accepts as a policy, is written as it is.
 	KindJSON
 	// KindOmit leaves the property out on purpose; Reason says why, and
-	// Convert reports it as an error, with the value as written: what it
-	// sets doesn't take effect.
+	// Convert reports it as a warning, with the value as written: what it
+	// sets doesn't take effect until a person writes it as the provider
+	// takes it.
 	KindOmit
 )
 

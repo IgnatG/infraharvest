@@ -224,7 +224,7 @@ Resources:
 		`team = "web"`,
 		`(data.aws_region.current.region) = "x"`,
 		`prevent_destroy = true`,
-		`# error: VersioningConfiguration is left out: the AWS provider manages it with a separate aws_s3_bucket_versioning resource`,
+		`# warning: VersioningConfiguration is left out: the AWS provider manages it with a separate aws_s3_bucket_versioning resource`,
 		`# It was: {"Status":"Enabled"}`,
 		`# DeletionPolicy Retain:`,
 		`name = aws_s3_bucket.logs[0].id`,
