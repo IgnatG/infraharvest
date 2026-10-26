@@ -8,11 +8,14 @@ package providers
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -238,5 +241,36 @@ func TestPlanAWSStacksRefuses(t *testing.T) {
 		if _, err := planAWS(ctx, c.options); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: got %v, want an error with %q", name, err, c.want)
 		}
+	}
+}
+
+// A configuration file sets --cfn-stack and --cfn-ignore, one value per
+// item of a list, as the command line takes them.
+func TestCloudFormationFlagsFromConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	if err := os.WriteFile(path, []byte("version: 1\nproviders:\n  aws:\n    cfn-stack: [app, \"arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1\"]\n    cfn-ignore: [app/Seed]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := Command("aws", importer.Options{})
+	if err := f.Apply(cmd.PersistentFlags(), "aws"); err != nil {
+		t.Fatal(err)
+	}
+	stacks, _ := cmd.PersistentFlags().GetStringArray("cfn-stack")
+	ignore, _ := cmd.PersistentFlags().GetStringArray("cfn-ignore")
+	if !slices.Equal(stacks, []string{"app", "arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1"}) || !slices.Equal(ignore, []string{"app/Seed"}) {
+		t.Errorf("cfn-stack %q, cfn-ignore %q", stacks, ignore)
+	}
+}
+
+// --cfn-ignore acknowledges resources of the stacks --cfn-stack names, so
+// it needs it.
+func TestCloudFormationIgnoreNeedsStacks(t *testing.T) {
+	_, err := planAWS(context.Background(), importer.Options{CloudFormationIgnore: []string{"Seed"}, AssumeRole: DefaultAssumeRole})
+	if err == nil || !strings.Contains(err.Error(), "give --cfn-stack too") {
+		t.Errorf("got %v", err)
 	}
 }
