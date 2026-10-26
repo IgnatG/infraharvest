@@ -157,20 +157,21 @@ func TestStacksMergeAndWrite(t *testing.T) {
 }
 
 // An acknowledged custom resource doesn't keep its stack from being safe
-// to delete, but one that must be taken out of the stack first does,
+// to delete, retained or not, though the report says that deleting the
+// stack calls its handler where it isn't; but one that must be taken out of the stack first does,
 // acknowledged or not.
 func TestStackCustomResources(t *testing.T) {
 	s := scopedStack(nil)
 	s.Resources = append(s.Resources,
-		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true},
+		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true, Retain: []string{"DeletionPolicy is Delete, the default"}},
 	)
 	r := &Report{}
 	r.AddCloudFormationStacks([]CloudFormationStack{s})
 	r.Directories = []Directory{imports()}
 	r.Finish(nil, nil, false)
 	got := r.CloudFormationStacks[0]
-	if !got.SafeToDelete || got.Resources[2].Outcome != StackAcknowledged {
-		t.Errorf("acknowledged: %+v", got)
+	if !got.SafeToDelete || got.Resources[2].Outcome != StackAcknowledged || !strings.Contains(got.Resources[2].Reason, "deleting the stack calls its handler with a Delete event") {
+		t.Errorf("acknowledged, not retained: %+v", got)
 	}
 
 	s.Resources = append(s.Resources, CloudFormationResource{LogicalID: "AutoDelete", Type: "Custom::S3AutoDeleteObjects", PhysicalID: "ad", Status: "CREATE_COMPLETE", NotImportable: "the CDK's autoDeleteObjects", MustRemove: true})

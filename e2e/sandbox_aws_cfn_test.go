@@ -44,11 +44,14 @@ const cfnStackWait = 20 * time.Minute
 //     delete, as its resources aren't retained, and old as deleted, its
 //     bucket imported.
 //  2. It updates app with the copy of its template that has Retain added,
-//     the nested stack's copy uploaded over its template first.
+//     the nested stack's copy uploaded over its template first. The copy
+//     leaves the acknowledged custom resource as it is.
 //  3. It imports again: app must be safe to delete, its custom resource
-//     acknowledged, and every root must plan as imports with no changes.
-//  4. It deletes app. The roots of the second import must still plan as
-//     imports with no changes: every resource survived.
+//     acknowledged, the report saying deleting the stack calls its handler,
+//     and every root must plan as imports with no changes.
+//  4. It deletes app, which calls the handler, which answers success. The
+//     roots of the second import must still plan as imports with no
+//     changes: every resource survived.
 //
 // What the stacks retain is outside the estate's state, so the test
 // deletes it, by name, every name the estate's (ih-sbx-...), whatever
@@ -148,8 +151,9 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 3. Safe to delete, but for nothing: the custom resource is
-	// acknowledged.
+	// 3. Safe to delete: the custom resource is acknowledged, which waives
+	// its Retain, so the copy left it as it was and deleting the stack calls
+	// its handler, which answers success.
 	second := filepath.Join(s.out, "second")
 	coverage = importStacks(second)
 	app = cfnStack(t, coverage, names.app)
@@ -157,7 +161,7 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 		t.Errorf("app after Retain isn't safe to delete: %v", app.Blockers)
 	}
 	for _, r := range app.Resources {
-		if r.LogicalID == "Seed" && r.Outcome != report.StackAcknowledged {
+		if r.LogicalID == "Seed" && (r.Outcome != report.StackAcknowledged || !strings.Contains(r.Reason, "calls its handler with a Delete event")) {
 			t.Errorf("Seed: %+v", r)
 		}
 	}

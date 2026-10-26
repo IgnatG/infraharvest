@@ -6,10 +6,13 @@ package aws
 import (
 	"encoding/xml"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 const (
@@ -145,9 +148,52 @@ func TestAcknowledge(t *testing.T) {
 	if len(acknowledged) != 2 || !acknowledged["cdk/Seed"] || !acknowledged["cdk/Retention"] {
 		t.Errorf("acknowledged %v", acknowledged)
 	}
-	if summary := strings.Join(scope.Summary(), "\n"); !strings.Contains(summary, "Seed (Custom::Seed), acknowledged") || !strings.Contains(summary, "must be taken out of the stack") {
+	summary := strings.Join(scope.Summary(), "\n")
+	if !strings.Contains(summary, "Seed (Custom::Seed), acknowledged") || !strings.Contains(summary, "must be taken out of the stack") {
 		t.Errorf("summary:\n%s", summary)
 	}
+	// What is acknowledged needs no Retain: neither the count of what
+	// lacks it nor the copy with Retain added has it.
+	if !strings.Contains(summary, "lack DeletionPolicy and UpdateReplacePolicy Retain, so deleting the stack would delete them: Assets, AssetsAutoDelete, Cluster\n") {
+		t.Errorf("summary counts what is acknowledged as lacking Retain:\n%s", summary)
+	}
+	r := &report.Report{}
+	r.AddCloudFormationStacks([]report.CloudFormationStack{scope.stacks[0].report(nil)})
+	r.Finish(nil, nil, false)
+	out := t.TempDir()
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	patched, err := parseTemplate(readTestFile(t, filepath.Join(out, filepath.FromSlash(r.CloudFormationStacks[0].RetainTemplate))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, wantRetained := range map[string]bool{"Assets": true, "AssetsAutoDelete": true, "Seed": false, "Retention": false} {
+		if retained := patched.retainProblems(id, typeOf(scope, id)) == nil; retained != wantRetained {
+			t.Errorf("%s retained in the copy: %v, want %v", id, retained, wantRetained)
+		}
+	}
+}
+
+// typeOf returns the CloudFormation type of the resource logicalID of the
+// first stack of scope.
+func typeOf(scope *StackScope, logicalID string) string {
+	for _, r := range scope.stacks[0].resources {
+		if r.logicalID == logicalID {
+			return r.cfnType
+		}
+	}
+	return ""
+}
+
+// readTestFile returns the content of the file at path.
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
 }
 
 // A queue's policy, which Terraform holds as the queue's policy argument,
