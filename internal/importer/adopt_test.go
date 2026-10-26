@@ -163,9 +163,11 @@ func TestAdoptedCheckpoint(t *testing.T) {
 	if !c.Merge.Merged || c.Merge.Path != "aws/eu-west-2" || strings.Join(c.Merge.Environments, ",") != "dev,prod" {
 		t.Errorf("merge: %+v", c.Merge)
 	}
+	// What prod's state has that its root doesn't is the merged root's
+	// too, by its ID in the state.
 	wantImports := map[string]map[string]string{
 		"dev":  {"aws_sqs_queue.orders": "q-dev-orders"},
-		"prod": {"aws_sqs_queue.orders": "q-prd-orders"},
+		"prod": {"aws_sqs_queue.orders": "q-prd-orders", "aws_sqs_queue.other": "q-elsewhere"},
 	}
 	if !reflect.DeepEqual(c.Imports, wantImports) {
 		t.Errorf("imports: %v, want %v", c.Imports, wantImports)

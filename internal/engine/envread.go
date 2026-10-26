@@ -57,6 +57,14 @@ type MergeRoot struct {
 	// in the merged root, where an earlier merge gave it one: kept apart
 	// again, it keeps it, rather than one from its label in the root.
 	Labels map[string]string
+	// Gone are the addresses, in the root, of the resources an incremental
+	// import found no longer in the cloud: the merged root keeps them as
+	// the root has them, but the environment's plan can't import them, so
+	// its gate plans without their import blocks, and lets the plan create
+	// them again, as the root's next plan would. A resource of a for_each
+	// the merged root makes, whose import block imports every key, is
+	// imported all the same.
+	Gone []string
 	// Arrivals are the resources the root imports that other roots hand
 	// over (see Result.Arrived), which the merged root's README names, as
 	// the roots they come from are applied first.

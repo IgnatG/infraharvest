@@ -449,13 +449,58 @@ func (g *mergeGate) plan(ctx context.Context, tf Terraform, m *stackMerge, w *ro
 		tfexec.VarFile(filepath.Join(envDir, importVarsFileName)),
 	}
 	secrets := w.sensitiveIn(env, g.roots[env].Secrets)
-	p, _, diags, err := showPlanWithSummary(ctx, tf, append(vars, placeholders(secrets)...))
+	gone, restore, err := g.leaveOutGone(m, w, env)
 	if err != nil {
 		return Check{}, nil, err
 	}
-	check := planCheck(p, diags, g.secretsIn(m, env), g.opts.StateOnly, len(g.imports(m, env)))
+	p, _, diags, err := showPlanWithSummary(ctx, tf, append(vars, placeholders(secrets)...))
+	if err := errors.Join(err, restore()); err != nil {
+		return Check{}, nil, err
+	}
+	check := planCheckWith(p, diags, g.secretsIn(m, env), g.opts.StateOnly, len(g.imports(m, env))-len(gone), gone)
 	check.Details = append([]string{"environment " + m.envs[env]}, check.Details...)
 	return check, sensitiveValues(p), nil
+}
+
+// leaveOutGone writes, for the plan of the merged root m wrote with w as
+// environment env, its imports.tf without the import blocks of the
+// resources of env's root no longer in the cloud (see MergeRoot.Gone),
+// where it has any. It returns their addresses in the merged root, which
+// the plan may create again, and what puts imports.tf back as it was.
+func (g *mergeGate) leaveOutGone(m *stackMerge, w *rootWriter, env int) (map[string]bool, func() error, error) {
+	none := func() error { return nil }
+	gone := map[string]bool{}
+	skip := map[*stackResource]bool{}
+	for _, address := range g.roots[env].Gone {
+		member, ok := m.index[env][address]
+		if !ok || member.stack == nil || member.stack.forEach != nil || member.id == "" {
+			continue
+		}
+		skip[member.stack] = true
+		gone[addressText(member.stack.instance())] = true
+	}
+	if len(gone) == 0 {
+		return nil, none, nil
+	}
+	path := filepath.Join(g.dir, ImportsFileName)
+	had, err := os.ReadFile(path)
+	if err != nil {
+		return nil, none, err
+	}
+	imports, err := w.importsFileWithout(skip)
+	if err != nil {
+		return nil, none, err
+	}
+	if imports == nil {
+		err = os.Remove(path)
+	} else {
+		err = fsutil.WriteFile(path, imports, 0o644)
+	}
+	restore := func() error { return fsutil.WriteFile(path, had, 0o644) }
+	if err != nil {
+		return nil, none, errors.Join(err, restore())
+	}
+	return gone, restore, nil
 }
 
 // writeOverride writes the credentials override file for environment

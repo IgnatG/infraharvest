@@ -3,8 +3,9 @@
 # one of prod in one project, told apart by their env label, as the
 # configuration file's environments tell them apart, each with an owner
 # label of its own. Applied again with events=true, dev gets a Pub/Sub
-# topic, labelled as dev's unless events_env says otherwise; with another
-# dev_owner, dev's bucket gets another owner label. The provider reaches
+# topic, labelled as dev's unless events_env says otherwise; with
+# reports=true, prod gets a reports bucket; with another dev_owner, dev's
+# bucket gets another owner label. The provider reaches
 # the emulator through the GOOGLE_*_CUSTOM_ENDPOINT variables the test
 # sets.
 
@@ -72,4 +73,22 @@ resource "google_pubsub_topic" "events" {
 
   name   = "infraharvest-e2e-dev-events"
   labels = var.events_env == "" ? {} : { env = var.events_env }
+}
+
+# A bucket of prod alone, which reports=true adds.
+variable "reports" {
+  type    = bool
+  default = false
+}
+
+resource "google_storage_bucket" "reports" {
+  count = var.reports ? 1 : 0
+
+  name                        = "infraharvest-e2e-prd-reports"
+  location                    = "US"
+  storage_class               = "NEARLINE"
+  uniform_bucket_level_access = true
+  force_destroy               = true
+  labels                      = { env = "prd", team = "shop", owner = "bob" }
+  public_access_prevention    = "inherited"
 }

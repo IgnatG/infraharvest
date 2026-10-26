@@ -60,6 +60,11 @@ type Run struct {
 	// members are the roots the run generated of the configuration file's
 	// environments, which the merge phase merges (see MergeEnvironments).
 	members []mergeMember
+	// vacating are the handovers of the run's scopes that plan to vacate
+	// merged roots, all of whose resources go to other roots now (see
+	// handovers.vacating), which the merge phase vacates (see
+	// vacateMergedRoots).
+	vacating []*handovers
 	// shared is what the run and its children work out once.
 	shared *shared
 	// OpenPicker opens the picker on the selection file discover writes,
@@ -87,6 +92,11 @@ type shared struct {
 	// resources, as their own state, which --managed-state reads, says,
 	// by root directory (see excludeManaged and previousAddressesOf).
 	stated map[string][]engine.Managed
+
+	// scopes are the accounts, subscriptions or projects the command
+	// imports, where it names them (see ImportEach); none where it imports
+	// the one its credentials reach. Set before any scope starts.
+	scopes []string
 
 	// own are the adapters of the organisation's own modules, by the
 	// provider they were fetched for (see ownAdapters).
@@ -201,7 +211,12 @@ func (r *Run) finish(err error) error {
 		if err != nil {
 			return err
 		}
-		if r.OpenPicker && Interactive() {
+		if r.options.Format == FormatJSON {
+			// The summary goes to stdout, where the picker would draw.
+			if writeErr := r.summary().WriteJSON(r.stdout()); writeErr != nil {
+				return couldNotRun(nil, writeErr)
+			}
+		} else if r.OpenPicker && Interactive() {
 			if err := Pick(r.selectionPath()); err != nil {
 				return err
 			}
@@ -225,11 +240,7 @@ func (r *Run) finish(err error) error {
 	}
 	log.Printf("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.Out, report.Dir, "report.md"))
 	if r.options.Format == FormatJSON {
-		var stdout io.Writer = os.Stdout
-		if r.options.Stdout != nil {
-			stdout = r.options.Stdout
-		}
-		if writeErr := r.report.WriteJSON(stdout); writeErr != nil {
+		if writeErr := r.report.WriteJSON(r.stdout()); writeErr != nil {
 			return couldNotRun(err, writeErr)
 		}
 	}
@@ -237,6 +248,15 @@ func (r *Run) finish(err error) error {
 		return err
 	}
 	return checkFailures(r.failures, r.options.AllowPartial)
+}
+
+// stdout is where --format json prints: the command's output, os.Stdout if
+// none is set.
+func (r *Run) stdout() io.Writer {
+	if r.options.Stdout != nil {
+		return r.options.Stdout
+	}
+	return os.Stdout
 }
 
 // couldNotRun returns the error for a run whose report or selection file
@@ -278,6 +298,7 @@ func (r *Run) merge(child *Run) {
 	}
 	r.failures = append(r.failures, child.failures...)
 	r.members = append(r.members, child.members...)
+	r.vacating = append(r.vacating, child.vacating...)
 	r.listed = append(r.listed, child.listed...)
 	maps.Copy(r.covered, child.covered)
 	r.filtered = r.filtered || child.filtered
