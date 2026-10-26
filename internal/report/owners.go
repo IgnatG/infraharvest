@@ -62,7 +62,7 @@ func OwnerOf(reason string) string {
 		return OwnerCloudFormation
 	case strings.HasPrefix(reason, OtherToolPrefix):
 		return OwnerOtherTool
-	case reason == ReasonSelectionEntry || reason == ReasonSelectionRule || reason == ReasonSelectionDefaults:
+	case reason == ReasonSelectionEntry || reason == ReasonSelectionRule || reason == ReasonSelectionDefaults, strings.HasPrefix(reason, OutsideScopePrefix):
 		return OwnerSelection
 	}
 	return OwnerCloud
