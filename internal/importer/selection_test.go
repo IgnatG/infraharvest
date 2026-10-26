@@ -647,15 +647,13 @@ func TestDiscoverPrintsSummary(t *testing.T) {
 	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml"), Format: FormatJSON, Stdout: &out, ReportTags: []string{"team"}}
 	const scope = "aws/1/eu-west-2"
 	stack := report.OtherToolPrefix + "CloudFormation stack app"
-	for _, r := range []selection.Resource{
+	run.listed = append(run.listed, []selection.Resource{
 		{Type: "aws_s3_bucket", ID: "logs", Scope: scope, Include: true, Tags: map[string]string{"team": "web"}},
 		{Type: "aws_s3_bucket", ID: "logs", Scope: scope, Include: true, Tags: map[string]string{"team": "web"}},
 		{Type: "aws_s3_bucket", ID: "state", Scope: scope, Reason: managed.Reason + " (prod.tfstate)"},
 		{Type: "aws_s3_bucket", ID: "assets", Scope: scope, Reason: stack},
 		{Type: "aws_vpc", ID: "vpc-default", Scope: scope, Reason: "default VPC"},
-	} {
-		run.listed = append(run.listed, r)
-	}
+	}...)
 
 	if err := run.finish(nil); err != nil {
 		t.Fatal(err)
