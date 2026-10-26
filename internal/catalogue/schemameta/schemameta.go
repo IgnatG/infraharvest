@@ -9,27 +9,37 @@
 // conflicting arguments without a plan or a validation to tell it, which
 // the plan it verifies with still checks.
 //
-// The files, one per provider (aws.json, azurerm.json, google.json), are
-// generated from the provider's code at one release (see gen/main.go and
-// the schema-metadata task of the remote workflow) and built into the
-// binary. They hold only the arguments that have metadata. A type a file
-// doesn't list has none the generator could read, and a type marked
-// Framework (a Plugin Framework resource) has only its defaults: its
-// constraints are validators the provider doesn't expose.
+// The files, one per provider (aws.json.gz, azurerm.json.gz,
+// google.json.gz), are generated from the provider's code at one release
+// (see gen/main.go and the schema-metadata workflows) and built into the
+// binary gzipped, each decompressed the first time it is asked for. They
+// hold only the arguments that have metadata. A type a file doesn't list
+// has none the generator could read, and a type marked Framework (a Plugin
+// Framework resource) has only its defaults: its constraints are
+// validators the provider doesn't expose.
+//
+// The generated files are the providers' facts, and MPL-2.0 as the
+// providers are (see REUSE.toml). overrides.json is infraharvest's own:
+// corrections and additions merged over them (see Overrides).
 package schemameta
 
 import (
 	"bytes"
+	"compress/gzip"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"sync"
 )
 
-//go:embed *.json
+//go:embed *.json.gz overrides.json
 var builtin embed.FS
+
+// overridesFile is the name of the overrides among the embedded files.
+const overridesFile = "overrides.json"
 
 // File is one provider's metadata.
 type File struct {
@@ -90,46 +100,152 @@ func (f *File) Resource(typ string) *Resource {
 	return f.Resources[typ]
 }
 
+// Overrides are corrections and additions to the generated metadata, by
+// provider and then resource type, merged over it when it loads: for what
+// the generator can't read, such as a Plugin Framework resource's
+// constraints, or reads wrong. In a type, each argument replaces the
+// generated one whole, and null removes it; a type that is null is
+// removed, so that the engine falls back to plans for it.
+type Overrides map[string]map[string]*ResourceOverride
+
+// ResourceOverride is one type's overrides.
+type ResourceOverride struct {
+	// Framework, if set, replaces whether the type is a Plugin Framework
+	// resource, whose metadata is only its defaults.
+	Framework *bool                `json:"framework,omitempty"`
+	Arguments map[string]*Argument `json:"arguments,omitempty"`
+}
+
+// loaded is one provider's built-in metadata, decompressed and parsed once.
+type loaded struct {
+	once sync.Once
+	file *File
+	err  error
+}
+
 var (
-	builtinOnce sync.Once
-	builtins    map[string]*File
-	builtinErr  error
+	builtins sync.Map // provider -> *loaded
+
+	overridesOnce sync.Once
+	overrides     Overrides
+	overridesErr  error
 )
 
 // Builtin returns the built-in metadata of provider, by its local name
-// (aws, azurerm, google), or nil if there is none. The files are parsed
-// once, the first time any is asked for.
+// (aws, azurerm, google), with the overrides merged in, or nil if there is
+// none. A provider's file is decompressed and parsed the first time it is
+// asked for, and only that one.
 func Builtin(provider string) (*File, error) {
-	builtinOnce.Do(func() {
-		builtins, builtinErr = load(builtin)
+	v, _ := builtins.LoadOrStore(provider, &loaded{})
+	l := v.(*loaded)
+	l.once.Do(func() {
+		overridesOnce.Do(func() {
+			overrides, overridesErr = readOverrides(builtin, overridesFile)
+		})
+		if overridesErr != nil {
+			l.err = fmt.Errorf("%s: %w", overridesFile, overridesErr)
+			return
+		}
+		l.file, l.err = load(builtin, provider, overrides[provider])
 	})
-	if builtinErr != nil {
-		return nil, builtinErr
-	}
-	return builtins[provider], nil
+	return l.file, l.err
 }
 
-// load parses every .json file of fsys, by name without the extension.
-func load(fsys fs.FS) (map[string]*File, error) {
-	names, err := fs.Glob(fsys, "*.json")
+// load reads provider's gzipped file from fsys, or nil if there is none,
+// and merges o over it.
+func load(fsys fs.FS, provider string, o map[string]*ResourceOverride) (*File, error) {
+	name := provider + ".json.gz"
+	content, err := fs.ReadFile(fsys, name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	files := map[string]*File{}
-	var errs []error
-	for _, name := range names {
-		content, err := fs.ReadFile(fsys, name)
-		if err != nil {
-			return nil, err
-		}
-		f, err := Parse(content)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+	r, err := gzip.NewReader(bytes.NewReader(content))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	f, err := Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	f.merge(o)
+	return f, nil
+}
+
+// merge applies o, one provider's overrides, to f (see Overrides).
+func (f *File) merge(o map[string]*ResourceOverride) {
+	for typ, ro := range o {
+		if ro == nil {
+			delete(f.Resources, typ)
 			continue
 		}
-		files[name[:len(name)-len(".json")]] = f
+		r := f.Resources[typ]
+		if r == nil {
+			r = &Resource{}
+			f.Resources[typ] = r
+		}
+		if ro.Framework != nil {
+			r.Framework = *ro.Framework
+		}
+		for path, a := range ro.Arguments {
+			if a == nil {
+				delete(r.Arguments, path)
+				continue
+			}
+			if r.Arguments == nil {
+				r.Arguments = map[string]*Argument{}
+			}
+			r.Arguments[path] = a
+		}
 	}
-	return files, errors.Join(errs...)
+}
+
+// readOverrides parses the overrides at name in fsys, rejecting fields it
+// doesn't know and defaults that aren't a bool, a number or a string.
+func readOverrides(fsys fs.FS, name string) (Overrides, error) {
+	content, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	d := json.NewDecoder(bytes.NewReader(content))
+	d.UseNumber()
+	d.DisallowUnknownFields()
+	var o Overrides
+	if err := d.Decode(&o); err != nil {
+		return nil, err
+	}
+	for provider, types := range o {
+		for typ, ro := range types {
+			if ro == nil {
+				continue
+			}
+			for path, a := range ro.Arguments {
+				if err := checkDefault(a); err != nil {
+					return nil, fmt.Errorf("%s: %s: %s: %w", provider, typ, path, err)
+				}
+			}
+		}
+	}
+	return o, nil
+}
+
+// checkDefault fails if a's default, where a is set, isn't a bool, a
+// json.Number or a string.
+func checkDefault(a *Argument) error {
+	if a == nil {
+		return nil
+	}
+	switch a.Default.(type) {
+	case nil, bool, string, json.Number:
+		return nil
+	}
+	return fmt.Errorf("default %v isn't a bool, a number or a string", a.Default)
 }
 
 // Parse reads one provider's file, rejecting fields it doesn't know.
@@ -145,6 +261,9 @@ func Parse(content []byte) (*File, error) {
 	if f.Provider == "" || f.Version == "" {
 		return nil, errors.New("no provider or version")
 	}
+	if f.Resources == nil {
+		f.Resources = map[string]*Resource{}
+	}
 	for typ, r := range f.Resources {
 		if r == nil {
 			return nil, fmt.Errorf("%s: null", typ)
@@ -153,10 +272,8 @@ func Parse(content []byte) (*File, error) {
 			if a == nil {
 				return nil, fmt.Errorf("%s: %s: null", typ, path)
 			}
-			switch a.Default.(type) {
-			case nil, bool, string, json.Number:
-			default:
-				return nil, fmt.Errorf("%s: %s: default %v isn't a bool, a number or a string", typ, path, a.Default)
+			if err := checkDefault(a); err != nil {
+				return nil, fmt.Errorf("%s: %s: %w", typ, path, err)
 			}
 		}
 	}
