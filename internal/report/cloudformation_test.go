@@ -156,6 +156,36 @@ func TestStacksMergeAndWrite(t *testing.T) {
 	}
 }
 
+// A deleted stack and the live one of the same name, in one region, write
+// their templates to files of their own.
+func TestStacksOfOneName(t *testing.T) {
+	deleted := scopedStack(nil)
+	deleted.ID, deleted.Deleted, deleted.Status = "arn:aws:cloudformation:eu-west-2:123456789012:stack/app/0", true, "DELETE_COMPLETE"
+	deleted.SetTemplates("Resources: {Old: {}}\n", "", "yaml")
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack(nil), deleted})
+	r.Finish(nil, nil, false)
+	out := t.TempDir()
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{}
+	for _, s := range r.CloudFormationStacks {
+		paths[s.ID] = s.Template
+	}
+	want := map[string]string{
+		"arn:aws:cloudformation:eu-west-2:123456789012:stack/app/1": ".infraharvest/cloudformation/eu-west-2/app-1.template.yaml",
+		"arn:aws:cloudformation:eu-west-2:123456789012:stack/app/0": ".infraharvest/cloudformation/eu-west-2/app-0.template.yaml",
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("templates %v, want %v", paths, want)
+	}
+	content, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(want[deleted.ID])))
+	if err != nil || string(content) != "Resources: {Old: {}}\n" {
+		t.Errorf("deleted stack's template %q, %v", content, err)
+	}
+}
+
 // An acknowledged custom resource doesn't keep its stack from being safe
 // to delete, but one that must be taken out of the stack first does,
 // acknowledged or not.
