@@ -104,6 +104,23 @@ types:
       - reason: the delete lock Azure Backup adds to a storage account whose file shares it protects, and expects to stay; select it to import it
         ignore_case: true
         attributes: { name: AzureBackupProtectionLock }
+  azurerm_monitor_diagnostic_setting:
+    service: diagnostic_setting
+    # The lister records each setting's name, the ID its target is imported
+    # by, and the target's resource group and what manages that group, so
+    # the rules for every type leave out the settings of what is in the
+    # groups they leave out. azurerm imports a setting by its target and
+    # name. Azure Policy's built-in DeployIfNotExists policies for
+    # diagnostic settings, and those of the Azure landing zones, name the
+    # settings they deploy setByPolicy, setByPolicy-LogAnalytics,
+    # setByPolicy-Storage, setByPolicy-EventHub or setbypolicy_<sink> by
+    # default; a setting Azure Policy deploys under another name, such as
+    # an assignment's own, is imported.
+    import_id: "{target_resource_id}|{name}"
+    skip:
+      - reason: a diagnostic setting an Azure Policy DeployIfNotExists assignment deploys and keeps as the policy has it (setByPolicy...); select it to import it
+        ignore_case: true
+        attribute_prefixes: { name: [setByPolicy] }
   azurerm_monitor_smart_detector_alert_rule:
     skip:
       - reason: the Failure Anomalies rule Azure creates with each Application Insights resource
