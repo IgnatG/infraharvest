@@ -16,10 +16,13 @@ import (
 // rather than guesses. The Terraform type of a CloudFormation type is the
 // first of those --cfn-stack matches it with (cloudFormationTypes and the
 // catalogue's cloud_control entries) that the provider's schema has; each
-// name cfn.DefaultMapper gives a property, Ref or Fn::GetAtt is kept only
-// when that type's schema has it, and is no longer a guess then. What the
-// schema doesn't have, the mapper has no answer for, so nothing is written
-// that terraform validate would reject.
+// name cfn.DefaultMapper gives a property is kept only when that type's
+// schema has it, and is no longer a guess then; a Ref or Fn::GetAtt name
+// only when, besides, the default mapper's table knows it, as a name
+// derived from CloudFormation's can be another value. What it doesn't
+// know, the mapper has no answer for, so nothing is written that terraform
+// validate would reject, or that reads the wrong value. An attribute the
+// schema marks sensitive is Sensitive.
 func (p *Provider) StackMapper(schemas *tfjson.ProviderSchemas) cfn.Mapper {
 	return newStackMapper(stackTypes(p.catalogue()), providerResourceSchemas(schemas, "aws"))
 }
@@ -116,31 +119,47 @@ func (m *stackMapper) Property(cfnType string, path []string) (cfn.Property, boo
 	return cfn.Property{}, false
 }
 
+// known reports whether the default mapper's table, rather than a
+// derivation from the names, knows typ as the Terraform type of cfnType:
+// only its Ref and Fn::GetAtt names are trusted, as a derived one, or the
+// id every resource has, can be another value than CloudFormation's (Ref
+// to an API Gateway stage is its name; the stage's id is not).
+func (m *stackMapper) known(cfnType, typ string) bool {
+	d, ok := m.fallback.ResourceType(cfnType)
+	return ok && !d.Guessed && d.Name == typ
+}
+
 func (m *stackMapper) Ref(cfnType string) (cfn.Mapped, bool) {
-	_, block := m.resolve(cfnType)
-	if block == nil {
+	typ, block := m.resolve(cfnType)
+	if block == nil || !m.known(cfnType, typ) {
 		return cfn.Mapped{}, false
 	}
-	if r, ok := m.fallback.Ref(cfnType); ok && hasAttribute(block, r.Name) {
-		return cfn.Mapped{Name: r.Name}, true
-	}
-	// Ref returns the physical ID, which --cfn-stack matched with the
-	// listed resource's ID, which is the id attribute of nearly every type.
-	if hasAttribute(block, "id") {
-		return cfn.Mapped{Name: "id"}, true
+	if r, ok := m.fallback.Ref(cfnType); ok && !r.Guessed && hasAttribute(block, r.Name) {
+		return cfn.Mapped{Name: r.Name, Sensitive: isSensitive(block, r.Name)}, true
 	}
 	return cfn.Mapped{}, false
 }
 
 func (m *stackMapper) Attribute(cfnType, attribute string) (cfn.Mapped, bool) {
-	_, block := m.resolve(cfnType)
-	if block == nil {
+	typ, block := m.resolve(cfnType)
+	if block == nil || !m.known(cfnType, typ) {
 		return cfn.Mapped{}, false
 	}
-	if a, ok := m.fallback.Attribute(cfnType, attribute); ok && hasAttribute(block, a.Name) {
-		return cfn.Mapped{Name: a.Name}, true
+	if a, ok := m.fallback.Attribute(cfnType, attribute); ok && !a.Guessed && hasAttribute(block, a.Name) {
+		return cfn.Mapped{Name: a.Name, Sensitive: isSensitive(block, a.Name)}, true
 	}
 	return cfn.Mapped{}, false
+}
+
+// isSensitive reports whether the provider marks the attribute a path
+// starts with sensitive, such as an SSM parameter's value.
+func isSensitive(block *tfjson.SchemaBlock, path string) bool {
+	name := path
+	if i := strings.IndexAny(name, ".["); i >= 0 {
+		name = name[:i]
+	}
+	a := block.Attributes[name]
+	return a != nil && a.Sensitive
 }
 
 // hasAttribute reports whether block has the attribute or block a path
