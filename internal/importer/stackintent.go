@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"sort"
 	"strings"
 
@@ -71,6 +72,7 @@ func (c *listedCall) stackIntent() (stackRefine, string) {
 	}
 	key, err := stackIntentKey(inputs)
 	if err != nil {
+		log.Printf("%s: the CloudFormation stacks' templates aren't carried into the roots, as they can't be told apart for --resume (%v)", c.provider.Name(), err)
 		return nil, ""
 	}
 	withMapper, _ := c.provider.(harvest.ProviderWithStackMapper)
