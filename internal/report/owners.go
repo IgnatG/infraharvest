@@ -181,7 +181,7 @@ func (d *Discovery) Add(scope, typ, reason string, tags map[string]string) {
 		}
 		return m[k]
 	}
-	d.DiscoveryCount.add(reason)
+	d.add(reason)
 	at(d.byType, typ).add(reason)
 	if scope != "" {
 		at(d.byScope, scope).add(reason)
