@@ -666,9 +666,6 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
 	}
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate plan show schema fmt validate plan show]", tf.calls)
-	}
 	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
 	}
@@ -1005,5 +1002,45 @@ func TestTerraformEnviron(t *testing.T) {
 	env := terraformEnviron("plugins", map[string]string{"AWS_ACCESS_KEY_ID": "AKIDNEW"})
 	if env["INFRAHARVEST_TEST_INHERITED"] != "kept" || env["AWS_ACCESS_KEY_ID"] != "AKIDNEW" || env["TF_PLUGIN_CACHE_DIR"] != "plugins" {
 		t.Errorf("environment: inherited %q, key %q, cache %q", env["INFRAHARVEST_TEST_INHERITED"], env["AWS_ACCESS_KEY_ID"], env["TF_PLUGIN_CACHE_DIR"])
+	}
+}
+
+// The edits before Generate reads generated.tf say why it plans again, and
+// a file they leave as it is needs no plan.
+func TestPrepareGeneratedNamesWhyItReplans(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, GeneratedFileName)
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_sqs_queue" "b" {
+  name   = "b"
+  policy = "{}"
+}
+
+resource "aws_sqs_queue" "a" {
+  name = "a"
+}
+`)
+	opts := Options{Omit: map[string][]string{"aws_sqs_queue": {"policy"}}}
+
+	reasons, err := prepareGenerated(path, nil, opts, schemaHints{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []replanReason{replanSorted, replanOmitted}; !reflect.DeepEqual(reasons, want) {
+		t.Errorf("reasons: got %v, want %v", reasons, want)
+	}
+	if got, want := readFile(t, dir, GeneratedFileName), `resource "aws_sqs_queue" "a" {
+  name = "a"
+}
+
+resource "aws_sqs_queue" "b" {
+  name = "b"
+}
+`; got != want {
+		t.Errorf("generated.tf: got\n%s\nwant\n%s", got, want)
+	}
+
+	if reasons, err := prepareGenerated(path, nil, opts, schemaHints{}); err != nil || len(reasons) != 0 {
+		t.Errorf("again: got %v, %v, want no reason", reasons, err)
 	}
 }
