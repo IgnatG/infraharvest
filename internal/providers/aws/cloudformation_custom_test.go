@@ -154,7 +154,7 @@ func TestAcknowledge(t *testing.T) {
 	}
 	// What is acknowledged needs no Retain: neither the count of what
 	// lacks it nor the copy with Retain added has it.
-	if !strings.Contains(summary, "lack DeletionPolicy and UpdateReplacePolicy Retain, so deleting the stack would delete them: Assets, AssetsAutoDelete, Cluster\n") {
+	if !strings.Contains(summary, "lack DeletionPolicy and UpdateReplacePolicy Retain, so deleting the stack would delete them: AssetsAutoDelete, Assets, Cluster\n") {
 		t.Errorf("summary counts what is acknowledged as lacking Retain:\n%s", summary)
 	}
 	r := &report.Report{}
