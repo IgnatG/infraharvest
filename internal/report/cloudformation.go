@@ -93,9 +93,8 @@ type CloudFormationStack struct {
 	// SafeToDelete says deleting the stack deletes nothing the import
 	// brought under Terraform: every resource was imported or left out by
 	// people's decision, every root's gate passed, so their plans change
-	// nothing, and every resource but those acknowledged is retained.
-	// Blockers say what keeps it from being so, for a stack that isn't
-	// deleted yet.
+	// nothing, and every resource is retained. Blockers say what keeps it
+	// from being so, for a stack that isn't deleted yet.
 	SafeToDelete bool     `json:"safe_to_delete"`
 	Blockers     []string `json:"blockers,omitempty"`
 
@@ -302,16 +301,7 @@ func (r *Report) finishStacks() {
 			case StackNotFound:
 				s.Blockers = append(s.Blockers, fmt.Sprintf("%s (%s) %s", res.LogicalID, res.Type, res.Reason))
 			}
-			switch {
-			case len(res.Retain) == 0:
-			case res.Outcome == StackAcknowledged:
-				// Acknowledged, it may go with the stack: say what that does.
-				if strings.HasPrefix(res.Type, "Custom::") || res.Type == "AWS::CloudFormation::CustomResource" {
-					res.Reason += "; it isn't retained, so deleting the stack calls its handler with a Delete event"
-				} else {
-					res.Reason += "; it isn't retained, so deleting the stack deletes it"
-				}
-			default:
+			if len(res.Retain) > 0 {
 				s.Blockers = append(s.Blockers, fmt.Sprintf("%s (%s) isn't retained: %s", res.LogicalID, res.Type, strings.Join(res.Retain, "; ")))
 			}
 		}
@@ -405,7 +395,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 	if len(r.CloudFormationStacks) == 0 {
 		return
 	}
-	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, left out by the selection file or, where Terraform can't import it, acknowledged with `--cfn-ignore`, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource but those acknowledged, which deleting the stack calls the handlers of, or deletes. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, check the change set, apply the roots, then delete the stack.\n")
+	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, left out by the selection file or, where Terraform can't import it, acknowledged with `--cfn-ignore`, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, check the change set, apply the roots, then delete the stack.\n")
 	for _, s := range r.CloudFormationStacks {
 		fmt.Fprintf(b, "\n### `%s` (%s)\n\n`%s`, %s", s.Name, s.Region, s.ID, s.Status)
 		if s.Parent != "" {
@@ -419,7 +409,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 		case s.Deleted:
 			b.WriteString("Deleted already: the resources it retained are imported, and there is nothing left to delete.\n\n")
 		case s.SafeToDelete:
-			b.WriteString("**Safe to delete**: every resource is imported, left out by the selection file or acknowledged with `--cfn-ignore`, the plans of the roots that import them change nothing, and every resource but those acknowledged is retained. Apply the roots first.\n\n")
+			b.WriteString("**Safe to delete**: every resource is imported, left out by the selection file or acknowledged with `--cfn-ignore`, the plans of the roots that import them change nothing, and every resource is retained. Apply the roots first.\n\n")
 		default:
 			b.WriteString("**Not safe to delete yet**:\n\n")
 			for _, blocker := range s.Blockers {

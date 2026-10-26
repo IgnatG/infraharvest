@@ -43,40 +43,40 @@ var cdkCustomResources = map[string]customResourceRule{
 	"Custom::LogRetention": {target: "LogGroupName", advice: "the CDK's logRetention: it sets the retention of log group %s, which Lambda or the CDK creates, and, with a removal policy of destroy, deletes the log group when CloudFormation deletes it. " +
 		"Import the log group itself, with its retention_in_days, then acknowledge %s with --cfn-ignore"},
 	"Custom::CDKBucketDeployment": {advice: "the CDK's BucketDeployment: it copies files into a bucket, and, with retainOnDelete: false, deletes them when CloudFormation deletes it (%s). " +
-		"Terraform imports the bucket, not the files: deploy them with your pipeline or aws_s3_object, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself so its handler isn't called"},
+		"Terraform imports the bucket, not the files: deploy them with your pipeline or aws_s3_object, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::AWS": {advice: "the CDK's AwsCustomResource: it makes the AWS API calls of its onCreate, onUpdate and onDelete, and runs onDelete when CloudFormation deletes it (%s). " +
-		"Find what its calls set up, manage that in Terraform where it can, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself so onDelete isn't called"},
+		"Find what its calls set up, manage that in Terraform where it can, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::VpcRestrictDefaultSG": {advice: "the CDK's restrictDefaultSecurityGroup: it removes the rules of the default security group of a VPC, and adds them back when CloudFormation deletes it (%s). " +
-		"Manage the default group's rules with aws_default_security_group, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself so its handler doesn't restore them"},
+		"Manage the default group's rules with aws_default_security_group, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::AWSCDKOpenIdConnectProvider": {advice: "the CDK's iam.OpenIdConnectProvider: it creates the IAM OIDC provider %s, and deletes it when CloudFormation deletes it. " +
-		"Import it as aws_iam_openid_connect_provider by that ARN, which infraharvest doesn't list, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself"},
+		"Import it as aws_iam_openid_connect_provider by that ARN, which infraharvest doesn't list, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::S3BucketNotifications": {advice: "the CDK's bucket notifications: it sets a bucket's notification configuration, and clears it when CloudFormation deletes it (%s). " +
-		"Import the bucket's aws_s3_bucket_notification, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself so its handler doesn't clear it"},
+		"Import the bucket's aws_s3_bucket_notification, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::CrossRegionExportWriter": {advice: "the CDK's crossRegionReferences: it writes SSM parameters another region's stacks read (%s), and deletes them when CloudFormation deletes it. " +
 		"Replace the references with Terraform's own (outputs, remote state or data sources), then acknowledge %s with --cfn-ignore"},
 	"Custom::CrossRegionExportReader": {advice: "the CDK's crossRegionReferences: it reads the SSM parameters another region's stack writes (%s). " +
 		"Replace the references with Terraform's own (outputs, remote state or data sources), then acknowledge %s with --cfn-ignore"},
 	"Custom::CrossAccountZoneDelegation": {advice: "the CDK's CrossAccountZoneDelegationRecord: it writes the NS record of a zone into its parent zone in another account (%s), and deletes it when CloudFormation deletes it. " +
-		"Import the record into the parent account's Terraform, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself"},
+		"Import the record into the parent account's Terraform, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::DeleteExistingRecordSet": {advice: "the CDK's deleteExisting of a Route 53 record: it deleted the record set the stack's record replaced when it was created (%s), and does nothing more. " +
 		"Acknowledge %s with --cfn-ignore"},
 	"Custom::Trigger": {advice: "the CDK's Trigger: it ran a Lambda function when the stack was deployed (%s). " +
 		"Run that function from your pipeline if it is still needed, and acknowledge %s with --cfn-ignore"},
 	"Custom::AWSCDK-EKS-FargateProfile": {advice: "the CDK's Fargate profile of an eks.Cluster (%s), which it deletes when CloudFormation deletes it. " +
-		"Import it as aws_eks_fargate_profile, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself"},
+		"Import it as aws_eks_fargate_profile, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::AWSCDK-EKS-KubernetesResource": {advice: "the CDK's Kubernetes manifest (%s): kubectl applies it, and deletes it from the cluster when CloudFormation deletes it. " +
-		"Manage it with the kubernetes provider or your cluster's own tooling, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself"},
+		"Manage it with the kubernetes provider or your cluster's own tooling, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::AWSCDK-EKS-KubernetesPatch": {advice: "the CDK's patch of a Kubernetes resource (%s), which it undoes when CloudFormation deletes it. " +
-		"Manage it with the kubernetes provider or your cluster's own tooling, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself"},
+		"Manage it with the kubernetes provider or your cluster's own tooling, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::AWSCDK-EKS-HelmChart": {advice: "the CDK's Helm chart (%s), which it uninstalls when CloudFormation deletes it. " +
-		"Manage it with the helm provider or your cluster's own tooling, and acknowledge %s with --cfn-ignore, or give it DeletionPolicy Retain yourself"},
+		"Manage it with the helm provider or your cluster's own tooling, and acknowledge %s with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its handler"},
 	"Custom::AWSCDK-EKS-KubernetesObjectValue": {advice: "the CDK's read of a value from a Kubernetes object (%s), which changes nothing. " +
 		"Acknowledge %s with --cfn-ignore"},
 }
 
 // genericCustomResource is why Terraform can't import a custom resource
 // infraharvest knows nothing more about.
-const genericCustomResource = "a custom resource, which CloudFormation creates, updates and deletes through its provider, a Lambda function or an SNS topic: Terraform has no resource for it, so decide what takes its place, and acknowledge it with --cfn-ignore: then deleting the stack calls its provider with a Delete event, unless you give it DeletionPolicy Retain yourself"
+const genericCustomResource = "a custom resource, which CloudFormation creates, updates and deletes through its provider, a Lambda function or an SNS topic: Terraform has no resource for it, so decide what takes its place, and acknowledge it with --cfn-ignore; the copy of the template with Retain added keeps CloudFormation from calling its provider when the stack is deleted"
 
 // isCustomResource reports whether cfnType is a custom resource's.
 func isCustomResource(cfnType string) bool {

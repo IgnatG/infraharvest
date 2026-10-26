@@ -6,13 +6,10 @@ package aws
 import (
 	"encoding/xml"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 const (
@@ -152,10 +149,11 @@ func TestAcknowledge(t *testing.T) {
 	if !strings.Contains(summary, "Seed (Custom::Seed), acknowledged") || !strings.Contains(summary, "must be taken out of the stack") {
 		t.Errorf("summary:\n%s", summary)
 	}
-	// What is acknowledged needs no Retain: neither the count of what
-	// lacks it nor the copy with Retain added has it.
-	if !strings.Contains(summary, "lack DeletionPolicy and UpdateReplacePolicy Retain, so deleting the stack would delete them: AssetsAutoDelete, Assets, Cluster\n") {
-		t.Errorf("summary counts what is acknowledged as lacking Retain:\n%s", summary)
+	// What is acknowledged still needs Retain, so that deleting the stack
+	// never calls its handler: the count of what lacks it, and the copy with
+	// Retain added, have it too.
+	if !strings.Contains(summary, "lack DeletionPolicy and UpdateReplacePolicy Retain, so deleting the stack would delete them: AssetsAutoDelete, Assets, Retention, Cluster, Seed\n") {
+		t.Errorf("summary leaves out what is acknowledged as lacking Retain:\n%s", summary)
 	}
 	r := &report.Report{}
 	r.AddCloudFormationStacks([]report.CloudFormationStack{scope.stacks[0].report(nil)})
@@ -168,7 +166,7 @@ func TestAcknowledge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for id, wantRetained := range map[string]bool{"Assets": true, "AssetsAutoDelete": true, "Seed": false, "Retention": false} {
+	for id, wantRetained := range map[string]bool{"Assets": true, "AssetsAutoDelete": true, "Seed": true, "Retention": true} {
 		if retained := patched.retainProblems(id, typeOf(scope, id)) == nil; retained != wantRetained {
 			t.Errorf("%s retained in the copy: %v, want %v", id, retained, wantRetained)
 		}

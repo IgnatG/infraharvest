@@ -123,8 +123,8 @@ resource "aws_cloudformation_stack" "app" {
           ManagedPolicyArns = ["arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"]
         }
       }
-      # The provider of the custom resource Seed, which answers every
-      # request with success and does nothing else.
+      # The provider of the custom resource Seed, which logs each request's
+      # type, for the test to tell whether it was called, and answers success.
       SeedFunction = {
         Type = "AWS::Lambda::Function"
         Properties = {
@@ -137,6 +137,7 @@ resource "aws_cloudformation_stack" "app" {
             ZipFile = join("\n", [
               "import cfnresponse",
               "def handler(event, context):",
+              "    print('seed: ' + event['RequestType'])",
               "    cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, 'seed')",
             ])
           }

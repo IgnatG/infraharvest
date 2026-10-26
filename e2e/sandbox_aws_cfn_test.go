@@ -44,14 +44,15 @@ const cfnStackWait = 20 * time.Minute
 //     delete, as its resources aren't retained, and old as deleted, its
 //     bucket imported.
 //  2. It updates app with the copy of its template that has Retain added,
-//     the nested stack's copy uploaded over its template first. The copy
-//     leaves the acknowledged custom resource as it is.
+//     the nested stack's copy uploaded over its template first.
+//     The copy retains the acknowledged custom resource too.
 //  3. It imports again: app must be safe to delete, its custom resource
-//     acknowledged, the report saying deleting the stack calls its handler,
-//     and every root must plan as imports with no changes.
-//  4. It deletes app, which calls the handler, which answers success. The
-//     roots of the second import must still plan as imports with no
-//     changes: every resource survived.
+//     acknowledged and retained, and every root must plan as imports with
+//     no changes.
+//  4. It deletes app. The custom resource's handler, which logs each
+//     request it gets, must have had no Delete; and the roots of the second
+//     import must still plan as imports with no changes: every resource
+//     survived.
 //
 // What the stacks retain is outside the estate's state, so the test
 // deletes it, by name, every name the estate's (ih-sbx-...), whatever
@@ -125,6 +126,10 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	if app.SafeToDelete || !strings.Contains(strings.Join(app.Blockers, "\n"), "Assets (AWS::S3::Bucket) isn't retained") {
 		t.Errorf("app before Retain: safe %v, blockers %v", app.SafeToDelete, app.Blockers)
 	}
+	// Acknowledged, the custom resource still needs Retain.
+	if seed := cfnResource(t, app, "Seed"); seed.Outcome != report.StackAcknowledged || len(seed.Retain) == 0 || !strings.Contains(strings.Join(app.Blockers, "\n"), "Seed (Custom::Seed) isn't retained") {
+		t.Errorf("Seed before Retain: %+v, blockers %v", seed, app.Blockers)
+	}
 	if !old.Deleted || len(old.Resources) != 1 || old.Resources[0].Outcome != report.StackImported {
 		t.Errorf("old: %+v", old)
 	}
@@ -151,19 +156,16 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 3. Safe to delete: the custom resource is acknowledged, which waives
-	// its Retain, so the copy left it as it was and deleting the stack calls
-	// its handler, which answers success.
+	// 3. Safe to delete: the custom resource is acknowledged, and retained
+	// like the rest.
 	second := filepath.Join(s.out, "second")
 	coverage = importStacks(second)
 	app = cfnStack(t, coverage, names.app)
 	if !app.SafeToDelete {
 		t.Errorf("app after Retain isn't safe to delete: %v", app.Blockers)
 	}
-	for _, r := range app.Resources {
-		if r.LogicalID == "Seed" && (r.Outcome != report.StackAcknowledged || !strings.Contains(r.Reason, "calls its handler with a Delete event")) {
-			t.Errorf("Seed: %+v", r)
-		}
+	if seed := cfnResource(t, app, "Seed"); seed.Outcome != report.StackAcknowledged || len(seed.Retain) > 0 {
+		t.Errorf("Seed after Retain: %+v", seed)
 	}
 	checkCFNOutcomes(t, coverage, names.app)
 
@@ -174,10 +176,58 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["app"])}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
+	checkSeedNotDeleted(ctx, t, fixture, names.function)
 	t.Setenv("AWS_PROFILE", s.readonlyProfile)
 	for _, dir := range generatedDirs(t, second) {
 		checkNoChanges(ctx, t, dir, s.execPath, s.plugins, secretValues(t, dir, nil))
 	}
+}
+
+// cfnLogWait is how long Lambda's logs may take to reach CloudWatch Logs.
+const cfnLogWait = 2 * time.Minute
+
+// checkSeedNotDeleted checks that the handler function of the custom
+// resource Seed, which logs "seed: <request type>" for each request, got
+// its Create and no Delete, as Retain keeps CloudFormation from calling it
+// when the stack is deleted. It waits for the Create to show, so that a
+// Delete would have shown too.
+func checkSeedNotDeleted(ctx context.Context, t *testing.T, config aws.Config, function string) {
+	t.Helper()
+	logs := cloudwatchlogs.NewFromConfig(config)
+	group := aws.String("/aws/lambda/" + function)
+	seen := func(requestType string) bool {
+		out, err := logs.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{LogGroupName: group, FilterPattern: aws.String(`"seed: ` + requestType + `"`)})
+		if err != nil {
+			t.Logf("logs of %s: %v", function, err)
+			return false
+		}
+		return len(out.Events) > 0
+	}
+	deadline := time.Now().Add(cfnLogWait)
+	for !seen("Create") {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s logged no Create in %s: can't tell whether it got a Delete", function, cfnLogWait)
+		}
+		time.Sleep(10 * time.Second)
+	}
+	// What the handler logged before the stack's deletion finished is
+	// delivered by now, or within the wait.
+	time.Sleep(cfnLogWait)
+	if seen("Delete") {
+		t.Errorf("%s got a Delete: deleting the stack called the handler of the acknowledged, retained custom resource", function)
+	}
+}
+
+// cfnResource returns the resource logicalID of stack.
+func cfnResource(t *testing.T, stack report.CloudFormationStack, logicalID string) report.CloudFormationResource {
+	t.Helper()
+	for _, r := range stack.Resources {
+		if r.LogicalID == logicalID {
+			return r
+		}
+	}
+	t.Fatalf("stack %s has no resource %s", stack.Name, logicalID)
+	return report.CloudFormationResource{}
 }
 
 // cfnSandboxNames are the names testdata/sandbox/aws-cfn gives what it
