@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -145,5 +147,33 @@ func TestAcknowledge(t *testing.T) {
 	}
 	if summary := strings.Join(scope.Summary(), "\n"); !strings.Contains(summary, "Seed (Custom::Seed), acknowledged") || !strings.Contains(summary, "must be taken out of the stack") {
 		t.Errorf("summary:\n%s", summary)
+	}
+}
+
+// A queue's policy, which Terraform holds as the queue's policy argument,
+// is imported where the queue it names is, in the template's JSON form of
+// Ref too.
+func TestImportScopeHeldPolicy(t *testing.T) {
+	const queueURL = "https://sqs.eu-west-2.amazonaws.com/123456789012/jobs"
+	template, err := parseTemplate(`{"Resources": {"Jobs": {"Type": "AWS::SQS::Queue"}, "JobsPolicy": {"Type": "AWS::SQS::QueuePolicy", "Properties": {"Queues": [{"Ref": "Jobs"}]}}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack := &scopedStack{name: "app", id: cdkStack, region: "eu-west-2", template: template, resources: []*scopedResource{
+		{logicalID: "Jobs", cfnType: "AWS::SQS::Queue", physicalID: queueURL, status: "CREATE_COMPLETE"},
+		{logicalID: "JobsPolicy", cfnType: "AWS::SQS::QueuePolicy", physicalID: "app-JobsPolicy-1ABC", status: "CREATE_COMPLETE"},
+	}}
+	p := &Provider{region: "eu-west-2"}
+	p.SetStackScope(&StackScope{stacks: []*scopedStack{stack}})
+
+	got, err := p.ImportScope(t.Context(), []harvest.Resource{harvest.RecordBare(queueURL, "jobs", "aws_sqs_queue", "aws")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range got.Stacks[0].Resources {
+		if len(r.Matches) != 1 || r.Matches[0].Type != "aws_sqs_queue" || r.Matches[0].ID != queueURL {
+			t.Errorf("%s: %+v", r.LogicalID, r.Matches)
+		}
 	}
 }

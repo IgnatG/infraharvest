@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/smithy-go"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -411,6 +412,9 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 		byResource[m.of] = append(byResource[m.of], report.CloudFormationMatch{Type: m.resource.Address.Type, ID: id})
 	}
 	for _, stack := range p.stackScope.stacks {
+		stack.holdIn(byResource)
+	}
+	for _, stack := range p.stackScope.stacks {
 		scope.Stacks = append(scope.Stacks, stack.report(byResource))
 	}
 	return scope, nil
@@ -480,4 +484,64 @@ func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormat
 		stack.SetTemplates(s.template.body, retain, ext)
 	}
 	return stack
+}
+
+// heldTypes are the CloudFormation types of resources that Terraform holds
+// as an argument of another resource, which the listers record with it,
+// by type: the Terraform type of that resource, and the property that
+// names it, by Ref. A queue's policy is its aws_sqs_queue's policy, and a
+// topic's its aws_sns_topic's.
+var heldTypes = map[string]struct{ terraform, property string }{
+	"AWS::SQS::QueuePolicy": {"aws_sqs_queue", "Queues"},
+	"AWS::SNS::TopicPolicy": {"aws_sns_topic", "Topics"},
+}
+
+// holdIn gives each resource of the stack that another holds (see
+// heldTypes), and that matched nothing listed itself, the matches of the
+// resources it names that are of the holding type: it is imported where
+// they are.
+func (s *scopedStack) holdIn(byResource map[*scopedResource][]report.CloudFormationMatch) {
+	for _, r := range s.resources {
+		held, ok := heldTypes[r.cfnType]
+		if !ok || len(byResource[r]) > 0 {
+			continue
+		}
+		refs := s.refs(r.logicalID, held.property)
+		for _, other := range s.resources {
+			if !slices.Contains(refs, other.logicalID) {
+				continue
+			}
+			for _, m := range byResource[other] {
+				if m.Type == held.terraform {
+					byResource[r] = append(byResource[r], m)
+				}
+			}
+		}
+	}
+}
+
+// refs returns the logical IDs the property of the stack's resource
+// logicalID names by Ref, in either form, anywhere in its value.
+func (s *scopedStack) refs(logicalID, property string) []string {
+	var refs []string
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		switch {
+		case n == nil:
+		case n.Kind == yaml.ScalarNode && n.Tag == "!Ref":
+			refs = append(refs, n.Value)
+		case n.Kind == yaml.MappingNode:
+			if r := mappingValue(n, "Ref"); r != nil && r.Kind == yaml.ScalarNode {
+				refs = append(refs, r.Value)
+				return
+			}
+			fallthrough
+		default:
+			for _, c := range n.Content {
+				walk(c)
+			}
+		}
+	}
+	walk(mappingValue(mappingValue(s.template.resource(logicalID), "Properties"), property))
+	return refs
 }
