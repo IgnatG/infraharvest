@@ -577,9 +577,7 @@ func (c *converter) writeData(w *hclWriter) {
 		if !pi.typ.ssm {
 			continue
 		}
-		w.open("data", "aws_ssm_parameter", pi.name)
-		w.attr("name", "var."+pi.name)
-		w.close()
+		w.raw(cfnhcl.SSMData(pi.name, pi.name))
 		w.blank()
 	}
 	for _, b := range c.dynamicBlocks {

@@ -43,7 +43,7 @@ Outputs:
   RoleArn:
     Value: !GetAtt Role.Arn
 `, "", "yaml")
-	stack.SetParameters(map[string]string{"Days": "7"})
+	stack.SetParameters(map[string]string{"Days": "7"}, nil)
 	run := NewRun()
 	run.report.AddCloudFormationStacks([]report.CloudFormationStack{stack})
 	c := &listedCall{run: run, provider: &fakeProvider{}, scope: "123456789012/eu-west-2"}

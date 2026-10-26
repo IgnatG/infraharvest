@@ -357,14 +357,7 @@ func (c *converter) guess(path, msg string) {
 // source that reads an SSM parameter's value.
 func (c *converter) paramRef(pi *paramInfo) string {
 	if pi.typ.ssm {
-		// insecure_value isn't marked sensitive, which suits the String and
-		// StringList parameters CloudFormation can read (it can't read a
-		// SecureString as a parameter type).
-		e := "data.aws_ssm_parameter." + pi.name + ".insecure_value"
-		if pi.typ.ssmList {
-			return `split(",", ` + e + ")"
-		}
-		return e
+		return cfnhcl.SSMValue(pi.name, pi.typ.ssmList)
 	}
 	if pi.p.NoEcho {
 		c.sensitive = true
