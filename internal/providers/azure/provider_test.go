@@ -239,7 +239,7 @@ func TestProviderBlock(t *testing.T) {
 func TestServicesAreFresh(t *testing.T) {
 	p := &Provider{}
 	first, second := p.Services(), p.Services()
-	if len(first) != 11 {
+	if len(first) != 12 {
 		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
 	}
 	for name, g := range first {
