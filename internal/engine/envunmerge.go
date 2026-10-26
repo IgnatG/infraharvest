@@ -31,6 +31,13 @@ type UnmergedBlock struct {
 	Text, Import string
 }
 
+// UnmergeEnv is the environment UnmergedBlocks gives blocks for: its
+// name, its account, subscription or project ID, and its AWS region, ""
+// where they aren't known.
+type UnmergeEnv struct {
+	Name, Account, Region string
+}
+
 // unmergeFunctions are the functions the expressions of a merged root
 // UnmergedBlocks puts values in for may call.
 var unmergeFunctions = map[string]function.Function{
@@ -53,15 +60,20 @@ var unmergeFunctions = map[string]function.Function{
 // each resource block without its count, the arguments that read
 // variables or locals made the values env's var files, vars/common.tfvars
 // and vars/<env>/terraform.tfvars, or the variables' defaults give them,
-// with an import block of its ID. Merged again with the environment's
-// other resources, each comes back as the merged root has it, as for
-// resources an incremental import found no longer in the cloud, which
-// no listing gives back. It returns, by address in the merged root, the
-// blocks, or why one can't be told, where one can't: it is in a module
-// call, or a key of a for_each; the merged root has no block for it; it
-// takes another provider configuration, or has a dynamic block; or an
-// argument reads what the var files don't set, such as a data source.
-func UnmergedBlocks(dir, env string, ids map[string]string) (map[string]UnmergedBlock, string, error) {
+// with an import block of its ID. Arguments that read the data sources
+// of the environment's own account and region (see unmergeData), as the
+// merged root's locals of them do, get the values env gives them, as
+// the environment's own root has them: merged again, they become those
+// locals again. Merged again with the environment's other resources,
+// each comes back as the merged root has it, as for resources an
+// incremental import found no longer in the cloud, which no listing
+// gives back. It returns, by address in the merged root, the blocks, or
+// why one can't be told, where one can't: it is in a module call, or a
+// key of a for_each; the merged root has no block for it; it takes
+// another provider configuration, or has a dynamic block; or an argument
+// reads what the var files don't set, such as a data source with
+// arguments of its own, or what env doesn't give.
+func UnmergedBlocks(dir string, env UnmergeEnv, ids map[string]string) (map[string]UnmergedBlock, string, error) {
 	files, err := configFiles(dir)
 	if err != nil {
 		return nil, "", err
@@ -73,6 +85,7 @@ func UnmergedBlocks(dir, env string, ids map[string]string) (map[string]Unmerged
 		file  *hclFile
 	}
 	resources := map[string]found{}
+	var data []*hclsyntax.Block
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
 			switch {
@@ -88,17 +101,19 @@ func UnmergedBlocks(dir, env string, ids map[string]string) (map[string]Unmerged
 				}
 			case b.Type == "resource" && len(b.Labels) == 2:
 				resources[b.Labels[0]+"."+b.Labels[1]] = found{b, f}
+			case b.Type == "data" && len(b.Labels) == 2:
+				data = append(data, b)
 			}
 		}
 	}
-	for _, path := range []string{filepath.Join(dir, varsDirName, commonVarsFileName), filepath.Join(dir, varsDirName, env, envVarsFileName)} {
+	for _, path := range []string{filepath.Join(dir, varsDirName, commonVarsFileName), filepath.Join(dir, varsDirName, env.Name, envVarsFileName)} {
 		values, err := varFileValues(path)
 		if err != nil {
 			return nil, "", err
 		}
 		maps.Copy(vars, values)
 	}
-	ctx := unmergeContext(vars, locals)
+	ctx := unmergeContext(vars, locals, unmergeData(data, env))
 	blocks := map[string]UnmergedBlock{}
 	for _, address := range slices.Sorted(maps.Keys(ids)) {
 		if strings.HasPrefix(address, "module.") {
@@ -130,7 +145,7 @@ func UnmergedBlocks(dir, env string, ids map[string]string) (map[string]Unmerged
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "resource %q %q {\n", traversal.RootName(), label.Name)
-		if why := unmergedBody(&b, r.block.Body, r.file.src, ctx, true); why != "" {
+		if why := unmergedBody(&b, r.block.Body, r.file.src, ctx, locals, true); why != "" {
 			return nil, address + ": " + why, nil
 		}
 		b.WriteString("}\n")
@@ -144,14 +159,97 @@ func UnmergedBlocks(dir, env string, ids map[string]string) (map[string]Unmerged
 	return blocks, "", nil
 }
 
+// unmergeData returns, as the value of data in an expression, the data
+// sources of blocks, a merged root's, whose values UnmergedBlocks tells
+// for env: those that read the account, subscription or project and the
+// AWS region the environment plans in (see unmergedAttributes), with no
+// arguments of their own but a count, and so no provider configuration
+// of another region; a counted one is its one instance, as the resource
+// that reads it, which env has, says the environment counts it. Another
+// data source, as one that reads a resource by its arguments, could
+// read another value for each environment, which the run can't tell.
+func unmergeData(blocks []*hclsyntax.Block, env UnmergeEnv) cty.Value {
+	byType := map[string]map[string]cty.Value{}
+	for _, b := range blocks {
+		if len(b.Body.Blocks) > 0 || slices.ContainsFunc(slices.Collect(maps.Keys(b.Body.Attributes)), func(name string) bool { return name != "count" }) {
+			continue
+		}
+		attributes := unmergedAttributes(b.Labels[0], env)
+		if len(attributes) == 0 {
+			continue
+		}
+		v := cty.ObjectVal(attributes)
+		if _, counted := b.Body.Attributes["count"]; counted {
+			v = cty.TupleVal([]cty.Value{v})
+		}
+		if byType[b.Labels[0]] == nil {
+			byType[b.Labels[0]] = map[string]cty.Value{}
+		}
+		byType[b.Labels[0]][b.Labels[1]] = v
+	}
+	data := map[string]cty.Value{}
+	for typ, byName := range byType {
+		data[typ] = cty.ObjectVal(byName)
+	}
+	return cty.ObjectVal(data)
+}
+
+// unmergedAttributes returns the attributes of a data source of type typ
+// that env gives, by name: the ID of its account, subscription or
+// project, its AWS region, and the AWS partition and DNS suffix the
+// region is in. A plan of the merged root as env reads the same, with
+// env's credentials.
+func unmergedAttributes(typ string, env UnmergeEnv) map[string]cty.Value {
+	attributes := map[string]cty.Value{}
+	set := func(value string, names ...string) {
+		if value == "" {
+			return
+		}
+		for _, name := range names {
+			attributes[name] = cty.StringVal(value)
+		}
+	}
+	switch typ {
+	case "aws_caller_identity":
+		set(env.Account, "account_id", "id")
+	case "aws_region":
+		set(env.Region, "region", "name", "id")
+	case "aws_partition":
+		partition, suffix := awsPartition(env.Region)
+		set(partition, "partition", "id")
+		set(suffix, "dns_suffix")
+	case "azurerm_client_config":
+		set(env.Account, "subscription_id")
+	case "google_client_config":
+		set(env.Account, "project")
+	}
+	return attributes
+}
+
+// awsPartition returns the AWS partition region is in, and its DNS
+// suffix; "" for none, or a partition other than the commercial one,
+// China's and GovCloud's.
+func awsPartition(region string) (partition, dnsSuffix string) {
+	switch {
+	case region == "", strings.Contains(region, "-iso"):
+		return "", ""
+	case strings.HasPrefix(region, "cn-"):
+		return "aws-cn", "amazonaws.com.cn"
+	case strings.HasPrefix(region, "us-gov-"):
+		return "aws-us-gov", "amazonaws.com"
+	}
+	return "aws", "amazonaws.com"
+}
+
 // unmergeContext returns the evaluation context of UnmergedBlocks: vars,
-// the variables' values, and those of locals that they, and the other
-// locals, give, with unmergeFunctions.
-func unmergeContext(vars map[string]cty.Value, locals map[string]hclsyntax.Expression) *hcl.EvalContext {
+// the variables' values, data, the data sources' (see unmergeData), and
+// the values of locals that they, and the other locals, give, with
+// unmergeFunctions.
+func unmergeContext(vars map[string]cty.Value, locals map[string]hclsyntax.Expression, data cty.Value) *hcl.EvalContext {
 	values := map[string]cty.Value{}
 	ctx := &hcl.EvalContext{Functions: unmergeFunctions}
 	set := func() {
-		ctx.Variables = map[string]cty.Value{"var": cty.ObjectVal(vars), "local": cty.ObjectVal(values)}
+		ctx.Variables = map[string]cty.Value{"var": cty.ObjectVal(vars), "local": cty.ObjectVal(values), "data": data}
 	}
 	set()
 	for changed := true; changed; {
@@ -174,9 +272,11 @@ func unmergeContext(vars map[string]cty.Value, locals map[string]hclsyntax.Expre
 
 // unmergedBody writes body, of a resource block of a merged root whose
 // source is src, into b as UnmergedBlocks does, with the values of ctx
-// put in; top says it is the resource's own body, whose count goes. It
-// returns why it can't, where it can't.
-func unmergedBody(b *strings.Builder, body *hclsyntax.Body, src []byte, ctx *hcl.EvalContext, top bool) string {
+// put in where an argument reads a variable, a local or a data source
+// ctx gives; top says it is the resource's own body, whose count goes.
+// It returns why it can't, where it can't, naming the data sources of
+// locals, the merged root's, an argument reads that ctx doesn't give.
+func unmergedBody(b *strings.Builder, body *hclsyntax.Body, src []byte, ctx *hcl.EvalContext, locals map[string]hclsyntax.Expression, top bool) string {
 	attrs := slices.Collect(maps.Values(body.Attributes))
 	slices.SortFunc(attrs, func(x, y *hclsyntax.Attribute) int { return x.SrcRange.Start.Byte - y.SrcRange.Start.Byte })
 	for _, attr := range attrs {
@@ -189,6 +289,12 @@ func unmergedBody(b *strings.Builder, body *hclsyntax.Body, src []byte, ctx *hcl
 			switch t.RootName() {
 			case "var", "local":
 				reads = true
+			case "data":
+				// One unmergeData tells: the environment's own root
+				// has its value, as it was generated.
+				if _, diags := t.TraverseAbs(ctx); !diags.HasErrors() {
+					reads = true
+				}
 			case "count", "each", "self":
 				return fmt.Sprintf("%s reads %s", attr.Name, t.RootName())
 			}
@@ -196,6 +302,9 @@ func unmergedBody(b *strings.Builder, body *hclsyntax.Body, src []byte, ctx *hcl
 		if reads {
 			v, diags := attr.Expr.Value(ctx)
 			if diags.HasErrors() || !v.IsWhollyKnown() {
+				if untold := untoldData(attr.Expr, locals, ctx); len(untold) > 0 {
+					return fmt.Sprintf("%s = %s, which reads %s, whose value in the environment the run can't tell", attr.Name, text, strings.Join(untold, ", "))
+				}
 				return fmt.Sprintf("%s = %s, which the environment's var files don't tell", attr.Name, text)
 			}
 			if v.IsNull() {
@@ -214,10 +323,44 @@ func unmergedBody(b *strings.Builder, body *hclsyntax.Body, src []byte, ctx *hcl
 			fmt.Fprintf(b, " %q", l)
 		}
 		b.WriteString(" {\n")
-		if why := unmergedBody(b, nb.Body, src, ctx, false); why != "" {
+		if why := unmergedBody(b, nb.Body, src, ctx, locals, false); why != "" {
 			return why
 		}
 		b.WriteString("}\n")
 	}
 	return ""
+}
+
+// untoldData returns what expr reads of data sources, itself or through
+// the locals it reads, that ctx doesn't give, such as
+// data.aws_vpc.shop.id, sorted.
+func untoldData(expr hclsyntax.Expression, locals map[string]hclsyntax.Expression, ctx *hcl.EvalContext) []string {
+	var untold []string
+	seen := map[string]bool{}
+	var walk func(e hclsyntax.Expression)
+	walk = func(e hclsyntax.Expression) {
+		for _, t := range e.Variables() {
+			switch t.RootName() {
+			case "data":
+				if _, diags := t.TraverseAbs(ctx); diags.HasErrors() {
+					untold = append(untold, addressText(t))
+				}
+			case "local":
+				if len(t) < 2 {
+					continue
+				}
+				name, ok := t[1].(hcl.TraverseAttr)
+				if !ok || seen[name.Name] {
+					continue
+				}
+				seen[name.Name] = true
+				if l, ok := locals[name.Name]; ok {
+					walk(l)
+				}
+			}
+		}
+	}
+	walk(expr)
+	slices.Sort(untold)
+	return slices.Compact(untold)
 }

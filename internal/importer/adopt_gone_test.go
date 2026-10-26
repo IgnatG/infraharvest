@@ -58,7 +58,7 @@ func goneMember(t *testing.T, out, env, account string, ids map[string]string, l
 	for _, id := range listed {
 		here.ids[strings.ToLower(id)] = true
 	}
-	return mergeMember{env: env, dir: dir, stack: filepath.Join(out, "aws", "eu-west-2"), scope: "aws/" + account + "/eu-west-2", result: result, here: here}
+	return mergeMember{env: env, dir: dir, stack: filepath.Join(out, "aws", "eu-west-2"), scope: "aws/" + account + "/eu-west-2", account: account, region: "eu-west-2", result: result, here: here}
 }
 
 // checkKeptGone checks that keepGone put back into m, under out, the
@@ -132,6 +132,52 @@ func TestKeepGoneFromAFreshCheckout(t *testing.T) {
 	}
 	if sqs := readTestFile(t, filepath.Join(dev.dir, "sqs.tf")); strings.Contains(sqs, "audit") {
 		t.Errorf("listed in part, dev's root gets the queue:\n%s", sqs)
+	}
+}
+
+// From a fresh checkout, dev's own queue, gone from the cloud, whose name
+// the merged root makes from the account's ID, which a local reads from
+// a data source, is put back into dev's root with dev's account's ID, as
+// dev's root generated afresh has it.
+func TestKeepGoneReadingTheAccount(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	stack := writeGoneStack(t, out)
+	files := map[string]string{
+		"locals.tf": "locals {\n  naming_prefix  = \"shop-${var.env}\"\n  aws_account_id = data.aws_caller_identity.current.account_id\n}\n",
+		"data.tf":   "data \"aws_caller_identity\" \"current\" {}\n",
+		"sqs.tf":    "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"${local.naming_prefix}-orders\"\n}\n\nresource \"aws_sqs_queue\" \"audit\" {\n  count = var.deploy_audit ? 1 : 0\n\n  name = \"${local.naming_prefix}-${local.aws_account_id}-audit\"\n}\n",
+	}
+	writeRootFiles(t, stack, files)
+	run := NewRun()
+	run.options = Options{Out: out, Incremental: true}
+	dev := goneMember(t, out, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders"}, "q-dev-orders")
+	prod := goneMember(t, out, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")
+	members := []mergeMember{dev, prod}
+	prev, why, err := run.adoptedCheckpoint(stack, members)
+	if err != nil || why != "" {
+		t.Fatalf("%q %v", why, err)
+	}
+	if why, err := run.keepGone(stack, prev, members); err != nil || why != "" {
+		t.Fatalf("%q %v", why, err)
+	}
+	checkKeptGone(t, run, out, members[0], "audit", "q-dev-audit", "shop-dev-111111111111-audit")
+	if sqs := readTestFile(t, filepath.Join(dev.dir, "sqs.tf")); strings.Contains(sqs, "data.") {
+		t.Errorf("dev's root reads a data source it lacks:\n%s", sqs)
+	}
+
+	// Where the run doesn't know dev's account, the merged root stays as
+	// it was, and the run says why.
+	other := t.TempDir()
+	stack = writeGoneStack(t, other)
+	writeRootFiles(t, stack, files)
+	dev = goneMember(t, other, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders"}, "q-dev-orders")
+	dev.account = ""
+	run = NewRun()
+	run.options = Options{Out: other, Incremental: true}
+	members = []mergeMember{dev, goneMember(t, other, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")}
+	if why, err := run.keepGone(stack, prev, members); err != nil || !strings.Contains(why, "data.aws_caller_identity.current.account_id") {
+		t.Errorf("without dev's account: %q %v", why, err)
 	}
 }
 
