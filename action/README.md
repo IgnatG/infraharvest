@@ -1,6 +1,6 @@
 # infraharvest GitHub Action
 
-Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body.
+Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch).
 
 The action installs a release and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
 
@@ -61,6 +61,42 @@ With the default `github.token`, the repository's (or organisation's) setting **
 Run again on a schedule, the action adds what is new to the roots the repository already has (`incremental`). New resources go after the blocks of the files of their types, such as `network.tf`, and nothing the roots have changes. The action finds a root's resources from its import blocks. Once you have applied a root and deleted its `imports.tf`, set `managed-state` too, for example `backend` with a configuration file (`config`) that names the S3 state backend.
 
 A root environments share (see [Merging environments](../docs/configuration.md#merging-environments)) works the same way, although the job's checkout has no `.infraharvest/`, where an import records what it merged, as the generated `.gitignore` leaves it out: the action tells the merged root from its own files, generates each environment's roots again, and merges them again with what is new kept apart as its environment's, so that nothing the merged root has is imported twice or gets another address. Each run must import every environment of the stack: every account, subscription or project the configuration file maps to one. Once the import blocks are deleted, `managed-state` must read each environment's state, such as `backend`, which holds the state key each `vars/<env>/backend.hcl` names.
+
+## Committing straight to a branch
+
+With `commit: "true"` instead of `pull-request`, the action commits the output and pushes it, with no pull request: to `commit-branch`, or to the branch checked out without one. It commits what a pull request would carry, `out` and, with drift, the decisions file, with the same message (see [The pull request with drift](#the-pull-request-with-drift)), as git adds them: the `.gitignore` generated in `out` keeps what it ignores out of the commit, and nothing else the job changed goes in. The `commit-sha` output is the commit's SHA.
+
+```yaml
+permissions:
+  contents: write       # push the commit
+  id-token: write       # OIDC to AWS
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-read-only
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        id: infraharvest
+        with:
+          version: v0.1.0
+          provider: aws
+          services: vpc,subnet,sg,s3,iam
+          regions: eu-west-2
+          commit: "true"
+          commit-branch: infraharvest/imported
+```
+
+- When the output hasn't changed, nothing is committed or pushed, and `commit-sha` is empty.
+- The commit goes on top of the commit checked out, and the push never forces. If `commit-branch` has commits the checkout doesn't have, such as another run's, the push is rejected and the step fails: check out that branch (`ref` on `actions/checkout`) to add to it.
+- A checkout with no branch, such as a pull request's or a tag's, needs `commit-branch`, or the step fails.
+- The token is `pull-request-token`, `github.token` by default, which needs `contents: write`. GitHub starts no workflows for a push `github.token` makes; pass a GitHub App token or a fine-grained personal access token with contents write for them to run, as for [the pull request](#checks-on-the-pull-request).
+- Branch protection rules and rulesets apply: a push to a branch that requires pull requests, such as `main` usually, is rejected, unless the token's app or user may bypass them.
+- The commit's author is `github-actions[bot]`, unless the job sets `user.name` and `user.email` with `git config`.
 
 ## Drift
 
@@ -284,7 +320,9 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `environment` | | For roots environments share, the environment to check drift as (`--environment`), with the job's credentials, which must be that environment's; several, comma-separated, share them, and `all` checks every one. Required when `out` has roots more than one environment shares; with `import: "true"`, only `all` (see [Roots environments share](#roots-environments-share)) |
 | `pull-request` | `false` | Open or update a pull request with the output |
 | `pull-request-branch` | `infraharvest/import`, or `infraharvest/drift` with `import: "false"` (`infraharvest/drift-<env>` with `environment`) | The pull request's branch |
-| `pull-request-token` | `github.token` | Token to push the branch and open the pull request with: see [Checks on the pull request](#checks-on-the-pull-request) |
+| `pull-request-token` | `github.token` | Token to push the branch and open the pull request with, and to push with `commit`: see [Checks on the pull request](#checks-on-the-pull-request) |
+| `commit` | `false` | Commit the output and push it to `commit-branch`, without a pull request (see [Committing straight to a branch](#committing-straight-to-a-branch)). Not with `pull-request` |
+| `commit-branch` | the branch checked out | With `commit`, the branch to push to. A detached checkout, such as a pull request's, needs one |
 
 ## Outputs
 
@@ -296,3 +334,4 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `drift-report` | Path of the drift report, `drift.md`, if drift ran |
 | `drift-exit-code` | infraharvest drift's exit code: 0 no drift left, 4 drift left, 1 an accepted change failed verification, 2 a root couldn't be checked; empty if drift didn't run |
 | `pull-request-url` | URL of the pull request, if one was opened |
+| `commit-sha` | SHA of the commit pushed with `commit`; empty when the output didn't change, or without `commit` |

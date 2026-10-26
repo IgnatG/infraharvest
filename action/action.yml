@@ -76,8 +76,14 @@ inputs:
     description: Branch for the pull request. Default infraharvest/import, or infraharvest/drift when only checking drift.
     required: false
   pull-request-token:
-    description: Token to push the branch and open the pull request with. GitHub starts no workflows for a pull request the default github.token opens, so checks never run on it; pass a GitHub App token (actions/create-github-app-token) or a fine-grained personal access token for them to run.
+    description: Token to push the branch and open the pull request with, and to push with commit. GitHub starts no workflows for a pull request or a push the default github.token makes, so checks never run on it; pass a GitHub App token (actions/create-github-app-token) or a fine-grained personal access token for them to run.
     default: ${{ github.token }}
+  commit:
+    description: Commit the output (what a pull request would add) and push it to commit-branch, without a pull request. Not with pull-request.
+    default: "false"
+  commit-branch:
+    description: With commit, the branch to push to. Default the branch checked out; a detached checkout, such as a pull request's, needs one. The push never forces, so it fails when the branch has commits the checkout doesn't have.
+    required: false
 
 outputs:
   exit-code:
@@ -98,6 +104,9 @@ outputs:
   pull-request-url:
     description: URL of the pull request, if one was opened.
     value: ${{ steps.pull-request.outputs.pull-request-url }}
+  commit-sha:
+    description: SHA of the commit pushed with commit; empty when the output didn't change, or commit is false.
+    value: ${{ steps.commit.outputs.commit-sha }}
 
 runs:
   using: composite
@@ -115,6 +124,9 @@ runs:
         DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
         DRIFT_ACCEPT: ${{ inputs.drift-accept }}
         ENVIRONMENT: ${{ inputs.environment }}
+        PULL_REQUEST: ${{ inputs.pull-request }}
+        COMMIT: ${{ inputs.commit }}
+        COMMIT_BRANCH: ${{ inputs.commit-branch }}
       run: |
         fail() {
           echo "::error::$1"
@@ -173,6 +185,16 @@ runs:
           if [[ "$IMPORT" == true && "$ENVIRONMENT" != all ]]; then
             fail "environment checks drift as one environment, with its credentials; import in a job of its own, whose credentials reach every environment, and set import to false here"
           fi
+        fi
+        case "$COMMIT" in
+          true | false) ;;
+          *) fail "commit must be true or false, got '$COMMIT'" ;;
+        esac
+        if [[ "$COMMIT" == true && "$PULL_REQUEST" == true ]]; then
+          fail "commit and pull-request don't go together: commit pushes the output to a branch without a pull request; set one of them"
+        fi
+        if [[ "$COMMIT" != true && -n "$COMMIT_BRANCH" ]]; then
+          fail "commit-branch takes effect with commit set to true"
         fi
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -345,9 +367,11 @@ runs:
           echo "::error::infraharvest exited with $code; see the job summary"
           exit "$code"
         fi
+    # With commit too: the commit takes the pull request's message and
+    # paths.
     - name: Pull request details
       id: pull-request-details
-      if: inputs.pull-request == 'true'
+      if: inputs.pull-request == 'true' || inputs.commit == 'true'
       shell: bash
       env:
         IMPORT: ${{ inputs.import }}
@@ -372,3 +396,13 @@ runs:
         commit-message: ${{ steps.pull-request-details.outputs.commit-message }}
         title: ${{ steps.pull-request-details.outputs.title }}
         body-path: ${{ steps.pull-request-details.outputs.body-path }}
+    - name: Commit and push
+      id: commit
+      if: inputs.commit == 'true'
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.pull-request-token }}
+        BRANCH: ${{ inputs.commit-branch }}
+        ADD_PATHS: ${{ steps.pull-request-details.outputs.add-paths }}
+        COMMIT_MESSAGE: ${{ steps.pull-request-details.outputs.commit-message }}
+      run: bash "$GITHUB_ACTION_PATH/commit.sh"

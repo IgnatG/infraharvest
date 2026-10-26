@@ -8,7 +8,8 @@
 # $RUNNER_TEMP, and the paths it adds, the out directory and, with drift,
 # the decisions file. It writes them to $GITHUB_OUTPUT as title,
 # commit-message, branch, body-path and add-paths, for
-# peter-evans/create-pull-request. It runs no git and needs no token, so
+# peter-evans/create-pull-request, and for commit.sh, which commits the
+# same paths with the same message. It runs no git and needs no token, so
 # action-test runs it on its own.
 #
 # Usage: IMPORT=true|false DRIFT=off|report|accept OUT=<dir>
