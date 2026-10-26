@@ -308,3 +308,12 @@ func withGroupManagers(resources []harvest.Resource, subscription string, manage
 		}
 	}
 }
+
+// PartialTypes names the types a listing of the run's scope can leave out
+// while they exist: a custom role is listed only while every scope it
+// can be assigned at is in the run (see RoleAssignmentLister), which a
+// change to the role can undo without deleting it, so a custom role the
+// listing didn't find isn't taken for one deleted.
+func (*Provider) PartialTypes() []string {
+	return []string{"azurerm_role_definition"}
+}

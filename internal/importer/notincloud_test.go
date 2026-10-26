@@ -127,6 +127,12 @@ func TestTypesListedInFull(t *testing.T) {
 	if got := typesListedInFull(&fakeProvider{}, catalogue.MustBuiltin("azurerm"), Options{Services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
 		t.Error("azurerm: a type Resource Graph maps through Resource Manager is listed in full")
 	}
+	// Azure's provider lists custom roles in part (see its PartialTypes):
+	// one made assignable outside the run isn't listed, nor gone.
+	roles := typesListedInFull(&partialProvider{partial: []string{"azurerm_role_definition"}}, catalogue.MustBuiltin("azurerm"), Options{Services: []string{"role_assignment"}})
+	if roles["azurerm_role_definition"] || !roles["azurerm_role_assignment"] {
+		t.Errorf("azurerm: role_assignment lists in full %v, want its assignments and not its custom roles", roles)
+	}
 }
 
 // What a root has with a resource block, of a type listed in full, that
