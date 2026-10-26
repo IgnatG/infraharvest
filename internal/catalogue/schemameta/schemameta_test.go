@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -60,16 +62,78 @@ func TestBuiltin(t *testing.T) {
 	}
 }
 
-// The AWS provider's own code says what the engine's tests assume of it.
-func TestBuiltinAWSKnowsSubnetZones(t *testing.T) {
+// The generator reads what the providers' code says, value for value: a
+// few entries known from the providers' source, of each provider and of
+// each kind the generator reads.
+func TestBuiltinValues(t *testing.T) {
 	t.Parallel()
+	for _, tc := range []struct {
+		provider, typ, path string
+		check               func(a *Argument) bool
+		want                string
+	}{
+		{"aws", "aws_subnet", "availability_zone", func(a *Argument) bool {
+			return slices.Equal(a.ConflictsWith, []string{"availability_zone_id"})
+		}, "conflicts with availability_zone_id"},
+		{"aws", "aws_subnet", "availability_zone_id", func(a *Argument) bool {
+			return slices.Equal(a.ConflictsWith, []string{"availability_zone"})
+		}, "conflicts with availability_zone"},
+		{"aws", "aws_iam_role", "max_session_duration", func(a *Argument) bool { return a.Default == json.Number("3600") }, "default 3600"},
+		{"aws", "aws_iam_role", "path", func(a *Argument) bool { return a.Default == "/" }, `default "/"`},
+		{"aws", "aws_cloudwatch_event_rule", "event_pattern", func(a *Argument) bool {
+			return slices.Equal(a.AtLeastOneOf, []string{"event_pattern", "schedule_expression"})
+		}, "at least one of event_pattern and schedule_expression"},
+		{"aws", "aws_subnet", "assign_ipv6_address_on_creation", func(a *Argument) bool { return a.Default == false }, "default false"},
+		{"google", "google_storage_bucket", "storage_class", func(a *Argument) bool { return a.Default == "STANDARD" }, `default "STANDARD"`},
+		{"google", "google_storage_bucket", "soft_delete_policy.retention_duration_seconds", func(a *Argument) bool { return a.Default == json.Number("604800") }, "default 604800, in a nested block"},
+		{"azurerm", "azurerm_storage_account", "account_kind", func(a *Argument) bool { return a.Default == "StorageV2" }, `default "StorageV2"`},
+	} {
+		f, err := Builtin(tc.provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a := f.Argument(tc.typ, tc.path); a == nil || !tc.check(a) {
+			t.Errorf("%s.%s: got %+v, want %s", tc.typ, tc.path, a, tc.want)
+		}
+	}
+	// A Plugin Framework resource: its defaults only.
 	f, err := Builtin("aws")
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := f.Argument("aws_subnet", "availability_zone")
-	if a == nil || !slices.Contains(a.ConflictsWith, "availability_zone_id") {
-		t.Errorf("aws_subnet.availability_zone: got %+v, want it to conflict with availability_zone_id", a)
+	if r := f.Resource("aws_api_gateway_account"); r == nil || !r.Framework || r.Arguments["cloudwatch_role_arn"] == nil || r.Arguments["cloudwatch_role_arn"].Default != "" {
+		t.Errorf("aws_api_gateway_account: got %+v, want a Plugin Framework resource whose cloudwatch_role_arn defaults to \"\"", r)
+	}
+}
+
+// The NOTICE names, for each built-in file, the provider release it was
+// read from and where that release's source is, as MPL-2.0 asks: the
+// schema-metadata workflows write it with the files
+// (.github/scripts/schema-metadata-notice.sh), and a file committed
+// without it would leave it naming another release.
+func TestNoticeNamesTheReleases(t *testing.T) {
+	t.Parallel()
+	notice, err := os.ReadFile(filepath.Join("..", "..", "..", "NOTICE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"aws", "azurerm", "google"} {
+		f, err := Builtin(provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"internal/catalogue/schemameta/" + provider + ".json.gz",
+			"terraform-provider-" + provider + " " + f.Version + ",",
+			"https://github.com/hashicorp/terraform-provider-" + provider + "/tree/v" + f.Version,
+		} {
+			if !strings.Contains(string(notice), want) {
+				t.Errorf("NOTICE doesn't name %q: regenerate it with .github/scripts/schema-metadata-notice.sh internal/catalogue/schemameta > NOTICE", want)
+			}
+		}
+	}
+	if !strings.Contains(string(notice), "LICENSES/MPL-2.0.txt") {
+		t.Error("NOTICE doesn't point at the MPL-2.0 text")
 	}
 }
 
