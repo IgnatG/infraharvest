@@ -199,6 +199,9 @@ func diagnosticTargets(listed []harvest.Resource) []diagnosticTarget {
 		if r.Address == nil || r.Observed == nil || r.Provider != providerName || r.Address.Type == diagnosticSettingType {
 			continue
 		}
+		if strings.Contains(r.Observed.ID, "|") {
+			continue
+		}
 		parsed, err := armid.ParseResourceId(r.Observed.ID)
 		if err != nil {
 			continue
