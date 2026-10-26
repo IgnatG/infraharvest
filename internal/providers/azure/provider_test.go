@@ -30,6 +30,7 @@ var (
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
+	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
 )
 
 // The importer's defaults apply where Provider has no capability of

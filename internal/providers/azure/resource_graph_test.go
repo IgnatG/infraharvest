@@ -106,7 +106,8 @@ func TestGraphResourcesLeavesOutUnmapped(t *testing.T) {
 
 // * lists resource_graph and the services that list what Resource Graph
 // can't. The services that list again what resource_graph lists are
-// opt-in, so * never imports the same resource twice.
+// opt-in, so * never imports the same resource twice, and so is
+// diagnostic_setting, which takes a request per resource.
 func TestWildcardListsResourceGraph(t *testing.T) {
 	p := &Provider{}
 	services := p.Services()
