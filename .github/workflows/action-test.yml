@@ -12,7 +12,7 @@ name: Action test
 # per environment for roots environments share; and checks what the action
 # would open its pull request with. On main, once the repository lets
 # workflows open pull requests, it opens a real one too (see the
-# pull-request job).
+# pull-request job), and commits to a branch (the commit job).
 on:
   pull_request:
     paths:
@@ -31,7 +31,8 @@ on:
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
-  # Only the pull-request job runs on a push: a pull request ran the rest.
+  # Only the pull-request and commit jobs run on a push: a pull request ran
+  # the rest.
   push:
     branches: [main]
     paths:
@@ -855,6 +856,119 @@ jobs:
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
 
+  # Commits with the action, with no pull request, to a branch of the
+  # run's own, made from this commit, that isn't the one checked out, and
+  # checks the branch's head is that commit, with the report alone and the
+  # import's commit message; then deletes the branch, whatever happened. As
+  # in the pull-request job, git excludes the generated configuration in
+  # this checkout, and it runs on main and by hand only, when
+  # ACTION_TEST_PULL_REQUEST is true. It also checks that the action fails
+  # with commit and pull-request together, and with commit from a detached
+  # checkout without commit-branch, before pushing anything.
+  commit:
+    if: github.event_name != 'pull_request' && github.repository == 'IgnatG/infraharvest' && vars.ACTION_TEST_PULL_REQUEST == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      COMMIT_BRANCH: action-test/commit-${{ github.run_id }}-${{ github.run_attempt }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
+      - name: Build
+        run: go build -tags minimal,aws -o "$RUNNER_TEMP/infraharvest" .
+      - name: Install the engine and scanners
+        uses: ./.github/actions/setup-engines
+        with:
+          engine: terraform
+      - name: Start Floci and create a queue
+        run: |
+          docker compose -f e2e/compose.yaml up -d --wait
+          aws sqs create-queue --queue-name infraharvest-action
+      - name: Create the branch
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/heads/$COMMIT_BRANCH" -f "sha=$GITHUB_SHA" > /dev/null
+          printf '/action-test-out/*\n!/action-test-out/report/\n' >> .git/info/exclude
+      - name: Run the action with commit and pull-request
+        id: both
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          out: action-test-out
+          commit: "true"
+          pull-request: "true"
+      - name: Run the action
+        id: infraharvest
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: action-test-out
+          commit: "true"
+          commit-branch: ${{ env.COMMIT_BRANCH }}
+      - name: Check the commit
+        env:
+          BOTH: ${{ steps.both.outcome }}
+          SHA: ${{ steps.infraharvest.outputs.commit-sha }}
+        run: |
+          test "$BOTH" = failure
+          test -n "$SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/$COMMIT_BRANCH" --jq .commit.sha)" = "$SHA"
+          commit="$RUNNER_TEMP/commit.json"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" > "$commit"
+          jq -e --arg parent "$GITHUB_SHA" \
+            '.commit.message == "feat: import existing resources with infraharvest" and [.parents[].sha] == [$parent]' "$commit"
+          # The report alone, and nothing generated.
+          jq -e '(.files | length) > 0 and all(.files[]; .filename | startswith("action-test-out/report/"))' "$commit"
+          jq -e 'any(.files[]; .filename == "action-test-out/report/report.md")' "$commit"
+      - name: Check out no branch
+        run: git checkout --detach
+      - name: Run the action from a detached checkout
+        id: detached
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: action-test-out
+          commit: "true"
+      - name: Check the detached run failed without pushing
+        env:
+          DETACHED: ${{ steps.detached.outcome }}
+          SHA: ${{ steps.infraharvest.outputs.commit-sha }}
+        run: |
+          test "$DETACHED" = failure
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/$COMMIT_BRANCH" --jq .commit.sha)" = "$SHA"
+      - name: Delete the branch
+        if: always()
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$COMMIT_BRANCH" > /dev/null 2>&1 || true
+      - name: Floci logs
+        if: failure()
+        run: docker compose -f e2e/compose.yaml logs
+
   # What the action opens its pull request with, worked out by
   # action/pull-request-details.sh, is checked for each kind of run, the
   # script run as the action runs it; the step that opens the pull
@@ -965,3 +1079,101 @@ jobs:
             ENVIRONMENT=all IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect all title "Import new resources, and record cloud changes (drift) for review"
           expect all branch infraharvest/import
+
+  # What action/commit.sh commits and pushes, checked against a repository
+  # of the job's own, which it pushes to over file://, so that it needs no
+  # token: only the paths given, nothing when they haven't changed, a
+  # branch of its own, and the failures without a branch and on a branch
+  # that has moved on. The commit job runs it through the action, on
+  # GitHub.
+  commit-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Commit and push each kind of change
+        run: |
+          script="$GITHUB_WORKSPACE/action/commit.sh"
+          remote="$RUNNER_TEMP/remote/infraharvest.git"
+          work="$RUNNER_TEMP/work"
+          other="$RUNNER_TEMP/other"
+          git init --quiet --bare "$remote"
+          git init --quiet -b main "$work"
+          cd "$work"
+          git config user.name test
+          git config user.email test@example.com
+          mkdir out
+          printf 'readme\n' > README.md
+          printf 'one\n' > out/main.tf
+          printf 'ignored.txt\n' > out/.gitignore
+          git add .
+          git commit --quiet -m "chore: start"
+          git push --quiet "$remote" main
+          # commit <name> <VAR=value>...: runs the script as the action
+          # does, writing its outputs to $RUNNER_TEMP/<name>.out.
+          commit() {
+            local name=$1
+            shift
+            : > "$RUNNER_TEMP/$name.out"
+            env -i PATH="$PATH" HOME="$HOME" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$RUNNER_TEMP/$name.out" \
+              GITHUB_SERVER_URL="file://$RUNNER_TEMP/remote" GITHUB_REPOSITORY=infraharvest TOKEN=token \
+              ADD_PATHS="$(printf 'out\ndecisions/drift.yaml')" COMMIT_MESSAGE="feat: import existing resources with infraharvest" \
+              "$@" bash "$script"
+          }
+          sha() { sed -n 's/^commit-sha=//p' "$RUNNER_TEMP/$1.out"; }
+          remote_head() { git --git-dir="$remote" rev-parse "refs/heads/$1"; }
+          start=$(git rev-parse HEAD)
+
+          # Nothing changed: no commit, and nothing pushed.
+          commit unchanged
+          test -z "$(sha unchanged)"
+          test "$(git rev-parse HEAD)" = "$start"
+
+          # The output only: not what out's .gitignore ignores, nor what
+          # else the job changed, staged or not; the decisions file, which
+          # doesn't exist, is left out.
+          printf 'two\n' > out/main.tf
+          printf 'new\n' > out/new.tf
+          printf 'secret\n' > out/ignored.txt
+          printf 'changed\n' > README.md
+          git add README.md
+          commit changed
+          test "$(remote_head main)" = "$(sha changed)"
+          test "$(git log -1 --format=%s "$(sha changed)")" = "feat: import existing resources with infraharvest"
+          test "$(git diff-tree --no-commit-id --name-only -r "$(sha changed)" | paste -sd, -)" = "out/main.tf,out/new.tf"
+          test "$(git diff --cached --name-only)" = README.md
+          git reset --quiet README.md
+
+          # To a branch that isn't the one checked out, which the push
+          # creates.
+          printf 'three\n' > out/main.tf
+          commit branch BRANCH=infraharvest/imported
+          test "$(remote_head infraharvest/imported)" = "$(sha branch)"
+          test "$(remote_head main)" = "$(sha changed)"
+
+          # The branch has moved on: the push is rejected, not forced.
+          git clone --quiet "$remote" "$other"
+          git -C "$other" -c user.name=other -c user.email=other@example.com commit --quiet --allow-empty -m "chore: elsewhere"
+          git -C "$other" push --quiet origin main
+          moved=$(remote_head main)
+          git reset --quiet --hard "$(sha changed)"
+          printf 'four\n' > out/main.tf
+          if commit rejected > "$RUNNER_TEMP/rejected.log" 2>&1; then
+            echo "::error::the push to a branch that moved on succeeded"
+            exit 1
+          fi
+          grep -q 'non-fast-forward' "$RUNNER_TEMP/rejected.log"
+          test "$(remote_head main)" = "$moved"
+
+          # No branch checked out, and no commit-branch.
+          git checkout --quiet --detach
+          printf 'five\n' > out/main.tf
+          if commit detached > "$RUNNER_TEMP/detached.log" 2>&1; then
+            echo "::error::a detached checkout pushed without commit-branch"
+            exit 1
+          fi
+          grep -q 'detached HEAD' "$RUNNER_TEMP/detached.log"
+          test "$(remote_head main)" = "$moved"
