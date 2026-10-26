@@ -101,6 +101,52 @@ An import applies the entries whose constraint accepts the provider version it p
 
 Defaults of optional arguments that the provider doesn't compute need no entry: infraharvest finds them by plan (see [Tidying](output.md#tidying)). What needs a `defaults` entry is a default the cloud sets for an argument the provider computes, which a plan can't tell from a setting. The entry for every type, `"*"`, takes no `defaults`.
 
+## Schema metadata
+
+`terraform providers schema -json` says which arguments are optional or computed, but not what an argument defaults to, nor which arguments exclude or need each other. The providers' code says both: each Plugin SDK argument's `Default`, `ConflictsWith`, `ExactlyOneOf`, `AtLeastOneOf` and `RequiredWith`. `internal/catalogue/schemameta` holds them, one gzipped JSON file per provider (`aws.json.gz`, `azurerm.json.gz`, `google.json.gz`), each with the provider release it was read from, built into the binary and decompressed the first time an import needs that provider's. A file lists only the arguments that have metadata, by their path through nested blocks without indexes (`root_block_device.volume_type`), one resource type to a line; a Plugin Framework resource, as newer AWS ones are, is marked `framework` and has only its defaults, since its constraints are validators the provider doesn't expose.
+
+The engine uses them to need fewer plans (see [Tidying](output.md#tidying)). Where the root's lock file records the file's release, it leaves out arguments set to their defaults without a plan, keeps arguments set to anything else without trying, and settles conflicting arguments before the first plan. Where the root uses another release, it logs that once, the defaults only add candidates the plan checks, and conflicting arguments wait for validation to report them, as without metadata.
+
+### Overrides
+
+`internal/catalogue/schemameta/overrides.json` holds infraharvest's own corrections and additions, by provider and resource type, merged over the generated files when they load: for what the generator can't read, such as a Plugin Framework resource's constraints, or reads wrong. Each argument replaces the generated one whole, `null` removes an argument, and a type set to `null` is removed, so that the engine falls back to plans for it:
+
+```json
+{
+  "aws": {
+    "aws_example": {
+      "framework": false,
+      "arguments": {
+        "mode": {"default": "auto"},
+        "wrong": null,
+        "a": {"conflicts_with": ["b"]}
+      }
+    },
+    "aws_unreliable": null
+  }
+}
+```
+
+The file starts empty (`{}`). Its fields are those of the generated files: `default` (a bool, a number or a string), `suppress`, `exactly_one_of`, `conflicts_with`, `at_least_one_of` and `required_with`.
+
+### Licences
+
+The generated files are facts read out of the HashiCorp providers' code (`hashicorp/terraform-provider-aws`, `-azurerm` and `-google`, at the release each file records), which is MPL-2.0, and so are they: `REUSE.toml` marks them so, with the licence in `LICENSES/MPL-2.0.txt`. The generator (`gen/`), the overrides and the code that reads them are infraharvest's own, AGPL-3.0-only. The binary that embeds both is AGPL-3.0-only as a larger work, which MPL-2.0 allows (its section 3.3).
+
+### Regenerating
+
+The files are generated, never edited by hand: corrections go into the overrides. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release, the one generated roots pin, or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, gzips what it writes, and uploads the files as the artifact `schema-metadata`. Its job summary says, per provider, the release before and after and the resource types added, removed and changed, as a diff of gzipped files can't:
+
+```sh
+make ci-schema-metadata                      # or VERSIONS="aws=6.70.0"
+make ci-download RUN=<id> NAME=schema-metadata
+git status internal/catalogue/schemameta     # the summary says what changed; commit
+```
+
+To read the changes yourself, `gzip -dc` a file, or let `git diff` decompress them for you: `git config diff.gzip.textconv "gzip -dc"`, with `*.json.gz diff=gzip` in `.git/info/attributes`.
+
+The `schema-metadata` workflow does the same every week for the providers' newest releases, and opens a pull request with the files where they changed, or updates the one already open, with the summary as its body. A file of an older release costs plans, never correctness.
+
 ## Inventory types
 
 The services that list a whole subscription or project through the cloud's inventory API, `resource_graph` for Azure and `cloud_asset` for Google, map what it lists to Terraform types through `inventory` entries:

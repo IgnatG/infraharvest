@@ -35,6 +35,53 @@
     ]
   },
   {
+    "path": "infraharvest cfn",
+    "use": "cfn",
+    "run_e": false,
+    "run": false,
+    "args": "0",
+    "silence_usage": true,
+    "silence_errors": false
+  },
+  {
+    "path": "infraharvest cfn convert",
+    "use": "convert <template>",
+    "run_e": true,
+    "run": false,
+    "args": "1",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "cfn-terraform",
+        "persistent": false
+      },
+      {
+        "name": "prevent-destroy",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "stack-name",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      }
+    ]
+  },
+  {
     "path": "infraharvest discover",
     "use": "discover",
     "run_e": false,
@@ -97,6 +144,18 @@
         "name": "catalogue",
         "type": "string",
         "default": "",
+        "persistent": true
+      },
+      {
+        "name": "cfn-ignore",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "cfn-stack",
+        "type": "stringArray",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -955,6 +1014,18 @@
         "name": "catalogue",
         "type": "string",
         "default": "",
+        "persistent": true
+      },
+      {
+        "name": "cfn-ignore",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "cfn-stack",
+        "type": "stringArray",
+        "default": "[]",
         "persistent": true
       },
       {

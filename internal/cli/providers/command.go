@@ -67,6 +67,10 @@ type plan struct {
 	// the options importer.ImportEach hands that scope; importer.ImportCalls
 	// makes them.
 	calls func(options importer.Options, scope string) []call
+	// newProvider, if set, returns the provider of each Import call in
+	// place of the definition's, such as an AWS provider scoped to
+	// CloudFormation stacks.
+	newProvider func() harvest.Provider
 }
 
 // call is one importer.Import call.
@@ -89,11 +93,14 @@ type call struct {
 type importFunc func(ctx context.Context, calls []importer.Call) error
 
 // run makes the calls of each of p's scopes with importCalls, each call
-// with a new provider from newProvider: those of one scope together, which
-// stop at the first that fails (see importer.ImportCalls), and several
-// scopes through importer.ImportEach, which records a scope that fails and
-// goes on to the next.
+// with a new provider from p.newProvider, or else from newProvider: those
+// of one scope together, which stop at the first that fails (see
+// importer.ImportCalls), and several scopes through importer.ImportEach,
+// which records a scope that fails and goes on to the next.
 func (p plan) run(ctx context.Context, options importer.Options, newProvider func() harvest.Provider, importCalls importFunc) error {
+	if p.newProvider != nil {
+		newProvider = p.newProvider
+	}
 	importScope := func(scopeOptions importer.Options, scope string) error {
 		planned := p.calls(scopeOptions, scope)
 		calls := make([]importer.Call, len(planned))

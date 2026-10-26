@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: An application's bucket, log group and topic.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Name of the data bucket.
+  Retention:
+    Type: Number
+    Default: 14
+  Env:
+    Type: String
+    AllowedValues: [dev, prod]
+  Secret:
+    Type: String
+    NoEcho: true
+  Subnets:
+    Type: CommaDelimitedList
+
+Conditions:
+  IsProd: !Equals [!Ref Env, prod]
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      Tags:
+        - Key: env
+          Value: !Ref Env
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/app/${Env}"
+      RetentionInDays: !Ref Retention
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref Env
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${Env}-jobs"
+
+Outputs:
+  BucketArn:
+    Description: The data bucket.
+    Value: !GetAtt Bucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-BucketArn"
+  LogGroup:
+    Value: !Ref Logs
+  Labelled:
+    Value: !Sub "${AWS::StackName}/${Env}/${Bucket}"
+  QueueUrl:
+    Value: !Ref Queue
+  StackLabel:
+    Value: !Sub "${AWS::StackName}-label"
+  ProdOnly:
+    Condition: IsProd
+    Value: !Ref Topic
+  WithSecret:
+    Value: !Sub "${Secret}-${Bucket}"

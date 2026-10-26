@@ -17,6 +17,29 @@ infraharvest bootstrap [flags]
 | `--config` |  | configuration file with the backend (required) |
 | `-o`, `--out` | `infraharvest-out` | directory to write the bootstrap root under |
 
+## infraharvest cfn
+
+Translate CloudFormation templates into Terraform
+
+```
+infraharvest cfn
+```
+
+## infraharvest cfn convert
+
+Translate a CloudFormation template into Terraform files
+
+```
+infraharvest cfn convert <template> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--allow-partial` |  | exit 3 rather than 1 when something couldn't be converted |
+| `-o`, `--out` | `cfn-terraform` | directory to write the Terraform files into; files of the same names must not exist |
+| `--prevent-destroy` |  | add lifecycle prevent_destroy to resources whose DeletionPolicy is Retain |
+| `--stack-name` |  | default of the stack_name variable that stands in for AWS::StackName |
+
 ## infraharvest discover
 
 List resources into a selection file to review before importing
@@ -45,6 +68,8 @@ infraharvest discover aws
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
 | `--assume-role` | `arn:aws:iam::{account}:role/infraharvest-readonly` | role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role |
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--cfn-ignore` |  | with --cfn-stack: acknowledge that the stacks may be deleted without this resource, which Terraform can't import, such as a custom resource, by its logical ID, or as <stack>/<logical ID> where several stacks have it; repeat for others. It needs no Retain then, so deleting the stack calls its handler, or deletes it. The CDK's Custom::S3AutoDeleteObjects and the like, which destroy what the stack's resources hold, can't be acknowledged (see https://ignatg.github.io/infraharvest/aws/#custom-resources) |
+| `--cfn-stack` |  | import the resources of this CloudFormation stack, and of the stacks nested in it, and nothing else, by name or stack ID (ARN; a deleted stack's for 90 days); repeat for other stacks. The report says whether each stack can be deleted once its resources are in Terraform, and writes a copy of its template with Retain added (see https://ignatg.github.io/infraharvest/aws/#migrating-a-cloudformation-stack) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
@@ -232,6 +257,8 @@ infraharvest import aws
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
 | `--assume-role` | `arn:aws:iam::{account}:role/infraharvest-readonly` | role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role |
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--cfn-ignore` |  | with --cfn-stack: acknowledge that the stacks may be deleted without this resource, which Terraform can't import, such as a custom resource, by its logical ID, or as <stack>/<logical ID> where several stacks have it; repeat for others. It needs no Retain then, so deleting the stack calls its handler, or deletes it. The CDK's Custom::S3AutoDeleteObjects and the like, which destroy what the stack's resources hold, can't be acknowledged (see https://ignatg.github.io/infraharvest/aws/#custom-resources) |
+| `--cfn-stack` |  | import the resources of this CloudFormation stack, and of the stacks nested in it, and nothing else, by name or stack ID (ARN; a deleted stack's for 90 days); repeat for other stacks. The report says whether each stack can be deleted once its resources are in Terraform, and writes a copy of its template with Retain added (see https://ignatg.github.io/infraharvest/aws/#migrating-a-cloudformation-stack) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |

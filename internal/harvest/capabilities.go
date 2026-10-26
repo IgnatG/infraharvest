@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // The interfaces in this file are capabilities a Provider may have
@@ -172,4 +173,25 @@ type ProviderWithTerraformEnv interface {
 // find for one deleted. PartialTypes is asked after the listing.
 type ProviderWithPartialTypes interface {
 	PartialTypes() []string
+}
+
+// ProviderWithImportScope is a provider told to import only some of what
+// it lists, such as the resources of the CloudFormation stacks AWS's
+// --cfn-stack names. ImportScope is asked once the listing is done, with
+// every listed resource, and returns nil when the import has no scope.
+type ProviderWithImportScope interface {
+	ImportScope(ctx context.Context, resources []Resource) (*ImportScope, error)
+}
+
+// ImportScope is what a provider's scope makes of the listed resources,
+// keyed "<type> <id>": Inside are those the scope names, which the import
+// takes whatever the default selection says of another tool managing them,
+// as the scope is that tool's; Outside are the others, with the reason,
+// which the import leaves out whatever a selection file says. Stacks are
+// the CloudFormation stacks of the scope, for the report, each resource
+// with the listed resources it is.
+type ImportScope struct {
+	Inside  map[string]bool
+	Outside map[string]string
+	Stacks  []report.CloudFormationStack
 }

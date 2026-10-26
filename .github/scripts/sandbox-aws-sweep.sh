@@ -7,9 +7,11 @@
 # deletes the types that cost the most while they exist (EC2 instances, NAT
 # gateways and their Elastic IPs, RDS instances and clusters, Redshift
 # clusters, ElastiCache replication groups, EKS clusters, load balancers,
-# Kinesis streams, Lambda functions and S3 buckets), without final
-# snapshots, and warns about whatever is still tagged. It sweeps what
-# earlier runs left with their own run tag the same way: runs never overlap
+# Kinesis streams, Lambda functions and S3 buckets, and the CloudFormation
+# stacks, SQS queues and SNS topics the CloudFormation estate leaves when
+# its test stops part way), without final snapshots, and warns about
+# whatever is still tagged. It sweeps what earlier runs left with their
+# own run tag the same way: runs never overlap
 # (the workflow's concurrency group), so another run's tag only remains on
 # what that run failed to delete, as when it was cancelled during its
 # destroy. It touches nothing without the tag. Deletes take a while, and
@@ -133,6 +135,20 @@ for region in "${regions[@]}"; do
         kinesis:stream/*)
           echo "deleting Kinesis stream ${resource#stream/}"
           try aws kinesis delete-stream --region "$region" --stream-name "${resource#stream/}" --enforce-consumer-deletion
+          ;;
+        cloudformation:stack/*)
+          IFS=/ read -r _ name _ <<< "$resource"
+          echo "deleting CloudFormation stack $name"
+          try aws cloudformation delete-stack --region "$region" --stack-name "$arn"
+          ;;
+        sqs:*)
+          echo "deleting SQS queue $resource"
+          url=$(aws sqs get-queue-url --region "$region" --queue-name "$resource" --query QueueUrl --output text) &&
+            try aws sqs delete-queue --region "$region" --queue-url "$url"
+          ;;
+        sns:*)
+          echo "deleting SNS topic $resource"
+          try aws sns delete-topic --region "$region" --topic-arn "$arn"
           ;;
         lambda:function:*)
           name=${resource#function:}

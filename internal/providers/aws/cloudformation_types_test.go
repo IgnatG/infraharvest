@@ -12,9 +12,10 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// Every CloudFormation type of the table names its Terraform types.
+// Every CloudFormation type of the table, or custom resource type of the
+// CDK, names its Terraform types.
 func TestCloudFormationTypesAreWellFormed(t *testing.T) {
-	cfn := regexp.MustCompile(`^AWS::[A-Za-z0-9]+::[A-Za-z0-9]+$`)
+	cfn := regexp.MustCompile(`^(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+|Custom::AWSCDK-[A-Za-z0-9-]+)$`)
 	for typ, terraform := range cloudFormationTypes {
 		if !cfn.MatchString(typ) {
 			t.Errorf("%q is not a CloudFormation type", typ)

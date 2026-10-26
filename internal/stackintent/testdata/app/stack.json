@@ -1,0 +1,16 @@
+{
+  "name": "app",
+  "id": "arn:aws:cloudformation:eu-west-2:123456789012:stack/app/1a2b3c4d",
+  "parameters": {
+    "BucketName": "app-data-123",
+    "Retention": "30",
+    "Env": "prod",
+    "Secret": "****",
+    "Subnets": "subnet-1, subnet-2"
+  },
+  "addresses": {
+    "Bucket": ["aws_s3_bucket.app_data"],
+    "Logs": ["aws_cloudwatch_log_group.app"],
+    "Topic": ["aws_sns_topic.events"]
+  }
+}
