@@ -193,6 +193,29 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 	return map[string]harvest.Lister{"vpc": nil, "s3": nil}
 }
 
+// optInProvider is servicesProvider with s3 opt-in.
+type optInProvider struct {
+	servicesProvider
+}
+
+func (*optInProvider) OptInServices() []string { return []string{"s3"} }
+
+// * leaves out the opt-in services, and an opt-in service named beside it
+// is listed too, once, as is one that * lists already.
+func TestResolveServicesKeepsWhatIsNamedBesideTheWildcard(t *testing.T) {
+	for _, tc := range []struct {
+		services, want []string
+	}{
+		{[]string{"*"}, []string{"vpc"}},
+		{[]string{"*", "s3"}, []string{"vpc", "s3"}},
+		{[]string{"s3", "*", "vpc", "s3"}, []string{"vpc", "s3"}},
+	} {
+		if got := ResolveServices(&optInProvider{}, Options{Services: tc.services}).Services; !slices.Equal(got, tc.want) {
+			t.Errorf("%v: got %v, want %v", tc.services, got, tc.want)
+		}
+	}
+}
+
 // What no Import call could do fails the command once, before any scope:
 // an unknown service or engine, an import that says neither --selection
 // nor --all, a selection file or catalogue that doesn't load, a

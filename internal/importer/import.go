@@ -373,14 +373,21 @@ func checkFailures(failures []error, allowPartial bool) error {
 }
 
 // ResolveServices returns options with Services made concrete: "*"
-// becomes every service of provider (see Services), and the services in
-// Skip are taken out, keeping the order of the rest. options itself is
-// left as it is.
+// becomes every service of provider (see Services), followed by the
+// services named beside it that it leaves out, such as opt-in ones, and
+// the services in Skip are taken out, keeping the order of the rest.
+// options itself is left as it is.
 func ResolveServices(provider harvest.Provider, options Options) Options {
 	services := options.Services
 	if slices.Contains(services, "*") {
-		services = Services(provider)
-		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(services))
+		all := Services(provider)
+		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(all))
+		for _, service := range services {
+			if service != "*" && !slices.Contains(all, service) {
+				all = append(all, service)
+			}
+		}
+		services = all
 	}
 	kept := make([]string, 0, len(services))
 	for _, service := range services {
