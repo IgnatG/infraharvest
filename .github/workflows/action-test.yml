@@ -744,6 +744,7 @@ jobs:
           rm "$root/tfplan"
           # Each change's attributes that differ, leaving out what is known
           # only after the apply.
+          # shellcheck disable=SC2016 # jq's own variables, not the shell's
           changed='.change as $ch | ($ch.after_unknown // {}) as $u
             | [($ch.before // {} | keys[]), ($ch.after // {} | keys[])] | unique
             | map(select(($u[.] // false) != true and $ch.before[.] != $ch.after[.]))'
