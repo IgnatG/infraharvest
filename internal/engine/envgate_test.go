@@ -5,8 +5,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -386,6 +388,150 @@ func TestMergeRootsResidue(t *testing.T) {
 	if got := readFile(t, dir, "vars/prod/imports.tfvars"); !strings.Contains(got, `"aws_sqs_queue.orders_prod[0]"`) {
 		t.Errorf("prod imports its own queue:\n%s", got)
 	}
+}
+
+// goneFake is a mergeFake that plans as Terraform does once the resources
+// at the addresses of gone, in the merged root, are no longer in the
+// cloud: their import blocks fail the plan, and without them the plan
+// creates them again.
+type goneFake struct {
+	*mergeFake
+	gone []string
+}
+
+func (f *goneFake) ShowPlanFile(ctx context.Context, path string, opts ...tfexec.ShowOption) (*tfjson.Plan, error) {
+	p, err := f.mergeFake.ShowPlanFile(ctx, path, opts...)
+	if err != nil {
+		return nil, err
+	}
+	imports, _ := os.ReadFile(filepath.Join(f.dir, ImportsFileName))
+	for _, rc := range p.ResourceChanges {
+		if !slices.ContainsFunc(f.gone, func(g string) bool { return rc.Address == g || strings.HasPrefix(rc.Address, g+"[") }) {
+			continue
+		}
+		if strings.Contains(string(imports), "to = "+rc.Address+"\n") || strings.Contains(string(imports), "to = "+strings.TrimSuffix(rc.Address, "[0]")+"[each.value]") {
+			return nil, fmt.Errorf("%s: Cannot import non-existent remote object", rc.Address)
+		}
+		rc.Change = &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}
+	}
+	return p, nil
+}
+
+// addQueue adds to the root r, written by writeRootDir, a queue called
+// name, with its import block.
+func addQueue(t *testing.T, r MergeRoot, name string) {
+	t.Helper()
+	token := r.Tokens[0]
+	for file, content := range map[string]string{
+		"sqs.tf":        "\nresource \"aws_sqs_queue\" \"" + name + "\" {\n  name = \"shop-" + token + "-" + name + "\"\n}\n",
+		ImportsFileName: "\nimport {\n  to = aws_sqs_queue." + name + "\n  id = \"https://sqs.eu-west-2.amazonaws.com/" + r.Scope + "/shop-" + token + "-" + name + "\"\n}\n",
+	} {
+		f, err := os.OpenFile(filepath.Join(r.Dir, file), os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = f.WriteString(content)
+		if err := errors.Join(err, f.Close()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// goneRoots returns the dev and prod roots of mergeRoots, where prod has
+// a queue, alerts, an incremental import added, and dev plans with a
+// goneFake whose resources at the addresses of gone, in the merged root,
+// are no longer in the cloud.
+func goneRoots(t *testing.T, dir string, gone ...string) []MergeRoot {
+	t.Helper()
+	var overrides []string
+	roots := mergeRoots(t, dir, nil, &overrides)
+	addQueue(t, roots[1], "alerts")
+	roots[1].Isolated = []string{"aws_sqs_queue.alerts"}
+	next := roots[0].Terraform
+	roots[0].Terraform = func(d string) (Terraform, error) {
+		tf, err := next(d)
+		if err != nil {
+			return nil, err
+		}
+		return &goneFake{mergeFake: tf.(*mergeFake), gone: gone}, nil
+	}
+	return roots
+}
+
+// checkGoneMerged checks that result, the merge into dir of roots whose
+// dev has what is at the address of gone, in the merged root, no longer
+// in the cloud, merged with prod's alerts queue as prod's, and kept the
+// resource of dev at that address, with its import, which dev's gate
+// plans without.
+func checkGoneMerged(t *testing.T, dir string, result *MergeResult, gone, id string) {
+	t.Helper()
+	if result.Reason != "" || !result.Passed() {
+		t.Fatalf("not merged: %s %+v", result.Reason, result.Environments)
+	}
+	at := ""
+	for address, i := range result.Environments[0].Imports {
+		if i == id {
+			at = address
+		}
+	}
+	if at != gone && !strings.HasPrefix(at, gone+"[") {
+		t.Errorf("dev's resource no longer in the cloud is at %q, want %s: %v", at, gone, result.Environments[0].Imports)
+	}
+	if !slices.ContainsFunc(slices.Collect(maps.Values(result.Environments[1].Imports)), func(i string) bool { return strings.HasSuffix(i, "/shop-prd-alerts") }) {
+		t.Errorf("prod doesn't import its new queue: %v", result.Environments[1].Imports)
+	}
+	if imports := readFile(t, dir, ImportsFileName); !strings.Contains(imports, "to = "+strings.TrimSuffix(at, "[0]")) {
+		t.Errorf("imports.tf lost the import block of %s:\n%s", at, imports)
+	}
+	if plan := result.Environments[0].Gate[2]; !strings.Contains(strings.Join(plan.Details, "\n"), goneChange) {
+		t.Errorf("dev's plan check: %+v", plan)
+	}
+}
+
+// TestMergeRootsGoneShared merges again a stack whose dev no longer has
+// the queue both environments share in the cloud, as prod gets a new one:
+// the merged root keeps the queue as it was, shared, and dev's import of
+// it, which dev's gate plans without, creating it again.
+func TestMergeRootsGoneShared(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	roots := goneRoots(t, dir, "aws_sqs_queue.orders")
+	roots[0].Gone = []string{"aws_sqs_queue.orders"}
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkGoneMerged(t, dir, result, "aws_sqs_queue.orders", "https://sqs.eu-west-2.amazonaws.com/111111111111/shop-dev-orders")
+	if result.Shared != 2 {
+		t.Errorf("shared %d, want the queue and the bucket", result.Shared)
+	}
+	for _, res := range result.Residue {
+		if res.Env == "dev" {
+			t.Errorf("dev's residue: %+v", res)
+		}
+	}
+
+	// Planned with its import, as before, the gate fails.
+	dir = filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	if _, err := MergeRoots(context.Background(), dir, goneRoots(t, dir, "aws_sqs_queue.orders"), MergeOptions{}); err == nil || !strings.Contains(err.Error(), "non-existent") {
+		t.Errorf("merged with the import of what is gone: %v", err)
+	}
+}
+
+// TestMergeRootsGoneResidue merges again a stack whose dev no longer has
+// its own queue, audit, in the cloud, as prod gets a new one: the merged
+// root keeps dev's queue, and dev's import of it.
+func TestMergeRootsGoneResidue(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	roots := goneRoots(t, dir, "aws_sqs_queue.audit")
+	addQueue(t, roots[0], "audit")
+	roots[0].Gone = []string{"aws_sqs_queue.audit"}
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkGoneMerged(t, dir, result, "aws_sqs_queue.audit", "https://sqs.eu-west-2.amazonaws.com/111111111111/shop-dev-audit")
 }
 
 func TestMergeRootsFallBack(t *testing.T) {

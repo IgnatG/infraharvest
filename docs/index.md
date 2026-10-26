@@ -9,6 +9,7 @@ infraharvest generates Terraform configuration for infrastructure that already e
 - **Roots that plan with no changes.** Every change infraharvest makes to the generated configuration is kept only if a new plan shows no extra changes, and every root goes through a verification gate: format, validate, a zero-change plan, the output standard, scanners, secrets and determinism.
 - **Configuration people would write.** References instead of hard-coded IDs, shared tags as a local, secrets as variables, and clusters of resources as calls of curated public modules, such as terraform-aws-modules or terraform-google-modules, or of your own.
 - **Only what you choose.** `discover` lists what is there into a selection file; you review it, and `import` brings in what it includes. The default selection leaves out what the cloud creates on its own and what another tool already manages.
+- **An audit first.** `discover`, with `--managed-state`, shows what in an account no Terraform state or other tool manages, without importing or applying anything (see [Audit](audit.md)).
 - **Read-only.** infraharvest reads the cloud and writes files. It never applies anything and writes no state; `terraform apply` on a generated root records the resources in state without changing them.
 
 ## How it works

@@ -42,9 +42,10 @@ type ObjectStore interface {
 type Resources map[string]Resource
 
 // Resource is a managed resource: Where its state is, and its Type and
-// Address there, such as module.vpc.aws_subnet.a[0].
+// Address there, such as module.vpc.aws_subnet.a[0], and its ID there,
+// its id attribute, or its ARN where it has no id.
 type Resource struct {
-	Where, Type, Address string
+	Where, Type, Address, ID string
 }
 
 // Lookup returns where the state of a resource of typ with any of ids is.
@@ -520,9 +521,13 @@ func (r Resources) Parse(content []byte, where string) error {
 			continue
 		}
 		for _, i := range res.Instances {
+			stateID := i.Attributes.ID
+			if stateID == "" {
+				stateID = i.Attributes.ARN
+			}
 			for _, id := range []string{i.Attributes.ID, i.Attributes.ARN} {
 				if id != "" {
-					r[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: address(res.Module, res.Type, res.Name, i.IndexKey)}
+					r[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: address(res.Module, res.Type, res.Name, i.IndexKey), ID: stateID}
 				}
 			}
 		}

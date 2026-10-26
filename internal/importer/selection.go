@@ -290,7 +290,12 @@ func (r *Run) writeSelection(partial bool) error {
 	case err != nil:
 		return err
 	default:
-		// Running discover again: keep the decisions people made.
+		// Running discover again: keep the decisions people made, and bring
+		// those discover made up to date, where it worked them out again in
+		// full: not after a listing that failed in part, such as on tags.
+		if !partial {
+			f.Refresh = selection.Refresh{State: len(r.options.ManagedState) > 0, Tags: !r.options.IncludeOwned, Defaults: true}
+		}
 		added, dropped := f.Merge(r.listed, r.covers(partial))
 		switch {
 		case partial:
@@ -304,14 +309,63 @@ func (r *Run) writeSelection(partial bool) error {
 	if err := f.Save(path); err != nil {
 		return err
 	}
-	excluded := 0
-	for _, res := range r.listed {
-		if !res.Include {
-			excluded++
+	d := r.summary()
+	c := d.DiscoveryCount
+	log.Printf("listed %d resources into %s: %d not managed, %d excluded by default (%d in a Terraform state, %d by Terraform tags, %d by CloudFormation, %d by other tools, %d by the cloud or other defaults); review it, then import with --selection %s",
+		c.Listed, path, c.Included, c.Excluded, c.TerraformState, c.TerraformTag, c.CloudFormation, c.OtherTool, c.Cloud, path)
+	if r.options.Format != FormatJSON {
+		// JSON has them, by type and scope too.
+		for _, line := range tagLines(d) {
+			log.Print(line)
 		}
 	}
-	log.Printf("listed %d resources into %s, %d of them excluded by default; review it, then import with --selection %s", len(r.listed), path, excluded, path)
 	return nil
+}
+
+// summary summarises what discover listed, each resource once, as the
+// default selection decided it (see report.Discovery).
+func (r *Run) summary() *report.Discovery {
+	d := report.NewDiscovery(r.selectionPath(), r.options.ReportTags)
+	seen := map[string]bool{}
+	for _, l := range r.listed {
+		k := l.Scope + "\n" + l.Type + " " + l.ID
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		d.Add(l.Scope, l.Type, l.Reason, l.Tags)
+	}
+	for _, err := range r.failures {
+		d.Failures = append(d.Failures, err.Error())
+	}
+	d.Finish()
+	return d
+}
+
+// tagLines are the log lines of what discover listed by the value of each
+// tag key of --report-tags: how much of it no Terraform state, other tool
+// or the cloud manages.
+func tagLines(d *report.Discovery) []string {
+	var lines, parts []string
+	key := ""
+	flush := func() {
+		if key != "" {
+			lines = append(lines, "by "+key+": "+strings.Join(parts, ", "))
+		}
+	}
+	for _, t := range d.Tags {
+		if t.Key != key {
+			flush()
+			key, parts = t.Key, nil
+		}
+		value := t.Value
+		if value == "" {
+			value = "(not tagged)"
+		}
+		parts = append(parts, fmt.Sprintf("%s %d of %d not managed", value, t.Included, t.Listed))
+	}
+	flush()
+	return lines
 }
 
 // backendState is the --managed-state source that stands for the state of

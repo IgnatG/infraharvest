@@ -230,6 +230,29 @@ func TestReaddressNotInCloud(t *testing.T) {
 	}
 }
 
+// TestGoneFrom finds, for a root set aside of a merged stack, what an
+// incremental import found no longer in the cloud in it, before it is
+// readdressed into the merged root: merged again, the stack keeps it, and
+// plans without its import.
+func TestGoneFrom(t *testing.T) {
+	t.Parallel()
+	run := NewRun()
+	run.options.Out = "out"
+	dev := filepath.Join("out", "envs", "dev", "aws", "111111111111", "eu-west-2")
+	run.report.NotInCloud = []report.NotInCloud{
+		{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.orders", ID: "q1"},
+		{Path: "envs/prod/aws/222222222222/eu-west-2", Address: "aws_sqs_queue.audit", ID: "q2"},
+		{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.audit", ID: "q3"},
+	}
+	if got := run.goneFrom(dev); !reflect.DeepEqual(got, []string{"aws_sqs_queue.audit", "aws_sqs_queue.orders"}) {
+		t.Errorf("gone from dev: %v", got)
+	}
+	run.readdressNotInCloud("aws/eu-west-2", []mergeMember{{env: "dev", dir: dev}}, map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.audit[0]": "q3"}})
+	if got := run.goneFrom(dev); len(got) != 0 {
+		t.Errorf("gone from dev, readdressed: %v", got)
+	}
+}
+
 // joiningStack is a stack merged before of dev and prod, which a run
 // brings staging to: prev, its checkpoint, and the members, dev and
 // prod's restored from their roots set aside, and staging's root in

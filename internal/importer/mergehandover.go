@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -67,10 +68,27 @@ type mergedLeaving struct {
 // failed, and what they would hand over stays in the merged root, left
 // out of the roots it would go to, as stays records; so does what an
 // environment whose root the run doesn't generate again would hand over.
+// But where no root of the run merges into the merged root, such as with
+// a changed --layout, and every resource an environment has in it goes
+// to roots of the run, the root each goes to imports it, and h records it
+// as vacating the merged root: once every environment's have gone, the
+// merge phase writes the merged root with removed blocks alone (see
+// vacateMergedRoots), as a root of its own whose every resource goes is
+// (see engine.Vacate).
 func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall, assigned map[engine.External]string, stays map[engine.External]string) error {
 	stacks, err := mergedStacks(out)
 	if err != nil {
 		return err
+	}
+	// What the command imports, as the calls of the scope share it.
+	var s *shared
+	scope := ""
+	for _, c := range callOf {
+		if c.run != nil {
+			s = c.run.shared
+		}
+		scope = c.scope
+		break
 	}
 	for _, stack := range stacks {
 		c, err := readMergeCheckpoint(out, stack)
@@ -97,21 +115,49 @@ func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall
 		generated := func(env string) bool {
 			return slices.ContainsFunc(roots[env], func(dir string) bool { _, ok := callOf[dir]; return ok })
 		}
+		// An environment whose roots of the stack the run doesn't generate,
+		// all of whose resources go to roots of the run, vacates it, where
+		// no root of the run merges into it, the command imports every
+		// environment's account, subscription or project, and its moves.tf
+		// moves nothing that a plan may not have applied yet.
+		vacatable := !mergesInto(callOf, stack) && importsEnvironments(s, scope, c.Members)
+		moved, err := engine.ReadMoves(stack)
+		if err != nil {
+			return err
+		}
 		var leaving []mergedLeaving
 		for _, env := range slices.Sorted(maps.Keys(c.Imports)) {
 			ids := c.Imports[env]
+			var apart []mergedLeaving
 			for _, address := range slices.Sorted(maps.Keys(ids)) {
 				had := engine.Managed{Type: engine.AddressType(address), ID: ids[address], Address: address}
 				now, to, ok := assignedAs(assigned, had)
 				if !ok || slices.Contains(roots[env], to) {
 					continue
 				}
+				l := mergedLeaving{env: env, departing: departing{had: had, to: to, now: now}}
 				if !generated(env) {
-					log.Printf("%s: %s of %s goes to %s, but the run doesn't generate %s's root of the stack again, so it stays (--regenerate)", path, address, env, relativePath(out, to), env)
-					stays[now] = path
+					apart = append(apart, l)
 					continue
 				}
-				leaving = append(leaving, mergedLeaving{env: env, departing: departing{had: had, to: to, now: now}})
+				leaving = append(leaving, l)
+			}
+			goes := vacatable && len(apart) > 0 && len(apart) == len(ids) && !slices.ContainsFunc(apart, func(l mergedLeaving) bool { return l.to == filepath.Clean(stack) })
+			if goes && len(moved) > 0 {
+				log.Printf("%s: every resource of %s goes to other roots, but %s still moves resources: plan and apply every environment, and delete %s, before generating it again (--regenerate)", path, env, engine.MovesFileName, engine.MovesFileName)
+				goes = false
+			}
+			if goes {
+				h.vacating[filepath.Clean(stack)] = append(h.vacating[filepath.Clean(stack)], apart...)
+				for _, l := range apart {
+					log.Printf("%s: %s of %s goes to %s, as does every resource of %s there, and a removed block of the merged root hands it over (--regenerate)", path, l.had.Address, env, relativePath(out, l.to), env)
+					h.arrivals[l.to] = append(h.arrivals[l.to], l.arrival(path))
+				}
+				continue
+			}
+			for _, l := range apart {
+				log.Printf("%s: %s of %s goes to %s, but the run doesn't generate %s's root of the stack again, so it stays (--regenerate)", path, l.had.Address, env, relativePath(out, l.to), env)
+				stays[l.now] = path
 			}
 		}
 		if len(leaving) == 0 {
@@ -141,14 +187,39 @@ func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall
 		h.merged[filepath.Clean(stack)] = removals
 		for _, l := range leaving {
 			log.Printf("%s: %s of %s goes to %s, and a removed block of the merged root hands it over (--regenerate)", path, l.had.Address, l.env, relativePath(out, l.to))
-			arrival := engine.Arrival{Type: l.now.Type, ID: l.had.ID, Root: path, From: l.had.Address}
-			if l.now.Type != l.had.Type {
-				arrival.FromType = l.had.Type
-			}
-			h.arrivals[l.to] = append(h.arrivals[l.to], arrival)
+			h.arrivals[l.to] = append(h.arrivals[l.to], l.arrival(path))
 		}
 	}
 	return nil
+}
+
+// arrival is how the root l goes to imports it, from the merged root at
+// path, relative to the output directory.
+func (l mergedLeaving) arrival(path string) engine.Arrival {
+	arrival := engine.Arrival{Type: l.now.Type, ID: l.had.ID, Root: path, From: l.had.Address}
+	if l.now.Type != l.had.Type {
+		arrival.FromType = l.had.Type
+	}
+	return arrival
+}
+
+// departure is l as a removed block of the merged root under out hands
+// it over.
+func (l mergedLeaving) departure(out string) engine.Departure {
+	return engine.Departure{Type: l.had.Type, ID: l.had.ID, Address: l.had.Address, Root: relativePath(out, l.to)}
+}
+
+// mergesInto reports whether a root of one of the calls of callOf merges
+// into the merged root in stack (see listedCall.places).
+func mergesInto(callOf map[string]*listedCall, stack string) bool {
+	for _, c := range callOf {
+		for _, p := range c.places {
+			if filepath.Clean(p.stack) == filepath.Clean(stack) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // mergedRemovals returns the removed blocks the merged root in stack, under
@@ -187,9 +258,6 @@ func mergedRemovals(out, stack string, imports map[string]map[string]string, lea
 		from := engine.RemovedFrom(l.had.Address)
 		byFrom[from] = append(byFrom[from], l)
 	}
-	departure := func(l mergedLeaving) engine.Departure {
-		return engine.Departure{Type: l.had.Type, ID: l.had.ID, Address: l.had.Address, Root: relativePath(out, l.to)}
-	}
 	var removals []engine.Removal
 	var problems []string
 	for _, from := range sortedDirs(byFrom) {
@@ -203,7 +271,7 @@ func mergedRemovals(out, stack string, imports map[string]map[string]string, lea
 		if len(going) == resources[from] {
 			removal := engine.Removal{From: from}
 			for _, l := range going {
-				removal.Resources = append(removal.Resources, departure(l))
+				removal.Resources = append(removal.Resources, l.departure(out))
 			}
 			removals = append(removals, removal)
 			continue
@@ -222,7 +290,7 @@ func mergedRemovals(out, stack string, imports map[string]map[string]string, lea
 			default:
 				removal := engine.Removal{From: engine.DepartedAddress(address, taken), Instance: address}
 				for _, l := range at {
-					removal.Resources = append(removal.Resources, departure(l))
+					removal.Resources = append(removal.Resources, l.departure(out))
 				}
 				removals = append(removals, removal)
 			}
@@ -370,4 +438,183 @@ func stillRemoved(kept []engine.Removal, now map[string]map[string]string, remov
 		}
 	}
 	return still
+}
+
+// plannedLeaving is what leaves a merged root none of whose environments'
+// roots the run generates (see handovers.vacating), with the handovers of
+// the scope that planned it, which say whether the root it goes to
+// imported it.
+type plannedLeaving struct {
+	mergedLeaving
+	h *handovers
+}
+
+// vacateMergedRoots vacates each merged root that the scopes of the run
+// planned to (see planMergedHandovers), but those of merging, the stacks
+// the run merges, by the merged root's directory (see vacateMerged).
+func (r *Run) vacateMergedRoots(merging map[string][]mergeMember) error {
+	leaving := map[string][]plannedLeaving{}
+	for _, h := range r.vacating {
+		for stack, ls := range h.vacating {
+			for _, l := range ls {
+				leaving[stack] = append(leaving[stack], plannedLeaving{mergedLeaving: l, h: h})
+			}
+		}
+	}
+	merged := map[string]bool{}
+	for stack := range merging {
+		merged[filepath.Clean(stack)] = true
+	}
+	for _, stack := range sortedDirs(leaving) {
+		if err := r.vacateMerged(stack, leaving[stack], merged[stack]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// vacateMerged writes the merged root in stack with the removed blocks of
+// leaving alone, what its environments have that goes to other roots of
+// the run (see engine.VacateMerged): once every environment's every
+// resource in it goes, and the roots they go to imported them. Else, or
+// where merging says the run merges roots into it, it stays as it was,
+// the run fails, saying why, and the handovers of what the roots it goes
+// to imported are reported as incomplete: both roots have it.
+func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool) error {
+	out := r.options.Out
+	path := relativePath(out, stack)
+	c, err := readMergeCheckpoint(out, stack)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return nil
+	}
+	going := map[string]map[string]bool{}
+	for _, l := range leaving {
+		if going[l.env] == nil {
+			going[l.env] = map[string]bool{}
+		}
+		going[l.env][l.had.Address] = true
+	}
+	var why string
+	var staying, missing []string
+	for _, env := range slices.Sorted(maps.Keys(c.Imports)) {
+		for _, address := range slices.Sorted(maps.Keys(c.Imports[env])) {
+			if !going[env][address] {
+				staying = append(staying, fmt.Sprintf("%s of %s", address, env))
+			}
+		}
+	}
+	for _, l := range leaving {
+		d := l.departure(out)
+		if arrivalOf(l.h.generated[l.h.dirOf(d.Root)], d) == nil {
+			missing = append(missing, fmt.Sprintf("%s of %s goes to %s, which didn't import it", d.Address, l.env, d.Root))
+		}
+	}
+	var removals []engine.Removal
+	switch {
+	case merging:
+		why = "the run merges roots into it again"
+	case len(staying) > 0:
+		why = "the run doesn't hand over all it has, as it doesn't list " + strings.Join(staying, ", ") + " for other roots"
+	case len(missing) > 0:
+		why = strings.Join(missing, "; ")
+	default:
+		var all []mergedLeaving
+		for _, l := range leaving {
+			all = append(all, l.mergedLeaving)
+		}
+		var problems []string
+		if removals, problems, err = mergedRemovals(out, stack, c.Imports, all); err != nil {
+			return err
+		}
+		why = strings.Join(problems, "; ")
+	}
+	if why == "" {
+		why, err = r.writeVacated(stack, c, removals)
+		if err != nil {
+			return err
+		}
+	}
+	if why != "" {
+		for _, l := range leaving {
+			d := l.departure(out)
+			if arrivalOf(l.h.generated[l.h.dirOf(d.Root)], d) == nil {
+				continue
+			}
+			i := report.IncompleteHandover{Move: report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root}, FailedRoot: path, Warning: fmt.Sprintf("%s imports it, but the merged root stays as it was, and each environment's state there still has it (%s): generate both again with --regenerate before applying either root", d.Root, why)}
+			log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
+			r.report.IncompleteHandovers = append(r.report.IncompleteHandovers, i)
+		}
+		err := fmt.Errorf("%s: every resource it has goes to other roots, but it can't hand them over, so it stays as it was: %s", path, why)
+		log.Print(err)
+		r.recordFailure(r.options, err)
+		return nil
+	}
+	log.Printf("%s: every resource it has goes to other roots, so it keeps only the removed blocks that hand them over: apply it as each environment before the roots they go to (--regenerate)", path)
+	r.recordMergedMoves(path, nil, nil, removals)
+	return nil
+}
+
+// writeVacated writes the merged root in stack, of which c is the merge
+// checkpoint, with removals alone, the removed blocks of all it has, and
+// those of its moves.tf from before, not yet applied and deleted (see
+// engine.VacateMerged), and records it in c: it has nothing now. It
+// returns why it can't, where it can't, and leaves the merged root as it
+// was.
+func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []engine.Removal) (string, error) {
+	kept, err := engine.ReadRemoved(stack)
+	if err != nil {
+		return "", err
+	}
+	files := c.Files
+	if len(files) == 0 {
+		if files, err = engine.MergedRootFiles(stack); err != nil {
+			return "", err
+		}
+	}
+	backup, err := backupTree(stack)
+	if err != nil {
+		return "", err
+	}
+	restore := func() error {
+		if _, had := backup.files[engine.MovesFileName]; !had {
+			if err := os.Remove(filepath.Join(stack, engine.MovesFileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+		return backup.restore()
+	}
+	left, check, err := engine.VacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
+	if err != nil {
+		return err.Error(), restore()
+	}
+	if !check.Passed {
+		return "the removed blocks fail the moves check: " + strings.Join(check.Details, "; "), restore()
+	}
+	c.Files, c.Imports = left, nil
+	return "", writeMergeCheckpoint(r.options.Out, stack, *c)
+}
+
+// importsEnvironments reports whether the command imports the account,
+// subscription or project of each of members, the roots of a merged
+// root's environments its checkpoint records: one of the scopes it names
+// (see shared.scopes), with s, or, where it names none, scope, the one it
+// imports. Only then can all the merged root has go to other roots: an
+// environment the command doesn't import keeps its resources there.
+func importsEnvironments(s *shared, scope string, members []mergeCheckpointMember) bool {
+	for _, m := range members {
+		switch {
+		case m.Account == "":
+			return false
+		case s != nil && len(s.scopes) > 0:
+			if !slices.ContainsFunc(s.scopes, func(named string) bool { return strings.EqualFold(named, m.Account) }) {
+				return false
+			}
+		case !strings.EqualFold(m.Account, scopeAccount(scope)):
+			return false
+		}
+	}
+	return len(members) > 0
 }
