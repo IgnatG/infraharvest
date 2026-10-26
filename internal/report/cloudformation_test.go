@@ -329,19 +329,69 @@ func TestStackNestedUpdate(t *testing.T) {
 	}
 }
 
+// An S3 URL becomes the S3 URI the upload takes only where its bucket and
+// key are safe in a shell command as they are: the URL is a template's.
 func TestS3Object(t *testing.T) {
 	for in, want := range map[string]string{
-		"https://b.s3.eu-west-2.amazonaws.com/k/t.json":     "s3://b/k/t.json",
-		"https://b.s3.amazonaws.com/t.json":                 "s3://b/t.json",
+		"https://bkt.s3.eu-west-2.amazonaws.com/k/t.json":   "s3://bkt/k/t.json",
+		"https://bkt.s3.amazonaws.com/t.json":               "s3://bkt/t.json",
 		"https://my.s3.bucket.s3-eu-west-1.amazonaws.com/t": "s3://my.s3.bucket/t",
-		"https://s3.eu-west-2.amazonaws.com/b/k/t.json":     "s3://b/k/t.json",
-		"https://s3.amazonaws.com/b/t.json":                 "s3://b/t.json",
-		"https://s3.amazonaws.com/b":                        "",
+		"https://s3.eu-west-2.amazonaws.com/bkt/k/t.json":   "s3://bkt/k/t.json",
+		"https://s3.amazonaws.com/bkt/t.json":               "s3://bkt/t.json",
+		"https://s3.amazonaws.com/bkt":                      "",
 		"https://example.com/t.json":                        "",
+		"https://bkt.s3.amazonaws.com.evil.com/t.json":      "",
+		"https://bkt.s3.amazonaws.com/t.json?x=1":           "",
+		"https://bkt.s3.amazonaws.com/t%20$(id).json":       "",
+		"https://bkt.s3.amazonaws.com/t;rm -rf ~":           "",
+		"https://bkt.s3.amazonaws.com/a`id`":                "",
+		"https://bkt.s3.amazonaws.com/a%0Aid":               "",
+		"https://BKT_1.s3.amazonaws.com/t.json":             "",
 		"":                                                  "",
 	} {
 		if got := s3Object(in); got != want {
 			t.Errorf("s3Object(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A hostile TemplateURL or logical ID never reaches the commands the
+// report gives: the upload takes a placeholder instead.
+func TestStackNestedUpdateHostile(t *testing.T) {
+	root := scopedStack(nil)
+	root.SetTemplates("Resources: {}\n", "", "yaml")
+	for _, hostile := range []string{
+		"https://bkt.s3.amazonaws.com/`touch x`.json",
+		"https://bkt.s3.amazonaws.com/$(touch x).json",
+		"https://bkt.s3.amazonaws.com/t.json; touch x",
+		"https://bkt.s3.amazonaws.com/t.json\ntouch x",
+		"`touch x`",
+	} {
+		nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
+			Root: root.ID, NestedAs: "Net`touch x`", TemplateURL: hostile}
+		nested.SetTemplates("Resources: {}\n", "Resources: {Alerts: {DeletionPolicy: Retain}}\n", "yaml")
+		r := &Report{}
+		r.AddCloudFormationStacks([]CloudFormationStack{root, nested})
+		r.Finish(nil, nil, false)
+		md := r.Markdown()
+		if strings.Contains(md, "touch x") {
+			t.Errorf("%q reaches the report:\n%s", hostile, md)
+		}
+		if !strings.Contains(md, "aws s3 cp .infraharvest/cloudformation/eu-west-2/app-Network-1ABC.retain.template.yaml s3://<bucket>/<key>") {
+			t.Errorf("%q: the upload lacks the placeholder:\n%s", hostile, md)
+		}
+	}
+}
+
+func TestShellArg(t *testing.T) {
+	for in, want := range map[string]string{
+		"app-1":                  "app-1",
+		"file://.infraharvest/a": "file://.infraharvest/a",
+		"it's":                   `'it'\''s'`,
+		"a`b`\n$(c)":             "'ab$(c)'",
+	} {
+		if got := shellArg(in); got != want {
+			t.Errorf("shellArg(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
