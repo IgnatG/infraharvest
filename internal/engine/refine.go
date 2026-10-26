@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +20,10 @@ const refineFailed = "the edits that refine the root (with --cfn-stack, a CloudF
 
 // refine runs opts.Refine on dir (see Options.Refine), and returns the
 // root's files as they were before it, for gateRefined to roll the edits
-// back with, or nil when there is nothing to roll back. Refine is an
-// optional enhancement: should it fail, or should the schemas it needs not
-// be read, its edits are rolled back and a warning says why, and the root
-// goes on without them.
+// back with, or nil when there is nothing to roll back, as where Refine
+// changed none of them. Refine is an optional enhancement: should it fail,
+// or should the schemas it needs not be read, its edits are rolled back
+// and a warning says why, and the root goes on without them.
 func refine(ctx context.Context, tf Terraform, dir string, result *Result, opts Options) (map[string][]byte, error) {
 	before, err := rootFileContents(dir)
 	if err != nil {
@@ -45,15 +46,23 @@ func refine(ctx context.Context, tf Terraform, dir string, result *Result, opts 
 		return nil, nil
 	}
 	result.Warnings = append(result.Warnings, warnings...)
+	after, err := rootFileContents(dir)
+	if err != nil {
+		return nil, err
+	}
+	if maps.EqualFunc(before, after, bytes.Equal) {
+		return nil, nil
+	}
 	return before, nil
 }
 
 // gateRefined runs the gate on a root Refine edited, and, should it fail,
-// rolls the edits back and runs it again: when the root passes without
-// them, or fails without them too, the root goes on as it was before
-// them, with a warning, and the Refine warnings go, as they describe
-// edits no longer there. An optional enhancement never fails a root that
-// would pass.
+// rolls the edits back and runs it again. When the root passes without
+// them, it goes on as it was before them, with a warning, and the Refine
+// warnings go, as they describe edits no longer there: an optional
+// enhancement never fails a root that would pass. When it fails without
+// them too, the edits aren't what fails it: they are put back, and the
+// root goes on with the gate that failed with them, and Refine's warnings.
 func gateRefined(ctx context.Context, tf Terraform, dir string, result *Result, opts Options, before map[string][]byte, refineWarnings int) error {
 	gate, err := runGate(ctx, tf, dir, result.Secrets, opts)
 	if err != nil {
@@ -63,12 +72,20 @@ func gateRefined(ctx context.Context, tf Terraform, dir string, result *Result, 
 		result.Gate = gate
 		return nil
 	}
+	refined, err := rootFileContents(dir)
+	if err != nil {
+		return err
+	}
 	if err := restoreRoot(dir, before); err != nil {
 		return err
 	}
 	without, err := runGate(ctx, tf, dir, result.Secrets, opts)
 	if err != nil {
 		return err
+	}
+	if !without.Passed() {
+		result.Gate = gate
+		return restoreRoot(dir, refined)
 	}
 	result.Warnings = append(result.Warnings[:refineWarnings], refineFailed+"made its gate fail ("+failedChecks(gate)+"), so they were rolled back")
 	result.Gate = without
