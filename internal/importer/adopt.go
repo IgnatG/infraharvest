@@ -323,7 +323,7 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 		if goneOf[i] = goneFromMerged(m, prev.Imports[m.env]); len(goneOf[i]) == 0 {
 			continue
 		}
-		blocks, why, err := engine.UnmergedBlocks(stack, m.env, goneOf[i])
+		blocks, why, err := engine.UnmergedBlocks(stack, engine.UnmergeEnv{Name: m.env, Account: m.account, Region: m.region}, goneOf[i])
 		if err != nil {
 			return "", err
 		}
