@@ -63,7 +63,7 @@ func schemaHintsFor(dir string, file *schemameta.File) schemaHints {
 			if used == "" {
 				used = "a release the lock file doesn't record"
 			}
-			log.Printf("%s: the built-in schema metadata is of %s, and the root uses %s: it only suggests defaults, which plans check", file.Provider, file.Version, used)
+			log.Printf("%s: the built-in schema metadata is of %s, and the root uses %s: it only suggests defaults, which plans check, and settles no conflicting arguments", file.Provider, file.Version, used)
 		}
 	}
 	return h
@@ -175,9 +175,12 @@ func equalsDefault(expr hclsyntax.Expression, def any) bool {
 // errors validation would report, so that the same one of each pair goes
 // as repair would remove. Terraform generates both of such a pair from
 // the same remote value, such as a subnet's availability_zone and
-// availability_zone_id. It reports whether it changed the file.
+// availability_zone_id. Only exact metadata settles them: another release
+// may let both be set, and then the arguments stay for validation and
+// repair to judge, as without metadata. It reports whether it changed the
+// file.
 func resolveConflicts(path string, h schemaHints) (bool, error) {
-	if h.file == nil {
+	if h.file == nil || !h.exact {
 		return false, nil
 	}
 	return rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {

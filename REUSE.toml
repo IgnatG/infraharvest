@@ -14,3 +14,16 @@ path = "**"
 precedence = "closest"
 SPDX-FileCopyrightText = "Copyright 2026 Gabriel Ignat"
 SPDX-License-Identifier = "AGPL-3.0-only"
+
+# The schema metadata extracted from the Terraform providers' code
+# (internal/catalogue/schemameta/*.json.gz): the defaults and argument
+# constraints of hashicorp/terraform-provider-aws, -azurerm and -google, at
+# the release each file records, which are MPL-2.0. infraharvest's own
+# generator (internal/catalogue/schemameta/gen) and corrections
+# (overrides.json) stay AGPL-3.0-only; the binary that embeds both is
+# AGPL-3.0-only as a larger work, which MPL-2.0 section 3.3 allows.
+[[annotations]]
+path = "internal/catalogue/schemameta/*.json.gz"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright IBM Corp. 2014, 2026 (HashiCorp, Inc.: terraform-provider-aws, terraform-provider-azurerm, terraform-provider-google)"
+SPDX-License-Identifier = "MPL-2.0"

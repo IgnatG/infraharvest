@@ -4,10 +4,13 @@
 package schemameta
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/hashicorp/go-version"
 )
@@ -109,5 +112,84 @@ func TestParse(t *testing.T) {
 		if _, err := Parse([]byte(bad)); err == nil {
 			t.Errorf("Parse(%s): want an error", bad)
 		}
+	}
+}
+
+// gzipped returns content gzipped, as the generator's files are.
+func gzipped(t *testing.T, content string) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	w := gzip.NewWriter(&b)
+	if _, err := w.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// The overrides replace, add and remove arguments and types of the
+// generated metadata.
+func TestLoadMergesOverrides(t *testing.T) {
+	t.Parallel()
+	fsys := fstest.MapFS{
+		"aws.json.gz": {Data: gzipped(t, `{"provider":"registry.terraform.io/hashicorp/aws","version":"6.70.0","resources":{
+"aws_thing":{"arguments":{"retries":{"default":3},"wrong":{"default":"x"},"kept":{"default":true}}},
+"aws_gone":{"arguments":{"a":{"default":1}}},
+"aws_fw":{"framework":true,"arguments":{"mode":{"default":"auto"}}}
+}}
+`)},
+		"overrides.json": {Data: []byte(`{"aws":{
+"aws_thing":{"arguments":{"retries":{"default":5},"wrong":null,"added":{"conflicts_with":["kept"]}}},
+"aws_gone":null,
+"aws_fw":{"framework":false,"arguments":{"mode":{"default":"auto","conflicts_with":["other"]}}},
+"aws_new":{"arguments":{"x":{"default":false}}}
+}}`)},
+	}
+	o, err := readOverrides(fsys, "overrides.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := load(fsys, "aws", o["aws"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Argument("aws_thing", "retries").Default; got != json.Number("5") {
+		t.Errorf("retries: default %v, want the override's 5", got)
+	}
+	if f.Argument("aws_thing", "wrong") != nil {
+		t.Error("wrong: still there")
+	}
+	if a := f.Argument("aws_thing", "kept"); a == nil || a.Default != true {
+		t.Errorf("kept: %+v", a)
+	}
+	if a := f.Argument("aws_thing", "added"); a == nil || !slices.Equal(a.ConflictsWith, []string{"kept"}) {
+		t.Errorf("added: %+v", a)
+	}
+	if f.Resource("aws_gone") != nil {
+		t.Error("aws_gone: still there")
+	}
+	if r := f.Resource("aws_fw"); r == nil || r.Framework || !slices.Equal(r.Arguments["mode"].ConflictsWith, []string{"other"}) {
+		t.Errorf("aws_fw: %+v", r)
+	}
+	if a := f.Argument("aws_new", "x"); a == nil || a.Default != false {
+		t.Errorf("aws_new.x: %+v", a)
+	}
+	if f, err := load(fsys, "google", nil); f != nil || err != nil {
+		t.Errorf("no file: got %v, %v", f, err)
+	}
+
+	for _, bad := range []string{
+		`{"aws":{"aws_thing":{"arguments":{"x":{"default":[1]}}}}}`,
+		`{"aws":{"aws_thing":{"argument":{}}}}`,
+		`[]`,
+	} {
+		if _, err := readOverrides(fstest.MapFS{"o.json": {Data: []byte(bad)}}, "o.json"); err == nil {
+			t.Errorf("readOverrides(%s): want an error", bad)
+		}
+	}
+	if _, err := load(fstest.MapFS{"aws.json.gz": {Data: []byte("not gzip")}}, "aws", nil); err == nil {
+		t.Error("load of a file that isn't gzip: want an error")
 	}
 }
