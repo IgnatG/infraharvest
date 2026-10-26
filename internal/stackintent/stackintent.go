@@ -46,6 +46,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
@@ -334,7 +335,7 @@ func (s *stackRun) variable(name string) (*variable, string) {
 	if !ok {
 		return nil, fmt.Sprintf("the stack's value of the parameter, %q, isn't a %s", live, p.Type)
 	}
-	v := &variable{param: p, name: claim(s.r.variables, cfn.Name(name)), typ: typ, literal: literal, value: value}
+	v := &variable{param: p, name: claim(s.r.variables, cfn.VariableName(name)), typ: typ, literal: literal, value: value}
 	s.pending[name] = v
 	return v, ""
 }
@@ -371,6 +372,9 @@ type output struct {
 	name string
 	expr string
 	data []string
+	// sensitive says the value reads an attribute the provider marks
+	// sensitive, which only a sensitive output may hold.
+	sensitive bool
 }
 
 // resolver resolves the references of an output's value (see
@@ -438,7 +442,7 @@ func (s *stackRun) outputs() []output {
 			continue
 		}
 		s.commit()
-		out = append(out, output{o: o, name: claim(s.r.outputs, cfn.Name(o.Name)), expr: v.Expr, data: v.Data})
+		out = append(out, output{o: o, name: claim(s.r.outputs, cfn.Name(o.Name)), expr: v.Expr, data: v.Data, sensitive: v.Sensitive})
 	}
 	if len(skipped) > 0 {
 		s.warn("outputs not written in this root: " + strings.Join(skipped, "; "))
@@ -484,6 +488,9 @@ func (s *stackRun) file(outputs []output) {
 		fmt.Fprintf(&b, "output %s {\n  description = %s\n  value       = %s", quoted(o.name), quoted(desc), o.expr)
 		if !strings.HasSuffix(o.expr, "\n") {
 			b.WriteString("\n")
+		}
+		if o.sensitive {
+			b.WriteString("  sensitive   = true\n")
 		}
 		b.WriteString("}\n\n")
 	}
@@ -569,6 +576,14 @@ func literalValue(attr *hclwrite.Attribute) (cty.Value, bool) {
 func sameValue(got, want cty.Value) bool {
 	switch {
 	case want.Type() == cty.String:
+		if got.Type() == cty.Number || got.Type() == cty.Bool {
+			// A string parameter, such as "30" or "true", that sets a number
+			// or a bool: Terraform converts the variable's string to the
+			// argument's type, so the value is the same when the literal
+			// converts back to the string.
+			converted, err := convert.Convert(got, cty.String)
+			return err == nil && converted.AsString() == want.AsString()
+		}
 		return got.Type() == cty.String && got.AsString() == want.AsString()
 	case want.Type() == cty.Number:
 		return got.Type() == cty.Number && got.AsBigFloat().Cmp(want.AsBigFloat()) == 0
@@ -598,20 +613,20 @@ func parameterValue(paramType, live string) (string, string, cty.Value, bool) {
 	}
 	switch {
 	case inner == "Number":
-		n, ok := number(live)
+		lit, n, ok := numberValue(live)
 		if !ok {
 			return "", "", cty.NilVal, false
 		}
-		return "number", strings.TrimSpace(live), cty.NumberVal(n), true
+		return "number", lit, cty.NumberVal(n), true
 	case inner == "List<Number>":
 		var lits []string
 		var values []cty.Value
 		for _, item := range items(live) {
-			n, ok := number(item)
+			lit, n, ok := numberValue(item)
 			if !ok {
 				return "", "", cty.NilVal, false
 			}
-			lits, values = append(lits, item), append(values, cty.NumberVal(n))
+			lits, values = append(lits, lit), append(values, cty.NumberVal(n))
 		}
 		return "list(number)", "[" + strings.Join(lits, ", ") + "]", listOf(cty.Number, values), true
 	case inner == "CommaDelimitedList" || strings.HasPrefix(inner, "List<"):
@@ -642,6 +657,17 @@ func items(live string) []string {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	return parts
+}
+
+// numberValue returns a number as an HCL literal (see cfn.NumberLiteral)
+// and as a value.
+func numberValue(s string) (string, *big.Float, bool) {
+	lit, ok := cfn.NumberLiteral(s)
+	if !ok {
+		return "", nil, false
+	}
+	n, ok := number(lit)
+	return lit, n, ok
 }
 
 // number parses a number as HCL writes one.
