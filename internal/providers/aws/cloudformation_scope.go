@@ -165,21 +165,32 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 // deleted it or retained it (DELETE_SKIPPED), which leaves it live. One
 // that call fails for is added as unreadable, with the reason, and the
 // rest is read: the report keeps it, and each stack it is nested in, from
-// being safe to delete.
+// being safe to delete. So is one whose template or resources can't be
+// read, as where the role may describe it but not get its template.
 func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, stack *scopedStack, types map[string][]string) error {
 	if slices.ContainsFunc(s.stacks, func(have *scopedStack) bool { return have.id == stack.id }) {
 		return nil
 	}
+	// unreadable records a nested stack that couldn't be read, by err, and
+	// reports whether it is one: a stack --cfn-stack names, or a request
+	// the run's end interrupted, fails the run instead.
+	unreadable := func(err error) bool {
+		if stack.parent == "" || ctx.Err() != nil {
+			return false
+		}
+		stack.unreadable = err.Error()
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			stack.unreadable = apiErr.ErrorCode() + ": " + apiErr.ErrorMessage()
+		}
+		stack.resources = nil
+		return true
+	}
 	if stack.status == "" {
 		out, err := client.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack.id)})
 		if err != nil {
-			if ctx.Err() != nil {
+			if !unreadable(err) {
 				return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
-			}
-			stack.unreadable = err.Error()
-			var apiErr smithy.APIError
-			if errors.As(err, &apiErr) {
-				stack.unreadable = apiErr.ErrorCode() + ": " + apiErr.ErrorMessage()
 			}
 			s.stacks = append(s.stacks, stack)
 			return nil
@@ -192,6 +203,9 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 	s.stacks = append(s.stacks, stack)
 	template, err := client.GetTemplate(ctx, &cloudformation.GetTemplateInput{StackName: aws.String(stack.id), TemplateStage: cftypes.TemplateStageProcessed})
 	if err != nil {
+		if unreadable(err) {
+			return nil
+		}
 		return fmt.Errorf("CloudFormation stack %s: template: %w", stack.name, err)
 	}
 	if stack.template, err = parseTemplate(aws.ToString(template.TemplateBody)); err != nil {
@@ -202,6 +216,9 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
+			if unreadable(err) {
+				return nil
+			}
 			return fmt.Errorf("CloudFormation stack %s: resources: %w", stack.name, err)
 		}
 		for _, summary := range page.StackResourceSummaries {

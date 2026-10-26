@@ -205,3 +205,37 @@ func TestResolveStacksUnreadableNested(t *testing.T) {
 		t.Errorf("markdown:\n%s", md)
 	}
 }
+
+// A nested stack the role may describe but whose template it may not get
+// is unreadable too, rather than failing the run; a stack --cfn-stack
+// names whose template can't be read still fails it.
+func TestResolveStacksNestedTemplateRefused(t *testing.T) {
+	api := scopeStacksAPI(t)
+	refused := scopeNetworkStack
+	useFakeAPI(t, func(call apiCall) string {
+		form, _ := url.ParseQuery(call.Body)
+		if call.Op == "GetTemplate" && form.Get("StackName") == refused {
+			return recordQueryError(recordCfnNS, "AccessDenied")
+		}
+		return api(call)
+	})
+
+	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var network *scopedStack
+	for _, s := range scope.stacks {
+		if s.id == scopeNetworkStack {
+			network = s
+		}
+	}
+	if network == nil || !strings.HasPrefix(network.unreadable, "AccessDenied: ") || network.resources != nil {
+		t.Fatalf("the nested stack: %+v", network)
+	}
+
+	refused = scopeAppStack
+	if _, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue()); err == nil || !strings.Contains(err.Error(), "template") {
+		t.Errorf("the named stack's template refused: %v", err)
+	}
+}
