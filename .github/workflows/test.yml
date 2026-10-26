@@ -672,6 +672,7 @@ jobs:
         mkdir -p "$dir/root"
         printf '%s\n' 'terraform {' '  required_providers {' \
           '    aws     = { source = "hashicorp/aws" }' \
+          '    azapi   = { source = "Azure/azapi" }' \
           '    azurerm = { source = "hashicorp/azurerm" }' \
           '    google  = { source = "hashicorp/google" }' '  }' '}' > "$dir/root/main.tf"
         terraform -chdir="$dir/root" init -backend=false -input=false

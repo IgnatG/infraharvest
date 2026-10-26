@@ -705,6 +705,27 @@ func (r SkipRule) matches(id string, attributes map[string]string) bool {
 	return true
 }
 
+// With returns c with the entries of other, the catalogue of a provider
+// whose resources an import of c's provider may also bring in, such as
+// azapi's for Azure's resources azurerm has no type for: other's types
+// that c has no entry for, and not other's entry for every type, as c's
+// own rules for every type cover those resources too. c stays as it was.
+func (c *Catalogue) With(other *Catalogue) *Catalogue {
+	if other == nil || len(other.entries) == 0 {
+		return c
+	}
+	merged := c.clone()
+	for typ, e := range other.entries {
+		if _, ok := merged.entries[typ]; ok || typ == AllTypes {
+			continue
+		}
+		copied := *e
+		merged.entries[typ] = &copied
+		merged.sources[typ] = other.sources[typ]
+	}
+	return merged
+}
+
 func (c *Catalogue) clone() *Catalogue {
 	clone := &Catalogue{Provider: c.Provider, entries: make(map[string]*Entry, len(c.entries)), sources: make(map[string]string, len(c.sources))}
 	for typ, e := range c.entries {

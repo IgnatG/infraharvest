@@ -24,7 +24,7 @@ func TestBuiltinLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(providers, []string{"aws", "azurerm", "google"}) {
+	if !reflect.DeepEqual(providers, []string{"aws", "azapi", "azurerm", "google"}) {
 		t.Errorf("providers: got %v", providers)
 	}
 	aws := MustBuiltin("aws")
@@ -719,5 +719,32 @@ func TestSkippedWhole(t *testing.T) {
 	}
 	if !slices.IsSorted(got) {
 		t.Errorf("not sorted: %v", got)
+	}
+}
+
+// azapi's entries join the azurerm catalogue's, whose rules for every
+// type stay its own; the azurerm catalogue itself is left as it was.
+func TestWithAddsTheTypesOfAnotherProvider(t *testing.T) {
+	t.Parallel()
+	azurerm, azapi := MustBuiltin("azurerm"), MustBuiltin("azapi")
+	merged := azurerm.With(azapi)
+	if got := merged.Defaults()["azapi_resource"]; !slices.Contains(got, "schema_validation_enabled=true") {
+		t.Errorf("azapi_resource defaults: got %v", got)
+	}
+	if merged.Source("azapi_resource") != "data/azapi/azapi.yaml" {
+		t.Errorf("source: got %q", merged.Source("azapi_resource"))
+	}
+	if !reflect.DeepEqual(merged.Omit()[AllTypes], azurerm.Omit()[AllTypes]) || len(merged.Types()) != len(azurerm.Types())+len(azapi.Types()) {
+		t.Errorf("merged: %d types, every type's omit %v", len(merged.Types()), merged.Omit()[AllTypes])
+	}
+	attributes := map[string]string{"resource_group_name": "DefaultResourceGroup-EUS"}
+	if merged.Skipped("azapi_resource", "/subscriptions/s/resourceGroups/DefaultResourceGroup-EUS/providers/Microsoft.AzureFleet/fleets/f", attributes) == "" {
+		t.Error("azurerm's rules for every type don't leave out an azapi_resource")
+	}
+	if _, ok := azurerm.Entry("azapi_resource"); ok {
+		t.Error("With changed the azurerm catalogue")
+	}
+	if azurerm.With(nil) != azurerm {
+		t.Error("With(nil) isn't the catalogue itself")
 	}
 }
