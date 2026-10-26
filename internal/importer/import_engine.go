@@ -396,6 +396,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return configFile(provider.Name(), service, r.Address.Type, cat)
 	}
 	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
+	withImpliedProviders(byDir, opts.ModuleProviders)
 	withResourceOmissions(byDir, resourcesByService, cat, importID)
 	var places map[string]memberPlace
 	if options.MergeEnvironments && len(envNames) > 0 {
@@ -1192,6 +1193,23 @@ func importProvider(providerName, resourceType string) string {
 		return ""
 	}
 	return providerName
+}
+
+// withImpliedProviders leaves the provider out of the imports of byDir
+// whose type implies one of configured, the other providers the roots
+// may configure, such as azapi for an azapi_resource: the root requires
+// that provider under its own name when it imports such a resource (see
+// engine.Options.ModuleProviders), so Terraform infers it from the type,
+// as it does the root's own provider from an azurerm_* type.
+func withImpliedProviders(byDir map[string][]engine.Import, configured map[string]engine.Provider) {
+	for _, imports := range byDir {
+		for i, imp := range imports {
+			implied, _, _ := strings.Cut(imp.Type, "_")
+			if _, ok := configured[implied]; ok {
+				imports[i].Provider = ""
+			}
+		}
+	}
 }
 
 // providerDir returns the directory provider's roots go into, the

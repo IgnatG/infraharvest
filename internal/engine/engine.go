@@ -248,7 +248,9 @@ type Options struct {
 	// ModuleProviders configures, by local name, the providers modules may
 	// use besides the root's, such as google-beta: a call whose adapter names one
 	// (see adapters.Adapter.Providers) gets its provider block and source,
-	// consistent with the root's provider.
+	// consistent with the root's provider. So does a root that imports
+	// resources whose type one of them implies, such as azapi_resource
+	// (see resourceProviders).
 	ModuleProviders map[string]Provider
 	// External are resources the import listed but doesn't manage, which
 	// the configuration may refer to through the data sources in
@@ -370,8 +372,21 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
+	// Resources whose type another provider of opts.ModuleProviders
+	// implies, such as azapi_resource, need it required and configured
+	// before init, which selects its newest release, pinned as the
+	// root's own provider is.
+	others := resourceProviders(imports, opts.ModuleProviders)
+	if err := requireProviders(dir, others, opts.ModuleProviders); err != nil {
+		return nil, err
+	}
 	if err := initTerraform(ctx, tf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
+	}
+	if len(others) > 0 {
+		if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
+			return nil, err
+		}
 	}
 	// Plan reports changes because every import is pending; only errors matter.
 	diags, _, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))

@@ -1046,10 +1046,20 @@ func writeModuleProviders(dir string, trials []*trial, configured map[string]Pro
 			}
 		}
 	}
+	return requireProviders(dir, names, configured)
+}
+
+// requireProviders adds to providers.tf the blocks, and to versions.tf
+// the sources, of the providers of configured that names names, unless
+// the root has them: those of a module call (see writeModuleProviders)
+// or of resources whose type another provider implies (see
+// resourceProviders). It sets no version: pinModuleProviders pins each
+// to the release init selected.
+func requireProviders(dir string, names []string, configured map[string]Provider) error {
 	if len(names) == 0 {
 		return nil
 	}
-	sort.Strings(names)
+	names = slices.Sorted(slices.Values(names))
 	providers, err := loadHCL(filepath.Join(dir, ProvidersFileName))
 	if err != nil {
 		return err
