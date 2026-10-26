@@ -78,6 +78,9 @@ func scopeStacksAPI(t *testing.T) func(apiCall) string {
 				return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>`+scopeAppStack+`</StackId><StackName>app</StackName><StackStatus>UPDATE_COMPLETE</StackStatus><CreationTime>2026-01-01T00:00:00Z</CreationTime></member></Stacks>`)
 			case scopeOldStack:
 				return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>`+scopeOldStack+`</StackId><StackName>old</StackName><StackStatus>DELETE_COMPLETE</StackStatus><CreationTime>2026-01-01T00:00:00Z</CreationTime></member></Stacks>`)
+			case scopeNetworkStack:
+				return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>`+scopeNetworkStack+`</StackId><StackName>app-Network-1ABC</StackName><StackStatus>UPDATE_COMPLETE</StackStatus>`+
+					`<ParentId>`+scopeAppStack+`</ParentId><CreationTime>2026-01-01T00:00:00Z</CreationTime></member></Stacks>`)
 			}
 			return recordQueryError(recordCfnNS, "ValidationError")
 		case "GetTemplate":
