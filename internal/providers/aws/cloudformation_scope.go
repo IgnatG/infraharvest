@@ -49,8 +49,9 @@ type StackScope struct {
 type scopedStack struct {
 	name, id, region, status string
 	// parent is the ID of the stack it is nested in, "" for one
-	// --cfn-stack names.
-	parent string
+	// --cfn-stack names, and root that of the top-level stack it is nested
+	// in, as DescribeStacks gives it.
+	parent, root string
 	// deleted says CloudFormation deleted it: its stack ID still reads it,
 	// for 90 days, and the resources it retained are what is left.
 	deleted bool
@@ -149,6 +150,7 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 		}
 		if parent := aws.ToString(s.ParentId); parent != "" {
 			stack.parent = parent
+			stack.root = aws.ToString(s.RootId)
 			stack.warnings = append(stack.warnings, "it is nested in "+parent+", which deletes it with itself: name the root stack to delete them together")
 		}
 		if err := scope.read(ctx, client, stack, types); err != nil {
@@ -198,6 +200,7 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 		if len(out.Stacks) > 0 {
 			stack.status = string(out.Stacks[0].StackStatus)
 			stack.deleted = out.Stacks[0].StackStatus == cftypes.StackStatusDeleteComplete
+			stack.root = aws.ToString(out.Stacks[0].RootId)
 		}
 	}
 	s.stacks = append(s.stacks, stack)
@@ -384,6 +387,49 @@ func (s *StackScope) names() []string {
 	return names
 }
 
+// nesting returns, for a nested stack, the ID of its root stack, the
+// logical ID of its parent's resource that creates it, and that
+// resource's TemplateURL where it is a string rather than a function's
+// value, as the report needs them to update it through its root (see
+// report.CloudFormationStack.Root); "" for what the scope doesn't know,
+// as of a parent --cfn-stack doesn't reach. It makes no call.
+func (s *StackScope) nesting(stack *scopedStack) (root, logicalID, templateURL string) {
+	byID := func(id string) *scopedStack {
+		i := slices.IndexFunc(s.stacks, func(have *scopedStack) bool { return have.id == id })
+		if i < 0 {
+			return nil
+		}
+		return s.stacks[i]
+	}
+	if stack.parent == "" {
+		return "", "", ""
+	}
+	parent := byID(stack.parent)
+	root = stack.root
+	if root == "" {
+		top := stack
+		for p := parent; p != nil; p = byID(p.parent) {
+			top = p
+		}
+		root = top.root
+		if top.parent == "" {
+			root = top.id
+		}
+	}
+	if parent == nil {
+		return root, "", ""
+	}
+	for _, r := range parent.resources {
+		if r.cfnType == nestedStackType && r.physicalID == stack.id {
+			logicalID = r.logicalID
+		}
+	}
+	if property := mappingValue(mappingValue(parent.template.resource(logicalID), "Properties"), "TemplateURL"); property != nil && property.Kind == yaml.ScalarNode && property.ShortTag() == "!!str" {
+		templateURL = property.Value
+	}
+	return root, logicalID, templateURL
+}
+
 // reasonOutsideStacks is why an import scoped to stacks leaves out what
 // isn't theirs.
 func reasonOutsideStacks(names []string) string {
@@ -488,7 +534,9 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 		stack.holdIn(byResource)
 	}
 	for _, stack := range p.stackScope.stacks {
-		scope.Stacks = append(scope.Stacks, stack.report(byResource))
+		reported := stack.report(byResource)
+		reported.Root, reported.NestedAs, reported.TemplateURL = p.stackScope.nesting(stack)
+		scope.Stacks = append(scope.Stacks, reported)
 	}
 	return scope, nil
 }

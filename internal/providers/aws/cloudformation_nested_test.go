@@ -137,6 +137,12 @@ func TestResolveStacksNestedUnderDeletedParent(t *testing.T) {
 	if kept.deleted || kept.status != "UPDATE_COMPLETE" || kept.resources[0].retain == nil {
 		t.Errorf("the retained nested stack: deleted %v, status %s, Orders retain %v", kept.deleted, kept.status, kept.resources[0].retain)
 	}
+	if root, logicalID, templateURL := scope.nesting(kept); root != nestedParent || logicalID != "Queues" || templateURL != "https://example.com/queues.json" {
+		t.Errorf("the retained nested stack's nesting: %q, %q, %q", root, logicalID, templateURL)
+	}
+	if root, logicalID, templateURL := scope.nesting(byName["shop"]); root != "" || logicalID != "" || templateURL != "" {
+		t.Errorf("shop's nesting: %q, %q, %q", root, logicalID, templateURL)
+	}
 	gone := byName["shop-Tables-2DEF"]
 	if !gone.deleted || gone.status != "DELETE_COMPLETE" || gone.parent != nestedParent || gone.resources[0].retain != nil {
 		t.Errorf("the deleted nested stack: %+v", gone)
@@ -237,5 +243,27 @@ func TestResolveStacksNestedTemplateRefused(t *testing.T) {
 	refused = scopeAppStack
 	if _, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue()); err == nil || !strings.Contains(err.Error(), "template") {
 		t.Errorf("the named stack's template refused: %v", err)
+	}
+}
+
+// A nested stack whose parent's TemplateURL is a function's value has no
+// URL to upload its copy to; one whose parent --cfn-stack doesn't reach
+// has the root stack DescribeStacks gives it.
+func TestStackNesting(t *testing.T) {
+	template, err := parseTemplate("Resources:\n  Queues:\n    Type: AWS::CloudFormation::Stack\n    Properties:\n      TemplateURL: !Sub https://${Bucket}.s3.amazonaws.com/queues.json\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := &scopedStack{name: "shop", id: nestedParent, template: template, resources: []*scopedResource{{logicalID: "Queues", cfnType: nestedStackType, physicalID: nestedKept}}}
+	kept := &scopedStack{name: "shop-Queues-1ABC", id: nestedKept, parent: nestedParent}
+	scope := &StackScope{stacks: []*scopedStack{parent, kept}}
+	if root, logicalID, templateURL := scope.nesting(kept); root != nestedParent || logicalID != "Queues" || templateURL != "" {
+		t.Errorf("a function's TemplateURL: %q, %q, %q", root, logicalID, templateURL)
+	}
+
+	alone := &scopedStack{name: "shop-Queues-1ABC", id: nestedKept, parent: nestedParent, root: "arn:aws:cloudformation:eu-west-2:123456789012:stack/top/0"}
+	scope = &StackScope{stacks: []*scopedStack{alone}}
+	if root, logicalID, templateURL := scope.nesting(alone); root != alone.root || logicalID != "" || templateURL != "" {
+		t.Errorf("a parent out of the scope: %q, %q, %q", root, logicalID, templateURL)
 	}
 }
