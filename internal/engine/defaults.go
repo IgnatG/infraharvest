@@ -36,6 +36,17 @@ type defaultCandidate struct {
 	// catalogue names as a default, such as handler = "index.handler":
 	// what a provider's check that an argument is set is about.
 	setting bool
+	// proven says its value is the default the provider gives it, as
+	// exact schema metadata says (see schemaHints.provenDefault): leaving
+	// it out plans the same, so no difference in a plan puts it back, and
+	// on its own it needs no validation.
+	proven bool
+}
+
+// verified reports whether leaving c out is known to change nothing: it
+// is null, or a proven default.
+func (c defaultCandidate) verified() bool {
+	return c.null || c.proven
 }
 
 func (c defaultCandidate) key() string {
@@ -93,22 +104,47 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 	}
 	restore := func() error { return os.WriteFile(path, original, 0o644) }
-	// What the plan can't settle keeps its constants; nulls still go, as
-	// Terraform treats null as an omitted argument.
-	nullsOnly := func() (bool, *shownPlan, error) {
-		if err := restore(); err != nil {
-			return false, nil, err
-		}
-		f, err := loadHCL(path)
-		if err != nil {
-			return false, nil, err
-		}
-		if len(removeDefaults(f, nil, defaultRules{}, nil)) == 0 {
-			return false, nil, nil
-		}
-		return true, nil, f.save()
-	}
+	// keep holds the candidates to put back, by key.
 	keep := map[string]bool{}
+	// What the plan can't settle keeps its constants; nulls still go, as
+	// Terraform treats null as an omitted argument, and so do proven
+	// defaults (see defaultCandidate.proven) where the configuration still
+	// validates without them.
+	nullsOnly := func() (bool, *shownPlan, error) {
+		verified := rules
+		verified.verifiedOnly = true
+		// Without schemas, only nulls are candidates.
+		for _, pass := range []struct {
+			schemas *tfjson.ProviderSchemas
+			rules   defaultRules
+		}{{schemas, verified}, {nil, defaultRules{}}} {
+			if err := restore(); err != nil {
+				return false, nil, err
+			}
+			f, err := loadHCL(path)
+			if err != nil {
+				return false, nil, err
+			}
+			removed := removeDefaults(f, pass.schemas, pass.rules, keep)
+			if len(removed) == 0 {
+				return false, nil, restore()
+			}
+			if err := f.save(); err != nil {
+				return false, nil, err
+			}
+			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
+				return true, nil, nil
+			}
+			out, err := tf.Validate(ctx)
+			if err != nil {
+				return false, nil, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
+			}
+			if out.Valid {
+				return true, nil, nil
+			}
+		}
+		return false, nil, restore()
+	}
 	// failed counts the rounds in which the plan failed on each resource.
 	failed := map[string]int{}
 	for round := 0; round < maxDefaultRounds; round++ {
@@ -164,9 +200,10 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if noWorse(changeSignature(rc), changes[rc.Address]) {
 				continue
 			}
-			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
-				// Nothing of it was left out: the plan differs from the
-				// one before by itself, as an emulator's may.
+			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.verified() && c.address == rc.Address }) {
+				// Nothing of it was left out but what changes nothing:
+				// the plan differs from the one before by itself, as an
+				// emulator's may.
 				noise = true
 				continue
 			}
@@ -174,7 +211,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if round == maxDefaultRounds-2 {
 				// There is one round left: keep the resource's constants
 				// rather than plan again.
-				keepAll(removed, rc.Address, keep)
+				keepUnproven(removed, rc.Address, keep)
 				continue
 			}
 			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
@@ -213,8 +250,9 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 		if err := generated.save(); err != nil {
 			return nil, err
 		}
-		// Leaving out nulls never makes configuration invalid.
-		if validation == maxDefaultValidations || !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null }) {
+		// Leaving out nulls never makes configuration invalid, nor do proven
+		// defaults, which no constraint names (see schemaHints.provenDefault).
+		if validation == maxDefaultValidations || !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.verified() }) {
 			return removed, nil
 		}
 		out, err := tf.Validate(ctx)
@@ -308,20 +346,32 @@ func keepAll(removed []defaultCandidate, address string, keep map[string]bool) {
 	}
 }
 
+// keepUnproven keeps every constant candidate of address but the proven
+// defaults, for a plan that differs: leaving those out plans the same, so
+// they aren't behind the difference.
+func keepUnproven(removed []defaultCandidate, address string, keep map[string]bool) {
+	for _, c := range removed {
+		if !c.verified() && c.address == address {
+			keep[c.key()] = true
+		}
+	}
+}
+
 // keepChanged keeps the constant candidates of address behind changed,
 // the newly changed top-level arguments: under each, those on the path of
 // an attribute the plan changes (see changedPaths), or all of them if
 // none is, so that a cache behaviour whose grpc_config block changes
 // keeps that block, not its compress = false too; and all of the
 // resource's if none is under changed. Nulls never count: Terraform
-// treats null as an omitted argument.
+// treats null as an omitted argument, nor do proven defaults, which plan
+// the same.
 func keepChanged(removed []defaultCandidate, address string, changed, paths []string, keep map[string]bool) {
 	matched := false
 	for _, top := range changed {
 		var under []defaultCandidate
 		onPath := false
 		for _, c := range removed {
-			if c.null || c.address != address || c.path[0] != top {
+			if c.verified() || c.address != address || c.path[0] != top {
 				continue
 			}
 			under = append(under, c)
@@ -341,7 +391,7 @@ func keepChanged(removed []defaultCandidate, address string, changed, paths []st
 		}
 	}
 	if !matched {
-		keepAll(removed, address, keep)
+		keepUnproven(removed, address, keep)
 	}
 }
 
@@ -408,7 +458,7 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRu
 	var removed []defaultCandidate
 	for _, r := range f.resources() {
 		typ := resourceTypeOf(r.address)
-		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ], tags: rules.tags}, keep)...)
+		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ], tags: rules.tags, hints: rules.hints, verifiedOnly: rules.verifiedOnly}, keep)...)
 	}
 	return removed
 }
@@ -424,10 +474,18 @@ func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRu
 //     that hold the setting, and left out it keeps what the cloud has;
 //   - other constants of optional arguments the provider doesn't compute,
 //     doesn't mark sensitive, but for the tags (see defaultRules);
+//   - constants of optional arguments the provider computes that are the
+//     default a Plugin Framework resource's metadata names (see
+//     schemaHints.frameworkDefault);
 //   - nested blocks of optional types that set nothing but zero values,
 //     none of an argument the provider computes (see setsComputed),
 //     such as access_logs { bucket = "", enabled = false }, as a whole,
 //     and the blocks left empty once their arguments are out.
+//
+// A constant exact schema metadata says isn't the argument's default is
+// never a candidate (see schemaHints.provenSetting), and one it says is,
+// is a proven one (see defaultCandidate.proven). With verifiedOnly, only
+// nulls and proven defaults are.
 func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, write *hclwrite.Body, schemas *tfjson.ProviderSchemas, rules typeRules, keep map[string]bool) []defaultCandidate {
 	var removed []defaultCandidate
 	for name, attr := range syntax.Attributes {
@@ -436,6 +494,9 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		switch {
 		case isNullLiteral(attr.Expr):
 			c.null = true
+		case rules.hints.provenSetting(typ, path, attr.Expr):
+			// Left out, it would plan as the default.
+			continue
 		case isNamedDefault(rules.defaults, path, attr.Expr):
 			s := schemaAttribute(schemas, typ, path)
 			if s == nil || !s.Optional || s.Required {
@@ -450,14 +511,25 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			s := schemaAttribute(schemas, typ, path)
 			// A sensitive value, such as a parameter's, is what the cloud has,
 			// never a default; nor are the tags (see defaultRules).
-			if s == nil || !s.Optional || s.Computed || s.Required || s.Sensitive || (rules.tags != "" && strings.Join(path, ".") == rules.tags) {
+			if s == nil || !s.Optional || s.Required || s.Sensitive || (rules.tags != "" && strings.Join(path, ".") == rules.tags) {
+				continue
+			}
+			if s.Computed && !rules.hints.frameworkDefault(typ, path, attr.Expr) {
 				continue
 			}
 			c.setting = !isZeroConstant(attr.Expr)
 		default:
 			continue
 		}
-		if keep[c.key()] {
+		if !c.null && rules.hints.provenDefault(typ, path, attr.Expr) {
+			// The Plugin SDK doesn't let a computed argument have a
+			// default, so the schema agreeing says the metadata is of
+			// this argument.
+			if s := schemaAttribute(schemas, typ, path); s != nil && s.Optional && !s.Computed && !s.Required {
+				c.proven, c.setting = true, false
+			}
+		}
+		if keep[c.key()] || rules.verifiedOnly && !c.verified() {
 			continue
 		}
 		write.RemoveAttribute(name)
@@ -470,7 +542,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		}
 		blockPath := append(append([]string(nil), prefix...), b.Type)
 		c := defaultCandidate{address: address, path: blockPath}
-		if !keep[c.key()] && len(b.Body.Attributes)+len(b.Body.Blocks) > 0 && unsetBody(b.Body) && optionalBlock(schemas, typ, blockPath) && !setsComputed(schemas, typ, blockPath, b.Body) {
+		if !rules.verifiedOnly && !keep[c.key()] && len(b.Body.Attributes)+len(b.Body.Blocks) > 0 && unsetBody(b.Body) && optionalBlock(schemas, typ, blockPath) && !setsComputed(schemas, typ, blockPath, b.Body) {
 			write.RemoveBlock(blocks[i])
 			removed = append(removed, c)
 			continue
@@ -478,7 +550,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		removed = append(removed, removeIn(address, typ, blockPath, b.Body, blocks[i].Body(), schemas, rules, keep)...)
 		// A block left with nothing set, such as ttl {}, only says it is
 		// there: it goes too, where the plan says that's the same.
-		if schemas != nil && isEmpty(blocks[i].Body()) && !keep[c.key()] {
+		if !rules.verifiedOnly && schemas != nil && isEmpty(blocks[i].Body()) && !keep[c.key()] {
 			write.RemoveBlock(blocks[i])
 			removed = append(removed, c)
 		}
@@ -538,16 +610,24 @@ func isEmptyValue(expr hclsyntax.Expression) bool {
 // resource's labels: its constants are the resource's tags, never a
 // default, though leaving them out plans the same, as the labels stay on
 // the resource, no longer managed.
+//
+// hints are what the provider's code says of its arguments' defaults (see
+// schemaHints), and verifiedOnly limits the candidates to those leaving
+// out is known not to change: nulls and proven defaults.
 type defaultRules struct {
 	defaults, keepEmpty map[string][]string
 	tags                string
+	hints               schemaHints
+	verifiedOnly        bool
 }
 
 // typeRules are a type's defaultRules: its defaults by path.
 type typeRules struct {
-	defaults  map[string]string
-	keepEmpty []string
-	tags      string
+	defaults     map[string]string
+	keepEmpty    []string
+	tags         string
+	hints        schemaHints
+	verifiedOnly bool
 }
 
 // defaultValues parses a type's defaults, path=value entries such as

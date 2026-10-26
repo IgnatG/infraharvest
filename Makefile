@@ -27,13 +27,16 @@ GH_REPO ?= IgnatG/infraharvest
 # run of WORKFLOW on REF.
 RUN ?=
 WORKFLOW ?= remote.yml
-# The artifact ci-download fetches: golden, go-mod from ci-tidy or bench from
-# ci-bench.
+# The artifact ci-download fetches: golden, go-mod from ci-tidy, bench from
+# ci-bench or schema-metadata from ci-schema-metadata.
 NAME ?= golden
 # The benchmarks ci-bench runs, as go test -bench takes them, and the commit
 # it compares them with, if any.
 BENCH ?= .
 BASE ?=
+# The provider releases ci-schema-metadata reads, as name=release, such as
+# aws=6.70.0; empty means each provider's newest.
+VERSIONS ?=
 
 # The golden tests to rewrite: the catalogue's, unless PKG is given.
 GOLDEN_PKG := $(if $(filter command line environment,$(origin PKG)),$(PKG),./internal/catalogue)
@@ -44,7 +47,7 @@ GO_TAGS := $(if $(TAGS),-tags $(TAGS))
 LINT_TAGS := $(if $(TAGS),--build-tags $(TAGS))
 
 .PHONY: help hooks tools fast staged fmt lint vet test golden \
-  ci-check ci-golden ci-tidy ci-bench ci-lint ci-watch ci-download
+  ci-check ci-golden ci-tidy ci-bench ci-schema-metadata ci-lint ci-watch ci-download
 
 ##@ Fast checks (no build)
 
@@ -136,6 +139,9 @@ ci-tidy: ## go mod tidy on GitHub (remote workflow, task tidy); then ci-download
 
 ci-bench: ## Benchmarks BENCH of PKG on GitHub, with CPU profiles, compared with BASE if set (remote workflow, task bench)
 	$(call dispatch,remote.yml,-f task=bench -f bench="$(BENCH)" -f base="$(BASE)" $(if $(filter command line environment,$(origin PKG)),-f packages="$(PKG)"))
+
+ci-schema-metadata: ## Read the providers' defaults and argument constraints out of their code on GitHub (remote workflow, task schema-metadata); then ci-download NAME=schema-metadata
+	$(call dispatch,remote.yml,-f task=schema-metadata -f versions="$(VERSIONS)")
 
 ci-lint: ## Every linter, golangci-lint included, on the whole repository on GitHub (megalinter workflow)
 	$(call dispatch,megalinter.yml,)

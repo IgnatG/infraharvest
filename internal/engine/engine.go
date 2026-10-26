@@ -26,6 +26,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 )
 
 // Files the engine writes into each output directory.
@@ -210,6 +211,13 @@ type Options struct {
 	// bucket's storage_class=STANDARD: Generate leaves out the arguments
 	// set to them where the plan stays the same (see stripDefaults).
 	Defaults map[string][]string
+	// SchemaMetadata, if set, is what the provider's code says of its
+	// resource types' arguments (see schemameta): Generate leaves out the
+	// arguments set to their defaults and settles conflicting arguments
+	// without a plan or a validation to tell it, where it is of the release
+	// the root uses, and only tries more defaults where it isn't (see
+	// schemaHints). The verification gate checks the result either way.
+	SchemaMetadata *schemameta.File
 	// DefaultTags, if set, lets Generate move the tags every resource shares
 	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags
@@ -374,6 +382,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	// Plan reports changes because every import is pending; only errors matter.
+	// The release the lock file records decides how far the provider's
+	// metadata goes (see schemaHints).
+	hints := schemaHintsFor(dir, opts.SchemaMetadata)
 	diags, _, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
@@ -394,6 +405,12 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// move the lines the errors point at, and placeholders resolve some of
 	// them, so plan again.
 	sorted, err := sortResources(generated)
+	if err != nil {
+		return nil, err
+	}
+	// Arguments the provider says conflict fail validation: settle them
+	// now, as repair would once the plan below reported them.
+	resolved, err := resolveConflicts(generated, hints)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +469,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		}
 		return nil
 	}
-	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
+	if sorted || resolved || omitted || placed || lifecycled || len(literal) > 0 {
 		if err := replan(); err != nil {
 			return nil, err
 		}
