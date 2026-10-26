@@ -54,3 +54,48 @@ func TestCfnConvert(t *testing.T) {
 		t.Errorf("missing template: err = %v", err)
 	}
 }
+
+// cfn convert through the command line: flags, standard input and exit
+// codes.
+func TestCfnConvertCommand(t *testing.T) {
+	run := func(stdin string, args ...string) (string, error) {
+		cmd := NewCmdRoot()
+		var stderr bytes.Buffer
+		cmd.SetArgs(args)
+		cmd.SetIn(strings.NewReader(stdin))
+		cmd.SetErr(&stderr)
+		cmd.SetOut(&stderr)
+		err := cmd.Execute()
+		return stderr.String(), err
+	}
+	template := "Parameters:\n  Name: {Type: String}\nResources:\n  Logs:\n    Type: AWS::S3::Bucket\n    DeletionPolicy: Retain\n    Properties:\n      BucketName: !Sub \"${AWS::StackName}-${Name}\"\n"
+	out := filepath.Join(t.TempDir(), "tf")
+	stderr, err := run(template, "cfn", "convert", "-", "-o", out, "--stack-name", "app", "--prevent-destroy")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	vars, _ := os.ReadFile(filepath.Join(out, "variables.tf"))
+	main, _ := os.ReadFile(filepath.Join(out, "main.tf"))
+	if !strings.Contains(string(vars), `"app"`) || !strings.Contains(string(main), "prevent_destroy = true") {
+		t.Errorf("variables.tf:\n%s\nmain.tf:\n%s", vars, main)
+	}
+
+	file := filepath.Join(t.TempDir(), "t.yaml")
+	if err := os.WriteFile(file, []byte("Resources:\n  B:\n    Type: AWS::S3::Bucket\n    Properties:\n      VersioningConfiguration: {Status: Enabled}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var exit *importer.ExitError
+	// A property left out, such as a bucket's versioning, counts as not
+	// converted.
+	stderr, err = run("", "cfn", "convert", file, "--out", t.TempDir())
+	if !errors.As(err, &exit) || exit.Code != report.ExitIncomplete || !strings.Contains(stderr, "error: Resources.B.Properties.VersioningConfiguration") {
+		t.Errorf("err = %v, stderr:\n%s", err, stderr)
+	}
+	_, err = run("", "cfn", "convert", file, "--out", t.TempDir(), "--allow-partial")
+	if !errors.As(err, &exit) || exit.Code != report.ExitPartial {
+		t.Errorf("--allow-partial: err = %v", err)
+	}
+	if _, err := run("", "cfn", "convert"); err == nil {
+		t.Error("convert without a template succeeded")
+	}
+}
