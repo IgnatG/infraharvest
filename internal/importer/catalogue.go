@@ -4,6 +4,8 @@
 package importer
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -12,9 +14,36 @@ import (
 
 // providerCatalogue returns what the catalogue knows about the provider's
 // resource types: the built-in entries, with the files in dir (from
-// --catalogue) on top.
+// --catalogue) on top, and those of the other providers its roots may
+// configure (see harvest.ProviderWithModuleProviders) that have a
+// catalogue of their own, such as azapi, whose azapi_resource an Azure
+// import brings in for what azurerm has no type for (see
+// catalogue.Catalogue.With).
 func providerCatalogue(provider harvest.Provider, dir string) (*catalogue.Catalogue, error) {
-	return catalogue.Load(catalogueName(provider.Name()), dir)
+	name := catalogueName(provider.Name())
+	cat, err := catalogue.Load(name, dir)
+	if err != nil {
+		return nil, err
+	}
+	withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders)
+	if !ok {
+		return cat, nil
+	}
+	known, err := catalogue.Providers()
+	if err != nil {
+		return nil, err
+	}
+	for _, other := range slices.Sorted(maps.Keys(withModuleProviders.ModuleProviders())) {
+		if other = catalogueName(other); other == name || !slices.Contains(known, other) {
+			continue
+		}
+		companion, err := catalogue.Load(other, dir)
+		if err != nil {
+			return nil, err
+		}
+		cat = cat.With(companion)
+	}
+	return cat, nil
 }
 
 // catalogueName is the catalogue of a provider's types: google for

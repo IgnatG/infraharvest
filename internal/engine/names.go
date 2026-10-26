@@ -116,9 +116,9 @@ func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []
 	for i, imp := range imports {
 		imp.Name = Label(imp.Name)
 		if tidy {
-			bases[External{Type: imp.Type, ID: imp.ID}] = withoutTypeWords(imp.Type, imp.Name)
+			bases[ResourceKey(imp.Type, imp.ID)] = withoutTypeWords(imp.Type, imp.Name)
 		} else {
-			bases[External{Type: imp.Type, ID: imp.ID}] = imp.Name
+			bases[ResourceKey(imp.Type, imp.ID)] = imp.Name
 		}
 		sorted[i] = imp
 	}
@@ -128,12 +128,12 @@ func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []
 	reserved := previous.reserved()
 	free := func(imp Import, name string) bool {
 		owner, ok := reserved[imp.Type+"."+name]
-		return !ok || owner == External{Type: imp.Type, ID: imp.ID}
+		return !ok || owner == ResourceKey(imp.Type, imp.ID)
 	}
 	labels := previous.labels()
 	kept := map[External]bool{}
 	for i, imp := range sorted {
-		key := External{Type: imp.Type, ID: imp.ID}
+		key := ResourceKey(imp.Type, imp.ID)
 		if old, ok := labels[key]; ok && keepsLabel(old, bases[key], tidy) && !taken[imp.Type+"."+old] && free(imp, old) {
 			sorted[i].Name = old
 			kept[key] = true
@@ -159,7 +159,7 @@ func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []
 	}
 	// The labels kept first, so that no other resource takes them.
 	for _, imp := range sorted {
-		key := External{Type: imp.Type, ID: imp.ID}
+		key := ResourceKey(imp.Type, imp.ID)
 		if kept[key] && used[imp.Type+"."+imp.Name] {
 			kept[key] = false
 		} else if kept[key] {
@@ -167,7 +167,7 @@ func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []
 		}
 	}
 	for i, imp := range sorted {
-		if kept[External{Type: imp.Type, ID: imp.ID}] {
+		if kept[ResourceKey(imp.Type, imp.ID)] {
 			continue
 		}
 		name := imp.Name

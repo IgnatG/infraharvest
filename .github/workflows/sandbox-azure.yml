@@ -87,6 +87,14 @@ jobs:
           echo "::warning::Resources in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $left"
           echo "found=true" >> "$GITHUB_OUTPUT"
         fi
+        # Role assignments and custom roles aren't resources of the group,
+        # and take no tags: the estate's start with its prefix.
+        scope="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$SANDBOX_AZURE_RESOURCE_GROUP"
+        roles=$(az role definition list --custom-role-only true --scope "$scope" --query "[?starts_with(roleName, 'ih-sbx-')].roleName" -o tsv)
+        if [ -n "$roles" ]; then
+          echo "::warning::Custom roles in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $roles"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        fi
     - name: Round trip
       env:
         # Fail, rather than skip, if the test has nothing to run against.
@@ -127,8 +135,9 @@ jobs:
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     # When the run failed, deletes what Terraform's state doesn't hold,
     # such as a resource whose creation failed half-way, and what an earlier
-    # run left: the locks first, which would stop the rest, then every
-    # resource tagged infraharvest-sandbox, whichever engine's run made it
+    # run left: the locks first, which would stop the rest, the estate's role
+    # assignments and custom roles, then every resource tagged
+    # infraharvest-sandbox, whichever engine's run made it
     # (runs never overlap), a few rounds over, as some can only go once what
     # uses them has. The resource group itself stays.
     - name: Sweep the resource group
@@ -141,6 +150,22 @@ jobs:
             az lock delete "${sub[@]}" --ids "$lock" || true
           fi
         done <<< "$locks"
+        # The estate's role assignments, by their description, and then
+        # its custom roles, by their name, both starting ih-sbx-: the
+        # bootstrap's, which the fixture's own roles come from, don't.
+        scope="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$SANDBOX_AZURE_RESOURCE_GROUP"
+        assignments=$(az role assignment list "${sub[@]}" --scope "$scope" --query "[?starts_with(description || '', 'ih-sbx-')].id" -o tsv)
+        while IFS= read -r assignment; do
+          if [ -n "$assignment" ]; then
+            az role assignment delete "${sub[@]}" --ids "$assignment" || true
+          fi
+        done <<< "$assignments"
+        roles=$(az role definition list "${sub[@]}" --custom-role-only true --scope "$scope" --query "[?starts_with(roleName, 'ih-sbx-')].name" -o tsv)
+        while IFS= read -r role; do
+          if [ -n "$role" ]; then
+            az role definition delete "${sub[@]}" --name "$role" --scope "$scope" || true
+          fi
+        done <<< "$roles"
         query="[?tags.\"infraharvest-sandbox\" != null].id"
         for _ in 1 2 3; do
           ids=$(az resource list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query "$query" -o tsv)

@@ -347,7 +347,7 @@ func mergedHandovers(out, stack string, members []mergeMember, now map[string]ma
 	for _, p := range plannedRemovals(stack, members) {
 		kept := ""
 		for _, d := range p.Resources {
-			if env, ok := held[engine.External{Type: d.Type, ID: d.ID}]; ok {
+			if env, ok := held[engine.ResourceKey(d.Type, d.ID)]; ok {
 				kept = env
 			}
 		}

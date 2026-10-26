@@ -46,7 +46,7 @@ func TestCatalogueMatchesProviderSchemas(t *testing.T) {
 	}
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
-			address := "registry.terraform.io/hashicorp/" + provider
+			address := "registry.terraform.io/" + schemaSource(provider)
 			schema, ok := schemas.Schemas[address]
 			if !ok {
 				t.Fatalf("no schema for %s in %s", address, dir)
@@ -65,6 +65,16 @@ func TestCatalogueMatchesProviderSchemas(t *testing.T) {
 			}
 		})
 	}
+}
+
+// schemaSource is the source of the provider a built-in catalogue is for,
+// as the schemas name it, in lower case: hashicorp/<provider>, but for
+// azapi, which Microsoft publishes.
+func schemaSource(provider string) string {
+	if provider == "azapi" {
+		return "azure/azapi"
+	}
+	return "hashicorp/" + provider
 }
 
 // readJSONFile decodes the JSON file at name into v.

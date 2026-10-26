@@ -585,6 +585,30 @@ func (c *Catalogue) ImportID(typ, id string, attributes map[string]string) (stri
 	return "", false, fmt.Sprintf("missing a field of every import ID template: %s", templateList(e.ImportID))
 }
 
+// FallbackImportID returns the import ID of a resource of typ to import it
+// by should Terraform reject the one ImportID gives: that of the next of
+// the entry's templates that renders, and renders otherwise, such as an
+// azapi_resource's ID without the ?api-version= of a version azapi may not
+// know. It reports false where there is none.
+func (c *Catalogue) FallbackImportID(typ, id string, attributes map[string]string) (string, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.NotImportable != "" {
+		return "", false
+	}
+	first := ""
+	for _, t := range e.ImportID {
+		rendered, ok := t.Render(id, attributes)
+		switch {
+		case !ok:
+		case first == "":
+			first = rendered
+		case rendered != first:
+			return rendered, true
+		}
+	}
+	return "", false
+}
+
 // SkippedWhole returns the types whose every resource the default
 // selection leaves out, by a skip rule with all, sorted.
 func (c *Catalogue) SkippedWhole() []string {
@@ -703,6 +727,27 @@ func (r SkipRule) matches(id string, attributes map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// With returns c with the entries of other, the catalogue of a provider
+// whose resources an import of c's provider may also bring in, such as
+// azapi's for Azure's resources azurerm has no type for: other's types
+// that c has no entry for, and not other's entry for every type, as c's
+// own rules for every type cover those resources too. c stays as it was.
+func (c *Catalogue) With(other *Catalogue) *Catalogue {
+	if other == nil || len(other.entries) == 0 {
+		return c
+	}
+	merged := c.clone()
+	for typ, e := range other.entries {
+		if _, ok := merged.entries[typ]; ok || typ == AllTypes {
+			continue
+		}
+		copied := *e
+		merged.entries[typ] = &copied
+		merged.sources[typ] = other.sources[typ]
+	}
+	return merged
 }
 
 func (c *Catalogue) clone() *Catalogue {

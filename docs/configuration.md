@@ -11,6 +11,8 @@ providers:               # flags of one provider command
     profile: prod
     regions: [eu-west-2, us-east-1]
     services: [vpc, subnet, sg, s3]
+  azure:
+    azapi: true          # what azurerm has no type for, as azapi_resource
 backend:                 # one of s3, azurerm, gcs
   s3:
     bucket: acme-terraform-state

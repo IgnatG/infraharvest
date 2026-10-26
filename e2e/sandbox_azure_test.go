@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -30,10 +31,11 @@ import (
 const sandboxAzureResourceGroup = "infraharvest-sandbox"
 
 // sandboxAzureFound are the types of the estate whose every resource the
-// import must find, by ID: what floci-az can't serve, and the lock, which
-// Resource Graph doesn't index.
+// import must find, by ID: what floci-az can't serve, the lock, which
+// Resource Graph doesn't index, and the role assignments, which only its
+// authorizationresources table has.
 var sandboxAzureFound = []string{
-	"azurerm_key_vault", "azurerm_management_lock", "azurerm_route_table",
+	"azurerm_key_vault", "azurerm_management_lock", "azurerm_role_assignment", "azurerm_route_table",
 	"azurerm_storage_account", "azurerm_storage_container",
 }
 
@@ -67,16 +69,18 @@ func TestSandboxAzure(t *testing.T) {
 	created := estate.apply(ctx, t)
 	group := sandboxResourceGroup(ctx, t, estate)
 
-	logged := s.importAzure(ctx, t)
+	logged := s.importAzure(ctx, t, s.out)
 	coverage := readCoverage(t, s.out)
 	checkNoAuthorizationErrors(t, logged, coverage, azureAuthorizationErrors)
 	root, imported := s.checkAzureImport(ctx, t, coverage, created)
 	checkAzureFound(t, coverage, created, group)
 	checkGroupTags(t, root, group)
+	checkAzureRoles(t, coverage, created, root)
 	if imported["azurerm_resource_group"] == 0 {
 		t.Errorf("the import doesn't import the resource group %s", s.resourceGroup)
 	}
 	s.checkAzureDrift(ctx, t, estate, root)
+	s.checkAzureAzapi(ctx, t, created, imported)
 }
 
 // azureSandbox is what the Azure sandbox test runs with: the subscription,
@@ -126,10 +130,10 @@ func newAzureSandbox(ctx context.Context, t *testing.T) *azureSandbox {
 }
 
 // importAzure imports the estate's resource group, every service, as the
-// read-only identity, into the output directory, and returns what the
-// import logged. From then on the test's own Azure calls, such as the
-// plans, are read-only too.
-func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T) string {
+// read-only identity, into out, with the flags extra adds, and returns
+// what the import logged. From then on the test's own Azure calls, such
+// as the plans, are read-only too.
+func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T, out string, extra ...string) string {
 	t.Helper()
 	t.Setenv("ARM_CLIENT_ID", s.readonlyClientID)
 	logged := &syncBuffer{}
@@ -139,16 +143,16 @@ func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T) string {
 	root := cli.NewCmdRoot()
 	// The output's own layout isn't named here: checkAzureImport finds
 	// the root.
-	root.SetArgs([]string{
+	root.SetArgs(append([]string{
 		"import", "azure",
 		"--engine=" + s.engineName,
 		"--terraform-path=" + s.execPath,
 		"--resource-group=" + s.resourceGroup,
 		"--services=*",
-		"--out=" + s.out,
+		"--out=" + out,
 		"--all",
 		"--allow-partial",
-	})
+	}, extra...))
 	if err := root.ExecuteContext(ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
 		t.Fatalf("infraharvest import azure: %v", err)
 	}
@@ -306,4 +310,130 @@ func (s *azureSandbox) checkAzureDrift(ctx context.Context, t *testing.T, estate
 		t.Errorf("drift --accept: the code doesn't have the group's tag drift = \"reported\"")
 	}
 	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
+}
+
+// checkAzureAzapi imports the estate's resource group again, with
+// --azapi, into an output of its own, as the read-only identity: the
+// template spec, which azurerm has no resource type for, must be imported
+// as an azapi_resource, by its ID with the newest stable API version, which
+// the configuration's type pins too; nothing may fail or be left out,
+// every check must pass, and the root must plan as imports with no changes.
+// What azurerm has a type for, the role assignments and custom roles of the
+// group among them, stays as the first import, before, imported it: each
+// azurerm type as many times.
+func (s *azureSandbox) checkAzureAzapi(ctx context.Context, t *testing.T, created []*tfjson.StateResource, before map[string]int) {
+	t.Helper()
+	var spec string
+	for _, r := range created {
+		if r.Type == "azapi_resource" && r.Name == "template_spec" {
+			spec, _ = r.AttributeValues["id"].(string)
+		}
+	}
+	if spec == "" {
+		t.Fatal("the estate has no template spec")
+	}
+	out := t.TempDir()
+	s.importAzure(ctx, t, out, "--azapi")
+	coverage := readCoverage(t, out)
+	for _, f := range coverage.Failures {
+		t.Errorf("--azapi: failure: %+v", f)
+	}
+	var importedAs, importID string
+	for _, d := range coverage.Directories {
+		for _, l := range d.LeftOut {
+			t.Errorf("--azapi: %s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
+		}
+		for _, c := range d.Checks {
+			if !c.Passed {
+				t.Errorf("--azapi: %s: %s failed: %v", d.Path, c.Name, c.Details)
+			}
+		}
+		for _, r := range d.Imported {
+			if id, _, _ := strings.Cut(r.ID, "?"); strings.EqualFold(id, spec) {
+				importedAs, importID = r.Address, r.ID
+			}
+		}
+	}
+	if !strings.HasPrefix(importedAs, "azapi_resource.") {
+		t.Fatalf("--azapi: the template spec %s is imported as %q, want an azapi_resource", spec, importedAs)
+	}
+	_, version, ok := strings.Cut(importID, "?api-version=")
+	if !ok || strings.Contains(version, "preview") {
+		t.Errorf("--azapi: the template spec's import ID %q has no stable API version", importID)
+	}
+	dirs := generatedDirs(t, out)
+	if len(dirs) != 1 {
+		t.Fatalf("--azapi: roots %v, want one, for the resource group %s", dirs, s.resourceGroup)
+	}
+	root := filepath.Clean(dirs[0])
+	if rejected, err := os.ReadFile(filepath.Join(root, engine.RejectedFileName)); err == nil {
+		t.Errorf("--azapi: %s: resources left out:\n%s", root, rejected)
+	}
+	if generated := strings.ToLower(configuration(t, root)); !strings.Contains(generated, strings.ToLower("Microsoft.Resources/templateSpecs@"+version)) {
+		t.Errorf("--azapi: the configuration doesn't pin the template spec's type to Microsoft.Resources/templateSpecs@%s", version)
+	}
+	imported := checkNoChanges(ctx, t, root, s.execPath, s.plugins, nil)
+	if imported["azapi_resource"] == 0 {
+		t.Errorf("--azapi: the root's plan imports no azapi_resource: %v", imported)
+	}
+	for _, typ := range sortedKeys(before) {
+		if strings.HasPrefix(typ, "azurerm_") && imported[typ] != before[typ] {
+			t.Errorf("--azapi: %s: imported %d, %d without --azapi", typ, imported[typ], before[typ])
+		}
+	}
+}
+
+// Role assignments refer to what the root has: the principal of the
+// estate's identity, and a custom role the import lists.
+var (
+	principalReference  = regexp.MustCompile(`principal_id\s*=\s*azurerm_user_assigned_identity\.[a-z0-9_]+\.principal_id`)
+	customRoleReference = regexp.MustCompile(`role_definition_id\s*=\s*azurerm_role_definition\.[a-z0-9_]+\.role_definition_resource_id`)
+	builtInRoleByName   = regexp.MustCompile(`role_definition_name\s*=\s*"Reader"`)
+)
+
+// checkAzureRoles checks that the import imports the estate's custom role,
+// by its GUID, which ends the role definition's ID in azurerm's import ID
+// (the scope follows a |), and that the configuration refers the estate's two
+// role assignments to its identity, the custom role's to the
+// azurerm_role_definition, and the built-in role by name. The plan with
+// no changes, which checkAzureImport checks, says they are the same.
+func checkAzureRoles(t *testing.T, coverage report.Report, created []*tfjson.StateResource, root string) {
+	t.Helper()
+	var imported []string
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			imported = append(imported, strings.ToLower(r.ID))
+		}
+	}
+	assignments := 0
+	for _, r := range created {
+		switch r.Type {
+		case "azurerm_role_assignment":
+			assignments++
+		case "azurerm_role_definition":
+			id, _ := r.AttributeValues["role_definition_id"].(string)
+			found := false
+			for _, i := range imported {
+				if id != "" && strings.Contains(i, "/roledefinitions/"+strings.ToLower(id)+"|") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("the import doesn't import the custom role %s %q", r.Address, id)
+			}
+		}
+	}
+	if assignments < 2 {
+		t.Fatalf("the estate made %d role assignments, want 2", assignments)
+	}
+	generated := configuration(t, root)
+	if n := len(principalReference.FindAllString(generated, -1)); n < assignments {
+		t.Errorf("%d role assignments refer to the identity's principal, want %d", n, assignments)
+	}
+	if !customRoleReference.MatchString(generated) {
+		t.Error("no role assignment refers to the custom role's azurerm_role_definition")
+	}
+	if !builtInRoleByName.MatchString(generated) {
+		t.Error(`no role assignment names the built-in role by name, role_definition_name = "Reader"`)
+	}
 }

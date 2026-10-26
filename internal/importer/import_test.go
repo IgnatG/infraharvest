@@ -193,6 +193,29 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 	return map[string]harvest.Lister{"vpc": nil, "s3": nil}
 }
 
+// optInProvider is servicesProvider with s3 opt-in.
+type optInProvider struct {
+	servicesProvider
+}
+
+func (*optInProvider) OptInServices() []string { return []string{"s3"} }
+
+// * leaves out the opt-in services, and an opt-in service named beside it
+// is listed too, once, as is one that * lists already.
+func TestResolveServicesKeepsWhatIsNamedBesideTheWildcard(t *testing.T) {
+	for _, tc := range []struct {
+		services, want []string
+	}{
+		{[]string{"*"}, []string{"vpc"}},
+		{[]string{"*", "s3"}, []string{"vpc", "s3"}},
+		{[]string{"s3", "*", "vpc", "s3"}, []string{"vpc", "s3"}},
+	} {
+		if got := ResolveServices(&optInProvider{}, Options{Services: tc.services}).Services; !slices.Equal(got, tc.want) {
+			t.Errorf("%v: got %v, want %v", tc.services, got, tc.want)
+		}
+	}
+}
+
 // What no Import call could do fails the command once, before any scope:
 // an unknown service or engine, an import that says neither --selection
 // nor --all, a selection file or catalogue that doesn't load, a
@@ -305,6 +328,71 @@ func TestListServicesGivesEachServiceTheCatalogue(t *testing.T) {
 		if got := provider.(*catalogueProvider).cat; got != cat {
 			t.Errorf("a service's provider has catalogue %p, want %p", got, cat)
 		}
+	}
+}
+
+// dependentProvider is fakeProvider with the service after, which lists
+// from what the other services listed: a resource for each of theirs.
+type dependentProvider struct {
+	fakeProvider
+	listed []harvest.Resource
+	after  *afterService
+}
+
+func (*dependentProvider) DependentServices() []string { return []string{"after"} }
+
+func (p *dependentProvider) SetListedByOthers(resources []harvest.Resource) { p.listed = resources }
+
+func (p *dependentProvider) Select(name string, verbose bool) error {
+	if name != "after" {
+		return p.fakeProvider.Select(name, verbose)
+	}
+	p.after = &afterService{listed: p.listed}
+	p.after.Configure(harvest.ListerConfig{Service: name})
+	return nil
+}
+
+func (p *dependentProvider) Selected() harvest.Lister {
+	if p.after != nil {
+		return p.after
+	}
+	return p.fakeProvider.Selected()
+}
+
+// afterService lists a fake_after for each resource its provider was
+// given when it was selected.
+type afterService struct {
+	harvest.ListerBase
+	listed []harvest.Resource
+}
+
+func (s *afterService) List() error {
+	for _, r := range s.listed {
+		s.Resources = append(s.Resources, harvest.RecordBare(r.Observed.ID+"/after", "after", "fake_after", "fake"))
+	}
+	return nil
+}
+
+// A dependent service lists once the others are done, wherever --services
+// names it, from what they listed: what a service that failed in part
+// listed too, and nothing of one that failed.
+func TestListServicesListsDependentServicesAfterTheOthers(t *testing.T) {
+	registry := harvest.NewRegistry(&dependentProvider{})
+
+	failures, err := listServices(t.Context(), registry, Options{Services: []string{"after", "good", "bad", "partial"}, ListParallel: 4}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(failures) != 2 {
+		t.Errorf("want the failures of bad and partial, got %v", failures)
+	}
+	var got []string
+	for _, r := range registry.ByService()["after"] {
+		got = append(got, r.Observed.ID)
+	}
+	if want := []string{"id-1/after", "id-2/after"}; !slices.Equal(got, want) {
+		t.Errorf("after listed %v, want %v", got, want)
 	}
 }
 
