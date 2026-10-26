@@ -513,6 +513,20 @@ func TestModuleOptions(t *testing.T) {
 	}
 }
 
+// An import scoped to CloudFormation stacks keeps every resource in the
+// root, whatever --modules says: the stacks' templates are carried into
+// the resource blocks there, which a module call hides.
+func TestModulesMode(t *testing.T) {
+	for _, mode := range []string{"", ModulesRegistry, ModulesLatestUntested, ModulesLocal, ModulesNone} {
+		if got := modulesMode(Options{Modules: mode}); got != mode {
+			t.Errorf("--modules %q: mode %q", mode, got)
+		}
+		if got := modulesMode(Options{Modules: mode, CloudFormationStacks: []string{"app"}}); got != ModulesNone {
+			t.Errorf("--modules %q with --cfn-stack: mode %q, want %q", mode, got, ModulesNone)
+		}
+	}
+}
+
 // The command's context ends with its parent's, and stop releases it.
 func TestInterruptContext(t *testing.T) {
 	parent, cancel := context.WithCancel(t.Context())
