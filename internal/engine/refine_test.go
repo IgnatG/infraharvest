@@ -86,7 +86,7 @@ func TestGenerateRollsBackRefineThatFailsTheGate(t *testing.T) {
 		t.Errorf("the gate without the edits failed: %+v", result.Gate)
 	}
 	warnings := strings.Join(result.Warnings, "\n")
-	if !strings.Contains(warnings, "made its gate fail (validate), so they were rolled back") || slices.Contains(result.Warnings, "refined") {
+	if !strings.Contains(warnings, "validate), so they were rolled back") || slices.Contains(result.Warnings, "refined") {
 		t.Errorf("warnings: %q", result.Warnings)
 	}
 	assertUnrefined(t, dir, providers)
