@@ -56,6 +56,17 @@ func TestServicesFromConfig(t *testing.T) {
 	if ran {
 		t.Error("the import ran without services")
 	}
+
+	// --cfn-stack picks the services from the stacks' resources.
+	cmd = fakeProviderCommand(func(importer.Options) error { ran = true; return nil })
+	cmd.Flags().StringArray("cfn-stack", nil, "")
+	cmd.SetArgs([]string{"--engine", "terraform", "--cfn-stack", "app"})
+	if err := cmd.Execute(); err != nil {
+		t.Errorf("with --cfn-stack and no --services: %v", err)
+	}
+	if !ran {
+		t.Error("the import didn't run with --cfn-stack and no --services")
+	}
 }
 
 func TestLayout(t *testing.T) {
