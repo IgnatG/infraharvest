@@ -93,6 +93,7 @@ infraharvest discover azure
 |---|---|---|
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
+| `--azapi` |  | import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out |
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
@@ -278,6 +279,7 @@ infraharvest import azure
 |---|---|---|
 | `--all` |  | import everything the default selection includes, without a selection file |
 | `--allow-partial` |  | keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1 |
+| `--azapi` |  | import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out |
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
