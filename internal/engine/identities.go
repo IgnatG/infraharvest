@@ -97,11 +97,19 @@ func (id identity) replacement() replacement {
 // computes them: an API's root resource and execution ARN, a KMS key's
 // key ID, a hosted zone's ID, a load balancer's DNS name and zone, the
 // domain names and zones of a distribution and a bucket, a
-// managed identity's principal. Terraform writes every argument into the
-// configuration it generates, so an attribute it didn't write is computed
-// only, as the schema says; one it wrote names something else, such as a
-// role assignment's principal_id.
-var computedIdentities = []string{"execution_arn", "root_resource_id", "key_id", "zone_id", "hosted_zone_id", "dns_name", "domain_name", "bucket_regional_domain_name", "bucket_domain_name", "fqdn", "arn_suffix", "principal_id", "client_id", "unique_id"}
+// managed identity's principal, an Azure role definition's resource ID,
+// which role assignments name it by (its id has the scope too). Terraform
+// writes every argument into the configuration it generates, so an
+// attribute it didn't write is computed only, as the schema says; one it
+// wrote names something else, such as a role assignment's principal_id.
+var computedIdentities = []string{"execution_arn", "root_resource_id", "key_id", "zone_id", "hosted_zone_id", "dns_name", "domain_name", "bucket_regional_domain_name", "bucket_domain_name", "fqdn", "arn_suffix", "principal_id", "client_id", "unique_id", "role_definition_resource_id"}
+
+// nestedIdentities are the attributes of nested blocks that identify the
+// resource that has them, by block: the principal of an Azure resource's
+// system-assigned identity, identity[0].principal_id, which a role
+// assignment grants a role to. The provider computes them, and a resource
+// has one such block at most.
+var nestedIdentities = map[string]string{"identity": "principal_id"}
 
 // identityAttributes are the attributes identityIndex indexes, in the
 // order a reference prefers them when a resource has the same value in
@@ -164,7 +172,8 @@ func numberString(v any) (string, bool) {
 //     for a KMS key's key_id), or its ID is distinctive and the argument
 //     takes IDs (an API's root resource as a parent_id);
 //   - the other attributes that identify a resource (see
-//     computedIdentities), and an ECS task definition's family:revision;
+//     computedIdentities and nestedIdentities), and an ECS task
+//     definition's family:revision;
 //   - IDs and ARNs inside a longer string, whole between its / and :
 //     separators: "integrations/${aws_apigatewayv2_integration.x.id}";
 //   - an Azure resource's location, as its resource group's (see
@@ -201,6 +210,11 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 			named := nameAttributes[key] || attrs["name"] == v || attrs["function_name"] == v || attrs["bucket"] == v || attrs["family"] == v
 			x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: key, named: named})
 		}
+		for block, key := range nestedIdentities {
+			if v := nestedIdentity(attrs, block, key); v != "" && !shared[v] {
+				x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: block + "[0]." + key})
+			}
+		}
 		if derive, ok := derivedIdentities[resourceTypeOf(address)]; ok {
 			if v, parts, ok := derive(address, attrs); ok {
 				x.byValue[v] = append(x.byValue[v], identity{address: address, named: true, parts: parts})
@@ -208,6 +222,20 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 		}
 	}
 	return x
+}
+
+// nestedIdentity returns the string key of the one block of attrs, as a
+// plan's JSON has it, a list of one object, or "" where there is none,
+// such as the identity of a resource with a user-assigned identity alone,
+// whose principal_id is empty.
+func nestedIdentity(attrs map[string]any, block, key string) string {
+	blocks, _ := attrs[block].([]any)
+	if len(blocks) != 1 {
+		return ""
+	}
+	object, _ := blocks[0].(map[string]any)
+	v, _ := object[key].(string)
+	return v
 }
 
 // writtenArguments returns the arguments and nested blocks each resource

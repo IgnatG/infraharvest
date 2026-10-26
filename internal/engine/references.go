@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -17,7 +18,9 @@ import (
 
 // referenceTarget is a resource attribute a literal can refer to instead.
 type referenceTarget struct {
-	address   string
+	address string
+	// attribute is the attribute's name, or its path in a nested block,
+	// such as identity[0].principal_id (see nestedIdentities).
 	attribute string
 	// data is set for a data source (see addDataSources).
 	data bool
@@ -25,11 +28,25 @@ type referenceTarget struct {
 
 func (t referenceTarget) traversal() hcl.Traversal {
 	typ, name, _ := strings.Cut(t.address, ".")
-	steps := hcl.Traversal{hcl.TraverseAttr{Name: typ}, hcl.TraverseAttr{Name: name}, hcl.TraverseAttr{Name: t.attribute}}
+	steps := append(hcl.Traversal{hcl.TraverseAttr{Name: typ}, hcl.TraverseAttr{Name: name}}, attributeSteps(t.attribute)...)
 	if t.data {
 		return append(hcl.Traversal{hcl.TraverseRoot{Name: "data"}}, steps...)
 	}
 	return append(hcl.Traversal{hcl.TraverseRoot{Name: typ}}, steps[1:]...)
+}
+
+// attributeSteps are the steps of an attribute's path: its name, or the
+// block, index and name of one in a nested block, as identity[0].principal_id.
+func attributeSteps(attribute string) hcl.Traversal {
+	var steps hcl.Traversal
+	for _, step := range strings.Split(attribute, ".") {
+		name, index, indexed := strings.Cut(step, "[")
+		steps = append(steps, hcl.TraverseAttr{Name: name})
+		if n, err := strconv.Atoi(strings.TrimSuffix(index, "]")); indexed && err == nil {
+			steps = append(steps, hcl.TraverseIndex{Key: cty.NumberIntVal(int64(n))})
+		}
+	}
+	return steps
 }
 
 // node is the target's name in the dependency graph.

@@ -39,6 +39,15 @@ func (l lookup) key() string {
 // uuid matches a UUID, such as an Azure tenant's ID.
 var uuid = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// subscriptionScope matches an Azure subscription's ID as a scope,
+// /subscriptions/<subscription>, which azurerm_subscription's id is.
+var subscriptionScope = regexp.MustCompile(`^/subscriptions/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// subscriptionScopes are the azurerm arguments that take a scope, which
+// can be the subscription: a role assignment's and a role definition's,
+// and where a role definition can be assigned.
+var subscriptionScopes = map[string]bool{"scope": true, "assignable_scopes": true}
+
 // kmsKeyARN matches the ARN of a KMS key.
 var kmsKeyARN = regexp.MustCompile(`^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$`)
 
@@ -90,6 +99,11 @@ func lookupFor(resourceType, argument, value string) (lookup, bool) {
 	// resource's.
 	if strings.HasPrefix(resourceType, "azurerm_") && argument == "tenant_id" && uuid.MatchString(value) {
 		return lookup{typ: "azurerm_client_config", name: "current", attribute: "tenant_id"}, true
+	}
+	// The subscription the provider signs in to, as the scope of a role
+	// assignment or a role definition; the plan checks it is the same.
+	if strings.HasPrefix(resourceType, "azurerm_") && subscriptionScopes[argument] && subscriptionScope.MatchString(value) {
+		return lookup{typ: "azurerm_subscription", name: "current", attribute: "id"}, true
 	}
 	if p, ok := managedPolicies[argument]; ok && strings.HasPrefix(resourceType, "aws_cloudfront_") {
 		if name, ok := p.names[value]; ok {
