@@ -32,7 +32,19 @@ func thingMetadata() *schemameta.File {
 
 // exactHints are the hints of f for a root that uses its release.
 func exactHints(f *schemameta.File) schemaHints {
-	return schemaHints{file: f, exact: true, constrained: constrainedOf(f)}
+	return schemaHints{file: f, exact: true, defaults: true, constrained: constrainedOf(f)}
+}
+
+// otherMajorHints are the hints of f for a root that uses a release of
+// another major version.
+func otherMajorHints(f *schemameta.File) schemaHints {
+	return schemaHints{file: f, constrained: constrainedOf(f)}
+}
+
+// sameMajorHints are the hints of f for a root that uses another release
+// of its major version.
+func sameMajorHints(f *schemameta.File) schemaHints {
+	return schemaHints{file: f, defaults: true, constrained: constrainedOf(f)}
 }
 
 // count returns how many of calls are call.
@@ -74,8 +86,8 @@ func TestStripDefaultsWithSchemaMetadata(t *testing.T) {
 	t.Logf("plans: 1 with the metadata, 2 without (TestStripDefaults)")
 }
 
-// Metadata of another release only suggests: stripDefaults plans as it
-// does without any.
+// Metadata of another major version only suggests: stripDefaults plans as
+// it does without any.
 func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 	t.Parallel()
 	dir, changes := thingRoot(t)
@@ -83,10 +95,7 @@ func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 		resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"retries": 0}, map[string]any{"retries": 3}),
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
-	hints := exactHints(thingMetadata())
-	hints.exact = false
-
-	if _, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: hints}); err != nil {
+	if _, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: otherMajorHints(thingMetadata())}); err != nil {
 		t.Fatal(err)
 	}
 	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
@@ -97,10 +106,10 @@ func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 	}
 }
 
-// Nulls and proven defaults alone need no validation, and a plan that
-// differs on the resource can't be about them.
-func TestStripDefaultsProvenDefaultsNeedNoValidation(t *testing.T) {
-	t.Parallel()
+// provenRoot is a root whose resource sets nothing but its name, a null
+// and two values thingMetadata names as defaults.
+func provenRoot(t *testing.T) (string, map[string]string) {
+	t.Helper()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, `resource "aws_thing" "a" {
   name        = "a"
@@ -114,22 +123,69 @@ func TestStripDefaultsProvenDefaultsNeedNoValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(content))
-	changes := map[string]string{"aws_thing.a": changeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
-	// As an emulator's plan may: a change that leaving out defaults
-	// can't have made.
-	noisy := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
-		resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"name": "a"}, map[string]any{"name": "b"}),
-	}}
-	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{noisy}}
+	return dir, map[string]string{"aws_thing.a": changeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: exactHints(thingMetadata())})
-	if err != nil || !stripped {
-		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+// Nulls and proven defaults alone need no validation, for the metadata's
+// own release and another of its major version alike.
+func TestStripDefaultsProvenDefaultsNeedNoValidation(t *testing.T) {
+	t.Parallel()
+	for name, hints := range map[string]schemaHints{"exact": exactHints(thingMetadata()), "same major": sameMajorHints(thingMetadata())} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir, changes := provenRoot(t)
+			tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{importedPlan("aws_thing.a")}}
+
+			stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: hints})
+			if err != nil || !stripped {
+				t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
+			}
+			if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show" {
+				t.Errorf("calls: %s", calls)
+			}
+			if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" }` {
+				t.Errorf("generated.tf:\n%s", got)
+			}
+		})
 	}
-	if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show" {
+}
+
+// A proven default the plan shows changing the resource, as a wrong
+// default or one of another release would, goes back, as any candidate
+// behind a difference does; the others stay out.
+func TestStripDefaultsCorrectsWrongProvenDefaults(t *testing.T) {
+	t.Parallel()
+	dir, changes := provenRoot(t)
+	// Without retries = 3, the provider plans 5: the metadata is wrong.
+	wrong := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"retries": 3}, map[string]any{"retries": 5}),
+	}}
+	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{wrong, importedPlan("aws_thing.a")}}
+
+	stripped, last, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
+	if err != nil || !stripped || last == nil {
+		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v, %v", stripped, last, err)
+	}
+	if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show,plan,show" {
 		t.Errorf("calls: %s", calls)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" }` {
+	if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" retries = 3 }` {
+		t.Errorf("generated.tf:\n%s", got)
+	}
+}
+
+// Where the plan can't settle anything, the proven defaults of another
+// release than the metadata's stay: no plan would correct a wrong one.
+func TestStripDefaultsKeepsSameMajorDefaultsOnErrors(t *testing.T) {
+	t.Parallel()
+	dir, changes := provenRoot(t)
+	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
+
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
+	if err != nil || !stripped {
+		t.Fatalf("want the null stripped, got %v, %v", stripped, err)
+	}
+	if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" enabled = false retries = 3 }` {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }
@@ -181,8 +237,8 @@ func TestSchemaHints(t *testing.T) {
 		}},
 	}}
 	exact := exactHints(meta)
-	other := exactHints(meta)
-	other.exact = false
+	other := otherMajorHints(meta)
+	major := sameMajorHints(meta)
 	for _, tc := range []struct {
 		typ, path, value      string
 		proven, setting, fwok bool
@@ -192,6 +248,11 @@ func TestSchemaHints(t *testing.T) {
 		{"sdk", "retries", "3.0", true, false, false, exact},
 		{"sdk", "retries", "0", false, true, false, exact},
 		{"sdk", "retries", "3", false, false, false, other},
+		// Another release of the major version proves defaults, but
+		// nothing else.
+		{"sdk", "retries", "3", true, false, false, major},
+		{"sdk", "retries", "0", false, false, false, major},
+		{"sdk", "one", "false", false, false, false, major},
 		{"sdk", "mode", `"auto"`, true, false, false, exact},
 		{"sdk", "mode", `"manual"`, false, true, false, exact},
 		{"sdk", "lower", `"AUTO"`, false, false, false, exact},
@@ -259,25 +320,36 @@ func TestRemoveDefaultsFrameworkDefaults(t *testing.T) {
 func TestSchemaHintsFor(t *testing.T) {
 	t.Parallel()
 	meta := thingMetadata()
-	lock := func(version string) string {
+	// lock is a root whose lock file records version from registry, as
+	// Terraform (registry.terraform.io) or OpenTofu (registry.opentofu.org)
+	// writes it.
+	lock := func(registry, version string) string {
 		dir := t.TempDir()
-		writeConfig(t, dir, LockFileName, `provider "registry.terraform.io/hashicorp/aws" {
+		writeConfig(t, dir, LockFileName, `provider "`+registry+`/hashicorp/aws" {
   version     = "`+version+`"
   constraints = "~> 6.70"
 }
 `)
 		return dir
 	}
-	if h := schemaHintsFor(lock("6.70.0"), meta); !h.exact || h.file != meta {
-		t.Errorf("the release the lock records: want exact hints, got %+v", h)
+	for _, tc := range []struct {
+		name            string
+		dir             string
+		exact, defaults bool
+	}{
+		{"the release the lock records", lock("registry.terraform.io", "6.70.0"), true, true},
+		{"OpenTofu's lock", lock("registry.opentofu.org", "6.70.0"), true, true},
+		{"another release of the major version", lock("registry.terraform.io", "6.71.0"), false, true},
+		{"OpenTofu, another release of the major version", lock("registry.opentofu.org", "6.69.1"), false, true},
+		{"another major version", lock("registry.terraform.io", "7.0.0"), false, false},
+		{"no lock file", t.TempDir(), false, false},
+	} {
+		h := schemaHintsFor(tc.dir, meta)
+		if h.file != meta || h.exact != tc.exact || h.defaults != tc.defaults {
+			t.Errorf("%s: got exact=%v defaults=%v, want %v, %v", tc.name, h.exact, h.defaults, tc.exact, tc.defaults)
+		}
 	}
-	if h := schemaHintsFor(lock("6.71.0"), meta); h.exact || h.file != meta {
-		t.Errorf("another release: want hints only, got %+v", h)
-	}
-	if h := schemaHintsFor(t.TempDir(), meta); h.exact {
-		t.Errorf("no lock file: want hints only, got %+v", h)
-	}
-	if h := schemaHintsFor(t.TempDir(), nil); h.file != nil || h.exact {
+	if h := schemaHintsFor(t.TempDir(), nil); h.file != nil || h.exact || h.defaults {
 		t.Errorf("no metadata: want none, got %+v", h)
 	}
 }
@@ -309,7 +381,8 @@ func subnetMetadata() *schemameta.File {
 // The metadata settles the conflicts TestRemoveRejected and
 // TestRemoveRejectedBlocksAndObjects have validation report, the same way:
 // the later of two attributes goes, or the zero one, and an attribute
-// gives way to blocks; in nested blocks too.
+// gives way to blocks. Nested blocks are left alone: the provider checks
+// their pairs in the first block only (see resolveConflicts).
 func TestResolveConflicts(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), GeneratedFileName)
@@ -318,6 +391,10 @@ resource "aws_route" "e" {
   target {
     gateway_id     = "igw-1"
     nat_gateway_id = "nat-1"
+  }
+  target {
+    gateway_id     = "igw-2"
+    nat_gateway_id = "nat-2"
   }
 }
 
@@ -336,12 +413,13 @@ resource "aws_subnet" "f" {
 	}
 
 	got := squashed(readFile(t, filepath.Dir(path), GeneratedFileName))
-	for _, removed := range []string{`availability_zone_id = "us-east-1-az1"`, "warm_throughput_mib_ps", "subnets =", "nat_gateway_id"} {
+	for _, removed := range []string{`availability_zone_id = "us-east-1-az1"`, "warm_throughput_mib_ps", "subnets ="} {
 		if strings.Contains(got, removed) {
 			t.Errorf("%s not removed:\n%s", removed, got)
 		}
 	}
-	for _, kept := range []string{`availability_zone = "us-east-1a"`, "shard_count = 1", "subnet_mapping {", `gateway_id = "igw-1"`, "availability_zone_id = null", "enable_lni_at_device_index = 0"} {
+	for _, kept := range []string{`availability_zone = "us-east-1a"`, "shard_count = 1", "subnet_mapping {", "availability_zone_id = null", "enable_lni_at_device_index = 0",
+		`gateway_id = "igw-1" nat_gateway_id = "nat-1"`, `gateway_id = "igw-2" nat_gateway_id = "nat-2"`} {
 		if !strings.Contains(got, kept) {
 			t.Errorf("%s not kept:\n%s", kept, got)
 		}
@@ -371,6 +449,54 @@ func TestResolveConflictsNeedsTheExactRelease(t *testing.T) {
 	hints.exact = false
 	if changed, err := resolveConflicts(path, hints); err != nil || changed {
 		t.Errorf("changed=%v err=%v, want no change", changed, err)
+	}
+}
+
+// generatedEventRule is what Terraform generates for an EventBridge rule:
+// is_enabled and state, which conflict, from the same remote value.
+const generatedEventRule = `resource "aws_cloudwatch_event_rule" "a" {
+  is_enabled = true
+  name       = "nightly"
+  state      = "DISABLED"
+}
+`
+
+// With the catalogue leaving out one of a conflicting pair, the other
+// stays: settling the conflict first would drop state, then the omission
+// is_enabled, and lose the setting.
+func TestGenerateSettlesConflictsAfterOmissions(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	meta := &schemameta.File{Provider: "registry.terraform.io/hashicorp/aws", Version: "6.70.0", Resources: map[string]*schemameta.Resource{
+		"aws_cloudwatch_event_rule": {Arguments: map[string]*schemameta.Argument{
+			"is_enabled": {ConflictsWith: []string{"state"}},
+			"state":      {ConflictsWith: []string{"is_enabled"}},
+		}},
+	}}
+	conflict := "Conflicting configuration arguments"
+	tf := &fakeTerraform{dir: dir, generated: generatedEventRule, plans: []fakePlan{{diags: []tfjson.Diagnostic{
+		errorAt(2, conflict, `"is_enabled": conflicts with state`),
+		errorAt(4, conflict, `"state": conflicts with is_enabled`),
+	}}}}
+	tf.onInit = func() {
+		if err := os.WriteFile(filepath.Join(dir, LockFileName), []byte(subnetLock), 0o644); err != nil {
+			t.Error(err)
+		}
+	}
+
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_cloudwatch_event_rule", Name: "a", ID: "default/nightly"}}, Options{
+		SchemaMetadata: meta,
+		Omit:           map[string][]string{"aws_cloudwatch_event_rule": {"is_enabled"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rejected) != 0 {
+		t.Errorf("want nothing left out, got %+v", result.Rejected)
+	}
+	got := squashed(readFile(t, dir, GeneratedFileName))
+	if !strings.Contains(got, `state = "DISABLED"`) || strings.Contains(got, "is_enabled") {
+		t.Errorf("want state kept and is_enabled left out:\n%s", got)
 	}
 }
 
