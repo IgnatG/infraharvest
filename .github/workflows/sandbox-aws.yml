@@ -7,16 +7,18 @@
 # ElastiCache replication group and an EKS cluster, which take longer and
 # cost more, so it runs only when asked for; so does data
 # (TestSandboxAWSData): an EC2 instance, a Lambda function, an RDS
-# database, a Redshift cluster and an S3 bucket, destroyed straight after.
+# database, a Redshift cluster and an S3 bucket, destroyed straight after;
+# and cfn (TestSandboxAWSCloudFormation): two CloudFormation stacks, which
+# the test moves to Terraform with --cfn-stack, deleting them as it goes.
 name: Sandbox (AWS)
 
 on:
   workflow_dispatch:
     inputs:
       estate:
-        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer)
+        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer; cfn is two CloudFormation stacks, moved to Terraform with --cfn-stack)
         type: choice
-        options: [main, clusters, data]
+        options: [main, clusters, data, cfn]
         default: main
       engine:
         description: Engine to import with
@@ -131,6 +133,7 @@ jobs:
           main) test=TestSandboxAWS timeout=120m ;;
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
           data) test=TestSandboxAWSData timeout=90m ;;
+          cfn) test=TestSandboxAWSCloudFormation timeout=100m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/
