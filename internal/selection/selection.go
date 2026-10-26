@@ -41,6 +41,10 @@ type File struct {
 	// IncludeOwned lets rules include what another Terraform state or tool
 	// manages (see Owned), as --include-owned does. It isn't saved.
 	IncludeOwned bool `yaml:"-"`
+	// Refresh says which of the reasons infraharvest gave its entries the
+	// discover that Merge takes the listing of found again in full, so that
+	// Merge may change them (see Merge). It isn't saved.
+	Refresh Refresh `yaml:"-"`
 
 	// byKey indexes Resources by scope, type and ID (see key); anyScope by
 	// type and ID only, for lookups that don't know the scope. indexMu
@@ -49,6 +53,33 @@ type File struct {
 	indexMu  sync.Mutex
 	byKey    map[string]*Resource
 	anyScope map[string]*Resource
+}
+
+// Refresh says which kinds of reason a discover worked out again in full
+// for what it listed: a reason of a kind it did is up to date in the
+// listing, which has none where the resource no longer has one.
+type Refresh struct {
+	// State: what the states of --managed-state have (see
+	// report.OwnerTerraformState).
+	State bool
+	// Tags: what the tags and labels say manages a resource (see
+	// report.ByTag); not with --include-owned, which doesn't look.
+	Tags bool
+	// Defaults: the provider's default selection, such as what the cloud
+	// manages itself or what CloudFormation stacks list.
+	Defaults bool
+}
+
+// covers reports whether r says reason, of an entry, is up to date in the
+// listing.
+func (r Refresh) covers(reason string) bool {
+	switch {
+	case report.ByTag(reason):
+		return r.Tags
+	case report.OwnerOf(reason) == report.OwnerTerraformState:
+		return r.State
+	}
+	return r.Defaults
 }
 
 // Defaults decide resources nothing else decides.
@@ -136,7 +167,7 @@ func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]st
 		}
 		reason := r.Reason
 		if reason == "" {
-			reason = "excluded in the selection file"
+			reason = report.ReasonSelectionEntry
 		}
 		return Decision{Reason: reason}
 	}
@@ -146,7 +177,7 @@ func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]st
 	if f.Defaults.Include {
 		return Decision{Include: true}
 	}
-	return Decision{Reason: "excluded by the selection file's defaults"}
+	return Decision{Reason: report.ReasonSelectionDefaults}
 }
 
 // MayInclude reports whether f may include a resource of resourceType
@@ -177,7 +208,7 @@ func (f *File) ByRule(resourceType, id, name string, tags map[string]string) (De
 			decision, matched = Decision{Include: true}, true
 		}
 		if rule.Exclude != nil && rule.Exclude.matches(resourceType, id, name, tags) {
-			decision, matched = Decision{Reason: "excluded by a rule in the selection file"}, true
+			decision, matched = Decision{Reason: report.ReasonSelectionRule}, true
 		}
 	}
 	return decision, matched
@@ -297,7 +328,9 @@ const header = `# infraharvest selection file: which listed resources to import.
 # includes it.
 #
 # Running discover again updates this file: entries keep their decisions and
-# notes, resources no longer found where it listed are dropped (entries of
+# notes, but those discover made follow what manages each resource now (an
+# entry with a note, or one you included or excluded, stays as you left it),
+# resources no longer found where it listed are dropped (entries of
 # accounts, regions and services it didn't list stay), and new ones are
 # added with new: true, decided by the rules and defaults. Review them, then
 # remove the mark.
@@ -387,9 +420,9 @@ func (f *File) index() {
 }
 
 // Merge updates f with the resources discover listed now. Entries f has
-// keep their decisions and notes, except that one included without a note
-// is excluded once Terraform manages the resource (listed's reason says
-// so), marked New for review. Listed resources it lacks are added with New
+// keep their decisions and notes, but for the decisions infraharvest made,
+// which follow what manages the resource now (see refresh), marked New for
+// review where that changes. Listed resources it lacks are added with New
 // set: decided by f's rules if one matches (see ByRuleFor), else excluded
 // with listed's reason if listed excludes them (the provider's defaults),
 // else by f's defaults. An entry no longer listed is dropped only if covered reports
@@ -417,9 +450,7 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 			if l.Service != "" {
 				m.Service = l.Service
 			}
-			if m.Include && m.Note == "" && isManaged(l.Reason) {
-				m.Include, m.Reason, m.New = false, l.Reason, true
-			}
+			f.refresh(&m, l)
 			merged = append(merged, m)
 			continue
 		}
@@ -446,6 +477,49 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 	f.Resources = merged
 	f.byKey, f.anyScope = nil, nil
 	return added, dropped
+}
+
+// refresh brings the decision of entry m up to date with l, the same
+// resource as discover lists it now, where the decision is infraharvest's
+// rather than people's. People decide an entry with a note, one they
+// include although the default selection excluded it (it keeps the
+// reason), one they exclude (without a reason), and, by the file's rules
+// and defaults, those with a reason of the selection file's own (see
+// report.OwnerSelection). Those stay as they are. Otherwise:
+//
+//   - an entry included without a reason is excluded once Terraform,
+//     CloudFormation or another tool manages the resource (see Owned);
+//   - an entry excluded with infraharvest's reason takes the reason l has
+//     now, where Refresh says the run worked that kind out again, or, if l
+//     has none, is decided again by the rules and defaults, as a new entry
+//     would be.
+//
+// A change of what manages the resource, or of whether it is included,
+// marks the entry New for review.
+func (f *File) refresh(m *Resource, l Resource) {
+	switch {
+	case m.Note != "":
+	case m.Include:
+		if m.Reason == "" && Owned(l.Reason) {
+			m.Include, m.Reason, m.New = false, l.Reason, true
+		}
+	case m.Reason == "" || report.OwnerOf(m.Reason) == report.OwnerSelection || m.Reason == l.Reason:
+	case !f.Refresh.covers(m.Reason):
+	case l.Reason != "":
+		if report.OwnerOf(l.Reason) != report.OwnerOf(m.Reason) {
+			m.New = true
+		}
+		m.Reason = l.Reason
+	default:
+		d, ok := f.ByRuleFor(l.Type, l.ID, l.Name, l.Tags, "")
+		if !ok {
+			d = Decision{Include: f.Defaults.Include}
+			if !d.Include {
+				d.Reason = report.ReasonSelectionDefaults
+			}
+		}
+		m.Include, m.Reason, m.New = d.Include, d.Reason, true
+	}
 }
 
 // isManaged reports whether reason says Terraform already manages the

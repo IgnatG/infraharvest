@@ -526,3 +526,94 @@ func TestOwned(t *testing.T) {
 		}
 	}
 }
+
+// Running discover again brings the decisions it made up to date with what
+// manages each resource now, and leaves people's decisions as they are.
+func TestMergeRefreshesReasons(t *testing.T) {
+	t.Parallel()
+	prod := managed.Reason + " (prod.tfstate)"
+	dev := managed.Reason + " (dev.tfstate)"
+	tag := managed.Reason + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)"
+	stack := "managed by CloudFormation stack app"
+	pulumi := "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)"
+	f := &File{
+		Version:  Version,
+		Defaults: Defaults{Include: true},
+		Rules:    []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_queue"}}}},
+		Refresh:  Refresh{State: true, Tags: true, Defaults: true},
+		Resources: []Resource{
+			{Type: "aws_s3_bucket", ID: "to-stack", Include: true},
+			{Type: "aws_s3_bucket", ID: "to-pulumi", Include: true},
+			{Type: "aws_vpc", ID: "vpc-default", Include: true, Reason: "default VPC"},
+			{Type: "aws_s3_bucket", ID: "noted", Include: true, Note: "ours now"},
+			{Type: "aws_s3_bucket", ID: "left-state", Reason: prod},
+			{Type: "aws_s3_bucket", ID: "left-tag", Reason: tag},
+			{Type: "aws_s3_bucket", ID: "state-to-stack", Reason: prod},
+			{Type: "aws_s3_bucket", ID: "other-state", Reason: prod},
+			{Type: "aws_s3_bucket", ID: "excluded", Include: false},
+			{Type: "aws_s3_bucket", ID: "by-rule", Reason: "excluded by a rule in the selection file"},
+			{Type: "aws_sqs_queue", ID: "jobs", Reason: prod},
+		},
+	}
+
+	f.Merge([]Resource{
+		{Type: "aws_s3_bucket", ID: "to-stack", Reason: stack},
+		{Type: "aws_s3_bucket", ID: "to-pulumi", Reason: pulumi},
+		{Type: "aws_vpc", ID: "vpc-default", Reason: stack},
+		{Type: "aws_s3_bucket", ID: "noted", Reason: stack},
+		{Type: "aws_s3_bucket", ID: "left-state", Include: true},
+		{Type: "aws_s3_bucket", ID: "left-tag", Include: true},
+		{Type: "aws_s3_bucket", ID: "state-to-stack", Reason: stack},
+		{Type: "aws_s3_bucket", ID: "other-state", Reason: dev},
+		{Type: "aws_s3_bucket", ID: "excluded", Include: true},
+		{Type: "aws_s3_bucket", ID: "by-rule", Include: true},
+		{Type: "aws_sqs_queue", ID: "jobs", Include: true},
+	}, nil)
+
+	want := map[string]Resource{
+		"to-stack":       {Type: "aws_s3_bucket", ID: "to-stack", Reason: stack, New: true},
+		"to-pulumi":      {Type: "aws_s3_bucket", ID: "to-pulumi", Reason: pulumi, New: true},
+		"vpc-default":    {Type: "aws_vpc", ID: "vpc-default", Include: true, Reason: "default VPC"},
+		"noted":          {Type: "aws_s3_bucket", ID: "noted", Include: true, Note: "ours now"},
+		"left-state":     {Type: "aws_s3_bucket", ID: "left-state", Include: true, New: true},
+		"left-tag":       {Type: "aws_s3_bucket", ID: "left-tag", Include: true, New: true},
+		"state-to-stack": {Type: "aws_s3_bucket", ID: "state-to-stack", Reason: stack, New: true},
+		"other-state":    {Type: "aws_s3_bucket", ID: "other-state", Reason: dev},
+		"excluded":       {Type: "aws_s3_bucket", ID: "excluded"},
+		"by-rule":        {Type: "aws_s3_bucket", ID: "by-rule", Reason: "excluded by a rule in the selection file"},
+		"jobs":           {Type: "aws_sqs_queue", ID: "jobs", Reason: "excluded by a rule in the selection file", New: true},
+	}
+	if len(f.Resources) != len(want) {
+		t.Fatalf("resources: %+v", f.Resources)
+	}
+	for _, r := range f.Resources {
+		if !reflect.DeepEqual(r, want[r.ID]) {
+			t.Errorf("%s: got %+v, want %+v", r.ID, r, want[r.ID])
+		}
+	}
+}
+
+// A reason of a kind the run didn't work out again, such as without
+// --managed-state, or after tags that failed to read, stays as it is.
+func TestMergeKeepsReasonsItDidNotWorkOut(t *testing.T) {
+	t.Parallel()
+	state := managed.Reason + " (prod.tfstate)"
+	tag := "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)"
+	for _, refresh := range []Refresh{{}, {Defaults: true}} {
+		f := &File{Version: Version, Defaults: Defaults{Include: true}, Refresh: refresh, Resources: []Resource{
+			{Type: "aws_s3_bucket", ID: "state", Reason: state},
+			{Type: "aws_s3_bucket", ID: "tag", Reason: tag},
+		}}
+
+		f.Merge([]Resource{
+			{Type: "aws_s3_bucket", ID: "state", Reason: "default bucket"},
+			{Type: "aws_s3_bucket", ID: "tag", Include: true},
+		}, nil)
+
+		for _, r := range f.Resources {
+			if r.Include || r.New || (r.ID == "state" && r.Reason != state) || (r.ID == "tag" && r.Reason != tag) {
+				t.Errorf("%+v: %s changed: %+v", refresh, r.ID, r)
+			}
+		}
+	}
+}
