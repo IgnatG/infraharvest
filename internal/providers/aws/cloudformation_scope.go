@@ -56,6 +56,12 @@ type scopedStack struct {
 	warnings  []string
 	template  *stackTemplate
 	resources []*scopedResource
+
+	// parameters are the values of its parameters, by name, for a stack
+	// --cfn-stack names (DescribeStacks gives them): an SSM parameter
+	// type's as it resolved, a NoEcho one's masked. A nested stack has
+	// none: they would take a DescribeStacks call each.
+	parameters map[string]string
 }
 
 // scopedResource is a resource of a scopedStack.
@@ -117,6 +123,16 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 			region:  arnRegion(id),
 			status:  string(s.StackStatus),
 			deleted: s.StackStatus == cftypes.StackStatusDeleteComplete,
+		}
+		for _, p := range s.Parameters {
+			if stack.parameters == nil {
+				stack.parameters = map[string]string{}
+			}
+			value := aws.ToString(p.ParameterValue)
+			if resolved := aws.ToString(p.ResolvedValue); resolved != "" {
+				value = resolved
+			}
+			stack.parameters[aws.ToString(p.ParameterKey)] = value
 		}
 		if reason := cat.Skipped("aws_cloudformation_stack", id, map[string]string{"name": stack.name}); reason != "" {
 			stack.warnings = append(stack.warnings, "it is "+reason+": that service may create its resources again, or fail, once they are gone from it")
@@ -430,6 +446,7 @@ func reassignShared(matches []stackMatch, types map[string][]string) {
 // listed resources byResource says it is.
 func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormationMatch) report.CloudFormationStack {
 	stack := report.CloudFormationStack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Warnings: s.warnings}
+	stack.SetParameters(s.parameters)
 	var unretained []string
 	for _, r := range s.resources {
 		stack.Resources = append(stack.Resources, report.CloudFormationResource{
