@@ -5,6 +5,7 @@ package report
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -77,6 +78,15 @@ type CloudFormationStack struct {
 	Status string `json:"status"`
 	// Parent is the ID of the stack this one is nested in, if any.
 	Parent string `json:"parent,omitempty"`
+	// Root is the ID of the top-level stack a nested stack is nested in,
+	// NestedAs the logical ID of its parent's AWS::CloudFormation::Stack
+	// resource that creates it, and TemplateURL that resource's, where it
+	// is a string rather than a function's value: AWS advises updating a
+	// nested stack only through its root, which reads its template from
+	// there (see nestedUpdate).
+	Root        string `json:"root,omitempty"`
+	NestedAs    string `json:"nested_as,omitempty"`
+	TemplateURL string `json:"template_url,omitempty"`
 	// Deleted says CloudFormation deleted the stack already: what it
 	// retained is imported, and nothing is left to delete.
 	Deleted bool `json:"deleted,omitempty"`
@@ -420,7 +430,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 	if len(r.CloudFormationStacks) == 0 {
 		return
 	}
-	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, left out by the selection file or, where Terraform can't import it, acknowledged with `--cfn-ignore`, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, check the change set, apply the roots, then delete the stack.\n")
+	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, left out by the selection file or, where Terraform can't import it, acknowledged with `--cfn-ignore`, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, a nested stack through its root stack, check the change set, apply the roots, then delete the stack.\n")
 	for _, s := range r.CloudFormationStacks {
 		status := s.Status
 		if s.Unreadable != "" {
@@ -448,8 +458,18 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 		}
 		if s.Template != "" {
 			fmt.Fprintf(b, "Template: `%s`.", s.Template)
-			if s.RetainTemplate != "" && !s.Deleted {
-				fmt.Fprintf(b, " With `Retain` added where it lacks it: `%s`; update the stack with it (%s, with the capabilities and parameters it was created with), before deleting the stack.", s.RetainTemplate, s.updateCommand())
+			switch {
+			case s.RetainTemplate == "" || s.Deleted:
+			case r.throughRoot(s):
+				fmt.Fprintf(b, " With `Retain` added where it lacks it: `%s`; AWS advises updating a nested stack only through its root stack, so %s, before deleting the stack.", s.RetainTemplate, r.nestedUpdate(s))
+			default:
+				first := ""
+				if slices.ContainsFunc(r.CloudFormationStacks, func(n CloudFormationStack) bool {
+					return n.Root == s.ID && n.RetainTemplate != "" && !n.Deleted
+				}) {
+					first = ", once the copies of the stacks nested in it are uploaded, as their sections say"
+				}
+				fmt.Fprintf(b, " With `Retain` added where it lacks it: `%s`; update the stack with it (%s, with the capabilities and parameters it was created with)%s, before deleting the stack.", s.RetainTemplate, s.updateCommand(), first)
 			}
 			b.WriteString("\n\n")
 		}
@@ -494,4 +514,85 @@ func (s *CloudFormationStack) updateCommand() string {
 	}
 	key := path.Base(s.RetainTemplate)
 	return fmt.Sprintf("it is larger than the %d bytes `--template-body` takes, so upload it to a bucket of yours first: `aws s3 cp %s s3://<bucket>/%s`, then `aws cloudformation update-stack --stack-name %s --template-url https://<bucket>.s3.%s.amazonaws.com/%s --region %s`", templateBodyLimit, s.RetainTemplate, key, s.Name, s.Region, key, s.Region)
+}
+
+// stack returns the stack of the report whose ID is id, nil if none is.
+func (r *Report) stack(id string) *CloudFormationStack {
+	i := slices.IndexFunc(r.CloudFormationStacks, func(s CloudFormationStack) bool { return s.ID == id })
+	if i < 0 {
+		return nil
+	}
+	return &r.CloudFormationStacks[i]
+}
+
+// throughRoot reports whether s is a nested stack to be updated through
+// its root stack: one no deleted stack retained (DELETE_SKIPPED), which
+// leaves it nested in none that is live, so that it is updated itself.
+func (r *Report) throughRoot(s CloudFormationStack) bool {
+	if s.Parent == "" {
+		return false
+	}
+	for parent := r.stack(s.Parent); parent != nil; parent = r.stack(parent.Parent) {
+		if parent.Deleted {
+			return false
+		}
+	}
+	return true
+}
+
+// nestedUpdate returns how the nested stack s is updated with its copy
+// with Retain added, through its root stack: the copy is uploaded over
+// the template its parent's TemplateURL names, and the root updated, with
+// its own copy if it has one, else with its template as it is, which
+// updates each nested stack whose template changed.
+func (r *Report) nestedUpdate(s CloudFormationStack) string {
+	resource := "the `AWS::CloudFormation::Stack` resource of its parent that creates it"
+	if s.NestedAs != "" {
+		resource = fmt.Sprintf("its parent's `%s`", s.NestedAs)
+	}
+	upload := fmt.Sprintf("upload it over the template the `TemplateURL` of %s names (`aws s3 cp %s s3://<bucket>/<key>`)", resource, s.RetainTemplate)
+	if object := s3Object(s.TemplateURL); object != "" {
+		upload = fmt.Sprintf("upload it over the template the `TemplateURL` of %s names, `aws s3 cp %s %s`", resource, s.RetainTemplate, object)
+	} else if s.TemplateURL != "" {
+		upload = fmt.Sprintf("upload it over the template the `TemplateURL` of %s names, `%s`", resource, s.TemplateURL)
+	}
+	root := r.stack(s.Root)
+	name := "<root stack>"
+	switch {
+	case root != nil:
+		name = root.Name
+	case s.Root != "":
+		name = s.Root
+	}
+	if root != nil && root.RetainTemplate != "" {
+		return fmt.Sprintf("%s, then update the root stack `%s` with its own copy, as its section says, which updates this one from there", upload, name)
+	}
+	return fmt.Sprintf("%s, then update the root stack `%s`, which updates this one from there: `aws cloudformation update-stack --stack-name %s --use-previous-template --parameters ParameterKey=<name>,UsePreviousValue=true --region %s`, with `ParameterKey=<name>,UsePreviousValue=true` for each of its parameters and the capabilities it was created with", upload, name, name, s.Region)
+}
+
+// s3Object returns the S3 URI, s3://<bucket>/<key>, of the object an S3
+// URL names, virtual-hosted (https://<bucket>.s3.<region>.amazonaws.com/<key>)
+// or path-style (https://s3.<region>.amazonaws.com/<bucket>/<key>), ""
+// for what isn't one.
+func s3Object(objectURL string) string {
+	u, err := url.Parse(objectURL)
+	if err != nil || u.Scheme != "https" {
+		return ""
+	}
+	host, key := u.Hostname(), strings.TrimPrefix(u.Path, "/")
+	if !strings.Contains(host, ".amazonaws.com") || key == "" {
+		return ""
+	}
+	if strings.HasPrefix(host, "s3.") || strings.HasPrefix(host, "s3-") {
+		bucket, rest, ok := strings.Cut(key, "/")
+		if !ok || bucket == "" || rest == "" {
+			return ""
+		}
+		return "s3://" + bucket + "/" + rest
+	}
+	i := max(strings.LastIndex(host, ".s3."), strings.LastIndex(host, ".s3-"))
+	if i <= 0 {
+		return ""
+	}
+	return "s3://" + host[:i] + "/" + key
 }

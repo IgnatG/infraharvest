@@ -264,3 +264,84 @@ func TestStackUpdateCommand(t *testing.T) {
 		}
 	}
 }
+
+// A nested stack is updated through its root stack: its copy is uploaded
+// where its parent's TemplateURL points, and the root updated, with its
+// own copy if it has one, else with its template as it is; the report
+// read back says the same. One a deleted stack retained is updated
+// itself.
+func TestStackNestedUpdate(t *testing.T) {
+	root := scopedStack(nil)
+	root.SetTemplates("Resources: {}\n", "", "yaml")
+	nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
+		Root: root.ID, NestedAs: "Network", TemplateURL: "https://cdk-assets.s3.eu-west-2.amazonaws.com/network.json"}
+	nested.SetTemplates("Resources: {}\n", "Resources: {Alerts: {DeletionPolicy: Retain}}\n", "yaml")
+	copied := "aws s3 cp .infraharvest/cloudformation/eu-west-2/app-Network-1ABC.retain.template.yaml s3://cdk-assets/network.json"
+	previous := "`aws cloudformation update-stack --stack-name app --use-previous-template"
+
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{root, nested})
+	r.Finish(nil, nil, false)
+	md := r.Markdown()
+	for _, want := range []string{copied, "its parent's `Network`", previous} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "--stack-name app-Network-1ABC") {
+		t.Errorf("the nested stack is updated itself:\n%s", md)
+	}
+	out := t.TempDir()
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	read, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := read.stack(nested.ID); got == nil || got.Root != root.ID || got.NestedAs != "Network" || got.TemplateURL != nested.TemplateURL {
+		t.Errorf("read back: %+v", got)
+	}
+	if md := read.Markdown(); !strings.Contains(md, copied) || !strings.Contains(md, previous) {
+		t.Errorf("the report read back lacks the update through the root:\n%s", md)
+	}
+
+	r = &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack([]string{"DeletionPolicy is Delete, the default"}), nested})
+	r.Finish(nil, nil, false)
+	md = r.Markdown()
+	for _, want := range []string{"update the root stack `app` with its own copy", "--template-body file://.infraharvest/cloudformation/eu-west-2/app.retain.template.yaml", "once the copies of the stacks nested in it are uploaded"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("root with a copy: the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "--use-previous-template") {
+		t.Errorf("root with a copy: updated with its previous template:\n%s", md)
+	}
+
+	gone := scopedStack(nil)
+	gone.Deleted = true
+	r = &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{gone, nested})
+	r.Finish(nil, nil, false)
+	if md := r.Markdown(); !strings.Contains(md, "update-stack --stack-name app-Network-1ABC --template-body") || strings.Contains(md, "root stack `app`") {
+		t.Errorf("retained by a deleted parent:\n%s", md)
+	}
+}
+
+func TestS3Object(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://b.s3.eu-west-2.amazonaws.com/k/t.json":     "s3://b/k/t.json",
+		"https://b.s3.amazonaws.com/t.json":                 "s3://b/t.json",
+		"https://my.s3.bucket.s3-eu-west-1.amazonaws.com/t": "s3://my.s3.bucket/t",
+		"https://s3.eu-west-2.amazonaws.com/b/k/t.json":     "s3://b/k/t.json",
+		"https://s3.amazonaws.com/b/t.json":                 "s3://b/t.json",
+		"https://s3.amazonaws.com/b":                        "",
+		"https://example.com/t.json":                        "",
+		"":                                                  "",
+	} {
+		if got := s3Object(in); got != want {
+			t.Errorf("s3Object(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
