@@ -293,7 +293,7 @@ func (s *StackScope) Summary() []string {
 				}
 				notImportable = append(notImportable, note)
 			}
-			if len(r.retain) > 0 && !r.acknowledged {
+			if len(r.retain) > 0 {
 				notRetained = append(notRetained, r.logicalID)
 			}
 		}
@@ -483,9 +483,7 @@ func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormat
 			Matches:       byResource[r],
 			Outcome:       r.outcome,
 		})
-		// What --cfn-ignore acknowledges may go with the stack, its
-		// handler called: the copy leaves it as it is.
-		if len(r.retain) > 0 && !r.acknowledged {
+		if len(r.retain) > 0 {
 			unretained = append(unretained, r.logicalID)
 		}
 	}
