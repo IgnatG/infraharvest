@@ -81,6 +81,19 @@ func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapter
 	return nil, ""
 }
 
+// modulesMode returns the --modules mode an import runs with: ModulesNone
+// for one scoped to CloudFormation stacks (AWS --cfn-stack), whatever
+// --modules says, as the stacks' templates are carried into the roots by
+// the addresses of the resource blocks there (see stackintent), which a
+// module call would hide: no parameter would become a variable, and no
+// output be written.
+func modulesMode(options Options) string {
+	if len(options.CloudFormationStacks) > 0 {
+		return ModulesNone
+	}
+	return options.Modules
+}
+
 // engineBinary is the binary --engine runs.
 func engineBinary(name string) engine.Binary {
 	if name == EngineTofu {
@@ -326,6 +339,12 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	execPath, err := options.tools.find(ctx, binary, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
 	if err != nil {
 		return nil, err
+	}
+	if mode := modulesMode(options); mode != options.Modules {
+		if options.Modules != "" && options.Modules != ModulesRegistry {
+			log.Printf("--modules %s doesn't apply with --cfn-stack: the stacks' resources stay in the roots, which their templates are carried into", options.Modules)
+		}
+		options.Modules = mode
 	}
 	var moduleAdapters []adapters.Adapter
 	var newerModules []report.ModuleVersion
