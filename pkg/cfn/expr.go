@@ -24,8 +24,31 @@ func appendPath(prop []string, key string) []string {
 }
 
 // expr converts a value to an HCL expression. path is where the value is
-// in the template, for diagnostics.
+// in the template, for diagnostics. Once the conversion has written more
+// than maxOutput bytes, every expression is null and Convert fails: a
+// small template whose values refer to one another, such as Fn::Sub
+// variables that each repeat the one inside, could otherwise grow the
+// output exponentially.
 func (c *converter) expr(n Node, path string, sc *scope) string {
+	if c.tooLarge {
+		return "null"
+	}
+	return c.spend(c.convert(n, path, sc))
+}
+
+// spend counts e towards maxOutput and returns it, or null once the budget
+// is spent.
+func (c *converter) spend(e string) string {
+	c.written += len(e)
+	if c.written > maxOutput {
+		c.tooLarge = true
+		return "null"
+	}
+	return e
+}
+
+// convert is expr without the budget.
+func (c *converter) convert(n Node, path string, sc *scope) string {
 	switch v := n.(type) {
 	case nil, Null:
 		return "null"
@@ -453,10 +476,17 @@ func (c *converter) sub(f Func, path string, heredoc bool) string {
 		return c.subVar(parts[0].text, vars, path)
 	}
 	exprs := make([]string, len(parts))
+	// Each variable is converted once, however often the string uses it.
+	converted := map[string]string{}
 	var shape strings.Builder // the text with each variable as ${}, to choose the form
 	for i, p := range parts {
 		if p.isVar {
-			exprs[i] = c.subVar(p.text, vars, path)
+			e, ok := converted[p.text]
+			if !ok {
+				e = c.subVar(p.text, vars, path)
+				converted[p.text] = e
+			}
+			exprs[i] = c.spend(e)
 			shape.WriteString("${}")
 		} else {
 			shape.WriteString(p.text)
@@ -485,7 +515,10 @@ func (c *converter) sub(f Func, path string, heredoc bool) string {
 	} else {
 		b.WriteByte('"')
 	}
-	return b.String()
+	if c.tooLarge {
+		return "null"
+	}
+	return c.spend(b.String())
 }
 
 // subVar converts a variable of Fn::Sub.
@@ -524,9 +557,10 @@ func (c *converter) cidr(f Func, path string) string {
 			}
 		}
 	}
-	block := c.expr(a[0], path+"[0]", nil)
-	return fmt.Sprintf(`[for i in range(%s) : cidrsubnet(%s, (strcontains(%s, ":") ? 128 : 32) - %s - tonumber(split("/", %s)[1]), i)]`,
-		c.numberExpr(a[1], path+"[1]"), block, block, c.numberExpr(a[2], path+"[2]"), block)
+	// The block is written once, bound to b, so that a nested Fn::Cidr
+	// doesn't repeat its block at each level.
+	return fmt.Sprintf(`[for b in [%s] : [for i in range(%s) : cidrsubnet(b, (strcontains(b, ":") ? 128 : 32) - %s - tonumber(split("/", b)[1]), i)]][0]`,
+		c.expr(a[0], path+"[0]", nil), c.numberExpr(a[1], path+"[1]"), c.numberExpr(a[2], path+"[2]"))
 }
 
 // getAZs converts Fn::GetAZs to the zones the provider's region has.

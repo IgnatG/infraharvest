@@ -56,14 +56,18 @@ func parseDocument(src []byte) (Node, error) {
 		if jsonErr == nil {
 			return n, nil
 		}
-		// A YAML flow mapping starts with "{" too.
-		if n, err := parseYAML(src); err == nil {
+		// A YAML flow mapping starts with "{" too; but JSON followed by
+		// more isn't one.
+		if n, err := parseYAML(src); err == nil && !errors.Is(jsonErr, errTrailingJSON) {
 			return n, nil
 		}
 		return nil, jsonErr
 	}
 	return parseYAML(src)
 }
+
+// errTrailingJSON is the error for a JSON template with more after it.
+var errTrailingJSON = errors.New("parse the JSON template: there is more after the template's closing brace")
 
 func parseJSON(src []byte) (Node, error) {
 	dec := json.NewDecoder(bytes.NewReader(src))
@@ -73,7 +77,7 @@ func parseJSON(src []byte) (Node, error) {
 		return nil, fmt.Errorf("parse the JSON template: %w", err)
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("parse the JSON template: there is more after the template's closing brace")
+		return nil, errTrailingJSON
 	}
 	return n, nil
 }

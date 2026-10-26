@@ -370,6 +370,14 @@ var builtinTypes = map[string]typeEntry{
 			"KmsKeyId": arg("kms_key_id"), "Tags": tagsProp,
 		},
 	},
+	"AWS::EC2::Volume": {
+		tf: "aws_ebs_volume",
+		props: map[string]Property{
+			"AvailabilityZone": arg("availability_zone"), "Size": arg("size"), "Encrypted": arg("encrypted"),
+			"Iops": arg("iops"), "KmsKeyId": arg("kms_key_id"), "SnapshotId": arg("snapshot_id"),
+			"Throughput": arg("throughput"), "VolumeType": arg("type"), "Tags": tagsProp,
+		},
+	},
 	"AWS::RDS::DBSubnetGroup": {
 		tf:  "aws_db_subnet_group",
 		ref: "name",

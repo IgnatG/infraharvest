@@ -79,7 +79,7 @@ func (c *converter) writeVariable(w *hclWriter, pi *paramInfo) {
 	desc := strings.TrimSpace(p.Description)
 	switch {
 	case pt.ssm:
-		desc = describe(desc, fmt.Sprintf("The name of the SSM parameter whose value the template read, as a %s parameter.", p.Type))
+		desc = describe(desc, fmt.Sprintf("The name of the SSM parameter to read the value of: the CloudFormation type was %s.", p.Type))
 	case pt.aws:
 		desc = describe(desc, fmt.Sprintf("CloudFormation type %s.", p.Type))
 	}

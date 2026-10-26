@@ -339,6 +339,48 @@ Outputs:
 	}
 }
 
+// nested returns a JSON value that wraps inner depth times in wrap, whose
+// %s is where the next level goes.
+func nested(depth int, wrap, inner string) string {
+	v := inner
+	for i := 0; i < depth; i++ {
+		v = fmt.Sprintf(wrap, v)
+	}
+	return v
+}
+
+func topicTemplate(name string) string {
+	return `{"Resources": {"T": {"Type": "AWS::SNS::Topic", "Properties": {"TopicName": ` + name + `}}}}`
+}
+
+// Fn::Sub variables that each use the one inside four times would write
+// 4^depth copies of the innermost value; the conversion stops at its
+// budget and fails instead.
+func TestNestedSubIsBounded(t *testing.T) {
+	src := topicTemplate(nested(40, `{"Fn::Sub": ["${A}${A}${A}${A}", {"A": %s}]}`, `"x"`))
+	tmpl := mustParse(t, src)
+	_, err := Convert(tmpl, Options{})
+	if err == nil || !strings.Contains(err.Error(), "MiB") {
+		t.Fatalf("err = %v, want the output budget's", err)
+	}
+	// A shallow nesting is fine, and each variable is converted once.
+	res := mustConvert(t, topicTemplate(nested(3, `{"Fn::Sub": ["${A}-${A}", {"A": %s}]}`, `{"Ref": "AWS::Region"}`)), Options{})
+	if got := squash(res.Files["main.tf"]); !strings.Contains(got, `name = "${"${"${data.aws_region.current.region}-${data.aws_region.current.region}"}-`) {
+		t.Errorf("main.tf:\n%s", got)
+	}
+}
+
+// A nested Fn::Cidr writes its block once per level, so the output grows
+// with the depth, not exponentially.
+func TestNestedCidrIsBounded(t *testing.T) {
+	const depth = 60
+	src := topicTemplate(nested(depth, `{"Fn::Select": [0, {"Fn::Cidr": [%s, 2, 1]}]}`, `{"Ref": "AWS::Region"}`))
+	res := mustConvert(t, src, Options{})
+	if n := len(res.Files["main.tf"]); n > depth*200 {
+		t.Errorf("main.tf is %d bytes for %d levels", n, depth)
+	}
+}
+
 func TestConvertNil(t *testing.T) {
 	if _, err := Convert(nil, Options{}); err == nil {
 		t.Error("Convert(nil) succeeded")

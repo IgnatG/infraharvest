@@ -91,8 +91,11 @@ func (r *Result) HasErrors() bool {
 //
 // What it can't convert, such as custom resources, macros and unknown
 // functions, is a Diagnostic and a comment in the output, never dropped
-// silently. Convert returns an error only for a nil template, or if the
-// HCL it writes doesn't parse, which would be a bug in the converter. The
+// silently. Convert returns an error only for a nil template, for one
+// whose values expand to more than 64 MiB of expressions (which takes
+// values built to repeat one another, such as nested Fn::Sub variables),
+// or if the HCL it writes doesn't parse, which would be a bug in the
+// converter. The
 // same template and options give the same output, byte for byte.
 func Convert(t *Template, opts Options) (*Result, error) {
 	if t == nil {
@@ -107,8 +110,11 @@ func Convert(t *Template, opts Options) (*Result, error) {
 	c.writeOutputs(&outputsW)
 	c.writeStandIns(&varsW)
 	c.writeData(&dataW)
+	if c.tooLarge {
+		return nil, fmt.Errorf("cfn: the template converts to more than %d MiB of configuration, which only values that repeat one another many times over make", maxOutput>>20)
+	}
 
-	res := &Result{Files: map[string][]byte{}, Diagnostics: c.diags}
+	res :=&Result{Files: map[string][]byte{}, Diagnostics: c.diags}
 	for _, file := range []struct {
 		name string
 		w    *hclWriter
@@ -140,6 +146,12 @@ func formatFile(name, src string) ([]byte, error) {
 	out := bytes.Trim(hclwrite.Format(f.Bytes()), "\n")
 	return append(out, '\n'), nil
 }
+
+// maxOutput bounds the expressions one Convert call writes, in bytes. A
+// real template converts to a small fraction of it; a template built to
+// expand, such as Fn::Sub variables nested to repeat one another, fails
+// instead of exhausting memory.
+const maxOutput = 64 << 20
 
 // The pseudo parameters that become stand-in variables, and the names of
 // those variables.
@@ -237,6 +249,11 @@ type converter struct {
 	// being written.
 	guessed     []string
 	guessedSeen map[string]bool
+
+	// written counts the bytes of the expressions written so far, and
+	// tooLarge is set once that passes maxOutput.
+	written  int
+	tooLarge bool
 }
 
 func newConverter(t *Template, opts Options) *converter {

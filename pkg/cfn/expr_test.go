@@ -135,7 +135,7 @@ func TestExpressions(t *testing.T) {
 		{"Cidr many", `!Cidr ["10.0.0.0/16", 20, 8]`, `[for i in range(20) : cidrsubnet("10.0.0.0/16", 8, i)]`, none},
 		{"Cidr IPv6", `!Cidr ["2001:db8::/56", 2, 64]`, `cidrsubnets("2001:db8::/56", 8, 8)`, none},
 		{"Cidr expression", `!Cidr [!GetAtt Vpc.CidrBlock, 2, 8]`,
-			`[for i in range(2) : cidrsubnet(aws_vpc.vpc.cidr_block, (strcontains(aws_vpc.vpc.cidr_block, ":") ? 128 : 32) - 8 - tonumber(split("/", aws_vpc.vpc.cidr_block)[1]), i)]`, none},
+			`[for b in [aws_vpc.vpc.cidr_block] : [for i in range(2) : cidrsubnet(b, (strcontains(b, ":") ? 128 : 32) - 8 - tonumber(split("/", b)[1]), i)]][0]`, none},
 		{"GetAZs region", "Fn::GetAZs: !Ref AWS::Region", `data.aws_availability_zones.available.names`, none},
 		{"GetAZs other region", `!GetAZs eu-west-1`, `data.aws_availability_zones.available.names`, Warning},
 		{"If", `!If [IsProd, a, b]`, `local.is_prod ? "a" : "b"`, none},
@@ -175,7 +175,7 @@ func TestConditions(t *testing.T) {
 		name, src, want string
 	}{
 		{"Equals", `!Equals [!Ref Env, prod]`, `var.env == "prod"`},
-		{"Equals number parameter", `!Equals [!Ref Count, "3"]`, `var.count == 3`},
+		{"Equals number parameter", `!Equals [!Ref Count, "3"]`, `var.count_value == 3`},
 		{"Equals number literal with a string", `!Equals [!Ref Env, 3]`, `var.env == "3"`},
 		{"Equals bool literal", `!Equals [!Ref Env, true]`, `var.env == "true"`},
 		{"And", `!And [!Condition IsProd, !Equals [a, b]]`, `local.is_prod && ("a" == "b")`},
