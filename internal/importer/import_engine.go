@@ -212,6 +212,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
 		return err
 	}
+	if err := markMerging(options, []*listedCall{c}); err != nil {
+		return err
+	}
 	err = c.generate(ctx, c.byDir)
 	warnIncomplete(run, []*listedCall{c})
 	return err
@@ -236,6 +239,9 @@ type listedCall struct {
 	// region is the scope's region.
 	places map[string]memberPlace
 	region string
+	// merging are the roots of places their stack's merge is to take (see
+	// markMerging).
+	merging map[string]bool
 	// handovers are what the call's roots hand over to the other roots of
 	// the run, with --regenerate (see planHandovers).
 	handovers *handovers
@@ -497,12 +503,12 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			continue
 		}
 		dirOpts := others.of(dir)
-		// A root merged with its stack's other environments takes no
-		// stack template: each environment's stack has its own parameter
-		// values, which the merged root's per-environment values don't
-		// carry yet, so the variables' defaults would be one
-		// environment's.
-		_, merged := c.places[dir]
+		// A root its stack's merge is to take, with its other
+		// environments', takes no stack template: each environment's stack
+		// has its own parameter values, which the merged root's
+		// per-environment values don't carry yet, so the variables'
+		// defaults would be one environment's.
+		merged := c.merging[dir]
 		if !merged {
 			dirOpts.Refine, dirOpts.RefineKey = refine, refineKey
 		}
