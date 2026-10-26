@@ -72,7 +72,7 @@ func logStacks(stacks []report.CloudFormationStack) {
 		case s.Deleted:
 			log.Printf("CloudFormation stack %s: deleted already; what it retained is imported", s.Name)
 		case s.SafeToDelete:
-			log.Printf("CloudFormation stack %s: safe to delete once the roots are applied: every resource is imported or left out by the selection file, the plans change nothing, and every resource is retained", s.Name)
+			log.Printf("CloudFormation stack %s: safe to delete once the roots are applied: every resource is imported, left out by the selection file or acknowledged, the plans change nothing, and every resource is retained", s.Name)
 		default:
 			log.Printf("CloudFormation stack %s: not safe to delete yet:\n- %s", s.Name, strings.Join(s.Blockers, "\n- "))
 			if s.RetainTemplate != "" {

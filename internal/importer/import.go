@@ -159,6 +159,10 @@ type Options struct {
 	// stack ID, whose resources, and their nested stacks', are all the
 	// import takes.
 	CloudFormationStacks []string
+	// CloudFormationIgnore are the resources of those stacks, by logical
+	// ID or as <stack>/<logical ID>, that Terraform can't import, such as
+	// custom resources, which the stacks may be deleted without.
+	CloudFormationIgnore []string
 	// Parallel is how many accounts, subscriptions or projects import at
 	// once (see ImportEach), and how many Import calls of the command, in
 	// every account and region, list or generate at once in all (see

@@ -58,6 +58,7 @@ func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 	flags.StringVar(&options.AssumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
 	flags.BoolVar(&options.ResourceExplorer, "resource-explorer", false, "don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see "+DocsURL+"aws/#resource-explorer)")
 	flags.StringArrayVar(&options.CloudFormationStacks, "cfn-stack", nil, "import the resources of this CloudFormation stack, and of the stacks nested in it, and nothing else, by name or stack ID (ARN; a deleted stack's for 90 days); repeat for other stacks. The report says whether each stack can be deleted once its resources are in Terraform, and writes a copy of its template with Retain added (see "+DocsURL+"aws/#migrating-a-cloudformation-stack)")
+	flags.StringArrayVar(&options.CloudFormationIgnore, "cfn-ignore", nil, "with --cfn-stack: acknowledge that the stacks may be deleted without this resource, which Terraform can't import, such as a custom resource, by its logical ID, or as <stack>/<logical ID> where several stacks have it; repeat for others. The CDK's Custom::S3AutoDeleteObjects and the like, which destroy what the stack's resources hold, can't be acknowledged (see "+DocsURL+"aws/#custom-resources)")
 	return planAWS
 }
 
@@ -69,6 +70,9 @@ func planAWS(ctx context.Context, options importer.Options) (plan, error) {
 	accounts, err := awsAccounts(ctx, options)
 	if err != nil {
 		return plan{}, err
+	}
+	if len(options.CloudFormationIgnore) > 0 && len(options.CloudFormationStacks) == 0 {
+		return plan{}, errors.New("--cfn-ignore acknowledges resources of the stacks --cfn-stack names: give --cfn-stack too")
 	}
 	if len(options.CloudFormationStacks) > 0 {
 		if accounts != nil {
@@ -122,6 +126,9 @@ func planAWSStacks(ctx context.Context, options importer.Options) (plan, error) 
 	}
 	scope, err := awsprovider.ResolveStacks(ctx, options.Profile, roleARN, region, options.CloudFormationStacks, cat)
 	if err != nil {
+		return plan{}, err
+	}
+	if err := scope.Acknowledge(options.CloudFormationIgnore); err != nil {
 		return plan{}, err
 	}
 	for _, line := range scope.Summary() {
