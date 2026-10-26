@@ -1,4 +1,6 @@
-// Copyright 2026 Gabriel Ignat
+	for _, c := range []struct{ in, want string }{{"5", "5"}, {"+5", "5"}, {".5", "0.5"}, {"5.", "5"}, {"0x1F", "31"}, {" 1e3 ", "1e3"}} {
+		in, want := c.in, c.want
+		if got, ok := NumberLiteral(in); !ok || got != want {// Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
 package cfnhcl
