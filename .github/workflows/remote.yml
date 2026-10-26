@@ -29,10 +29,19 @@ name: Remote tasks
 #           with benchstat. It uploads the results and profiles as the
 #           artifact bench:
 #             gh workflow run remote.yml --ref <branch> -f task=bench -f bench=ScanSecrets -f base=<sha>
+#   schema-metadata
+#           reads the defaults and the constraints between arguments out
+#           of the aws, azurerm and google providers' code, at the release
+#           versions names (name=release, space-separated) or else at each
+#           one's newest, which generated roots pin: it checks out each
+#           provider, runs internal/catalogue/schemameta/gen in it, and
+#           uploads the JSON files as the artifact schema-metadata, at
+#           their paths under internal/catalogue/schemameta:
+#             gh workflow run remote.yml --ref <branch> -f task=schema-metadata -f versions="aws=6.70.0"
 #
 # Download an artifact from the repository's root, then review and commit
 # it:
-#   gh run download <run-id> -n golden    # or -n go-mod
+#   gh run download <run-id> -n golden    # or -n go-mod, -n schema-metadata
 on:
   push:
     branches: ['golden/**', 'tidy/**']
@@ -41,7 +50,7 @@ on:
       task:
         description: What to run
         type: choice
-        options: [check, golden, tidy, bench]
+        options: [check, golden, tidy, bench, schema-metadata]
         default: check
       packages:
         description: Space-separated Go package patterns (default ./... for check, ./internal/catalogue for golden, ./internal/engine ./internal/importer for bench; tidy takes none)
@@ -68,6 +77,11 @@ on:
         type: string
         required: false
         default: ""
+      versions:
+        description: For schema-metadata, provider releases as name=release, such as aws=6.70.0 (default each provider's newest)
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -81,6 +95,8 @@ env:
 jobs:
   run:
     name: ${{ github.event_name == 'workflow_dispatch' && inputs.task || (startsWith(github.ref, 'refs/heads/golden/') && 'golden' || 'tidy') }}
+    # schema-metadata has jobs of its own, below.
+    if: github.event_name != 'workflow_dispatch' || inputs.task != 'schema-metadata'
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'check' && inputs.os || 'ubuntu-latest' }}
     # A cold macOS or Windows build of every package takes about 40
     # minutes.
@@ -234,4 +250,104 @@ jobs:
           path: |
             go.mod
             go.sum
+          retention-days: 1
+
+  # One job per provider: building one takes most of a runner's disk and
+  # memory, the AWS provider most of all.
+  schema-metadata:
+    name: schema-metadata (${{ matrix.provider }})
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'schema-metadata'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [aws, azurerm, google]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
+      - name: Choose the release
+        # The release versions names, or else the provider's newest, as the
+        # registry reports it: the one generated roots pin.
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          release=
+          for pair in $VERSIONS; do
+            if [ "${pair%%=*}" = "$PROVIDER" ]; then
+              release=${pair#*=}
+            fi
+          done
+          if [ -z "$release" ]; then
+            release=$(curl -sSf --retry 3 "https://registry.terraform.io/v1/providers/hashicorp/$PROVIDER" | jq -r .version)
+          fi
+          if ! [[ "$release" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release '$release' of $PROVIDER isn't a version such as 6.70.0"
+            exit 1
+          fi
+          echo "$PROVIDER $release"
+          echo "RELEASE=$release" >> "$GITHUB_ENV"
+      - name: Check out the provider
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: git clone --quiet --depth 1 --branch "v$RELEASE" "https://github.com/hashicorp/terraform-provider-$PROVIDER.git" "$RUNNER_TEMP/provider"
+      - name: Add the generator to it
+        # The generator's files carry the ignore build constraint, which
+        # keeps them out of infraharvest's module: drop it here.
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: |
+          mkdir "$RUNNER_TEMP/provider/ihschemameta"
+          for file in main.go "provider_$PROVIDER.go"; do
+            grep -vx '//go:build ignore' "internal/catalogue/schemameta/gen/$file" > "$RUNNER_TEMP/provider/ihschemameta/$file"
+          done
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ runner.temp }}/provider/go.mod
+          cache: false
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
+      - name: Generate
+        working-directory: ${{ runner.temp }}/provider
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          OUT: ${{ github.workspace }}/schema-metadata/internal/catalogue/schemameta
+        run: |
+          mkdir -p "$OUT"
+          go run ./ihschemameta -version "$RELEASE" -out "$OUT/$PROVIDER.json"
+          ls -l "$OUT"
+      - name: Upload the provider's file
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: schema-metadata-${{ matrix.provider }}
+          path: schema-metadata/
+          retention-days: 1
+
+  # The three files as one artifact, at their paths in the repository.
+  schema-metadata-artifact:
+    name: schema-metadata (artifact)
+    needs: schema-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download the providers' files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: schema-metadata-*
+          path: schema-metadata
+          merge-multiple: true
+      - name: Upload them
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: schema-metadata
+          path: schema-metadata/
           retention-days: 1
