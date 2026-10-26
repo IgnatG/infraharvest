@@ -38,20 +38,6 @@ func snapshotByDefault(cfnType string, resource *yaml.Node) bool {
 	return false
 }
 
-// snapshotTypes are the CloudFormation types whose DeletionPolicy may be
-// Snapshot, as the DeletionPolicy attribute's reference lists them: a
-// snapshot keeps their data, but the resource itself is deleted.
-var snapshotTypes = map[string]bool{
-	"AWS::DocDB::DBCluster":              true,
-	"AWS::EC2::Volume":                   true,
-	"AWS::ElastiCache::CacheCluster":     true,
-	"AWS::ElastiCache::ReplicationGroup": true,
-	"AWS::Neptune::DBCluster":            true,
-	"AWS::RDS::DBCluster":                true,
-	"AWS::RDS::DBInstance":               true,
-	"AWS::Redshift::Cluster":             true,
-}
-
 // stackTemplate is a stack's template, as GetTemplate gives it, after its
 // transforms (the Processed stage): its body, whether it is JSON, and the
 // parsed document, whose node tree keeps the order, the comments and the
@@ -289,15 +275,15 @@ func setMappingValue(node *yaml.Node, key, value string) {
 func writeJSON(b *bytes.Buffer, n *yaml.Node, indent string) error {
 	switch n.Kind {
 	case yaml.MappingNode, yaml.SequenceNode:
-		open, close, step := "{", "}", 2
+		opening, closing, step := "{", "}", 2
 		if n.Kind == yaml.SequenceNode {
-			open, close, step = "[", "]", 1
+			opening, closing, step = "[", "]", 1
 		}
 		if len(n.Content) == 0 {
-			b.WriteString(open + close)
+			b.WriteString(opening + closing)
 			return nil
 		}
-		b.WriteString(open)
+		b.WriteString(opening)
 		inner := indent + "  "
 		for i := 0; i < len(n.Content); i += step {
 			if i > 0 {
@@ -315,7 +301,7 @@ func writeJSON(b *bytes.Buffer, n *yaml.Node, indent string) error {
 				return err
 			}
 		}
-		b.WriteString("\n" + indent + close)
+		b.WriteString("\n" + indent + closing)
 		return nil
 	case yaml.ScalarNode:
 		switch n.Tag {

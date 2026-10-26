@@ -244,7 +244,7 @@ func (r *Report) finishStacks() {
 				}
 				return res.Matches[a].ID < res.Matches[b].ID
 			})
-			res.Outcome, res.Reason = r.stackOutcome(s, res, func(m *CloudFormationMatch) (string, string) {
+			res.Outcome, res.Reason = stackOutcome(res, func(m *CloudFormationMatch) (string, string) {
 				k := key(m.Scope, m.Type, m.ID)
 				if where, ok := imported[k]; ok {
 					m.Path, m.Address = where.path, where.address
@@ -319,10 +319,10 @@ func (r *Report) finishStacks() {
 	}
 }
 
-// stackOutcome returns what became of res, a resource of s, and why:
+// stackOutcome returns what became of res, a resource of a stack, and why:
 // outcome gives that of each listed resource it is, and the worst of
 // them counts.
-func (r *Report) stackOutcome(s *CloudFormationStack, res *CloudFormationResource, outcome func(*CloudFormationMatch) (string, string)) (string, string) {
+func stackOutcome(res *CloudFormationResource, outcome func(*CloudFormationMatch) (string, string)) (string, string) {
 	switch {
 	case res.Outcome == StackNested || res.Outcome == StackOnlyInCloudFormation:
 		return res.Outcome, res.NotImportable
