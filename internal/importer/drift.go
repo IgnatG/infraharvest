@@ -94,6 +94,13 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftOptions(options); err != nil {
 		return err
 	}
+	// Terraform runs in each root, so a path it's given, such as the
+	// staged state's, must not be relative to where drift runs.
+	out, err := filepath.Abs(options.Out)
+	if err != nil {
+		return err
+	}
+	options.Out = out
 	if err := checkDriftCatalogue(options); err != nil {
 		return err
 	}

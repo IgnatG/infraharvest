@@ -129,6 +129,34 @@ func TestDriftReportsEachRoot(t *testing.T) {
 	}
 }
 
+// A relative out, such as the Action's default, is staged at an
+// absolute path: Terraform, running in the root, can't resolve one
+// relative to where drift runs.
+func TestDriftStagesRelativeOutAbsolute(t *testing.T) {
+	out := driftOutput(t, "aws/1/eu-west-1")
+	t.Chdir(filepath.Dir(out))
+	// As drift sees it, where the temporary directory is behind a link.
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeDriftCheck{out: filepath.Join(wd, filepath.Base(out))}
+	if err := Drift(context.Background(), driftOptions(filepath.Base(out), f), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.checked, []string{"aws/1/eu-west-1"}) {
+		t.Errorf("checked %v", f.checked)
+	}
+	for _, s := range f.staged {
+		if !filepath.IsAbs(s) {
+			t.Errorf("staged in %s, a relative path", s)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, report.Dir, report.DriftMarkdownFile)); err != nil {
+		t.Error(err)
+	}
+}
+
 func readDrift(t *testing.T, out string) report.Drift {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(out, report.Dir, report.DriftJSONFile))
