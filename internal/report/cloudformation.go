@@ -420,7 +420,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 		if s.Template != "" {
 			fmt.Fprintf(b, "Template: `%s`.", s.Template)
 			if s.RetainTemplate != "" && !s.Deleted {
-				fmt.Fprintf(b, " With `Retain` added where it lacks it: `%s`; update the stack with it (`aws cloudformation update-stack --stack-name %s --template-body file://%s --region %s`, with the capabilities and parameters it was created with), before deleting the stack.", s.RetainTemplate, s.Name, s.RetainTemplate, s.Region)
+				fmt.Fprintf(b, " With `Retain` added where it lacks it: `%s`; update the stack with it (%s, with the capabilities and parameters it was created with), before deleting the stack.", s.RetainTemplate, s.updateCommand())
 			}
 			b.WriteString("\n\n")
 		}
@@ -448,4 +448,21 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 // cell escapes text for a Markdown table cell.
 func cell(text string) string {
 	return strings.ReplaceAll(text, "|", `\|`)
+}
+
+// templateBodyLimit is the largest template, in bytes, UpdateStack takes
+// in its request (--template-body); a larger one must be in S3
+// (--template-url).
+const templateBodyLimit = 51200
+
+// updateCommand returns the AWS CLI commands that update the stack with
+// the copy of its template with Retain added: from the file, or, for a
+// copy larger than UpdateStack takes in its request, uploaded to a bucket
+// of the user's first.
+func (s *CloudFormationStack) updateCommand() string {
+	if len(s.retainBody) <= templateBodyLimit {
+		return fmt.Sprintf("`aws cloudformation update-stack --stack-name %s --template-body file://%s --region %s`", s.Name, s.RetainTemplate, s.Region)
+	}
+	key := path.Base(s.RetainTemplate)
+	return fmt.Sprintf("it is larger than the %d bytes `--template-body` takes, so upload it to a bucket of yours first: `aws s3 cp %s s3://<bucket>/%s`, then `aws cloudformation update-stack --stack-name %s --template-url https://<bucket>.s3.%s.amazonaws.com/%s --region %s`", templateBodyLimit, s.RetainTemplate, key, s.Name, s.Region, key, s.Region)
 }
