@@ -165,6 +165,10 @@ func (g *ResourceGraphLister) List() error {
 		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}
 	if n := countType(g.Resources, azapiType); n > 0 {
+		withAPIVersions(g.Context(), apiVersions, credential, &clientOptions, subscriptionID, g.Resources)
+		if err := g.Context().Err(); err != nil {
+			return err
+		}
 		log.Printf("azurerm: resource_graph: %d resources azurerm has no type for come through the azapi provider, as %s (--azapi)", n, azapiType)
 	}
 	// Both are partial or nil; joined, they are partial only as wrapped.

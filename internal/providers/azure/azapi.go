@@ -38,14 +38,19 @@ func azapiCandidates(rows []azlist.AzureResource) map[string]bool {
 }
 
 // azapiMapping maps the resource id, which azurerm has no type for, to an
-// azapi_resource imported by the resource's ID alone. It takes no request:
-// without ?api-version=, azapi imports the resource with the newest API
-// version of the type its embedded Azure schemas have, falling back to the
-// two before it if Resource Manager refuses that one, and writes it into
-// the configuration's type, as type@version, which pins it from then on.
-// From the same schemas it writes only the body's writable properties, so
-// the configuration has none Azure sets itself, such as
-// provisioningState. Resource Manager leaves secrets, such as passwords,
+// azapi_resource, imported by the resource's ID with ?api-version= of the
+// newest stable API version of its type, which withAPIVersions records and
+// the azapi catalogue's import ID template appends. Without one, azapi
+// imports the resource with the newest API version its embedded Azure
+// schemas have, falling back to the two before it if Resource Manager
+// refuses that one. Either way it writes the version into the
+// configuration's type, as type@version, which pins it from then on.
+// From its schemas of that version it writes only the body's writable
+// properties, so the configuration has none Azure sets itself, such as
+// provisioningState; a version its schemas don't have, such as one newer
+// than the azapi release, gives a body with all Azure returns, whose
+// location and tags clash with the arguments, so the plan fails and the
+// engine leaves the resource out with the error. Resource Manager leaves secrets, such as passwords,
 // out of what it returns, so the body has none, and azapi ignores the
 // properties Azure doesn't return; a secret it does return the engine
 // moves into a sensitive variable, as it does any resource's. A type

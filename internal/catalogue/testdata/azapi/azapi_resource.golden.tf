@@ -2,7 +2,7 @@
 
 import {
   to = azapi_resource.batch
-  id = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.AzureFleet/fleets/batch"
+  id = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.AzureFleet/fleets/batch?api-version=2024-11-01"
 }
 
 import {

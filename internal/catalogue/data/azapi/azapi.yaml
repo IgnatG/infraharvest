@@ -8,6 +8,11 @@ provider: azapi
 service: resource_graph
 types:
   azapi_resource:
+    # The API version is the newest stable one of the type, which
+    # resource_graph records as api_version from Resource Manager's
+    # providers API (see withAPIVersions); without one, the ID alone has
+    # azapi pick the newest its schemas have.
+    import_id: ["{id}?api-version={api_version}", "{id}"]
     # Terraform writes azapi's own settings at the defaults the provider
     # gives them, which a person leaves out: matching properties whatever
     # their case off, ignoring the properties Azure doesn't return (such
