@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@<sha>
       - uses: aws-actions/configure-aws-credentials@<sha>
         with:
-          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-read-only
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
           aws-region: eu-west-2
       - uses: IgnatG/infraharvest/action@<sha>
         with:
@@ -37,7 +37,13 @@ jobs:
           pull-request: "true"
 ```
 
-The role only needs read access: see [permissions/aws](../permissions/aws).
+The role only needs read access: [permissions/aws](../permissions/aws) creates it. To let this workflow assume it with its OIDC token, apply the template with the repository's subjects (`create_github_oidc_provider=true` too, if the account has no GitHub OIDC provider yet):
+
+```sh
+terraform apply -var 'github_oidc_subjects=["repo:acme/infra:ref:refs/heads/main"]'
+```
+
+A scheduled or manually dispatched run on the default branch has the subject `repo:<owner>/<repository>:ref:refs/heads/<branch>`; a job with a GitHub `environment` has `repo:<owner>/<repository>:environment:<name>` instead. `permissions/aws-drift` takes the same variables, and Azure and Google Cloud trust the workflow through a federated credential or a workload identity pool instead: see [Permissions](../docs/permissions.md).
 
 ## Checks on the pull request
 
@@ -78,7 +84,7 @@ jobs:
       - uses: actions/checkout@<sha>
       - uses: aws-actions/configure-aws-credentials@<sha>
         with:
-          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-read-only
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
           aws-region: eu-west-2
       - uses: IgnatG/infraharvest/action@<sha>
         id: infraharvest
