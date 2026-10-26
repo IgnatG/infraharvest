@@ -13,13 +13,19 @@ name: Schema metadata
 # repository's "Allow GitHub Actions to create and approve pull requests"
 # setting on, as the action-test workflow's pull-request job does. GitHub
 # starts no workflow for what github.token pushes or opens, so the job
-# then starts the pull request's checks itself: the tests and megalinter
-# workflows, dispatched on the branch, report on its head commit, where
-# the pull request shows them. A GitHub App's token would make that step
-# unneeded; the repository has none.
+# then starts the checks the main branch's ruleset requires itself: the
+# tests workflow (test, test-windows, e2e, checks, licences and names),
+# megalinter (MegaLinter) and docs (docs), dispatched on the branch, report
+# on its head commit, where the pull request shows them. The ruleset also
+# requires CodeQL's code scanning results, which GitHub's default setup
+# makes only for a pull_request event that no dispatch can start: the
+# pull request's body asks a maintainer to close and reopen it, which
+# starts every pull_request workflow, CodeQL's among them. A GitHub App's
+# token, which the repository doesn't have, would make both unneeded.
 #
-# It runs on GitHub only: the generator builds each provider, which takes
-# a runner's disk and memory (see schema-metadata-generate.yml).
+# It runs on GitHub only, and not in forks: the generator builds each
+# provider, which takes a runner's disk and memory (see
+# schema-metadata-generate.yml).
 on:
   schedule:
     - cron: "23 5 * * 2"
@@ -34,7 +40,8 @@ concurrency:
 
 jobs:
   generate:
-    if: github.repository == 'IgnatG/infraharvest'
+    # Not in a fork, whatever the repository is called.
+    if: github.event.repository.fork != true
     uses: ./.github/workflows/schema-metadata-generate.yml
 
   pull-request:
@@ -71,6 +78,7 @@ jobs:
             exit "$status"
           fi
           cp "$new"/*.json.gz internal/catalogue/schemameta/
+          cp "$RUNNER_TEMP/schema-metadata/NOTICE" NOTICE
           releases=$(for f in internal/catalogue/schemameta/*.json.gz; do
             p=$(basename "$f" .json.gz)
             printf '%s %s, ' "$p" "$(gzip -dc "$f" | sed -n '1s/.*"version":"\([^"]*\)".*/\1/p')"
@@ -84,11 +92,13 @@ jobs:
             cat "$RUNNER_TEMP/summary.md"
             echo
             echo "To read a file's lines locally: \`gzip -dc internal/catalogue/schemameta/aws.json.gz\`."
+            echo
+            echo "The workflow started the required checks by dispatch, as GitHub starts none for a pull request a workflow opens. CodeQL can't be dispatched: close and reopen this pull request to start it."
           } > "$RUNNER_TEMP/body.md"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add internal/catalogue/schemameta/*.json.gz
+          git add internal/catalogue/schemameta/*.json.gz NOTICE
           git commit -m "$title"
       - name: Push it and open the pull request
         run: |
@@ -102,6 +112,6 @@ jobs:
       - name: Start its checks
         # What github.token pushes starts no workflow (see above).
         run: |
-          for workflow in test.yml megalinter.yml; do
+          for workflow in test.yml megalinter.yml docs.yml; do
             gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
           done
