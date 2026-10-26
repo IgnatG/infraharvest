@@ -24,6 +24,7 @@ const (
 	credentialKey     = "credential"
 	clientOptionsKey  = "client_options"
 	catalogueKey      = "catalogue"
+	azapiKey          = "azapi"
 )
 
 // serviceSettings are the settings Provider.Select passes each service,
@@ -40,6 +41,9 @@ type serviceSettings struct {
 	clientOptions *arm.ClientOptions
 	// catalogue is the import's catalogue, nil for the built-in one.
 	catalogue *catalogue.Catalogue
+	// azapi is --azapi: resource_graph imports what azurerm has no type
+	// for as azapi_resource (see azapiCandidates).
+	azapi bool
 }
 
 // args returns the settings as a service's settings map.
@@ -50,6 +54,7 @@ func (s serviceSettings) args() map[string]interface{} {
 		clientOptionsKey:  s.clientOptions,
 		resourceGroupKey:  s.resourceGroup,
 		catalogueKey:      s.catalogue,
+		azapiKey:          s.azapi,
 	}
 }
 
@@ -63,6 +68,7 @@ func settingsOf(settings map[string]interface{}) serviceSettings {
 	s.credential, _ = settings[credentialKey].(azcore.TokenCredential)
 	s.clientOptions, _ = settings[clientOptionsKey].(*arm.ClientOptions)
 	s.catalogue, _ = settings[catalogueKey].(*catalogue.Catalogue)
+	s.azapi, _ = settings[azapiKey].(bool)
 	return s
 }
 

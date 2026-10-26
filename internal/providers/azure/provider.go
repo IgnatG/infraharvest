@@ -79,11 +79,15 @@ type Provider struct {
 	// catalogue is the import's catalogue (see SetCatalogue), nil for the
 	// built-in one.
 	catalogue *catalogue.Catalogue
+	// azapi is --azapi (Init's args[2]): resource_graph imports what
+	// azurerm has no type for as azapi_resource (see azapiCandidates).
+	azapi bool
 }
 
-// Init takes the resource group (args[0], "" for the whole subscription)
-// and, optionally, the subscription (args[1]), which otherwise comes from
-// ARM_SUBSCRIPTION_ID. It reads the ARM_* environment and builds the
+// Init takes the resource group (args[0], "" for the whole subscription),
+// optionally the subscription (args[1]), which otherwise comes from
+// ARM_SUBSCRIPTION_ID, and the provider type (args[2]): azapi for
+// --azapi, else "". It reads the ARM_* environment and builds the
 // credential; with no subscription it fails with errNoSubscription before
 // any request. A custom cloud's endpoints are read from its metadata host,
 // with ctx.
@@ -114,6 +118,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		p.resourceGroup = args[0]
 	}
+	p.azapi = len(args) > 2 && args[2] == azapiProviderType
 	return nil
 }
 
@@ -284,6 +289,7 @@ func (p *Provider) Select(name string, verbose bool) error {
 			credential:     p.credential,
 			clientOptions:  p.clientOptions,
 			catalogue:      p.catalogue,
+			azapi:          p.azapi,
 		}.args(),
 	})
 	return nil
@@ -317,9 +323,10 @@ func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
 	p.catalogue = c
 }
 
-// ModuleProviders configures azapi, which curated modules may call, for the
+// ModuleProviders configures azapi, which curated modules may call, and
+// which the azapi_resource resources of --azapi come through, for the
 // same subscription and, for a custom cloud, its endpoints in place of the
-// public cloud's.
+// public cloud's. A root configures it only where one of them is in it.
 func (p *Provider) ModuleProviders() map[string]harvest.ModuleProvider {
 	config := map[string]interface{}{"subscription_id": p.subscriptionID}
 	if c := p.customCloud; c != nil {

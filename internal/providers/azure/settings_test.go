@@ -20,6 +20,7 @@ func TestServiceSettingsRoundTrip(t *testing.T) {
 		credential:     fakeCredential{},
 		clientOptions:  &arm.ClientOptions{},
 		catalogue:      catalogue.MustBuiltin("azurerm"),
+		azapi:          true,
 	}
 	if got := settingsOf(want.args()); got != want {
 		t.Errorf("got %+v, want %+v", got, want)

@@ -65,7 +65,7 @@ func TestWorkspaceTablesMapFromTheListing(t *testing.T) {
 	transport := &fakeTransport{body: `{}`}
 	query, sent := testLookup(t.Context(), transport, listedResources)
 	cat := catalogue.MustBuiltin("azurerm")
-	resources := graphResources(listedResources, cat, query)
+	resources := graphResources(listedResources, cat, query, nil)
 	if len(transport.paths) != 0 || sent.Load() != 0 {
 		t.Errorf("sent %d requests: %v", sent.Load(), transport.paths)
 	}
@@ -106,7 +106,7 @@ func TestBuiltInTablesTakeNoRequests(t *testing.T) {
 
 		transport := &fakeTransport{body: `{}`}
 		query, sent := testLookup(t.Context(), transport, withType)
-		resources := graphResources(withType, cat, query)
+		resources := graphResources(withType, cat, query, nil)
 		if len(transport.paths) != 0 || sent.Load() != 0 {
 			t.Errorf("%d tables: sent %d requests", n, sent.Load())
 		}
@@ -121,7 +121,7 @@ func TestBuiltInTablesTakeNoRequests(t *testing.T) {
 
 		transport = &fakeTransport{body: `{"id":"table","properties":{"schema":{"tableType":"Microsoft"}}}`}
 		query, sent = testLookup(t.Context(), transport, withoutType)
-		resources = graphResources(withoutType, cat, query)
+		resources = graphResources(withoutType, cat, query, nil)
 		if got := int(sent.Load()); got != n || len(transport.paths) != n {
 			t.Errorf("%d tables listed without their type: sent %d requests, want one each", n, got)
 		}
@@ -168,7 +168,7 @@ func TestLookupReadsTheListing(t *testing.T) {
 	}
 	transport := &fakeTransport{body: `{"kind":"app,linux","properties":{}}`}
 	query, sent := testLookup(t.Context(), transport, listedResources)
-	resources := graphResources(listedResources, catalogue.MustBuiltin("azurerm"), query)
+	resources := graphResources(listedResources, catalogue.MustBuiltin("azurerm"), query, nil)
 	got := map[string]string{}
 	for _, r := range resources {
 		got[r.Observed.ID] = r.Address.Type
@@ -199,7 +199,7 @@ func TestLookupStopsWhenInterrupted(t *testing.T) {
 	listedResources := []azlist.AzureResource{listed(t, site, nil)}
 	transport := &fakeTransport{body: `{"kind":"app,linux","properties":{}}`}
 	query, sent := testLookup(ctx, transport, listedResources)
-	if got := graphResources(listedResources, catalogue.MustBuiltin("azurerm"), query); len(got) != 0 {
+	if got := graphResources(listedResources, catalogue.MustBuiltin("azurerm"), query, nil); len(got) != 0 {
 		t.Errorf("got %+v", got)
 	}
 	if len(transport.paths) != 0 || sent.Load() != 0 {

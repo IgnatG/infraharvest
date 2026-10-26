@@ -42,6 +42,9 @@ type mapping struct {
 	// leftOut follows the resource's ID in the line that logs it left
 	// out, such as ": no azurerm resource type; left out".
 	leftOut string
+	// untyped says azurerm has no type for the resource at all, as aztft
+	// found none: it may come through azapi instead (see azapiMapping).
+	untyped bool
 }
 
 // records turns m into the resources it records, with attributes, or logs
@@ -116,7 +119,7 @@ func fromQuery(id string, query queryType) mapping {
 	case err != nil:
 		return mapping{leftOut: ": " + err.Error()}
 	case len(types) == 0:
-		return mapping{leftOut: ": no azurerm resource type; left out"}
+		return mapping{leftOut: ": no azurerm resource type; left out", untyped: true}
 	case !exact:
 		names := make([]string, len(types))
 		for i, t := range types {
