@@ -184,10 +184,14 @@ func TestSameValue(t *testing.T) {
 	}{
 		{cty.StringVal("a"), cty.StringVal("a"), true},
 		{cty.StringVal("30"), cty.NumberIntVal(30), false},
+		// A String parameter that sets a number or a bool: Terraform converts.
+		{cty.NumberIntVal(30), cty.StringVal("30"), true},
+		{cty.NumberIntVal(30), cty.StringVal("31"), false},
 		{cty.NumberFloatVal(30.0), cty.NumberIntVal(30), true},
 		{cty.TupleVal([]cty.Value{cty.StringVal("a")}), cty.ListVal([]cty.Value{cty.StringVal("a")}), true},
 		{cty.TupleVal([]cty.Value{cty.StringVal("a")}), cty.ListVal([]cty.Value{cty.StringVal("b")}), false},
-		{cty.True, cty.StringVal("true"), false},
+		{cty.True, cty.StringVal("true"), true},
+		{cty.False, cty.StringVal("true"), false},
 	}
 	for _, tt := range tests {
 		if got := sameValue(tt.got, tt.want); got != tt.same {
