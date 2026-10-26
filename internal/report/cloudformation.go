@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -510,10 +511,30 @@ const templateBodyLimit = 51200
 // of the user's first.
 func (s *CloudFormationStack) updateCommand() string {
 	if s.RetainTemplateBytes <= templateBodyLimit {
-		return fmt.Sprintf("`aws cloudformation update-stack --stack-name %s --template-body file://%s --region %s`", s.Name, s.RetainTemplate, s.Region)
+		return fmt.Sprintf("`aws cloudformation update-stack --stack-name %s --template-body %s --region %s`", shellArg(s.Name), shellArg("file://"+s.RetainTemplate), shellArg(s.Region))
 	}
 	key := path.Base(s.RetainTemplate)
-	return fmt.Sprintf("it is larger than the %d bytes `--template-body` takes, so upload it to a bucket of yours first: `aws s3 cp %s s3://<bucket>/%s`, then `aws cloudformation update-stack --stack-name %s --template-url https://<bucket>.s3.%s.amazonaws.com/%s --region %s`", templateBodyLimit, s.RetainTemplate, key, s.Name, s.Region, key, s.Region)
+	return fmt.Sprintf("it is larger than the %d bytes `--template-body` takes, so upload it to a bucket of yours first: `aws s3 cp %s s3://<bucket>/%s`, then `aws cloudformation update-stack --stack-name %s --template-url https://<bucket>.s3.%s.amazonaws.com/%s --region %s`", templateBodyLimit, shellArg(s.RetainTemplate), key, shellArg(s.Name), s.Region, key, shellArg(s.Region))
+}
+
+// shellSafe matches what a shell takes as one word as it is.
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9._/:=@,+-]+$`)
+
+// shellArg returns value as one word of a shell command: as it is where
+// that is safe, else single-quoted, with a quote in it escaped, and with
+// any backtick or control character, which would break the Markdown code
+// span or the line it is pasted on, dropped.
+func shellArg(value string) string {
+	if shellSafe.MatchString(value) {
+		return value
+	}
+	value = strings.Map(func(c rune) rune {
+		if c == '`' || c < ' ' || c == 0x7f {
+			return -1
+		}
+		return c
+	}, value)
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // stack returns the stack of the report whose ID is id, nil if none is.
@@ -547,52 +568,63 @@ func (r *Report) throughRoot(s CloudFormationStack) bool {
 // updates each nested stack whose template changed.
 func (r *Report) nestedUpdate(s CloudFormationStack) string {
 	resource := "the `AWS::CloudFormation::Stack` resource of its parent that creates it"
-	if s.NestedAs != "" {
+	if logicalIDPattern.MatchString(s.NestedAs) {
 		resource = fmt.Sprintf("its parent's `%s`", s.NestedAs)
 	}
-	upload := fmt.Sprintf("upload it over the template the `TemplateURL` of %s names (`aws s3 cp %s s3://<bucket>/<key>`)", resource, s.RetainTemplate)
-	if object := s3Object(s.TemplateURL); object != "" {
-		upload = fmt.Sprintf("upload it over the template the `TemplateURL` of %s names, `aws s3 cp %s %s`", resource, s.RetainTemplate, object)
-	} else if s.TemplateURL != "" {
-		upload = fmt.Sprintf("upload it over the template the `TemplateURL` of %s names, `%s`", resource, s.TemplateURL)
+	// The URL is the template's, so it goes into the command only as the
+	// S3 URI of a bucket and key that are safe there, never as it is.
+	object := s3Object(s.TemplateURL)
+	if object == "" {
+		object = "s3://<bucket>/<key>"
 	}
+	upload := fmt.Sprintf("upload it over the template the `TemplateURL` of %s names, `aws s3 cp %s %s`", resource, shellArg(s.RetainTemplate), object)
 	root := r.stack(s.Root)
-	name := "<root stack>"
+	name := "<root-stack>"
 	switch {
 	case root != nil:
-		name = root.Name
+		name = shellArg(root.Name)
 	case s.Root != "":
-		name = s.Root
+		name = shellArg(s.Root)
 	}
 	if root != nil && root.RetainTemplate != "" {
 		return fmt.Sprintf("%s, then update the root stack `%s` with its own copy, as its section says, which updates this one from there", upload, name)
 	}
-	return fmt.Sprintf("%s, then update the root stack `%s`, which updates this one from there: `aws cloudformation update-stack --stack-name %s --use-previous-template --parameters ParameterKey=<name>,UsePreviousValue=true --region %s`, with `ParameterKey=<name>,UsePreviousValue=true` for each of its parameters and the capabilities it was created with", upload, name, name, s.Region)
+	return fmt.Sprintf("%s, then update the root stack `%s`, which updates this one from there: `aws cloudformation update-stack --stack-name %s --use-previous-template --parameters ParameterKey=<name>,UsePreviousValue=true --region %s`, with `ParameterKey=<name>,UsePreviousValue=true` for each of its parameters and the capabilities it was created with", upload, name, name, shellArg(s.Region))
 }
+
+// logicalIDPattern matches a CloudFormation logical ID, which is alphanumeric.
+var logicalIDPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
+// s3Bucket and s3Key match an S3 bucket name and the keys whose S3 URI
+// is safe in a shell command as it is.
+var (
+	s3Bucket = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+	s3Key    = regexp.MustCompile(`^[A-Za-z0-9._/!-]+$`)
+)
 
 // s3Object returns the S3 URI, s3://<bucket>/<key>, of the object an S3
 // URL names, virtual-hosted (https://<bucket>.s3.<region>.amazonaws.com/<key>)
 // or path-style (https://s3.<region>.amazonaws.com/<bucket>/<key>), ""
-// for what isn't one.
+// for what isn't one, or has a bucket or key that isn't safe in a shell
+// command (see s3Bucket): the URL is a template's, which anyone who can
+// update the stack writes.
 func s3Object(objectURL string) string {
 	u, err := url.Parse(objectURL)
-	if err != nil || u.Scheme != "https" {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return ""
 	}
 	host, key := u.Hostname(), strings.TrimPrefix(u.Path, "/")
-	if !strings.Contains(host, ".amazonaws.com") || key == "" {
+	if !strings.HasSuffix(host, ".amazonaws.com") {
 		return ""
 	}
+	var bucket string
 	if strings.HasPrefix(host, "s3.") || strings.HasPrefix(host, "s3-") {
-		bucket, rest, ok := strings.Cut(key, "/")
-		if !ok || bucket == "" || rest == "" {
-			return ""
-		}
-		return "s3://" + bucket + "/" + rest
+		bucket, key, _ = strings.Cut(key, "/")
+	} else if i := max(strings.LastIndex(host, ".s3."), strings.LastIndex(host, ".s3-")); i > 0 {
+		bucket = host[:i]
 	}
-	i := max(strings.LastIndex(host, ".s3."), strings.LastIndex(host, ".s3-"))
-	if i <= 0 {
+	if !s3Bucket.MatchString(bucket) || !s3Key.MatchString(key) {
 		return ""
 	}
-	return "s3://" + host[:i] + "/" + key
+	return "s3://" + bucket + "/" + key
 }
