@@ -114,7 +114,7 @@ func Convert(t *Template, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("cfn: the template converts to more than %d MiB of configuration, which only values that repeat one another many times over make", maxOutput>>20)
 	}
 
-	res :=&Result{Files: map[string][]byte{}, Diagnostics: c.diags}
+	res := &Result{Files: map[string][]byte{}, Diagnostics: c.diags}
 	for _, file := range []struct {
 		name string
 		w    *hclWriter
