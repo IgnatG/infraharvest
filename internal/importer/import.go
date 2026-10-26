@@ -373,14 +373,21 @@ func checkFailures(failures []error, allowPartial bool) error {
 }
 
 // ResolveServices returns options with Services made concrete: "*"
-// becomes every service of provider (see Services), and the services in
-// Skip are taken out, keeping the order of the rest. options itself is
-// left as it is.
+// becomes every service of provider (see Services), followed by the
+// services named beside it that it leaves out, such as opt-in ones, and
+// the services in Skip are taken out, keeping the order of the rest.
+// options itself is left as it is.
 func ResolveServices(provider harvest.Provider, options Options) Options {
 	services := options.Services
 	if slices.Contains(services, "*") {
-		services = Services(provider)
-		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(services))
+		all := Services(provider)
+		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(all))
+		for _, service := range services {
+			if service != "*" && !slices.Contains(all, service) {
+				all = append(all, service)
+			}
+		}
+		services = all
 	}
 	kept := make([]string, 0, len(services))
 	for _, service := range services {
@@ -402,12 +409,18 @@ func ResolveServices(provider harvest.Provider, options Options) Options {
 // harvest.Partial) keeps what it listed, and is among the failures too.
 // The error is for what stops the whole listing: a provider that can't be
 // initialised, a filter that doesn't parse, or an interrupt.
+//
+// The services that list from what the others listed (see
+// harvest.ProviderWithDependentServices) list once the others are done,
+// given what they listed.
 func listServices(ctx context.Context, registry *harvest.Registry, options Options, args []string) ([]error, error) {
 	filters, err := options.filters()
 	if err != nil {
 		return nil, err
 	}
 	discoverers := make([]discovery.Discoverer, 0, len(options.Services))
+	var dependent []discovery.Discoverer
+	var waiting []harvest.ProviderWithDependentServices
 	for _, service := range options.Services {
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
@@ -421,12 +434,33 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 		if p, ok := serviceProvider.(unwantedTypesSetter); ok && len(options.unwanted) > 0 {
 			p.SetUnwantedTypes(options.unwanted)
 		}
-		discoverers = append(discoverers, discovery.Service(service, serviceProvider, options.Verbose, filters))
+		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
+		if p, ok := serviceProvider.(harvest.ProviderWithDependentServices); ok && slices.Contains(p.DependentServices(), service) {
+			dependent = append(dependent, d)
+			waiting = append(waiting, p)
+			continue
+		}
+		discoverers = append(discoverers, d)
 	}
 
-	results, err := discovery.List(ctx, discoverers, discovery.Options{Timeout: options.ListTimeout, Parallel: options.ListParallel})
+	listOptions := discovery.Options{Timeout: options.ListTimeout, Parallel: options.ListParallel}
+	results, err := discovery.List(ctx, discoverers, listOptions)
 	if err != nil {
 		return nil, fmt.Errorf("listing: %w", err)
+	}
+	if len(dependent) > 0 {
+		var listed []harvest.Resource
+		for _, result := range results {
+			listed = append(listed, result.Resources...)
+		}
+		for _, p := range waiting {
+			p.SetListedByOthers(listed)
+		}
+		more, err := discovery.List(ctx, dependent, listOptions)
+		if err != nil {
+			return nil, fmt.Errorf("listing: %w", err)
+		}
+		results = append(results, more...)
 	}
 
 	var failures []error

@@ -30,6 +30,7 @@ var (
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
+	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
 )
 
 // The importer's defaults apply where Provider has no capability of
@@ -239,7 +240,7 @@ func TestProviderBlock(t *testing.T) {
 func TestServicesAreFresh(t *testing.T) {
 	p := &Provider{}
 	first, second := p.Services(), p.Services()
-	if len(first) != 11 {
+	if len(first) != 12 {
 		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
 	}
 	for name, g := range first {
@@ -257,6 +258,8 @@ func TestSelect(t *testing.T) {
 	options := &arm.ClientOptions{}
 	p := &Provider{subscriptionID: "sub", resourceGroup: "rg1", credential: credential, clientOptions: options}
 	p.SetCatalogue(cat)
+	listed := []harvest.Resource{harvest.RecordBare("/subscriptions/sub/resourceGroups/rg1", "rg1", "azurerm_resource_group", "azurerm")}
+	p.SetListedByOthers(listed)
 
 	if err := p.Select("virtual_network", true); err != nil {
 		t.Fatal(err)
@@ -274,6 +277,7 @@ func TestSelect(t *testing.T) {
 		"client_options":  options,
 		"resource_group":  "rg1",
 		"catalogue":       cat,
+		"listed":          listed,
 	}
 	if got := s.Settings(); !reflect.DeepEqual(got, want) {
 		t.Errorf("args %#v, want %#v", got, want)

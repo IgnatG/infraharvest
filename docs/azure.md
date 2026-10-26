@@ -76,6 +76,20 @@ infraharvest discover azure --services=resource_group,virtual_network,subnet,net
 
 `subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one that comes back without them or with none, as some emulators answer, are they listed on their own.
 
+## Diagnostic settings
+
+`diagnostic_setting` imports diagnostic settings, which send a resource's logs and metrics to a Log Analytics workspace, a storage account, an event hub or a partner solution, as `azurerm_monitor_diagnostic_setting`, imported by `<target resource ID>|<name>`. Resource Graph doesn't index them, so each resource takes a request of its own: the service is opt-in, and `--services='*'` leaves it out. Name it with the services whose resources' settings you want:
+
+```sh
+infraharvest import azure --services='*',diagnostic_setting
+```
+
+It lists once the other services are done, and asks only about what they listed: each resource of a type that Azure Monitor gives platform metrics or resource log categories, as its [logs](https://learn.microsoft.com/azure/azure-monitor/reference/logs-index) and [metrics](https://learn.microsoft.com/azure/azure-monitor/reference/metrics-index) indexes list them, so subnets, rules, tables and the other types that can't have diagnostic settings cost no request; the blob, file, queue and table services of each storage account, which hold its logs; and, for the whole subscription, the subscription's own settings, in one request more. A subscription of 2,000 resources of which 300 can have diagnostic settings takes about 300 requests, which the subscription's rate limit paces. Named alone, it lists the subscription's settings only.
+
+A setting's `target_resource_id`, `log_analytics_workspace_id`, `storage_account_id` and `eventhub_authorization_rule_id` refer to the resources the import has, such as `azurerm_key_vault.secrets.id`. A resource that is gone since it was listed (404), or whose type or SKU has no diagnostic settings (400), has none; a request refused (401, 403), throttled (429), timed out or failed by Azure (5xx) fails the service in part, as `resource_graph`'s child lists do: what was listed is imported, and the failure is reported.
+
+The default selection leaves out, with the reason, the settings Azure Policy deploys with its DeployIfNotExists policies, which the policy keeps as it has them, told by the names its built-in policies and those of the Azure landing zones give them: `setByPolicy`, `setByPolicy-LogAnalytics`, `setByPolicy-Storage`, `setByPolicy-EventHub` and `setbypolicy_<destination>`, whatever their case. A setting a policy assignment deploys under a name of its own isn't told apart, and is imported. It also leaves out the settings of what is in a resource group the selection leaves out whole, such as an `MC_*` group. Select one to import it.
+
 ## Tags
 
 Tags come with the listing, for the selection file's rules, the picker and the report: `resource_graph` reads them from the rows Resource Graph returns, and the Resource Manager services from their list responses, so reading them takes no request of its own. Child resources such as subnets have no tags of their own. azurerm has no provider-wide tags, so tags all resources of a root share become `local.tags`, which each resource sets, merged with its own; `hidden-` tags, which Azure and the portal set, stay on the resources.

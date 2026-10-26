@@ -42,10 +42,10 @@ const telemetryApplicationID = "infraharvest"
 var errNoSubscription = errors.New("no Azure subscription to import: set ARM_SUBSCRIPTION_ID, or name subscriptions with --subscriptions or --management-group")
 
 // services makes a new lister for each service the provider lists, by
-// --services name. resourceManagerServices (see resource_graph.go) says
-// which of them * leaves out.
+// --services name. OptInServices says which of them * leaves out.
 var services = map[string]func() harvest.Lister{
 	resourceGraphService:                   func() harvest.Lister { return &ResourceGraphLister{} },
+	diagnosticSettingService:               func() harvest.Lister { return &DiagnosticSettingLister{} },
 	"management_lock":                      func() harvest.Lister { return &ManagementLockLister{} },
 	"security_center_contact":              func() harvest.Lister { return &SecurityCenterContactLister{} },
 	"security_center_subscription_pricing": func() harvest.Lister { return &SecurityCenterSubscriptionPricingLister{} },
@@ -79,6 +79,9 @@ type Provider struct {
 	// catalogue is the import's catalogue (see SetCatalogue), nil for the
 	// built-in one.
 	catalogue *catalogue.Catalogue
+	// listed is what the import's other services listed (see
+	// SetListedByOthers), for the services that list from it.
+	listed []harvest.Resource
 }
 
 // Init takes the resource group (args[0], "" for the whole subscription)
@@ -284,6 +287,7 @@ func (p *Provider) Select(name string, verbose bool) error {
 			credential:     p.credential,
 			clientOptions:  p.clientOptions,
 			catalogue:      p.catalogue,
+			listed:         p.listed,
 		}.args(),
 	})
 	return nil
@@ -315,6 +319,19 @@ func (*Provider) DefaultTags() (attribute, block, reservedPrefix string) {
 // SetCatalogue sets the import's catalogue, which the services get.
 func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
 	p.catalogue = c
+}
+
+// DependentServices are the services that list from what the import's
+// other services listed, after them: diagnostic_setting, which asks only
+// the resources they found for their diagnostic settings.
+func (*Provider) DependentServices() []string {
+	return []string{diagnosticSettingService}
+}
+
+// SetListedByOthers sets what the import's other services listed, which
+// the services get.
+func (p *Provider) SetListedByOthers(resources []harvest.Resource) {
+	p.listed = resources
 }
 
 // ModuleProviders configures azapi, which curated modules may call, for the

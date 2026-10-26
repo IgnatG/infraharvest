@@ -29,7 +29,7 @@ import (
 
 // resourceGraphService lists through Resource Graph. It is what * lists,
 // with the few services that list what Resource Graph can't (see
-// resourceManagerServices).
+// OptInServices).
 const resourceGraphService = "resource_graph"
 
 // resourceManagerServices are the services that list, through Resource
@@ -615,8 +615,10 @@ func lastSegment(id string) string {
 	return id[strings.LastIndex(id, "/")+1:]
 }
 
-// OptInServices are the services * leaves out (see
-// resourceManagerServices).
+// OptInServices are the services * leaves out: those that list what
+// resource_graph lists too (see resourceManagerServices), and
+// diagnostic_setting, which takes a request per resource (see
+// DiagnosticSettingLister).
 func (p *Provider) OptInServices() []string {
-	return slices.Clone(resourceManagerServices)
+	return append(slices.Clone(resourceManagerServices), diagnosticSettingService)
 }
