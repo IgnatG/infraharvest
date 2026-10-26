@@ -198,6 +198,10 @@ var cloudFormationTypes = map[string][]string{
 	"AWS::WAFv2::WebACL":                            {"aws_wafv2_web_acl"},
 	"AWS::WAFv2::WebACLAssociation":                 {"aws_wafv2_web_acl_association"},
 	"AWS::XRay::SamplingRule":                       {"aws_xray_sampling_rule"},
+
+	// The CDK's eks.Cluster creates its cluster through a custom resource,
+	// whose physical ID is the cluster's name.
+	"Custom::AWSCDK-EKS-Cluster": {"aws_eks_cluster"},
 }
 
 // stackResource is a resource a CloudFormation stack manages: the stack's

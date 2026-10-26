@@ -155,3 +155,31 @@ func TestStacksMergeAndWrite(t *testing.T) {
 		t.Errorf("coverage.json lacks the stack: %v", err)
 	}
 }
+
+// An acknowledged custom resource doesn't keep its stack from being safe
+// to delete, but one that must be taken out of the stack first does,
+// acknowledged or not.
+func TestStackCustomResources(t *testing.T) {
+	s := scopedStack(nil)
+	s.Resources = append(s.Resources,
+		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true},
+	)
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	r.Directories = []Directory{imports()}
+	r.Finish(nil, nil, false)
+	got := r.CloudFormationStacks[0]
+	if !got.SafeToDelete || got.Resources[2].Outcome != StackAcknowledged {
+		t.Errorf("acknowledged: %+v", got)
+	}
+
+	s.Resources = append(s.Resources, CloudFormationResource{LogicalID: "AutoDelete", Type: "Custom::S3AutoDeleteObjects", PhysicalID: "ad", Status: "CREATE_COMPLETE", NotImportable: "the CDK's autoDeleteObjects", MustRemove: true})
+	r = &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	r.Directories = []Directory{imports()}
+	r.Finish(nil, nil, false)
+	got = r.CloudFormationStacks[0]
+	if got.SafeToDelete || len(got.Blockers) != 1 || !strings.Contains(got.Blockers[0], "AutoDelete (Custom::S3AutoDeleteObjects) must be taken out of the stack before the stack is deleted") {
+		t.Errorf("must remove: %v", got.Blockers)
+	}
+}

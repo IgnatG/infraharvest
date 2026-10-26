@@ -69,6 +69,10 @@ type scopedResource struct {
 	// retain says what keeps it from outliving its stack (see
 	// stackTemplate.retainProblems).
 	retain []string
+	// mustRemove says it must be taken out of the stack before the stack
+	// is deleted, and acknowledged that --cfn-ignore accepts that
+	// Terraform can't import it (see customResourceRule).
+	mustRemove, acknowledged bool
 }
 
 // ResolveStacks reads the stacks refs names, by name, which finds a live
@@ -176,14 +180,21 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 				r.outcome = report.StackOnlyInCloudFormation
 				r.notImportable = cloudFormationOnlyTypes[r.cfnType]
 				continue
-			case strings.HasPrefix(r.cfnType, "Custom::") || r.cfnType == "AWS::CloudFormation::CustomResource":
-				r.notImportable = "a custom resource, which CloudFormation creates, updates and deletes through its provider, a Lambda function or an SNS topic: Terraform has no resource for it, so decide what takes its place; with Retain, deleting the stack doesn't call its provider"
+			case isCustomResource(r.cfnType) && types[r.cfnType] == nil:
+				// What it is may depend on its properties, which can name
+				// resources listed after it (see customResourceAdvice).
+				r.notImportable = genericCustomResource
 			case types[r.cfnType] == nil:
 				r.notImportable = "infraharvest knows no Terraform type for " + r.cfnType
 			}
 			if !stack.deleted {
 				r.retain = stack.template.retainProblems(r.logicalID, r.cfnType)
 			}
+		}
+	}
+	for _, r := range stack.resources {
+		if isCustomResource(r.cfnType) && r.notImportable != "" {
+			r.notImportable, r.mustRemove = customResourceAdvice(stack, r)
 		}
 	}
 	for _, n := range nested {
@@ -256,7 +267,14 @@ func (s *StackScope) Summary() []string {
 		var notImportable, notRetained []string
 		for _, r := range stack.resources {
 			if r.outcome == "" && r.notImportable != "" {
-				notImportable = append(notImportable, r.logicalID+" ("+r.cfnType+")")
+				note := r.logicalID + " (" + r.cfnType + ")"
+				switch {
+				case r.mustRemove:
+					note += ", which must be taken out of the stack before it is deleted"
+				case r.acknowledged:
+					note += ", acknowledged"
+				}
+				notImportable = append(notImportable, note)
 			}
 			if len(r.retain) > 0 {
 				notRetained = append(notRetained, r.logicalID)
@@ -438,6 +456,8 @@ func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormat
 			PhysicalID:    r.physicalID,
 			Status:        r.status,
 			NotImportable: r.notImportable,
+			MustRemove:    r.mustRemove,
+			Acknowledged:  r.acknowledged,
 			Retain:        r.retain,
 			Matches:       byResource[r],
 			Outcome:       r.outcome,

@@ -45,6 +45,9 @@ const (
 	// StackNotImportable: Terraform has no type for it, as for a custom
 	// resource.
 	StackNotImportable = "not_importable"
+	// StackAcknowledged: Terraform can't import it, and --cfn-ignore
+	// accepts that the stack is deleted without it.
+	StackAcknowledged = "acknowledged"
 	// StackOnlyInCloudFormation: it exists only in CloudFormation, as a
 	// wait condition or the CDK's metadata does, so there is nothing to
 	// import, and deleting it deletes nothing else.
@@ -119,6 +122,13 @@ type CloudFormationResource struct {
 	// NotImportable says why Terraform can't import it, for an outcome of
 	// StackNotImportable or StackOnlyInCloudFormation.
 	NotImportable string `json:"not_importable,omitempty"`
+	// MustRemove says deleting it destroys what other resources hold, such
+	// as the CDK's Custom::S3AutoDeleteObjects a bucket's objects: it must
+	// be taken out of the stack before the stack is deleted, as
+	// NotImportable says how. Acknowledged says --cfn-ignore accepts that
+	// Terraform can't import it.
+	MustRemove   bool `json:"must_remove,omitempty"`
+	Acknowledged bool `json:"acknowledged,omitempty"`
 	// Retain says what keeps it from outliving the stack: a DeletionPolicy
 	// or an UpdateReplacePolicy that isn't Retain. None means it is
 	// retained.
@@ -259,7 +269,13 @@ func (r *Report) finishStacks() {
 			switch res.Outcome {
 			case StackNotImported:
 				s.Blockers = append(s.Blockers, fmt.Sprintf("%s (%s) isn't imported, %s", res.LogicalID, res.Type, res.Reason))
-			case StackNotFound, StackNotImportable:
+			case StackNotImportable:
+				if res.MustRemove {
+					s.Blockers = append(s.Blockers, fmt.Sprintf("%s (%s) must be taken out of the stack before the stack is deleted, and --cfn-ignore can't acknowledge it: it is %s", res.LogicalID, res.Type, res.NotImportable))
+					break
+				}
+				s.Blockers = append(s.Blockers, fmt.Sprintf("%s (%s) %s", res.LogicalID, res.Type, res.Reason))
+			case StackNotFound:
 				s.Blockers = append(s.Blockers, fmt.Sprintf("%s (%s) %s", res.LogicalID, res.Type, res.Reason))
 			}
 			if len(res.Retain) > 0 {
@@ -296,6 +312,8 @@ func (r *Report) stackOutcome(s *CloudFormationStack, res *CloudFormationResourc
 		return res.Outcome, res.NotImportable
 	case strings.HasPrefix(res.Status, "DELETE_COMPLETE"):
 		return StackDeleted, "CloudFormation deleted it"
+	case res.NotImportable != "" && res.Acknowledged:
+		return StackAcknowledged, "by --cfn-ignore, as " + res.NotImportable
 	case res.NotImportable != "":
 		return StackNotImportable, "can't be imported: " + res.NotImportable
 	case len(res.Matches) == 0:
@@ -338,7 +356,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 	if len(r.CloudFormationStacks) == 0 {
 		return
 	}
-	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, or left out by the selection file, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, check the change set, apply the roots, then delete the stack.\n")
+	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, left out by the selection file or, where Terraform can't import it, acknowledged with `--cfn-ignore`, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, check the change set, apply the roots, then delete the stack.\n")
 	for _, s := range r.CloudFormationStacks {
 		fmt.Fprintf(b, "\n### `%s` (%s)\n\n`%s`, %s", s.Name, s.Region, s.ID, s.Status)
 		if s.Parent != "" {
@@ -352,7 +370,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 		case s.Deleted:
 			b.WriteString("Deleted already: the resources it retained are imported, and there is nothing left to delete.\n\n")
 		case s.SafeToDelete:
-			b.WriteString("**Safe to delete**: every resource is imported or left out by the selection file, the plans of the roots that import them change nothing, and every resource is retained. Apply the roots first.\n\n")
+			b.WriteString("**Safe to delete**: every resource is imported, left out by the selection file or acknowledged with `--cfn-ignore`, the plans of the roots that import them change nothing, and every resource is retained. Apply the roots first.\n\n")
 		default:
 			b.WriteString("**Not safe to delete yet**:\n\n")
 			for _, blocker := range s.Blockers {
