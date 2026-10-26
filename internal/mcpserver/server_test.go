@@ -336,6 +336,13 @@ func TestScopeArgsByProvider(t *testing.T) {
 			Scope{Provider: "aws", Services: []string{"vpc", "s3"}, Regions: []string{"eu-west-1", "us-east-1"}, Profile: "prod", Accounts: []string{"111111111111", "222222222222"}},
 			[]string{"discover", "aws", "--services=vpc,s3", "--regions=eu-west-1,us-east-1", "--profile=prod", "--accounts=111111111111,222222222222"},
 		},
+		// A stack's ARN has no comma, but --cfn-stack takes one stack each
+		// time: each is a flag of its own, and the services may be left
+		// to the stacks.
+		"aws stacks": {
+			Scope{Provider: "aws", CloudFormationStacks: []string{"app", "arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1"}, CloudFormationIgnore: []string{"app/Seed"}},
+			[]string{"discover", "aws", "--cfn-stack=app", "--cfn-stack=arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1", "--cfn-ignore=app/Seed"},
+		},
 		"google projects": {
 			Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one", "two"}, Regions: []string{"global", "europe-west1"}},
 			[]string{"discover", "google", "--services=iam", "--regions=global,europe-west1", "--projects=one,two"},

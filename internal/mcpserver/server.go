@@ -212,12 +212,17 @@ func resolve(path string) (string, error) {
 // same name, and only the providers whose command has that flag take it.
 type Scope struct {
 	Provider string   `json:"provider" jsonschema:"the provider command: aws, azure or google"`
-	Services []string `json:"services" jsonschema:"services to list, such as vpc, s3 and iam"`
+	Services []string `json:"services,omitempty" jsonschema:"services to list, such as vpc, s3 and iam; with cfn_stacks, those of the stacks' resource types when left out"`
 	// Regions is for aws and google.
 	Regions []string `json:"regions,omitempty" jsonschema:"aws and google only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
 	// Profile and Accounts are for aws.
 	Profile  string   `json:"profile,omitempty" jsonschema:"aws only: the AWS profile whose credentials to use"`
 	Accounts []string `json:"accounts,omitempty" jsonschema:"aws only: accounts to list, each through the role infraharvest-readonly in it"`
+	// CloudFormationStacks and CloudFormationIgnore are for aws: the
+	// stacks whose resources alone to import, and those of their resources
+	// Terraform can't import that they may be deleted without.
+	CloudFormationStacks []string `json:"cfn_stacks,omitempty" jsonschema:"aws only: CloudFormation stacks, by name or stack ID (ARN), whose resources and nested stacks' alone to import; the report says whether each can be deleted once they are in Terraform"`
+	CloudFormationIgnore []string `json:"cfn_ignore,omitempty" jsonschema:"aws only, with cfn_stacks: resources of the stacks Terraform can't import, such as custom resources, by logical ID or as <stack>/<logical ID>, which the stacks may be deleted without"`
 	// Projects, Organization and Folders are for google, which needs at
 	// least one of them.
 	Projects     []string `json:"projects,omitempty" jsonschema:"google only: projects to list; google needs projects, organization or folders"`
@@ -762,20 +767,25 @@ type scopeField struct {
 	flag      string
 	providers []string
 	values    func(Scope) []string
+	// repeat passes the flag once per value, for a flag that takes one
+	// value each time, such as --cfn-stack, rather than a list.
+	repeat bool
 }
 
 // scopeFields are Scope's fields that say where to list, in the order
 // their flags are passed.
 var scopeFields = []scopeField{
-	{"regions", "regions", []string{"aws", "google"}, func(s Scope) []string { return s.Regions }},
-	{"profile", "profile", []string{"aws"}, func(s Scope) []string { return nonEmpty(s.Profile) }},
-	{"accounts", "accounts", []string{"aws"}, func(s Scope) []string { return s.Accounts }},
-	{"projects", "projects", []string{"google"}, func(s Scope) []string { return s.Projects }},
-	{"organization", "organization", []string{"google"}, func(s Scope) []string { return nonEmpty(s.Organization) }},
-	{"folders", "folders", []string{"google"}, func(s Scope) []string { return s.Folders }},
-	{"subscriptions", "subscriptions", []string{"azure"}, func(s Scope) []string { return s.Subscriptions }},
-	{"management_group", "management-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ManagementGroup) }},
-	{"resource_group", "resource-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ResourceGroup) }},
+	{"regions", "regions", []string{"aws", "google"}, func(s Scope) []string { return s.Regions }, false},
+	{"profile", "profile", []string{"aws"}, func(s Scope) []string { return nonEmpty(s.Profile) }, false},
+	{"accounts", "accounts", []string{"aws"}, func(s Scope) []string { return s.Accounts }, false},
+	{"projects", "projects", []string{"google"}, func(s Scope) []string { return s.Projects }, false},
+	{"organization", "organization", []string{"google"}, func(s Scope) []string { return nonEmpty(s.Organization) }, false},
+	{"folders", "folders", []string{"google"}, func(s Scope) []string { return s.Folders }, false},
+	{"subscriptions", "subscriptions", []string{"azure"}, func(s Scope) []string { return s.Subscriptions }, false},
+	{"management_group", "management-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ManagementGroup) }, false},
+	{"resource_group", "resource-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ResourceGroup) }, false},
+	{"cfn_stacks", "cfn-stack", []string{"aws"}, func(s Scope) []string { return s.CloudFormationStacks }, true},
+	{"cfn_ignore", "cfn-ignore", []string{"aws"}, func(s Scope) []string { return s.CloudFormationIgnore }, true},
 }
 
 // nonEmpty returns value as the only value of a field, or none if it is
@@ -789,7 +799,7 @@ func nonEmpty(value string) []string {
 
 // scopeHelp says which provider takes which of Scope's fields, for the
 // tools' descriptions.
-const scopeHelp = "Where to list depends on the provider: aws takes regions, profile and accounts; azure takes subscriptions, management_group and resource_group; google takes regions and needs projects, organization or folders."
+const scopeHelp = "Where to list depends on the provider: aws takes regions, profile and accounts, and cfn_stacks to import CloudFormation stacks, with cfn_ignore; azure takes subscriptions, management_group and resource_group; google takes regions and needs projects, organization or folders."
 
 // scopeArgs returns the arguments for command on scope. Every value is
 // part of a --flag=value argument, so none can become a flag of its own.
@@ -800,13 +810,16 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 	if !slices.Contains(providers, s.Provider) {
 		return nil, fmt.Errorf("unknown provider %q: use %s", s.Provider, strings.Join(providers, ", "))
 	}
-	if len(s.Services) == 0 {
-		return nil, errors.New("services is required")
+	if len(s.Services) == 0 && len(s.CloudFormationStacks) == 0 {
+		return nil, errors.New("services is required, unless cfn_stacks names the stacks to import")
 	}
 	if err := checkScopeValues(s); err != nil {
 		return nil, err
 	}
-	args := []string{command, s.Provider, "--services=" + strings.Join(s.Services, ",")}
+	args := []string{command, s.Provider}
+	if len(s.Services) > 0 {
+		args = append(args, "--services="+strings.Join(s.Services, ","))
+	}
 	var errs []error
 	for _, f := range scopeFields {
 		values := f.values(s)
@@ -817,7 +830,12 @@ func scopeArgs(command string, s Scope) ([]string, error) {
 			errs = append(errs, fmt.Errorf("%s doesn't take %s, which is for %s only", s.Provider, f.name, strings.Join(f.providers, " and ")))
 			continue
 		}
-		args = append(args, "--"+f.flag+"="+strings.Join(values, ","))
+		if !f.repeat {
+			values = []string{strings.Join(values, ",")}
+		}
+		for _, v := range values {
+			args = append(args, "--"+f.flag+"="+v)
+		}
 	}
 	if s.Provider == "google" && len(s.Projects) == 0 && s.Organization == "" && len(s.Folders) == 0 {
 		errs = append(errs, errors.New("google needs projects, organization or folders to say which projects to list"))
@@ -842,7 +860,7 @@ func checkScopeValues(s Scope) error {
 		}
 	}
 	values := []string{s.Profile, s.Organization, s.ManagementGroup, s.ResourceGroup}
-	for _, list := range [][]string{s.Accounts, s.Projects, s.Folders, s.Subscriptions} {
+	for _, list := range [][]string{s.Accounts, s.Projects, s.Folders, s.Subscriptions, s.CloudFormationStacks, s.CloudFormationIgnore} {
 		values = append(values, list...)
 	}
 	for _, v := range values {
@@ -925,6 +943,15 @@ func scopeText(s Scope) string {
 		if len(s.Regions) > 0 {
 			text += " in " + strings.Join(s.Regions, ", ")
 		}
+	}
+	if len(s.CloudFormationStacks) > 0 {
+		text += ", only the resources of CloudFormation stacks " + strings.Join(s.CloudFormationStacks, ", ")
+		if len(s.CloudFormationIgnore) > 0 {
+			text += ", acknowledging " + strings.Join(s.CloudFormationIgnore, ", ")
+		}
+	}
+	if len(s.Services) == 0 {
+		return text + " (the services of the stacks' resources)"
 	}
 	return text + " (" + strings.Join(s.Services, ", ") + ")"
 }
