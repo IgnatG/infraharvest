@@ -40,6 +40,7 @@ func NewCmdRoot() *cobra.Command {
 		newDriftCmd(),
 		newReportCmd(),
 		newBootstrapCmd(),
+		newCfnCmd(),
 		versionCmd,
 	)
 	return cmd

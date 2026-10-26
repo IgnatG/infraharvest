@@ -19,6 +19,8 @@
 //
 //	go run ./ihschemameta -version 6.70.0 -out aws.json
 //
+// The workflow then gzips the file, as the package embeds it.
+//
 // Plugin SDK v2 resources give everything. Plugin Framework resources give
 // only their defaults: their constraints are validators, whose settings
 // they don't expose, so they are marked framework and the engine falls

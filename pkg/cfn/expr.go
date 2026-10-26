@@ -271,7 +271,17 @@ func (c *converter) ref(f Func, path string) string {
 		return "null"
 	}
 	name := string(arg)
+	_, isResource := c.resources[name]
+	if c.opts.Resolver != nil && !isResource {
+		if e, ok := c.opts.Resolver.Parameter(name); ok {
+			return e
+		}
+	}
 	if pi, ok := c.params[name]; ok {
+		if c.opts.Resolver != nil {
+			c.report(Error, path, fmt.Sprintf("Ref to the parameter %s, which has no value here; it is null instead", name))
+			return "null"
+		}
 		return c.paramRef(pi)
 	}
 	if strings.HasPrefix(name, "AWS::") {
@@ -282,8 +292,8 @@ func (c *converter) ref(f Func, path string) string {
 		c.report(Error, path, fmt.Sprintf("Ref to %s, which isn't a parameter or a resource of the template; it is null instead", name))
 		return "null"
 	}
-	if ri.skip != "" {
-		c.report(Error, path, fmt.Sprintf("Ref to %s (%s), which isn't converted; it is null instead", name, ri.r.Type))
+	address, ok := c.addressOf(ri, path)
+	if !ok {
 		return "null"
 	}
 	m, ok := c.mapper.Ref(ri.r.Type)
@@ -292,9 +302,39 @@ func (c *converter) ref(f Func, path string) string {
 		return "null"
 	}
 	if m.Guessed {
-		c.info(path, fmt.Sprintf("Ref to %s reads the attribute %s, which the mapper guessed", name, m.Name))
+		c.guess(path, fmt.Sprintf("Ref to %s reads the attribute %s, which the mapper guessed", name, m.Name))
 	}
-	return ri.address() + "." + m.Name
+	return address + "." + m.Name
+}
+
+// addressOf returns the address references to a resource use: the one the
+// Resolver gives, when there is one, or the resource block's (see
+// resourceInfo.address). It reports a resource the converter or the
+// Resolver has none for.
+func (c *converter) addressOf(ri *resourceInfo, path string) (string, bool) {
+	if c.opts.Resolver != nil {
+		if address, ok := c.opts.Resolver.Resource(ri.r.LogicalID); ok {
+			return address, true
+		}
+		c.report(Error, path, fmt.Sprintf("%s (%s) has no Terraform address here; it is null instead", ri.r.LogicalID, ri.r.Type))
+		return "", false
+	}
+	if ri.skip != "" {
+		c.report(Error, path, fmt.Sprintf("%s (%s) isn't converted, so a reference to it is null instead", ri.r.LogicalID, ri.r.Type))
+		return "", false
+	}
+	return ri.address(), true
+}
+
+// guess reports a name the mapper guessed: information when the converter
+// writes the whole configuration, which a person reviews, and a warning
+// for a Resolver's caller, which applies what it gets without review.
+func (c *converter) guess(path, msg string) {
+	if c.opts.Resolver != nil {
+		c.report(Warning, path, msg)
+		return
+	}
+	c.info(path, msg)
 }
 
 // paramRef returns a reference to a parameter's variable, or to the data
@@ -334,6 +374,10 @@ func (c *converter) pseudo(name, path string) string {
 	case "AWS::NoValue":
 		return "null"
 	case pseudoStackName, pseudoStackID, pseudoNotificationARNs:
+		if c.single {
+			c.report(Error, path, fmt.Sprintf("%s has no value here; it is null instead", name))
+			return "null"
+		}
 		v := c.standIn[name]
 		if !c.pseudoUsed[name] {
 			c.pseudoUsed[name] = true
@@ -375,8 +419,8 @@ func (c *converter) getAtt(f Func, path string) string {
 		c.report(Error, path, fmt.Sprintf("Fn::GetAtt of %s, which isn't a resource of the template; it is null instead", id))
 		return "null"
 	}
-	if ri.skip != "" {
-		c.report(Error, path, fmt.Sprintf("Fn::GetAtt of %s.%s (%s), which isn't converted; it is null instead", id, attr, ri.r.Type))
+	address, ok := c.addressOf(ri, path)
+	if !ok {
 		return "null"
 	}
 	m, ok := c.mapper.Attribute(ri.r.Type, attr)
@@ -385,9 +429,9 @@ func (c *converter) getAtt(f Func, path string) string {
 		return "null"
 	}
 	if m.Guessed {
-		c.info(path, fmt.Sprintf("%s.%s is the attribute %s, which the mapper guessed", id, attr, m.Name))
+		c.guess(path, fmt.Sprintf("%s.%s is the attribute %s, which the mapper guessed", id, attr, m.Name))
 	}
-	return ri.address() + "." + m.Name
+	return address + "." + m.Name
 }
 
 // subPart is a piece of an Fn::Sub string: literal text, or the name of a
@@ -503,6 +547,16 @@ func (c *converter) sub(f Func, path string, heredoc bool) string {
 	for i, p := range parts {
 		switch {
 		case p.isVar:
+			if text, ok := plainString(exprs[i]); ok {
+				// A variable that is a literal, such as one a Resolver gives,
+				// is text of the template, not an interpolation.
+				if useHeredoc {
+					writeHeredocLiteral(&b, text)
+				} else {
+					writeLiteral(&b, text)
+				}
+				continue
+			}
 			b.WriteString("${" + exprs[i] + "}")
 		case useHeredoc:
 			writeHeredocLiteral(&b, p.text)
@@ -519,6 +573,19 @@ func (c *converter) sub(f Func, path string, heredoc bool) string {
 		return "null"
 	}
 	return c.spend(b.String())
+}
+
+// plainString returns the text of a quoted string expression that needs
+// no unescaping: no escapes, quotes or template sequences in it.
+func plainString(expr string) (string, bool) {
+	if len(expr) < 2 || expr[0] != '"' || expr[len(expr)-1] != '"' {
+		return "", false
+	}
+	text := expr[1 : len(expr)-1]
+	if strings.ContainsAny(text, "\"\\") || strings.Contains(text, "${") || strings.Contains(text, "%{") {
+		return "", false
+	}
+	return text, true
 }
 
 // subVar converts a variable of Fn::Sub.
@@ -588,6 +655,10 @@ func (c *converter) findInMap(f Func, path string) string {
 		return "null"
 	}
 	name, _ := a[0].(String)
+	if c.single {
+		c.report(Error, path, "Fn::FindInMap reads a mapping, which isn't converted with one value; it is null instead")
+		return "null"
+	}
 	local, ok := c.mappings[string(name)]
 	if !ok {
 		c.report(Error, path, fmt.Sprintf("Fn::FindInMap of %s, which isn't a mapping of the template; it is null instead", compactJSON(a[0])))
@@ -681,6 +752,10 @@ func (c *converter) conditionRef(n Node, path string) string {
 	if !ok {
 		c.report(Error, path, "a condition is named by a string; it is false instead")
 		c.keep(n)
+		return "false"
+	}
+	if c.single {
+		c.report(Error, path, fmt.Sprintf("the condition %s isn't converted with one value; it is false instead", name))
 		return "false"
 	}
 	local, ok := c.conditions[string(name)]

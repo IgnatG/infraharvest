@@ -102,6 +102,11 @@ type CloudFormationStack struct {
 	// Template and RetainTemplate: a report read back has none.
 	templateBody, retainBody string
 	templateExt              string
+	// parameters are the values the stack's parameters have, by name, as
+	// DescribeStacks gives them (see SetParameters): not in the report,
+	// which a person may share, as a value may be one only the stack's
+	// owners should see.
+	parameters map[string]string
 }
 
 // SetTemplates sets the stack's template body, and that of the copy with
@@ -109,6 +114,24 @@ type CloudFormationStack struct {
 // their extension (json or yaml).
 func (s *CloudFormationStack) SetTemplates(body, retain, ext string) {
 	s.templateBody, s.retainBody, s.templateExt = body, retain, ext
+}
+
+// TemplateBody returns the stack's template, as SetTemplates set it, or
+// "" for a report read back.
+func (s *CloudFormationStack) TemplateBody() string {
+	return s.templateBody
+}
+
+// SetParameters sets the values the stack's parameters have, by name: a
+// NoEcho parameter's is masked, as CloudFormation gives it, and an SSM
+// parameter type's is the value it resolved to.
+func (s *CloudFormationStack) SetParameters(values map[string]string) {
+	s.parameters = values
+}
+
+// Parameters returns the values SetParameters set, or nil.
+func (s *CloudFormationStack) Parameters() map[string]string {
+	return s.parameters
 }
 
 // CloudFormationResource is a resource of a CloudFormation stack.

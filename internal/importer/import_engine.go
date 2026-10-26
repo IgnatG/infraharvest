@@ -470,6 +470,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 	sort.Strings(dirs)
 	dirs = c.handovers.order(dirs)
 	others := newOtherRoots(opts, roots, options.Out)
+	refine := c.stackIntent()
 	for _, dir := range dirs {
 		if err := c.handovers.refusal(dir); err != nil {
 			c.handovers.record(dir, nil, err)
@@ -477,6 +478,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			continue
 		}
 		dirOpts := others.of(dir)
+		dirOpts.Refine = refine
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
 			return err

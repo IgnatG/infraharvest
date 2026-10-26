@@ -167,4 +167,5 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) describes the work
 
 ## Licence
 
-infraharvest is licensed under the [GNU Affero General Public License, version 3 only](LICENSE) (AGPL-3.0-only).
+infraharvest is licensed under the [GNU Affero General Public License, version 3 only](LICENSE) (AGPL-3.0-only). The schema metadata it embeds, the defaults and argument constraints read out of the HashiCorp Terraform providers' code (`internal/catalogue/schemameta/*.json.gz`), is MPL-2.0, as those providers are ([LICENSES/MPL-2.0.txt](LICENSES/MPL-2.0.txt); see [Schema metadata](docs/catalogue.md#licences)).
+

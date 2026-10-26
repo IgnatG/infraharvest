@@ -17,6 +17,29 @@ infraharvest bootstrap [flags]
 | `--config` |  | configuration file with the backend (required) |
 | `-o`, `--out` | `infraharvest-out` | directory to write the bootstrap root under |
 
+## infraharvest cfn
+
+Translate CloudFormation templates into Terraform
+
+```
+infraharvest cfn
+```
+
+## infraharvest cfn convert
+
+Translate a CloudFormation template into Terraform files
+
+```
+infraharvest cfn convert <template> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--allow-partial` |  | exit 3 rather than 1 when something couldn't be converted |
+| `-o`, `--out` | `cfn-terraform` | directory to write the Terraform files into; files of the same names must not exist |
+| `--prevent-destroy` |  | add lifecycle prevent_destroy to resources whose DeletionPolicy is Retain |
+| `--stack-name` |  | default of the stack_name variable that stands in for AWS::StackName |
+
 ## infraharvest discover
 
 List resources into a selection file to review before importing
