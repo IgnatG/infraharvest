@@ -84,22 +84,3 @@ func ConvertValue(t *Template, n Node, path string, opts Options) (*Value, error
 	sort.Strings(v.Data)
 	return v, nil
 }
-
-// Name returns a CloudFormation name, such as a logical ID or a parameter's
-// name, as the Terraform name Convert gives it: VPCGatewayAttachment
-// becomes vpc_gateway_attachment, MyS3Bucket my_s3_bucket.
-func Name(s string) string {
-	return ident(s)
-}
-
-// VariableName returns a parameter's name as the name of the Terraform
-// variable Convert declares for it: Name, with _value added to a name
-// Terraform reserves for its own meta-arguments, such as version or count,
-// which no variable may have.
-func VariableName(s string) string {
-	name := ident(s)
-	if reservedVariables[name] {
-		name += "_value"
-	}
-	return name
-}

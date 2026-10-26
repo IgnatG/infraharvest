@@ -10,8 +10,9 @@ import "strings"
 // becomes, and the attribute Ref and Fn::GetAtt read. Convert asks it about
 // every resource, property and reference, so a caller with better
 // knowledge than the built-in table, such as a provider schema, plugs it
-// in through Options.Mapper; wrapping DefaultMapper and falling back to it
-// keeps the built-in names for what the caller's table leaves out.
+// in through Options.Mapper; embedding BaseMapper keeps the built-in names
+// for what the caller's table leaves out, and for methods Mapper gains
+// later, which an implementation that embeds it gets without a change.
 //
 // Each method returns false when it has no answer. Convert then leaves the
 // thing out of the output, with a diagnostic and a comment that keeps what
@@ -116,10 +117,27 @@ type Property struct {
 // It has no answer for types outside the AWS namespace, for SAM's
 // AWS::Serverless types, or for AWS::CloudFormation's own.
 func DefaultMapper() Mapper {
-	return defaultMapper{}
+	return BaseMapper{}
 }
 
-type defaultMapper struct{}
+// BaseMapper is the built-in mapper (see DefaultMapper) as a type to embed.
+// A Mapper of the caller's should embed it and define only the methods it
+// answers better, calling BaseMapper's for what it leaves to the built-in
+// names: a method added to Mapper later then gives the built-in answer,
+// rather than breaking the caller's build.
+//
+//	type schemaMapper struct {
+//		cfn.BaseMapper
+//		types map[string]string
+//	}
+//
+//	func (m schemaMapper) ResourceType(cfnType string) (cfn.Mapped, bool) {
+//		if t, ok := m.types[cfnType]; ok {
+//			return cfn.Mapped{Name: t}, true
+//		}
+//		return m.BaseMapper.ResourceType(cfnType)
+//	}
+type BaseMapper struct{}
 
 // guessable reports whether the default mapper derives a type's names: an
 // AWS type that isn't SAM's or CloudFormation's own.
@@ -128,7 +146,7 @@ func guessable(cfnType string) bool {
 	return len(parts) == 3 && parts[0] == "AWS" && parts[1] != "Serverless" && parts[1] != "CloudFormation" && parts[1] != "" && parts[2] != ""
 }
 
-func (defaultMapper) ResourceType(cfnType string) (Mapped, bool) {
+func (BaseMapper) ResourceType(cfnType string) (Mapped, bool) {
 	if e, ok := builtinTypes[cfnType]; ok {
 		return Mapped{Name: e.tf}, true
 	}
@@ -139,7 +157,7 @@ func (defaultMapper) ResourceType(cfnType string) (Mapped, bool) {
 	return Mapped{Name: "aws_" + snake(parts[1]) + "_" + snake(parts[2]), Guessed: true}, true
 }
 
-func (defaultMapper) Property(cfnType string, path []string) (Property, bool) {
+func (BaseMapper) Property(cfnType string, path []string) (Property, bool) {
 	if len(path) == 0 {
 		return Property{}, false
 	}
@@ -160,7 +178,7 @@ func (defaultMapper) Property(cfnType string, path []string) (Property, bool) {
 	return Property{Name: ident(last), Guessed: true}, true
 }
 
-func (defaultMapper) Ref(cfnType string) (Mapped, bool) {
+func (BaseMapper) Ref(cfnType string) (Mapped, bool) {
 	if e, ok := builtinTypes[cfnType]; ok {
 		if e.ref == "" {
 			return Mapped{Name: "id"}, true
@@ -173,7 +191,7 @@ func (defaultMapper) Ref(cfnType string) (Mapped, bool) {
 	return Mapped{Name: "id", Guessed: true}, true
 }
 
-func (defaultMapper) Attribute(cfnType, attribute string) (Mapped, bool) {
+func (BaseMapper) Attribute(cfnType, attribute string) (Mapped, bool) {
 	e, known := builtinTypes[cfnType]
 	if known {
 		if a, ok := e.attrs[attribute]; ok {

@@ -66,9 +66,3 @@ func TestConvertValue(t *testing.T) {
 		t.Error("ConvertValue(nil) succeeded")
 	}
 }
-
-func TestName(t *testing.T) {
-	if got := Name("PublicSubnetA"); got != "public_subnet_a" {
-		t.Errorf("Name = %q", got)
-	}
-}

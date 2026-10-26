@@ -36,9 +36,11 @@
 // comes from a Mapper. DefaultMapper knows the common AWS types and derives
 // the rest from their names, marking the derived names as guesses; a
 // caller with a better table, such as one built from the provider's schema,
-// passes its own in Options.
+// passes its own in Options, embedding BaseMapper for what its table
+// leaves out.
 //
-// The package has no dependency on the rest of infraharvest, so that it can
-// be used, and later published, on its own. See the README for what is and
-// isn't converted.
+// The package depends on nothing else of infraharvest's but internal/cfnhcl,
+// the names and numbers it shares with the rest, which depends on nothing,
+// so that it can be used, and later published, on its own. See the README
+// for what is and isn't converted.
 package cfn

@@ -48,6 +48,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
 
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
@@ -69,7 +70,7 @@ type Stack struct {
 
 // FileName returns the name of the file Apply writes for a stack.
 func FileName(stack string) string {
-	return "cloudformation_" + cfn.Name(stack) + ".tf"
+	return "cloudformation_" + cfnhcl.Name(stack) + ".tf"
 }
 
 // Apply carries each stack's template into the root in dir (see the
@@ -335,7 +336,7 @@ func (s *stackRun) variable(name string) (*variable, string) {
 	if !ok {
 		return nil, fmt.Sprintf("the stack's value of the parameter, %q, isn't a %s", live, p.Type)
 	}
-	v := &variable{param: p, name: claim(s.r.variables, cfn.VariableName(name)), typ: typ, literal: literal, value: value}
+	v := &variable{param: p, name: claim(s.r.variables, cfnhcl.VariableName(name)), typ: typ, literal: literal, value: value}
 	s.pending[name] = v
 	return v, ""
 }
@@ -442,7 +443,7 @@ func (s *stackRun) outputs() []output {
 			continue
 		}
 		s.commit()
-		out = append(out, output{o: o, name: claim(s.r.outputs, cfn.Name(o.Name)), expr: v.Expr, data: v.Data, sensitive: v.Sensitive})
+		out = append(out, output{o: o, name: claim(s.r.outputs, cfnhcl.Name(o.Name)), expr: v.Expr, data: v.Data, sensitive: v.Sensitive})
 	}
 	if len(skipped) > 0 {
 		s.warn("outputs not written in this root: " + strings.Join(skipped, "; "))
@@ -659,10 +660,10 @@ func items(live string) []string {
 	return parts
 }
 
-// numberValue returns a number as an HCL literal (see cfn.NumberLiteral)
+// numberValue returns a number as an HCL literal (see cfnhcl.NumberLiteral)
 // and as a value.
 func numberValue(s string) (string, *big.Float, bool) {
-	lit, ok := cfn.NumberLiteral(s)
+	lit, ok := cfnhcl.NumberLiteral(s)
 	if !ok {
 		return "", nil, false
 	}

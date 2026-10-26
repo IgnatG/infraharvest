@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 )
 
 // Node is a value in a template: one of Null, Bool, Number, String, List,
@@ -109,7 +111,7 @@ func (Null) MarshalJSON() ([]byte, error) {
 // and as a string otherwise (YAML allows forms such as 0x1F that JSON
 // doesn't).
 func (n Number) MarshalJSON() ([]byte, error) {
-	if numberPattern.MatchString(string(n)) {
+	if cfnhcl.NumberPattern.MatchString(string(n)) {
 		return []byte(n), nil
 	}
 	return json.Marshal(string(n))

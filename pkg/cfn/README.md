@@ -1,6 +1,6 @@
 # cfn: CloudFormation to Terraform
 
-Package `cfn` translates AWS CloudFormation templates into Terraform configuration for the AWS provider. infraharvest uses it to carry a stack's template intent (its parameters, outputs, conditions and references) into the configuration it writes for the stack's live resources; it has no dependency on the rest of infraharvest, so it can be used on its own.
+Package `cfn` translates AWS CloudFormation templates into Terraform configuration for the AWS provider. infraharvest uses it to carry a stack's template intent (its parameters, outputs, conditions and references) into the configuration it writes for the stack's live resources; it depends on nothing else of infraharvest's but `internal/cfnhcl`, the names and numbers it shares with the rest, which depends on nothing, so it can be used on its own.
 
 ```go
 t, err := cfn.Parse(file) // JSON or YAML, short-form tags included
@@ -46,7 +46,7 @@ The output is formatted as `terraform fmt` would, and is the same, byte for byte
 
 ## Naming: the Mapper
 
-What a resource type, property and attribute are called in Terraform comes from a `Mapper`, which `Options.Mapper` replaces. `DefaultMapper` knows the common AWS types (VPC networking, S3, IAM, Lambda, SNS, SQS, KMS, CloudWatch Logs, DynamoDB, RDS, ECR, ECS, Route 53, load balancers, Secrets Manager, SSM parameters, EventBridge rules) and derives the rest: `AWS::Service::Thing` becomes `aws_service_thing` and a property its snake_case name. Derived names are marked as guesses, reported as diagnostics and listed in a comment above the resource, so that a person checks them.
+What a resource type, property and attribute are called in Terraform comes from a `Mapper`, which `Options.Mapper` replaces. A mapper of your own should embed `BaseMapper`, the built-in one, and define only the methods it answers better: what it leaves out, and any method `Mapper` gains later, then gets the built-in answer. `DefaultMapper` knows the common AWS types (VPC networking, S3, IAM, Lambda, SNS, SQS, KMS, CloudWatch Logs, DynamoDB, RDS, ECR, ECS, Route 53, load balancers, Secrets Manager, SSM parameters, EventBridge rules) and derives the rest: `AWS::Service::Thing` becomes `aws_service_thing` and a property its snake_case name. Derived names are marked as guesses, reported as diagnostics and listed in a comment above the resource, so that a person checks them.
 
 A property can become an argument, a nested block (one per list element), a map with its keys as written, a tags map from `{Key, Value}` pairs, `jsonencode()` of a policy document, or nothing, with the reason (the S3 bucket's versioning, for example, is a separate resource since version 4 of the AWS provider).
 
