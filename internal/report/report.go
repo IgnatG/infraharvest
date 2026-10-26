@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
 // SchemaVersion is the version of the JSON documents. It changes only
@@ -234,6 +233,30 @@ type CoverageTotal struct {
 	// OtherTool counts the excluded resources another tool manages, such as
 	// CloudFormation (see OtherToolPrefix).
 	OtherTool int `json:"other_tool,omitempty"`
+	// Cloud counts the excluded resources the default selection leaves out
+	// for another reason, mostly as the cloud creates and manages them
+	// itself, such as a default VPC (see OwnerCloud).
+	Cloud int `json:"cloud,omitempty"`
+}
+
+// exclude counts an excluded resource, and what manages it by reason (see
+// OwnerOf).
+func (c *CoverageTotal) exclude(reason string) {
+	c.Excluded++
+	switch OwnerOf(reason) {
+	case OwnerTerraformState, OwnerTerraformTag:
+		c.Managed++
+	case OwnerCloudFormation, OwnerOtherTool:
+		c.OtherTool++
+	case OwnerCloud:
+		c.Cloud++
+	}
+}
+
+// NotManaged counts what was discovered that neither Terraform, another
+// tool nor the cloud manages.
+func (c CoverageTotal) NotManaged() int {
+	return c.Discovered - c.Managed - c.OtherTool - c.Cloud
 }
 
 // Directory is one output directory.
@@ -579,21 +602,8 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		}
 	}
 	for _, e := range r.Excluded {
-		count(e.Type).Excluded++
-		if strings.HasPrefix(e.Reason, managed.Reason) {
-			count(e.Type).Managed++
-		} else if strings.HasPrefix(e.Reason, OtherToolPrefix) {
-			count(e.Type).OtherTool++
-		}
-		inScope(e.Scope, func(c *CoverageTotal) {
-			c.Excluded++
-			switch {
-			case strings.HasPrefix(e.Reason, managed.Reason):
-				c.Managed++
-			case strings.HasPrefix(e.Reason, OtherToolPrefix):
-				c.OtherTool++
-			}
-		})
+		count(e.Type).exclude(e.Reason)
+		inScope(e.Scope, func(c *CoverageTotal) { c.exclude(e.Reason) })
 	}
 	for i := range r.Directories {
 		d := &r.Directories[i]
@@ -628,6 +638,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		r.Totals.Failed += c.Failed
 		r.Totals.Managed += c.Managed
 		r.Totals.OtherTool += c.OtherTool
+		r.Totals.Cloud += c.Cloud
 	}
 	for i := range r.Scopes {
 		r.Scopes[i].CoverageTotal = *byScope[r.Scopes[i].Scope]
@@ -715,13 +726,7 @@ func (r *Report) countByTag() []TagCount {
 			case leftOut[k]:
 				c.LeftOut++
 			case isExcluded:
-				c.Excluded++
-				switch {
-				case strings.HasPrefix(reason, managed.Reason):
-					c.Managed++
-				case strings.HasPrefix(reason, OtherToolPrefix):
-					c.OtherTool++
-				}
+				c.exclude(reason)
 			default:
 				c.Failed++
 			}
@@ -896,18 +901,19 @@ func (r *Report) Markdown() string {
 			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.Excluded, c.LeftOut, c.Skipped, c.Failed)
 		}
 	}
-	if r.Totals.Managed > 0 || r.Totals.OtherTool > 0 {
-		b.WriteString("\n## Managed and unmanaged\n\nTerraform already manages some of what was discovered, according to the state read with --managed-state or to the resources' tags, and other tools, such as CloudFormation or Pulumi, manage some more: the import left those out (--include-owned imports those their tags say are managed). The rest isn't under infrastructure as code yet.\n\n")
+	if len(r.Types) > 0 {
+		b.WriteString("\n## Managed and unmanaged\n\nWhat Terraform already manages, according to the state read with --managed-state or to the resources' tags, what other tools such as CloudFormation or Pulumi manage, and what the cloud manages itself, such as a default VPC, or the default selection leaves out for another reason: the import left those out (--include-owned imports those their tags say are managed). The rest isn't under infrastructure as code yet.\n\n")
+		const header = "| Discovered | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |"
 		if len(r.Scopes) > 1 {
-			b.WriteString("| Account and region | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
+			b.WriteString("| Account and region " + header + "\n|---|---|---|---|---|---|\n")
 			for _, s := range r.Scopes {
-				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Discovered-s.Managed-s.OtherTool)
+				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.NotManaged())
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("| Type | Discovered | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|\n")
+		b.WriteString("| Type " + header + "\n|---|---|---|---|---|---|\n")
 		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Discovered-c.Managed-c.OtherTool)
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.NotManaged())
 		}
 	}
 	if len(r.Tags) > 0 {
@@ -916,13 +922,13 @@ func (r *Report) Markdown() string {
 		for _, c := range r.Tags {
 			if c.Key != key {
 				key = c.Key
-				fmt.Fprintf(&b, "\n| `%s` | Discovered | Imported | Managed by Terraform | Managed by another tool | Not managed |\n|---|---|---|---|---|---|\n", key)
+				fmt.Fprintf(&b, "\n| `%s` | Discovered | Imported | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |\n|---|---|---|---|---|---|---|\n", key)
 			}
 			value := "(not tagged)"
 			if c.Value != "" {
 				value = "`" + c.Value + "`"
 			}
-			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Discovered-c.Managed-c.OtherTool)
+			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.NotManaged())
 		}
 	}
 
