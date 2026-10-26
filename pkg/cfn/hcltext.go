@@ -11,6 +11,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 )
 
 // The converter writes HCL as text, a piece at a time, and hands each file
@@ -18,9 +20,6 @@ import (
 // to write template strings, heredocs and comments, which hclwrite's token
 // builders don't cover; parsing every file back guarantees the output is
 // valid HCL whatever went into it.
-
-// numberPattern matches the numbers HCL and JSON both read as numbers.
-var numberPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
 // identifierPattern matches the names the converter writes bare: block
 // types, labels, argument names and object keys. HCL allows "-" in an
@@ -38,8 +37,8 @@ var keywords = map[string]bool{"true": true, "false": true, "null": true, "for":
 
 // number returns s as an HCL number when it is one, and quoted otherwise.
 func number(s string) string {
-	if numberPattern.MatchString(s) {
-		return s
+	if lit, ok := cfnhcl.NumberLiteral(s); ok {
+		return lit
 	}
 	return quote(s)
 }
@@ -239,53 +238,16 @@ func (w *hclWriter) String() string {
 	return w.b.String()
 }
 
-// snake returns a CloudFormation name in snake_case: VPCGatewayAttachment
-// becomes vpc_gateway_attachment, MyS3Bucket my_s3_bucket. A run of
-// capitals is one word, whose last capital starts the next word when a
-// lower-case letter follows it. Anything but ASCII letters and digits
-// becomes an underscore, and runs of underscores become one.
+// snake returns a CloudFormation name in snake_case (see cfnhcl.Snake):
+// VPCGatewayAttachment becomes vpc_gateway_attachment.
 func snake(s string) string {
-	s = strings.NewReplacer("IPv6", "Ipv6", "IPv4", "Ipv4").Replace(s)
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c >= 'A' && c <= 'Z':
-			if i > 0 {
-				prev := s[i-1]
-				nextLower := i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z'
-				if isLower(prev) || isDigit(prev) || (prev >= 'A' && prev <= 'Z' && nextLower) {
-					b.WriteByte('_')
-				}
-			}
-			b.WriteByte(c - 'A' + 'a')
-		case isLower(c) || isDigit(c):
-			b.WriteByte(c)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	out := b.String()
-	for strings.Contains(out, "__") {
-		out = strings.ReplaceAll(out, "__", "_")
-	}
-	return strings.Trim(out, "_")
+	return cfnhcl.Snake(s)
 }
 
-func isLower(c byte) bool { return c >= 'a' && c <= 'z' }
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
-
-// ident returns s as a Terraform name: snake_case, and never empty or
-// starting with a digit.
+// ident returns s as a Terraform name (see cfnhcl.Name): snake_case, and
+// never empty or starting with a digit.
 func ident(s string) string {
-	name := snake(s)
-	if name == "" {
-		return "unnamed"
-	}
-	if isDigit(name[0]) {
-		return "_" + name
-	}
-	return name
+	return cfnhcl.Name(s)
 }
 
 // nameSet hands out distinct names in one namespace. A name already given

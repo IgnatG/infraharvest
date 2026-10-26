@@ -182,7 +182,7 @@ func (c *converter) property(w *hclWriter, cfnType string, prop []string, v Node
 	key := prop[len(prop)-1]
 	p, ok := c.mapper.Property(cfnType, prop)
 	if !ok {
-		c.report(Warning, path, fmt.Sprintf("the mapper has no Terraform argument for %s; it is left out", key))
+		c.report(Error, path, fmt.Sprintf("the mapper has no Terraform argument for %s; it is left out", key))
 		c.keep(v)
 		return
 	}
@@ -197,7 +197,7 @@ func (c *converter) property(w *hclWriter, cfnType string, prop []string, v Node
 		return
 	}
 	if seen[name] {
-		c.report(Warning, path, fmt.Sprintf("%s maps to %s, which another property already set; it is left out", key, name))
+		c.report(Error, path, fmt.Sprintf("%s maps to %s, which another property already set; it is left out", key, name))
 		c.keep(v)
 		return
 	}
@@ -237,16 +237,40 @@ func (c *converter) propertyValue(v Node, p Property, path string, sc *scope, to
 	case KindMap:
 		return c.expr(v, path, nil)
 	}
-	var e string
+	if p.List {
+		return c.asList(v, path, sc)
+	}
 	if top {
-		e = c.topExpr(v, path, sc)
-	} else {
-		e = c.expr(v, path, sc)
+		return c.topExpr(v, path, sc)
 	}
-	if p.List && c.singular(v) {
-		e = "[" + e + "]"
+	return c.expr(v, path, sc)
+}
+
+// asList converts a value for an argument that takes a list where
+// CloudFormation takes one value (see Property.List): one value becomes a
+// list of it, and each branch of Fn::If is converted so, AWS::NoValue to
+// null, which leaves the argument unset.
+func (c *converter) asList(v Node, path string, sc *scope) string {
+	if isRefTo(v, "AWS::NoValue") {
+		return "null"
 	}
-	return e
+	if f, ok := v.(Func); ok && f.Name == "Fn::If" {
+		if a, ok := f.Arg.(List); ok && len(a) == 3 {
+			branch := func(n Node, path string) string {
+				e := c.asList(n, path, sc)
+				if g, ok := n.(Func); ok && g.Name == "Fn::If" {
+					return "(" + e + ")"
+				}
+				return e
+			}
+			p := path + ".Fn::If"
+			return fmt.Sprintf("%s ? %s : %s", c.conditionRef(a[0], p+"[0]"), branch(a[1], p+"[1]"), branch(a[2], p+"[2]"))
+		}
+	}
+	if c.singular(v) {
+		return "[" + c.expr(v, path, sc) + "]"
+	}
+	return c.expr(v, path, sc)
 }
 
 // singular reports whether a value is one value rather than a list, for a
@@ -257,7 +281,7 @@ func (c *converter) singular(v Node) bool {
 		return false
 	case Func:
 		switch t.Name {
-		case "Fn::Split", "Fn::GetAZs", "Fn::Cidr", "Fn::If":
+		case "Fn::Split", "Fn::GetAZs", "Fn::Cidr":
 			return false
 		case "Ref":
 			name, _ := t.Arg.(String)
@@ -282,7 +306,7 @@ func (c *converter) propertyObject(m Map, path string, sc *scope) string {
 		fpath := path + "." + f.Key
 		p, ok := c.mapper.Property(sc.cfnType, prop)
 		if !ok {
-			c.report(Warning, fpath, fmt.Sprintf("the mapper has no Terraform argument for %s; it is left out", f.Key))
+			c.report(Error, fpath, fmt.Sprintf("the mapper has no Terraform argument for %s; it is left out", f.Key))
 			c.keep(f.Value)
 			continue
 		}
@@ -293,7 +317,7 @@ func (c *converter) propertyObject(m Map, path string, sc *scope) string {
 		}
 		name := c.argName(p, prop, fpath)
 		if seen[name] {
-			c.report(Warning, fpath, fmt.Sprintf("%s maps to %s, which another property already set; it is left out", f.Key, name))
+			c.report(Error, fpath, fmt.Sprintf("%s maps to %s, which another property already set; it is left out", f.Key, name))
 			c.keep(f.Value)
 			continue
 		}
@@ -362,7 +386,7 @@ func (c *converter) block(w *hclWriter, name, cfnType string, prop []string, v N
 					c.blockArgument(w, name, cfnType, prop, e, ep)
 				}
 			default:
-				c.report(Warning, ep, fmt.Sprintf("%s is a block in Terraform, and this element isn't a mapping; it is left out", name))
+				c.report(Error, ep, fmt.Sprintf("%s is a block in Terraform, and this element isn't a mapping; it is left out", name))
 				c.keep(el)
 			}
 		}

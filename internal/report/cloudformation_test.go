@@ -156,22 +156,51 @@ func TestStacksMergeAndWrite(t *testing.T) {
 	}
 }
 
+// A deleted stack and the live one of the same name, in one region, write
+// their templates to files of their own.
+func TestStacksOfOneName(t *testing.T) {
+	deleted := scopedStack(nil)
+	deleted.ID, deleted.Deleted, deleted.Status = "arn:aws:cloudformation:eu-west-2:123456789012:stack/app/0", true, "DELETE_COMPLETE"
+	deleted.SetTemplates("Resources: {Old: {}}\n", "", "yaml")
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack(nil), deleted})
+	r.Finish(nil, nil, false)
+	out := t.TempDir()
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{}
+	for _, s := range r.CloudFormationStacks {
+		paths[s.ID] = s.Template
+	}
+	want := map[string]string{
+		"arn:aws:cloudformation:eu-west-2:123456789012:stack/app/1": ".infraharvest/cloudformation/eu-west-2/app-1.template.yaml",
+		"arn:aws:cloudformation:eu-west-2:123456789012:stack/app/0": ".infraharvest/cloudformation/eu-west-2/app-0.template.yaml",
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("templates %v, want %v", paths, want)
+	}
+	content, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(want[deleted.ID])))
+	if err != nil || string(content) != "Resources: {Old: {}}\n" {
+		t.Errorf("deleted stack's template %q, %v", content, err)
+	}
+}
+
 // An acknowledged custom resource doesn't keep its stack from being safe
-// to delete, retained or not, though the report says that deleting the
-// stack calls its handler where it isn't; but one that must be taken out of the stack first does,
+// to delete, but one that must be taken out of the stack first does,
 // acknowledged or not.
 func TestStackCustomResources(t *testing.T) {
 	s := scopedStack(nil)
 	s.Resources = append(s.Resources,
-		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true, Retain: []string{"DeletionPolicy is Delete, the default"}},
+		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true},
 	)
 	r := &Report{}
 	r.AddCloudFormationStacks([]CloudFormationStack{s})
 	r.Directories = []Directory{imports()}
 	r.Finish(nil, nil, false)
 	got := r.CloudFormationStacks[0]
-	if !got.SafeToDelete || got.Resources[2].Outcome != StackAcknowledged || !strings.Contains(got.Resources[2].Reason, "deleting the stack calls its handler with a Delete event") {
-		t.Errorf("acknowledged, not retained: %+v", got)
+	if !got.SafeToDelete || got.Resources[2].Outcome != StackAcknowledged {
+		t.Errorf("acknowledged: %+v", got)
 	}
 
 	s.Resources = append(s.Resources, CloudFormationResource{LogicalID: "AutoDelete", Type: "Custom::S3AutoDeleteObjects", PhysicalID: "ad", Status: "CREATE_COMPLETE", NotImportable: "the CDK's autoDeleteObjects", MustRemove: true})
@@ -205,6 +234,166 @@ func TestStackNestedBlockers(t *testing.T) {
 		}
 		if s.Name == "app" && !strings.Contains(strings.Join(s.Blockers, "\n"), "in nested stack app-Network-1ABC: Alerts (AWS::SNS::Topic) isn't retained") {
 			t.Errorf("app's blockers: %v", s.Blockers)
+		}
+	}
+}
+
+// A copy of a template larger than UpdateStack takes in its request is
+// to be uploaded to S3, and the stack updated from there; the report read
+// back, which has no templates, says the same.
+func TestStackUpdateCommand(t *testing.T) {
+	for size, want := range map[int]string{100: "--template-body file://", templateBodyLimit + 1: "--template-url https://<bucket>.s3.eu-west-2.amazonaws.com/app.retain.template.yaml"} {
+		s := scopedStack([]string{"DeletionPolicy is Delete, the default"})
+		s.SetTemplates("Resources: {}\n", strings.Repeat("#", size), "yaml")
+		r := &Report{}
+		r.AddCloudFormationStacks([]CloudFormationStack{s})
+		r.Finish(nil, nil, false)
+		if md := r.Markdown(); !strings.Contains(md, want) {
+			t.Errorf("%d bytes: the report lacks %q", size, want)
+		}
+		out := t.TempDir()
+		if err := r.WriteFiles(out); err != nil {
+			t.Fatal(err)
+		}
+		read, err := Read(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if md := read.Markdown(); !strings.Contains(md, want) {
+			t.Errorf("%d bytes: the report read back lacks %q", size, want)
+		}
+	}
+}
+
+// A nested stack is updated through its root stack: its copy is uploaded
+// where its parent's TemplateURL points, and the root updated, with its
+// own copy if it has one, else with its template as it is; the report
+// read back says the same. One a deleted stack retained is updated
+// itself.
+func TestStackNestedUpdate(t *testing.T) {
+	root := scopedStack(nil)
+	root.SetTemplates("Resources: {}\n", "", "yaml")
+	nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
+		Root: root.ID, NestedAs: "Network", TemplateURL: "https://cdk-assets.s3.eu-west-2.amazonaws.com/network.json"}
+	nested.SetTemplates("Resources: {}\n", "Resources: {Alerts: {DeletionPolicy: Retain}}\n", "yaml")
+	copied := "aws s3 cp .infraharvest/cloudformation/eu-west-2/app-Network-1ABC.retain.template.yaml s3://cdk-assets/network.json"
+	previous := "`aws cloudformation update-stack --stack-name app --use-previous-template"
+
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{root, nested})
+	r.Finish(nil, nil, false)
+	md := r.Markdown()
+	for _, want := range []string{copied, "its parent's `Network`", previous} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "--stack-name app-Network-1ABC") {
+		t.Errorf("the nested stack is updated itself:\n%s", md)
+	}
+	out := t.TempDir()
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	read, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := read.stack(nested.ID); got == nil || got.Root != root.ID || got.NestedAs != "Network" || got.TemplateURL != nested.TemplateURL {
+		t.Errorf("read back: %+v", got)
+	}
+	if md := read.Markdown(); !strings.Contains(md, copied) || !strings.Contains(md, previous) {
+		t.Errorf("the report read back lacks the update through the root:\n%s", md)
+	}
+
+	r = &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack([]string{"DeletionPolicy is Delete, the default"}), nested})
+	r.Finish(nil, nil, false)
+	md = r.Markdown()
+	for _, want := range []string{"update the root stack `app` with its own copy", "--template-body file://.infraharvest/cloudformation/eu-west-2/app.retain.template.yaml", "once the copies of the stacks nested in it are uploaded"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("root with a copy: the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "--use-previous-template") {
+		t.Errorf("root with a copy: updated with its previous template:\n%s", md)
+	}
+
+	gone := scopedStack(nil)
+	gone.Deleted = true
+	r = &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{gone, nested})
+	r.Finish(nil, nil, false)
+	if md := r.Markdown(); !strings.Contains(md, "update-stack --stack-name app-Network-1ABC --template-body") || strings.Contains(md, "root stack `app`") {
+		t.Errorf("retained by a deleted parent:\n%s", md)
+	}
+}
+
+// An S3 URL becomes the S3 URI the upload takes only where its bucket and
+// key are safe in a shell command as they are: the URL is a template's.
+func TestS3Object(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://bkt.s3.eu-west-2.amazonaws.com/k/t.json":   "s3://bkt/k/t.json",
+		"https://bkt.s3.amazonaws.com/t.json":               "s3://bkt/t.json",
+		"https://my.s3.bucket.s3-eu-west-1.amazonaws.com/t": "s3://my.s3.bucket/t",
+		"https://s3.eu-west-2.amazonaws.com/bkt/k/t.json":   "s3://bkt/k/t.json",
+		"https://s3.amazonaws.com/bkt/t.json":               "s3://bkt/t.json",
+		"https://s3.amazonaws.com/bkt":                      "",
+		"https://example.com/t.json":                        "",
+		"https://bkt.s3.amazonaws.com.evil.com/t.json":      "",
+		"https://bkt.s3.amazonaws.com/t.json?x=1":           "",
+		"https://bkt.s3.amazonaws.com/t%20$(id).json":       "",
+		"https://bkt.s3.amazonaws.com/t;rm -rf ~":           "",
+		"https://bkt.s3.amazonaws.com/a`id`":                "",
+		"https://bkt.s3.amazonaws.com/a%0Aid":               "",
+		"https://bkt.s3.amazonaws.com/a!id.json":            "",
+		"https://BKT_1.s3.amazonaws.com/t.json":             "",
+		"":                                                  "",
+	} {
+		if got := s3Object(in); got != want {
+			t.Errorf("s3Object(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A hostile TemplateURL or logical ID never reaches the commands the
+// report gives: the upload takes a placeholder instead.
+func TestStackNestedUpdateHostile(t *testing.T) {
+	root := scopedStack(nil)
+	root.SetTemplates("Resources: {}\n", "", "yaml")
+	for _, hostile := range []string{
+		"https://bkt.s3.amazonaws.com/`touch x`.json",
+		"https://bkt.s3.amazonaws.com/$(touch x).json",
+		"https://bkt.s3.amazonaws.com/t.json; touch x",
+		"https://bkt.s3.amazonaws.com/touch!x.json",
+		"https://bkt.s3.amazonaws.com/t.json\ntouch x",
+		"`touch x`",
+	} {
+		nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
+			Root: root.ID, NestedAs: "Net`touch x`", TemplateURL: hostile}
+		nested.SetTemplates("Resources: {}\n", "Resources: {Alerts: {DeletionPolicy: Retain}}\n", "yaml")
+		r := &Report{}
+		r.AddCloudFormationStacks([]CloudFormationStack{root, nested})
+		r.Finish(nil, nil, false)
+		md := r.Markdown()
+		if strings.Contains(md, "touch x") {
+			t.Errorf("%q reaches the report:\n%s", hostile, md)
+		}
+		if !strings.Contains(md, "aws s3 cp .infraharvest/cloudformation/eu-west-2/app-Network-1ABC.retain.template.yaml s3://<bucket>/<key>") {
+			t.Errorf("%q: the upload lacks the placeholder:\n%s", hostile, md)
+		}
+	}
+}
+
+func TestShellArg(t *testing.T) {
+	for in, want := range map[string]string{
+		"app-1":                  "app-1",
+		"file://.infraharvest/a": "file://.infraharvest/a",
+		"it's":                   `'it'\''s'`,
+		"a`b`\n$(c)":             "'ab$(c)'",
+	} {
+		if got := shellArg(in); got != want {
+			t.Errorf("shellArg(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

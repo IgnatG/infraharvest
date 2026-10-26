@@ -78,6 +78,9 @@ func scopeStacksAPI(t *testing.T) func(apiCall) string {
 				return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>`+scopeAppStack+`</StackId><StackName>app</StackName><StackStatus>UPDATE_COMPLETE</StackStatus><CreationTime>2026-01-01T00:00:00Z</CreationTime></member></Stacks>`)
 			case scopeOldStack:
 				return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>`+scopeOldStack+`</StackId><StackName>old</StackName><StackStatus>DELETE_COMPLETE</StackStatus><CreationTime>2026-01-01T00:00:00Z</CreationTime></member></Stacks>`)
+			case scopeNetworkStack:
+				return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>`+scopeNetworkStack+`</StackId><StackName>app-Network-1ABC</StackName><StackStatus>UPDATE_COMPLETE</StackStatus>`+
+					`<ParentId>`+scopeAppStack+`</ParentId><CreationTime>2026-01-01T00:00:00Z</CreationTime></member></Stacks>`)
 			}
 			return recordQueryError(recordCfnNS, "ValidationError")
 		case "GetTemplate":
@@ -365,6 +368,47 @@ func TestTemplateWithRetain(t *testing.T) {
 `
 	if patched != want {
 		t.Errorf("patched JSON:\n%s\nwant:\n%s", patched, want)
+	}
+}
+
+// A resource refers to another by Ref or Fn::GetAtt, in either form, or by
+// its physical ID, but not by a property name that is the other's logical
+// ID: LogsPolicy's key Bucket doesn't name the bucket Bucket.
+func TestRefersTo(t *testing.T) {
+	template, err := parseTemplate(`Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+  Logs:
+    Type: AWS::S3::Bucket
+  LogsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: {Ref: Logs}
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !GetAtt Bucket.Arn
+  LiteralPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: app-assets
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		logicalID, other, physicalID string
+		want                         bool
+	}{
+		{"LogsPolicy", "Logs", "app-logs", true},
+		{"LogsPolicy", "Bucket", "app-bucket", false},
+		{"BucketPolicy", "Bucket", "app-bucket", true},
+		{"LiteralPolicy", "Assets", "app-assets", true},
+		{"LiteralPolicy", "Bucket", "app-bucket", false},
+	} {
+		if got := template.refersTo(tc.logicalID, tc.other, tc.physicalID); got != tc.want {
+			t.Errorf("%s refers to %s: %v, want %v", tc.logicalID, tc.other, got, tc.want)
+		}
 	}
 }
 

@@ -49,20 +49,27 @@ type StackScope struct {
 type scopedStack struct {
 	name, id, region, status string
 	// parent is the ID of the stack it is nested in, "" for one
-	// --cfn-stack names.
-	parent string
+	// --cfn-stack names, and root that of the top-level stack it is nested
+	// in, as DescribeStacks gives it.
+	parent, root string
 	// deleted says CloudFormation deleted it: its stack ID still reads it,
 	// for 90 days, and the resources it retained are what is left.
-	deleted   bool
-	warnings  []string
-	template  *stackTemplate
-	resources []*scopedResource
+	deleted bool
+	// unreadable says why a nested stack couldn't be read, as when its
+	// deleted parent deleted it longer ago than CloudFormation keeps it,
+	// or the role may not describe it: what it holds is unknown.
+	unreadable string
+	warnings   []string
+	template   *stackTemplate
+	resources  []*scopedResource
 
 	// parameters are the values of its parameters, by name, for a stack
-	// --cfn-stack names (DescribeStacks gives them): an SSM parameter
-	// type's as it resolved, a NoEcho one's masked. A nested stack has
-	// none: they would take a DescribeStacks call each.
-	parameters map[string]string
+	// --cfn-stack names (DescribeStacks gives them): as the stack was
+	// given them, so an SSM parameter type's is the SSM parameter's name,
+	// and a NoEcho one's masked; resolved are the values the SSM
+	// parameter types resolved to. A nested stack has none: they would
+	// take a DescribeStacks call each.
+	parameters, resolved map[string]string
 }
 
 // scopedResource is a resource of a scopedStack.
@@ -87,9 +94,10 @@ type scopedResource struct {
 // ARN), which finds it in the ARN's region, deleted too, for 90 days after.
 // It reads each one's resources and template, after transforms, and those
 // of the stacks nested in it, recursively: DescribeStacks once for each of
-// refs, then ListStackResources and GetTemplate once for each stack. cat
-// tells the Terraform types of their resources (see stackTypes) and the
-// stacks a service manages. It changes nothing.
+// refs and for each nested stack, for its status, then ListStackResources
+// and GetTemplate once for each stack. cat tells the Terraform types of
+// their resources (see stackTypes) and the stacks a service manages. It
+// changes nothing.
 func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
 	service := &Service{}
 	service.Configure(harvest.ListerConfig{Settings: serviceSettings{region: region, profile: profile, roleARN: roleARN}.args()})
@@ -133,17 +141,21 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 			if stack.parameters == nil {
 				stack.parameters = map[string]string{}
 			}
-			value := aws.ToString(p.ParameterValue)
+			key := aws.ToString(p.ParameterKey)
+			stack.parameters[key] = aws.ToString(p.ParameterValue)
 			if resolved := aws.ToString(p.ResolvedValue); resolved != "" {
-				value = resolved
+				if stack.resolved == nil {
+					stack.resolved = map[string]string{}
+				}
+				stack.resolved[key] = resolved
 			}
-			stack.parameters[aws.ToString(p.ParameterKey)] = value
 		}
 		if reason := cat.Skipped("aws_cloudformation_stack", id, map[string]string{"name": stack.name}); reason != "" {
 			stack.warnings = append(stack.warnings, "it is "+reason+": that service may create its resources again, or fail, once they are gone from it")
 		}
 		if parent := aws.ToString(s.ParentId); parent != "" {
 			stack.parent = parent
+			stack.root = aws.ToString(s.RootId)
 			stack.warnings = append(stack.warnings, "it is nested in "+parent+", which deletes it with itself: name the root stack to delete them together")
 		}
 		if err := scope.read(ctx, client, stack, types); err != nil {
@@ -154,12 +166,54 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 }
 
 // read adds stack to the scope, with its resources and its template, and
-// then each stack nested in it, which has the same status but where
-// CloudFormation deleted it.
+// then each stack nested in it, but for one the scope has already, as when
+// --cfn-stack names a nested stack before its parent. A nested stack has
+// no status yet: one DescribeStacks call gives it, whether a deleted parent
+// deleted it or retained it (DELETE_SKIPPED), which leaves it live. One
+// that call fails for is added as unreadable, with the reason, and the
+// rest is read: the report keeps it, and each stack it is nested in, from
+// being safe to delete. So is one whose template or resources can't be
+// read, as where the role may describe it but not get its template.
 func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, stack *scopedStack, types map[string][]string) error {
+	if slices.ContainsFunc(s.stacks, func(have *scopedStack) bool { return have.id == stack.id }) {
+		return nil
+	}
+	// unreadable records a nested stack that couldn't be read, by err, and
+	// reports whether it is one: a stack --cfn-stack names, or a request
+	// the run's end interrupted, fails the run instead.
+	unreadable := func(err error) bool {
+		if stack.parent == "" || ctx.Err() != nil {
+			return false
+		}
+		stack.unreadable = err.Error()
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			stack.unreadable = apiErr.ErrorCode() + ": " + apiErr.ErrorMessage()
+		}
+		stack.resources = nil
+		return true
+	}
+	if stack.status == "" {
+		out, err := client.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack.id)})
+		if err != nil {
+			if !unreadable(err) {
+				return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
+			}
+			s.stacks = append(s.stacks, stack)
+			return nil
+		}
+		if len(out.Stacks) > 0 {
+			stack.status = string(out.Stacks[0].StackStatus)
+			stack.deleted = out.Stacks[0].StackStatus == cftypes.StackStatusDeleteComplete
+			stack.root = aws.ToString(out.Stacks[0].RootId)
+		}
+	}
 	s.stacks = append(s.stacks, stack)
 	template, err := client.GetTemplate(ctx, &cloudformation.GetTemplateInput{StackName: aws.String(stack.id), TemplateStage: cftypes.TemplateStageProcessed})
 	if err != nil {
+		if unreadable(err) {
+			return nil
+		}
 		return fmt.Errorf("CloudFormation stack %s: template: %w", stack.name, err)
 	}
 	if stack.template, err = parseTemplate(aws.ToString(template.TemplateBody)); err != nil {
@@ -170,6 +224,9 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
+			if unreadable(err) {
+				return nil
+			}
 			return fmt.Errorf("CloudFormation stack %s: resources: %w", stack.name, err)
 		}
 		for _, summary := range page.StackResourceSummaries {
@@ -189,8 +246,12 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 			case r.cfnType == nestedStackType:
 				r.outcome = report.StackNested
 				r.notImportable = "a nested stack, whose resources are listed with it"
+				// A live stack lists the nested stacks it deleted, as one that
+				// rolled back does: those have nothing left. A deleted one
+				// lists those it deleted with it, which may have retained
+				// resources, and those it retained, which are live.
 				if !gone || stack.deleted {
-					nested = append(nested, &scopedStack{name: stackName(r.physicalID), id: r.physicalID, region: arnRegion(r.physicalID), status: r.status, parent: stack.id, deleted: stack.deleted || gone})
+					nested = append(nested, &scopedStack{name: stackName(r.physicalID), id: r.physicalID, region: arnRegion(r.physicalID), parent: stack.id})
 				}
 				continue
 			case cloudFormationOnlyTypes[r.cfnType] != "":
@@ -293,9 +354,13 @@ func (s *StackScope) Summary() []string {
 				}
 				notImportable = append(notImportable, note)
 			}
-			if len(r.retain) > 0 && !r.acknowledged {
+			if len(r.retain) > 0 {
 				notRetained = append(notRetained, r.logicalID)
 			}
+		}
+		if stack.unreadable != "" {
+			lines = append(lines, fmt.Sprintf("CloudFormation stack %s (%s), nested in %s: couldn't be read, so what it holds is unknown, and neither it nor a stack it is nested in is safe to delete: %s", stack.name, stack.region, stack.parent, stack.unreadable))
+			continue
 		}
 		line := fmt.Sprintf("CloudFormation stack %s (%s, %s): %d resources", stack.name, stack.region, stack.status, len(stack.resources))
 		if stack.deleted {
@@ -325,6 +390,49 @@ func (s *StackScope) names() []string {
 		}
 	}
 	return names
+}
+
+// nesting returns, for a nested stack, the ID of its root stack, the
+// logical ID of its parent's resource that creates it, and that
+// resource's TemplateURL where it is a string rather than a function's
+// value, as the report needs them to update it through its root (see
+// report.CloudFormationStack.Root); "" for what the scope doesn't know,
+// as of a parent --cfn-stack doesn't reach. It makes no call.
+func (s *StackScope) nesting(stack *scopedStack) (root, logicalID, templateURL string) {
+	byID := func(id string) *scopedStack {
+		i := slices.IndexFunc(s.stacks, func(have *scopedStack) bool { return have.id == id })
+		if i < 0 {
+			return nil
+		}
+		return s.stacks[i]
+	}
+	if stack.parent == "" {
+		return "", "", ""
+	}
+	parent := byID(stack.parent)
+	root = stack.root
+	if root == "" {
+		top := stack
+		for p := parent; p != nil; p = byID(p.parent) {
+			top = p
+		}
+		root = top.root
+		if top.parent == "" {
+			root = top.id
+		}
+	}
+	if parent == nil {
+		return root, "", ""
+	}
+	for _, r := range parent.resources {
+		if r.cfnType == nestedStackType && r.physicalID == stack.id {
+			logicalID = r.logicalID
+		}
+	}
+	if property := mappingValue(mappingValue(parent.template.resource(logicalID), "Properties"), "TemplateURL"); property != nil && property.Kind == yaml.ScalarNode && property.ShortTag() == "!!str" {
+		templateURL = property.Value
+	}
+	return root, logicalID, templateURL
 }
 
 // reasonOutsideStacks is why an import scoped to stacks leaves out what
@@ -431,7 +539,9 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 		stack.holdIn(byResource)
 	}
 	for _, stack := range p.stackScope.stacks {
-		scope.Stacks = append(scope.Stacks, stack.report(byResource))
+		reported := stack.report(byResource)
+		reported.Root, reported.NestedAs, reported.TemplateURL = p.stackScope.nesting(stack)
+		scope.Stacks = append(scope.Stacks, reported)
 	}
 	return scope, nil
 }
@@ -467,8 +577,8 @@ func reassignShared(matches []stackMatch, types map[string][]string) {
 // report returns the stack as the report has it, each resource with the
 // listed resources byResource says it is.
 func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormationMatch) report.CloudFormationStack {
-	stack := report.CloudFormationStack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Warnings: s.warnings}
-	stack.SetParameters(s.parameters)
+	stack := report.CloudFormationStack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Unreadable: s.unreadable, Warnings: s.warnings}
+	stack.SetParameters(s.parameters, s.resolved)
 	var unretained []string
 	for _, r := range s.resources {
 		stack.Resources = append(stack.Resources, report.CloudFormationResource{
@@ -483,9 +593,7 @@ func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormat
 			Matches:       byResource[r],
 			Outcome:       r.outcome,
 		})
-		// What --cfn-ignore acknowledges may go with the stack, its
-		// handler called: the copy leaves it as it is.
-		if len(r.retain) > 0 && !r.acknowledged {
+		if len(r.retain) > 0 {
 			unretained = append(unretained, r.logicalID)
 		}
 	}

@@ -219,7 +219,8 @@ func (t *stackTemplate) withRetain(logicalIDs []string) (string, error) {
 // refersTo reports whether the Properties of the template's resource
 // logicalID name the resource other, or its physical ID: as a Ref or a
 // Fn::GetAtt, in either form, or as a literal, such as the bucket a bucket
-// policy is for.
+// policy is for. A mapping's keys are property and function names, not
+// values: a key Bucket doesn't name a resource whose logical ID is Bucket.
 func (t *stackTemplate) refersTo(logicalID, other, physicalID string) bool {
 	properties := mappingValue(t.resource(logicalID), "Properties")
 	found := false
@@ -228,13 +229,18 @@ func (t *stackTemplate) refersTo(logicalID, other, physicalID string) bool {
 		if n == nil || found {
 			return
 		}
-		if n.Kind == yaml.ScalarNode {
+		switch n.Kind {
+		case yaml.ScalarNode:
 			name, _, _ := strings.Cut(n.Value, ".")
 			found = n.Value == other || n.Value == physicalID || (n.Tag == "!GetAtt" && name == other)
-			return
-		}
-		for _, c := range n.Content {
-			walk(c)
+		case yaml.MappingNode:
+			for i := 1; i < len(n.Content); i += 2 {
+				walk(n.Content[i])
+			}
+		default:
+			for _, c := range n.Content {
+				walk(c)
+			}
 		}
 	}
 	walk(properties)

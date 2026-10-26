@@ -174,6 +174,9 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 	if err := planHandovers(options.Out, listed); err != nil {
 		return err
 	}
+	if err := markMerging(options, listed); err != nil {
+		return err
+	}
 
 	byDirs := make([]map[string][]engine.Import, len(calls))
 	for i, c := range listed {

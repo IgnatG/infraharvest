@@ -13,13 +13,17 @@ const (
 	// or a name the mapper guessed, that needs no change to work.
 	Info Severity = iota
 	// Warning is something the converter carried over only partly, or left
-	// for a person to finish: the output may need changing before it does
-	// what the template did.
+	// for a person to finish, such as a property the mapper leaves out on
+	// purpose, with the reason (an S3 bucket's encryption, which the AWS
+	// provider manages with a resource of its own): the output may need
+	// changing before it does what the template did.
 	Warning
 	// Error is something the converter couldn't convert at all, such as a
-	// custom resource, a macro or an unknown function. The output leaves it
-	// out, or writes null in its place, with a comment that keeps what the
-	// template said.
+	// custom resource, a macro or an unknown function, or a property the
+	// mapper has no argument for, or that maps to an argument another
+	// property already set: what it says doesn't take effect. The output
+	// leaves it out, or writes null in its place, with a comment that keeps
+	// what the template said.
 	Error
 )
 

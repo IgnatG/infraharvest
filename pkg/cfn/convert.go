@@ -12,6 +12,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 )
 
 // Options configures Convert. The zero value converts with DefaultMapper.
@@ -178,12 +180,6 @@ const (
 	dataPartition = "aws_partition"
 )
 
-// reservedVariables are names Terraform doesn't allow for a variable.
-var reservedVariables = map[string]bool{
-	"source": true, "version": true, "providers": true, "count": true, "for_each": true,
-	"lifecycle": true, "depends_on": true, "locals": true,
-}
-
 type paramInfo struct {
 	p    *Parameter
 	typ  paramType
@@ -233,9 +229,14 @@ type converter struct {
 	pseudoUsed map[string]bool
 	standIn    map[string]string // pseudo parameter → variable name
 
-	// sensitiveLocals are the condition locals that read a NoEcho
-	// parameter, which Terraform marks sensitive.
-	sensitiveLocals map[string]bool
+	// dynamic are the dynamic references converted, as the expressions
+	// they became, dynamicSensitive those that read a secret, and
+	// dynamicBlocks the data sources they read (see dynamicRef), named
+	// from dataNames.
+	dynamic          map[string]string
+	dynamicSensitive map[string]bool
+	dynamicBlocks    []string
+	dataNames        *nameSet
 
 	// importNames hands out the names of the variables that stand in for
 	// imported values, which share the variables' namespace.
@@ -274,20 +275,23 @@ func newConverter(t *Template, opts Options) *converter {
 		conditions: map[string]string{}, mappings: map[string]string{},
 		imports: map[string]*importInfo{}, data: map[string]bool{},
 		pseudoUsed: map[string]bool{}, standIn: map[string]string{},
-		sensitiveLocals: map[string]bool{}, outputNames: newNameSet(),
+		outputNames: newNameSet(), dynamic: map[string]string{}, dynamicSensitive: map[string]bool{}, dataNames: newNameSet(),
 	}
 	// Parameters are named first, so that they keep their names and a
 	// stand-in variable is the one that gets a suffix if they clash.
 	varNames := newNameSet()
 	for _, p := range t.Parameters {
-		name := ident(p.Name)
-		if reservedVariables[name] {
-			name += "_value"
-		}
-		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(name)}
+		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(cfnhcl.VariableName(p.Name))}
 	}
 	for _, s := range standInVariables {
 		c.standIn[s.pseudo] = varNames.claim(s.name)
+	}
+	// The data sources of SSM parameter types are named after their
+	// variables; those of dynamic references take other names.
+	for _, p := range t.Parameters {
+		if pi := c.params[p.Name]; pi.typ.ssm {
+			c.dataNames.claim(pi.name)
+		}
 	}
 	c.importNames = varNames
 
@@ -372,11 +376,21 @@ func (c *converter) info(path, msg string) {
 // keep adds a note with n as the template wrote it, so that what the
 // converter leaves out is still in the output.
 func (c *converter) keep(n Node) {
-	if line := compactJSON(n); len(line) <= 100 {
-		c.notes = append(c.notes, "It was: "+line)
-		return
+	line, cut := boundedJSON(n, keptLimit)
+	if cut {
+		c.info("", fmt.Sprintf("a value kept in a comment is cut at %d KiB", keptLimit>>10))
 	}
-	c.notes = append(c.notes, "It was:\n"+toJSON(n))
+	note := "It was: " + line
+	switch {
+	case cut:
+		note += " …"
+	case len(line) > 100:
+		note = "It was:\n" + toJSON(n)
+	}
+	// What is kept counts towards maxOutput, as the expressions do.
+	if c.spend(note) != "null" {
+		c.notes = append(c.notes, note)
+	}
 }
 
 // flush writes the pending notes as comments.
@@ -447,7 +461,14 @@ func (c *converter) writeLocals(w *hclWriter) {
 			path := "Conditions." + cd.Name
 			c.sensitive = false
 			expr := c.condition(cd.Expr, path)
-			c.sensitiveLocals[c.conditions[cd.Name]] = c.sensitive
+			if c.sensitive {
+				// Terraform takes no sensitive value for count or for_each, which
+				// conditions decide; whether a condition holds tells little of the
+				// secret it compares.
+				c.remark(Info, path, "the condition reads a NoEcho parameter, so it is nonsensitive(): Terraform takes no sensitive value for count or for_each, and whether the condition holds says little of the secret")
+				expr = "nonsensitive(" + expr + ")"
+			}
+			c.sensitive = false
 			c.writeAttr(w, c.conditions[cd.Name], expr, path)
 		}
 		c.flush(w)
@@ -556,9 +577,11 @@ func (c *converter) writeData(w *hclWriter) {
 		if !pi.typ.ssm {
 			continue
 		}
-		w.open("data", "aws_ssm_parameter", pi.name)
-		w.attr("name", "var."+pi.name)
-		w.close()
+		w.raw(cfnhcl.SSMData(pi.name, pi.name))
+		w.blank()
+	}
+	for _, b := range c.dynamicBlocks {
+		w.raw(b)
 		w.blank()
 	}
 }

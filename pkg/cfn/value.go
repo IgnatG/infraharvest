@@ -80,13 +80,7 @@ func ConvertValue(t *Template, n Node, path string, opts Options) (*Value, error
 			v.Data = append(v.Data, "data "+quote(d)+" \"current\" {}\n")
 		}
 	}
+	v.Data = append(v.Data, c.dynamicBlocks...)
 	sort.Strings(v.Data)
 	return v, nil
-}
-
-// Name returns a CloudFormation name, such as a logical ID or a parameter's
-// name, as the Terraform name Convert gives it: VPCGatewayAttachment
-// becomes vpc_gateway_attachment, MyS3Bucket my_s3_bucket.
-func Name(s string) string {
-	return ident(s)
 }

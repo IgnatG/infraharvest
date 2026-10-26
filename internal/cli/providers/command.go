@@ -149,6 +149,7 @@ func (d definition) command(options importer.Options) *cobra.Command {
 		// --format=json prints the report where the command prints, as
 		// an MCP server or a test running it in process captures it.
 		options.Stdout = c.OutOrStdout()
+		options.ModulesChosen = c.Flags().Changed("modules")
 		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
 			return err
 		}

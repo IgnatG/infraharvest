@@ -88,6 +88,9 @@ type Options struct {
 	// Modules says which modules hold clusters of resources (see
 	// ModulesRegistry and the other Modules values).
 	Modules string
+	// ModulesChosen says Modules was set, by --modules or a configuration
+	// file, rather than left at its default.
+	ModulesChosen bool
 	// Catalogue is a directory of catalogue files that extend the
 	// built-in catalogue.
 	Catalogue string

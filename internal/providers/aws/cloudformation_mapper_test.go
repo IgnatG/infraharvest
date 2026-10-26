@@ -4,10 +4,14 @@
 package aws
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/stackintent"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
@@ -74,5 +78,70 @@ func TestStackMapper(t *testing.T) {
 	}
 	if got, ok := m.Ref("AWS::EC2::SecurityGroup"); !ok || got.Name != "id" {
 		t.Errorf("Ref = %v, %v", got, ok)
+	}
+}
+
+// The stack mapper with stackintent: a sensitive attribute makes a
+// sensitive output, Ref to a type the table doesn't know (an API Gateway
+// stage, whose Ref is its name and whose id isn't) writes no output, and a
+// parameter named like a meta-argument gets a variable name Terraform
+// takes.
+func TestStackMapperWithStackIntent(t *testing.T) {
+	computed := &tfjson.SchemaAttribute{Computed: true}
+	optional := &tfjson.SchemaAttribute{Optional: true}
+	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+		"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+			"aws_ssm_parameter": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+				"id": computed, "name": optional, "type": optional, "value": {Optional: true, Sensitive: true},
+			}}},
+			"aws_api_gateway_stage": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+				"id": computed, "stage_name": optional,
+			}}},
+		}},
+	}}
+	m := newStackMapper(map[string][]string{
+		"AWS::SSM::Parameter":    {"aws_ssm_parameter"},
+		"AWS::ApiGateway::Stage": {"aws_api_gateway_stage"},
+	}, providerResourceSchemas(schemas, "aws"))
+	dir := t.TempDir()
+	root := "resource \"aws_ssm_parameter\" \"setting\" {\n  name  = \"/app/setting\"\n  type  = \"String\"\n  value = \"v1\"\n}\n\nresource \"aws_api_gateway_stage\" \"prod\" {\n  stage_name = \"prod\"\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(root), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stack := stackintent.Stack{
+		Name: "app",
+		Template: `
+Parameters:
+  Version: {Type: String}
+Resources:
+  Setting:
+    Type: AWS::SSM::Parameter
+    Properties: {Name: /app/setting, Type: String, Value: !Ref Version}
+  Stage:
+    Type: AWS::ApiGateway::Stage
+    Properties: {StageName: prod}
+Outputs:
+  SettingValue: {Value: !GetAtt Setting.Value}
+  StageName: {Value: !Ref Stage}
+`,
+		Parameters: map[string]string{"Version": "v1"},
+		Addresses:  map[string][]string{"Setting": {"aws_ssm_parameter.setting"}, "Stage": {"aws_api_gateway_stage.prod"}},
+	}
+	warnings, err := stackintent.Apply(dir, []stackintent.Stack{stack}, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, _ := os.ReadFile(filepath.Join(dir, "main.tf"))
+	added, _ := os.ReadFile(filepath.Join(dir, stackintent.FileName("app")))
+	if !strings.Contains(string(main), "value = var.version_value") {
+		t.Errorf("main.tf:\n%s", main)
+	}
+	for _, want := range []string{`variable "version_value"`, `output "setting_value"`, `sensitive   = true`} {
+		if !strings.Contains(string(added), want) {
+			t.Errorf("%s lacks %s:\n%s", stackintent.FileName("app"), want, added)
+		}
+	}
+	if strings.Contains(string(added), `output "stage_name"`) || !strings.Contains(strings.Join(warnings, "\n"), "StageName") {
+		t.Errorf("the stage's Ref was written:\n%s\nwarnings %q", added, warnings)
 	}
 }

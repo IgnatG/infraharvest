@@ -187,6 +187,7 @@ type fakeTerraform struct {
 	plans       []fakePlan               // returned by successive plans; then clean
 	validations []*tfjson.ValidateOutput // returned by successive validations; then valid
 	schemas     *tfjson.ProviderSchemas
+	schemaErr   error          // returned by ProvidersSchema, if set
 	shown       *tfjson.Plan   // returned by ShowPlanFile once showns is used up; empty if nil
 	showns      []*tfjson.Plan // returned by successive ShowPlanFile calls
 	initErr     error
@@ -306,6 +307,9 @@ func (f *fakeTerraform) Validate(context.Context) (*tfjson.ValidateOutput, error
 
 func (f *fakeTerraform) ProvidersSchema(context.Context) (*tfjson.ProviderSchemas, error) {
 	f.calls = append(f.calls, "schema")
+	if f.schemaErr != nil {
+		return nil, f.schemaErr
+	}
 	return f.schemas, nil
 }
 

@@ -105,7 +105,15 @@ Defaults of optional arguments that the provider doesn't compute need no entry: 
 
 `terraform providers schema -json` says which arguments are optional or computed, but not what an argument defaults to, nor which arguments exclude or need each other. The providers' code says both: each Plugin SDK argument's `Default`, `ConflictsWith`, `ExactlyOneOf`, `AtLeastOneOf` and `RequiredWith`. `internal/catalogue/schemameta` holds them, one gzipped JSON file per provider (`aws.json.gz`, `azurerm.json.gz`, `google.json.gz`), each with the provider release it was read from, built into the binary and decompressed the first time an import needs that provider's. A file lists only the arguments that have metadata, by their path through nested blocks without indexes (`root_block_device.volume_type`), one resource type to a line; a Plugin Framework resource, as newer AWS ones are, is marked `framework` and has only its defaults, since its constraints are validators the provider doesn't expose.
 
-The engine uses them to need fewer plans (see [Tidying](output.md#tidying)). Where the root's lock file records the file's release, it leaves out arguments set to their defaults without a plan, keeps arguments set to anything else without trying, and settles conflicting arguments before the first plan. Where the root uses another release, it logs that once, the defaults only add candidates the plan checks, and conflicting arguments wait for validation to report them, as without metadata.
+The engine uses them to need fewer plans and validations (see [Tidying](output.md#tidying)), as far as the release the root's lock file records (Terraform's or OpenTofu's) allows, which it logs once per provider and release:
+
+| The root uses | Defaults | Other values | Conflicting arguments |
+|---|---|---|---|
+| The file's release | Proven: left out without a validation, and where the plan can't settle the rest, still left out once validation agrees | Kept without trying to leave them out | Settled after the generating plan, before the repair would validate, the same one of each pair going |
+| Another release of its major version | Proven, as above, but where the plan can't settle the rest, kept | Tried, as without metadata | Left for validation and the repair, as without metadata |
+| Another major version, or a release the lock file doesn't record | Candidates the plan checks, as without metadata | Tried | Left for validation and the repair |
+
+A proven default the plan shows changing a resource, as a wrong default or one another release changed would, goes back as any other candidate does, so the plan corrects the metadata. Conflicting arguments are settled between a resource's own arguments only, not in its nested blocks, where the provider checks a pair in the first block alone.
 
 ### Overrides
 
@@ -131,11 +139,13 @@ The file starts empty (`{}`). Its fields are those of the generated files: `defa
 
 ### Licences
 
-The generated files are facts read out of the HashiCorp providers' code (`hashicorp/terraform-provider-aws`, `-azurerm` and `-google`, at the release each file records), which is MPL-2.0, and so are they: `REUSE.toml` marks them so, with the licence in `LICENSES/MPL-2.0.txt`. The generator (`gen/`), the overrides and the code that reads them are infraharvest's own, AGPL-3.0-only. The binary that embeds both is AGPL-3.0-only as a larger work, which MPL-2.0 allows (its section 3.3).
+The generated files are read out of the HashiCorp providers' code (`hashicorp/terraform-provider-aws`, `-azurerm` and `-google`, at the release each file records), which is MPL-2.0, and so are they: `REUSE.toml` marks them so, with the licence in `LICENSES/MPL-2.0.txt`. The generator (`gen/`), the overrides and the code that reads them are infraharvest's own, AGPL-3.0-only.
+
+The binary embeds both, and MPL-2.0 lets it be distributed as a larger work under AGPL-3.0-only (its section 3.3) on condition that the MPL-2.0 files stay under MPL-2.0 and that recipients are told so, and where their source is (its section 3.2). `NOTICE`, at the repository's root, says that: which files are MPL-2.0, which provider release each was read from, with its address, and that the files are in infraharvest's source at the same release. Every release archive and image carries `NOTICE`, `LICENSE` and `LICENSES/MPL-2.0.txt` (the image in `/usr/share/doc/infraharvest/`, its licence label `AGPL-3.0-only AND MPL-2.0`). The schema-metadata workflows write `NOTICE` with the files (`.github/scripts/schema-metadata-notice.sh`), and a test of the package fails if it names another release than a file records.
 
 ### Regenerating
 
-The files are generated, never edited by hand: corrections go into the overrides. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release, the one generated roots pin, or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, gzips what it writes, and uploads the files as the artifact `schema-metadata`. Its job summary says, per provider, the release before and after and the resource types added, removed and changed, as a diff of gzipped files can't:
+The files are generated, never edited by hand: corrections go into the overrides. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release, the one generated roots pin, or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, gzips what it writes, and uploads the files, with the `NOTICE` that names their releases, as the artifact `schema-metadata`. Its job summary says, per provider, the release before and after and the resource types added, removed and changed, as a diff of gzipped files can't:
 
 ```sh
 make ci-schema-metadata                      # or VERSIONS="aws=6.70.0"
@@ -145,7 +155,7 @@ git status internal/catalogue/schemameta     # the summary says what changed; co
 
 To read the changes yourself, `gzip -dc` a file, or let `git diff` decompress them for you: `git config diff.gzip.textconv "gzip -dc"`, with `*.json.gz diff=gzip` in `.git/info/attributes`.
 
-The `schema-metadata` workflow does the same every week for the providers' newest releases, and opens a pull request with the files where they changed, or updates the one already open, with the summary as its body. A file of an older release costs plans, never correctness.
+The `schema-metadata` workflow does the same every week for the providers' newest releases, and opens a pull request with the files where they changed, or updates the one already open, with the summary as its body. It opens it with the workflow's own token, so GitHub starts none of the pull request's checks: the workflow starts the ones the main branch requires by dispatch (the tests, megalinter and docs workflows), and a maintainer closes and reopens the pull request to start CodeQL's, which no dispatch can. A file of an older release costs plans, never correctness.
 
 ## Inventory types
 

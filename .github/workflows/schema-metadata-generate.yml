@@ -9,11 +9,12 @@ name: Schema metadata (generate)
 # generated roots pin: it checks out each provider, runs
 # internal/catalogue/schemameta/gen in it, gzips what it writes, and
 # uploads the files as the artifact schema-metadata, at their paths under
-# internal/catalogue/schemameta. The job summary says how they differ
-# from the committed ones (.github/scripts/schema-metadata-summary.sh), as
-# a diff of gzipped files can't. The remote workflow's schema-metadata
-# task and the weekly schema-metadata workflow call it; it never runs on
-# its own.
+# internal/catalogue/schemameta, with the NOTICE that names their
+# releases (.github/scripts/schema-metadata-notice.sh). The job summary
+# says how they differ from the committed ones
+# (.github/scripts/schema-metadata-summary.sh), as a diff of gzipped files
+# can't. The remote workflow's schema-metadata task and the weekly
+# schema-metadata workflow call it; it never runs on its own.
 on:
   workflow_call:
     inputs:
@@ -150,6 +151,10 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::the metadata is the same as the committed files'"
           fi
+      - name: Write the NOTICE
+        # It names the releases the files are of (see
+        # .github/scripts/schema-metadata-notice.sh).
+        run: .github/scripts/schema-metadata-notice.sh schema-metadata/internal/catalogue/schemameta > schema-metadata/NOTICE
       - name: Upload them
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

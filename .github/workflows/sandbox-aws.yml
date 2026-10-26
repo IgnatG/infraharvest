@@ -42,10 +42,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: sandbox
     # go test gets the test's own deadline plus the 30 minutes its cleanup
-    # destroy has, and a margin, so that it never stops a destroy halfway;
-    # the job, another half an hour for the destroy step below and one for
-    # the sweep.
-    timeout-minutes: ${{ inputs.estate == 'data' && 160 || 190 }}
+    # destroy has, and a margin, so that it never stops a destroy halfway
+    # (the cfn estate's test 90 minutes, then 30 for what its stacks
+    # retained and 30 for the destroy); the job, another half an hour for
+    # the destroy step below and one for the sweep.
+    timeout-minutes: ${{ inputs.estate == 'data' && 160 || inputs.estate == 'cfn' && 230 || 190 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -133,7 +134,7 @@ jobs:
           main) test=TestSandboxAWS timeout=120m ;;
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
           data) test=TestSandboxAWSData timeout=90m ;;
-          cfn) test=TestSandboxAWSCloudFormation timeout=100m ;;
+          cfn) test=TestSandboxAWSCloudFormation timeout=160m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/

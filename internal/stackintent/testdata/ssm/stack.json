@@ -1,0 +1,20 @@
+{
+  "name": "ssm",
+  "id": "arn:aws:cloudformation:eu-west-2:123456789012:stack/ssm/5e6f7a8b",
+  "parameters": {
+    "QueueName": "/app/queue-name",
+    "TopicName": "/app/topic-name",
+    "Subnets": "/app/subnets",
+    "GroupName": "/app/group-name"
+  },
+  "resolved": {
+    "QueueName": "app-jobs",
+    "TopicName": "app-events",
+    "Subnets": "subnet-1,subnet-2"
+  },
+  "addresses": {
+    "Queue": ["aws_sqs_queue.jobs"],
+    "Topic": ["aws_sns_topic.events"],
+    "Group": ["aws_db_subnet_group.app"]
+  }
+}

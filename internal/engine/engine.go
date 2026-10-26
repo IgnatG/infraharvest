@@ -311,6 +311,11 @@ type Options struct {
 	// carry a CloudFormation stack's template into the root (AWS
 	// --cfn-stack).
 	Refine func(ctx context.Context, dir string, addresses []Managed, schemas *tfjson.ProviderSchemas) ([]string, error) `json:"-"`
+	// RefineKey identifies what Refine carries into the root, such as the
+	// templates and parameter values of its stacks, for the fingerprint
+	// --resume compares: a root whose Refine input changed is generated
+	// again.
+	RefineKey string `json:"-"`
 
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
@@ -437,12 +442,6 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	// Arguments the provider says conflict fail validation: settle them
-	// now, as repair would once the plan below reported them.
-	resolved, err := resolveConflicts(generated, hints)
-	if err != nil {
-		return nil, err
-	}
 	omitted, err := OmitArguments(generated, withResourceOmissions(opts.Omit, imports))
 	if err != nil {
 		return nil, err
@@ -452,6 +451,14 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	lifecycled, err := SetLifecycles(generated, opts.Lifecycles)
+	if err != nil {
+		return nil, err
+	}
+	// Arguments the provider says conflict fail validation: settle them
+	// now, as repair would once the plan below reported them. After the
+	// omissions, so that of a pair the catalogue leaves one out of, such
+	// as an event rule's is_enabled beside its state, the other stays.
+	resolved, err := resolveConflicts(generated, hints)
 	if err != nil {
 		return nil, err
 	}
@@ -669,18 +676,14 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := requireMinimumVersion(dir); err != nil {
 		return nil, err
 	}
+	var unrefined map[string][]byte
+	warned := len(result.Warnings)
 	if opts.Refine != nil {
-		schemas, err := tf.ProvidersSchema(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("terraform providers schema: %w", err)
-		}
-		warnings, err := opts.Refine(ctx, dir, result.Addresses, schemas)
-		if err != nil {
+		if unrefined, err = refine(ctx, tf, dir, result, opts); err != nil {
 			return nil, err
 		}
-		result.Warnings = append(result.Warnings, warnings...)
 	}
-	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
+	if err := gateRefined(ctx, tf, dir, result, opts, unrefined, warned); err != nil {
 		return nil, err
 	}
 	// The README shows the gate's details, which come from plans that had

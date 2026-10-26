@@ -81,6 +81,19 @@ func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapter
 	return nil, ""
 }
 
+// modulesMode returns the --modules mode an import runs with: for one
+// scoped to CloudFormation stacks (AWS --cfn-stack), ModulesNone unless
+// --modules was chosen, as the stacks' templates are carried into the
+// roots by the addresses of the resource blocks there (see stackintent),
+// which a module call would hide: no parameter would become a variable,
+// and no output be written.
+func modulesMode(options Options) string {
+	if len(options.CloudFormationStacks) > 0 && !options.ModulesChosen {
+		return ModulesNone
+	}
+	return options.Modules
+}
+
 // engineBinary is the binary --engine runs.
 func engineBinary(name string) engine.Binary {
 	if name == EngineTofu {
@@ -199,6 +212,9 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
 		return err
 	}
+	if err := markMerging(options, []*listedCall{c}); err != nil {
+		return err
+	}
 	err = c.generate(ctx, c.byDir)
 	warnIncomplete(run, []*listedCall{c})
 	return err
@@ -223,6 +239,9 @@ type listedCall struct {
 	// region is the scope's region.
 	places map[string]memberPlace
 	region string
+	// merging are the roots of places their stack's merge is to take (see
+	// markMerging).
+	merging map[string]bool
 	// handovers are what the call's roots hand over to the other roots of
 	// the run, with --regenerate (see planHandovers).
 	handovers *handovers
@@ -288,8 +307,10 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if !options.IncludeOwned {
 		defaults = excludeOwned(listed, defaults)
 	}
+	// A scope that can't be applied stops the call: going on would import
+	// every resource listed, not only those of the scope.
 	if defaults, err = run.applyImportScope(ctx, provider, &listed, defaults, scope); err != nil {
-		failures = append(failures, err)
+		return nil, err
 	}
 	if options.Discover {
 		run.used = true
@@ -326,6 +347,10 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	execPath, err := options.tools.find(ctx, binary, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
 	if err != nil {
 		return nil, err
+	}
+	options.Modules = modulesMode(options)
+	if len(options.CloudFormationStacks) > 0 && options.Modules != ModulesNone {
+		log.Printf("--modules %s with --cfn-stack: the stacks' resources that go into module calls don't take their templates' parameters and outputs; --modules none keeps them in the roots, which do", options.Modules)
 	}
 	var moduleAdapters []adapters.Adapter
 	var newerModules []report.ModuleVersion
@@ -472,7 +497,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 	sort.Strings(dirs)
 	dirs = c.handovers.order(dirs)
 	others := newOtherRoots(opts, roots, options.Out)
-	refine := c.stackIntent()
+	refine, refineKey := c.stackIntent()
 	for _, dir := range dirs {
 		if err := c.handovers.refusal(dir); err != nil {
 			c.handovers.record(dir, nil, err)
@@ -480,7 +505,15 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			continue
 		}
 		dirOpts := others.of(dir)
-		dirOpts.Refine = refine
+		// A root its stack's merge is to take, with its other
+		// environments', takes no stack template: each environment's stack
+		// has its own parameter values, which the merged root's
+		// per-environment values don't carry yet, so the variables'
+		// defaults would be one environment's.
+		merged := c.merging[dir]
+		if !merged {
+			dirOpts.Refine, dirOpts.RefineKey = refine, refineKey
+		}
 		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
 		if err != nil {
 			return err
@@ -606,6 +639,9 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 				result, err = engine.Vacate(dir, dirOpts)
 			} else {
 				result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
+				if err == nil && merged && refine != nil {
+					result.Warnings = append(result.Warnings, mergedRootNoTemplate)
+				}
 			}
 			if err != nil && ctx.Err() != nil {
 				return ctx.Err()
