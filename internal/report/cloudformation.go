@@ -257,15 +257,27 @@ func (r *Report) finishStacks() {
 		}
 		return a.Name < b.Name
 	})
+	// Two stacks of a region can share a name, as a deleted one, named by
+	// its stack ID, and the live one created again with its name: their
+	// templates' files take the stack ID's last part too, so that neither
+	// overwrites the other's.
+	named := map[string]int{}
+	for _, s := range r.CloudFormationStacks {
+		named[s.Region+"/"+s.Name]++
+	}
 	for i := range r.CloudFormationStacks {
 		s := &r.CloudFormationStacks[i]
 		s.Blockers = nil
 		dir := path.Join(TemplatesDir, s.Region)
+		base := s.Name
+		if named[s.Region+"/"+s.Name] > 1 {
+			base += "-" + path.Base(s.ID)
+		}
 		if s.templateBody != "" {
-			s.Template = path.Join(dir, s.Name+".template."+s.templateExt)
+			s.Template = path.Join(dir, base+".template."+s.templateExt)
 		}
 		if s.retainBody != "" {
-			s.RetainTemplate = path.Join(dir, s.Name+".retain.template."+s.templateExt)
+			s.RetainTemplate = path.Join(dir, base+".retain.template."+s.templateExt)
 			s.RetainTemplateBytes = len(s.retainBody)
 		}
 		roots := map[string]bool{}
