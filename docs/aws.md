@@ -80,6 +80,26 @@ The [report](output.md#report) has a section for each stack (`cloudformation_sta
 
 What the report can't see, it can't vouch for: drift between the stack and its resources, and a stack policy or termination protection that would stop the update or the deletion. Check the change set of step 1, and run `aws cloudformation detect-stack-drift` first if the stack may have drifted.
 
+### The template in the roots
+
+The roots hold each resource as it is live, which stays the source of truth, and the stack's template adds what the live configuration can't say: which values were parameters, and what the stack output. Once a root's files are final, before its [gate](output.md#report) runs, infraharvest carries the template of each stack into the root, in `cloudformation_<stack>.tf`, with only edits that can't change a value, which the gate then checks with the rest, so the plan still changes nothing:
+
+- A literal becomes `var.<parameter>` where the template sets that very argument to `Ref` of the parameter, the argument is one infraharvest knows the property maps to (from its CloudFormation types and the provider's schema, not a guess), and the literal equals the parameter's value in the stack, as `DescribeStacks` gives it, as the same kind of value. The variable is typed from the parameter's type, its default is that value, and `AllowedValues` becomes a `validation` block.
+- An output becomes an `output` when its whole value converts: each resource it refers to is in that root, each attribute is one the provider's schema has, and each parameter it reads has a variable, declared for it. `AWS::StackName` and `AWS::StackId` become the stack's name and ID, `AWS::Region`, `AWS::AccountId` and `AWS::Partition` data sources. An `Export` becomes a comment: another configuration reads the output from the root's state instead.
+- The conditions are comments: the root holds what was deployed, whatever they said.
+
+What can't be applied that way is reported, in the root's warnings in the report and in comments in the file, and left as it is: a parameter used inside `Fn::Sub` or `Fn::Join`, a `NoEcho` parameter, whose value CloudFormation doesn't give (the secret attributes it sets are sensitive variables already), a property whose live value differs from its parameter's, which is drift, and an output with a condition, one that refers to a resource of another root or to nothing of the root's. A variable is declared only when something refers to it. The parameters' values go into the variables' defaults, as a template's parameters aren't secret unless they are `NoEcho`; they aren't written into the report. A nested stack's parameters aren't read, so its template contributes its outputs only. `--incremental`, which adds to a root rather than generating it, doesn't carry the template into it.
+
+### Translating a template on its own
+
+`infraharvest cfn convert <template>` translates a template, JSON or YAML (`-` reads standard input), into Terraform files with no cloud account: its intent rather than live resources, for a stack not deployed yet or as a starting point. It writes `variables.tf` from the parameters, with their constraints as `validation` blocks, `locals.tf` from the mappings and conditions, `main.tf` from the resources, with `count` for a conditional one, `outputs.tf` and `data.tf` into `--out` (default `cfn-terraform`), and refuses to overwrite files there.
+
+```sh
+infraharvest cfn convert app.template.yaml --out app-terraform --stack-name app
+```
+
+Intrinsic functions become the expressions that compute the same values: `Ref` and `Fn::GetAtt` references, `Fn::Sub` template strings, `Fn::Join` `join()`, `Fn::If` conditionals, and so on. What has no Terraform equivalent (custom resources, nested stacks, macros and transforms such as `AWS::Serverless`, `Fn::ForEach`, unknown functions) is a diagnostic on standard error, and a comment in the files where it would have been; it exits 1 when something couldn't be converted (3 with `--allow-partial`). Names come from a built-in table of common types and are otherwise derived from the CloudFormation names, and each derived name is reported, so check them against the provider's documentation. The translator is the Go package `pkg/cfn` of this repository, which has no dependency on the rest of infraharvest.
+
 ## Generated configuration
 
 Terraform writes every argument a resource has. infraharvest leaves out those at what AWS gives a resource that doesn't set them, where leaving them out changes no plan, so the configuration says what is particular to each resource. The catalogue lists them per type (see [Leaving out arguments](catalogue.md#leaving-out-arguments)), for example:

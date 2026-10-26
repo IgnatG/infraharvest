@@ -33,6 +33,9 @@ type Options struct {
 	// it, the output says in a comment how to keep the resource when it
 	// leaves the configuration (a removed block with destroy = false).
 	PreventDestroy bool
+	// Resolver, when set, names the Terraform side of the template's
+	// references instead of the converter: see Resolver.
+	Resolver Resolver
 }
 
 // Result is what Convert writes: the configuration's files and what it
@@ -254,6 +257,10 @@ type converter struct {
 	// tooLarge is set once that passes maxOutput.
 	written  int
 	tooLarge bool
+	// single is set when the converter converts one value on its own (see
+	// ConvertValue): there are no locals, nor stand-in variables, to refer
+	// to.
+	single bool
 }
 
 func newConverter(t *Template, opts Options) *converter {

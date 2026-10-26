@@ -43,7 +43,7 @@ resource "aws_sqs_queue" "queue" {
   # error: Fn::Bogus isn't a function the converter knows; it is null instead
   # It was: {"Fn::Bogus":["a","b"]}
   name = null
-  # error: Fn::GetAtt of Seeder.Delay (Custom::DatabaseSeeder), which isn't converted; it is null instead
+  # error: Seeder (Custom::DatabaseSeeder) isn't converted, so a reference to it is null instead
   delay_seconds = null
   # error: Ref to Missing, which isn't a parameter or a resource of the template; it is null instead
   message_retention_seconds = null
@@ -57,7 +57,7 @@ resource "aws_sqs_queue" "queue" {
 # ---- outputs.tf ----
 
 output "seeder_result" {
-  # error: Fn::GetAtt of Seeder.Result (Custom::DatabaseSeeder), which isn't converted; it is null instead
+  # error: Seeder (Custom::DatabaseSeeder) isn't converted, so a reference to it is null instead
   value = null
 }
 
@@ -94,9 +94,9 @@ variable "instance_type" {
 # info: Resources.Queue.Metadata: the resource's Metadata isn't carried over: AWS::CloudFormation::Init
 # warning: Resources.Queue.CreationPolicy: the CreationPolicy attribute has no Terraform equivalent and isn't converted
 # error: Resources.Queue.Properties.QueueName.Fn::Bogus: Fn::Bogus isn't a function the converter knows; it is null instead
-# error: Resources.Queue.Properties.DelaySeconds.Fn::GetAtt: Fn::GetAtt of Seeder.Delay (Custom::DatabaseSeeder), which isn't converted; it is null instead
+# error: Resources.Queue.Properties.DelaySeconds.Fn::GetAtt: Seeder (Custom::DatabaseSeeder) isn't converted, so a reference to it is null instead
 # error: Resources.Queue.Properties.MessageRetentionPeriod.Ref: Ref to Missing, which isn't a parameter or a resource of the template; it is null instead
 # error: Resources.Queue.Properties.VisibilityTimeout.Fn::FindInMap: Fn::FindInMap of "NoSuchMap", which isn't a mapping of the template; it is null instead
 # error: Resources.Queue.Properties.RedrivePolicy.Fn::Transform: Fn::Transform runs a macro when CloudFormation processes the template, and isn't converted; it is null instead: convert the processed template
-# error: Outputs.SeederResult.Value.Fn::GetAtt: Fn::GetAtt of Seeder.Result (Custom::DatabaseSeeder), which isn't converted; it is null instead
+# error: Outputs.SeederResult.Value.Fn::GetAtt: Seeder (Custom::DatabaseSeeder) isn't converted, so a reference to it is null instead
 # error: Outputs.QueueUrl.Condition: there is no condition NoSuchCondition; it is false instead

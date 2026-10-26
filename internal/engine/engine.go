@@ -300,6 +300,15 @@ type Options struct {
 	// endpoint: a command still running then is stopped, and fails the
 	// root. 0 means no limit.
 	CommandTimeout time.Duration
+	// Refine, if set, edits the root once Generate has written every file and
+	// the resources' addresses are final, and before the gate, which then
+	// checks what it changed as it checks the rest: an edit that changed a
+	// plan fails the plan check. It is given the root's directory, what
+	// the root imports and where (see ImportedAddresses), and the providers'
+	// schemas, and returns warnings for the result. The importer uses it to
+	// carry a CloudFormation stack's template into the root (AWS
+	// --cfn-stack).
+	Refine func(ctx context.Context, dir string, addresses []Managed, schemas *tfjson.ProviderSchemas) ([]string, error) `json:"-"`
 
 	// secretValues gives Generate's own plans the values of the secrets it
 	// found in the configuration (see literalSecretsToVariables).
@@ -634,6 +643,17 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	}
 	if err := requireMinimumVersion(dir); err != nil {
 		return nil, err
+	}
+	if opts.Refine != nil {
+		schemas, err := tf.ProvidersSchema(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("terraform providers schema: %w", err)
+		}
+		warnings, err := opts.Refine(ctx, dir, result.Addresses, schemas)
+		if err != nil {
+			return nil, err
+		}
+		result.Warnings = append(result.Warnings, warnings...)
 	}
 	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
 		return nil, err
