@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
@@ -56,6 +57,7 @@ func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 	flags.BoolVar(&options.Organization, "organization", false, "import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names")
 	flags.StringVar(&options.AssumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
 	flags.BoolVar(&options.ResourceExplorer, "resource-explorer", false, "don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see "+DocsURL+"aws/#resource-explorer)")
+	flags.StringArrayVar(&options.CloudFormationStacks, "cfn-stack", nil, "import the resources of this CloudFormation stack, and of the stacks nested in it, and nothing else, by name or stack ID (ARN; a deleted stack's for 90 days); repeat for other stacks. The report says whether each stack can be deleted once its resources are in Terraform, and writes a copy of its template with Retain added (see "+DocsURL+"aws/#migrating-a-cloudformation-stack)")
 	return planAWS
 }
 
@@ -67,6 +69,12 @@ func planAWS(ctx context.Context, options importer.Options) (plan, error) {
 	accounts, err := awsAccounts(ctx, options)
 	if err != nil {
 		return plan{}, err
+	}
+	if len(options.CloudFormationStacks) > 0 {
+		if accounts != nil {
+			return plan{}, errors.New("--cfn-stack imports stacks of the account the credentials reach: use it without --accounts or --organization, with --assume-role naming a role ARN to reach another account")
+		}
+		return planAWSStacks(ctx, options)
 	}
 	if accounts == nil {
 		return plan{calls: func(accountOptions importer.Options, _ string) []call {
@@ -82,6 +90,59 @@ func planAWS(ctx context.Context, options importer.Options) (plan, error) {
 		accountOptions.RoleARN = strings.ReplaceAll(accountOptions.AssumeRole, "{account}", account)
 		return awsCalls(accountOptions)
 	}}, nil
+}
+
+// planAWSStacks imports the resources of the CloudFormation stacks
+// --cfn-stack names, and of those nested in them, read first (see
+// awsprovider.ResolveStacks): in the regions the stacks are in, with the
+// global services in their own call, as --regions would; and, without
+// --services, only the services that list the types of the stacks'
+// resources. A stack named by name is looked for in the one region of
+// --regions, or the profile's.
+func planAWSStacks(ctx context.Context, options importer.Options) (plan, error) {
+	region := awsprovider.ProfileRegion
+	switch len(options.Regions) {
+	case 0:
+	case 1:
+		region = options.Regions[0]
+	default:
+		for _, ref := range options.CloudFormationStacks {
+			if !strings.HasPrefix(ref, "arn:") {
+				return plan{}, fmt.Errorf("--cfn-stack %s: a stack name is looked for in one region: give --regions one region, or the stack's ID (its ARN)", ref)
+			}
+		}
+	}
+	roleARN := ""
+	if !strings.Contains(options.AssumeRole, "{account}") {
+		roleARN = options.AssumeRole
+	}
+	cat, err := catalogue.Load("aws", options.Catalogue)
+	if err != nil {
+		return plan{}, fmt.Errorf("--catalogue: %w", err)
+	}
+	scope, err := awsprovider.ResolveStacks(ctx, options.Profile, roleARN, region, options.CloudFormationStacks, cat)
+	if err != nil {
+		return plan{}, err
+	}
+	for _, line := range scope.Summary() {
+		log.Printf("aws: %s", line)
+	}
+	options.Regions = scope.Regions()
+	if len(options.Services) == 0 {
+		options.Services = scope.Services(cat)
+		log.Printf("aws: listing the services of the stacks' resources: %s", strings.Join(options.Services, ", "))
+	}
+	return plan{
+		calls: func(callOptions importer.Options, _ string) []call {
+			callOptions.Regions, callOptions.Services, callOptions.RoleARN = options.Regions, options.Services, roleARN
+			return awsCalls(callOptions)
+		},
+		newProvider: func() harvest.Provider {
+			p := &awsprovider.Provider{}
+			p.SetStackScope(scope)
+			return p
+		},
+	}, nil
 }
 
 // awsAccounts returns the accounts --accounts or --organization names, or

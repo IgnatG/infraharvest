@@ -287,6 +287,9 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if !options.IncludeOwned {
 		defaults = excludeOwned(listed, defaults)
 	}
+	if defaults, err = run.applyImportScope(ctx, provider, &listed, defaults, scope); err != nil {
+		failures = append(failures, err)
+	}
 	if options.Discover {
 		run.used = true
 		run.options = options

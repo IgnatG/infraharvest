@@ -100,6 +100,12 @@
         "persistent": true
       },
       {
+        "name": "cfn-stack",
+        "type": "stringArray",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "default-env",
         "type": "string",
         "default": "",
@@ -948,6 +954,12 @@
         "name": "catalogue",
         "type": "string",
         "default": "",
+        "persistent": true
+      },
+      {
+        "name": "cfn-stack",
+        "type": "stringArray",
+        "default": "[]",
         "persistent": true
       },
       {

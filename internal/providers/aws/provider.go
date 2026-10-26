@@ -36,6 +36,9 @@ type Provider struct {
 	// unwanted are the types the import leaves out whatever is listed (see
 	// SetUnwantedTypes).
 	unwanted map[string]bool
+	// stackScope, when set, scopes the import to the resources of
+	// CloudFormation stacks (see SetStackScope).
+	stackScope *StackScope
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
