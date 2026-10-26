@@ -17,9 +17,11 @@ const (
 	// what the template did.
 	Warning
 	// Error is something the converter couldn't convert at all, such as a
-	// custom resource, a macro or an unknown function. The output leaves it
-	// out, or writes null in its place, with a comment that keeps what the
-	// template said.
+	// custom resource, a macro or an unknown function, or a property it
+	// leaves out, such as an S3 bucket's encryption, which the AWS provider
+	// manages with a resource of its own: what it says doesn't take effect.
+	// The output leaves it out, or writes null in its place, with a comment
+	// that keeps what the template said.
 	Error
 )
 

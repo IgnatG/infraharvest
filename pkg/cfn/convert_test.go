@@ -224,7 +224,7 @@ Resources:
 		`team = "web"`,
 		`(data.aws_region.current.region) = "x"`,
 		`prevent_destroy = true`,
-		`# warning: VersioningConfiguration is left out: the AWS provider manages it with a separate aws_s3_bucket_versioning resource`,
+		`# error: VersioningConfiguration is left out: the AWS provider manages it with a separate aws_s3_bucket_versioning resource`,
 		`# It was: {"Status":"Enabled"}`,
 		`# DeletionPolicy Retain:`,
 		`name = aws_s3_bucket.logs[0].id`,
@@ -323,7 +323,7 @@ Outputs:
   Arn: {Value: !GetAtt W.Arn}
 `, Options{Mapper: strictMapper{}})
 	main := squash(res.Files["main.tf"])
-	for _, want := range []string{`resource "acme_widget" "w" {`, `size = 3`, `# warning: the mapper has no Terraform argument for Colour; it is left out`, `# V (AWS::EC2::VPC)`} {
+	for _, want := range []string{`resource "acme_widget" "w" {`, `size = 3`, `# error: the mapper has no Terraform argument for Colour; it is left out`, `# V (AWS::EC2::VPC)`} {
 		if !strings.Contains(main, want) {
 			t.Errorf("main.tf lacks %s:\n%s", want, main)
 		}

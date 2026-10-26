@@ -52,6 +52,10 @@ type Mapped struct {
 	// Guessed is set when the mapper derived the name from the
 	// CloudFormation one rather than knowing it.
 	Guessed bool
+	// Sensitive is set for an attribute the provider marks sensitive, such
+	// as an SSM parameter's value: an output that reads it must be
+	// sensitive too, or Terraform refuses the plan.
+	Sensitive bool
 }
 
 // PropertyKind says how a property's value is written.
@@ -79,7 +83,8 @@ const (
 	// CloudFormation also accepts as a policy, is written as it is.
 	KindJSON
 	// KindOmit leaves the property out on purpose; Reason says why, and
-	// Convert reports it as a warning with the value as written.
+	// Convert reports it as an error, with the value as written: what it
+	// sets doesn't take effect.
 	KindOmit
 )
 

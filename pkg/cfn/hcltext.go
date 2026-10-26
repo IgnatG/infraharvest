@@ -5,6 +5,7 @@ package cfn
 
 import (
 	"fmt"
+	"math/big"
 	"regexp"
 	"strings"
 	"unicode"
@@ -38,10 +39,34 @@ var keywords = map[string]bool{"true": true, "false": true, "null": true, "for":
 
 // number returns s as an HCL number when it is one, and quoted otherwise.
 func number(s string) string {
-	if numberPattern.MatchString(s) {
-		return s
+	if lit, ok := NumberLiteral(s); ok {
+		return lit
 	}
 	return quote(s)
+}
+
+// NumberLiteral returns s as an HCL number: as it is when HCL reads it so,
+// and otherwise in a canonical form, for a number a template may write in
+// a form HCL doesn't read, such as +5, .5, 5. or YAML's 0x1F. It reports
+// false for anything else, an infinity or NaN among them, which HCL has no
+// literal for.
+func NumberLiteral(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if numberPattern.MatchString(s) {
+		return s, true
+	}
+	lower := strings.ToLower(s)
+	if s == "" || strings.Contains(lower, "inf") || strings.Contains(lower, "nan") {
+		return "", false
+	}
+	f, ok := new(big.Float).SetPrec(256).SetString(s)
+	if !ok {
+		return "", false
+	}
+	if f.IsInt() {
+		return f.Text('f', 0), true
+	}
+	return f.Text('g', -1), true
 }
 
 // quote returns s as a quoted HCL string. Template sequences are escaped
