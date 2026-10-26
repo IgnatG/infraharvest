@@ -272,3 +272,11 @@ func TestAssignmentScope(t *testing.T) {
 		}
 	}
 }
+
+// A custom role the listing didn't find may be one made assignable
+// outside the run since: it is never taken for one deleted.
+func TestPartialTypes(t *testing.T) {
+	if got, want := (&Provider{}).PartialTypes(), []string{"azurerm_role_definition"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

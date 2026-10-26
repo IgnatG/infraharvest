@@ -31,6 +31,7 @@ var (
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
 	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
 )
 
 // The importer's defaults apply where Provider has no capability of
@@ -243,7 +244,7 @@ func TestProviderBlock(t *testing.T) {
 func TestServicesAreFresh(t *testing.T) {
 	p := &Provider{}
 	first, second := p.Services(), p.Services()
-	if len(first) != 12 {
+	if len(first) != 13 {
 		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
 	}
 	for name, g := range first {
