@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -30,10 +31,11 @@ import (
 const sandboxAzureResourceGroup = "infraharvest-sandbox"
 
 // sandboxAzureFound are the types of the estate whose every resource the
-// import must find, by ID: what floci-az can't serve, and the lock, which
-// Resource Graph doesn't index.
+// import must find, by ID: what floci-az can't serve, the lock, which
+// Resource Graph doesn't index, and the role assignments, which only its
+// authorizationresources table has.
 var sandboxAzureFound = []string{
-	"azurerm_key_vault", "azurerm_management_lock", "azurerm_route_table",
+	"azurerm_key_vault", "azurerm_management_lock", "azurerm_role_assignment", "azurerm_route_table",
 	"azurerm_storage_account", "azurerm_storage_container",
 }
 
@@ -73,6 +75,7 @@ func TestSandboxAzure(t *testing.T) {
 	root, imported := s.checkAzureImport(ctx, t, coverage, created)
 	checkAzureFound(t, coverage, created, group)
 	checkGroupTags(t, root, group)
+	checkAzureRoles(t, coverage, created, root)
 	if imported["azurerm_resource_group"] == 0 {
 		t.Errorf("the import doesn't import the resource group %s", s.resourceGroup)
 	}
@@ -306,4 +309,59 @@ func (s *azureSandbox) checkAzureDrift(ctx context.Context, t *testing.T, estate
 		t.Errorf("drift --accept: the code doesn't have the group's tag drift = \"reported\"")
 	}
 	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
+}
+
+// Role assignments refer to what the root has: the principal of the
+// estate's identity, and a custom role the import lists.
+var (
+	principalReference  = regexp.MustCompile(`principal_id\s*=\s*azurerm_user_assigned_identity\.[a-z0-9_]+\.principal_id`)
+	customRoleReference = regexp.MustCompile(`role_definition_id\s*=\s*azurerm_role_definition\.[a-z0-9_]+\.role_definition_resource_id`)
+	builtInRoleByName   = regexp.MustCompile(`role_definition_name\s*=\s*"Reader"`)
+)
+
+// checkAzureRoles checks that the import imports the estate's custom role,
+// by its GUID, which ends the role definition's ID in azurerm's import ID
+// (the scope follows a |), and that the configuration refers the estate's two
+// role assignments to its identity, the custom role's to the
+// azurerm_role_definition, and the built-in role by name. The plan with
+// no changes, which checkAzureImport checks, says they are the same.
+func checkAzureRoles(t *testing.T, coverage report.Report, created []*tfjson.StateResource, root string) {
+	t.Helper()
+	var imported []string
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			imported = append(imported, strings.ToLower(r.ID))
+		}
+	}
+	assignments := 0
+	for _, r := range created {
+		switch r.Type {
+		case "azurerm_role_assignment":
+			assignments++
+		case "azurerm_role_definition":
+			id, _ := r.AttributeValues["role_definition_id"].(string)
+			found := false
+			for _, i := range imported {
+				if id != "" && strings.Contains(i, "/roledefinitions/"+strings.ToLower(id)+"|") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("the import doesn't import the custom role %s %q", r.Address, id)
+			}
+		}
+	}
+	if assignments < 2 {
+		t.Fatalf("the estate made %d role assignments, want 2", assignments)
+	}
+	generated := configuration(t, root)
+	if n := len(principalReference.FindAllString(generated, -1)); n < assignments {
+		t.Errorf("%d role assignments refer to the identity's principal, want %d", n, assignments)
+	}
+	if !customRoleReference.MatchString(generated) {
+		t.Error("no role assignment refers to the custom role's azurerm_role_definition")
+	}
+	if !builtInRoleByName.MatchString(generated) {
+		t.Error(`no role assignment names the built-in role by name, role_definition_name = "Reader"`)
+	}
 }
