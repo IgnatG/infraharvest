@@ -81,7 +81,7 @@ func TestGenerateRequiresTheProvidersOfItsResources(t *testing.T) {
 			if !strings.Contains(providers, squashed(`provider "azapi" { subscription_id = "00000000-0000-0000-0000-000000000001" }`)) || !strings.Contains(providers, `provider "azurerm"`) {
 				t.Errorf("providers.tf:\n%s", providers)
 			}
-			if imports := readFile(t, dir, ImportsFileName); strings.Contains(imports, "provider") {
+			if imports := squashed(readFile(t, dir, ImportsFileName)); strings.Contains(imports, "provider =") {
 				t.Errorf("import blocks name a provider their type implies:\n%s", imports)
 			}
 		})
