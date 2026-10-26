@@ -87,9 +87,10 @@ type scopedResource struct {
 // ARN), which finds it in the ARN's region, deleted too, for 90 days after.
 // It reads each one's resources and template, after transforms, and those
 // of the stacks nested in it, recursively: DescribeStacks once for each of
-// refs, then ListStackResources and GetTemplate once for each stack. cat
-// tells the Terraform types of their resources (see stackTypes) and the
-// stacks a service manages. It changes nothing.
+// refs and for each nested stack, for its status, then ListStackResources
+// and GetTemplate once for each stack. cat tells the Terraform types of
+// their resources (see stackTypes) and the stacks a service manages. It
+// changes nothing.
 func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
 	service := &Service{}
 	service.Configure(harvest.ListerConfig{Settings: serviceSettings{region: region, profile: profile, roleARN: roleARN}.args()})
@@ -154,9 +155,24 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 }
 
 // read adds stack to the scope, with its resources and its template, and
-// then each stack nested in it, which has the same status but where
-// CloudFormation deleted it.
+// then each stack nested in it, but for one the scope has already, as when
+// --cfn-stack names a nested stack before its parent. A nested stack has
+// no status yet: one DescribeStacks call gives it, whether a deleted parent
+// deleted it or retained it (DELETE_SKIPPED), which leaves it live.
 func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, stack *scopedStack, types map[string][]string) error {
+	if slices.ContainsFunc(s.stacks, func(have *scopedStack) bool { return have.id == stack.id }) {
+		return nil
+	}
+	if stack.status == "" {
+		out, err := client.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack.id)})
+		if err != nil {
+			return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
+		}
+		if len(out.Stacks) > 0 {
+			stack.status = string(out.Stacks[0].StackStatus)
+			stack.deleted = out.Stacks[0].StackStatus == cftypes.StackStatusDeleteComplete
+		}
+	}
 	s.stacks = append(s.stacks, stack)
 	template, err := client.GetTemplate(ctx, &cloudformation.GetTemplateInput{StackName: aws.String(stack.id), TemplateStage: cftypes.TemplateStageProcessed})
 	if err != nil {
@@ -189,8 +205,12 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 			case r.cfnType == nestedStackType:
 				r.outcome = report.StackNested
 				r.notImportable = "a nested stack, whose resources are listed with it"
+				// A live stack lists the nested stacks it deleted, as one that
+				// rolled back does: those have nothing left. A deleted one
+				// lists those it deleted with it, which may have retained
+				// resources, and those it retained, which are live.
 				if !gone || stack.deleted {
-					nested = append(nested, &scopedStack{name: stackName(r.physicalID), id: r.physicalID, region: arnRegion(r.physicalID), status: r.status, parent: stack.id, deleted: stack.deleted || gone})
+					nested = append(nested, &scopedStack{name: stackName(r.physicalID), id: r.physicalID, region: arnRegion(r.physicalID), parent: stack.id})
 				}
 				continue
 			case cloudFormationOnlyTypes[r.cfnType] != "":
