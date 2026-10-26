@@ -25,7 +25,7 @@ environments:            # roots per environment (see Environments below)
     aws: { accounts: ["222222222222"] }
 ```
 
-A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one filter per item for `id`, `tag` and `where`, which the command line takes once per filter, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]`.
+A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one value per item for `id`, `tag`, `where`, `cfn-stack` and `cfn-ignore`, which the command line takes once per value, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]` or, under `providers: { aws: ... }`, `cfn-stack: [app, network]`.
 
 Each root gets a `backend.tf` with its own state key, made of the prefix and the root's path under `--out` (`imported/aws/<account>/<region>/terraform.tfstate` above). The backends take:
 
