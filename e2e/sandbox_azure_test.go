@@ -67,7 +67,7 @@ func TestSandboxAzure(t *testing.T) {
 	created := estate.apply(ctx, t)
 	group := sandboxResourceGroup(ctx, t, estate)
 
-	logged := s.importAzure(ctx, t)
+	logged := s.importAzure(ctx, t, s.out)
 	coverage := readCoverage(t, s.out)
 	checkNoAuthorizationErrors(t, logged, coverage, azureAuthorizationErrors)
 	root, imported := s.checkAzureImport(ctx, t, coverage, created)
@@ -77,6 +77,7 @@ func TestSandboxAzure(t *testing.T) {
 		t.Errorf("the import doesn't import the resource group %s", s.resourceGroup)
 	}
 	s.checkAzureDrift(ctx, t, estate, root)
+	s.checkAzureAzapi(ctx, t, created)
 }
 
 // azureSandbox is what the Azure sandbox test runs with: the subscription,
@@ -126,10 +127,10 @@ func newAzureSandbox(ctx context.Context, t *testing.T) *azureSandbox {
 }
 
 // importAzure imports the estate's resource group, every service, as the
-// read-only identity, into the output directory, and returns what the
-// import logged. From then on the test's own Azure calls, such as the
-// plans, are read-only too.
-func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T) string {
+// read-only identity, into out, with the flags extra adds, and returns
+// what the import logged. From then on the test's own Azure calls, such
+// as the plans, are read-only too.
+func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T, out string, extra ...string) string {
 	t.Helper()
 	t.Setenv("ARM_CLIENT_ID", s.readonlyClientID)
 	logged := &syncBuffer{}
@@ -139,16 +140,16 @@ func (s *azureSandbox) importAzure(ctx context.Context, t *testing.T) string {
 	root := cli.NewCmdRoot()
 	// The output's own layout isn't named here: checkAzureImport finds
 	// the root.
-	root.SetArgs([]string{
+	root.SetArgs(append([]string{
 		"import", "azure",
 		"--engine=" + s.engineName,
 		"--terraform-path=" + s.execPath,
 		"--resource-group=" + s.resourceGroup,
 		"--services=*",
-		"--out=" + s.out,
+		"--out=" + out,
 		"--all",
 		"--allow-partial",
-	})
+	}, extra...))
 	if err := root.ExecuteContext(ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
 		t.Fatalf("infraharvest import azure: %v", err)
 	}
@@ -306,4 +307,66 @@ func (s *azureSandbox) checkAzureDrift(ctx context.Context, t *testing.T, estate
 		t.Errorf("drift --accept: the code doesn't have the group's tag drift = \"reported\"")
 	}
 	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
+}
+
+// checkAzureAzapi imports the estate's resource group again, with
+// --azapi, into an output of its own, as the read-only identity: the
+// template spec, which azurerm has no resource type for, must be imported
+// as an azapi_resource, by its ID with the newest stable API version, which
+// the configuration's type pins too; nothing may fail or be left out,
+// every check must pass, and the root must plan as imports with no changes.
+func (s *azureSandbox) checkAzureAzapi(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
+	var spec string
+	for _, r := range created {
+		if r.Type == "azapi_resource" && r.Name == "template_spec" {
+			spec, _ = r.AttributeValues["id"].(string)
+		}
+	}
+	if spec == "" {
+		t.Fatal("the estate has no template spec")
+	}
+	out := t.TempDir()
+	s.importAzure(ctx, t, out, "--azapi")
+	coverage := readCoverage(t, out)
+	for _, f := range coverage.Failures {
+		t.Errorf("--azapi: failure: %+v", f)
+	}
+	var importedAs, importID string
+	for _, d := range coverage.Directories {
+		for _, l := range d.LeftOut {
+			t.Errorf("--azapi: %s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
+		}
+		for _, c := range d.Checks {
+			if !c.Passed {
+				t.Errorf("--azapi: %s: %s failed: %v", d.Path, c.Name, c.Details)
+			}
+		}
+		for _, r := range d.Imported {
+			if id, _, _ := strings.Cut(r.ID, "?"); strings.EqualFold(id, spec) {
+				importedAs, importID = r.Address, r.ID
+			}
+		}
+	}
+	if !strings.HasPrefix(importedAs, "azapi_resource.") {
+		t.Fatalf("--azapi: the template spec %s is imported as %q, want an azapi_resource", spec, importedAs)
+	}
+	_, version, ok := strings.Cut(importID, "?api-version=")
+	if !ok || strings.Contains(version, "preview") {
+		t.Errorf("--azapi: the template spec's import ID %q has no stable API version", importID)
+	}
+	dirs := generatedDirs(t, out)
+	if len(dirs) != 1 {
+		t.Fatalf("--azapi: roots %v, want one, for the resource group %s", dirs, s.resourceGroup)
+	}
+	root := filepath.Clean(dirs[0])
+	if rejected, err := os.ReadFile(filepath.Join(root, engine.RejectedFileName)); err == nil {
+		t.Errorf("--azapi: %s: resources left out:\n%s", root, rejected)
+	}
+	if generated := strings.ToLower(configuration(t, root)); !strings.Contains(generated, strings.ToLower("Microsoft.Resources/templateSpecs@"+version)) {
+		t.Errorf("--azapi: the configuration doesn't pin the template spec's type to Microsoft.Resources/templateSpecs@%s", version)
+	}
+	if imported := checkNoChanges(ctx, t, root, s.execPath, s.plugins, nil); imported["azapi_resource"] == 0 {
+		t.Errorf("--azapi: the root's plan imports no azapi_resource: %v", imported)
+	}
 }
