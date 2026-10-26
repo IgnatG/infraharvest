@@ -4,6 +4,8 @@
 package importer
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -631,6 +633,77 @@ func TestUnwantedTypes(t *testing.T) {
 	for _, typ := range unwantedTypes(cat, f) {
 		if typ == "aws_iam_access_key" {
 			t.Error("the selection file includes an access key, which is still unwanted")
+		}
+	}
+}
+
+// discover --format json prints what it listed, by what manages it, on the
+// command's output, rather than opening the picker.
+func TestDiscoverPrintsSummary(t *testing.T) {
+	var out bytes.Buffer
+	run := NewRun()
+	run.used = true
+	run.OpenPicker = true
+	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml"), Format: FormatJSON, Stdout: &out, ReportTags: []string{"team"}}
+	const scope = "aws/1/eu-west-2"
+	stack := report.OtherToolPrefix + "CloudFormation stack app"
+	run.listed = append(run.listed, []selection.Resource{
+		{Type: "aws_s3_bucket", ID: "logs", Scope: scope, Include: true, Tags: map[string]string{"team": "web"}},
+		{Type: "aws_s3_bucket", ID: "logs", Scope: scope, Include: true, Tags: map[string]string{"team": "web"}},
+		{Type: "aws_s3_bucket", ID: "state", Scope: scope, Reason: managed.Reason + " (prod.tfstate)"},
+		{Type: "aws_s3_bucket", ID: "assets", Scope: scope, Reason: stack},
+		{Type: "aws_vpc", ID: "vpc-default", Scope: scope, Reason: "default VPC"},
+	}...)
+
+	if err := run.finish(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var got report.Discovery
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("%v:\n%s", err, out.String())
+	}
+	want := report.DiscoveryCount{Listed: 4, Included: 1, Excluded: 3, TerraformState: 1, CloudFormation: 1, Cloud: 1}
+	if got.DiscoveryCount != want || got.Selection != run.options.Selection || len(got.Types) != 2 || len(got.Scopes) != 1 || len(got.Tags) != 2 {
+		t.Errorf("summary: %s", out.String())
+	}
+	d := run.summary()
+	if lines := tagLines(d); !reflect.DeepEqual(lines, []string{"by team: (not tagged) 0 of 3 not managed, web 1 of 1 not managed"}) {
+		t.Errorf("tag lines: %q", lines)
+	}
+}
+
+// Running discover again, with --managed-state, finds that a bucket has
+// left the state: its entry is included again, for review. After a listing
+// that failed in part, it stays as it was.
+func TestDiscoverRefreshesManaged(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		path := filepath.Join(t.TempDir(), "selection.yaml")
+		reason := managed.Reason + " (prod.tfstate)"
+		first := NewRun()
+		first.options = Options{Discover: true, Selection: path, ManagedState: []string{"prod.tfstate"}}
+		first.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs", Service: "s3", Reason: reason}}
+		if err := first.writeSelection(false); err != nil {
+			t.Fatal(err)
+		}
+
+		again := NewRun()
+		again.options = first.options
+		again.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs", Service: "s3", Include: true}}
+		if err := again.writeSelection(partial); err != nil {
+			t.Fatal(err)
+		}
+
+		f, err := selection.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := f.Resources[0]
+		if partial && (r.Include || r.Reason != reason) {
+			t.Errorf("after a partial listing: %+v", r)
+		}
+		if !partial && (!r.Include || r.Reason != "" || !r.New) {
+			t.Errorf("want the bucket included again, for review: %+v", r)
 		}
 	}
 }

@@ -36,6 +36,13 @@ type handovers struct {
 	// by the merged root's directory, which its moves.tf gets once its
 	// stack merges again (see planMergedHandovers).
 	merged map[string][]engine.Removal
+	// vacating are, by the directory of a merged root that no root of the
+	// run merges into, what leaves it for other roots of the run, of the
+	// environments all of whose resources in it go (see
+	// planMergedHandovers): once every environment's have gone, and the
+	// roots they go to imported them, the merge phase vacates it (see
+	// vacateMergedRoots).
+	vacating map[string][]mergedLeaving
 	// mu guards generated, as the calls of a scope may generate their
 	// roots at once.
 	mu        sync.Mutex
@@ -303,7 +310,7 @@ func planHandovers(out string, calls []*listedCall) error {
 	if err != nil {
 		return err
 	}
-	h := &handovers{out: out, removals: map[string][]engine.Removal{}, arrivals: map[string][]engine.Arrival{}, refused: map[string]error{}, merged: map[string][]engine.Removal{}, generated: map[string]*engine.Result{}}
+	h := &handovers{out: out, removals: map[string][]engine.Removal{}, arrivals: map[string][]engine.Arrival{}, refused: map[string]error{}, merged: map[string][]engine.Removal{}, vacating: map[string][]mergedLeaving{}, generated: map[string]*engine.Result{}}
 	// What stays in the root it was in, by type and import ID, with that
 	// root relative to out.
 	stays := map[engine.External]string{}
@@ -373,6 +380,9 @@ func planHandovers(out string, calls []*listedCall) error {
 			}
 			h.arrivals[d.to] = append(h.arrivals[d.to], arrival)
 		}
+	}
+	if len(h.vacating) > 0 && live[0].run != nil {
+		live[0].run.vacating = append(live[0].run.vacating, h)
 	}
 	for _, c := range live {
 		c.handovers = h

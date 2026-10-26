@@ -16,6 +16,7 @@ Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at 
 - [Quickstart](docs/quickstart.md): list, choose, import and plan, on AWS, Azure or Google Cloud.
 - [Install](docs/install.md): releases, the container image, the install script, Go.
 - [Usage](docs/usage.md): commands, choosing what to import, services and filters, day-to-day runs, and which options go together.
+- [Audit](docs/audit.md): what in an account no Terraform state or other tool manages, without importing anything.
 - [Configuration](docs/configuration.md): the configuration file and the state backend.
 - [Output](docs/output.md): what each root holds, applying it, how the configuration is tidied, the report and the verification gate.
 - [Modules](docs/modules.md): the curated modules clusters of resources move into, your own modules, and generated local modules.

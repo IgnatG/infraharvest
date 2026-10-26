@@ -7,13 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -207,6 +210,16 @@ func (r *Run) stateImports(stack, env string, result *engine.Result) (map[string
 			ids[found.Address] = res.ID
 		}
 	}
+	// And what the state has that the root doesn't, by its ID in the
+	// state: the merged root has it too, though this run doesn't list it,
+	// as when it is no longer in the cloud (see goneFromMerged).
+	for _, k := range slices.Sorted(maps.Keys(state)) {
+		found := state[k]
+		if _, ok := ids[found.Address]; ok || found.Address == "" || found.ID == "" || !own[stateLocation(found.Where)] {
+			continue
+		}
+		ids[found.Address] = found.ID
+	}
 	return ids, nil
 }
 
@@ -266,6 +279,106 @@ func newSinceMerge(result *engine.Result, ids map[string]string) []string {
 	}
 	sort.Strings(isolated)
 	return isolated
+}
+
+// goneFromMerged returns, of ids, the import IDs the merged root told
+// from its files has of m's environment by address, those no longer in
+// the cloud: m, the environment's root the import generated afresh, lacks
+// them, as the call's listing didn't find them, though it finds every
+// resource of their type in its scope (see listedHere). None are where
+// the listing can't tell.
+func goneFromMerged(m mergeMember, ids map[string]string) map[string]string {
+	if m.here == nil || m.result == nil {
+		return nil
+	}
+	held := map[engine.External]bool{}
+	for _, res := range resultResources(m.result) {
+		held[engine.External{Type: res.Type, ID: res.ID}] = true
+	}
+	gone := map[string]string{}
+	for address, id := range ids {
+		typ := engine.AddressType(address)
+		if held[engine.External{Type: typ, ID: id}] || !m.here.types[typ] || m.here.ids[strings.ToLower(id)] {
+			continue
+		}
+		gone[address] = id
+	}
+	return gone
+}
+
+// keepGone puts back, into each of members, the roots of the stack the
+// merged root in stack, told from its files as prev, has, generated
+// afresh by an incremental import, what the merged root has of its
+// environment that is no longer in the cloud (see goneFromMerged), as
+// that environment's root would have it (see engine.UnmergedBlocks), so
+// that merging again keeps it as it was, as with a stack whose roots were
+// set aside (see Run.goneFrom), and records it in the report. It returns
+// why it can't, where it can't.
+func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMember) (string, error) {
+	out := r.options.Out
+	// Each member's, all told before any is written.
+	goneOf := make([]map[string]string, len(members))
+	blocksOf := make([]map[string]engine.UnmergedBlock, len(members))
+	for i, m := range members {
+		if goneOf[i] = goneFromMerged(m, prev.Imports[m.env]); len(goneOf[i]) == 0 {
+			continue
+		}
+		blocks, why, err := engine.UnmergedBlocks(stack, engine.UnmergeEnv{Name: m.env, Account: m.account, Region: m.region}, goneOf[i])
+		if err != nil {
+			return "", err
+		}
+		if why != "" {
+			return fmt.Sprintf("what it has of %s that is no longer in the cloud can't be kept as it is: %s", m.env, why), nil
+		}
+		for _, res := range resultResources(m.result) {
+			for address, b := range blocks {
+				if res.Address == b.Address {
+					return fmt.Sprintf("what it has of %s that is no longer in the cloud can't be kept as it is: %s is at %s, which the root generated afresh gives %s", m.env, address, b.Address, res.ID), nil
+				}
+			}
+		}
+		blocksOf[i] = blocks
+	}
+	for i, m := range members {
+		gone, blocks := goneOf[i], blocksOf[i]
+		if len(blocks) == 0 {
+			continue
+		}
+		result := *m.result
+		result.Imported = slices.Clone(result.Imported)
+		result.Addresses = slices.Clone(result.Addresses)
+		for _, address := range slices.Sorted(maps.Keys(blocks)) {
+			b := blocks[address]
+			if err := appendFile(filepath.Join(m.dir, b.File), b.Text); err != nil {
+				return "", err
+			}
+			if err := appendFile(filepath.Join(m.dir, engine.ImportsFileName), b.Import); err != nil {
+				return "", err
+			}
+			typ := engine.AddressType(b.Address)
+			result.Imported = append(result.Imported, engine.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
+			if len(result.Addresses) > 0 {
+				result.Addresses = append(result.Addresses, engine.Managed{Type: typ, ID: gone[address], Address: b.Address})
+			}
+			r.report.NotInCloud = append(r.report.NotInCloud, report.NotInCloud{Path: relativePath(out, m.dir), Address: b.Address, ID: gone[address], Scope: m.scope})
+		}
+		members[i].result = &result
+		log.Printf("%s: no longer in the cloud: %d of what %s has of %s; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", relativePath(out, m.dir), len(blocks), relativePath(out, stack), m.env, filepath.Join(out, report.Dir, "report.md"))
+	}
+	return "", nil
+}
+
+// appendFile appends text to the file at path, after a blank line where
+// the file has something already.
+func appendFile(path, text string) error {
+	had, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if len(had) > 0 {
+		text = "\n" + text
+	}
+	return fsutil.WriteFile(path, append(had, text...), 0o644)
 }
 
 // leftOutOfMerge returns, of before, the import IDs of each environment's

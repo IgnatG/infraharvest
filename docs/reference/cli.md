@@ -51,7 +51,7 @@ infraharvest discover aws
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
-| `--format` | `text` | text, or json to also print the import report as JSON on stdout |
+| `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
@@ -69,7 +69,7 @@ infraharvest discover aws
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
-| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
+| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
@@ -100,7 +100,7 @@ infraharvest discover azure
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
-| `--format` | `text` | text, or json to also print the import report as JSON on stdout |
+| `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
@@ -116,7 +116,7 @@ infraharvest discover azure
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
-| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
+| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
 | `-g`, `--resource-group` |  | resource group to import (default: the whole subscription) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
@@ -150,7 +150,7 @@ infraharvest discover google
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
-| `--format` | `text` | text, or json to also print the import report as JSON on stdout |
+| `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
@@ -168,7 +168,7 @@ infraharvest discover google
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--regions` | `[global]` | regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region |
-| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
+| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
@@ -237,7 +237,7 @@ infraharvest import aws
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
-| `--format` | `text` | text, or json to also print the import report as JSON on stdout |
+| `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
@@ -254,7 +254,7 @@ infraharvest import aws
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--regions` |  | regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment) |
-| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
+| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
@@ -285,7 +285,7 @@ infraharvest import azure
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
-| `--format` | `text` | text, or json to also print the import report as JSON on stdout |
+| `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
@@ -300,7 +300,7 @@ infraharvest import azure
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
-| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
+| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
 | `-g`, `--resource-group` |  | resource group to import (default: the whole subscription) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
@@ -334,7 +334,7 @@ infraharvest import google
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
 | `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
-| `--format` | `text` | text, or json to also print the import report as JSON on stdout |
+| `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
 | `--incremental` |  | add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have |
@@ -351,7 +351,7 @@ infraharvest import google
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--regions` | `[global]` | regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region |
-| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key |
+| `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |

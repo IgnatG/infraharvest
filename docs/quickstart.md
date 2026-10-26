@@ -32,6 +32,8 @@ You need infraharvest ([Install](install.md)), credentials that can read the res
 
 `infraharvest services <provider>` lists the services `--services=*` imports; each cloud's page also describes the services that are imported only when named.
 
+To stop here, as an audit of what in the account isn't under Terraform yet, add `--managed-state` with your existing state and read the selection file: see [Audit](audit.md).
+
 ## 2. Choose what to import
 
 The selection file, `selection.yaml`, lists each resource with `include: true` or `false`. The default selection leaves out what the cloud creates on its own, such as default VPCs and security groups, and what another tool manages, such as CloudFormation stacks, with the reason. In a terminal, `discover` opens the picker on it (`--pick=false` doesn't); review it there or in a text editor, and open the picker again with:

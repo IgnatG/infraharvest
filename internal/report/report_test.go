@@ -159,6 +159,9 @@ func TestMarkdown(t *testing.T) {
 		"infraharvest v0.1.0, terraform 1.16.5, provider `registry.terraform.io/hashicorp/aws` ~> 6.67 (6.67.0).",
 		"| 3 | 2 | 0 | 1 | 1 | 0 |",
 		"| `aws_lb` | 1 | 0 | 0 | 1 | 0 | 0 |",
+		// Nothing is managed, but what isn't is counted all the same.
+		"## Managed and unmanaged",
+		"| `aws_lb` | 1 | 0 | 0 | 0 | 1 |",
 		"- `aws_lb.web` in `aws/us-east-1`: Invalid combination of arguments",
 		"- `aws_ssm_parameter_token_value` in `aws/us-east-1`: value of `aws_ssm_parameter.token`",
 		"- `aws_main_route_table_association` (1): Terraform can't import this resource type",
@@ -180,10 +183,10 @@ func TestManagedCounts(t *testing.T) {
 	}
 	r.Finish(map[string]int{"aws_vpc": 1, "aws_s3_bucket": 2}, nil, false)
 
-	if r.Totals.Managed != 1 || r.Totals.Excluded != 2 {
+	if r.Totals.Managed != 1 || r.Totals.Cloud != 1 || r.Totals.Excluded != 2 {
 		t.Errorf("totals: %+v", r.Totals)
 	}
-	if md := r.Markdown(); !strings.Contains(md, "## Managed and unmanaged") || !strings.Contains(md, "| `aws_s3_bucket` | 2 | 1 | 0 | 1 |") {
+	if md := r.Markdown(); !strings.Contains(md, "## Managed and unmanaged") || !strings.Contains(md, "| `aws_s3_bucket` | 2 | 1 | 0 | 0 | 1 |") || !strings.Contains(md, "| `aws_vpc` | 1 | 0 | 0 | 1 | 0 |") {
 		t.Errorf("markdown:\n%s", md)
 	}
 }
@@ -250,7 +253,7 @@ func TestScopeCounts(t *testing.T) {
 		t.Errorf("totals: %+v", r.Totals)
 	}
 	md := r.Markdown()
-	for _, want := range []string{"| `" + prod + "` | 4 | 1 | 1 | 2 |", "| `" + dev + "` | 1 | 0 | 0 | 1 |", "| `aws_s3_bucket` | 4 | 1 | 1 | 2 |"} {
+	for _, want := range []string{"| `" + prod + "` | 4 | 1 | 1 | 0 | 2 |", "| `" + dev + "` | 1 | 0 | 0 | 0 | 1 |", "| `aws_s3_bucket` | 4 | 1 | 1 | 0 | 2 |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown misses %q:\n%s", want, md)
 		}
@@ -297,7 +300,7 @@ func TestCountsByTag(t *testing.T) {
 		t.Errorf("got %+v\nwant %+v", merged.Tags, want)
 	}
 	md := merged.Markdown()
-	for _, line := range []string{"## By tag", "| `team` | Discovered |", "| (not tagged) | 1 | 0 | 0 | 1 | 0 |", "| `data` | 2 | 1 | 1 | 0 | 1 |"} {
+	for _, line := range []string{"## By tag", "| `team` | Discovered |", "| (not tagged) | 1 | 0 | 0 | 1 | 0 | 0 |", "| `data` | 2 | 1 | 1 | 0 | 0 | 1 |"} {
 		if !strings.Contains(md, line) {
 			t.Errorf("report.md lacks %q:\n%s", line, md)
 		}
