@@ -114,3 +114,69 @@ func assertUnrefined(t *testing.T, dir, providers string) {
 		t.Errorf("providers.tf: %q, want %q", got, providers)
 	}
 }
+
+// A Refine that edits nothing has nothing to roll back: a gate that fails
+// runs once, and Refine's warnings stay.
+func TestGenerateRunsTheGateOnceWhenRefineEditsNothing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "root")
+	tf := &fakeTerraform{dir: dir, validations: []*tfjson.ValidateOutput{{Valid: false}}}
+	result := generateRefined(t, tf, func(context.Context, string, []Managed, *tfjson.ProviderSchemas) ([]string, error) {
+		return []string{"nothing to carry"}, nil
+	})
+	if result.Gate.Passed() {
+		t.Errorf("the gate passed: %+v", result.Gate)
+	}
+	if n := strings.Count(strings.Join(tf.calls, ","), "validate"); n != 1 {
+		t.Errorf("calls: %s, want one gate", strings.Join(tf.calls, ","))
+	}
+	if !slices.Contains(result.Warnings, "nothing to carry") || strings.Contains(strings.Join(result.Warnings, "\n"), refineFailed) {
+		t.Errorf("warnings: %q", result.Warnings)
+	}
+}
+
+// A root that fails its gate without Refine's edits too isn't failed by
+// them: they are put back, with Refine's warnings, and the root has the
+// gate that failed with them, with no warning blaming them.
+func TestGenerateKeepsRefineWhenTheGateFailsWithoutIt(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "root")
+	tf := &fakeTerraform{dir: dir, validations: []*tfjson.ValidateOutput{{Valid: false}, {Valid: false}}}
+	var got []Managed
+	var providers string
+	result := generateRefined(t, tf, refining(&got, &providers, nil))
+	if result.Gate.Passed() {
+		t.Errorf("the gate passed: %+v", result.Gate)
+	}
+	if n := strings.Count(strings.Join(tf.calls, ","), "validate"); n != 2 {
+		t.Errorf("calls: %s, want the gate run again without the edits", strings.Join(tf.calls, ","))
+	}
+	if !slices.Contains(result.Warnings, "refined") || strings.Contains(strings.Join(result.Warnings, "\n"), refineFailed) {
+		t.Errorf("warnings: %q", result.Warnings)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "refined.tf")); err != nil {
+		t.Errorf("refined.tf: %v", err)
+	}
+	if got := readFile(t, dir, ProvidersFileName); got != "# providers, refined\n" {
+		t.Errorf("providers.tf: %q, want the refined one", got)
+	}
+}
+
+// Without the schemas, Refine doesn't run: the root goes on as it is,
+// with a warning.
+func TestGenerateSkipsRefineWithoutTheSchemas(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "root")
+	tf := &fakeTerraform{dir: dir, schemaErr: errors.New("no provider")}
+	ran := false
+	result := generateRefined(t, tf, func(context.Context, string, []Managed, *tfjson.ProviderSchemas) ([]string, error) {
+		ran = true
+		return nil, nil
+	})
+	if ran {
+		t.Error("Refine ran without the schemas")
+	}
+	if !result.Gate.Passed() || !strings.Contains(strings.Join(result.Warnings, "\n"), "didn't run, as terraform providers schema failed: no provider") {
+		t.Errorf("gate %+v, warnings %q", result.Gate, result.Warnings)
+	}
+	if n := strings.Count(strings.Join(tf.calls, ","), "validate"); n != 1 {
+		t.Errorf("calls: %s, want one gate", strings.Join(tf.calls, ","))
+	}
+}
