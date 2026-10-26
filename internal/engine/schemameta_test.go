@@ -330,7 +330,7 @@ resource "aws_subnet" "f" {
 		t.Fatal(err)
 	}
 
-	changed, err := resolveConflicts(path, schemaHints{file: subnetMetadata()})
+	changed, err := resolveConflicts(path, exactHints(subnetMetadata()))
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
@@ -347,8 +347,30 @@ resource "aws_subnet" "f" {
 		}
 	}
 	// Settled, nothing more conflicts.
-	if changed, err := resolveConflicts(path, schemaHints{file: subnetMetadata()}); err != nil || changed {
+	if changed, err := resolveConflicts(path, exactHints(subnetMetadata())); err != nil || changed {
 		t.Errorf("second pass: changed=%v err=%v", changed, err)
+	}
+}
+
+// subnetLock is the lock file of a root that uses the release
+// subnetMetadata is of.
+const subnetLock = `provider "registry.terraform.io/hashicorp/aws" {
+  version = "6.70.0"
+}
+`
+
+// Metadata of another release settles no conflicts: validation and repair
+// judge them, as without metadata.
+func TestResolveConflictsNeedsTheExactRelease(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	if err := os.WriteFile(path, []byte(rejectedConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hints := exactHints(subnetMetadata())
+	hints.exact = false
+	if changed, err := resolveConflicts(path, hints); err != nil || changed {
+		t.Errorf("changed=%v err=%v, want no change", changed, err)
 	}
 }
 
@@ -386,6 +408,12 @@ func TestGenerateResolvesConflictsBeforeValidation(t *testing.T) {
 		t.Helper()
 		dir := t.TempDir()
 		tf := &fakeTerraform{dir: dir, generated: generatedSubnets, plans: []fakePlan{{diags: diags}}}
+		// init records the release the metadata is of.
+		tf.onInit = func() {
+			if err := os.WriteFile(filepath.Join(dir, LockFileName), []byte(subnetLock), 0o644); err != nil {
+				t.Error(err)
+			}
+		}
 		if meta == nil {
 			// Without it, the sorted configuration's plan and validation
 			// report the conflicts, and repair settles them.
