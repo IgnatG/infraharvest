@@ -43,6 +43,8 @@ The output is formatted as `terraform fmt` would, and is the same, byte for byte
 | `AWS::Region`, `AWS::AccountId`, `AWS::Partition`, `AWS::URLSuffix` | `data.aws_region`, `data.aws_caller_identity`, `data.aws_partition` |
 | `AWS::StackName`, `AWS::StackId`, `AWS::NotificationARNs` | stand-in variables: Terraform has no stacks |
 | `AWS::NoValue` | `null`; a property set to it is left out, a list element filtered out, and `Fn::If` of a block and `AWS::NoValue` a `dynamic` block |
+| Dynamic references, `{{resolve:ssm:...}}`, `{{resolve:ssm-secure:...}}`, `{{resolve:secretsmanager:...}}` | `aws_ssm_parameter` and `aws_secretsmanager_secret_version` data sources, with the version, version stage and JSON key; one that can't be read is an error and `null`, never the reference's text |
+| A condition that compares a `NoEcho` parameter | `nonsensitive()`, as Terraform takes no sensitive value for `count` or `for_each` |
 
 ## Naming: the Mapper
 
@@ -63,6 +65,7 @@ Nothing is dropped silently: each of these is a `Diagnostic` (severity, path in 
 
 ## Limits
 
+- A property the converter leaves out, such as an S3 bucket's encryption, which the AWS provider manages with a resource of its own, is an `Error`: what it sets doesn't take effect.
 - `Fn::Equals` compares strings in CloudFormation. The converter writes a literal compared with a `Number` parameter as a number, and any other literal as a string; a comparison of two references keeps their types.
 - `AllowedPattern` is checked with Terraform's `regex()`, which uses RE2: a pattern with look-ahead or back-references can't be, and is reported.
 - Values are converted, not checked against the provider's schema: a value CloudFormation takes in another shape (a list of one for a single value, say) may need changing. The table covers the common cases, such as a security group rule's `CidrIp` becoming `cidr_blocks`.
