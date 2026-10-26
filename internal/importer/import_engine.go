@@ -24,6 +24,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -654,6 +655,13 @@ func inOtherRoots(out string, roots map[string][]engine.Import, dir string) map[
 // with what cat knows about its types.
 func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *rootFiles) engine.Options {
 	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners(), Omit: cat.OmitFor(root.version), Defaults: cat.DefaultsFor(root.version), StateOnly: cat.StateOnlyFor(root.version), KeepEmpty: cat.KeepEmpty(), SplitFiles: true, TidyLabels: true}
+	// Without the metadata, the engine finds defaults by planning, as it
+	// always could: a broken file costs plans, not the import.
+	if meta, err := schemameta.Builtin(cat.Provider); err != nil {
+		log.Printf("%s: the built-in schema metadata: %v", cat.Provider, err)
+	} else {
+		opts.SchemaMetadata = meta
+	}
 	if sources := cat.DataSources(); len(sources) > 0 {
 		opts.DataSources = map[string]engine.DataSource{}
 		for typ, d := range sources {
