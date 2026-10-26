@@ -121,6 +121,7 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 		settingsPath(vaultID),
 		subscriptionPath,
 	}
+	slices.Sort(want)
 	if !slices.Equal(asked, want) {
 		t.Errorf("asked for\n%v\nwant\n%v", asked, want)
 	}
