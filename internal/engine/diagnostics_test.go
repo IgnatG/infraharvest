@@ -67,7 +67,7 @@ func writeConfig(t *testing.T, dir, name, content string) *hclFile {
 func TestByResource(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	imports, err := ImportsFile([]Import{
+	imports, err := renderImports([]Import{
 		{Type: "aws_sqs_queue", Name: "a", ID: "a"},
 		{Type: "aws_sqs_queue", Name: "a2", ID: "a2"},
 		{Type: "aws_vpc", Name: "b", ID: "b"},
@@ -124,7 +124,7 @@ func TestOnlyMentioned(t *testing.T) {
 func TestReject(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	imports, err := ImportsFile([]Import{{Type: "aws_vpc", Name: "a", ID: "vpc-a"}, {Type: "aws_vpc", Name: "b", ID: "vpc-b"}})
+	imports, err := renderImports([]Import{{Type: "aws_vpc", Name: "a", ID: "vpc-a"}, {Type: "aws_vpc", Name: "b", ID: "vpc-b"}})
 	if err != nil {
 		t.Fatal(err)
 	}

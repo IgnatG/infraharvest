@@ -534,7 +534,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // local modules it calls (see walkOutputAndModules), for the plan's
 // sensitive values and the secret values Generate found, for credential
 // formats, for provider blocks that set a credential argument to a
-// constant (see IsCredentialArgument), and for any secret value written in
+// constant (see isCredential), and for any secret value written in
 // the configuration (see literalSecrets).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
@@ -671,7 +671,7 @@ func providerCredentials(f *parsedFile) []string {
 			continue
 		}
 		for name, attr := range b.Body.Attributes {
-			if !IsCredentialArgument(name) {
+			if !isCredential(name) {
 				continue
 			}
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.IsWhollyKnown() {

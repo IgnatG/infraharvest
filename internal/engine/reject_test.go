@@ -19,7 +19,7 @@ func TestUnconfigured(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, "resource \"aws_kms_key\" \"live\" {\n}\n")
-	content, err := ImportsFile([]Import{{Type: "aws_kms_key", Name: "live", ID: "k-1"}, {Type: "aws_kms_key", Name: "pending", ID: "k-2"}})
+	content, err := renderImports([]Import{{Type: "aws_kms_key", Name: "live", ID: "k-1"}, {Type: "aws_kms_key", Name: "pending", ID: "k-2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestRejectNamesTheVariablesTheResourceReads(t *testing.T) {
   tags  = { k = "${var.aws_ssm_parameter_p_tag}-x", other = local.var.x, again = var.aws_ssm_parameter_p_value }
 }
 `)
-	content, err := ImportsFile([]Import{{Type: "aws_ssm_parameter", Name: "p", ID: "p"}})
+	content, err := renderImports([]Import{{Type: "aws_ssm_parameter", Name: "p", ID: "p"}})
 	if err != nil {
 		t.Fatal(err)
 	}

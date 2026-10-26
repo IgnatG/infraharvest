@@ -239,10 +239,10 @@ type Options struct {
 	// where they are set empty (see stripDefaults).
 	KeepEmpty map[string][]string
 	// Placeholders, per resource type, set what Terraform can't read back,
-	// such as where a function's code comes from (see SetPlaceholders).
+	// such as where a function's code comes from (see setPlaceholders).
 	Placeholders map[string]Placeholder
 	// Lifecycles, per resource type, are lifecycle settings every resource
-	// of the type gets, such as create_before_destroy (see SetLifecycles).
+	// of the type gets, such as create_before_destroy (see setLifecycles).
 	Lifecycles map[string]Lifecycle
 	// SplitFiles moves the configuration out of generated.tf, once it is
 	// done, into the files the imports name (see Import.File).
@@ -364,7 +364,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
 	imports = relabelled(imports, opts.Taken, opts.TidyLabels, opts.Previous)
-	importsHCL, err := ImportsFile(imports)
+	importsHCL, err := renderImports(imports)
 	if err != nil {
 		return nil, err
 	}
@@ -446,11 +446,11 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err != nil {
 		return nil, err
 	}
-	placed, err := SetPlaceholders(generated, opts.Placeholders)
+	placed, err := setPlaceholders(generated, opts.Placeholders)
 	if err != nil {
 		return nil, err
 	}
-	lifecycled, err := SetLifecycles(generated, opts.Lifecycles)
+	lifecycled, err := setLifecycles(generated, opts.Lifecycles)
 	if err != nil {
 		return nil, err
 	}

@@ -72,7 +72,7 @@ func moduleRoot(t *testing.T, generated string) (string, string) {
 		typ, name, _ := strings.Cut(r.address, ".")
 		imports = append(imports, Import{Type: typ, Name: name, ID: name})
 	}
-	content, err := ImportsFile(imports)
+	content, err := renderImports(imports)
 	if err != nil {
 		t.Fatal(err)
 	}
