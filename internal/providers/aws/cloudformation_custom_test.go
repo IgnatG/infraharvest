@@ -6,10 +6,13 @@ package aws
 import (
 	"encoding/xml"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 const (
