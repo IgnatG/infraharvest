@@ -81,7 +81,10 @@ func fingerprint(engineVersion string, imports []engine.Import, opts engine.Opti
 		KeepOwned       map[string]bool
 		OtherRoots      []engine.RootResource
 		ARNs            map[string]engine.ARN
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs})
+		// Refine is what --cfn-stack carries into the root; empty, it
+		// leaves the fingerprint of a root without it as it was.
+		Refine string `json:",omitempty"`
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey})
 	if err != nil {
 		return "", err
 	}
