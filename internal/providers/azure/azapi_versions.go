@@ -5,7 +5,6 @@ package azure
 
 import (
 	"context"
-	"errors"
 	"log"
 	"regexp"
 	"strings"
@@ -55,7 +54,8 @@ type namespaceVersions struct {
 // versionCache holds what Resource Manager's providers API said of each
 // namespace, by Resource Manager endpoint and namespace in lower case:
 // a namespace's types and their API versions are the same in every
-// subscription of a cloud, so each is asked for once a run.
+// subscription of a cloud, so each is asked for once a run. A request that
+// failed isn't kept: the next lister to ask asks again.
 type versionCache struct {
 	namespaces sync.Map
 }
@@ -100,9 +100,11 @@ func (c *versionCache) of(ctx context.Context, credential azcore.TokenCredential
 			n.types[strings.ToLower(*t.ResourceType)] = versions
 		}
 	})
-	if n.err != nil && (errors.Is(n.err, context.Canceled) || errors.Is(n.err, context.DeadlineExceeded)) {
-		// An interrupted run's error isn't what the namespace is: a later
-		// run of the same process asks again.
+	if n.err != nil {
+		// A failure isn't what the namespace is: a subscription the
+		// credential may not read, a throttled or an interrupted request.
+		// The next lister to ask, as of another subscription or a later run
+		// of the same process (the MCP server), asks again.
 		c.namespaces.CompareAndDelete(strings.ToLower(endpoint+"|"+namespace), n)
 	}
 	return n.types, n.err
