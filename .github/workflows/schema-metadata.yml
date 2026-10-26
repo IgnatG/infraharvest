@@ -83,7 +83,7 @@ jobs:
             echo
             cat "$RUNNER_TEMP/summary.md"
             echo
-            echo 'To read a file'"'"'s lines locally: `gzip -dc internal/catalogue/schemameta/aws.json.gz`.'
+            echo "To read a file's lines locally: \`gzip -dc internal/catalogue/schemameta/aws.json.gz\`."
           } > "$RUNNER_TEMP/body.md"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

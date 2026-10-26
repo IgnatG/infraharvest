@@ -84,11 +84,7 @@ func Apply(dir string, stacks []Stack, mapper cfn.Mapper) ([]string, error) {
 	}
 	var warnings []string
 	for _, st := range stacks {
-		w, err := r.apply(st, mapper)
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, w...)
+		warnings = append(warnings, r.apply(st, mapper)...)
 	}
 	if err := r.save(); err != nil {
 		return nil, err
@@ -209,16 +205,16 @@ type stackRun struct {
 	warnings []string
 }
 
-func (r *root) apply(st Stack, mapper cfn.Mapper) ([]string, error) {
+func (r *root) apply(st Stack, mapper cfn.Mapper) []string {
 	t, err := cfn.Parse(strings.NewReader(st.Template))
 	if err != nil {
-		return []string{fmt.Sprintf("CloudFormation stack %s: its template isn't carried into the root: %v", st.Name, err)}, nil
+		return []string{fmt.Sprintf("CloudFormation stack %s: its template isn't carried into the root: %v", st.Name, err)}
 	}
 	s := &stackRun{r: r, st: st, t: t, mapper: mapper, vars: map[string]*variable{}}
 	s.parameters()
 	outputs := s.outputs()
 	s.file(outputs)
-	return s.warnings, nil
+	return s.warnings
 }
 
 // address returns the address in the root of a resource of the template:
