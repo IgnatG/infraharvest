@@ -468,12 +468,21 @@ resource "aws_ebs_volume" "data" {
 # naming the stack.
 resource "aws_cloudformation_stack" "app" {
   name = "${local.name}-app"
+  # A parameter and an output, which --cfn-stack carries into the root:
+  # the bucket's name becomes var.bucket_name, its ARN an output.
+  parameters    = { BucketName = "${local.name}-cfn-assets" }
   template_body = jsonencode({
+    Parameters = {
+      BucketName = { Type = "String" }
+    }
     Resources = {
       Assets = {
         Type       = "AWS::S3::Bucket"
-        Properties = { BucketName = "${local.name}-cfn-assets" }
+        Properties = { BucketName = { Ref = "BucketName" } }
       }
+    }
+    Outputs = {
+      AssetsArn = { Value = { "Fn::GetAtt" = ["Assets", "Arn"] } }
     }
   })
 }

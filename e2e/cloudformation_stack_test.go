@@ -8,6 +8,7 @@ package e2e
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/stackintent"
 )
 
 // TestAWSSelectionCloudFormation imports the CloudFormation stack of
@@ -78,5 +80,39 @@ func TestAWSSelectionCloudFormation(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(s.RetainTemplate)))
 	if err != nil || !strings.Contains(string(content), `"DeletionPolicy": "Retain"`) {
 		t.Errorf("template with Retain %q: %q, %v", s.RetainTemplate, content, err)
+	}
+
+	// The template's parameter and output are in the bucket's root, and its
+	// gate, which checked them, passed.
+	var bucketRoot string
+	for _, d := range r.Directories {
+		for _, res := range d.Imported {
+			if res.ID == "infraharvest-e2e-cfn-assets" {
+				bucketRoot = d.Path
+				for _, c := range d.Checks {
+					if !c.Passed {
+						t.Errorf("%s: %s failed: %v", d.Path, c.Name, c.Details)
+					}
+				}
+			}
+		}
+	}
+	intent, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(bucketRoot), stackintent.FileName("infraharvest-e2e-app")))
+	if err != nil {
+		t.Fatalf("the stack's template in %s: %v", bucketRoot, err)
+	}
+	for _, want := range []string{`variable "bucket_name"`, `default     = "infraharvest-e2e-cfn-assets"`, `output "assets_arn"`, `.arn`} {
+		if !strings.Contains(string(intent), want) {
+			t.Errorf("%s lacks %s:\n%s", stackintent.FileName("infraharvest-e2e-app"), want, intent)
+		}
+	}
+	uses := false
+	tfFiles, _ := filepath.Glob(filepath.Join(out, filepath.FromSlash(bucketRoot), "*.tf"))
+	for _, f := range tfFiles {
+		content, _ := os.ReadFile(f)
+		uses = uses || regexp.MustCompile(`\bbucket\s+= var\.bucket_name\b`).Match(content)
+	}
+	if !uses {
+		t.Errorf("no argument of %s refers to var.bucket_name", bucketRoot)
 	}
 }
