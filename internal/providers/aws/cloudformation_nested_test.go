@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 const (
@@ -144,5 +146,62 @@ func TestResolveStacksNestedUnderDeletedParent(t *testing.T) {
 	}
 	if err := scope.Acknowledge([]string{"Orders"}); err == nil || !strings.Contains(err.Error(), "only a resource Terraform can't import") {
 		t.Errorf("Orders, found once: %v", err)
+	}
+}
+
+// A nested stack that can't be read, as one the role may not describe, is
+// in the scope as unreadable, with the reason, and the rest is read; the
+// report then keeps it, and the stack it is nested in, from being safe to
+// delete.
+func TestResolveStacksUnreadableNested(t *testing.T) {
+	api := scopeStacksAPI(t)
+	useFakeAPI(t, func(call apiCall) string {
+		form, _ := url.ParseQuery(call.Body)
+		if form.Get("StackName") != scopeNetworkStack {
+			return api(call)
+		}
+		if call.Op != "DescribeStacks" {
+			return recordUnexpected(t, call)
+		}
+		return recordQueryError(recordCfnNS, "AccessDenied")
+	})
+
+	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var network *scopedStack
+	for _, s := range scope.stacks {
+		if s.id == scopeNetworkStack {
+			network = s
+		}
+	}
+	if network == nil || !strings.HasPrefix(network.unreadable, "AccessDenied: ") || network.parent != scopeAppStack || network.resources != nil || network.template != nil {
+		t.Fatalf("the nested stack: %+v", network)
+	}
+	if summary := strings.Join(scope.Summary(), "\n"); !strings.Contains(summary, "app-Network-1ABC (eu-west-2), nested in "+scopeAppStack+": couldn't be read") {
+		t.Errorf("summary:\n%s", summary)
+	}
+
+	r := &report.Report{}
+	var stacks []report.CloudFormationStack
+	for _, s := range scope.stacks {
+		stacks = append(stacks, s.report(nil))
+	}
+	r.AddCloudFormationStacks(stacks)
+	r.Finish(nil, nil, false)
+	for _, s := range r.CloudFormationStacks {
+		blockers := strings.Join(s.Blockers, "\n")
+		want := "it couldn't be read, so what it holds, which deleting it may delete, is unknown: AccessDenied: "
+		if s.ID == scopeAppStack {
+			want = "in nested stack app-Network-1ABC: " + want
+		}
+		if s.SafeToDelete || !strings.Contains(blockers, want) {
+			t.Errorf("%s: safe to delete %v, blockers:\n%s", s.Name, s.SafeToDelete, blockers)
+		}
+	}
+	if md := r.Markdown(); !strings.Contains(md, "`"+scopeNetworkStack+"`, unreadable, nested in") {
+		t.Errorf("markdown:\n%s", md)
 	}
 }

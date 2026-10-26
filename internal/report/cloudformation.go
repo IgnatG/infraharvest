@@ -80,6 +80,11 @@ type CloudFormationStack struct {
 	// Deleted says CloudFormation deleted the stack already: what it
 	// retained is imported, and nothing is left to delete.
 	Deleted bool `json:"deleted,omitempty"`
+	// Unreadable says why a nested stack couldn't be read, as when its
+	// deleted parent deleted it longer ago than CloudFormation keeps it,
+	// or the role may not describe it: what it holds is unknown, so
+	// neither it nor a stack it is nested in is safe to delete.
+	Unreadable string `json:"unreadable,omitempty"`
 	// Warnings are about the stack, such as a service that manages it.
 	Warnings []string `json:"warnings,omitempty"`
 	// Template and RetainTemplate are the paths, relative to the output
@@ -309,6 +314,9 @@ func (r *Report) finishStacks() {
 			s.SafeToDelete = false
 			continue
 		}
+		if s.Unreadable != "" {
+			s.Blockers = append(s.Blockers, "it couldn't be read, so what it holds, which deleting it may delete, is unknown: "+s.Unreadable)
+		}
 		paths := make([]string, 0, len(roots))
 		for p := range roots {
 			paths = append(paths, p)
@@ -397,7 +405,11 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 	}
 	b.WriteString("\n## CloudFormation stacks\n\nThe resources of the stacks `--cfn-stack` names, and their nested stacks, and whether each stack can be deleted without deleting what was imported: every resource imported, left out by the selection file or, where Terraform can't import it, acknowledged with `--cfn-ignore`, every root that imports them passing its gate, so that its plan changes nothing, and `DeletionPolicy` and `UpdateReplacePolicy` `Retain` on every resource. infraharvest changes no stack: update it with the copy of its template that has `Retain` added, check the change set, apply the roots, then delete the stack.\n")
 	for _, s := range r.CloudFormationStacks {
-		fmt.Fprintf(b, "\n### `%s` (%s)\n\n`%s`, %s", s.Name, s.Region, s.ID, s.Status)
+		status := s.Status
+		if s.Unreadable != "" {
+			status = "unreadable"
+		}
+		fmt.Fprintf(b, "\n### `%s` (%s)\n\n`%s`, %s", s.Name, s.Region, s.ID, status)
 		if s.Parent != "" {
 			fmt.Fprintf(b, ", nested in `%s`", s.Parent)
 		}
