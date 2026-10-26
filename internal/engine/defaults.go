@@ -104,6 +104,8 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 	}
 	restore := func() error { return os.WriteFile(path, original, 0o644) }
+	// keep holds the candidates to put back, by key.
+	keep := map[string]bool{}
 	// What the plan can't settle keeps its constants; nulls still go, as
 	// Terraform treats null as an omitted argument, and so do proven
 	// defaults (see defaultCandidate.proven) where the configuration still
@@ -143,7 +145,6 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 		}
 		return false, nil, restore()
 	}
-	keep := map[string]bool{}
 	// failed counts the rounds in which the plan failed on each resource.
 	failed := map[string]int{}
 	for round := 0; round < maxDefaultRounds; round++ {
