@@ -51,7 +51,7 @@ func (c *listedCall) stackIntent() (stackRefine, string) {
 			continue
 		}
 		in := stackInput{
-			stack:     stackintent.Stack{Name: s.Name, ID: s.ID, Template: body, Parameters: s.Parameters()},
+			stack:     stackintent.Stack{Name: s.Name, ID: s.ID, Template: body, Parameters: s.Parameters(), Resolved: s.ResolvedParameters()},
 			resources: map[engine.External][]string{},
 		}
 		for _, res := range s.Resources {
@@ -113,11 +113,12 @@ func stackIntentKey(inputs []stackInput) (string, error) {
 	type keyed struct {
 		Name, ID, Template string
 		Parameters         map[string]string
+		Resolved           map[string]string `json:",omitempty"` // omitted when nil, so keys from before it stay the same
 		Resources          []string
 	}
 	var all []keyed
 	for _, in := range inputs {
-		k := keyed{Name: in.stack.Name, ID: in.stack.ID, Template: in.stack.Template, Parameters: in.stack.Parameters}
+		k := keyed{Name: in.stack.Name, ID: in.stack.ID, Template: in.stack.Template, Parameters: in.stack.Parameters, Resolved: in.stack.Resolved}
 		for r, ids := range in.resources {
 			k.Resources = append(k.Resources, r.Type+" "+r.ID+" "+strings.Join(ids, ","))
 		}

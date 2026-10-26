@@ -33,6 +33,7 @@ type fixtureStack struct {
 	Name       string              `json:"name"`
 	ID         string              `json:"id"`
 	Parameters map[string]string   `json:"parameters"`
+	Resolved   map[string]string   `json:"resolved"`
 	Addresses  map[string][]string `json:"addresses"`
 }
 
@@ -100,7 +101,7 @@ func applyCase(t *testing.T, dir string) []byte {
 			t.Fatal(err)
 		}
 	}
-	stack := Stack{Name: fx.Name, ID: fx.ID, Template: string(template), Parameters: fx.Parameters, Addresses: fx.Addresses}
+	stack := Stack{Name: fx.Name, ID: fx.ID, Template: string(template), Parameters: fx.Parameters, Resolved: fx.Resolved, Addresses: fx.Addresses}
 	warnings, err := Apply(rootDir, []Stack{stack}, cfn.DefaultMapper())
 	if err != nil {
 		t.Fatal(err)
@@ -167,12 +168,30 @@ func TestParameterValue(t *testing.T) {
 		{"List<Number>", "1, 2", "list(number)", "[1, 2]", cty.ListVal([]cty.Value{cty.NumberIntVal(1), cty.NumberIntVal(2)}), true},
 		{"CommaDelimitedList", "a, b", "list(string)", `["a", "b"]`, cty.ListVal([]cty.Value{cty.StringVal("a"), cty.StringVal("b")}), true},
 		{"List<AWS::EC2::Subnet::Id>", "", "list(string)", "[]", cty.ListValEmpty(cty.String), true},
-		{"AWS::SSM::Parameter::Value<String>", "resolved", "string", `"resolved"`, cty.StringVal("resolved"), true},
 	}
 	for _, tt := range tests {
 		typ, literal, value, ok := parameterValue(tt.typ, tt.live)
 		if ok != tt.ok || typ != tt.hcl || literal != tt.literal || (ok && !value.RawEquals(tt.value)) {
 			t.Errorf("parameterValue(%s, %q) = %s, %s, %#v, %v", tt.typ, tt.live, typ, literal, value, ok)
+		}
+	}
+}
+
+func TestSSMValue(t *testing.T) {
+	tests := []struct {
+		resolved string
+		list     bool
+		want     cty.Value
+	}{
+		{"ami-1", false, cty.StringVal("ami-1")},
+		{"a, b", false, cty.StringVal("a, b")},
+		// split() doesn't trim, so neither does the value compared.
+		{"subnet-1, subnet-2", true, cty.ListVal([]cty.Value{cty.StringVal("subnet-1"), cty.StringVal(" subnet-2")})},
+		{"", true, cty.ListVal([]cty.Value{cty.StringVal("")})},
+	}
+	for _, tt := range tests {
+		if got := ssmValue(tt.resolved, tt.list); !got.RawEquals(tt.want) {
+			t.Errorf("ssmValue(%q, %v) = %#v", tt.resolved, tt.list, got)
 		}
 	}
 }

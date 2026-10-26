@@ -16,6 +16,12 @@
 //     (not a guess), and the literal equals the parameter's value in the
 //     stack, as the same kind of value; the variable's default is that
 //     value. The expression's value is the same, so the plan is.
+//   - An AWS::SSM::Parameter::Value<...> parameter's variable holds the
+//     SSM parameter's name, as the stack was given it, and an
+//     aws_ssm_parameter data source reads the value, as cfn.Convert
+//     writes them: a literal equal to the value CloudFormation resolved
+//     becomes the data source's value, and the resolved value is never
+//     the variable's default, where the template had only the name.
 //   - An output is written only when its whole value converts: each
 //     resource it refers to is in the root, each attribute is one the
 //     provider's schema has, and each parameter has a variable. An output
@@ -59,9 +65,14 @@ type Stack struct {
 	ID string
 	// Template is the template's body, JSON or YAML.
 	Template string
-	// Parameters are the values the stack's parameters have, by name; nil
-	// when they aren't known, as for a nested stack.
+	// Parameters are the values the stack's parameters have, by name, as
+	// the stack was given them; nil when they aren't known, as for a
+	// nested stack.
 	Parameters map[string]string
+	// Resolved are the values CloudFormation resolved the stack's
+	// AWS::SSM::Parameter::Value<...> parameters to, by name, whose values
+	// in Parameters are the SSM parameters' names.
+	Resolved map[string]string
 	// Addresses are the addresses in the root that each resource of the
 	// stack was imported at, by logical ID: several when the resource is
 	// several Terraform resources, such as a method and its integration.
@@ -153,6 +164,17 @@ func claim(taken map[string]bool, base string) string {
 	return name
 }
 
+// claimData returns a label for a data source of type typ, base or base
+// with a numeric suffix, as claim does.
+func (r *root) claimData(typ, base string) string {
+	name := base
+	for i := 2; r.data[typ+"."+name]; i++ {
+		name = fmt.Sprintf("%s_%d", base, i)
+	}
+	r.data[typ+"."+name] = true
+	return name
+}
+
 // save writes the files Apply edited and the ones it added.
 func (r *root) save() error {
 	paths := make([]string, 0, len(r.changed))
@@ -188,7 +210,16 @@ type variable struct {
 	name    string
 	typ     string
 	literal string    // the default, as HCL
-	value   cty.Value // the default's value, to compare literals with
+	def     cty.Value // the default's value
+	// value is what a reference to the parameter reads, to compare
+	// literals with: the default's value, or, for an SSM parameter type,
+	// the value CloudFormation resolved.
+	value cty.Value
+	// ref is the expression a reference to the parameter is written as.
+	ref string
+	// ssm is the label of the aws_ssm_parameter data source that reads an
+	// SSM parameter type's value, and "" for any other parameter.
+	ssm string
 }
 
 // stackRun is Apply's work on one stack.
@@ -296,8 +327,13 @@ func (s *stackRun) substitute(res *cfn.Resource, address string, block *hclwrite
 		s.warn(fmt.Sprintf("%s.%s differs from the value of the parameter %s, which sets it in the template: the stack has drifted, and %s keeps the live value", address, p.Name, param, address))
 		return
 	}
+	tokens, ok := exprTokens(v.ref)
+	if !ok {
+		s.report(where + ": the reference " + v.ref + " doesn't parse, which is a bug, so " + address + " keeps its value")
+		return
+	}
 	s.commit()
-	block.Body().SetAttributeTraversal(p.Name, hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: v.name}})
+	block.Body().SetAttributeRaw(p.Name, tokens)
 	for path, f := range s.r.files {
 		if f.Body() == nil {
 			continue
@@ -332,13 +368,43 @@ func (s *stackRun) variable(name string) (*variable, string) {
 	if !ok {
 		return nil, "the stack's value of the parameter isn't known"
 	}
-	typ, literal, value, ok := parameterValue(p.Type, live)
-	if !ok {
-		return nil, fmt.Sprintf("the stack's value of the parameter, %q, isn't a %s", live, p.Type)
+	ssm, list := cfnhcl.SSMParameterType(p.Type)
+	v := &variable{param: p}
+	if ssm {
+		resolved, ok := s.st.Resolved[name]
+		if !ok {
+			return nil, "the value CloudFormation resolved the SSM parameter to isn't known"
+		}
+		v.typ, v.literal, v.def, v.value = "string", quoted(live), cty.StringVal(live), ssmValue(resolved, list)
+	} else {
+		typ, literal, value, ok := parameterValue(p.Type, live)
+		if !ok {
+			return nil, fmt.Sprintf("the stack's value of the parameter, %q, isn't a %s", live, p.Type)
+		}
+		v.typ, v.literal, v.def, v.value = typ, literal, value, value
 	}
-	v := &variable{param: p, name: claim(s.r.variables, cfnhcl.VariableName(name)), typ: typ, literal: literal, value: value}
+	v.name = claim(s.r.variables, cfnhcl.VariableName(name))
+	v.ref = "var." + v.name
+	if ssm {
+		v.ssm = s.r.claimData("aws_ssm_parameter", v.name)
+		v.ref = cfnhcl.SSMValue(v.ssm, list)
+	}
 	s.pending[name] = v
 	return v, ""
+}
+
+// ssmValue returns the value an SSM parameter type's data source reads,
+// as cfnhcl.SSMValue writes it: a list's split at each comma, as
+// Terraform's split() does, without trimming.
+func ssmValue(resolved string, list bool) cty.Value {
+	if !list {
+		return cty.StringVal(resolved)
+	}
+	var values []cty.Value
+	for _, item := range strings.Split(resolved, ",") {
+		values = append(values, cty.StringVal(item))
+	}
+	return listOf(cty.String, values)
 }
 
 // commit declares the pending variables.
@@ -354,6 +420,9 @@ func (s *stackRun) commit() {
 func (s *stackRun) discard() {
 	for _, v := range s.pending {
 		delete(s.r.variables, v.name)
+		if v.ssm != "" {
+			delete(s.r.data, "aws_ssm_parameter."+v.ssm)
+		}
 	}
 	s.pending = map[string]*variable{}
 }
@@ -403,7 +472,7 @@ func (r resolver) Parameter(name string) (string, bool) {
 	if v == nil {
 		return "", false
 	}
-	return "var." + v.name, true
+	return v.ref, true
 }
 
 // outputs converts the template's outputs that convert whole (see the
@@ -461,11 +530,19 @@ func (s *stackRun) file(outputs []output) {
 		if desc == "" {
 			desc = fmt.Sprintf("The %s parameter of the CloudFormation stack %s.", name, s.st.Name)
 		}
+		if v.ssm != "" {
+			desc += " (" + strings.TrimSuffix(cfnhcl.SSMDescription(v.param.Type), ".") + ")"
+		}
 		fmt.Fprintf(&b, "variable %s {\n  type        = %s\n  description = %s\n  default     = %s\n", quoted(v.name), v.typ, quoted(desc), v.literal)
 		if allowed, ok := allowedValues(v); ok {
 			fmt.Fprintf(&b, "\n  validation {\n    condition     = contains(%s, var.%s)\n    error_message = %s\n  }\n", allowed, v.name, quoted(fmt.Sprintf("The value must be one the template allows for %s.", name)))
 		}
 		b.WriteString("}\n\n")
+	}
+	for _, name := range s.order {
+		if v := s.vars[name]; v.ssm != "" {
+			b.WriteString(cfnhcl.SSMData(v.ssm, v.name) + "\n")
+		}
 	}
 	for _, o := range outputs {
 		for _, d := range o.data {
@@ -556,6 +633,20 @@ func quoted(s string) string {
 	return string(hclwrite.TokensForValue(cty.StringVal(s)).Bytes())
 }
 
+// exprTokens returns an expression's tokens, to set an argument to, or
+// false if it doesn't parse.
+func exprTokens(expr string) (hclwrite.Tokens, bool) {
+	f, diags := hclwrite.ParseConfig([]byte("x = "+expr+"\n"), "expr.tf", hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, false
+	}
+	attr := f.Body().GetAttribute("x")
+	if attr == nil {
+		return nil, false
+	}
+	return attr.Expr().BuildTokens(nil), true
+}
+
 // literalValue returns an attribute's value when its expression is a
 // literal, one that refers to nothing.
 func literalValue(attr *hclwrite.Attribute) (cty.Value, bool) {
@@ -608,18 +699,14 @@ func sameValue(got, want cty.Value) bool {
 // false when the value isn't one of the type. A list's value is its
 // comma-separated items, each trimmed of spaces.
 func parameterValue(paramType, live string) (string, string, cty.Value, bool) {
-	inner := paramType
-	if strings.HasPrefix(inner, "AWS::SSM::Parameter::Value<") && strings.HasSuffix(inner, ">") {
-		inner = strings.TrimSuffix(strings.TrimPrefix(inner, "AWS::SSM::Parameter::Value<"), ">")
-	}
 	switch {
-	case inner == "Number":
+	case paramType == "Number":
 		lit, n, ok := numberValue(live)
 		if !ok {
 			return "", "", cty.NilVal, false
 		}
 		return "number", lit, cty.NumberVal(n), true
-	case inner == "List<Number>":
+	case paramType == "List<Number>":
 		var lits []string
 		var values []cty.Value
 		for _, item := range items(live) {
@@ -630,7 +717,7 @@ func parameterValue(paramType, live string) (string, string, cty.Value, bool) {
 			lits, values = append(lits, lit), append(values, cty.NumberVal(n))
 		}
 		return "list(number)", "[" + strings.Join(lits, ", ") + "]", listOf(cty.Number, values), true
-	case inner == "CommaDelimitedList" || strings.HasPrefix(inner, "List<"):
+	case paramType == "CommaDelimitedList" || strings.HasPrefix(paramType, "List<"):
 		var lits []string
 		var values []cty.Value
 		for _, item := range items(live) {
@@ -705,11 +792,11 @@ func allowedValues(v *variable) (string, bool) {
 			if !ok {
 				return "", false
 			}
-			found = found || n.Cmp(v.value.AsBigFloat()) == 0
+			found = found || n.Cmp(v.def.AsBigFloat()) == 0
 			lits = append(lits, text)
 			continue
 		}
-		found = found || text == v.value.AsString()
+		found = found || text == v.def.AsString()
 		lits = append(lits, quoted(text))
 	}
 	return "[" + strings.Join(lits, ", ") + "]", found

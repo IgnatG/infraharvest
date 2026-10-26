@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: A queue, a topic and a subnet group named from Parameter Store.
+
+Parameters:
+  QueueName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Name of the jobs queue.
+  TopicName:
+    Type: AWS::SSM::Parameter::Value<String>
+  Subnets:
+    Type: AWS::SSM::Parameter::Value<List<AWS::EC2::Subnet::Id>>
+  GroupName:
+    Type: AWS::SSM::Parameter::Value<String>
+
+Resources:
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Ref QueueName
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref TopicName
+  Group:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Ref GroupName
+      DBSubnetGroupDescription: App subnets
+      SubnetIds: !Ref Subnets
+
+Outputs:
+  QueueLabel:
+    Value: !Sub "${QueueName}:${Queue.Arn}"

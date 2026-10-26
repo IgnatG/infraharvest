@@ -29,9 +29,10 @@ type paramType struct {
 	known   bool
 }
 
-const ssmValuePrefix = "AWS::SSM::Parameter::Value<"
-
 func parseParamType(t string) paramType {
+	if ssm, list := cfnhcl.SSMParameterType(t); ssm {
+		return paramType{hcl: "string", ssm: true, ssmList: list, known: true}
+	}
 	switch {
 	case t == "String":
 		return paramType{hcl: "string", known: true}
@@ -41,9 +42,6 @@ func parseParamType(t string) paramType {
 		return paramType{hcl: "list(number)", list: true, number: true, known: true}
 	case t == "CommaDelimitedList":
 		return paramType{hcl: "list(string)", list: true, known: true}
-	case strings.HasPrefix(t, ssmValuePrefix) && strings.HasSuffix(t, ">"):
-		inner := strings.TrimSuffix(strings.TrimPrefix(t, ssmValuePrefix), ">")
-		return paramType{hcl: "string", ssm: true, ssmList: inner == "CommaDelimitedList" || strings.HasPrefix(inner, "List<"), known: true}
 	case strings.HasPrefix(t, "List<AWS::") && strings.HasSuffix(t, ">"):
 		return paramType{hcl: "list(string)", list: true, aws: true, known: true}
 	case strings.HasPrefix(t, "AWS::"):
@@ -81,7 +79,7 @@ func (c *converter) writeVariable(w *hclWriter, pi *paramInfo) {
 	desc := strings.TrimSpace(p.Description)
 	switch {
 	case pt.ssm:
-		desc = describe(desc, fmt.Sprintf("The name of the SSM parameter to read the value of: the CloudFormation type was %s.", p.Type))
+		desc = describe(desc, cfnhcl.SSMDescription(p.Type))
 	case pt.aws:
 		desc = describe(desc, fmt.Sprintf("CloudFormation type %s.", p.Type))
 	}

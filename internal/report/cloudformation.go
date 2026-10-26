@@ -114,8 +114,9 @@ type CloudFormationStack struct {
 	// parameters are the values the stack's parameters have, by name, as
 	// DescribeStacks gives them (see SetParameters): not in the report,
 	// which a person may share, as a value may be one only the stack's
-	// owners should see.
-	parameters map[string]string
+	// owners should see. resolved are the values the SSM parameter types
+	// resolved to, kept out for the same reason.
+	parameters, resolved map[string]string
 }
 
 // SetTemplates sets the stack's template body, and that of the copy with
@@ -131,16 +132,23 @@ func (s *CloudFormationStack) TemplateBody() string {
 	return s.templateBody
 }
 
-// SetParameters sets the values the stack's parameters have, by name: a
-// NoEcho parameter's is masked, as CloudFormation gives it, and an SSM
-// parameter type's is the value it resolved to.
-func (s *CloudFormationStack) SetParameters(values map[string]string) {
-	s.parameters = values
+// SetParameters sets the values the stack's parameters have, by name, as
+// the stack was given them: a NoEcho parameter's is masked, as
+// CloudFormation gives it, and an SSM parameter type's is the SSM
+// parameter's name, whose value resolved has.
+func (s *CloudFormationStack) SetParameters(values, resolved map[string]string) {
+	s.parameters, s.resolved = values, resolved
 }
 
 // Parameters returns the values SetParameters set, or nil.
 func (s *CloudFormationStack) Parameters() map[string]string {
 	return s.parameters
+}
+
+// ResolvedParameters returns the values SetParameters set for the SSM
+// parameter types, as CloudFormation resolved them, or nil.
+func (s *CloudFormationStack) ResolvedParameters() map[string]string {
+	return s.resolved
 }
 
 // CloudFormationResource is a resource of a CloudFormation stack.
