@@ -359,6 +359,10 @@ func TestScopeArgsByProvider(t *testing.T) {
 			Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1", "sub-2"}, ManagementGroup: "mg", ResourceGroup: "rg"},
 			[]string{"discover", "azure", "--services=resource_graph", "--subscriptions=sub-1,sub-2", "--management-group=mg", "--resource-group=rg"},
 		},
+		"azure through azapi": {
+			Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true},
+			[]string{"discover", "azure", "--services=resource_graph", "--azapi=true"},
+		},
 	} {
 		args, err := scopeArgs("discover", tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
@@ -384,6 +388,10 @@ func TestScopeArgsRejectsWhatTheProviderDoesNotTake(t *testing.T) {
 		"aws projects and resource group": {
 			Scope{Provider: "aws", Services: []string{"vpc"}, Projects: []string{"one"}, ResourceGroup: "rg"},
 			[]string{"aws doesn't take projects", "aws doesn't take resource_group"},
+		},
+		"aws azapi": {
+			Scope{Provider: "aws", Services: []string{"vpc"}, Azapi: true},
+			[]string{"aws doesn't take azapi, which is for azure only"},
 		},
 		"google subscriptions": {
 			Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one"}, Subscriptions: []string{"sub-1"}},
@@ -428,6 +436,7 @@ func TestScopeText(t *testing.T) {
 		{Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one", "two"}}, "the google projects one, two in global (iam)"},
 		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "123", Folders: []string{"456"}, Regions: []string{"europe-west1"}}, "every active google project of organization 123 and of folders 456 in europe-west1 (iam)"},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}}, "the azure subscription of ARM_SUBSCRIPTION_ID (resource_graph)"},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true}, "the azure subscription of ARM_SUBSCRIPTION_ID, what azurerm has no type for through azapi (resource_graph)"},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
 	} {
 		if got := scopeText(tc.scope); got != tc.want {

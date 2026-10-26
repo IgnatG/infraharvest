@@ -15,7 +15,7 @@ Their parameters are named after the flags they set: `provider`, `services` and 
 | Provider | Parameters | Flags they set |
 |---|---|---|
 | `aws` | `regions`, `profile`, `accounts`, `cfn_stacks`, `cfn_ignore` | `--regions`, `--profile`, `--accounts`, `--cfn-stack` and `--cfn-ignore`, once per value |
-| `azure` | `subscriptions`, `management_group`, `resource_group` | `--subscriptions`, `--management-group`, `--resource-group` |
+| `azure` | `subscriptions`, `management_group`, `resource_group`, `azapi` | `--subscriptions`, `--management-group`, `--resource-group`, `--azapi` |
 | `google` | `projects`, `organization`, `folders`, `regions` | `--projects`, `--organization`, `--folders`, `--regions` |
 
 A parameter the provider's command has no flag for, such as `regions` for Azure, is rejected with an error naming it, and so is a Google scope without `projects`, `organization` or `folders`. So are services and regions not named like one (letters, digits and `_*.-`), and any value or path with a control character such as a newline, which could make the confirmation say something else; the confirmation quotes the paths, and the command a client that can't ask is given quotes each argument for a POSIX shell. The user confirms an import seeing what it reads in these terms: the accounts and profile, the subscriptions and resource group, or the projects, organizations and folders, with the regions and services. With `cfn_stacks`, which imports the resources of those CloudFormation stacks alone (see [Migrating a CloudFormation stack](aws.md#migrating-a-cloudformation-stack)), `services` may be left out: the stacks' resource types say which to list.

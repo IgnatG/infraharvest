@@ -395,6 +395,13 @@
         "persistent": true
       },
       {
+        "name": "azapi",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "catalogue",
         "type": "string",
         "default": "",
@@ -1252,6 +1259,13 @@
       },
       {
         "name": "allow-partial",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "azapi",
         "type": "bool",
         "default": "false",
         "no_opt_default": "true",

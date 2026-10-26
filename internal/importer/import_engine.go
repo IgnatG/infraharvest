@@ -400,6 +400,8 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return configFile(provider.Name(), service, r.Address.Type, cat)
 	}
 	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
+	withImpliedProviders(byDir, opts.ModuleProviders)
+	withFallbackIDs(byDir, resourcesByService, cat, importID)
 	withResourceOmissions(byDir, resourcesByService, cat, importID)
 	var places map[string]memberPlace
 	if options.MergeEnvironments && len(envNames) > 0 {
@@ -650,7 +652,7 @@ func inOtherRoots(out string, roots map[string][]engine.Import, dir string) map[
 			continue
 		}
 		for _, imp := range imports {
-			other[engine.External{Type: imp.Type, ID: imp.ID}] = relativePath(out, d)
+			other[engine.ResourceKey(imp.Type, imp.ID)] = relativePath(out, d)
 		}
 	}
 	return other
@@ -736,11 +738,11 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	// wrote, has only the labels Generate gave them.
 	at := map[engine.External]string{}
 	for _, m := range result.Addresses {
-		at[engine.External{Type: m.Type, ID: m.ID}] = m.Address
+		at[engine.ResourceKey(m.Type, m.ID)] = m.Address
 	}
 	reported.Imported = make([]report.Resource, 0, len(result.Imported))
 	for _, imp := range result.Imported {
-		address, ok := at[engine.External{Type: imp.Type, ID: imp.ID}]
+		address, ok := at[engine.ResourceKey(imp.Type, imp.ID)]
 		if !ok {
 			address = imp.Type + "." + imp.Name
 		}
@@ -1192,7 +1194,7 @@ func (o otherRoots) of(dir string) engine.Options {
 // sameResource reports whether a and b are the same resource, whatever
 // they are named.
 func sameResource(a, b engine.External) bool {
-	return a.Type == b.Type && a.ID == b.ID
+	return engine.ResourceKey(a.Type, a.ID) == engine.ResourceKey(b.Type, b.ID)
 }
 
 // importProvider returns the provider an import block must name:
@@ -1205,6 +1207,57 @@ func importProvider(providerName, resourceType string) string {
 		return ""
 	}
 	return providerName
+}
+
+// withFallbackIDs sets, on each import of byDir, the import ID to import
+// its resource by instead should Terraform reject it (see
+// engine.Import.Fallback): the catalogue's next import ID template for the
+// resource it came from, where that is the same resource by another query
+// alone, as an azapi_resource's ID without ?api-version= is (see
+// engine.ResourceKey). It matches imports to resources by type and import
+// ID.
+func withFallbackIDs(byDir map[string][]engine.Import, resourcesByService map[string][]harvest.Resource, cat *catalogue.Catalogue, importID func(harvest.Resource) (string, bool)) {
+	fallbacks := map[string]string{}
+	for _, resources := range resourcesByService {
+		for _, r := range resources {
+			if r.Address == nil || r.Observed == nil {
+				continue
+			}
+			id, ok := importID(r)
+			if !ok {
+				continue
+			}
+			fallback, ok := cat.FallbackImportID(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
+			if ok && engine.ResourceKey(r.Address.Type, fallback) == engine.ResourceKey(r.Address.Type, id) {
+				fallbacks[r.Address.Type+"\x00"+id] = fallback
+			}
+		}
+	}
+	if len(fallbacks) == 0 {
+		return
+	}
+	for _, imports := range byDir {
+		for i, imp := range imports {
+			imports[i].Fallback = fallbacks[imp.Type+"\x00"+imp.ID]
+		}
+	}
+}
+
+// withImpliedProviders leaves the provider out of the imports of byDir
+// whose type implies one of configured, the other providers the roots
+// may configure, such as azapi for an azapi_resource: the root requires
+// that provider under its own name when it imports such a resource (see
+// engine.Options.ModuleProviders), so Terraform infers it from the type,
+// as it does the root's own provider from an azurerm_* type.
+func withImpliedProviders(byDir map[string][]engine.Import, configured map[string]engine.Provider) {
+	for _, imports := range byDir {
+		for i, imp := range imports {
+			implied, _, _ := strings.Cut(imp.Type, "_")
+			if _, ok := configured[implied]; ok {
+				imports[i].Provider = ""
+			}
+		}
+	}
 }
 
 // providerDir returns the directory provider's roots go into, the

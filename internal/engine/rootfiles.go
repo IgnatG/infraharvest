@@ -23,6 +23,11 @@ type Import struct {
 	// isn't the one the type implies: google-beta for a google_* resource.
 	// Empty otherwise.
 	Provider string
+	// Fallback, if set, is the import ID to import the resource by instead
+	// should Terraform reject its import by ID or the configuration it
+	// generates for it: an azapi_resource's bare Azure ID, where ID pins
+	// an API version azapi's schemas may not have (see retryFallbacks).
+	Fallback string `json:",omitempty"`
 	// File, if set, is the file of the root the resource's configuration
 	// goes in, such as network.tf (see Options.SplitFiles).
 	File string `json:",omitempty"`

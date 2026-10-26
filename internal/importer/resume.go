@@ -287,7 +287,7 @@ func claimRoot(out, dir, fp string, resume, regenerate bool, s *shared) (*claim,
 			}
 			claimed.labels = map[engine.External]string{}
 			for _, imp := range c.Result.Imported {
-				claimed.labels[engine.External{Type: imp.Type, ID: imp.ID}] = imp.Name
+				claimed.labels[engine.ResourceKey(imp.Type, imp.ID)] = imp.Name
 			}
 		}
 	}
@@ -409,11 +409,11 @@ func withStated(previous, stated []engine.Managed) []engine.Managed {
 	}
 	at := map[engine.External]engine.Managed{}
 	for _, m := range stated {
-		at[engine.External{Type: m.Type, ID: m.ID}] = m
+		at[engine.ResourceKey(m.Type, m.ID)] = m
 	}
 	merged := make([]engine.Managed, 0, len(previous)+len(stated))
 	for _, p := range previous {
-		key := engine.External{Type: p.Type, ID: p.ID}
+		key := engine.ResourceKey(p.Type, p.ID)
 		if m, ok := at[key]; ok {
 			if p.Unverified {
 				p = m
@@ -423,7 +423,7 @@ func withStated(previous, stated []engine.Managed) []engine.Managed {
 		merged = append(merged, p)
 	}
 	for _, m := range stated {
-		if _, ok := at[engine.External{Type: m.Type, ID: m.ID}]; ok {
+		if _, ok := at[engine.ResourceKey(m.Type, m.ID)]; ok {
 			merged = append(merged, m)
 		}
 	}
@@ -457,20 +457,20 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 	changed = append(changed, engine.Retyped(c.previous, result.Addresses)...)
 	now := map[engine.External]bool{}
 	for _, m := range result.Addresses {
-		now[engine.External{Type: m.Type, ID: m.ID}] = true
+		now[engine.ResourceKey(m.Type, m.ID)] = true
 	}
 	asked := map[engine.External]bool{}
 	for _, imp := range imports {
-		asked[engine.External{Type: imp.Type, ID: imp.ID}] = true
+		asked[engine.ResourceKey(imp.Type, imp.ID)] = true
 	}
 	handed := map[engine.External]bool{}
 	for _, r := range result.Removed {
 		for _, d := range r.Resources {
-			handed[engine.External{Type: d.Type, ID: d.ID}] = true
+			handed[engine.ResourceKey(d.Type, d.ID)] = true
 		}
 	}
 	for _, p := range c.previous {
-		if handed[engine.External{Type: p.Type, ID: p.ID}] {
+		if handed[engine.ResourceKey(p.Type, p.ID)] {
 			continue
 		}
 		var kept, left bool

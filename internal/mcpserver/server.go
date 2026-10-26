@@ -232,6 +232,8 @@ type Scope struct {
 	Subscriptions   []string `json:"subscriptions,omitempty" jsonschema:"azure only: subscription IDs to list (default: ARM_SUBSCRIPTION_ID's)"`
 	ManagementGroup string   `json:"management_group,omitempty" jsonschema:"azure only: a management group ID, to list every enabled subscription under it, in its child groups too"`
 	ResourceGroup   string   `json:"resource_group,omitempty" jsonschema:"azure only: the resource group to list (default: the whole subscription)"`
+	// Azapi is for azure: --azapi.
+	Azapi bool `json:"azapi,omitempty" jsonschema:"azure only: import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out"`
 }
 
 // DiscoverInput is the discover tool's input.
@@ -784,8 +786,18 @@ var scopeFields = []scopeField{
 	{"subscriptions", "subscriptions", []string{"azure"}, func(s Scope) []string { return s.Subscriptions }, false},
 	{"management_group", "management-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ManagementGroup) }, false},
 	{"resource_group", "resource-group", []string{"azure"}, func(s Scope) []string { return nonEmpty(s.ResourceGroup) }, false},
+	{"azapi", "azapi", []string{"azure"}, func(s Scope) []string { return ifSet(s.Azapi) }, false},
 	{"cfn_stacks", "cfn-stack", []string{"aws"}, func(s Scope) []string { return s.CloudFormationStacks }, true},
 	{"cfn_ignore", "cfn-ignore", []string{"aws"}, func(s Scope) []string { return s.CloudFormationIgnore }, true},
+}
+
+// ifSet returns true as the only value of a boolean field that is set,
+// or none.
+func ifSet(set bool) []string {
+	if !set {
+		return nil
+	}
+	return []string{"true"}
 }
 
 // nonEmpty returns value as the only value of a field, or none if it is
@@ -799,7 +811,7 @@ func nonEmpty(value string) []string {
 
 // scopeHelp says which provider takes which of Scope's fields, for the
 // tools' descriptions.
-const scopeHelp = "Where to list depends on the provider: aws takes regions, profile and accounts, and cfn_stacks to import CloudFormation stacks, with cfn_ignore; azure takes subscriptions, management_group and resource_group; google takes regions and needs projects, organization or folders."
+const scopeHelp = "Where to list depends on the provider: aws takes regions, profile and accounts, and cfn_stacks to import CloudFormation stacks, with cfn_ignore; azure takes subscriptions, management_group, resource_group and azapi; google takes regions and needs projects, organization or folders."
 
 // scopeArgs returns the arguments for command on scope. Every value is
 // part of a --flag=value argument, so none can become a flag of its own.
@@ -911,6 +923,9 @@ func scopeText(s Scope) string {
 		text = "the azure " + strings.Join(parts, " and ")
 		if s.ResourceGroup != "" {
 			text = "resource group " + s.ResourceGroup + " of " + text
+		}
+		if s.Azapi {
+			text += ", what azurerm has no type for through azapi"
 		}
 	case "google":
 		var parts, owners []string

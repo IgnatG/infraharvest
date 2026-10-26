@@ -1,7 +1,8 @@
 # Resources the Azure sandbox test (sandbox_azure_test.go) creates in a
 # real subscription before importing them: what floci-az can't cover, such
 # as Resource Graph listing, route tables, a storage account, a Key Vault
-# and a management lock, and the resource group's tags. It is all in the
+# and a management lock, the resource group's tags, and a template spec,
+# which azurerm has no resource type for, for --azapi. It is all in the
 # estate's resource group, which the sandbox bootstrap
 # (testdata/sandbox/azure-bootstrap) creates, with its tags, and lets the
 # fixture identity change: nothing bills by the hour, and it is destroyed
@@ -17,6 +18,10 @@ terraform {
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
+    }
+    azapi = {
+      source  = "Azure/azapi"
+      version = "~> 2.13"
     }
   }
 }
@@ -227,4 +232,58 @@ resource "azurerm_management_lock" "app" {
   scope      = azurerm_user_assigned_identity.app.id
   lock_level = "CanNotDelete"
   notes      = "infraharvest sandbox: the import must find this lock."
+}
+
+# A template spec, which azurerm has no resource type for (it has a data
+# source for template spec versions only), so that the import with --azapi
+# brings it in as an azapi_resource. Template specs are free, take tags,
+# and live in the resource group; without versions it deploys nothing.
+resource "azapi_resource" "template_spec" {
+  type      = "Microsoft.Resources/templateSpecs@2022-02-01"
+  name      = local.name
+  parent_id = data.azurerm_resource_group.sandbox.id
+  location  = local.location
+  tags      = local.tags
+
+  body = {
+    properties = {
+      description = "infraharvest sandbox: the import with --azapi must find this template spec."
+    }
+  }
+}
+
+# Role assignments, which the role_assignment service lists from Resource
+# Graph, to the identity: a built-in role on the resource group, and a
+# custom role that can be assigned only in the group. The import must
+# refer each to the identity's principal, and the second to the custom
+# role. Neither takes tags: the custom role's name and the assignments'
+# descriptions start with the prefix, which the workflow's sweep looks
+# for. Creating them takes User Access Administrator on the group, which
+# the bootstrap grants the fixture identity.
+resource "azurerm_role_assignment" "app_reader" {
+  scope                = data.azurerm_resource_group.sandbox.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.app.principal_id
+  principal_type       = "ServicePrincipal"
+  description          = "${local.name}: the import must refer this to the identity."
+}
+
+resource "azurerm_role_definition" "app" {
+  name        = "${local.name}-identity-reader"
+  scope       = data.azurerm_resource_group.sandbox.id
+  description = "${local.name}: a custom role the import must list, as it can be assigned in the estate's group alone."
+
+  permissions {
+    actions = ["Microsoft.ManagedIdentity/userAssignedIdentities/read"]
+  }
+
+  assignable_scopes = [data.azurerm_resource_group.sandbox.id]
+}
+
+resource "azurerm_role_assignment" "app_custom" {
+  scope              = data.azurerm_resource_group.sandbox.id
+  role_definition_id = azurerm_role_definition.app.role_definition_resource_id
+  principal_id       = azurerm_user_assigned_identity.app.principal_id
+  principal_type     = "ServicePrincipal"
+  description        = "${local.name}: the import must refer this to the identity and the custom role."
 }

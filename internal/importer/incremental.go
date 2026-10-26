@@ -61,7 +61,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	owned := previouslyOwned(previous, opts)
 	var added []engine.Import
 	for _, imp := range imports {
-		key := engine.External{Type: imp.Type, ID: imp.ID}
+		key := engine.ResourceKey(imp.Type, imp.ID)
 		if _, ok := existing[key]; ok {
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope})
 			continue
@@ -213,7 +213,7 @@ func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.Ext
 		}
 		root := relativePath(out, dir)
 		for _, m := range addresses {
-			key := engine.External{Type: m.Type, ID: m.ID}
+			key := engine.ResourceKey(m.Type, m.ID)
 			if _, ok := held[key]; !ok {
 				held[key] = root
 			}
@@ -248,7 +248,7 @@ func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.Ext
 	for _, dir := range dirs {
 		var kept []engine.Import
 		for _, imp := range byDir[dir] {
-			if root, ok := held[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
+			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: r.scope})
 				continue
 			}

@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../schema.json
+# The Azure/azapi provider's types, which an Azure import with --azapi
+# brings in for the resources azurerm has no type for (see graphResources
+# in internal/providers/azure/resource_graph.go). Its entries join the
+# azurerm catalogue's, whose rules for every type cover these resources
+# too (see Catalogue.With).
+provider: azapi
+service: resource_graph
+types:
+  azapi_resource:
+    # The API version is the newest stable one of the type, which
+    # resource_graph records as api_version from Resource Manager's
+    # providers API (see withAPIVersions); without one, the ID alone has
+    # azapi pick the newest its schemas have.
+    import_id: ["{id}?api-version={api_version}", "{id}"]
+    # Terraform writes azapi's own settings at the defaults the provider
+    # gives them, which a person leaves out: matching properties whatever
+    # their case off, ignoring the properties Azure doesn't return (such
+    # as secrets) on, null properties kept, and the body checked against
+    # the resource type's schema.
+    defaults:
+      - ignore_casing=false
+      - ignore_missing_property=true
+      - ignore_null_property=false
+      - schema_validation_enabled=true

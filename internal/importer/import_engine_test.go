@@ -100,6 +100,94 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 	}
 }
 
+// An azapi_resource of an Azure import names no provider: the root
+// requires azapi, which Terraform infers from the type. Its other
+// resources, and google-beta's, keep what importsByDir gave them.
+func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
+	const rg = "/subscriptions/s/resourceGroups/rg"
+	resources := map[string][]harvest.Resource{
+		"resource_graph": {
+			harvest.RecordBare(rg, "rg", "azurerm_resource_group", "azurerm"),
+			harvest.RecordBare(rg+"/providers/Microsoft.AzureFleet/fleets/batch", "batch", "azapi_resource", "azurerm"),
+		},
+	}
+	options := Options{Layout: "{out}/{provider}/", Out: "out"}
+	byDir, _ := importsByDir("azurerm", resources, listerID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
+	withImpliedProviders(byDir, map[string]engine.Provider{"azapi": {Name: "azapi", Source: "Azure/azapi"}})
+	for _, imp := range byDir[filepath.Join("out", "azure")] {
+		if imp.Provider != "" {
+			t.Errorf("%s names provider %q", imp.Type, imp.Provider)
+		}
+	}
+
+	beta := map[string][]engine.Import{"out": {{Type: "google_compute_network", Name: "main", ID: "main", Provider: "google-beta"}}}
+	withImpliedProviders(beta, map[string]engine.Provider{"google-beta": {Name: "google-beta"}})
+	if beta["out"][0].Provider != "google-beta" {
+		t.Errorf("google-beta: got %+v", beta["out"][0])
+	}
+}
+
+// An azapi_resource imported with an API version falls back on its bare
+// ID; other imports get no fallback.
+func TestImportsFallBackOnTheBareID(t *testing.T) {
+	const id = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Easm/workspaces/w"
+	resources := map[string][]harvest.Resource{
+		"resource_graph": {
+			harvest.Record(id, "w", "azapi_resource", "azurerm", map[string]string{"api_version": "2024-10-01"}),
+			harvest.RecordBare("/subscriptions/s/resourceGroups/rg", "rg", "azurerm_resource_group", "azurerm"),
+		},
+	}
+	cat, err := providerCatalogue(withAzapi{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	importID := importIDFunc(cat)
+	options := Options{Layout: "{out}/{provider}/", Out: "out"}
+	byDir, _ := importsByDir("azurerm", resources, importID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
+	withFallbackIDs(byDir, resources, cat, importID)
+	for _, imp := range byDir[filepath.Join("out", "azure")] {
+		switch imp.Type {
+		case "azapi_resource":
+			if imp.ID != id+"?api-version=2024-10-01" || imp.Fallback != id {
+				t.Errorf("azapi_resource: ID %q, fallback %q", imp.ID, imp.Fallback)
+			}
+		default:
+			if imp.Fallback != "" {
+				t.Errorf("%s: fallback %q", imp.Type, imp.Fallback)
+			}
+		}
+	}
+}
+
+// withAzapi is an Azure provider whose roots may configure azapi.
+type withAzapi struct{ directoryProvider }
+
+func (withAzapi) ModuleProviders() map[string]harvest.ModuleProvider {
+	return map[string]harvest.ModuleProvider{"azapi": {Source: "Azure/azapi"}}
+}
+
+// The catalogue of a provider whose roots may configure azapi has azapi's
+// entries too; one whose roots may not has azurerm's alone.
+func TestProviderCatalogueWithModuleProviders(t *testing.T) {
+	cat, err := providerCatalogue(withAzapi{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cat.Entry("azapi_resource"); !ok {
+		t.Error("no azapi_resource entry with azapi")
+	}
+	if _, ok := cat.Entry("azurerm_resource_group"); !ok {
+		t.Error("no azurerm_resource_group entry with azapi")
+	}
+	alone, err := providerCatalogue(directoryProvider{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := alone.Entry("azapi_resource"); ok {
+		t.Error("an azapi_resource entry without azapi")
+	}
+}
+
 // directoryProvider is a provider whose roots go into a directory not
 // named after its Terraform provider, as Azure's do.
 type directoryProvider struct{ scopedProvider }

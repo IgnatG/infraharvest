@@ -75,6 +75,18 @@ type ProviderWithOptInServices interface {
 	OptInServices() []string
 }
 
+// ProviderWithDependentServices is a provider with services that list from
+// what the import's other services listed, such as Azure's diagnostic
+// settings, which take a request for each listed resource that can have
+// them, rather than one for everything the cloud has. The importer lists
+// them once the others are done, and before they list gives each one's
+// provider, with SetListedByOthers, what the others listed: also what a
+// service that failed in part listed, and nothing of one that failed.
+type ProviderWithDependentServices interface {
+	DependentServices() []string
+	SetListedByOthers(resources []Resource)
+}
+
 // ProviderWithTags is a provider that reads the tags of listed resources
 // whose listers recorded none (see AttributeTags). The result is keyed
 // "<type> <id>"; resources without known tags are left out of it. Tags feed

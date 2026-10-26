@@ -491,7 +491,7 @@ func generatedResources(out string) (map[engine.External]string, []string, error
 		}
 		roots = append(roots, dir)
 		for _, p := range previous {
-			key := engine.External{Type: p.Type, ID: p.ID}
+			key := engine.ResourceKey(p.Type, p.ID)
 			if _, ok := held[key]; !ok {
 				held[key] = dir
 			}
