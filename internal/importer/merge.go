@@ -78,6 +78,64 @@ func mergePlaces(resourcesByService map[string][]harvest.Resource, envOf func(ha
 	return places
 }
 
+// markMerging records in each of calls, all listed and none generated
+// yet, which roots of its places their stack's merge is to take (see
+// listedCall.merging), as the merge phase would tell once they are (see
+// mergeStack): with --merge-environments, those of a stack with two
+// environments or more, counting those it merged before, that
+// mergeRefusal doesn't refuse. Only an import scoped to CloudFormation
+// stacks asks, whose calls are of the one account, as its roots take the
+// stacks' templates unless they merge (see generate).
+func markMerging(options Options, calls []*listedCall) error {
+	if !options.MergeEnvironments || len(options.CloudFormationStacks) == 0 {
+		return nil
+	}
+	byStack := map[string][]mergeMember{}
+	for _, c := range calls {
+		if c == nil {
+			continue
+		}
+		for dir, p := range c.places {
+			byStack[p.stack] = append(byStack[p.stack], mergeMember{dir: dir, stack: p.stack, env: p.env})
+		}
+	}
+	adopted := options.Incremental || options.Resume || options.Regenerate
+	for _, stack := range slices.Sorted(maps.Keys(byStack)) {
+		members := byStack[stack]
+		envs := map[string]bool{}
+		for _, m := range members {
+			envs[m.env] = true
+		}
+		prev, err := readMergeCheckpoint(options.Out, stack)
+		if err != nil {
+			return err
+		}
+		if prev != nil && prev.Merge.Merged {
+			for _, env := range prev.Merge.Environments {
+				envs[env] = true
+			}
+		}
+		if len(envs) < 2 || mergeRefusal(options.Out, stack, members, adopted) != "" {
+			continue
+		}
+		for _, c := range calls {
+			if c == nil {
+				continue
+			}
+			for dir, p := range c.places {
+				if p.stack != stack {
+					continue
+				}
+				if c.merging == nil {
+					c.merging = map[string]bool{}
+				}
+				c.merging[dir] = true
+			}
+		}
+	}
+	return nil
+}
+
 // mergeMember is a root an import generated, or kept from an earlier one
 // with --resume, of one environment of a stack, which the merge phase
 // merges with the other environments' (see MergeEnvironments).
