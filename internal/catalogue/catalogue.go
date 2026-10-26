@@ -585,6 +585,30 @@ func (c *Catalogue) ImportID(typ, id string, attributes map[string]string) (stri
 	return "", false, fmt.Sprintf("missing a field of every import ID template: %s", templateList(e.ImportID))
 }
 
+// FallbackImportID returns the import ID of a resource of typ to import it
+// by should Terraform reject the one ImportID gives: that of the next of
+// the entry's templates that renders, and renders otherwise, such as an
+// azapi_resource's ID without the ?api-version= of a version azapi may not
+// know. It reports false where there is none.
+func (c *Catalogue) FallbackImportID(typ, id string, attributes map[string]string) (string, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.NotImportable != "" {
+		return "", false
+	}
+	first := ""
+	for _, t := range e.ImportID {
+		rendered, ok := t.Render(id, attributes)
+		switch {
+		case !ok:
+		case first == "":
+			first = rendered
+		case rendered != first:
+			return rendered, true
+		}
+	}
+	return "", false
+}
+
 // SkippedWhole returns the types whose every resource the default
 // selection leaves out, by a skip rule with all, sorted.
 func (c *Catalogue) SkippedWhole() []string {

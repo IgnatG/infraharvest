@@ -127,6 +127,38 @@ func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 	}
 }
 
+// An azapi_resource imported with an API version falls back on its bare
+// ID; other imports get no fallback.
+func TestImportsFallBackOnTheBareID(t *testing.T) {
+	const id = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Easm/workspaces/w"
+	resources := map[string][]harvest.Resource{
+		"resource_graph": {
+			harvest.Record(id, "w", "azapi_resource", "azurerm", map[string]string{"api_version": "2024-10-01"}),
+			harvest.RecordBare("/subscriptions/s/resourceGroups/rg", "rg", "azurerm_resource_group", "azurerm"),
+		},
+	}
+	cat, err := providerCatalogue(withAzapi{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	importID := importIDFunc(cat)
+	options := Options{Layout: "{out}/{provider}/", Out: "out"}
+	byDir, _ := importsByDir("azurerm", resources, importID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
+	withFallbackIDs(byDir, resources, cat, importID)
+	for _, imp := range byDir[filepath.Join("out", "azure")] {
+		switch imp.Type {
+		case "azapi_resource":
+			if imp.ID != id+"?api-version=2024-10-01" || imp.Fallback != id {
+				t.Errorf("azapi_resource: ID %q, fallback %q", imp.ID, imp.Fallback)
+			}
+		default:
+			if imp.Fallback != "" {
+				t.Errorf("%s: fallback %q", imp.Type, imp.Fallback)
+			}
+		}
+	}
+}
+
 // withAzapi is an Azure provider whose roots may configure azapi.
 type withAzapi struct{ directoryProvider }
 

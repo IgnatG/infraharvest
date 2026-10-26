@@ -49,14 +49,15 @@ func azapiCandidates(rows []azlist.AzureResource) map[string]bool {
 // properties, so the configuration has none Azure sets itself, such as
 // provisioningState; a version its schemas don't have, such as one newer
 // than the azapi release, gives a body with all Azure returns, whose
-// location and tags clash with the arguments, so the plan fails and the
-// engine leaves the resource out with the error. Resource Manager leaves secrets, such as passwords,
-// out of what it returns, so the body has none, and azapi ignores the
-// properties Azure doesn't return; a secret it does return the engine
-// moves into a sensitive variable, as it does any resource's. A type
-// azapi has no schemas for can't be imported so:
-// Terraform's import fails, and the engine leaves the resource out with
-// that error (see engine.Rejection).
+// location and tags clash with the arguments, so the plan fails, and the
+// engine imports the resource again by its ID alone, the catalogue's next
+// template (see engine.Import.Fallback). Resource Manager leaves secrets,
+// such as passwords, out of what it returns, so the body has none, and
+// azapi ignores the properties Azure doesn't return; a secret it does
+// return the engine moves into a sensitive variable, as it does any
+// resource's. A type azapi has no schemas for can't be imported so:
+// Terraform's import fails, by either ID, and the engine leaves the
+// resource out with that error (see engine.Rejection).
 func azapiMapping(id armid.ResourceId) mapping {
 	return mapping{types: []aztft.Type{{AzureId: id, TFType: azapiType}}, ids: []string{id.String()}}
 }

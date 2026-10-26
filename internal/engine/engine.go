@@ -403,6 +403,11 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	} else if err != nil {
 		return nil, err
 	}
+	// What Terraform rejected that has an import ID to fall back on is
+	// imported again by it, before anything reads the configuration.
+	if diags, err = retryFallbacks(ctx, tf, dir, imports, diags); err != nil {
+		return nil, err
+	}
 	// Terraform writes resources in the order its graph walk reaches them,
 	// which differs between runs: sort them, so the same estate always gives
 	// the same files. Sorting and leaving out what other resources manage

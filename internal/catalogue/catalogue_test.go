@@ -748,3 +748,20 @@ func TestWithAddsTheTypesOfAnotherProvider(t *testing.T) {
 		t.Error("With(nil) isn't the catalogue itself")
 	}
 }
+
+// An azapi_resource with an API version falls back on its bare ID; one
+// without, and a type with a single template, have nothing to fall back on.
+func TestFallbackImportID(t *testing.T) {
+	t.Parallel()
+	c := MustBuiltin("azapi")
+	const id = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Easm/workspaces/w"
+	if got, ok := c.FallbackImportID("azapi_resource", id, map[string]string{"api_version": "2024-10-01"}); !ok || got != id {
+		t.Errorf("with a version: got %q, %v", got, ok)
+	}
+	if got, ok := c.FallbackImportID("azapi_resource", id, map[string]string{}); ok {
+		t.Errorf("without a version: got %q", got)
+	}
+	if got, ok := MustBuiltin("azurerm").FallbackImportID("azurerm_resource_group", "/subscriptions/s/resourceGroups/rg", nil); ok {
+		t.Errorf("a type without templates: got %q", got)
+	}
+}
