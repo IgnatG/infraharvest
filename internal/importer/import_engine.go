@@ -307,8 +307,10 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if !options.IncludeOwned {
 		defaults = excludeOwned(listed, defaults)
 	}
+	// A scope that can't be applied stops the call: going on would import
+	// every resource listed, not only those of the scope.
 	if defaults, err = run.applyImportScope(ctx, provider, &listed, defaults, scope); err != nil {
-		failures = append(failures, err)
+		return nil, err
 	}
 	if options.Discover {
 		run.used = true

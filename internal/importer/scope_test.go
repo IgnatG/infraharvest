@@ -5,6 +5,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -92,6 +93,26 @@ func (*stackOnlyProvider) ImportScope(context.Context, []harvest.Resource) (*har
 		Name: "seeds", ID: "stack/seeds", Region: "eu-west-2", Status: "CREATE_COMPLETE",
 		Resources: []report.CloudFormationResource{{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Retain: []string{"DeletionPolicy is Delete, the default"}}},
 	}}}, nil
+}
+
+// brokenScopeProvider is scoped to stacks, but can't tell which resources
+// are theirs.
+type brokenScopeProvider struct {
+	rootsProvider
+}
+
+func (*brokenScopeProvider) ImportScope(context.Context, []harvest.Resource) (*harvest.ImportScope, error) {
+	return nil, errors.New("the stacks can't be matched")
+}
+
+// A scope that can't be applied fails the call, rather than leave it to
+// import everything listed.
+func TestImportScopeFailureStopsTheCall(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	c, err := listCall(t.Context(), NewRun(), &brokenScopeProvider{}, pathOptions(out, &fakeEngine{}), nil)
+	if err == nil || !strings.Contains(err.Error(), "the stacks can't be matched") {
+		t.Errorf("call %+v, error %v", c, err)
+	}
 }
 
 // An import scoped to a stack no service lists anything of lists nothing,
