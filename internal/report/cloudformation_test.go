@@ -209,7 +209,8 @@ func TestStackNestedBlockers(t *testing.T) {
 }
 
 // A copy of a template larger than UpdateStack takes in its request is
-// to be uploaded to S3, and the stack updated from there.
+// to be uploaded to S3, and the stack updated from there; the report read
+// back, which has no templates, says the same.
 func TestStackUpdateCommand(t *testing.T) {
 	for size, want := range map[int]string{100: "--template-body file://", templateBodyLimit + 1: "--template-url https://<bucket>.s3.eu-west-2.amazonaws.com/app.retain.template.yaml"} {
 		s := scopedStack([]string{"DeletionPolicy is Delete, the default"})
@@ -219,6 +220,17 @@ func TestStackUpdateCommand(t *testing.T) {
 		r.Finish(nil, nil, false)
 		if md := r.Markdown(); !strings.Contains(md, want) {
 			t.Errorf("%d bytes: the report lacks %q", size, want)
+		}
+		out := t.TempDir()
+		if err := r.WriteFiles(out); err != nil {
+			t.Fatal(err)
+		}
+		read, err := Read(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if md := read.Markdown(); !strings.Contains(md, want) {
+			t.Errorf("%d bytes: the report read back lacks %q", size, want)
 		}
 	}
 }
