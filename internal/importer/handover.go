@@ -294,7 +294,7 @@ func planHandovers(out string, calls []*listedCall) error {
 		for _, dir := range sortedDirs(c.byDir) {
 			callOf[filepath.Clean(dir)] = c
 			for _, imp := range c.byDir[dir] {
-				key := engine.External{Type: imp.Type, ID: imp.ID}
+				key := engine.ResourceKey(imp.Type, imp.ID)
 				if _, ok := assigned[key]; !ok {
 					assigned[key] = filepath.Clean(dir)
 				}
@@ -407,7 +407,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 		}
 		var kept []engine.Import
 		for _, imp := range imports {
-			if root, ok := stays[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
+			if root, ok := stays[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope})
 				continue
 			}

@@ -142,11 +142,11 @@ func removals(previous *Previous, now []Managed) []Removal {
 func arrived(arrivals []Arrival, now []Managed) []Arrival {
 	at := map[External]string{}
 	for _, m := range now {
-		at[External{Type: m.Type, ID: m.ID}] = m.Address
+		at[ResourceKey(m.Type, m.ID)] = m.Address
 	}
 	var got []Arrival
 	for _, a := range arrivals {
-		if to, ok := at[External{Type: a.Type, ID: a.ID}]; ok {
+		if to, ok := at[ResourceKey(a.Type, a.ID)]; ok {
 			a.To = to
 			got = append(got, a)
 		}
@@ -183,7 +183,7 @@ func (p *Previous) labels() map[External]string {
 	labels := map[External]string{}
 	for _, m := range p.Addresses {
 		if label, ok := rootLabel(m.Address); ok {
-			labels[External{Type: m.Type, ID: m.ID}] = label
+			labels[ResourceKey(m.Type, m.ID)] = label
 		}
 	}
 	for key, label := range p.Labels {
@@ -222,7 +222,7 @@ func (p *Previous) reserved() map[string]External {
 	}
 	for _, m := range p.Addresses {
 		if label, ok := rootLabel(m.Address); ok {
-			reserved[m.Type+"."+label] = External{Type: m.Type, ID: m.ID}
+			reserved[m.Type+"."+label] = ResourceKey(m.Type, m.ID)
 		}
 	}
 	return reserved
@@ -268,7 +268,7 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move
 	at := map[External]string{}
 	declared := map[string]bool{}
 	for _, m := range now {
-		at[External{Type: m.Type, ID: m.ID}] = m.Address
+		at[ResourceKey(m.Type, m.ID)] = m.Address
 		declared[m.Address] = true
 	}
 	held := map[string]bool{}
@@ -278,7 +278,7 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move
 	moved := append([]Move(nil), previous.Moved...)
 	var unmoved []string
 	for _, p := range previous.Addresses {
-		to, ok := at[External{Type: p.Type, ID: p.ID}]
+		to, ok := at[ResourceKey(p.Type, p.ID)]
 		// Of an address an older release recorded as its module call alone,
 		// no moved block can start: see Readdressed.
 		if !ok || to == p.Address || (p.Unverified && isModuleCall(p.Address)) {
@@ -321,7 +321,7 @@ func retypes(previous *Previous, now []Managed, sources map[string]string) ([]Re
 	taken := map[string]bool{}
 	declared := map[string]bool{}
 	for _, m := range now {
-		at[External{Type: m.Type, ID: m.ID}] = m.Address
+		at[ResourceKey(m.Type, m.ID)] = m.Address
 		declared[RemovedFrom(m.Address)] = true
 		addTaken(taken, m.Address)
 	}
@@ -341,7 +341,7 @@ func retypes(previous *Previous, now []Managed, sources map[string]string) ([]Re
 	var why []string
 	byFrom := map[string]int{}
 	for _, p := range previous.Addresses {
-		if _, ok := at[External{Type: p.Type, ID: p.ID}]; ok {
+		if _, ok := at[ResourceKey(p.Type, p.ID)]; ok {
 			continue
 		}
 		for _, typ := range AliasTypes(p.Type) {

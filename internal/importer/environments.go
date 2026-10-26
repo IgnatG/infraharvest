@@ -251,7 +251,7 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 		}
 		var leaving []departing
 		for _, p := range previous {
-			if to, ok := going[before][engine.External{Type: p.Type, ID: p.ID}]; ok {
+			if to, ok := going[before][engine.ResourceKey(p.Type, p.ID)]; ok {
 				leaving = append(leaving, departing{had: p, to: to})
 			}
 		}

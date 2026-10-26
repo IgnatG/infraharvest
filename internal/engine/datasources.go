@@ -33,7 +33,7 @@ type External struct {
 // sameResource reports whether a and b are the same resource, whatever
 // they are named.
 func sameResource(a, b External) bool {
-	return a.Type == b.Type && a.ID == b.ID
+	return a.Type == b.Type && identityID(a.Type, a.ID) == identityID(b.Type, b.ID)
 }
 
 // dataLabel is the label of the data source that reads e: its name as a

@@ -254,11 +254,11 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	}
 	external := map[External]bool{}
 	for _, e := range opts.External {
-		external[External{Type: e.Type, ID: e.ID}] = true
+		external[ResourceKey(e.Type, e.ID)] = true
 	}
 	opts.External = slices.Clone(opts.External)
 	for _, e := range sortedExternal(existing) {
-		if !external[External{Type: e.Type, ID: e.ID}] {
+		if !external[ResourceKey(e.Type, e.ID)] {
 			opts.External = append(opts.External, e)
 		}
 	}
