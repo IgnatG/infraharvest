@@ -282,10 +282,9 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	staged := result.Gate
-	// The root's gate checks with the adapters staging generated with.
-	gateOpts := opts
-	gateOpts.Adapters = r.policy.adapters
-	gate, err := gateWith(ctx, rootTF, root, gateOpts, func() (Check, []string, error) {
+	// The root's gate knows the organisation's own modules root calls, as
+	// Verify's does, although staging calls none of them.
+	gate, err := gateWith(ctx, rootTF, root, opts, func() (Check, []string, error) {
 		return staged.check(CheckPlan), nil, nil
 	})
 	if err != nil {

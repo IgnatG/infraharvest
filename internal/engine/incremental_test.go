@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
 )
 
 // existingRoot writes a root an earlier import generated, and applied: its
@@ -382,6 +384,39 @@ func TestAdd(t *testing.T) {
 	}
 	if _, err := os.Stat(staging); !os.IsNotExist(err) {
 		t.Errorf("staging left behind: %v", err)
+	}
+}
+
+// The root's gate leaves the organisation's own modules the root calls to
+// their owners, as Generate's and Verify's do, although staging, which
+// isn't the root, calls none of them.
+func TestAddGatesTheRootWithItsOwnModules(t *testing.T) {
+	t.Parallel()
+	root := existingRoot(t)
+	own := t.TempDir()
+	writeConfig(t, own, "main.tf", "resource \"aws_sqs_queue\" \"this\" {}\n")
+	source, err := filepath.Rel(root, own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, root, "own.tf", "module \"own\" {\n  source = \""+filepath.ToSlash(source)+"\"\n}\n")
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root}
+	opts := addOptions
+	opts.Adapters = []adapters.Adapter{{Source: own}}
+
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range result.Gate {
+		for _, d := range c.Details {
+			if strings.Contains(d, "module-structure") {
+				t.Errorf("%s: %s", c.Name, d)
+			}
+		}
 	}
 }
 
