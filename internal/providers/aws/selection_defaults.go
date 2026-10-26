@@ -58,7 +58,13 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 	if err != nil {
 		return excluded, err
 	}
-	stacks, stacksErr := p.cloudFormationManaged(ctx, config)
+	// An import scoped to stacks takes theirs and leaves out the rest
+	// (see ImportScope), so no stack is scanned for what it manages.
+	var stacks map[string][]stackResource
+	var stacksErr error
+	if p.stackScope == nil {
+		stacks, stacksErr = p.cloudFormationManaged(ctx, config)
+	}
 	cat := p.catalogue()
 	types := stackTypes(cat)
 	for _, r := range resources {
