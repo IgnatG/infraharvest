@@ -81,14 +81,14 @@ func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapter
 	return nil, ""
 }
 
-// modulesMode returns the --modules mode an import runs with: ModulesNone
-// for one scoped to CloudFormation stacks (AWS --cfn-stack), whatever
-// --modules says, as the stacks' templates are carried into the roots by
-// the addresses of the resource blocks there (see stackintent), which a
-// module call would hide: no parameter would become a variable, and no
-// output be written.
+// modulesMode returns the --modules mode an import runs with: for one
+// scoped to CloudFormation stacks (AWS --cfn-stack), ModulesNone unless
+// --modules was chosen, as the stacks' templates are carried into the
+// roots by the addresses of the resource blocks there (see stackintent),
+// which a module call would hide: no parameter would become a variable,
+// and no output be written.
 func modulesMode(options Options) string {
-	if len(options.CloudFormationStacks) > 0 {
+	if len(options.CloudFormationStacks) > 0 && !options.ModulesChosen {
 		return ModulesNone
 	}
 	return options.Modules
@@ -340,11 +340,9 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if err != nil {
 		return nil, err
 	}
-	if mode := modulesMode(options); mode != options.Modules {
-		if options.Modules != "" && options.Modules != ModulesRegistry {
-			log.Printf("--modules %s doesn't apply with --cfn-stack: the stacks' resources stay in the roots, which their templates are carried into", options.Modules)
-		}
-		options.Modules = mode
+	options.Modules = modulesMode(options)
+	if len(options.CloudFormationStacks) > 0 && options.Modules != ModulesNone {
+		log.Printf("--modules %s with --cfn-stack: the stacks' resources that go into module calls don't take their templates' parameters and outputs; --modules none keeps them in the roots, which do", options.Modules)
 	}
 	var moduleAdapters []adapters.Adapter
 	var newerModules []report.ModuleVersion
