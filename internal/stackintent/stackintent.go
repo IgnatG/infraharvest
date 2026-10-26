@@ -173,9 +173,7 @@ func (r *root) save() error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		src := append(bytes.TrimRight(hclwrite.Format([]byte(r.added[name])), "
-"), '
-')
+		src := append(bytes.TrimRight(hclwrite.Format([]byte(r.added[name])), "\n"), '\n')
 		if _, diags := hclsyntax.ParseConfig(src, name, hcl.InitialPos); diags.HasErrors() {
 			return fmt.Errorf("the generated %s isn't valid HCL, which is a bug: %w", name, diags)
 		}
