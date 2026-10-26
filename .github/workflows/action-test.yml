@@ -747,7 +747,7 @@ jobs:
                   and (.change.before as $b | .change.after as $a
                     | [($b | keys[]), ($a | keys[])] | unique
                     | map(select($b[.] != $a[.]))
-                    | all(. == "terraform_labels" or . == "effective_labels"))))))' "$RUNNER_TEMP/plan.json"
+                    | all(. == "terraform_labels" or . == "effective_labels")))))' "$RUNNER_TEMP/plan.json"
       - name: floci-gcp and stand-in logs
         if: failure()
         run: |
@@ -808,6 +808,9 @@ jobs:
         run: |
           gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/heads/$BASE_BRANCH" -f "sha=$GITHUB_SHA" > /dev/null
           git checkout -b "$BASE_BRANCH"
+          # As a checkout of an existing branch has it: create-pull-request
+          # resets the base to its remote-tracking ref.
+          git update-ref "refs/remotes/origin/$BASE_BRANCH" "$GITHUB_SHA"
           printf '/action-test-out/*\n!/action-test-out/report/\n' >> .git/info/exclude
       - name: Run the action
         id: infraharvest
