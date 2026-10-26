@@ -346,6 +346,7 @@ func TestS3Object(t *testing.T) {
 		"https://bkt.s3.amazonaws.com/t;rm -rf ~":           "",
 		"https://bkt.s3.amazonaws.com/a`id`":                "",
 		"https://bkt.s3.amazonaws.com/a%0Aid":               "",
+		"https://bkt.s3.amazonaws.com/a!id.json":            "",
 		"https://BKT_1.s3.amazonaws.com/t.json":             "",
 		"":                                                  "",
 	} {
@@ -364,6 +365,7 @@ func TestStackNestedUpdateHostile(t *testing.T) {
 		"https://bkt.s3.amazonaws.com/`touch x`.json",
 		"https://bkt.s3.amazonaws.com/$(touch x).json",
 		"https://bkt.s3.amazonaws.com/t.json; touch x",
+		"https://bkt.s3.amazonaws.com/touch!x.json",
 		"https://bkt.s3.amazonaws.com/t.json\ntouch x",
 		"`touch x`",
 	} {

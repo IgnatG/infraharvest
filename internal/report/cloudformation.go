@@ -573,9 +573,9 @@ func (r *Report) nestedUpdate(s CloudFormationStack) string {
 	}
 	// The URL is the template's, so it goes into the command only as the
 	// S3 URI of a bucket and key that are safe there, never as it is.
-	object := s3Object(s.TemplateURL)
-	if object == "" {
-		object = "s3://<bucket>/<key>"
+	object := "s3://<bucket>/<key>"
+	if uri := s3Object(s.TemplateURL); uri != "" {
+		object = shellArg(uri)
 	}
 	upload := fmt.Sprintf("upload it over the template the `TemplateURL` of %s names, `aws s3 cp %s %s`", resource, shellArg(s.RetainTemplate), object)
 	root := r.stack(s.Root)
@@ -599,7 +599,7 @@ var logicalIDPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 // is safe in a shell command as it is.
 var (
 	s3Bucket = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
-	s3Key    = regexp.MustCompile(`^[A-Za-z0-9._/!-]+$`)
+	s3Key    = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 )
 
 // s3Object returns the S3 URI, s3://<bucket>/<key>, of the object an S3
