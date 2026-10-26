@@ -92,9 +92,13 @@ type CloudFormationStack struct {
 	// where a resource lacks it (see TemplatesDir), which the stack can be
 	// updated with before it is deleted. RetainTemplate is empty when no
 	// resource lacks it.
-	Template       string                   `json:"template,omitempty"`
-	RetainTemplate string                   `json:"retain_template,omitempty"`
-	Resources      []CloudFormationResource `json:"resources"`
+	Template       string `json:"template,omitempty"`
+	RetainTemplate string `json:"retain_template,omitempty"`
+	// RetainTemplateBytes is the size of the copy at RetainTemplate, which
+	// says how the stack is updated with it (see updateCommand), also for
+	// a report read back, which has no body.
+	RetainTemplateBytes int                      `json:"retain_template_bytes,omitempty"`
+	Resources           []CloudFormationResource `json:"resources"`
 	// SafeToDelete says deleting the stack deletes nothing the import
 	// brought under Terraform: every resource was imported or left out by
 	// people's decision, every root's gate passed, so their plans change
@@ -262,6 +266,7 @@ func (r *Report) finishStacks() {
 		}
 		if s.retainBody != "" {
 			s.RetainTemplate = path.Join(dir, s.Name+".retain.template."+s.templateExt)
+			s.RetainTemplateBytes = len(s.retainBody)
 		}
 		roots := map[string]bool{}
 		for j := range s.Resources {
@@ -472,7 +477,7 @@ const templateBodyLimit = 51200
 // copy larger than UpdateStack takes in its request, uploaded to a bucket
 // of the user's first.
 func (s *CloudFormationStack) updateCommand() string {
-	if len(s.retainBody) <= templateBodyLimit {
+	if s.RetainTemplateBytes <= templateBodyLimit {
 		return fmt.Sprintf("`aws cloudformation update-stack --stack-name %s --template-body file://%s --region %s`", s.Name, s.RetainTemplate, s.Region)
 	}
 	key := path.Base(s.RetainTemplate)
