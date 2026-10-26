@@ -70,6 +70,10 @@ type listing struct {
 	// saved is whether the resources come from what discover saved (see
 	// listResources) rather than from listing them now.
 	saved bool
+	// outside are the resources the provider's scope leaves out, by
+	// "<type> <lister ID>", with the reason: no selection file brings them
+	// back (see applyImportScope).
+	outside map[string]string
 }
 
 // tagKey is how listing.tags and ProviderWithTags key a resource.

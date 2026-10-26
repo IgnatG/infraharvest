@@ -30,8 +30,9 @@ import (
 const DefaultSelectionFile = "selection.yaml"
 
 // checkSelectionOptions makes an import say what to import: a selection
-// file, or --all. An import without either could bring a whole account
-// under Terraform by accident. It also refuses --regenerate with
+// file, --all, or the CloudFormation stacks to take over (AWS --cfn-stack).
+// An import without any could bring a whole account under Terraform by
+// accident. It also refuses --regenerate with
 // --incremental: one generates the roots again, the other only adds to
 // them.
 func checkSelectionOptions(options Options) error {
@@ -45,7 +46,7 @@ func checkSelectionOptions(options Options) error {
 		return nil
 	case options.Selection != "" && options.All:
 		return errors.New("use either --selection or --all")
-	case options.Selection == "" && !options.All:
+	case options.Selection == "" && !options.All && len(options.CloudFormationStacks) == 0:
 		return selection.ErrNoSelection
 	}
 	return nil
@@ -165,6 +166,8 @@ func (r *Run) selectResources(listed listing, defaults map[string]string, f *sel
 			reason, excluded := defaults[typ+" "+res.Observed.ID]
 			var d selection.Decision
 			switch {
+			case listed.outside[typ+" "+res.Observed.ID] != "":
+				d = selection.Decision{Reason: listed.outside[typ+" "+res.Observed.ID]}
 			case f != nil && f.HasIn(scope, typ, id):
 				d = f.DecideIn(scope, typ, id, res.RawName, tags)
 			case f != nil:
