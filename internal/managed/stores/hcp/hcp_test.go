@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	svchost "github.com/hashicorp/terraform-svchost"
 )
 
 func TestStore(t *testing.T) {
@@ -109,17 +111,29 @@ func TestAPIToken(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(credentials), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(credentials, []byte(`{"credentials": {"app.terraform.io": {"token": "from-login"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(credentials, []byte(`{"credentials": {"App.Terraform.io": {"token": "from-login"}, "tfe.other_example": {"token": "invalid-key"}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"APPDATA": dir, "TF_TOKEN_tfe_my__corp_example": "from-env"}
-	getenv := func(k string) string { return env[k] }
+	getenv := func(k string) string {
+		if k == "APPDATA" {
+			return dir
+		}
+		return ""
+	}
+	// Terraform decodes each TF_TOKEN_ name, __ as - then _ as ., and
+	// normalises the host: in any case, the last one set wins.
+	environ := []string{"PATH=/usr/bin", "TF_TOKEN_tfe_my__corp_example=from-env", "TF_TOKEN_TFE_LOUD_EXAMPLE=old", "TF_TOKEN_tfe_loud_example=from-env-loud"}
 
 	for host, want := range map[string]string{
 		"app.terraform.io":    "from-login",
 		"tfe.my-corp.example": "from-env",
+		"tfe.loud.example":    "from-env-loud",
 	} {
-		got, err := apiToken(host, getenv)
+		hostname, err := svchost.ForComparison(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := apiToken(hostname, environ, getenv)
 		if err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
@@ -127,8 +141,50 @@ func TestAPIToken(t *testing.T) {
 			t.Errorf("%s: token %q, want %q", host, got, want)
 		}
 	}
-	if _, err := apiToken("tfe.other.example", getenv); err == nil || !strings.Contains(err.Error(), "TF_TOKEN_tfe_other_example") {
+	if _, err := apiToken("tfe.other.example", environ, getenv); err == nil || !strings.Contains(err.Error(), "TF_TOKEN_tfe_other_example") {
 		t.Errorf("want an error naming TF_TOKEN_tfe_other_example, got %v", err)
+	}
+}
+
+// A host is one Terraform takes, normalised as Terraform does: one that
+// isn't, such as app_terraform_io, which TF_TOKEN_app_terraform_io would
+// otherwise match, gets no token.
+func TestNewHost(t *testing.T) {
+	t.Setenv("TF_TOKEN_app_terraform_io", "secret")
+	for _, host := range []string{"app_terraform_io", "app.terraform.io/x", "https://app.terraform.io", "app.terraform.io:x", ""} {
+		if _, err := New(t.Context(), host); err == nil {
+			t.Errorf("%q: want an error", host)
+		}
+	}
+	store, err := New(t.Context(), "App.Terraform.IO:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := store.(*Store); s.base != "https://app.terraform.io/api/v2" || s.token != "secret" {
+		t.Errorf("base %q, token %q", s.base, s.token)
+	}
+}
+
+// The token goes to the API's host over https only, on a redirect too.
+func TestSendsToken(t *testing.T) {
+	const base = "https://tfe.example/api/v2"
+	for u, want := range map[string]bool{
+		"https://tfe.example/api/v2/x":     true,
+		"http://tfe.example/api/v2/x":      false,
+		"https://sub.tfe.example/api/v2/x": false,
+		"https://tfe.example:8443/x":       false,
+	} {
+		req := httptest.NewRequest(http.MethodGet, u, http.NoBody)
+		if got := sendsToken(base, req.URL); got != want {
+			t.Errorf("%s: sendsToken %v, want %v", u, got, want)
+		}
+		req.Header.Set("Authorization", "Bearer x")
+		if err := tokenOnlyTo(base)(req, []*http.Request{req}); err != nil {
+			t.Fatal(err)
+		}
+		if got := req.Header.Get("Authorization") != ""; got != want {
+			t.Errorf("%s: redirect keeps the token %v, want %v", u, got, want)
+		}
 	}
 }
 

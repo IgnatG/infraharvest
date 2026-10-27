@@ -232,6 +232,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hashicorp/terraform-exec v0.25.3
 	github.com/hashicorp/terraform-json v0.29.0
+	github.com/hashicorp/terraform-svchost v0.2.1
 	github.com/magodo/armid v0.0.0-20240524082432-7ce06ae46c33
 	github.com/magodo/azlist v0.0.0-20250827005956-f76aa26d5fe5
 	github.com/magodo/aztft v0.3.1-0.20261003023401-cf187e4aed82

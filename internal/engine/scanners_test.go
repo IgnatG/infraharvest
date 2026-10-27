@@ -6,6 +6,10 @@ package engine
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -94,13 +98,65 @@ func TestParseScannerOutput(t *testing.T) {
 }
 
 // Scanners read configuration, which needs no credentials: checkov uploads
-// what it scans with a platform key, and a cloud credential is no business
-// of any scanner.
+// what it scans with a platform key, a cloud credential is no business of
+// any scanner, and neither is a CI token, with which one could mint a
+// cloud token over OIDC.
 func TestScannerEnv(t *testing.T) {
 	t.Parallel()
-	got := scannerEnv([]string{"PATH=/usr/bin", "HOME=/home/me", "AWS_SECRET_ACCESS_KEY=x", "aws_profile=prod", "ARM_CLIENT_SECRET=x", "GOOGLE_APPLICATION_CREDENTIALS=/k.json", "TF_TOKEN_app_terraform_io=x", "BC_API_KEY=x", "PRISMA_API_URL=x", "TRIVY_CACHE_DIR=/c"})
-	want := []string{"PATH=/usr/bin", "HOME=/home/me", "TRIVY_CACHE_DIR=/c"}
+	got := scannerEnv([]string{
+		"PATH=/usr/bin", "HOME=/home/me", "AWS_SECRET_ACCESS_KEY=x", "aws_profile=prod", "ARM_CLIENT_SECRET=x", "GOOGLE_APPLICATION_CREDENTIALS=/k.json",
+		"TF_TOKEN_app_terraform_io=x", "TFE_TOKEN=x", "VAULT_TOKEN=x", "VAULT_ADDR=https://vault", "BC_API_KEY=x", "PRISMA_API_URL=x",
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN=x", "ACTIONS_ID_TOKEN_REQUEST_URL=https://x", "ACTIONS_RUNTIME_TOKEN=x", "GITHUB_TOKEN=x", "GH_TOKEN=x",
+		"CI_JOB_TOKEN=x", "SYSTEM_ACCESSTOKEN=x", "SSH_AUTH_SOCK=/tmp/agent", "NPM_TOKEN=x", "DB_PASSWORD=x", "MY_SECRET=x", "SOME_API_KEY=x",
+		"TRIVY_CACHE_DIR=/c", "HTTPS_PROXY=http://proxy:3128", "SSL_CERT_FILE=/ca.pem", "TMPDIR=/tmp", "GITHUB_ACTIONS=true",
+	})
+	want := []string{"PATH=/usr/bin", "HOME=/home/me", "TRIVY_CACHE_DIR=/c", "HTTPS_PROXY=http://proxy:3128", "SSL_CERT_FILE=/ca.pem", "TMPDIR=/tmp", "GITHUB_ACTIONS=true"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// trivy runs in the directory it scans, so it would read that directory's
+// trivy.yaml and .trivyignore: it gets an empty configuration and ignore
+// file of infraharvest's own instead.
+func TestTrivyIgnoresTheDirectorysConfiguration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in trivy is a shell script")
+	}
+	bin, dir := t.TempDir(), t.TempDir()
+	args := filepath.Join(t.TempDir(), "args")
+	// Logs each argument, and whether the files --config and
+	// --ignorefile name are there and empty.
+	script := `#!/bin/sh
+for a; do
+  echo "$a" >> '` + args + `'
+  case "$a" in --config=*|--ignorefile=*) if [ -e "${a#*=}" ] && [ ! -s "${a#*=}" ]; then echo empty; else echo missing-or-not-empty; fi >> '` + args + `';; esac
+done
+echo '{}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "trivy"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	scanners := DefaultScanners()
+	if len(scanners) != 1 || scanners[0].Name != "trivy" {
+		t.Fatalf("scanners: %v", scanners)
+	}
+	if _, err := scanners[0].Run(t.Context(), dir); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	for _, flag := range []string{"--config=", "--ignorefile="} {
+		i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, flag) })
+		if i < 0 || i+1 >= len(lines) {
+			t.Fatalf("no %s in %q", flag, lines)
+		}
+		if path := strings.TrimPrefix(lines[i], flag); path == "" || strings.HasPrefix(path, dir) || lines[i+1] != "empty" {
+			t.Errorf("%s%s: %s, want an empty file outside %s", flag, path, lines[i+1], dir)
+		}
 	}
 }
