@@ -5,14 +5,21 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
+	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // generatedRoot is a root as an import generates it: the aws provider,
@@ -129,7 +136,7 @@ func TestCheckDriftRoots(t *testing.T) {
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out)
 
 			switch {
 			case tc.want == "" && err != nil:
@@ -144,7 +151,7 @@ func TestCheckDriftRoots(t *testing.T) {
 // An output directory that isn't there has nothing to check: drift says
 // it has no roots.
 func TestCheckDriftRootsOfNoOutput(t *testing.T) {
-	if err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
+	if _, err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
 		t.Errorf("got %v, want nothing to check", err)
 	}
 }
@@ -158,7 +165,7 @@ func TestCheckDriftRootsRefusesLinkedDirectories(t *testing.T) {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 
-	if err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
+	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
 		t.Errorf("got %v, want the link refused", err)
 	}
 }
@@ -246,5 +253,241 @@ func TestDriftToolsRefuseOtherProviders(t *testing.T) {
 				t.Errorf("asked %v, ran %v: want neither", asked, runner.runs)
 			}
 		})
+	}
+}
+
+// The check returns the digest of the files it read, the one drift
+// checks the roots against, and refuses a file whose link leads out of
+// the output directory, which the digest wouldn't cover as it is there.
+func TestCheckDriftRootsDigest(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, generatedRoot)
+
+	digest, err := checkDriftRoots(out)
+
+	if want, werr := driftpolicy.RootsDigest(out); err != nil || werr != nil || digest != want {
+		t.Errorf("got %q (%v), want drift's digest %q (%v)", digest, err, want, werr)
+	}
+
+	elsewhere := t.TempDir()
+	writeTree(t, elsewhere, map[string]string{"x.tf": "data \"external\" \"x\" {}\n"})
+	if err := os.Symlink(filepath.Join(elsewhere, "x.tf"), filepath.Join(out, "aws", "1", "eu-west-2", "x.tf")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws/1/eu-west-2/x.tf is a symbolic link out of the output directory") {
+		t.Errorf("got %v, want the link refused", err)
+	}
+}
+
+// A module call that names a directory the walk read otherwise, such as
+// through "..", or in another case where the file system ignores it, is
+// that directory, which the walk checked; one the walk didn't read is
+// refused, as its files would go unchecked and out of the digest.
+func TestCheckDriftRootsModuleDirectories(t *testing.T) {
+	const root = "aws/1/eu-west-2/"
+	for name, tc := range map[string]struct {
+		source string
+		// want is in the error, "" for roots that pass.
+		want string
+	}{
+		"a directory read": {"../../../mods/x", ""},
+		"through ..":       {"../../../mods/../mods/x", ""},
+		"not there":        {"../../../mods/y", "the module directory mods/y can't be checked"},
+		"in another case":  {"../../../MODS/X", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			writeTree(t, out, generatedRoot)
+			writeTree(t, out, map[string]string{
+				"mods/x/main.tf": "resource \"aws_sqs_queue\" \"this\" {\n  name = \"jobs\"\n}\n",
+				root + "x.tf":    "module \"m\" {\n  source = \"" + tc.source + "\"\n}\n",
+			})
+			want := tc.want
+			if _, err := os.Stat(filepath.Join(out, "MODS", "X")); err != nil && name == "in another case" {
+				// The file system tells case apart: there is no such
+				// directory.
+				want = "the module directory MODS/X can't be checked"
+			}
+
+			_, err := checkDriftRoots(out)
+
+			switch {
+			case want == "" && err != nil:
+				t.Errorf("got %v, want the roots to pass", err)
+			case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+				t.Errorf("got %v, want an error with %q", err, want)
+			}
+		})
+	}
+}
+
+// walkedDir finds the directory the walk read by the file it is, whatever
+// the path names it, and refuses one with configuration files the walk
+// didn't read.
+func TestWalkedDir(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, map[string]string{"mods/x/main.tf": "# read\n", "mods/y/main.tf": "# not read\n", "mods/z/README.md": "# no configuration\n"})
+	walked := filepath.Join(out, "mods", "x")
+	files := map[string][]*hcl.File{walked: nil}
+
+	if got, err := walkedDir(out, walked+string(filepath.Separator)+".", files); err != nil || got != walked {
+		t.Errorf("got %q, %v, want %s", got, err, walked)
+	}
+	if _, err := walkedDir(out, filepath.Join(out, "mods", "y"), files); err == nil || !strings.Contains(err.Error(), "mods/y has configuration files the check didn't read") {
+		t.Errorf("got %v, want the directory refused", err)
+	}
+	if got, err := walkedDir(out, filepath.Join(out, "mods", "z"), files); err != nil || got != filepath.Join(out, "mods", "z") {
+		t.Errorf("got %q, %v, want a directory with nothing to check", got, err)
+	}
+}
+
+// The roots' provider and backend blocks, and the backend settings drift
+// initialises a root environments share with, may set only what
+// infraharvest generates them with: anything else could have a provider
+// or backend run a program or send its requests, with the credentials,
+// elsewhere.
+func TestCheckDriftRootsSettings(t *testing.T) {
+	const root = "aws/1/eu-west-2/"
+	const google = "terraform {\n  required_providers {\n    google = { source = \"hashicorp/google\" }\n  }\n}\n"
+	const azure = "terraform {\n  required_providers {\n    azurerm = { source = \"hashicorp/azurerm\" }\n    azapi = { source = \"Azure/azapi\" }\n  }\n}\n"
+	for name, tc := range map[string]struct {
+		files map[string]string
+		// want is in the error, "" for roots that pass.
+		want string
+	}{
+		"aws as generated": {map[string]string{root + "providers.tf": `provider "aws" {
+  region              = "eu-west-2"
+  allowed_account_ids = ["111111111111"]
+  assume_role {
+    role_arn = "arn:aws:iam::111111111111:role/read"
+  }
+  default_tags {
+    tags = { Environment = "prod" }
+  }
+}
+
+provider "aws" {
+  alias  = "without_default_tags"
+  region = "eu-west-2"
+}
+`}, ""},
+		"google as generated": {map[string]string{root + "google.tf": google + "provider \"google\" {\n  project = \"p\"\n  region = \"europe-west2\"\n  add_terraform_attribution_label = false\n  default_labels = { env = \"prod\" }\n}\n"}, ""},
+		"azure as generated":  {map[string]string{root + "azure.tf": azure + "provider \"azurerm\" {\n  features {}\n  subscription_id = \"s\"\n}\nprovider \"azapi\" {\n  subscription_id = \"s\"\n}\n"}, ""},
+		"backends as generated": {map[string]string{
+			root + "backend.tf":            "terraform {\n  backend \"s3\" {\n    bucket = \"b\"\n    key = \"k\"\n    region = \"eu-west-2\"\n    encrypt = true\n    kms_key_id = \"k\"\n    use_lockfile = true\n  }\n}\n",
+			"gcp/backend.tf":               "terraform {\n  backend \"gcs\" {\n    bucket = \"b\"\n    prefix = \"p\"\n  }\n}\n",
+			"azure/backend.tf":             "terraform {\n  backend \"azurerm\" {\n    resource_group_name = \"g\"\n    storage_account_name = \"a\"\n    container_name = \"c\"\n    key = \"k\"\n  }\n}\n",
+			"merged/providers.tf":          "terraform {\n  backend \"s3\" {}\n}\n",
+			"merged/vars/prod/backend.hcl": "bucket = \"b\"\nkey = \"k\"\nregion = \"eu-west-2\"\nencrypt = true\nuse_lockfile = true\n",
+		}, ""},
+		"aws shared config files":           {map[string]string{root + "providers.tf": "provider \"aws\" {\n  region = \"eu-west-2\"\n  shared_config_files = [\"./config\"]\n}\n"}, `aws/1/eu-west-2/providers.tf:3: the provider aws sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: An argument named "shared_config_files" is not expected here.`},
+		"aws profile":                       {map[string]string{root + "providers.tf": "provider \"aws\" {\n  profile = \"planted\"\n}\n"}, `An argument named "profile"`},
+		"aws endpoints":                     {map[string]string{root + "providers.tf": "provider \"aws\" {\n  endpoints {\n    sts = \"https://example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/providers.tf:2: the provider aws sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: Blocks of type "endpoints" are not expected here.`},
+		"aws custom_ca_bundle":              {map[string]string{root + "providers.tf": "provider \"aws\" {\n  custom_ca_bundle = \"ca.pem\"\n}\n"}, `"custom_ca_bundle"`},
+		"aws sts_region":                    {map[string]string{root + "providers.tf": "provider \"aws\" {\n  sts_region = \"x\"\n}\n"}, `"sts_region"`},
+		"aws assume_role's other arguments": {map[string]string{root + "providers.tf": "provider \"aws\" {\n  assume_role {\n    role_arn = \"r\"\n    source_identity = \"x\"\n  }\n}\n"}, `the provider aws's assume_role sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: An argument named "source_identity" is not expected here. It takes only role_arn`},
+		"aws assume_role_with_web_identity": {map[string]string{root + "providers.tf": "provider \"aws\" {\n  assume_role_with_web_identity {\n    web_identity_token_file = \"t\"\n  }\n}\n"}, `"assume_role_with_web_identity"`},
+		"a dynamic block":                   {map[string]string{root + "providers.tf": "provider \"aws\" {\n  dynamic \"endpoints\" {\n    for_each = [1]\n    content {}\n  }\n}\n"}, `"dynamic"`},
+		"a JSON provider":                   {map[string]string{root + "x.tf.json": `{"provider": {"aws": {"endpoints": {"sts": "https://example.com"}}}}`}, `aws/1/eu-west-2/x.tf.json:1: the provider aws sets`},
+		"an aliased local name":             {map[string]string{root + "x.tf": "terraform {\n  required_providers {\n    cloud = { source = \"hashicorp/aws\" }\n  }\n}\nprovider \"cloud\" {\n  profile = \"x\"\n}\n"}, `the provider cloud sets`},
+		"azurerm client certificate":        {map[string]string{root + "azure.tf": azure + "provider \"azurerm\" {\n  features {}\n  client_certificate_path = \"c.pfx\"\n}\n"}, `"client_certificate_path"`},
+		"azurerm metadata_host":             {map[string]string{root + "azure.tf": azure + "provider \"azurerm\" {\n  features {}\n  metadata_host = \"example.com\"\n}\n"}, `"metadata_host"`},
+		"azurerm features":                  {map[string]string{root + "azure.tf": azure + "provider \"azurerm\" {\n  features {\n    key_vault {}\n  }\n}\n"}, `the provider azurerm's features sets`},
+		"azapi endpoint":                    {map[string]string{root + "azure.tf": azure + "provider \"azapi\" {\n  environment = \"public\"\n}\n"}, `"environment"`},
+		"google credentials":                {map[string]string{root + "google.tf": google + "provider \"google\" {\n  credentials = \"key.json\"\n}\n"}, `"credentials"`},
+		"google custom endpoint":            {map[string]string{root + "google.tf": google + "provider \"google\" {\n  storage_custom_endpoint = \"https://example.com/\"\n}\n"}, `"storage_custom_endpoint"`},
+		"an s3 backend's endpoints":         {map[string]string{root + "backend.tf": "terraform {\n  backend \"s3\" {\n    bucket = \"b\"\n    endpoints = { s3 = \"https://example.com\" }\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:4: the s3 backend sets what infraharvest doesn't generate it with`},
+		"an azurerm backend's msi_endpoint": {map[string]string{"azure/backend.tf": "terraform {\n  backend \"azurerm\" {\n    msi_endpoint = \"https://example.com\"\n  }\n}\n"}, `"msi_endpoint"`},
+		"a gcs backend's credentials":       {map[string]string{"gcp/backend.tf": "terraform {\n  backend \"gcs\" {\n    credentials = \"key.json\"\n  }\n}\n"}, `"credentials"`},
+		"another backend":                   {map[string]string{root + "backend.tf": "terraform {\n  backend \"http\" {\n    address = \"https://example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:2: the http backend, which infraharvest doesn't generate roots with (azurerm, gcs, s3)`},
+		"a cloud block":                     {map[string]string{root + "backend.tf": "terraform {\n  cloud {\n    hostname = \"example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:2: a cloud block`},
+		"an environment's backend settings": {map[string]string{
+			"merged/providers.tf":          "terraform {\n  backend \"s3\" {}\n}\n",
+			"merged/vars/prod/backend.hcl": "bucket = \"b\"\nprofile = \"planted\"\n",
+		}, `merged/vars/prod/backend.hcl:2: the s3 backend sets`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			writeTree(t, out, generatedRoot)
+			writeTree(t, out, tc.files)
+
+			_, err := checkDriftRoots(out)
+
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("got %v, want the roots to pass", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("got %v, want an error with %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Every provider the drift tools take has the settings infraharvest
+// configures it with, and the provider blocks and backends infraharvest
+// writes pass the check.
+func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
+	sources, _ := driftAllowed()
+	for source := range sources {
+		if providerSettings[source] == nil {
+			t.Errorf("no settings for %s", source)
+		}
+	}
+	var blocks []engine.Provider
+	for _, name := range providers.Names() {
+		p := providers.New(name)
+		for local, config := range p.ProviderBlock()["provider"].(map[string]interface{}) {
+			blocks = append(blocks, engine.Provider{Name: local, Config: config.(map[string]interface{})})
+		}
+		if m, ok := p.(harvest.ProviderWithModuleProviders); ok {
+			for local, mp := range m.ModuleProviders() {
+				blocks = append(blocks, engine.Provider{Name: local, Source: mp.Source, Config: mp.Config})
+			}
+		}
+	}
+	for _, p := range blocks {
+		content, err := engine.ProvidersFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := p.Source
+		if source == "" {
+			source = "hashicorp/" + p.Name
+		}
+		checkGenerated(t, content, "provider", []string{"name"}, func(body hcl.Body) error {
+			return checkSettings(body, providerSettings[providerAddress(source)], "the provider "+p.Name)
+		})
+	}
+	for _, b := range []config.Backend{
+		{S3: &config.S3{Bucket: "b", Region: "eu-west-2", KeyPrefix: "p", KMSKeyID: "k"}},
+		{AzureRM: &config.AzureRM{ResourceGroupName: "g", StorageAccountName: "a", ContainerName: "c", KeyPrefix: "p"}},
+		{GCS: &config.GCS{Bucket: "b", Prefix: "p"}},
+	} {
+		checkGenerated(t, b.File("aws/1/eu-west-2"), "terraform", nil, func(body hcl.Body) error {
+			content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "backend", LabelNames: []string{"type"}}}})
+			if diags.HasErrors() || len(content.Blocks) != 1 {
+				return fmt.Errorf("no backend: %v", diags)
+			}
+			return checkSettings(content.Blocks[0].Body, backendSettings[content.Blocks[0].Labels[0]], "the backend")
+		})
+	}
+}
+
+// checkGenerated checks the body of each block of type typ, with labels,
+// in content with check.
+func checkGenerated(t *testing.T, content []byte, typ string, labels []string, check func(hcl.Body) error) {
+	t.Helper()
+	f, diags := hclparse.NewParser().ParseHCL(content, "generated.tf")
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+	body, _, diags := f.Body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: typ, LabelNames: labels}}})
+	if diags.HasErrors() || len(body.Blocks) == 0 {
+		t.Fatalf("%s: no %s block: %v", content, typ, diags)
+	}
+	for _, b := range body.Blocks {
+		if err := check(b.Body); err != nil {
+			t.Errorf("%s: %v", content, err)
+		}
 	}
 }
