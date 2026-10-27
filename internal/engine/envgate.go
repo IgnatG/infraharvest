@@ -438,7 +438,9 @@ func (g *mergeGate) plan(ctx context.Context, tf Terraform, m *stackMerge, w *ro
 		return Check{}, nil, err
 	}
 	defer func() { _ = g.removeOverride() }()
-	vars, _, err := mergedVarFiles(g.dir, m.envs[env])
+	// The merge has just written every var file the environment plans
+	// with: one that isn't there fails the plan.
+	vars, _, err := varFileOptions(g.dir, varFiles(m.envs[env], true))
 	if err != nil {
 		return Check{}, nil, err
 	}
