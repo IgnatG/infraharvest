@@ -39,7 +39,7 @@ type File struct {
 	// Resources decide the resources they list.
 	Resources []Resource `yaml:"resources"`
 	// IncludeOwned lets rules include what another Terraform state or tool
-	// manages (see Owned), as --include-owned does. It isn't saved.
+	// manages (see owned), as --include-owned does. It isn't saved.
 	IncludeOwned bool `yaml:"-"`
 	// Refresh says which of the reasons infraharvest gave its entries the
 	// discover that Merge takes the listing of found again in full, so that
@@ -171,7 +171,7 @@ func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]st
 		}
 		return Decision{Reason: reason}
 	}
-	if d, ok := f.ByRule(resourceType, id, name, tags); ok {
+	if d, ok := f.byRule(resourceType, id, name, tags); ok {
 		return d
 	}
 	if f.Defaults.Include {
@@ -180,11 +180,11 @@ func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]st
 	return Decision{Reason: report.ReasonSelectionDefaults}
 }
 
-// MayInclude reports whether f may include a resource of resourceType
+// mayInclude reports whether f may include a resource of resourceType
 // whatever the default selection says: an entry of the type includes one,
 // or a rule includes resources of the type, or of any type. It looks only
 // at types, so it may say a type is included that no resource of it is.
-func (f *File) MayInclude(resourceType string) bool {
+func (f *File) mayInclude(resourceType string) bool {
 	for _, r := range f.Resources {
 		if r.Include && r.Type == resourceType {
 			return true
@@ -198,9 +198,9 @@ func (f *File) MayInclude(resourceType string) bool {
 	return false
 }
 
-// ByRule returns the decision of the last rule that matches the resource
+// byRule returns the decision of the last rule that matches the resource
 // of resourceType with id, name and tags, and whether one does.
-func (f *File) ByRule(resourceType, id, name string, tags map[string]string) (Decision, bool) {
+func (f *File) byRule(resourceType, id, name string, tags map[string]string) (Decision, bool) {
 	var decision Decision
 	matched := false
 	for _, rule := range f.Rules {
@@ -214,15 +214,15 @@ func (f *File) ByRule(resourceType, id, name string, tags map[string]string) (De
 	return decision, matched
 }
 
-// ByRuleFor returns the decision of the rules (see ByRule) for a resource
+// byRuleFor returns the decision of the rules (see byRule) for a resource
 // the file doesn't list, which the default selection excludes with reason
 // or includes if reason is "", and whether a rule decides it. A rule
 // doesn't include what another Terraform state or tool manages (see
-// Owned): that stays excluded with reason, unless IncludeOwned is set.
+// owned): that stays excluded with reason, unless IncludeOwned is set.
 // Only its entry includes it then.
-func (f *File) ByRuleFor(resourceType, id, name string, tags map[string]string, reason string) (Decision, bool) {
-	d, ok := f.ByRule(resourceType, id, name, tags)
-	if ok && d.Include && !f.IncludeOwned && Owned(reason) {
+func (f *File) byRuleFor(resourceType, id, name string, tags map[string]string, reason string) (Decision, bool) {
+	d, ok := f.byRule(resourceType, id, name, tags)
+	if ok && d.Include && !f.IncludeOwned && owned(reason) {
 		return Decision{Reason: reason}, true
 	}
 	return d, ok
@@ -419,11 +419,23 @@ func (f *File) index() {
 	}
 }
 
+// NewFile returns the selection file a first discover writes: what it
+// listed, each resource once, and what the defaults don't exclude
+// included. Nothing in a first file is New.
+func NewFile(listed []Resource) *File {
+	f := &File{Version: Version, Defaults: Defaults{Include: true}}
+	f.Merge(listed, nil)
+	for i := range f.Resources {
+		f.Resources[i].New = false
+	}
+	return f
+}
+
 // Merge updates f with the resources discover listed now. Entries f has
 // keep their decisions and notes, but for the decisions infraharvest made,
 // which follow what manages the resource now (see refresh), marked New for
 // review where that changes. Listed resources it lacks are added with New
-// set: decided by f's rules if one matches (see ByRuleFor), else excluded
+// set: decided by f's rules if one matches (see byRuleFor), else excluded
 // with listed's reason if listed excludes them (the provider's defaults),
 // else by f's defaults. An entry no longer listed is dropped only if covered reports
 // that this run listed everything that would list it, such as its service
@@ -454,7 +466,7 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 			merged = append(merged, m)
 			continue
 		}
-		if d, ok := f.ByRuleFor(l.Type, l.ID, l.Name, l.Tags, l.Reason); ok {
+		if d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, l.Reason); ok {
 			l.Include, l.Reason = d.Include, d.Reason
 		} else if l.Include {
 			d := f.DecideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags)
@@ -488,7 +500,7 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 // report.OwnerSelection). Those stay as they are. Otherwise:
 //
 //   - an entry included without a reason is excluded once Terraform,
-//     CloudFormation or another tool manages the resource (see Owned);
+//     CloudFormation or another tool manages the resource (see owned);
 //   - an entry excluded with infraharvest's reason takes the reason l has
 //     now, where Refresh says the run worked that kind out again, or, if l
 //     has none, is decided again by the rules and defaults, as a new entry
@@ -500,7 +512,7 @@ func (f *File) refresh(m *Resource, l Resource) {
 	switch {
 	case m.Note != "":
 	case m.Include:
-		if m.Reason == "" && Owned(l.Reason) {
+		if m.Reason == "" && owned(l.Reason) {
 			m.Include, m.Reason, m.New = false, l.Reason, true
 		}
 	case m.Reason == "" || report.OwnerOf(m.Reason) == report.OwnerSelection || m.Reason == l.Reason:
@@ -511,7 +523,7 @@ func (f *File) refresh(m *Resource, l Resource) {
 		}
 		m.Reason = l.Reason
 	default:
-		d, ok := f.ByRuleFor(l.Type, l.ID, l.Name, l.Tags, "")
+		d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, "")
 		if !ok {
 			d = Decision{Include: f.Defaults.Include}
 			if !d.Include {
@@ -528,11 +540,64 @@ func isManaged(reason string) bool {
 	return strings.HasPrefix(reason, managed.Reason)
 }
 
-// Owned reports whether reason, why the default selection excludes a
+// owned reports whether reason, why the default selection excludes a
 // resource, says another Terraform state or tool manages it: the state
 // --managed-state reads, its tags, or the CloudFormation stack that lists
 // it (see managed.Reason and report.OtherToolPrefix). What the cloud
 // creates and manages itself, such as a default VPC, isn't owned.
-func Owned(reason string) bool {
+func owned(reason string) bool {
 	return isManaged(reason) || strings.HasPrefix(reason, report.OtherToolPrefix)
+}
+
+// Summary counts what a selection file includes and excludes, each entry
+// as an import of the file decides it.
+type Summary struct {
+	Included int
+	Excluded int
+	// Types are the counts by type, sorted by type.
+	Types []TypeCount
+	// Exclusions are the entries excluded, in the file's order, with the
+	// reasons.
+	Exclusions []Exclusion
+}
+
+// TypeCount counts the entries of one type.
+type TypeCount struct {
+	Type     string
+	Included int
+	Excluded int
+}
+
+// Exclusion is an entry the file excludes, and why.
+type Exclusion struct {
+	Type   string
+	ID     string
+	Reason string
+}
+
+// Summary counts what f includes and excludes.
+func (f *File) Summary() Summary {
+	var s Summary
+	byType := map[string]*TypeCount{}
+	for _, r := range f.Resources {
+		c, ok := byType[r.Type]
+		if !ok {
+			c = &TypeCount{Type: r.Type}
+			byType[r.Type] = c
+		}
+		d := f.DecideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
+		if d.Include {
+			c.Included++
+			s.Included++
+			continue
+		}
+		c.Excluded++
+		s.Excluded++
+		s.Exclusions = append(s.Exclusions, Exclusion{Type: r.Type, ID: r.ID, Reason: d.Reason})
+	}
+	for _, c := range byType {
+		s.Types = append(s.Types, *c)
+	}
+	sort.Slice(s.Types, func(i, j int) bool { return s.Types[i].Type < s.Types[j].Type })
+	return s
 }

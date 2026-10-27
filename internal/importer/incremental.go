@@ -16,6 +16,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // InRootReason is why an incremental import leaves out a resource: the
@@ -67,7 +68,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 			continue
 		}
 		if owner, ok := owned[key]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: ownedReason(owner), Scope: r.scope})
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: selection.OwnedReason(owner), Scope: r.scope})
 			continue
 		}
 		added = append(added, imp)

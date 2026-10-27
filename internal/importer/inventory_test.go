@@ -161,32 +161,14 @@ func TestInventoryKeepsTags(t *testing.T) {
 	// Discover writes the tags into the selection file, and a rule by tag
 	// leaves the resource out of an import.
 	run := NewRun()
-	run.addDiscovered(listed, nil, "fake/1/eu-west-2", func(r harvest.Resource) (string, bool) { return r.Observed.ID, true })
+	run.addDiscovered(listed, sourcesOf(t, listed, nil), "fake/1/eu-west-2", func(r harvest.Resource) (string, bool) { return r.Observed.ID, true })
 	if len(run.listed) != 1 || run.listed[0].Tags["env"] != "dev" {
 		t.Errorf("selection entries: %+v", run.listed)
 	}
 	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Rules: []selection.Rule{{Exclude: &selection.Match{Tags: map[string]selection.Patterns{"env": {"dev"}}}}}}
-	selected, _ := run.selectResources(listed, nil, f, "fake/1/eu-west-2", func(r harvest.Resource) (string, bool) { return r.Observed.ID, true })
+	selected, _ := run.selectResources(listed, sourcesOf(t, listed, nil), f, "fake/1/eu-west-2", func(r harvest.Resource) (string, bool) { return r.Observed.ID, true })
 	if len(selected["good"]) != 0 {
 		t.Errorf("selected %v, want the dev resource left out", selected)
-	}
-}
-
-// The tags listed for a resource reach the provider's default selection
-// as tags.<key> attributes, in a copy that leaves the lister's record as
-// it was; a tag the lister recorded itself wins over the listed one.
-func TestWithTagAttributes(t *testing.T) {
-	r := harvest.Record("id-1", "one", "fake_thing", "fake", map[string]string{"name": "one", "tags.team": "listed by the lister"})
-	tagged := withTagAttributes(r, map[string]string{"team": "data", "env": "dev"})
-	want := map[string]string{"name": "one", "tags.team": "listed by the lister", "tags.env": "dev"}
-	if !reflect.DeepEqual(tagged.Observed.Attributes, want) {
-		t.Errorf("got %v, want %v", tagged.Observed.Attributes, want)
-	}
-	if len(r.Observed.Attributes) != 2 {
-		t.Errorf("the lister's record changed: %v", r.Observed.Attributes)
-	}
-	if same := withTagAttributes(r, nil); same.Observed != r.Observed {
-		t.Error("without tags, want the resource as it is")
 	}
 }
 

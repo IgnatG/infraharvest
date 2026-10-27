@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // The staging directory is always its own directory under the output's
@@ -100,7 +101,7 @@ func TestAddToRootLeavesOutWhatTheRootLeftOutAsOwned(t *testing.T) {
 	}
 	want := []report.Excluded{
 		{Type: "aws_iam_role", ID: "app", Reason: InRootReason, Scope: "aws/123/global"},
-		{Type: "aws_iam_role", ID: "ci", Reason: ownedReason(owner), Scope: "aws/123/global"},
+		{Type: "aws_iam_role", ID: "ci", Reason: selection.OwnedReason(owner), Scope: "aws/123/global"},
 	}
 	if !reflect.DeepEqual(r.report.Excluded, want) {
 		t.Errorf("excluded:\ngot  %+v\nwant %+v", r.report.Excluded, want)

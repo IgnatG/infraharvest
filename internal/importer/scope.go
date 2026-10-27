@@ -11,21 +11,20 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // applyImportScope applies the scope of provider, if it has one (see
-// harvest.ProviderWithImportScope), to what the call listed: defaults no
-// longer leave out a resource the scope names because CloudFormation
-// manages it, by the stacks that list it or by its tags, as the scope is
-// those stacks; the resources outside the scope are left out, and recorded
-// in listed so that no selection file brings them back (see
-// selectResources). The scope's stacks go into the report, each listed
-// resource of theirs in scope, the call's account and region. It returns
-// defaults, changed.
-func (r *Run) applyImportScope(ctx context.Context, provider harvest.Provider, listed *listing, defaults map[string]string, scope string) (map[string]string, error) {
+// harvest.ProviderWithImportScope), to what the call listed, in defaults
+// (see selection.Sources.Scope): they no longer leave out a resource the
+// scope names because CloudFormation manages it, and leave out the
+// resources outside it whatever a selection file says. The scope's stacks
+// go into the report, each listed resource of theirs in scope, the call's
+// account and region.
+func (r *Run) applyImportScope(ctx context.Context, provider harvest.Provider, listed listing, defaults *selection.Sources, scope string) error {
 	scoped, ok := provider.(harvest.ProviderWithImportScope)
 	if !ok {
-		return defaults, nil
+		return nil
 	}
 	var all []harvest.Resource
 	for _, resources := range listed.resources {
@@ -33,23 +32,12 @@ func (r *Run) applyImportScope(ctx context.Context, provider harvest.Provider, l
 	}
 	s, err := scoped.ImportScope(ctx, all)
 	if err != nil {
-		return defaults, fmt.Errorf("import scope: %w", err)
+		return fmt.Errorf("import scope: %w", err)
 	}
 	if s == nil {
-		return defaults, nil
+		return nil
 	}
-	if defaults == nil {
-		defaults = map[string]string{}
-	}
-	for key := range s.Inside {
-		if report.OwnerOf(defaults[key]) == report.OwnerCloudFormation {
-			delete(defaults, key)
-		}
-	}
-	for key, reason := range s.Outside {
-		defaults[key] = reason
-	}
-	listed.outside = s.Outside
+	defaults.Scope(s)
 	// Discover lists only part of what the services have, as a filter
 	// does: the selection file keeps the entries it doesn't find.
 	r.filtered = true
@@ -61,7 +49,7 @@ func (r *Run) applyImportScope(ctx context.Context, provider harvest.Provider, l
 		}
 	}
 	r.report.AddCloudFormationStacks(s.Stacks)
-	return defaults, nil
+	return nil
 }
 
 // logStacks logs, for each CloudFormation stack the import is scoped to,

@@ -181,8 +181,8 @@ type Options struct {
 	// provider of each service listed is given it (see listServices).
 	cat *catalogue.Catalogue
 	// unwanted are the types the import leaves out whatever is listed (see
-	// unwantedTypes), whose listing the provider of each service listed may
-	// skip (see listServices).
+	// selection.Unwanted), whose listing the provider of each service
+	// listed may skip (see listServices).
 	unwanted []string
 	// tools are what the call reaches outside the process through; nil
 	// uses the real ones (see callTools).

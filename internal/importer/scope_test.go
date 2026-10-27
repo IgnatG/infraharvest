@@ -48,17 +48,16 @@ func TestImportScope(t *testing.T) {
 		harvest.RecordBare("app-assets", "app-assets", "aws_s3_bucket", "aws"),
 		harvest.RecordBare("other", "other", "aws_s3_bucket", "aws"),
 	}}}
-	defaults := map[string]string{"aws_s3_bucket app-assets": report.OtherToolPrefix + "CloudFormation stack app (per its tag aws:cloudformation:stack-name=app; --include-owned imports it)"}
+	defaults := sourcesOf(t, listed, map[string]string{"aws_s3_bucket app-assets": report.OtherToolPrefix + "CloudFormation stack app (per its tag aws:cloudformation:stack-name=app; --include-owned imports it)"})
 	run := NewRun()
 
-	defaults, err := run.applyImportScope(t.Context(), &stackScopedProvider{}, &listed, defaults, scope)
-	if err != nil {
+	if err := run.applyImportScope(t.Context(), &stackScopedProvider{}, listed, defaults, scope); err != nil {
 		t.Fatal(err)
 	}
 
 	outside := report.OutsideScopePrefix + "not a resource of CloudFormation stack app (--cfn-stack)"
-	if want := map[string]string{"aws_s3_bucket other": outside}; !reflect.DeepEqual(defaults, want) {
-		t.Errorf("defaults %v, want %v", defaults, want)
+	if want := map[string]string{"aws_s3_bucket other": outside}; !reflect.DeepEqual(reasonsOf(listed, defaults), want) {
+		t.Errorf("defaults %v, want %v", reasonsOf(listed, defaults), want)
 	}
 	if got := run.report.CloudFormationStacks; len(got) != 1 || got[0].Resources[0].Matches[0].Scope != scope {
 		t.Errorf("stacks %+v", got)
@@ -76,9 +75,9 @@ func TestImportScope(t *testing.T) {
 	}
 
 	// A provider without a scope changes nothing.
-	unchanged, err := NewRun().applyImportScope(t.Context(), &fakeProvider{}, &listed, map[string]string{"a b": "c"}, scope)
-	if err != nil || !reflect.DeepEqual(unchanged, map[string]string{"a b": "c"}) {
-		t.Errorf("unscoped: %v, %v", unchanged, err)
+	unchanged := sourcesOf(t, listed, map[string]string{"aws_s3_bucket other": "c"})
+	if err := NewRun().applyImportScope(t.Context(), &fakeProvider{}, listed, unchanged, scope); err != nil || !reflect.DeepEqual(reasonsOf(listed, unchanged), map[string]string{"aws_s3_bucket other": "c"}) {
+		t.Errorf("unscoped: %v, %v", reasonsOf(listed, unchanged), err)
 	}
 }
 

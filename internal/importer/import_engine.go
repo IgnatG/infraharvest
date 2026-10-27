@@ -30,6 +30,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
@@ -284,7 +285,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		if err != nil {
 			return nil, err
 		}
-		options.unwanted = unwantedTypes(cat, chosen)
+		options.unwanted = selection.Unwanted(cat, chosen)
 	}
 	options = ResolveServices(provider, options)
 	scope := discoveryScope(ctx, provider)
@@ -296,19 +297,16 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	}
 	// What failed to list, before what failed after it.
 	listFailures := failures
-	defaults, err := excludedByDefault(ctx, provider, cat, listed)
+	defaults, err := defaultSelection(ctx, provider, cat, listed, options.IncludeOwned)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("default selection: %w", err))
 	}
-	if defaults, err = excludeManaged(ctx, run, options, listed.resources, defaults, importID); err != nil {
+	if err = excludeManaged(ctx, run, options, listed.resources, defaults, importID); err != nil {
 		return nil, err
-	}
-	if !options.IncludeOwned {
-		defaults = excludeOwned(listed, defaults)
 	}
 	// A scope that can't be applied stops the call: going on would import
 	// every resource listed, not only those of the scope.
-	if defaults, err = run.applyImportScope(ctx, provider, &listed, defaults, scope); err != nil {
+	if err = run.applyImportScope(ctx, provider, listed, defaults, scope); err != nil {
 		return nil, err
 	}
 	if options.Discover {
@@ -801,7 +799,7 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	}
 	reported.Warnings = result.Warnings
 	for _, o := range result.Owned {
-		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: resourceTypeOf(o.Address), ID: o.ID, Reason: ownedReason(o.Owner), Scope: r.scope})
+		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: resourceTypeOf(o.Address), ID: o.ID, Reason: selection.OwnedReason(o.Owner), Scope: r.scope})
 	}
 	for _, w := range result.Warnings {
 		log.Printf("%s: %s", dir, w)
