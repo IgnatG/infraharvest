@@ -70,7 +70,8 @@ const (
 	DriftDecidedByRule = "decisions_rule"
 	// DriftDecidedByEntry: the change's own entry in the decisions file.
 	DriftDecidedByEntry = "decisions_change"
-	// DriftDecidedByFlag: an --accept or --keep rule.
+	// DriftDecidedByFlag: a rule of --accept, --keep or --rules, or one the
+	// Action's drift-accept or the MCP server's rules give.
 	DriftDecidedByFlag = "flag"
 )
 

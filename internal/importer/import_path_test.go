@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // rootsProvider lists, for each service, one fake_thing named after the
@@ -214,26 +215,41 @@ func (f *fakeEngine) tools() *callTools {
 	}
 }
 
+// pathImport is an import through engine, with the options it is given.
+type pathImport struct {
+	Options
+	engine *fakeEngine
+}
+
 // pathOptions are the options of an import of services, one root each,
 // into out, through f.
-func pathOptions(out string, f *fakeEngine, services ...string) Options {
-	return Options{
-		All:          true,
-		Out:          out,
-		Layout:       "{out}/{provider}/{service}/",
-		Services:     services,
-		Modules:      ModulesNone,
-		ListParallel: 1,
-		tools:        f.tools(),
+func pathOptions(out string, f *fakeEngine, services ...string) pathImport {
+	return pathImport{
+		Options: Options{
+			All:          true,
+			Out:          out,
+			Layout:       "{out}/{provider}/{service}/",
+			Services:     services,
+			Modules:      ModulesNone,
+			ListParallel: 1,
+		},
+		engine: f,
 	}
+}
+
+// run returns a new run that generates through the import's engine.
+func (p pathImport) run() *Run {
+	run := NewRun()
+	run.tools = p.engine.tools()
+	return run
 }
 
 // importPath lists and generates one Import call into a new run, as
 // importInto does, and returns the run.
-func importPath(t *testing.T, options Options) *Run {
+func importPath(t *testing.T, options pathImport) *Run {
 	t.Helper()
-	run := NewRun()
-	c, err := listCall(t.Context(), run, &rootsProvider{}, options, nil)
+	run := options.run()
+	c, err := listCall(t.Context(), run, &rootsProvider{}, options.Options, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,9 +326,10 @@ func TestListedCallsReferToEachOthersRoots(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	f := &fakeEngine{}
 	run := NewRun()
+	run.tools = f.tools()
 	var listed []*listedCall
 	for _, service := range []string{"alpha", "beta"} {
-		c, err := listCall(t.Context(), run.child(), &rootsProvider{}, pathOptions(out, f, service), nil)
+		c, err := listCall(t.Context(), run.child(), &rootsProvider{}, pathOptions(out, f, service).Options, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -465,7 +482,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
 	}
 
 	f = &fakeEngine{}
-	options.tools = f.tools()
+	options.engine = f
 	importPath(t, options)
 	if previous := f.opts["alpha"].Previous; previous == nil || len(previous.Addresses) != 1 || len(previous.Moved) != 1 {
 		t.Errorf("generated again, alpha moves on from %+v, want its address and moved block", previous)
@@ -520,7 +537,7 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 	}
 	var excluded []string
 	for _, e := range run.report.Excluded {
-		if strings.HasPrefix(e.Reason, InOtherRootReason) {
+		if strings.HasPrefix(e.Reason, whyText(report.InOtherRoot(""))) {
 			excluded = append(excluded, e.ID)
 		}
 	}

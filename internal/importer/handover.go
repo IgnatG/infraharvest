@@ -218,8 +218,7 @@ func warnIncomplete(run *Run, calls []*listedCall) {
 			continue
 		}
 		for _, i := range c.handovers.incomplete() {
-			log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
-			run.report.IncompleteHandovers = append(run.report.IncompleteHandovers, i)
+			run.recordIncomplete(i)
 		}
 		return // the calls share their handovers
 	}
@@ -267,7 +266,7 @@ type departing struct {
 // gets a removed block for each (see engine.Removal), and the root they
 // go to imports them as it would any other. A root the run doesn't
 // generate, which a removed block needs edited, keeps them: they are left
-// out of the roots they would go to, as InOtherRootReason, as an
+// out of the roots they would go to, as report.InOtherRoot says, as an
 // incremental import does (see leaveOutHeld). But a root whose every
 // resource goes to roots of the run is generated with removed blocks
 // alone (see engine.Vacate), by the call of the first root they go to.
@@ -405,7 +404,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 		var kept []engine.Import
 		for _, imp := range imports {
 			if root, ok := stays[engine.ResourceKey(imp.Type, imp.ID)]; ok {
-				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope, Owner: report.OwnerTerraformRoot})
+				r.report.Exclude(scope, imp.Type, imp.ID, report.InOtherRoot(root))
 				continue
 			}
 			kept = append(kept, imp)
@@ -596,32 +595,9 @@ func sortedDirs[V any](m map[string]V) []string {
 	return slices.Sorted(maps.Keys(m))
 }
 
-// recordMoves records what the result of the root at path, relative to
-// the output directory, moves within it, as moved blocks do or, for a
-// resource of another name of its type now, removed and import blocks
-// (see engine.Retype), hands over to other roots, and imports that other
-// roots hand over (see report.Move).
-func (r *Run) recordMoves(path string, result *engine.Result) {
-	types := map[string]engine.Managed{}
-	for _, m := range result.Addresses {
-		types[m.Address] = m
-	}
-	for _, m := range result.Moves {
-		had, ok := types[m.To]
-		if !ok {
-			had = engine.Managed{Type: engine.AddressType(m.To)}
-		}
-		r.report.Moved = append(r.report.Moved, report.Move{Type: had.Type, ID: had.ID, FromRoot: path, From: m.From, ToRoot: path, To: m.To})
-	}
-	for _, rt := range result.Retyped {
-		r.report.Moved = append(r.report.Moved, report.Move{Type: types[rt.To].Type, ID: rt.ID, FromRoot: path, From: rt.From, ToRoot: path, To: rt.To})
-	}
-	for _, removal := range result.Removed {
-		for _, d := range removal.Resources {
-			r.report.Departed = append(r.report.Departed, report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root})
-		}
-	}
-	for _, a := range result.Arrived {
-		r.report.AddArrival(report.Move{Type: a.HadType(), ID: a.ID, FromRoot: a.Root, From: a.From, ToRoot: path, To: a.To})
-	}
+// recordIncomplete warns of i, a handover one of its roots didn't
+// finish, and records it.
+func (r *Run) recordIncomplete(i report.IncompleteHandover) {
+	log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
+	r.report.AddIncompleteHandover(i)
 }

@@ -187,14 +187,16 @@ func sameFilter(a, b []string) bool {
 	return slices.Equal(a, b)
 }
 
-// listResources lists the resources of options.Services, by service, with
-// their tags and the services that failed. With --reuse-inventory it takes
-// them from the inventory discover saved for the same call, if that covers
-// them; discover saves it, with scope (see discoveryScope).
-func listResources(ctx context.Context, provider harvest.Provider, options Options, args []string, scope string) (listing, []error, error) {
+// listResources lists the resources of the services of the call c, by
+// service, with their tags and the services that failed. With
+// --reuse-inventory it takes them from the inventory discover saved for
+// the same call, if that covers them; discover saves it, with the call's
+// scope (see discoveryScope).
+func listResources(ctx context.Context, provider harvest.Provider, c *callContext, args []string) (listing, []error, error) {
+	options, scope := c.options, c.scope
 	path := inventoryPath(options.Out, provider.Name(), args)
 	if options.ReuseInventory && !options.Discover {
-		inv, err := loadInventory(path, options.Services, options.filterArgs())
+		inv, err := loadInventory(path, c.services, options.filterArgs())
 		if err != nil {
 			return listing{}, nil, err
 		}
@@ -214,24 +216,25 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 					failures = append(failures, errors.New(f))
 					continue
 				}
-				for _, s := range options.Services {
+				for _, s := range c.services {
 					if strings.HasPrefix(f, "service "+s+":") {
 						failures = append(failures, errors.New(f))
 					}
 				}
 			}
-			listed := listingOf(inv.Records, options.Services)
+			listed := listingOf(inv.Records, c.services)
 			listed.saved = true
 			return listed, failures, nil
 		}
-		log.Printf("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(options.Services, ","))
+		log.Printf("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(c.services, ","))
 	}
 	// Services list at the same time only where the provider says they can.
+	parallel := options.ListParallel
 	if !provider.Profile().ConcurrentListing {
-		options.ListParallel = 1
+		parallel = 1
 	}
 	registry := harvest.NewRegistry(provider)
-	failures, err := listServices(ctx, registry, options, args)
+	failures, err := listServices(ctx, registry, c, parallel, args)
 	if err != nil {
 		return listing{}, nil, err
 	}
@@ -242,7 +245,7 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 		failures = append(failures, tagsErr)
 	}
 	if options.Discover {
-		inv := inventory{Version: inventoryVersion, Provider: provider.Name(), Scope: scope, Services: options.Services, Filter: options.filterArgs(), Records: listed.records()}
+		inv := inventory{Version: inventoryVersion, Provider: provider.Name(), Scope: scope, Services: c.services, Filter: options.filterArgs(), Records: listed.records()}
 		for _, f := range failures {
 			inv.Failures = append(inv.Failures, f.Error())
 		}

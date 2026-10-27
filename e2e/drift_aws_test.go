@@ -15,7 +15,7 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -143,14 +143,14 @@ func TestAWSDrift(t *testing.T) {
 
 	// The decisions file. The tag accepted above is absorbed now: the
 	// code has the cloud's value, and drift doesn't write the state.
-	decisions := filepath.Join(out, importer.DefaultDriftDecisionsFile)
+	decisions := filepath.Join(out, driftpolicy.DefaultDecisionsFile)
 	code = codeFiles(t, out)
 	d = drift.mustExit(t, report.ExitOK, "--write-decisions")
 	if c := driftChange(t, "--write-decisions", d, "aws_sqs_queue", "tags.team"); c.Outcome != report.DriftAbsorbed {
 		t.Errorf("--write-decisions: the accepted tag is %s, want %s", c.Outcome, report.DriftAbsorbed)
 	}
 	checkCodeUnchanged(t, "--write-decisions", code, out)
-	entry := decisionEntry(t, decisions, "message_retention_seconds", importer.DriftUndecided)
+	entry := decisionEntry(t, decisions, "message_retention_seconds", driftpolicy.Undecided)
 	for _, e := range loadDecisions(t, decisions).Changes {
 		if e.Attribute == "tags.team" {
 			t.Errorf("%s has an entry for the absorbed tag: %+v", decisions, e)
@@ -169,7 +169,7 @@ func TestAWSDrift(t *testing.T) {
 		t.Errorf("a stale decision: %s doesn't name %s", report.DriftMarkdownFile, stale.Address)
 	}
 	checkCodeUnchanged(t, "a stale decision", code, out)
-	if again := decisionEntry(t, decisions, "message_retention_seconds", importer.DriftUndecided); again.Fingerprint == entry.Fingerprint {
+	if again := decisionEntry(t, decisions, "message_retention_seconds", driftpolicy.Undecided); again.Fingerprint == entry.Fingerprint {
 		t.Errorf("--write-decisions kept the fingerprint %s of the values decided before", entry.Fingerprint)
 	}
 	setDecision(t, decisions, "message_retention_seconds", report.DriftAccept)
@@ -274,9 +274,9 @@ func TestAWSDrift(t *testing.T) {
 }
 
 // loadDecisions reads the decisions file at path.
-func loadDecisions(t *testing.T, path string) *importer.DriftDecisions {
+func loadDecisions(t *testing.T, path string) *driftpolicy.Decisions {
 	t.Helper()
-	f, err := importer.LoadDriftDecisions(path)
+	f, err := driftpolicy.LoadDecisions(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func loadDecisions(t *testing.T, path string) *importer.DriftDecisions {
 // decisionEntry returns the entry of the decisions file at path for a
 // change to attribute, failing the test unless there is one, decided as
 // decision.
-func decisionEntry(t *testing.T, path, attribute, decision string) importer.DriftDecisionEntry {
+func decisionEntry(t *testing.T, path, attribute, decision string) driftpolicy.Entry {
 	t.Helper()
 	f := loadDecisions(t, path)
 	for _, e := range f.Changes {
@@ -298,7 +298,7 @@ func decisionEntry(t *testing.T, path, attribute, decision string) importer.Drif
 		}
 	}
 	t.Fatalf("%s has no entry for %s: %+v", path, attribute, f.Changes)
-	return importer.DriftDecisionEntry{}
+	return driftpolicy.Entry{}
 }
 
 // setDecision sets the decision of the entries of the decisions file at

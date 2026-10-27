@@ -207,8 +207,8 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 	region := c.region
 	// The region the provider block sets, where the provider has one (see
 	// harvest.Merge.RegionArgument).
-	profile := c.provider.Profile().Merge
-	if r, ok := c.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
+	profile := mergeProfile(c.provider.Profile())
+	if r, ok := c.toolchain.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
 		region = r
 	}
 	c.run.members = append(c.run.members, mergeMember{
@@ -221,18 +221,35 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		region:         region,
 		group:          c.options.ResourceGroup,
 		provider:       c.provider,
-		engineProvider: c.root.provider,
-		profile:        engine.MergeProfile(profile),
+		engineProvider: c.toolchain.root.provider,
+		profile:        profile,
 		fingerprint:    fp,
 		result:         result,
 		opts:           opts,
-		execPath:       c.execPath,
-		cacheDir:       c.cacheDir,
+		execPath:       c.toolchain.execPath,
+		cacheDir:       c.toolchain.cacheDir,
 		premerged:      set,
 		isolated:       isolated,
 		handovers:      c.handovers,
 		here:           c.here,
 	})
+}
+
+// mergeProfile is what the merged root reads of each environment's scope
+// and region, by profile: its Merge, titled by what the roots are scoped
+// by, its scope's noun, such as Account for account.
+func mergeProfile(profile harvest.Profile) engine.MergeProfile {
+	m, noun := profile.Merge, profile.Scope.Noun
+	title := noun
+	if noun != "" {
+		title = strings.ToUpper(noun[:1]) + noun[1:]
+	}
+	return engine.MergeProfile{
+		ScopeTitle: title,
+		ScopeData:  m.ScopeData, ScopeLocal: m.ScopeLocal, ScopeExpr: m.ScopeExpr,
+		RegionArgument: m.RegionArgument, RegionTitle: m.RegionTitle,
+		RegionData: m.RegionData, RegionLocal: m.RegionLocal, RegionExpr: m.RegionExpr,
+	}
 }
 
 // MergeEnvironments merges the roots of each stack of r's environments
@@ -367,19 +384,11 @@ func fillMerge(merge *report.Merge, result *engine.MergeResult) {
 // recordMerge records merge, the outcome of the stack of members, in the
 // report: each member's directory names the merged root, once merged.
 func (r *Run) recordMerge(merge report.Merge, members []mergeMember) {
-	r.report.Merges = append(r.report.Merges, merge)
-	if !merge.Merged {
-		return
+	roots := make([]string, len(members))
+	for i, m := range members {
+		roots[i] = relativePath(r.options.Out, m.dir)
 	}
-	paths := map[string]bool{}
-	for _, m := range members {
-		paths[relativePath(r.options.Out, m.dir)] = true
-	}
-	for i, d := range r.report.Directories {
-		if paths[d.Path] {
-			r.report.Directories[i].MergedInto = merge.Path
-		}
-	}
+	r.report.AddMerge(merge, roots)
 }
 
 // premergeDirName holds, under the output's checkpoints, the roots of

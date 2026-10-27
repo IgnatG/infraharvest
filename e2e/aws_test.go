@@ -667,7 +667,7 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 	}
 	inRoot := 0
 	for _, e := range coverage.Excluded {
-		if e.Reason == importer.InRootReason {
+		if e.Owner == report.OwnerTerraformRoot {
 			inRoot++
 		}
 	}

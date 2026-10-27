@@ -255,11 +255,13 @@ type Options struct {
 	// tried before generated local modules (see synthesize).
 	Adapters []adapters.Adapter
 	// ModuleProviders configures, by local name, the providers modules may
-	// use besides the root's, such as google-beta: a call whose adapter names one
-	// (see adapters.Adapter.Providers) gets its provider block and source,
-	// consistent with the root's provider. So does a root that imports
-	// resources whose type one of them implies, such as azapi_resource
-	// (see resourceProviders).
+	// use besides the root's, such as google-beta, or google for a root of
+	// google-beta: a call whose adapter names one (see
+	// adapters.Adapter.Providers) gets its provider block and source,
+	// consistent with the root's provider, with its default tags where
+	// the root's types are named after it (see shareDefaultTags). So does
+	// a root that imports resources whose type one of them implies, such
+	// as azapi_resource (see resourceProviders).
 	ModuleProviders map[string]Provider
 	// External are resources the import listed but doesn't manage, which
 	// the configuration may refer to through the data sources in

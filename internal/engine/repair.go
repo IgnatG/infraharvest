@@ -58,7 +58,7 @@ func rewrite(path string, edit func(f *hclwrite.File, syntax *hclsyntax.Body) bo
 	if err != nil {
 		return false, err
 	}
-	if !edit(f.file, f.syntax) {
+	if !edit(f.edit(), f.syntax) {
 		return false, nil
 	}
 	return true, f.save()

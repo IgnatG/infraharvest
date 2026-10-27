@@ -285,21 +285,14 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	// The root's gate knows the organisation's own modules root calls, as
 	// Verify's does, although staging calls none of them. Only staging's
 	// plan knew the secret values to look for: where root has the ones it
-	// found, its scanners don't run either.
+	// found, its secrets check fails and its scanners don't run either.
 	secrets := staged.check(CheckSecrets)
-	gate, err := gateWith(ctx, rootTF, root, opts, func() (Check, []string, error) {
-		return staged.check(CheckPlan), nil, nil
-	}, func() Check { return secrets })
+	policy := fullGate(opts)
+	policy.plan = func() (Check, []string, error) { return staged.check(CheckPlan), nil, nil }
+	policy.withheld = &secrets
+	gate, _, err := policy.run(ctx, rootTF, root)
 	if err != nil {
 		return nil, errors.Join(err, undo())
-	}
-	if !secrets.Passed {
-		for i := range gate {
-			if gate[i].Name == CheckSecrets {
-				gate[i].Passed = false
-				gate[i].Details = append(gate[i].Details, secrets.Details...)
-			}
-		}
 	}
 	result.Gate = gate
 	if err := os.RemoveAll(staging); err != nil {
@@ -476,7 +469,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		return nil, err
 	}
 	if staged != nil {
-		blocks := staged.file.Body().Blocks()
+		blocks := staged.edit().Body().Blocks()
 		for i, b := range staged.syntax.Blocks {
 			if b.Type != "data" || len(b.Labels) != 2 || i >= len(blocks) {
 				continue
@@ -491,7 +484,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 				data = append(data, blocks[i])
 				continue
 			}
-			for _, block := range generated.file.Body().Blocks() {
+			for _, block := range generated.edit().Body().Blocks() {
 				replaceTraversals(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
 			}
 		}
@@ -506,7 +499,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	own := ""
 	var names []string
 	blocksFor := map[string][]*hclwrite.Block{}
-	for _, b := range generated.file.Body().Blocks() {
+	for _, b := range generated.edit().Body().Blocks() {
 		name := fileOf[blockAddress(b)]
 		if name == "" {
 			if own == "" {
@@ -537,7 +530,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		return added, err
 	}
 	if imports != nil {
-		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.file.Body().Blocks()); err != nil {
+		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.edit().Body().Blocks()); err != nil {
 			return added, err
 		}
 	}
@@ -664,7 +657,7 @@ func stagedVariables(staging string, declared map[string][]string, generated *hc
 	if err != nil || staged == nil {
 		return nil, err
 	}
-	blocks := staged.file.Body().Blocks()
+	blocks := staged.edit().Body().Blocks()
 	var kept []*hclwrite.Block
 	for i, b := range staged.syntax.Blocks {
 		if i >= len(blocks) {
@@ -672,7 +665,7 @@ func stagedVariables(staging string, declared map[string][]string, generated *hc
 		}
 		if b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b) {
 			if replacement, ok := declared[declarationKey(b, staged.src)]; ok {
-				for _, block := range generated.file.Body().Blocks() {
+				for _, block := range generated.edit().Body().Blocks() {
 					replaceTraversals(block.Body(), []string{"var", b.Labels[0]}, replacement)
 				}
 				continue
@@ -715,7 +708,7 @@ func mergeLocals(staging, root string) error {
 		tokens hclwrite.Tokens
 	}
 	var added []local
-	for _, b := range staged.file.Body().Blocks() {
+	for _, b := range staged.edit().Body().Blocks() {
 		if b.Type() != "locals" {
 			continue
 		}
@@ -736,9 +729,9 @@ func mergeLocals(staging, root string) error {
 	}
 	var body *hclwrite.Body
 	if f == nil {
-		f = &hclFile{path: path, file: hclwrite.NewEmptyFile()}
+		f = newHCL(path)
 	} else {
-		for _, b := range f.file.Body().Blocks() {
+		for _, b := range f.edit().Body().Blocks() {
 			if b.Type() == "locals" {
 				body = b.Body()
 				break
@@ -746,7 +739,7 @@ func mergeLocals(staging, root string) error {
 		}
 	}
 	if body == nil {
-		body = f.file.Body().AppendNewBlock("locals", nil).Body()
+		body = f.edit().Body().AppendNewBlock("locals", nil).Body()
 	}
 	for _, l := range added {
 		body.SetAttributeRaw(l.name, l.tokens)
@@ -791,7 +784,7 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 	}
 	if providers != nil {
 		var blocks []*hclwrite.Block
-		for _, b := range providers.file.Body().Blocks() {
+		for _, b := range providers.edit().Body().Blocks() {
 			if b.Type() == "provider" && len(b.Labels()) == 1 && !configured[b.Labels()[0]] {
 				blocks = append(blocks, b)
 			}
@@ -805,7 +798,7 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 		return err
 	}
 	missing := map[string]hclwrite.Tokens{}
-	for _, b := range versions.file.Body().Blocks() {
+	for _, b := range versions.edit().Body().Blocks() {
 		if b.Type() != "terraform" {
 			continue
 		}
@@ -831,9 +824,9 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 		return err
 	}
 	if f == nil {
-		f = &hclFile{path: path, file: hclwrite.NewEmptyFile()}
+		f = newHCL(path)
 	}
-	body := requiredProvidersBody(f.file.Body())
+	body := requiredProvidersBody(f.edit().Body())
 	names := make([]string, 0, len(missing))
 	for name := range missing {
 		names = append(names, name)
@@ -900,16 +893,16 @@ func appendBlocks(path, header string, blocks []*hclwrite.Block) error {
 		return err
 	}
 	if f == nil {
-		f = &hclFile{path: path, file: hclwrite.NewEmptyFile()}
+		f = newHCL(path)
 		if header != "" {
-			f.file.Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(header)}})
+			f.edit().Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(header)}})
 		}
 	}
 	for _, b := range blocks {
-		if len(f.file.Body().Blocks()) > 0 || header != "" {
-			f.file.Body().AppendNewline()
+		if len(f.edit().Body().Blocks()) > 0 || header != "" {
+			f.edit().Body().AppendNewline()
 		}
-		f.file.Body().AppendBlock(b)
+		f.edit().Body().AppendBlock(b)
 	}
 	return f.save()
 }
@@ -924,15 +917,6 @@ func appendFile(path string, content []byte) error {
 		existing = append(bytes.TrimRight(existing, "\n"), '\n', '\n')
 	}
 	return fsutil.WriteFile(path, append(existing, content...), 0o644)
-}
-
-// loadOptionalHCL loads the file at path, or returns nil if there is none.
-func loadOptionalHCL(path string) (*hclFile, error) {
-	f, err := loadHCL(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	return f, err
 }
 
 // nextAddedFile returns the first of generated_2.tf, generated_3.tf and so

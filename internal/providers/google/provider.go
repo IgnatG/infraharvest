@@ -237,10 +237,11 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 	return p.projectName, p.region.Name, nil
 }
 
-// Profile describes Google Cloud: roots go under <out>/google/, with
-// --beta too; the services may list at once, as each has its own lister
-// and API clients, and they share only the rate limiter, which is safe
-// for concurrent use; resources take labels, which the provider's
+// Profile describes Google Cloud: an import covers a project; roots go
+// under <out>/google/, and terraform-google-modules are its curated
+// modules, with --beta too; the services may list at once, as each has
+// its own lister and API clients, and they share only the rate limiter,
+// which is safe for concurrent use; resources take labels, which the provider's
 // default_labels argument applies to all, and labels starting with goog-
 // are Google's own, such as goog-terraform-provisioned, which the
 // provider adds unless add_terraform_attribution_label is false: they
@@ -253,7 +254,15 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 // environments share reads the project from the provider.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
-		Command:            providerName,
+		Command: providerName,
+		Scope: harvest.Scope{
+			Noun:     "project",
+			Field:    "projects",
+			Needs:    []string{"projects", "organization", "folders"},
+			Describe: describeScope,
+		},
+		Modules:            providerName,
+		ModulesName:        "terraform-google-modules",
 		ConcurrentListing:  true,
 		DefaultTags:        &harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"},
 		EffectiveTags:      &harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"},
@@ -271,7 +280,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle: "Project",
 			ScopeData:  "google_client_config.current",
 			ScopeLocal: "project_id",
 			ScopeExpr:  "data.google_client_config.current.project",
@@ -279,9 +287,43 @@ func (*Provider) Profile() harvest.Profile {
 	}
 }
 
-// ModuleProviders configures google-beta, which some curated modules
-// create resources with, for the same project and region as the import.
+// describeScope says what the google command reads with flags: the
+// projects of --projects, and every active project of --organization and
+// --folders, in the regions of --regions, global by default as for the
+// command.
+func describeScope(flags map[string][]string) string {
+	var parts, owners []string
+	if projects := flags["projects"]; len(projects) > 0 {
+		parts = append(parts, "the google projects "+strings.Join(projects, ", "))
+	}
+	if organization := flags["organization"]; len(organization) > 0 {
+		owners = append(owners, "organization "+organization[0])
+	}
+	if folders := flags["folders"]; len(folders) > 0 {
+		owners = append(owners, "folders "+strings.Join(folders, ", "))
+	}
+	if len(owners) > 0 {
+		parts = append(parts, "every active google project of "+strings.Join(owners, " and of "))
+	}
+	regions := flags["regions"]
+	if len(regions) == 0 {
+		regions = []string{globalRegion}
+	}
+	return strings.Join(parts, " and ") + " in " + strings.Join(regions, ", ")
+}
+
+// ModuleProviders configures the counterpart of the root's provider,
+// which curated modules create resources with besides it, for the same
+// project and region as the import: google-beta, which some modules
+// name, for a root of google, and google, which every module's google_*
+// resources use unless they name google-beta, for a root of google-beta
+// (with --beta).
 func (p *Provider) ModuleProviders() map[string]harvest.ModuleProvider {
+	if p.providerType != "" {
+		return map[string]harvest.ModuleProvider{
+			providerName: {Source: "hashicorp/" + providerName, Config: p.providerConfig()},
+		}
+	}
 	return map[string]harvest.ModuleProvider{
 		"google-beta": {Source: "hashicorp/google-beta", Config: p.providerConfig()},
 	}

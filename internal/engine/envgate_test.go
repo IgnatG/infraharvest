@@ -205,7 +205,7 @@ func TestReadEnvRoot(t *testing.T) {
 		t.Errorf("default tags: %v", root.defaultTags)
 	}
 	// The local is put in: merging compares values.
-	if got := string(root.file.file.Bytes()); !strings.Contains(got, `name                       = "shop-prd-orders"`) {
+	if got := string(root.file.edit().Bytes()); !strings.Contains(got, `name                       = "shop-prd-orders"`) {
 		t.Errorf("the queue's name isn't the local's value:\n%s", got)
 	}
 	if blocks := dataBlocksOf(root.data); len(blocks) != 1 || blocks[0].address != "aws_vpc.shared" {
@@ -248,7 +248,7 @@ func TestReadEnvRootModuleSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(root.file.file.Bytes()); !strings.Contains(got, `"../../modules/sqs_queue_0123abcd"`) {
+	if got := string(root.file.edit().Bytes()); !strings.Contains(got, `"../../modules/sqs_queue_0123abcd"`) {
 		t.Errorf("the module's source isn't relative to the merged root:\n%s", got)
 	}
 }
@@ -571,7 +571,7 @@ func TestMergeRootsRefusesDataOfOneEnvironment(t *testing.T) {
 
 func TestReplaceLocals(t *testing.T) {
 	t.Parallel()
-	tokens := exprTokens(`merge(local.tags, { Name = local.name }, local.other)`)
+	tokens := parseExpr(`merge(local.tags, { Name = local.name }, local.other)`)
 	got := string(replaceLocals(tokens, map[string]cty.Value{"tags": cty.MapVal(map[string]cty.Value{"a": cty.StringVal("b")}), "name": cty.StringVal("x")}).Bytes())
 	if !strings.Contains(got, `"x"`) || !strings.Contains(got, "local.other") || strings.Contains(got, "local.tags") {
 		t.Errorf("got %s", got)
@@ -582,7 +582,7 @@ func TestReplaceLocals(t *testing.T) {
 // literal's source, does.
 func sameLiteral(tokens hclwrite.Tokens, want string) bool {
 	got, ok := literalValue(tokens)
-	value, wantOK := literalValue(exprTokens(want))
+	value, wantOK := literalValue(parseExpr(want))
 	return ok && wantOK && got.Equals(value).True()
 }
 
@@ -597,7 +597,7 @@ func TestMergedObject(t *testing.T) {
 		{`concat(["a"], ["b"])`, ""},
 		{`{ env = "dev" }`, ""},
 	} {
-		got, ok := mergedObject(exprTokens(tc.in))
+		got, ok := mergedObject(parseExpr(tc.in))
 		switch {
 		case tc.want == "" && ok:
 			t.Errorf("%s: folded into %s", tc.in, flatExpr(got))

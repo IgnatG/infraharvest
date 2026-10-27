@@ -971,6 +971,12 @@
         "persistent": false
       },
       {
+        "name": "rules",
+        "type": "file",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "terraform-path",
         "type": "string",
         "default": "",

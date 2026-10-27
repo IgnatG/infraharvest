@@ -18,7 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -41,18 +43,18 @@ type DriftOptions struct {
 	// path or a directory it is in. None checks every root.
 	Roots []string
 	// Rules decide which changes the next apply would revert to accept
-	// into the code, and which to keep (see DriftRule): the last that
-	// matches a change decides it, and a change none matches is kept.
-	// None edits nothing, as detection alone does. They decide after
-	// Decisions.
-	Rules []DriftRule
+	// into the code, and which to keep (see driftpolicy.Rule): the last
+	// that matches a change decides it, and a change none matches is
+	// kept. None edits nothing, as detection alone does. They decide
+	// after Decisions.
+	Rules []driftpolicy.Rule
 	// Decisions is a decisions file to decide the changes by (see
-	// DriftDecisions), or "" for none.
+	// driftpolicy.Decisions), or "" for none.
 	Decisions string
 	// WriteDecisions writes the run's changes into the decisions file,
-	// Decisions, or DefaultDriftDecisionsFile in Out without it, merged
-	// with what the file has (see DriftDecisions.Merge). Without
-	// Decisions, the file it merges into isn't applied.
+	// Decisions, or driftpolicy.DefaultDecisionsFile in Out without it,
+	// merged with what the file has (see driftpolicy.Decisions.Merge).
+	// Without Decisions, the file it merges into isn't applied.
 	WriteDecisions bool
 	// WriteDecisionsTo, if not "", is the file WriteDecisions writes. One
 	// Decisions doesn't name isn't applied, so that a decisions file kept
@@ -73,6 +75,11 @@ type DriftOptions struct {
 	// (see rootProvider).
 	Provider func(name string) harvest.Provider
 	Names    []string
+	// Modules are the organisation's own modules, as the import's
+	// configuration file lists them: the checks of an accepted change's
+	// edited code leave those in directories to their owners, as the
+	// import's verification gate does (see engine.DriftOptions.Adapters).
+	Modules []config.Module
 
 	// check checks one root, in place of the engine, for tests.
 	check driftCheck
@@ -107,19 +114,19 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftCatalogue(options); err != nil {
 		return err
 	}
-	decider := driftDecider{rules: options.Rules}
+	decider := driftpolicy.Decider{Rules: options.Rules}
 	if options.Decisions != "" {
-		f, err := LoadDriftDecisions(options.Decisions)
+		f, err := driftpolicy.LoadDecisions(options.Decisions)
 		if err != nil {
 			return fmt.Errorf("--decisions: %w", err)
 		}
-		decider.file = f
+		decider.Decisions = f
 	}
 	// What --write-decisions merges into is read first, so that a file it
 	// can't merge into fails the run before any root is refreshed.
-	var merge *DriftDecisions
+	var merge *driftpolicy.Decisions
 	if options.WriteDecisions {
-		m, err := decisionsToMerge(options, decider.file)
+		m, err := decisionsToMerge(options, decider.Decisions)
 		if err != nil {
 			return err
 		}
@@ -159,6 +166,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 			return err
 		}
 	}
+	own := driftAdapters(ctx, options.Modules)
 
 	results := make([]report.DriftRoot, len(targets))
 	changes := make([][]report.DriftChange, len(targets))
@@ -175,7 +183,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 				return
 			}
 			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, target)
+			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, own, target)
 		}()
 	}
 	wg.Wait()
@@ -242,7 +250,7 @@ func checkDriftOptions(options DriftOptions) error {
 		}
 	}
 	for _, r := range options.Rules {
-		if _, err := ParseDriftRule(r.String(), r.Accept); err != nil {
+		if _, err := driftpolicy.ParseRule(r.String(), r.Accept); err != nil {
 			return err
 		}
 	}
@@ -373,32 +381,54 @@ func driftTargets(roots, envs []string) ([]driftTarget, error) {
 	return targets, nil
 }
 
+// driftAdapters returns the adapters of those of modules, the
+// organisation's own, that are directories (see fetchAdapters): the
+// checks of the edited code leave only those to their owners (see
+// engine.DriftOptions.Adapters), so drift doesn't fetch the others, from
+// git or a registry, as the import does.
+func driftAdapters(ctx context.Context, modules []config.Module) []adapters.Adapter {
+	var local []config.Module
+	for _, m := range modules {
+		if config.IsLocalModule(m.Source) {
+			local = append(local, m)
+		}
+	}
+	// A directory is no other provider's (see forOtherProvider): the
+	// adapters of each root's provider are picked from these by their
+	// resources (see catalogueAdapters).
+	return fetchAdapters(ctx, "", "", "", local)
+}
+
 // checkDriftRoot checks the root of target, staged under the output
-// directory's checkpoints, which .gitignore excludes, and returns it and
-// its changes as the report has them.
-func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDecider, check driftCheck, target driftTarget) (report.DriftRoot, []report.DriftChange) {
+// directory's checkpoints, which .gitignore excludes, with own, the
+// adapters of the organisation's modules, and returns it and its changes
+// as the report has them.
+func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpolicy.Decider, check driftCheck, own []adapters.Adapter, target driftTarget) (report.DriftRoot, []report.DriftChange) {
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel, Environment: env}
-	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env, RootLock: target.lock}
-	// The decisions taken, by change, for the report to say where each
-	// came from. Accept is called for one change at a time.
-	decided := newDecidedDrift()
-	if decider.active() {
-		opts.Accept = func(c engine.DriftChange) bool {
-			d := decider.decideIn(rel, env, c)
-			decided.record(c, d)
-			return d.accept
-		}
-	}
+	var opts engine.DriftOptions
 	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
 		cat, err := providerCatalogue(provider, options.Catalogue)
 		if err != nil {
 			root.Error = err.Error()
 			return root, nil
 		}
-		v := lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider)
-		opts.StateOnly, opts.Defaults, opts.Omit = cat.StateOnlyFor(v), cat.DefaultsFor(v), cat.OmitFor(v)
+		opts = cat.DriftOptions(lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
+		// As the import passes its provider's modules alone (see
+		// Run.toolchain).
+		own = catalogueAdapters(own, provider.Name())
+	}
+	opts.CommandTimeout, opts.Environment, opts.RootLock, opts.Adapters = options.EngineTimeout, env, target.lock, own
+	// The decisions taken, by change, for the report to say where each
+	// came from. Accept is called for one change at a time.
+	decided := newDecidedDrift()
+	if decider.Active() {
+		opts.Accept = func(c engine.DriftChange) bool {
+			d := decider.Decide(reportDriftChange(rel, env, c))
+			decided.record(c, d)
+			return d.Accept
+		}
 	}
 	result, err := check(ctx, dir, driftStagingDir(options.Out, root.Name()), opts)
 	if err != nil {
@@ -413,19 +443,25 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 		if c.Decision == engine.DriftAccept {
 			decision = report.DriftAccept
 		}
-		rc := report.DriftChange{
-			Root: rel, Environment: env, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
-			Before: c.Before, After: c.After, Kind: c.Kind, Decision: decision, Outcome: c.Outcome, Reason: c.Reason,
-			ForcesReplacement: c.ForcesReplacement, Covers: c.Covers,
-		}
-		d := decided.of(c, func() driftDecision { return decider.decideIn(rel, env, c) })
-		rc.DecisionSource, rc.DecisionStale = d.source, d.stale
+		rc := reportDriftChange(rel, env, c)
+		rc.Decision, rc.Outcome, rc.Reason, rc.ForcesReplacement = decision, c.Outcome, c.Reason, c.ForcesReplacement
+		d := decided.of(c, func() driftpolicy.Decision { return decider.Decide(rc) })
+		rc.DecisionSource, rc.DecisionStale = d.Source, d.Stale
 		if c.Source != nil {
 			rc.Source = &report.DriftSource{File: c.Source.File, Line: c.Source.Line, Expression: c.Source.Expression, ModulePath: c.Source.ModulePath}
 		}
 		changes = append(changes, rc)
 	}
 	return root, changes
+}
+
+// reportDriftChange is c, a change of the root at rel as environment env,
+// as the report has it, before it is decided.
+func reportDriftChange(rel, env string, c engine.DriftChange) report.DriftChange {
+	return report.DriftChange{
+		Root: rel, Environment: env, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
+		Before: c.Before, After: c.After, Kind: c.Kind, Covers: c.Covers,
+	}
 }
 
 // driftStagingDir is where Drift stages the root at rel, or, for a root

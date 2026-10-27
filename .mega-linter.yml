@@ -15,8 +15,9 @@ APPLY_FIXES: none
 
 # Exactly these linters run; the flavour's others are off (see below).
 ENABLE_LINTERS:
-  # Go: golangci-lint with .golangci.json (gocritic, revive, unconvert,
-  # unparam, the standard linters, and the gofmt and goimports formatters).
+  # Go: golangci-lint with .golangci.json (depguard, gocritic, revive,
+  # unconvert, unparam, the standard linters, and the gofmt and goimports
+  # formatters).
   - GO_GOLANGCI_LINT
   # Workflows: actionlint (with shellcheck on each run: script) and zizmor,
   # which audits them for security.

@@ -55,9 +55,11 @@ type Adapter struct {
 	// aws_s3_bucket.this or module.vpc.google_compute_network.network: a
 	// release that no longer declares one doesn't fit the adapter.
 	Targets []string
-	// Providers are the providers the module uses besides the root's, such
-	// as google-beta, which the root configures as its own provider: for
-	// the same project or subscription.
+	// Providers are the providers the module uses that may not be the
+	// root's own, such as google and google-beta, of which google --beta's
+	// root has only google-beta: the root configures each it doesn't
+	// have as its own provider, for the same project or subscription.
+	// Generic reads them from the module itself.
 	Providers []string
 	// Map returns the module call for a cluster, or a *Decline.
 	Map func(Cluster) (*Call, error)

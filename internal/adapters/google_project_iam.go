@@ -21,16 +21,17 @@ import (
 // and grants with a role or member that isn't literal, such as a
 // reference, stay in the root: the module's keys spell them out.
 var GoogleProjectIAM = Adapter{
-	Source:   "terraform-google-modules/iam/google//modules/projects_iam",
-	Version:  "8.3.0",
-	Anchor:   "google_project_iam_member",
-	Members:  []string{"google_project_iam_member"},
-	Repeated: []string{"google_project_iam_member"},
-	Group:    grantProject,
-	Inputs:   []string{"bindings", "conditional_bindings", "projects"},
-	Outputs:  []string{"members", "projects", "roles"},
-	Targets:  []string{"google_project_iam_member.project_iam_additive"},
-	Map:      mapGoogleProjectIAM,
+	Source:    "terraform-google-modules/iam/google//modules/projects_iam",
+	Version:   "8.3.0",
+	Anchor:    "google_project_iam_member",
+	Members:   []string{"google_project_iam_member"},
+	Repeated:  []string{"google_project_iam_member"},
+	Group:     grantProject,
+	Inputs:    []string{"bindings", "conditional_bindings", "projects"},
+	Outputs:   []string{"members", "projects", "roles"},
+	Providers: []string{"google"},
+	Targets:   []string{"google_project_iam_member.project_iam_additive"},
+	Map:       mapGoogleProjectIAM,
 }
 
 // grantProject groups a grant with a literal role and member by its

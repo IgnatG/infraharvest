@@ -69,7 +69,7 @@ func retryFallbacks(ctx context.Context, tf Terraform, dir string, imports []Imp
 	}
 	for _, r := range generated.resources() {
 		if slices.Contains(retried, r.address) {
-			generated.file.Body().RemoveBlock(r.write)
+			generated.edit().Body().RemoveBlock(r.write)
 		}
 	}
 	for _, imp := range importsFile.imports() {

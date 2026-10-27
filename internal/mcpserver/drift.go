@@ -13,11 +13,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -29,6 +30,8 @@ const driftExitHelp = "Exit code 0 means no drift is left, 4 that changes are le
 type DriftInput struct {
 	Out    string `json:"out" jsonschema:"the output directory of an import, whose roots were applied"`
 	Engine string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
+	// Config is --config, checked as the other paths are.
+	Config string `json:"config,omitempty" jsonschema:"a configuration file, as --config takes it, that sets engine or engine-timeout under settings, which apply where not given here; a file that sets anything else, such as the import's scope, backend or environments, is refused"`
 	// Roots are --root patterns.
 	Roots []string `json:"roots,omitempty" flag:"root,each" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
 	// Parallel is --parallel, 0 for its default.
@@ -46,12 +49,13 @@ type DriftInput struct {
 // DriftAcceptInput is the drift_accept tool's input.
 type DriftAcceptInput struct {
 	DriftInput
-	// Accept and Keep are --accept and --keep rules: every Accept rule
-	// comes first, so that a Keep rule decides a change both match.
-	Accept []string `json:"accept,omitempty" flag:"accept,each" jsonschema:"rules of the changes to accept into the code: all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as attribute=tags.*"`
-	Keep   []string `json:"keep,omitempty" flag:"keep,each" jsonschema:"rules of the changes to keep the code's values of, which the next apply puts back, as accept takes them; they come after the accept rules, so that a keep rule decides a change both match"`
+	// Rules are accept and keep rules, in order, each as a line of drift's
+	// --rules file takes it (see driftpolicy.ParseRuleLine): they become
+	// --accept and --keep flags in that order, so that the last that
+	// matches a change decides, as on the command line.
+	Rules []string `json:"rules,omitempty" jsonschema:"rules of the changes to accept into the code, or to keep the code's values of, which the next apply puts back, in order, the last that matches a change deciding: each accept or keep, then all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as accept attribute=tags.* or keep type=aws_security_group; a rule alone is accepted"`
 	// Decisions is --decisions.
-	Decisions string `json:"decisions,omitempty" jsonschema:"a decisions file to decide the changes by, such as one write_decisions wrote and the user edited: each change's entry, else its rules and defaults; accept and keep decide after it"`
+	Decisions string `json:"decisions,omitempty" jsonschema:"a decisions file to decide the changes by, such as one write_decisions wrote and the user edited: each change's entry, else its rules and defaults; rules decide after it"`
 	// WriteDecisions is --write-decisions.
 	WriteDecisions bool `json:"write_decisions,omitempty" flag:"write-decisions" jsonschema:"write the run's changes into the decisions file, decisions or drift.yaml in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped"`
 }
@@ -92,47 +96,54 @@ const driftConfirmation = "confirm_drift"
 
 // driftArgs checks the paths of in and returns the arguments of drift
 // without the flags of a tool's input (see flagArgs), nor the output
-// directory, which goes last. in.Out is set to the path to use.
-func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
+// directory, which goes last, with the configuration file in, if any,
+// which the caller removes (see loadConfig), checked for tool, the drift
+// tool calling it. in.Out is set to the path to use.
+func (t *tools) driftArgs(tool string, in *DriftInput) ([]string, *toolConfig, error) {
 	if in.Out == "" {
-		return nil, errors.New("out is required")
+		return nil, nil, errors.New("out is required")
 	}
 	out, err := t.within("out", in.Out)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	in.Out = out
 	// drift initialises the roots, stages copies of them, and writes the
 	// report and edits there.
 	if err := t.linksStayUnder("out", in.Out); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	args := []string{"drift", "--format=json", "--detailed-exitcode"}
 	if in.Catalogue != "" {
 		catalogue, err := t.within("catalogue", in.Catalogue)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		// drift reads every file under it.
 		if err := t.linksStayUnder("catalogue", catalogue); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		args = append(args, "--catalogue="+catalogue)
 	}
-	return args, nil
-}
-
-func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput) (*mcp.CallToolResult, *DriftResult, error) {
-	args, err := t.driftArgs(&in)
+	config, err := t.loadConfig(&in.Config, configUse{tool: tool})
 	if err != nil {
 		return nil, nil, err
 	}
+	return append(args, config.flag()...), config, nil
+}
+
+func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput) (*mcp.CallToolResult, *DriftResult, error) {
+	args, config, err := t.driftArgs("drift", &in)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer config.remove()
 	flags, err := flagArgs(in)
 	if err != nil {
 		return nil, nil, err
 	}
 	args = append(args, flags...)
-	d, code, failed, err := t.runDrift(ctx, append(args, "--", in.Out), "drift")
+	d, code, failed, err := t.runDrift(ctx, config.run(append(args, "--", in.Out)), "drift")
 	if err != nil || failed != nil {
 		return failed, nil, err
 	}
@@ -141,10 +152,11 @@ func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput
 }
 
 func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in DriftAcceptInput) (*mcp.CallToolResult, *DriftResult, error) {
-	args, err := t.driftArgs(&in.DriftInput)
+	args, config, err := t.driftArgs("drift_accept", &in.DriftInput)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer config.remove()
 	// The flags of the check without the rules and the decisions file,
 	// whose changes the confirmation counts, and then with them.
 	detectFlags, err := flagArgs(in.DriftInput)
@@ -155,29 +167,27 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	if err != nil {
 		return nil, nil, err
 	}
-	detect := append(slices.Clone(args), detectFlags...)
-	args = append(args, flags...)
-	// Parsed here too, for the confirmation to count what they accept.
-	rules, err := parseDriftRules(in.Accept, in.Keep)
+	// Parsed here, for the confirmation to count what they accept, and
+	// passed on as --accept and --keep flags in their order.
+	rules, ruleFlags, err := parseDriftRules(in.Rules)
 	if err != nil {
 		return nil, nil, err
 	}
+	detect := append(slices.Clone(args), detectFlags...)
+	args = append(append(args, flags...), ruleFlags...)
 	if len(rules) == 0 && in.Decisions == "" && !in.WriteDecisions {
-		return nil, nil, errors.New("set accept, keep, decisions or write_decisions; to only check, call drift")
+		return nil, nil, errors.New("set rules, decisions or write_decisions; to only check, call drift")
 	}
-	target := filepath.Join(in.Out, importer.DefaultDriftDecisionsFile)
+	target := filepath.Join(in.Out, driftpolicy.DefaultDecisionsFile)
 	var content []byte
-	var decisions *importer.DriftDecisions
+	var decisions *driftpolicy.Decisions
 	if in.Decisions != "" {
-		if in.Decisions, err = t.within("decisions", in.Decisions); err != nil {
-			return nil, nil, err
-		}
 		// Read once: the user confirms these bytes, as for an import's
 		// selection file.
-		if content, err = os.ReadFile(in.Decisions); err != nil {
+		if in.Decisions, content, err = t.readWithin("decisions", in.Decisions); err != nil {
 			return nil, nil, err
 		}
-		if decisions, err = importer.ParseDriftDecisions(in.Decisions, content); err != nil {
+		if decisions, err = driftpolicy.ParseDecisions(in.Decisions, content); err != nil {
 			return nil, nil, err
 		}
 		target = in.Decisions
@@ -187,10 +197,10 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 			return nil, nil, err
 		}
 	}
-	if !slices.ContainsFunc(rules, func(r importer.DriftRule) bool { return r.Accept }) && in.Decisions == "" {
+	if !slices.ContainsFunc(rules, func(r driftpolicy.Rule) bool { return r.Accept }) && in.Decisions == "" {
 		// Only keep rules, or only the decisions file to write: no code is
 		// written, so there is nothing for the user to confirm.
-		return t.finishDrift(ctx, append(args, "--", in.Out), in, target, nil, nil)
+		return t.finishDrift(ctx, config.run(append(args, "--", in.Out)), in, target, nil, nil)
 	}
 	shown := slices.Clone(args)
 	if in.Decisions != "" {
@@ -199,18 +209,18 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	shown = append(shown, "--", in.Out)
 
 	// A person confirms what is written into the code, as for an import.
-	state := confirmationState(shown, content)
+	state := confirmationState(shown, content, config.sum())
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {
 			return errorResult(fmt.Sprintf("The user has to confirm taking changes in the cloud into the code, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", shellJoin(shown))), nil, nil
 		}
 		// The counts to confirm come from a run without the rules and the
 		// decisions file, which changes no code.
-		d, _, failed, err := t.runDrift(ctx, append(detect, "--", in.Out), "The check before asking the user")
+		d, _, failed, err := t.runDrift(ctx, config.run(append(detect, "--", in.Out)), "The check before asking the user")
 		if err != nil || failed != nil {
 			return failed, nil, err
 		}
-		message := driftConfirmationMessage(in, target, d, importer.PreviewDrift(decisions, rules, d.Changes))
+		message := driftConfirmationMessage(in, target, config, d, driftpolicy.Decider{Decisions: decisions, Rules: rules}.Preview(d.Changes))
 		t.issue(state)
 		return &mcp.CallToolResult{
 			InputRequests: mcp.InputRequestMap{driftConfirmation: &mcp.ElicitParams{
@@ -226,48 +236,53 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 		return errorResult("The user didn't confirm taking changes in the cloud into the code, so the code wasn't changed."), nil, nil
 	}
 	if in.Decisions == "" {
-		return t.finishDrift(ctx, shown, in, target, nil, nil)
+		return t.finishDrift(ctx, config.run(shown), in, target, nil, nil)
 	}
 	snapshot, err := newSnapshot(filepath.Base(in.Decisions), content)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer snapshot.remove()
-	return t.finishDrift(ctx, append(args, "--decisions="+snapshot.path, "--", in.Out), in, target, snapshot, content)
+	return t.finishDrift(ctx, config.run(append(args, "--decisions="+snapshot.path, "--", in.Out)), in, target, snapshot, content)
 }
 
-// parseDriftRules parses the accept rules, then the keep rules, as
-// --accept and --keep take them, with the parser drift has.
-func parseDriftRules(accept, keep []string) ([]importer.DriftRule, error) {
-	var rules []importer.DriftRule
-	for _, list := range []struct {
-		rules  []string
-		accept bool
-	}{{accept, true}, {keep, false}} {
-		for _, s := range list.rules {
-			r, err := importer.ParseDriftRule(s, list.accept)
-			if err != nil {
-				return nil, err
-			}
-			rules = append(rules, r)
+// parseDriftRules parses rules, accept and keep rules in order, with the
+// parser drift's --rules file has, and returns them with the --accept and
+// --keep flags that pass them on in that order. A rule with a control
+// character, such as a newline, which could make the confirmation the
+// user is shown say something else, is rejected.
+func parseDriftRules(rules []string) ([]driftpolicy.Rule, []string, error) {
+	parsed := make([]driftpolicy.Rule, 0, len(rules))
+	flags := make([]string, 0, len(rules))
+	for _, s := range rules {
+		if strings.ContainsFunc(s, unicode.IsControl) {
+			return nil, nil, fmt.Errorf("rules %q has a control character", s)
 		}
+		r, err := driftpolicy.ParseRuleLine(s)
+		if err != nil {
+			return nil, nil, err
+		}
+		flag := "--keep="
+		if r.Accept {
+			flag = "--accept="
+		}
+		parsed = append(parsed, r)
+		flags = append(flags, flag+r.String())
 	}
-	return rules, nil
+	return parsed, flags, nil
 }
 
 // driftConfirmationMessage asks the user to confirm in, saying how many
 // of the changes d, a run without the rules and the decisions file,
-// found that they would accept, as p counts them.
-func driftConfirmationMessage(in DriftAcceptInput, target string, d *report.Drift, p importer.DriftPreview) string {
+// found that they would accept, as p counts them, and what config, the
+// configuration file, if any, sets.
+func driftConfirmationMessage(in DriftAcceptInput, target string, config *toolConfig, d *report.Drift, p driftpolicy.Preview) string {
 	var by []string
 	if in.Decisions != "" {
 		by = append(by, fmt.Sprintf("the decisions file %q", in.Decisions))
 	}
-	if len(in.Accept) > 0 {
-		by = append(by, "the accept rules "+quoteAll(in.Accept))
-	}
-	if len(in.Keep) > 0 {
-		by = append(by, "the keep rules "+quoteAll(in.Keep))
+	if len(in.Rules) > 0 {
+		by = append(by, "the rules "+quoteAll(in.Rules)+", the last that matches a change deciding,")
 	}
 	message := fmt.Sprintf("Take changes in the cloud into the Terraform code of the roots in %q? A check just now found %d changes the next apply would revert: %s accept %d of them, written into the roots' files, and keep %d, which the next apply puts back.",
 		in.Out, p.Accept+p.Keep, strings.Join(by, ", then "), p.Accept, p.Keep)
@@ -278,6 +293,7 @@ func driftConfirmationMessage(in DriftAcceptInput, target string, d *report.Drif
 		message += fmt.Sprintf(" %d roots couldn't be checked.", d.Totals.Failed)
 	}
 	message += " An edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing; secrets are never written, and changes that take a hand edit are reported instead."
+	message += config.message()
 	if in.WriteDecisions {
 		message += fmt.Sprintf(" The run's changes are then written into the decisions file %q.", target)
 	}

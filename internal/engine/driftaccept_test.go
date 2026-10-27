@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -468,5 +469,34 @@ module "own" {
 
 	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten {
 		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
+	}
+}
+
+// A plan that rejects none of a round's edits, run as drift's verifier
+// runs it, rejects them all by the plan, with a reason.
+func TestPlanRejectionBlamesTheRoundsEdits(t *testing.T) {
+	t.Parallel()
+	a, b, other := &DriftChange{Address: "aws_s3_bucket.a"}, &DriftChange{Address: "aws_s3_bucket.b"}, &DriftChange{Address: "aws_s3_bucket.other"}
+	dropped := map[*DriftChange]driftRejection{}
+	passed, err := verifier[*DriftChange, driftRejection]{
+		edit: func(context.Context) ([]*DriftChange, error) {
+			if len(dropped) > 0 {
+				return nil, nil
+			}
+			return []*DriftChange{a, b}, nil
+		},
+		verify: func(context.Context) (*verdict[*DriftChange, driftRejection], error) {
+			return planRejection(map[*DriftChange]string{other: "the plan of the edited code still changes tags.Env"}), nil
+		},
+		drop:     func(blamed map[*DriftChange]driftRejection) { maps.Copy(dropped, blamed) },
+		blameAll: true,
+		rounds:   2,
+	}.run(context.Background())
+	if err != nil || passed {
+		t.Fatalf("passed %v, err %v", passed, err)
+	}
+	want := driftRejection{DriftRejectedByPlan, "the plan of the edited code doesn't take the edits"}
+	if !reflect.DeepEqual(dropped, map[*DriftChange]driftRejection{a: want, b: want}) {
+		t.Errorf("dropped %+v, want a and b with %+v", dropped, want)
 	}
 }

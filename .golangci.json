@@ -17,6 +17,7 @@
   "linters": {
     "default": "standard",
     "enable": [
+      "depguard",
       "gocritic",
       "revive",
       "unconvert",
@@ -30,6 +31,219 @@
         "legacy",
         "std-error-handling"
       ]
+    },
+    "settings": {
+      "depguard": {
+        "rules": {
+          "engine": {
+            "files": [
+              "**/internal/engine/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers",
+                "desc": "the engine runs Terraform for any provider and never sees a lister"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/harvest",
+                "desc": "the engine takes import blocks, not listed resources; harvest is the listers' API"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the importer drives the engine, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the engine knows nothing of commands or flags"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "the engine knows nothing of the MCP server"
+              }
+            ]
+          },
+          "harvest": {
+            "files": [
+              "**/internal/harvest/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/report",
+                "desc": "harvest is the API listers implement; the report is the importer's"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/engine",
+                "desc": "harvest lists and never runs Terraform"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the importer drives harvest, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers",
+                "desc": "providers implement harvest; harvest knows none of them"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "harvest knows nothing of commands or flags"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "harvest knows nothing of the MCP server"
+              }
+            ]
+          },
+          "providers": {
+            "files": [
+              "**/internal/providers/**/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "listers are registered by internal/cli/providers and never reach back into the commands"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "listers know nothing of the MCP server"
+              }
+            ]
+          },
+          "providers-code": {
+            "files": [
+              "**/internal/providers/**/*.go",
+              "!$test"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "listers implement harvest; the importer drives them, not the other way round"
+              }
+            ]
+          },
+          "aws": {
+            "files": [
+              "**/internal/providers/aws/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/azure",
+                "desc": "each provider stands alone, so that -tags minimal,aws builds one SDK"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/google",
+                "desc": "each provider stands alone, so that -tags minimal,aws builds one SDK"
+              }
+            ]
+          },
+          "azure": {
+            "files": [
+              "**/internal/providers/azure/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/aws",
+                "desc": "each provider stands alone, so that -tags minimal,azure builds one SDK"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/google",
+                "desc": "each provider stands alone, so that -tags minimal,azure builds one SDK"
+              }
+            ]
+          },
+          "google": {
+            "files": [
+              "**/internal/providers/google/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/aws",
+                "desc": "each provider stands alone, so that -tags minimal,google builds one SDK"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/azure",
+                "desc": "each provider stands alone, so that -tags minimal,google builds one SDK"
+              }
+            ]
+          },
+          "mcpserver": {
+            "files": [
+              "**/internal/mcpserver/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers/",
+                "desc": "the MCP server reads the providers compiled in through internal/cli/providers, never a lister directly"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the MCP server runs the infraharvest binary for imports and drift; it reads drift's rules and decisions through internal/driftpolicy"
+              }
+            ]
+          },
+          "driftpolicy": {
+            "files": [
+              "**/internal/driftpolicy/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the importer applies what driftpolicy decides, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the commands use driftpolicy, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "driftpolicy knows nothing of the MCP server"
+              }
+            ]
+          },
+          "config": {
+            "files": [
+              "**/internal/config/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers",
+                "desc": "config.Load takes the providers' profiles from its caller; it can't import the providers"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the configuration file is read by the commands, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "the configuration file knows nothing of the MCP server"
+              }
+            ]
+          },
+          "selection-report": {
+            "files": [
+              "**/internal/selection/*.go",
+              "**/internal/report/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the importer uses the selection and the report, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/providers",
+                "desc": "the selection and the report read listed resources through harvest, not a provider's code"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the selection and the report know nothing of commands or flags"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "the selection and the report know nothing of the MCP server"
+              }
+            ]
+          }
+        }
+      }
     }
   },
   "issues": {

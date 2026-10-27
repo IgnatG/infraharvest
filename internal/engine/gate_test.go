@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -434,25 +435,264 @@ func TestScannersDontSeeSecrets(t *testing.T) {
 }
 
 // A gate interrupted part way fails as cancelled, not with the checks
-// that were cut short.
+// that were cut short, nor with the failure it stopped at.
 func TestGateCancelled(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+	for _, tc := range []struct {
+		name   string
+		policy func(cancel func()) gatePolicy
+	}{
+		{"every check", func(cancel func()) gatePolicy {
+			return gatePolicy{plan: func() (Check, []string, error) {
+				cancel() // as an interrupt while the plan runs
+				return Check{Name: CheckPlan, Passed: true}, nil, nil
+			}}
+		}},
+		{"stopped at a failure", func(cancel func()) gatePolicy {
+			cancel() // as an interrupt while fmt runs
+			return gatePolicy{checks: []string{CheckFormat, CheckValidate}, diff: true, edited: []string{GeneratedFileName}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 `)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tf := &fakeTerraform{dir: dir}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var calls []string
+			tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
 
-	_, err := gateWith(ctx, tf, dir, Options{}, func() (Check, []string, error) {
-		cancel() // as an interrupt while the plan runs
-		return Check{Name: CheckPlan, Passed: true}, nil, nil
-	}, nil)
+			_, _, err := tc.policy(cancel).run(ctx, tf, dir)
 
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("want the cancellation, got %v", err)
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("want the cancellation, got %v", err)
+			}
+		})
+	}
+}
+
+// The gate reports its checks in the same order whichever policy it
+// runs: the scanners before the secrets check that holds them back.
+func TestGateCheckOrder(t *testing.T) {
+	t.Parallel()
+	all := []string{CheckFormat, CheckValidate, CheckPlan, CheckStandards, CheckMoves, CheckScanners, CheckSecrets, CheckDeterminism}
+	for _, tc := range []struct {
+		name   string
+		checks []string
+		want   []string
+	}{
+		{"every check", nil, all},
+		{"drift's", []string{CheckSecrets, CheckMoves, CheckStandards, CheckValidate, CheckFormat}, []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets}},
+		{"a baseline's", []string{CheckStandards, CheckMoves}, []string{CheckStandards, CheckMoves}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+`)
+			policy := gatePolicy{checks: tc.checks, plan: func() (Check, []string, error) {
+				return Check{Name: CheckPlan, Passed: true}, nil, nil
+			}}
+			gate, _, err := policy.run(context.Background(), &fakeTerraform{dir: dir}, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, c := range gate {
+				names = append(names, c.Name)
+			}
+			if !reflect.DeepEqual(names, tc.want) {
+				t.Errorf("checks: got %v, want %v", names, tc.want)
+			}
+		})
+	}
+}
+
+// The scanners never run while a file holds a secret value: one the
+// gate's plan marks sensitive, one another plan of the directory does,
+// or one a secrets check the gate doesn't run found.
+func TestGateWithholdsScanners(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-value"
+	plan := func(values ...string) func() (Check, []string, error) {
+		return func() (Check, []string, error) { return Check{Name: CheckPlan, Passed: true}, values, nil }
+	}
+	staged := Check{Name: CheckSecrets, Details: []string{"generated.tf: contains a value the provider marks sensitive"}}
+	for _, tc := range []struct {
+		name    string
+		policy  gatePolicy
+		ran     bool
+		details []string // the scanners' check's, when held back
+		secrets bool     // whether the gate's secrets check passes
+	}{
+		{"clean", gatePolicy{plan: plan(), others: []gatePlan{{name: "environment b", run: plan("not-in-a-file")}}}, true, nil, true},
+		{"the gate's plan", gatePolicy{plan: plan(secret)}, false, []string{"not run, as " + CheckSecrets + " found secret values"}, false},
+		{"another plan", gatePolicy{plan: plan(), others: []gatePlan{{name: "environment b", run: plan(secret)}}}, false, []string{"not run, as " + CheckSecrets + " found secret values", "environment b"}, true},
+		{"withheld", gatePolicy{plan: plan(), withheld: &staged}, false, append([]string{"not run, as " + CheckSecrets + " found secret values"}, staged.Details...), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags       = { Name = "`+secret+`" }
+}
+`)
+			ran := false
+			policy := tc.policy
+			policy.scanners = []Scanner{{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+				ran = true
+				return nil, nil
+			}}}
+			gate, others, err := policy.run(context.Background(), &fakeTerraform{dir: dir}, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ran != tc.ran {
+				t.Errorf("scanners ran: %t, want %t", ran, tc.ran)
+			}
+			if c := gate.check(CheckScanners); !tc.ran && (!c.Skipped || !reflect.DeepEqual(c.Details, tc.details)) {
+				t.Errorf("scanners: %+v, want skipped with %v", c, tc.details)
+			}
+			if c := gate.check(CheckSecrets); c.Passed != tc.secrets {
+				t.Errorf("secrets: %+v, want passed %t", c, tc.secrets)
+			}
+			if len(others) != len(policy.others) {
+				t.Fatalf("got %d other gates, want %d", len(others), len(policy.others))
+			}
+			for i, other := range others {
+				names := []string{other[0].Name, other[1].Name}
+				if !reflect.DeepEqual(names, []string{CheckPlan, CheckSecrets}) || other[1].Passed != tc.ran {
+					t.Errorf("gate of %s: %+v", policy.others[i].name, other)
+				}
+			}
+		})
+	}
+}
+
+// A gate that blames edited files fails only on what the edits add to
+// the findings before them, names the files it blames, and stops at the
+// first check that fails: what drift's rejected_by_check reports.
+func TestGateBlamesEditedFiles(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-value"
+	held := `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags       = { Name = "` + secret + `" }
+}
+`
+	const badMove = `moved {
+  from = aws_subnet.a
+  to   = aws_subnet.missing
+}
+`
+	for _, tc := range []struct {
+		name        string
+		unformatted []string
+		edits       map[string][2]string // by file, what it held before and holds now
+		want        string               // the check that fails, with what it found; "" if none
+		files       []string
+	}{
+		{"an edited file unformatted", []string{"main.tf", "other.tf"}, map[string][2]string{"main.tf": {"", ""}}, CheckFormat + ": main.tf isn't formatted", []string{"main.tf"}},
+		{"another file unformatted", []string{"other.tf"}, map[string][2]string{"main.tf": {"", ""}}, "", nil},
+		{"a moved block added", nil, map[string][2]string{"main.tf": {"", badMove}}, CheckMoves + ": main.tf:1: moved block to aws_subnet.missing, which the root doesn't declare, and no removed block takes", []string{"main.tf"}},
+		{"a secret kept", nil, map[string][2]string{"secret.tf": {held, held}}, "", nil},
+		{"a secret added", nil, map[string][2]string{"secret.tf": {held, held}, "z.tf": {"", held}}, CheckSecrets + ": z.tf would hold a secret", []string{"z.tf"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, movesCheckConfig)
+			if err := os.MkdirAll(filepath.Join(dir, "modules", "network"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// A finding the root has already doesn't fail the edits.
+			writeConfig(t, dir, MovesFileName, strings.NewReplacer("aws_subnet.a", "aws_subnet.z", "missing", "elsewhere").Replace(badMove))
+			var calls []string
+			tf := &fakeDriftTerraform{calls: &calls, unformatted: tc.unformatted}
+			baseline, _, err := gatePolicy{checks: []string{CheckStandards, CheckMoves}}.run(context.Background(), tf, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := gatePolicy{
+				checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
+				sensitive: []string{secret},
+				baseline:  baseline,
+				diff:      true,
+				before:    map[string][]byte{},
+				after:     map[string][]byte{},
+			}
+			for name, edit := range tc.edits {
+				policy.edited = append(policy.edited, name)
+				policy.before[name], policy.after[name] = []byte(edit[0]), []byte(edit[1])
+				writeConfig(t, dir, name, edit[1])
+			}
+			slices.Sort(policy.edited)
+			gate, _, err := policy.run(context.Background(), tf, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			var files []string
+			for _, c := range gate {
+				if !c.Passed {
+					got, files = c.Name+": "+strings.Join(c.Details, "; "), c.files
+				}
+			}
+			if got != tc.want || !slices.Equal(files, tc.files) {
+				t.Errorf("got %q blaming %v, want %q blaming %v", got, files, tc.want, tc.files)
+			}
+			if tc.want != "" && !strings.HasPrefix(tc.want, gate[len(gate)-1].Name) {
+				t.Errorf("the gate went on past the failure: %+v", gate)
+			}
+		})
+	}
+}
+
+// A diff gate with no edited files still judges edits: no file fails
+// the format check, the secrets check scans none of the directory's, and
+// the gate stops at the first check that fails.
+func TestDiffGateWithoutEditedFiles(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-value"
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags       = { Name = "`+secret+`" }
+}
+`)
+	var calls []string
+	tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
+	gate, _, err := gatePolicy{
+		checks:    []string{CheckFormat, CheckSecrets},
+		sensitive: []string{secret},
+		diff:      true,
+	}.run(context.Background(), tf, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gate) != 2 || !gate[0].Passed || !gate[1].Passed {
+		t.Errorf("gate %+v, want format and secrets passed", gate)
+	}
+
+	// It stops at the first check that fails, here a moved block the
+	// root has without a baseline to judge it by.
+	writeConfig(t, dir, MovesFileName, `moved {
+  from = aws_vpc.old
+  to   = aws_vpc.missing
+}
+`)
+	gate, _, err = gatePolicy{checks: []string{CheckMoves, CheckSecrets}, sensitive: []string{secret}, diff: true}.run(context.Background(), tf, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gate) != 1 || gate[0].Name != CheckMoves || gate[0].Passed {
+		t.Errorf("gate %+v, want it stopped at the failed moves check", gate)
 	}
 }
 

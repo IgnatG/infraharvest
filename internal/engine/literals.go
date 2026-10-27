@@ -39,7 +39,7 @@ func typeLiterals(dir string, schemas *tfjson.ProviderSchemas) error {
 			return err
 		}
 		changed := false
-		blocks := f.file.Body().Blocks()
+		blocks := f.edit().Body().Blocks()
 		for i, b := range f.syntax.Blocks {
 			if i >= len(blocks) {
 				continue

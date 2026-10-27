@@ -24,14 +24,10 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
-	"github.com/IgnatG/infraharvest/internal/version"
 )
 
 // Import engines selectable with --engine.
@@ -217,264 +213,6 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 	return err
 }
 
-// listedCall is an Import call whose resources are listed, selected and
-// grouped into roots, ready to generate (see listCall): the calls of one
-// scope are all listed before any generates, so that each root refers to
-// the roots of the scope's other calls (see ImportCalls).
-type listedCall struct {
-	run      *Run
-	provider harvest.Provider
-	options  Options
-	scope    string
-	// here is what the call's listing found in its scope, if it can tell
-	// what is gone (see listedInScope); only for --incremental.
-	here *listedHere
-	// byDir are the imports of each root the call generates.
-	byDir map[string][]engine.Import
-	// places are where each root of one of the configuration file's
-	// environments goes when its stack merges (see mergePlaces), and
-	// region is the scope's region.
-	places map[string]memberPlace
-	region string
-	// merging are the roots of places their stack's merge is to take (see
-	// markMerging).
-	merging map[string]bool
-	// handovers are what the call's roots hand over to the other roots of
-	// the run, with --regenerate (see planHandovers).
-	handovers *handovers
-	// opts are the engine's options, without the other roots.
-	opts               engine.Options
-	root               *rootFiles
-	binary             engine.Binary
-	execPath, cacheDir string
-}
-
-// listCall lists, selects and groups into roots what one Import call
-// imports into run (see importInto), recording what it found into run.
-// It returns nil, with no error, for discover, which generates nothing.
-func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) (*listedCall, error) {
-	if !run.used {
-		// Should the import fail before it gets as far as the report, the
-		// run still writes one there, with the failure (see Run.finish).
-		run.options = options
-	}
-	binary := engineBinary(options.Engine)
-
-	// Before the provider signs in: its clients take the rate.
-	ratelimit.SetDefault(options.RateLimit)
-	if err := provider.Init(ctx, args); err != nil {
-		return nil, err
-	}
-	// The catalogue comes before the services: an overlay can add some,
-	// such as an AWS cloud_control entry of a new service.
-	cat, err := providerCatalogue(provider, options.Catalogue)
-	if err != nil {
-		return nil, err
-	}
-	if p, ok := provider.(harvest.ProviderWithCatalogue); ok {
-		p.SetCatalogue(cat)
-	}
-	options.cat = cat
-	if !options.Discover {
-		// Discover lists every type, so that the selection file can include
-		// any; an import needn't list what it leaves out anyway.
-		chosen, err := run.selectionFile(options)
-		if err != nil {
-			return nil, err
-		}
-		options.unwanted = selection.Unwanted(cat, chosen)
-	}
-	options = ResolveServices(provider, options)
-	scope := discoveryScope(ctx, provider)
-	run.scope = scope
-	importID := importIDFunc(cat)
-	listed, failures, err := listResources(ctx, provider, options, args, scope)
-	if err != nil {
-		return nil, err
-	}
-	// What failed to list, before what failed after it.
-	listFailures := failures
-	defaults, err := defaultSelection(ctx, provider, cat, listed, options.IncludeOwned)
-	if err != nil {
-		failures = append(failures, fmt.Errorf("default selection: %w", err))
-	}
-	if err = excludeManaged(ctx, run, options, listed.resources, defaults, importID); err != nil {
-		return nil, err
-	}
-	// A scope that can't be applied stops the call: going on would import
-	// every resource listed, not only those of the scope.
-	if err = run.applyImportScope(ctx, provider, listed, defaults, scope); err != nil {
-		return nil, err
-	}
-	if options.Discover {
-		run.used = true
-		run.options = options
-		run.failures = append(run.failures, failures...)
-		run.addDiscovered(listed, defaults, scope, importID)
-		run.cover(scope, options)
-		return nil, nil
-	}
-	chosen, err := run.selectionFile(options)
-	if err != nil {
-		return nil, err
-	}
-	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, provider.Profile().NameTag, importID)
-	// The configuration file's environments of the scope, if any; none
-	// keeps the layout as without them.
-	envNames := run.environments.For(providerDir(provider), scopeAccount(scope))
-	run.warnUnscoped(provider, scope)
-	pattern := withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(envNames) > 0)
-	// Where the roots would be without the file's environments, for those
-	// an earlier import generated there, which keep their resources, or
-	// with --regenerate hand them over (see keptRoots).
-	layouts, err := rootLayouts(ctx, provider, pattern, withEnvLayout(options.Layout, len(options.EnvTags) > 0))
-	if err != nil {
-		return nil, err
-	}
-	options.Layout = layouts[0]
-	unsplitLayout := layouts[1]
-
-	cacheDir, err := infraharvestCacheDir()
-	if err != nil {
-		return nil, err
-	}
-	execPath, err := options.tools.find(ctx, binary, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
-	if err != nil {
-		return nil, err
-	}
-	options.Modules = modulesMode(options)
-	if len(options.CloudFormationStacks) > 0 && options.Modules != ModulesNone {
-		log.Printf("--modules %s with --cfn-stack: the stacks' resources that go into module calls don't take their templates' parameters and outputs; --modules none keeps them in the roots, which do", options.Modules)
-	}
-	var moduleAdapters []adapters.Adapter
-	var newerModules []report.ModuleVersion
-	var constraints []moduleConstraint
-	if modulesFromRegistry(options.Modules) {
-		if options.Modules == ModulesLatestUntested {
-			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
-		}
-		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(providerDir(provider)), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
-		// The organisation's own modules come first.
-		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, filepath.Join(cacheDir, "modules"), provider.Name(), run.modules), provider.Name()), selected)
-		moduleAdapters = append(own, moduleAdapters...)
-	}
-	root, err := options.tools.root(ctx, binary.Registry, execPath, engineProvider(provider), constraints)
-	if err != nil {
-		return nil, err
-	}
-	moduleAdapters = withoutModules(moduleAdapters, root.refused)
-	var unusedModules []report.UnusedModule
-	for _, c := range root.refused {
-		unusedModules = append(unusedModules, report.UnusedModule{Source: c.module, Version: c.version, Accepts: c.constraint.String()})
-	}
-	if err := writeGitignore(options.Out); err != nil {
-		return nil, err
-	}
-
-	// Children follow their parent: only selected resources have them.
-	resourcesByService, parents, childFailures := withChildImports(ctx, provider, selected, childParallel(provider, options))
-	failures = append(failures, childFailures...)
-	var here *listedHere
-	if options.Incremental {
-		var why string
-		if here, why = listedInScope(provider, cat, options, pattern, scope, listed, listFailures, resourcesByService, importID); here == nil {
-			log.Printf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
-		}
-	}
-	opts := engineOptions(provider, cat, root)
-	opts.IncludeOwned = options.IncludeOwned
-	opts.CommandTimeout = options.EngineTimeout
-	opts.KeepOwned = keptOwned(selected, listed, importID)
-	opts.External = leftOut
-	opts.Adapters, opts.ModulesDir = moduleOptions(options.Modules, options.Out, moduleAdapters)
-	unplaced := func(harvest.Resource) string { return "" }
-	byEnvTags := func(layout string) func(harvest.Resource) string {
-		if !strings.Contains(layout, "{env}") {
-			return unplaced
-		}
-		keys := options.EnvTags
-		if len(keys) == 0 {
-			keys = defaultEnvTags
-		}
-		envs := environments(resourcesByService, listed.tags, byTagKeys(keys), parents, importID, untaggedEnv(options.DefaultEnv))
-		return func(r harvest.Resource) string { return envs[tagKey(r)] }
-	}
-	envOf := byEnvTags(options.Layout)
-	if len(envNames) > 0 {
-		envOf = configuredEnvOf(run.environments, envNames, resourcesByService, listed.tags, parents, importID)
-	}
-	dirOf := layoutDirs(options.Layout, options.Out, providerDir(provider), envOf)
-	var kept *keptRoots
-	if len(envNames) > 0 {
-		kept = newKeptRoots(options.Out)
-		kept.shared = run.shared
-		unsplit := layoutDirs(unsplitLayout, options.Out, providerDir(provider), byEnvTags(unsplitLayout))
-		if err := kept.split(resourcesByService, dirOf, unsplit, importID, options.Regenerate); err != nil {
-			return nil, err
-		}
-		dirOf = kept.dirs(dirOf, unsplit, envOf)
-	}
-	profile := provider.Profile()
-	nameOf := resourceNames(profile.NameTag, listed, resourcesByService)
-	fileOf := func(service string, r harvest.Resource) string {
-		return configFile(profile.Layout, service, r.Address.Type, cat)
-	}
-	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
-	withImpliedProviders(byDir, opts.ModuleProviders)
-	withFallbackIDs(byDir, resourcesByService, cat, importID)
-	withResourceOmissions(byDir, resourcesByService, cat, importID)
-	var places map[string]memberPlace
-	if options.MergeEnvironments && len(envNames) > 0 {
-		stackLayouts, err := rootLayouts(ctx, provider, stackLayout(pattern))
-		if err != nil {
-			return nil, err
-		}
-		places = mergePlaces(resourcesByService, envOf, dirOf, layoutDirs(stackLayouts[0], options.Out, providerDir(provider), envOf), kept, byDir)
-	}
-
-	run.used = true
-	run.options = options
-	run.report.TagKeys = options.ReportTags
-	if kept != nil {
-		run.report.KeptRoots = append(run.report.KeptRoots, kept.report(scope)...)
-	}
-	// Each call adds what it selected: another region's may hold the
-	// provider back, or find other modules.
-	run.report.Add(report.Manifest{
-		Tool:     report.Component{Name: "infraharvest", Version: version.Version},
-		Engine:   report.Component{Name: binary.Name, Version: root.engineVersion},
-		Provider: report.Provider{Source: qualifiedSource(binary.Registry, root.provider.Source), Constraint: root.provider.Version, HeldBack: root.heldBack},
-		Modules:  newerModules,
-		Unused:   unusedModules,
-	})
-	for _, f := range failures {
-		run.report.Failures = append(run.report.Failures, f.Error())
-	}
-	run.failures = append(run.failures, failures...)
-	for typ, n := range skipped {
-		run.skipped[typ] += n
-	}
-	// What the selection left out, and what it keeps with their children.
-	counted := len(leftOut)
-	for typ, n := range discoveredByType(resourcesByService) {
-		run.discovered[typ] += n
-		counted += n
-	}
-	if scope != "" {
-		run.report.AddDiscovered(scope, counted)
-	}
-
-	if options.Incremental {
-		// What an earlier import put in another root stays there.
-		held, err := heldElsewhere(options.Out, byDir)
-		if err != nil {
-			return nil, err
-		}
-		run.leaveOutHeld(byDir, held)
-	}
-	return &listedCall{run: run, provider: provider, options: options, scope: scope, here: here, byDir: byDir, places: places, region: scopeRegion(scope), opts: opts, root: root, binary: binary, execPath: execPath, cacheDir: cacheDir}, nil
-}
-
 // generate generates the call's roots into its run, each referring to the
 // others of roots, the roots of every call of the scope by directory (see
 // otherRoots): it decides what to do with each root (see decideRoot),
@@ -504,7 +242,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		if !merged {
 			dirOpts.Refine, dirOpts.RefineKey = refine, refineKey
 		}
-		fp, err := fingerprint(c.root.engineVersion, c.byDir[dir], dirOpts)
+		fp, err := fingerprint(c.toolchain.root.engineVersion, c.byDir[dir], dirOpts)
 		if err != nil {
 			return err
 		}
@@ -516,7 +254,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			return err
 		}
 	}
-	run.report.Provider.Version = engine.LockedVersion(run.lock, run.report.Provider.Source)
+	run.report.LockProvider(run.lock)
 	return nil
 }
 
@@ -569,7 +307,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 // terraformRun returns how the call runs the engine binary, with the
 // provider's credentials.
 func (c *listedCall) terraformRun(ctx context.Context) (terraformRun, error) {
-	tr := terraformRun{execPath: c.execPath, pluginCacheDir: filepath.Join(c.cacheDir, "plugins")}
+	tr := terraformRun{execPath: c.toolchain.execPath, pluginCacheDir: filepath.Join(c.toolchain.cacheDir, "plugins")}
 	var err error
 	if tr.env, err = terraformEnv(ctx, c.provider); err != nil {
 		return tr, err
@@ -639,7 +377,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	// meets this root's constraint.
 	lock := &run.lock
 	var own []byte
-	if !lockMeets(run.lock, qualifiedSource(c.binary.Registry, c.root.provider.Source), c.root.provider.Version) {
+	if !lockMeets(run.lock, qualifiedSource(c.toolchain.binary.Registry, c.toolchain.root.provider.Source), c.toolchain.root.provider.Version) {
 		lock = &own
 	}
 	// What the root had keeps its addresses, or moves (see
@@ -652,9 +390,9 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	}
 	dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
 	if len(imports) == 0 {
-		result, err = options.tools.vacate(dir, dirOpts)
+		result, err = run.tools.vacate(dir, dirOpts)
 	} else {
-		result, err = options.tools.generateDir(ctx, dir, tr, imports, dirOpts, lock)
+		result, err = run.tools.generateDir(ctx, dir, tr, imports, dirOpts, lock)
 		if err == nil && untemplated {
 			result.Warnings = append(result.Warnings, mergedRootNoTemplate)
 		}
@@ -695,109 +433,28 @@ func inOtherRoots(out string, roots map[string][]engine.Import, dir string) map[
 	return other
 }
 
-// engineOptions configures engine.Generate for provider's directories,
-// with what cat knows about its types.
-func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *rootFiles) engine.Options {
-	opts := engine.Options{Config: root.files, Scanners: engine.DefaultScanners(), Omit: cat.OmitFor(root.version), Defaults: cat.DefaultsFor(root.version), StateOnly: cat.StateOnlyFor(root.version), KeepEmpty: cat.KeepEmpty(), SplitFiles: true, TidyLabels: true}
-	// Without the metadata, the engine finds defaults by planning, as it
-	// always could: a broken file costs plans, not the import.
-	if meta, err := schemameta.Builtin(cat.Provider); err != nil {
-		log.Printf("%s: the built-in schema metadata: %v", cat.Provider, err)
-	} else {
-		opts.SchemaMetadata = meta
-	}
-	if sources := cat.DataSources(); len(sources) > 0 {
-		opts.DataSources = map[string]engine.DataSource{}
-		for typ, d := range sources {
-			opts.DataSources[typ] = engine.DataSource{Type: d.Type, Argument: d.Argument}
-		}
-	}
-	for _, typ := range cat.Types() {
-		if e, ok := cat.Entry(typ); ok && e.ARN != nil {
-			if opts.ARNs == nil {
-				opts.ARNs = map[string]engine.ARN{}
-			}
-			opts.ARNs[typ] = engine.ARN{Service: e.ARN.Service, ResourceType: e.ARN.ResourceType}
-		}
-	}
-	if placeholders := cat.Placeholders(); len(placeholders) > 0 {
-		opts.Placeholders = map[string]engine.Placeholder{}
-		for typ, p := range placeholders {
-			opts.Placeholders[typ] = engine.Placeholder{OneOf: p.OneOf, Set: p.Set, Ignore: p.Ignore, Reason: p.Reason}
-		}
-	}
-	if lifecycles := cat.Lifecycles(); len(lifecycles) > 0 {
-		opts.Lifecycles = map[string]engine.Lifecycle{}
-		for typ, l := range lifecycles {
-			opts.Lifecycles[typ] = engine.Lifecycle{CreateBeforeDestroy: l.CreateBeforeDestroy, Reason: l.Reason}
-		}
-	}
-	profile := provider.Profile()
-	if t := profile.DefaultTags; t != nil {
-		opts.DefaultTags = &engine.DefaultTags{Provider: provider.Name(), Attribute: t.Attribute, Block: t.Block, Argument: t.Argument, ReservedPrefix: t.ReservedPrefix}
-	}
-	if t := profile.EffectiveTags; t != nil {
-		opts.EffectiveTags = (*engine.EffectiveTags)(t)
-	}
-	opts.Inherited = profile.InheritedArguments
-	if withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders); ok {
-		opts.ModuleProviders = map[string]engine.Provider{}
-		for name, p := range withModuleProviders.ModuleProviders() {
-			if name != provider.Name() {
-				opts.ModuleProviders[name] = engine.Provider{Name: name, Source: p.Source, Config: p.Config}
-			}
-		}
-	}
-	return opts
-}
-
 // addDirectory records what Generate did in dir, or err if it failed.
 func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.Result, err error) {
-	reported := report.Directory{Path: relativePath(r.options.Out, dir), Scope: r.scope}
+	path := relativePath(r.options.Out, dir)
 	if err != nil {
 		r.failures = append(r.failures, fmt.Errorf("%s: %w", dir, err))
-		reported.Error = err.Error()
 		for _, imp := range imports {
 			r.failed[imp.Type]++
 		}
-		r.report.Directories = append(r.report.Directories, reported)
+		r.report.AddFailedDirectory(path, r.scope, err)
 		return
 	}
-	// Each resource at its address in the root, in the module call
-	// Generate moved it into if any (see engine.Result.Addresses); a
-	// result without addresses, as in a checkpoint an older release
-	// wrote, has only the labels Generate gave them.
-	at := map[engine.External]string{}
-	for _, m := range result.Addresses {
-		at[engine.ResourceKey(m.Type, m.ID)] = m.Address
-	}
-	reported.Imported = make([]report.Resource, 0, len(result.Imported))
-	for _, imp := range result.Imported {
-		address, ok := at[engine.ResourceKey(imp.Type, imp.ID)]
-		if !ok {
-			address = imp.Type + "." + imp.Name
-		}
-		reported.Imported = append(reported.Imported, report.Resource{Address: address, ID: imp.ID})
-	}
+	r.report.AddDirectory(path, r.scope, result)
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))
-		reported.LeftOut = append(reported.LeftOut, report.LeftOut{Address: rej.Address, ID: rej.ID, Errors: rej.Errors})
 	}
-	for _, m := range result.Modules {
-		reported.Modules = append(reported.Modules, report.Module{Name: m.Name, Source: m.Source, Version: m.Version, Resources: m.Resources, Declined: m.Declined})
-	}
-	for _, s := range result.Secrets {
-		reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
-	}
-	reported.Warnings = result.Warnings
 	for _, o := range result.Owned {
-		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: engine.AddressType(o.Address), ID: o.ID, Reason: selection.OwnedReason(o.Owner), Scope: r.scope, Owner: selection.OwnedBy(o.Owner)})
+		r.report.Exclude(r.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
 	}
 	for _, w := range result.Warnings {
 		log.Printf("%s: %s", dir, w)
 	}
 	for _, c := range result.Gate {
-		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 		if !c.Passed {
 			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
 		}
@@ -817,8 +474,6 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	if len(result.Arrived) > 0 {
 		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))
 	}
-	r.recordMoves(reported.Path, result)
-	r.report.Directories = append(r.report.Directories, reported)
 }
 
 // discoveredByType counts the listed resources by type.
@@ -1065,29 +720,41 @@ func layoutDirs(layout, out, dirName string, envOf func(harvest.Resource) string
 	}
 }
 
+// importBlocks says how importsByDir writes the import block of a
+// resource.
+type importBlocks struct {
+	// provider is the Terraform provider the roots declare, and configured
+	// the other providers they may configure (see
+	// engine.Options.ModuleProviders).
+	provider   string
+	configured map[string]engine.Provider
+	// cat says what the configuration of a resource leaves out depending
+	// on what its lister recorded, and the ID to import it by should
+	// Terraform reject its own; nil says neither.
+	cat      *catalogue.Catalogue
+	importID func(harvest.Resource) (string, bool)
+	// nameOf names a resource's block, and fileOf the file of its root
+	// that it goes in.
+	nameOf func(harvest.Resource) string
+	fileOf func(service string, r harvest.Resource) string
+}
+
 // importsByDir groups resources into import blocks per output directory,
-// the root dirOf names for each, each named by nameOf and in the file
-// fileOf names. providerName is the Terraform provider the roots declare.
-// It leaves out, logs and counts by type resources Terraform can't
-// import.
-func importsByDir(providerName string, resourcesByService map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool), dirOf func(service string, r harvest.Resource) string, nameOf func(harvest.Resource) string, fileOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
+// the root dirOf names for each, each block whole, as blocks says (see
+// importBlocks.of). It leaves out, logs and counts by type resources
+// Terraform can't import.
+func importsByDir(blocks importBlocks, resourcesByService map[string][]harvest.Resource, dirOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
 	byDir := map[string][]engine.Import{}
 	skipped := map[string]int{}
 	for service, resources := range resourcesByService {
 		for _, r := range resources {
 			dir := dirOf(service, r)
-			id, ok := importID(r)
+			imp, ok := blocks.of(service, r)
 			if !ok {
 				skipped[r.Address.Type]++
 				continue
 			}
-			byDir[dir] = append(byDir[dir], engine.Import{
-				Type:     r.Address.Type,
-				Name:     nameOf(r),
-				File:     fileOf(service, r),
-				ID:       id,
-				Provider: importProvider(providerName, r.Address.Type),
-			})
+			byDir[dir] = append(byDir[dir], imp)
 		}
 	}
 	types := make([]string, 0, len(skipped))
@@ -1096,39 +763,45 @@ func importsByDir(providerName string, resourcesByService map[string][]harvest.R
 	}
 	sort.Strings(types)
 	for _, typ := range types {
-		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", providerName, skipped[typ], typ)
+		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", blocks.provider, skipped[typ], typ)
 	}
 	return byDir, skipped
 }
 
-// withResourceOmissions sets, on each import of byDir, the arguments the
-// catalogue leaves out of its resource's configuration depending on what
-// its lister recorded (see catalogue.Catalogue.ResourceOmit), matching
-// imports to the resources they came from by type and import ID.
-func withResourceOmissions(byDir map[string][]engine.Import, resourcesByService map[string][]harvest.Resource, cat *catalogue.Catalogue, importID func(harvest.Resource) (string, bool)) {
-	omit := map[string][]string{}
-	for _, resources := range resourcesByService {
-		for _, r := range resources {
-			if r.Address == nil || r.Observed == nil {
-				continue
-			}
-			extra := cat.ResourceOmit(r.Address.Type, r.Observed.Attributes)
-			if len(extra) == 0 {
-				continue
-			}
-			if id, ok := importID(r); ok {
-				omit[r.Address.Type+"\x00"+id] = extra
-			}
-		}
+// of returns the import block of r, a resource service listed, or false
+// if Terraform can't import it. The block names the provider unless its
+// type implies it (see importProvider), or one of the other providers
+// the root may configure, such as azapi for an azapi_resource: the root
+// requires that provider under its own name when it imports such a
+// resource, so Terraform infers it from the type. It leaves out the
+// arguments the catalogue leaves out depending on what r's lister
+// recorded (see catalogue.Catalogue.ResourceOmit), and falls back on the
+// catalogue's next import ID template for r, where that is the same
+// resource by another query alone, as an azapi_resource's ID without
+// ?api-version= is (see engine.Import.Fallback and engine.ResourceKey).
+func (b importBlocks) of(service string, r harvest.Resource) (engine.Import, bool) {
+	typ := r.Address.Type
+	id, ok := b.importID(r)
+	if !ok {
+		return engine.Import{}, false
 	}
-	if len(omit) == 0 {
-		return
+	imp := engine.Import{Type: typ, Name: b.nameOf(r), File: b.fileOf(service, r), ID: id, Provider: importProvider(b.provider, typ)}
+	implied, _, _ := strings.Cut(typ, "_")
+	// google --beta's roots configure google too, for modules: its own
+	// google_* resources still name google-beta.
+	if _, ok := b.configured[implied]; ok && implied != catalogueName(b.provider) {
+		imp.Provider = ""
 	}
-	for _, imports := range byDir {
-		for i, imp := range imports {
-			imports[i].Omit = omit[imp.Type+"\x00"+imp.ID]
-		}
+	if b.cat == nil || r.Observed == nil {
+		return imp, true
 	}
+	if extra := b.cat.ResourceOmit(typ, r.Observed.Attributes); len(extra) > 0 {
+		imp.Omit = extra
+	}
+	if fallback, ok := b.cat.FallbackImportID(typ, r.Observed.ID, r.Observed.Attributes); ok && engine.ResourceKey(typ, fallback) == engine.ResourceKey(typ, id) {
+		imp.Fallback = fallback
+	}
+	return imp, true
 }
 
 // otherRoots is what the roots of an import manage, sorted once for the
@@ -1238,57 +911,6 @@ func importProvider(providerName, resourceType string) string {
 		return ""
 	}
 	return providerName
-}
-
-// withFallbackIDs sets, on each import of byDir, the import ID to import
-// its resource by instead should Terraform reject it (see
-// engine.Import.Fallback): the catalogue's next import ID template for the
-// resource it came from, where that is the same resource by another query
-// alone, as an azapi_resource's ID without ?api-version= is (see
-// engine.ResourceKey). It matches imports to resources by type and import
-// ID.
-func withFallbackIDs(byDir map[string][]engine.Import, resourcesByService map[string][]harvest.Resource, cat *catalogue.Catalogue, importID func(harvest.Resource) (string, bool)) {
-	fallbacks := map[string]string{}
-	for _, resources := range resourcesByService {
-		for _, r := range resources {
-			if r.Address == nil || r.Observed == nil {
-				continue
-			}
-			id, ok := importID(r)
-			if !ok {
-				continue
-			}
-			fallback, ok := cat.FallbackImportID(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
-			if ok && engine.ResourceKey(r.Address.Type, fallback) == engine.ResourceKey(r.Address.Type, id) {
-				fallbacks[r.Address.Type+"\x00"+id] = fallback
-			}
-		}
-	}
-	if len(fallbacks) == 0 {
-		return
-	}
-	for _, imports := range byDir {
-		for i, imp := range imports {
-			imports[i].Fallback = fallbacks[imp.Type+"\x00"+imp.ID]
-		}
-	}
-}
-
-// withImpliedProviders leaves the provider out of the imports of byDir
-// whose type implies one of configured, the other providers the roots
-// may configure, such as azapi for an azapi_resource: the root requires
-// that provider under its own name when it imports such a resource (see
-// engine.Options.ModuleProviders), so Terraform infers it from the type,
-// as it does the root's own provider from an azurerm_* type.
-func withImpliedProviders(byDir map[string][]engine.Import, configured map[string]engine.Provider) {
-	for _, imports := range byDir {
-		for i, imp := range imports {
-			implied, _, _ := strings.Cut(imp.Type, "_")
-			if _, ok := configured[implied]; ok {
-				imports[i].Provider = ""
-			}
-		}
-	}
 }
 
 // providerDir returns the directory provider's roots go into, the

@@ -64,7 +64,7 @@ inputs:
     description: The decisions file (drift.yaml). With drift report, the file to write this run's changes into, merged with what it has, without applying it (--write-decisions=<file>). With drift accept, the file to decide the changes by (--decisions), written again with this run's changes (--write-decisions). Without one, the decisions file is drift.yaml in the out directory.
     required: false
   drift-accept:
-    description: With drift accept, rules for the changes to accept, one a line, as --accept takes them, such as attribute=tags.* or all. A line starting with keep, such as keep type=aws_security_group, is a --keep rule. The last rule that matches a change decides.
+    description: 'With drift accept, rules for the changes to accept, one a line, which infraharvest drift reads as --rules takes them: accept or keep, then a rule as --accept takes it, such as accept attribute=tags.* or keep type=aws_security_group; a rule alone, such as all, is accepted, and lines starting with # are skipped. The last rule that matches a change decides.'
     required: false
   environment:
     description: For roots environments share (environments in the configuration file), the environment to check drift as (--environment), with that environment's credentials, which the job sets; several, comma-separated, share the job's credentials. Run a job per environment, such as a matrix, with import false. all checks every environment with the job's credentials, as when one account holds them all. Without it, drift fails on roots that more than one environment shares.
@@ -307,11 +307,6 @@ runs:
         ENVIRONMENT: ${{ inputs.environment }}
       run: |
         source "$GITHUB_ACTION_PATH/output.sh"
-        trim() {
-          local s="$1"
-          s="${s#"${s%%[![:space:]]*}"}"
-          printf '%s' "${s%"${s##*[![:space:]]}"}"
-        }
         if [[ ! -d "$OUT" ]]; then
           echo "::notice::$OUT doesn't exist yet: there are no roots to check for drift"
           output drift-found false
@@ -338,15 +333,12 @@ runs:
         if [[ -n "$ENVIRONMENT" ]]; then args+=("--environment=$ENVIRONMENT"); fi
         if [[ "$DRIFT" == accept ]]; then
           if [[ -n "$DRIFT_DECISIONS" ]]; then args+=("--decisions=$DRIFT_DECISIONS"); fi
-          while IFS= read -r line; do
-            line="$(trim "$line")"
-            case "$line" in
-              "" | "#"*) ;;
-              keep[[:space:]]*) args+=("--keep=$(trim "${line#keep}")") ;;
-              accept[[:space:]]*) args+=("--accept=$(trim "${line#accept}")") ;;
-              *) args+=("--accept=$line") ;;
-            esac
-          done <<< "$DRIFT_ACCEPT"
+          # infraharvest reads the rules, in their order, as --rules takes them.
+          if [[ -n "$DRIFT_ACCEPT" ]]; then
+            rules="$RUNNER_TEMP/infraharvest-drift-rules"
+            printf '%s\n' "$DRIFT_ACCEPT" > "$rules"
+            args+=("--rules=$rules")
+          fi
         fi
         code=0
         # drift.json goes to a file, not the log: its values are redacted,

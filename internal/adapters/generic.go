@@ -31,13 +31,16 @@ import (
 // type the module has and the cluster doesn't, or a variable without a
 // default it has nothing for. Generic fails for a module it can't match
 // that way: with count, for_each, dynamic blocks, nested modules, or two
-// resources of a type.
+// resources of a type. The adapter's Providers are those the module
+// requires, or, if it requires none, those its resources use (see
+// module.providers), so that a root whose own provider is another, such
+// as google --beta's google-beta, configures each for the module.
 func Generic(source, version, dir string) (Adapter, error) {
 	m, err := readModule(dir)
 	if err != nil {
 		return Adapter{}, fmt.Errorf("%s: %w", source, err)
 	}
-	a := Adapter{Source: source, Version: version, Anchor: m.anchor.typ}
+	a := Adapter{Source: source, Version: version, Anchor: m.anchor.typ, Providers: m.providers()}
 	for _, r := range m.resources {
 		a.Targets = append(a.Targets, r.typ+"."+r.name)
 		if r != m.anchor {
@@ -66,11 +69,41 @@ type module struct {
 	variables map[string]bool
 	// outputs have the resource attribute each output is, if it is one.
 	outputs map[string]outputOf
+	// required are the local names of the providers the module's
+	// terraform blocks require.
+	required []string
 }
 
 type moduleResource struct {
 	typ, name string
 	body      *hclsyntax.Body
+}
+
+// provider is the local name of the provider r is created with: the one
+// its provider argument names, such as google-beta, or else the one its
+// type implies, such as google for google_compute_network.
+func (r *moduleResource) provider() string {
+	if attr, ok := r.body.Attributes["provider"]; ok {
+		if t, ok := attr.Expr.(*hclsyntax.ScopeTraversalExpr); ok {
+			return t.Traversal.RootName()
+		}
+	}
+	implied, _, _ := strings.Cut(r.typ, "_")
+	return implied
+}
+
+// providers are the providers the module uses, sorted: those it requires,
+// or, for a module that requires none and leaves them to Terraform's
+// implied requirements, those its resources are created with.
+func (m *module) providers() []string {
+	names := slices.Clone(m.required)
+	if len(names) == 0 {
+		for _, r := range m.resources {
+			names = append(names, r.provider())
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 type outputOf struct {
@@ -106,6 +139,14 @@ func readModule(dir string) (*module, error) {
 			switch {
 			case b.Type == "module":
 				return nil, fmt.Errorf("it calls module %s", strings.Join(b.Labels, "."))
+			case b.Type == "terraform":
+				for _, nested := range b.Body.Blocks {
+					if nested.Type == "required_providers" {
+						for name := range nested.Body.Attributes {
+							m.required = append(m.required, name)
+						}
+					}
+				}
 			case b.Type == "resource" && len(b.Labels) == 2:
 				if err := matchable(b.Body, b.Labels[0]+"."+b.Labels[1]); err != nil {
 					return nil, err

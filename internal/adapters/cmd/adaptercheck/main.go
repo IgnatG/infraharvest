@@ -31,6 +31,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,8 +66,8 @@ func run(write bool, notesFile string) error {
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
 
 	var failed []string
-	for _, command := range adapters.Providers() {
-		for _, a := range adapters.For(command) {
+	for _, family := range adapters.Providers() {
+		for _, a := range adapters.For(family) {
 			var err error
 			if write {
 				err = writeSnapshot(ctx, client, a)
@@ -101,7 +102,10 @@ func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapt
 	if err != nil {
 		return err
 	}
-	providers := append([]string{moduleProvider(a)}, a.Providers...)
+	providers := a.Providers
+	if root := moduleProvider(a); !slices.Contains(providers, root) {
+		providers = append([]string{root}, providers...)
+	}
 	if latest == a.Version {
 		return checkPinned(ctx, client, a, providers, notes)
 	}

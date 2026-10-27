@@ -83,7 +83,7 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 			out.WriteString("\n")
 			out.Write(bytes.TrimSpace(hclwrite.Format(moved.block.BuildTokens(nil).Bytes())))
 			out.WriteString("\n")
-			moved.file.file.Body().RemoveBlock(moved.block)
+			moved.file.edit().Body().RemoveBlock(moved.block)
 		}
 	}
 	if err := imports.save(); err != nil {

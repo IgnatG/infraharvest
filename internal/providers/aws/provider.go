@@ -6,7 +6,8 @@ package aws
 import (
 	"context"
 	"errors"
-	"slices"
+	"regexp"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -20,7 +21,6 @@ var (
 	_ harvest.ProviderWithChildImports      = (*Provider)(nil)
 	_ harvest.ProviderWithSelectionDefaults = (*Provider)(nil)
 	_ harvest.ProviderWithImportScope       = (*Provider)(nil)
-	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
 	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
 	_ harvest.ProviderWithScope             = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
@@ -83,16 +83,31 @@ func (*Provider) Name() string {
 	return providerName
 }
 
-// Profile describes AWS: a resource's block label comes from its Name
-// tag; the services of a region may list at once, as each has its own
-// lister and they share only the SDK configuration, which is safe to
-// share; default_tags applies tags to every resource, and keys starting
-// with aws: are AWS's own; the network's services share network.tf; and
-// a root that environments share reads the account and the region from
-// the provider, which plans each environment in its own.
+// Profile describes AWS: an import covers an account, which has a
+// 12-digit ID; the services of AWS services at end of support, WAF
+// Classic and MediaStore, which only old estates still hold, are listed
+// only when --services names them, so that every import of * doesn't ask
+// their retired APIs in every region; terraform-aws-modules are its
+// curated modules; a resource's block label comes from its Name tag; the
+// services of a region may list at once, as each has its own lister and
+// they share only the SDK configuration, which is safe to share;
+// default_tags applies tags to every resource, and keys starting with
+// aws: are AWS's own; the network's services share network.tf; and a
+// root that environments share reads the account and the region from the
+// provider, which plans each environment in its own.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
-		Command:           providerName,
+		Command: providerName,
+		Scope: harvest.Scope{
+			Noun:     "account",
+			Field:    "accounts",
+			ID:       accountID,
+			IDFormat: "an account ID, 12 digits",
+			Describe: describeScope,
+		},
+		Modules:           providerName,
+		ModulesName:       "terraform-aws-modules",
+		OptInServices:     []string{"media_store", "waf", "waf_regional"},
 		NameTag:           "Name",
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", Block: "default_tags", ReservedPrefix: "aws:"},
@@ -103,7 +118,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle:     "Account",
 			ScopeData:      "aws_caller_identity.current",
 			ScopeLocal:     "aws_account_id",
 			ScopeExpr:      "data.aws_caller_identity.current.account_id",
@@ -114,6 +128,33 @@ func (*Provider) Profile() harvest.Profile {
 			RegionExpr:     "data.aws_region.current.region",
 		},
 	}
+}
+
+// accountID matches an AWS account ID.
+var accountID = regexp.MustCompile(`^[0-9]{12}$`)
+
+// describeScope says what the aws command reads with flags: the account
+// the credentials reach, or those of --accounts, with the credentials of
+// --profile, in the regions of --regions, and only the resources of the
+// stacks of --cfn-stack.
+func describeScope(flags map[string][]string) string {
+	text := "the aws account"
+	if accounts := flags["accounts"]; len(accounts) > 0 {
+		text = "the aws accounts " + strings.Join(accounts, ", ")
+	}
+	if profile := flags["profile"]; len(profile) > 0 {
+		text += " with profile " + profile[0]
+	}
+	if regions := flags["regions"]; len(regions) > 0 {
+		text += " in " + strings.Join(regions, ", ")
+	}
+	if stacks := flags["cfn-stack"]; len(stacks) > 0 {
+		text += ", only the resources of CloudFormation stacks " + strings.Join(stacks, ", ")
+		if ignore := flags["cfn-ignore"]; len(ignore) > 0 {
+			text += ", acknowledging " + strings.Join(ignore, ", ")
+		}
+	}
+	return text
 }
 
 // ProviderBlock returns the provider "aws" block: the region, us-east-1
@@ -180,17 +221,6 @@ func (p *Provider) newServiceLister(name string) harvest.Lister {
 		}
 	}
 	return nil
-}
-
-// endOfSupportServices are the services of AWS services at end of support,
-// WAF Classic and MediaStore, which only old estates still hold. They are
-// listed only when --services names them, so that every import of * doesn't
-// ask their retired APIs in every region.
-var endOfSupportServices = []string{"media_store", "waf", "waf_regional"}
-
-// OptInServices are the services * leaves out (see endOfSupportServices).
-func (*Provider) OptInServices() []string {
-	return slices.Clone(endOfSupportServices)
 }
 
 // Select makes the service called name the provider's current one,

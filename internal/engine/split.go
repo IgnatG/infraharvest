@@ -71,12 +71,12 @@ func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, err
 		return nil, err
 	}
 	files := map[string]*hclwrite.File{}
-	for _, b := range generated.file.Body().Blocks() {
+	for _, b := range generated.edit().Body().Blocks() {
 		name := fileOf[blockAddress(b)]
 		if name == "" {
 			continue
 		}
-		generated.file.Body().RemoveBlock(b)
+		generated.edit().Body().RemoveBlock(b)
 		out, ok := files[name]
 		if !ok {
 			out = hclwrite.NewEmptyFile()
@@ -94,7 +94,7 @@ func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, err
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	if len(generated.file.Body().Blocks()) > 0 {
+	if len(generated.edit().Body().Blocks()) > 0 {
 		return names, generated.save()
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {

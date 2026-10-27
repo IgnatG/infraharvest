@@ -105,7 +105,8 @@ func addModuleFiles(contents map[string][]byte, dir string, modules map[string]*
 }
 
 // syncModules parses again, from contents, the modules whose files
-// contents has (see addModuleFiles), as the edits before have left them.
+// contents has (see addModuleFiles), as the edits before have left them:
+// only the files those edits changed (see driftConfig.reparse).
 func (e *driftEditor) syncModules(contents map[string][]byte) {
 	parsed := map[string]*driftModule{}
 	for key, m := range e.modules {
@@ -122,11 +123,15 @@ func (e *driftEditor) syncModules(contents map[string][]byte) {
 		if len(files) == 0 {
 			continue
 		}
-		synced, err := newDriftModule(files)
+		cfg, err := m.cfg.reparse(files)
 		if err != nil {
 			continue
 		}
-		synced.dir, synced.calls, synced.inContents = m.dir, m.calls, true
+		synced := m
+		if cfg != m.cfg || !m.inContents {
+			synced = newDriftModule(cfg)
+			synced.dir, synced.calls, synced.inContents = m.dir, m.calls, true
+		}
 		parsed[m.dir] = synced
 		e.modules[key] = synced
 	}
@@ -189,7 +194,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		variablesFile = VariablesFileName
 	}
 	description := fmt.Sprintf("The %s of %s, the same for every call that doesn't set it.", pathText(at), resource)
-	edits = append(edits, appendBlock(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal)))
+	edits = append(edits, appendEdit(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal), true))
 
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: call.file, f: call.f, address: "module." + callName}
 	src := codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Module: e.viaText(m, t)}
@@ -204,8 +209,8 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 	}
 	// The call sets a variable of the root, whose default is the literal
 	// too, and the environment's var file sets that.
-	vars := cfg.files[e.envVars]
-	if vars == nil {
+	vars := mergedVars(cfg.files)
+	if vars.own(e.env) == nil {
 		return manual("the root has no " + e.envVars + ": edit it by hand")
 	}
 	rootName := uniqueVariable(Label(callName+"_"+name), cfg.variables)
@@ -219,13 +224,9 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		rootFile = VariablesFileName
 	}
 	description = fmt.Sprintf("The %s of module.%s, which an environment's terraform.tfvars sets where it differs from the default.", name, callName)
-	edits = append(edits, appendBlock(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal)))
-	line := rootName + " = " + string(text) + "\n"
-	if n := len(vars.src); n > 0 && vars.src[n-1] != '\n' {
-		line = "\n" + line
-	}
-	src.Edit = &codeEdit{File: e.envVars, Start: len(vars.src), End: len(vars.src), Text: []byte(line)}
-	src.Also = edits
+	edits = append(edits, appendEdit(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal), true))
+	set, _ := vars.set(e.env, rootName, text)
+	src.Edit, src.Also = &set, edits
 	return src, true
 }
 
@@ -261,23 +262,6 @@ func variableType(value any, ty cty.Type) string {
 
 // variableBlock writes a variable block of name, with description, a
 // type line, if any, and value as its default.
-func variableBlock(name, description, typeLine, value string) string {
-	return fmt.Sprintf("variable %q {\ndescription = %q\n%sdefault = %s\n}\n", name, description, typeLine, value)
-}
-
-// appendBlock is the edit that adds text at the end of f, the file name,
-// after a blank line.
-func appendBlock(f *hclFile, name, text string) codeEdit {
-	var src []byte
-	if f != nil {
-		src = f.src
-	}
-	switch {
-	case len(src) == 0:
-	case src[len(src)-1] == '\n':
-		text = "\n" + text
-	default:
-		text = "\n\n" + text
-	}
-	return codeEdit{File: name, Start: len(src), End: len(src), Text: []byte(text)}
+func variableBlock(name, description, typeLine, value string) []byte {
+	return fmt.Appendf(nil, "variable %q {\ndescription = %q\n%sdefault = %s\n}\n", name, description, typeLine, value)
 }

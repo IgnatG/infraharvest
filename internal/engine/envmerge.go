@@ -350,8 +350,9 @@ func (m *stackMerge) splitForced() {
 // MergeProfile is what the root the environments of a stack share reads
 // of each environment's account (or subscription, or project) and
 // region, where the environments' roots differ by them. The importer
-// fills it from the provider's profile (see harvest.Merge, which has the
-// same fields), so that the engine needn't tell providers apart.
+// fills it from the provider's profile (see harvest.Merge, and
+// harvest.Scope's noun for ScopeTitle), so that the engine needn't tell
+// providers apart.
 type MergeProfile struct {
 	// ScopeTitle is what the roots are scoped by, for the README, such as
 	// Account.
@@ -738,15 +739,15 @@ func (m *stackMerge) render() {
 	}
 	m.workload = workloadOf(templates)
 	if m.workload != "" {
-		m.locals = append(m.locals, namedLocal{"naming_prefix", exprTokens(`"` + m.workload + `-${var.` + envVariableName + `}"`)})
+		m.locals = append(m.locals, namedLocal{"naming_prefix", parseExpr(`"` + m.workload + `-${var.` + envVariableName + `}"`)})
 	}
 	if holds(templates, accountPlaceholder) {
 		m.data = append(m.data, m.profile.ScopeData)
-		m.locals = append(m.locals, namedLocal{m.profile.ScopeLocal, exprTokens(m.profile.ScopeExpr)})
+		m.locals = append(m.locals, namedLocal{m.profile.ScopeLocal, parseExpr(m.profile.ScopeExpr)})
 	}
 	if holds(templates, regionPlaceholder) {
 		m.data = append(m.data, m.profile.RegionData)
-		m.locals = append(m.locals, namedLocal{m.profile.RegionLocal, exprTokens(m.profile.RegionExpr)})
+		m.locals = append(m.locals, namedLocal{m.profile.RegionLocal, parseExpr(m.profile.RegionExpr)})
 	}
 	for _, b := range bodies {
 		b.visit(func(a *mergedAttribute) {
@@ -756,7 +757,7 @@ func (m *stackMerge) render() {
 			case variableValue:
 				a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: a.variable.name}})
 			case referenceValue:
-				a.value = exprTokens(string(m.presence(a.target).Bytes()) + " ? " + strings.TrimSpace(string(a.value.Bytes())) + " : null")
+				a.value = parseExpr(string(m.presence(a.target).Bytes()) + " ? " + strings.TrimSpace(string(a.value.Bytes())) + " : null")
 			}
 		}, nil)
 	}
@@ -877,7 +878,7 @@ func isNameAttribute(resourceType, attr string) bool {
 // variable has the key.
 func (m *stackMerge) presence(r *stackResource) hclwrite.Tokens {
 	if r.forEach != nil {
-		return exprTokens(fmt.Sprintf("contains(keys(%s), %q)", r.forEach.source(), r.label))
+		return parseExpr(fmt.Sprintf("contains(keys(%s), %q)", r.forEach.source(), r.label))
 	}
 	return hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: r.deploy.name}})
 }
@@ -1198,9 +1199,9 @@ func (m *stackMerge) envCondition(in []envBody, values []hclwrite.Tokens) (hclwr
 		if literals[odd].False() {
 			op = "!="
 		}
-		return exprTokens(fmt.Sprintf("var.%s %s %q", envVariableName, op, token)), true
+		return parseExpr(fmt.Sprintf("var.%s %s %q", envVariableName, op, token)), true
 	}
-	return exprTokens(fmt.Sprintf("var.%s == %q ? %s : %s", envVariableName, token, strings.TrimSpace(string(values[odd].Bytes())), strings.TrimSpace(string(values[other].Bytes())))), true
+	return parseExpr(fmt.Sprintf("var.%s == %q ? %s : %s", envVariableName, token, strings.TrimSpace(string(values[odd].Bytes())), strings.TrimSpace(string(values[other].Bytes())))), true
 }
 
 // literalValue returns the value of tokens, an expression, where it is a
@@ -1707,16 +1708,6 @@ func literalTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		return nil, false
 	}
 	return hclwrite.TokensForValue(v), true
-}
-
-// exprTokens parses src, an expression, into tokens; nil if it doesn't
-// parse.
-func exprTokens(src string) hclwrite.Tokens {
-	f, diags := hclwrite.ParseConfig([]byte("x = "+src+"\n"), "", hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil
-	}
-	return f.Body().GetAttribute("x").Expr().BuildTokens(nil)
 }
 
 // renameTokens returns tokens with each reference to a resource rename

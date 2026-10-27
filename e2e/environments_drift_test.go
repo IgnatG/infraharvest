@@ -19,8 +19,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -143,11 +143,11 @@ func checkEnvironmentsDrift(ctx context.Context, t *testing.T, fixture *appliedF
 		t.Errorf("drift as prod: the delay is of %s in %q, want the alerts queue's instance [0] in prod", delay.Address, delay.Environment)
 	}
 	checkCodeUnchanged(t, "drift, kept", code, out)
-	decisions := filepath.Join(out, importer.DefaultDriftDecisionsFile)
-	if e := decisionEntry(t, decisions, "message_retention_seconds", importer.DriftUndecided); e.Environment != "dev" || e.Root != "aws/us-east-1" {
+	decisions := filepath.Join(out, driftpolicy.DefaultDecisionsFile)
+	if e := decisionEntry(t, decisions, "message_retention_seconds", driftpolicy.Undecided); e.Environment != "dev" || e.Root != "aws/us-east-1" {
 		t.Errorf("%s: the retention's entry is of %s (%s), want aws/us-east-1 (dev)", decisions, e.Root, e.Environment)
 	}
-	if e := decisionEntry(t, decisions, "delay_seconds", importer.DriftUndecided); e.Environment != "prod" || e.Root != "aws/us-east-1" {
+	if e := decisionEntry(t, decisions, "delay_seconds", driftpolicy.Undecided); e.Environment != "prod" || e.Root != "aws/us-east-1" {
 		t.Errorf("%s: the delay's entry is of %s (%s), want aws/us-east-1 (prod)", decisions, e.Root, e.Environment)
 	}
 	setDecision(t, decisions, "message_retention_seconds", report.DriftAccept)

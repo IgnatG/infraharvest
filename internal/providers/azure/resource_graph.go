@@ -29,7 +29,7 @@ import (
 
 // resourceGraphService lists through Resource Graph. It is what * lists,
 // with the few services that list what Resource Graph can't (see
-// OptInServices).
+// Provider.Profile).
 const resourceGraphService = "resource_graph"
 
 // resourceManagerServices are the services that list, through Resource
@@ -632,12 +632,4 @@ func tagAttributes(tags interface{}) map[string]string {
 // lastSegment is the name a resource ID ends with.
 func lastSegment(id string) string {
 	return id[strings.LastIndex(id, "/")+1:]
-}
-
-// OptInServices are the services * leaves out: those that list what
-// resource_graph lists too (see resourceManagerServices), and
-// diagnostic_setting, which takes a request per resource (see
-// DiagnosticSettingLister).
-func (p *Provider) OptInServices() []string {
-	return append(slices.Clone(resourceManagerServices), diagnosticSettingService)
 }

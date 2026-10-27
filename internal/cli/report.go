@@ -7,20 +7,21 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 func newReportCmd() *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "report [output-directory]",
-		Short: "Print the report of an import (default directory: " + importer.DefaultOut + ")",
+		Short: "Print the report of an import (default directory: " + report.DefaultOut + ")",
 		Long: "Print the report an import wrote into its output directory (default:\n" +
-			importer.DefaultOut + "): what was imported, left out and excluded, with the\n" +
+			report.DefaultOut + "): what was imported, left out and excluded, with the\n" +
 			"checks. --format json prints it as JSON, as import --format json does.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out := importer.DefaultOut
+			out := report.DefaultOut
 			if len(args) == 1 {
 				out = args[0]
 			}

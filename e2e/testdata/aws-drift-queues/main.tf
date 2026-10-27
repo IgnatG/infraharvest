@@ -1,10 +1,10 @@
 # Resources the end-to-end tests of infraharvest drift on roots with an S3
-# backend (drift_backend_test.go) and of the MCP server's drift tools
-# (drift_mcp_test.go) create, each in an account of the emulator of its
-# own, which takes a 12-digit access key ID as the account. The endpoint
-# and region come from the environment the tests set. Applied again with
-# another team, it changes a queue's tag out of band of the roots the
-# import generated.
+# backend (drift_backend_test.go) and of the MCP server's tools
+# (drift_mcp_test.go, mcp_import_test.go) create, each in an account of the
+# emulator of its own, which takes a 12-digit access key ID as the account.
+# The endpoint and region come from the environment the tests set. Applied
+# again with another team, or owner, it changes a queue's tag out of band
+# of the roots the import generated.
 
 terraform {
   required_providers {
@@ -29,6 +29,11 @@ variable "team" {
   default = "web"
 }
 
+variable "owner" {
+  type    = string
+  default = "batch"
+}
+
 locals {
   name = "infraharvest-e2e-drift-${var.account}"
 }
@@ -40,7 +45,7 @@ resource "aws_s3_bucket" "state" {
 }
 
 # Two queues, so that the Project tag both have is the root's local.tags,
-# and the team tag the first queue's own.
+# and the team and owner tags each queue's own.
 resource "aws_sqs_queue" "orders" {
   name = "${local.name}-orders"
   tags = { Project = "infraharvest-e2e-drift", team = var.team }
@@ -48,5 +53,5 @@ resource "aws_sqs_queue" "orders" {
 
 resource "aws_sqs_queue" "jobs" {
   name = "${local.name}-jobs"
-  tags = { Project = "infraharvest-e2e-drift" }
+  tags = { Project = "infraharvest-e2e-drift", owner = var.owner }
 }

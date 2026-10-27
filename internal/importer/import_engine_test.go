@@ -29,7 +29,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory per service", func(t *testing.T) {
 		options := Options{Layout: "{out}/{provider}/{service}/", Out: "out"}
 
-		got, _ := importsByDir("aws", resources, listerID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
+		got, _ := importsByDir(importBlocks{provider: "aws", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "aws", noEnv))
 
 		want := map[string][]engine.Import{
 			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/1/orders"}},
@@ -43,7 +43,7 @@ func TestImportsByDir(t *testing.T) {
 	t.Run("one directory for a pattern without {service}", func(t *testing.T) {
 		options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-		got, _ := importsByDir("aws", resources, listerID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
+		got, _ := importsByDir(importBlocks{provider: "aws", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "aws", noEnv))
 
 		if len(got) != 1 || len(got[filepath.Join("out", "aws")]) != 2 {
 			t.Errorf("want both resources in out/aws, got %v", got)
@@ -71,11 +71,11 @@ func TestImportsByDirNamesOtherProviders(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	beta, _ := importsByDir("google-beta", resources, listerID, layoutDirs(options.Layout, options.Out, "google", noEnv), rawName, noFile)
+	beta, _ := importsByDir(importBlocks{provider: "google-beta", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "google", noEnv))
 	if imports := beta[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
 		t.Errorf("google-beta: got %+v, want provider google-beta in out/google", beta)
 	}
-	ga, _ := importsByDir("google", resources, listerID, layoutDirs(options.Layout, options.Out, "google", noEnv), rawName, noFile)
+	ga, _ := importsByDir(importBlocks{provider: "google", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "google", noEnv))
 	if imports := ga[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "" {
 		t.Errorf("google: got %+v, want no provider", ga)
 	}
@@ -90,7 +90,7 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, _ := importsByDir("azurerm", resources, listerID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
+	got, _ := importsByDir(importBlocks{provider: "azurerm", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "azure", noEnv))
 
 	want := map[string][]engine.Import{
 		filepath.Join("out", "azure"): {{Type: "azurerm_resource_group", Name: "rg", ID: "/subscriptions/s/resourceGroups/rg"}},
@@ -102,7 +102,8 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 
 // An azapi_resource of an Azure import names no provider: the root
 // requires azapi, which Terraform infers from the type. Its other
-// resources, and google-beta's, keep what importsByDir gave them.
+// resources, and google-beta's, name the provider as they would without,
+// although google --beta's roots configure google for modules.
 func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 	const rg = "/subscriptions/s/resourceGroups/rg"
 	resources := map[string][]harvest.Resource{
@@ -112,18 +113,19 @@ func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 		},
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
-	byDir, _ := importsByDir("azurerm", resources, listerID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
-	withImpliedProviders(byDir, map[string]engine.Provider{"azapi": {Name: "azapi", Source: "Azure/azapi"}})
+	azapi := map[string]engine.Provider{"azapi": {Name: "azapi", Source: "Azure/azapi"}}
+	byDir, _ := importsByDir(importBlocks{provider: "azurerm", configured: azapi, importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "azure", noEnv))
 	for _, imp := range byDir[filepath.Join("out", "azure")] {
 		if imp.Provider != "" {
 			t.Errorf("%s names provider %q", imp.Type, imp.Provider)
 		}
 	}
 
-	beta := map[string][]engine.Import{"out": {{Type: "google_compute_network", Name: "main", ID: "main", Provider: "google-beta"}}}
-	withImpliedProviders(beta, map[string]engine.Provider{"google-beta": {Name: "google-beta"}})
-	if beta["out"][0].Provider != "google-beta" {
-		t.Errorf("google-beta: got %+v", beta["out"][0])
+	network := map[string][]harvest.Resource{"cloud_asset": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")}}
+	beta := map[string]engine.Provider{"google": {Name: "google", Source: "hashicorp/google"}}
+	got, _ := importsByDir(importBlocks{provider: "google-beta", configured: beta, importID: listerID, nameOf: rawName, fileOf: noFile}, network, layoutDirs(options.Layout, options.Out, "google", noEnv))
+	if imports := got[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
+		t.Errorf("google-beta: got %+v", got)
 	}
 }
 
@@ -141,10 +143,8 @@ func TestImportsFallBackOnTheBareID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	importID := importIDFunc(cat)
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
-	byDir, _ := importsByDir("azurerm", resources, importID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
-	withFallbackIDs(byDir, resources, cat, importID)
+	byDir, _ := importsByDir(importBlocks{provider: "azurerm", cat: cat, importID: importIDFunc(cat), nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "azure", noEnv))
 	for _, imp := range byDir[filepath.Join("out", "azure")] {
 		switch imp.Type {
 		case "azapi_resource":
@@ -226,7 +226,7 @@ func TestImportsByDirUsesImportIDs(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, skipped := importsByDir("aws", resources, importID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
+	got, skipped := importsByDir(importBlocks{provider: "aws", importID: importID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "aws", noEnv))
 
 	want := map[string][]engine.Import{
 		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "a", ID: "subnet-1/rtb-1"}},
@@ -324,7 +324,7 @@ func TestImportsByDirKeepRawNames(t *testing.T) {
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
 
-	got, _ := importsByDir("aws", resources, listerID, layoutDirs(options.Layout, options.Out, "aws", noEnv), rawName, noFile)
+	got, _ := importsByDir(importBlocks{provider: "aws", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "aws", noEnv))
 
 	names := map[string]bool{}
 	for _, imp := range got[filepath.Join("out", "aws")] {
@@ -467,21 +467,24 @@ func TestResourceNamesResolvesIDs(t *testing.T) {
 // An import gets the arguments the catalogue leaves out of its resource
 // depending on what the lister recorded: the instance at its type's CPU
 // options leaves them out, the other keeps them.
-func TestWithResourceOmissions(t *testing.T) {
+func TestImportsLeaveOutWhatTheListerSays(t *testing.T) {
 	atDefaults := harvest.Record("i-1", "app", "aws_instance", "aws", map[string]string{"cpu_options": "default"})
 	tuned := harvest.RecordBare("i-2", "db", "aws_instance", "aws")
-	byDir := map[string][]engine.Import{"out": {
-		{Type: "aws_instance", Name: "app", ID: "i-1"},
-		{Type: "aws_instance", Name: "db", ID: "i-2"},
-	}}
+	blocks := importBlocks{provider: "aws", cat: catalogue.MustBuiltin("aws"), importID: listerID, nameOf: rawName, fileOf: noFile}
 
-	withResourceOmissions(byDir, map[string][]harvest.Resource{"ec2_instance": {atDefaults, tuned}}, catalogue.MustBuiltin("aws"), listerID)
+	byDir, _ := importsByDir(blocks, map[string][]harvest.Resource{"ec2_instance": {atDefaults, tuned}}, func(string, harvest.Resource) string { return "out" })
 
-	if got := byDir["out"][0].Omit; !reflect.DeepEqual(got, []string{"cpu_options"}) {
-		t.Errorf("app: omit %v, want [cpu_options]", got)
-	}
-	if got := byDir["out"][1].Omit; got != nil {
-		t.Errorf("db: omit %v, want none", got)
+	for _, imp := range byDir["out"] {
+		switch imp.ID {
+		case "i-1":
+			if !reflect.DeepEqual(imp.Omit, []string{"cpu_options"}) {
+				t.Errorf("app: omit %v, want [cpu_options]", imp.Omit)
+			}
+		default:
+			if imp.Omit != nil {
+				t.Errorf("db: omit %v, want none", imp.Omit)
+			}
+		}
 	}
 }
 

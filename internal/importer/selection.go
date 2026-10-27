@@ -109,7 +109,7 @@ func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *se
 				continue
 			}
 			r.discovered[typ]++
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason, Scope: scope, Owner: report.OwnerOf(d.Reason)})
+			r.report.Exclude(scope, typ, id, report.Decided(d.Reason))
 			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(nameTag, res, tags)})
 		}
 	}
@@ -161,13 +161,13 @@ func coverKey(scope, service string) string {
 	return scope + "\n" + service
 }
 
-// cover records that discover listed options.Services in scope, and
-// whether it listed them with filters (see covers).
-func (r *Run) cover(scope string, options Options) {
-	for _, service := range options.Services {
-		r.covered[coverKey(scope, service)] = true
+// cover records that discover listed the services of the call c in its
+// scope, and whether it listed them with filters (see covers).
+func (r *Run) cover(c *callContext) {
+	for _, service := range c.services {
+		r.covered[coverKey(c.scope, service)] = true
 	}
-	r.filtered = r.filtered || len(options.filterArgs()) > 0
+	r.filtered = r.filtered || len(c.options.filterArgs()) > 0
 }
 
 // covers returns a func that reports whether discover listed everything

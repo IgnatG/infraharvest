@@ -20,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -80,10 +81,13 @@ func TestMCPToolFlagsExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisions := filepath.Join(dir, "drift.yaml")
-	if err := os.WriteFile(decisions, fmt.Appendf(nil, "version: %d\n", importer.DriftDecisionsVersion), 0o644); err != nil {
+	if err := os.WriteFile(decisions, fmt.Appendf(nil, "version: %d\n", driftpolicy.DecisionsVersion), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(dir, "catalogue"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "infraharvest.yaml"), []byte("version: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runner := &parsingRunner{}
@@ -97,15 +101,15 @@ func TestMCPToolFlagsExist(t *testing.T) {
 		"discover":     {"selection": selectionFile},
 		"import":       {"selection": selectionFile, "out": "generated"},
 		"drift":        {"out": "generated"},
-		"drift_accept": {"out": "generated", "keep": []string{"all"}},
+		"drift_accept": {"out": "generated", "rules": []string{"keep all"}},
 	}
 	values := map[string]any{
 		"engine":         importer.EngineTofu,
 		"engine_timeout": "30m",
 		"catalogue":      "catalogue",
+		"config":         "infraharvest.yaml",
 		"decisions":      decisions,
-		"accept":         []string{"all"},
-		"keep":           []string{"all"},
+		"rules":          []string{"accept all", "keep type=x"},
 	}
 
 	listed, err := session.ListTools(t.Context(), nil)
@@ -360,6 +364,10 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		t.Error("an import the checks refuse ran")
 		return nil, nil, 2, nil
 	}
+	// The checks read the configuration file as the run would.
+	if err := os.WriteFile(filepath.Join(dir, "unknown-service.yaml"), []byte("version: 1\nproviders:\n  aws:\n    services: [nothing]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	asked := false
 	session := connectMCP(t, dir, run, CheckRun, func() { asked = true })
 	for _, tc := range []struct {
@@ -369,6 +377,7 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions"},
 		{map[string]any{"provider": "google", "services": []string{"iam"}}, "say which projects"},
 		{map[string]any{"provider": "aws"}, "--services is required"},
+		{map[string]any{"provider": "aws", "config": "unknown-service.yaml"}, "aws has no service nothing"},
 		{map[string]any{"provider": "aws", "services": []string{"vpc"}, "incremental": true, "regenerate": true}, "either --regenerate or --incremental"},
 	} {
 		tc.args["selection"], tc.args["out"] = selectionFile, "generated"

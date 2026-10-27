@@ -43,6 +43,9 @@ type Check struct {
 	Details []string
 	// Changes are the changes a plan check found, for CheckPlan.
 	Changes []PlannedChange
+	// files are the edited files a failure is blamed on, where the gate
+	// blames edited files (see gatePolicy.diff).
+	files []string
 }
 
 // PlannedChange is a change the plan has for a resource besides importing
@@ -76,28 +79,29 @@ func (g Gate) check(name string) Check {
 	return Check{Name: name, Details: []string{"didn't run"}}
 }
 
-// runGate checks the directory as Generate leaves it: formatted, valid,
-// planning only imports, following the output standard (see
-// checkStandards), with moved and removed blocks Terraform accepts (see
-// checkMoves), passing the installed scanners (see runScanners),
-// without secret values in any file, and without functions that make
-// output differ between runs. Secret variables Terraform doesn't show get
-// placeholder values in the plan, so the arguments they set may change;
-// so may the arguments opts.StateOnly names per type, which providers keep
-// only in state and import can't set. known, if set, has the values of the
+// runGate runs the import gate on the directory as Generate leaves it:
+// every check of the gate (see fullGate), with a plan that imports each
+// resource an import block names and changes nothing else (see
+// planCheck). Secret variables Terraform doesn't show get placeholder
+// values in the plan, so the arguments they set may change; so may the
+// arguments opts.StateOnly names per type, which providers keep only in
+// state and import can't set. known, if set, has the values of the
 // secrets Generate found (see secretValues).
 func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options, known *secretValues) (Gate, error) {
 	expected, err := countImportBlocks(dir)
 	if err != nil {
 		return nil, err
 	}
-	return gateWith(ctx, tf, dir, opts, func() (Check, []string, error) {
+	policy := fullGate(opts)
+	policy.plan = func() (Check, []string, error) {
 		p, _, diags, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), known.options()...))
 		if err != nil {
 			return Check{}, nil, err
 		}
 		return planCheck(p, diags, secrets, opts.StateOnly, expected), append(sensitiveValues(p), knownValues(secrets)...), nil
-	}, nil)
+	}
+	gate, _, err := policy.run(ctx, tf, dir)
+	return gate, err
 }
 
 // countImportBlocks counts the import blocks in dir's configuration: how
@@ -118,74 +122,326 @@ func countImportBlocks(dir string) (int, error) {
 	return n, nil
 }
 
-// gateWith runs the verification gate's checks on dir, with plan for the
-// plan check; plan also returns the values the plan marks sensitive, which
-// no file may contain. withheld, if not nil, returns, once plan has run, a
-// secrets check of values dir must not hold that the gate doesn't report,
-// such as those other plans of dir mark sensitive: the external scanners
-// run only if it passes too.
-func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan func() (Check, []string, error), withheld func() Check) (Gate, error) {
-	var gate Gate
+// gatePolicy is how a run of the verification gate checks a directory:
+// which of the gate's checks run, and what they judge by. The import
+// gate (see runGate), Verify's and VerifyMerged's run every check; Add's
+// holds the scanners back on the secrets staging's plan found (see
+// withheld); a stack's merged root is planned as each environment, and
+// its scanners run once, if none of them finds a secret (see others);
+// and drift judges its edits by what they add to the findings the root
+// had, blaming the files they are in (see baseline and diff).
+type gatePolicy struct {
+	// checks are the names of the checks that run; none runs them all.
+	checks []string
+	// plan runs the plan check, and returns with it the values its plan
+	// marks sensitive, which no file may hold.
+	plan func() (Check, []string, error)
+	// others plan the directory again after plan, as the other
+	// environments of a stack: each has a gate of its own, of its plan
+	// check and the secrets check of the values it marks sensitive, and
+	// the scanners run only if each of those passes.
+	others []gatePlan
+	// sensitive are values no file may hold besides those the plans mark
+	// sensitive.
+	sensitive []string
+	// withheld, if set, is a secrets check of values the directory
+	// mustn't hold that the gate doesn't know, such as those another
+	// directory's plan marks sensitive: the scanners run only if it
+	// passes, and the gate's secrets check fails with what it found.
+	withheld *Check
+	// baseline, for diff mode, has checks of the directory before it was
+	// edited: a check it has fails only on the findings it adds to them.
+	baseline Gate
+	// diff has the gate judge edits: edited are the files they changed,
+	// by name, which before and after hold as they were and are, and the
+	// gate blames its failures on them. The format check fails only on
+	// these files, as the others are as they were; the secrets check scans
+	// only these, failing on a finding an edit adds, without saying where
+	// the secret is; a check that fails names the files it blames (see
+	// Check.files), none where it can't tell; and the gate stops at the
+	// first that fails, as the edits it blames are left out and the rest
+	// checked again.
+	diff          bool
+	edited        []string
+	before, after map[string][]byte
+	// omit and own are the output standard's (see checkStandards), and
+	// scanners are the external scanners to run (see runScanners).
+	omit     map[string][]string
+	own      []string
+	scanners []Scanner
+}
 
-	formatted, files, err := tf.FormatCheck(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("terraform fmt: %w", err)
-	}
-	gate = append(gate, Check{Name: CheckFormat, Passed: formatted, Details: files})
+// gatePlan is one more plan of the directory a gate checks (see
+// gatePolicy.others).
+type gatePlan struct {
+	// name is what the scanners' check, held back on its secrets, says of
+	// it, such as "environment prod".
+	name string
+	run  func() (Check, []string, error)
+}
 
-	validation, err := tf.Validate(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("terraform validate: %w", err)
-	}
-	validCheck := Check{Name: CheckValidate, Passed: validation.Valid}
-	for _, d := range errorDiagnostics(validation.Diagnostics) {
-		validCheck.Details = append(validCheck.Details, formatDiagnostic(d))
-	}
-	gate = append(gate, validCheck)
+// fullGate returns the policy that runs every check of the gate, to the
+// output standard and with the scanners of opts; its plan is still to be
+// set.
+func fullGate(opts Options) gatePolicy {
+	return gatePolicy{omit: opts.Omit, own: ownModuleDirs(opts.Adapters), scanners: opts.Scanners}
+}
 
-	planned, sensitive, err := plan()
-	if err != nil {
-		return nil, err
-	}
-	gate = append(gate, planned)
+// runs reports whether the gate runs the check named name.
+func (p gatePolicy) runs(name string) bool {
+	return len(p.checks) == 0 || slices.Contains(p.checks, name)
+}
 
-	standards, err := checkStandards(dir, opts.Omit, ownModuleDirs(opts.Adapters))
+// run runs the checks of the gate that p says on dir, with tf, and
+// returns their results in the gate's order, which is the order they run
+// in but for the scanners, listed before the secrets check that holds
+// them back; and the gate of each of p.others. A cancelled run fails as
+// cancelled.
+func (p gatePolicy) run(ctx context.Context, tf Terraform, dir string) (Gate, []Gate, error) {
+	gate, others, err := p.runChecks(ctx, tf, dir)
 	if err != nil {
-		return nil, err
-	}
-	movesCheck, err := checkMoves(dir)
-	if err != nil {
-		return nil, err
-	}
-	// Secrets first: external scanners are other people's code, and some
-	// send what they scan elsewhere, so they never see a directory that
-	// holds a secret value.
-	secretCheck, err := scanSecrets(dir, sensitive)
-	if err != nil {
-		return nil, err
-	}
-	scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
-	clean := secretCheck.Passed
-	if clean && withheld != nil {
-		other := withheld()
-		clean = other.Passed
-		scanners.Details = append(scanners.Details, other.Details...)
-	}
-	if clean {
-		scanners = runScanners(ctx, dir, opts.Scanners)
-	}
-	gate = append(gate, standards, movesCheck, scanners, secretCheck)
-
-	determinism, err := scanNondeterminism(dir)
-	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Checks cut short, such as a scanner that couldn't run, say nothing
 	// of dir: a cancelled gate fails as cancelled, not as failed checks.
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(gate, determinism), nil
+	return gate, others, nil
+}
+
+// runChecks is run but for its cancellation.
+func (p gatePolicy) runChecks(ctx context.Context, tf Terraform, dir string) (Gate, []Gate, error) {
+	var gate Gate
+	// add adds c to the gate, and reports whether the gate stops there.
+	add := func(c Check) bool {
+		gate = append(gate, c)
+		return p.diff && !c.Passed
+	}
+	if p.runs(CheckFormat) {
+		c, err := p.format(ctx, tf)
+		if err != nil {
+			return nil, nil, err
+		}
+		if add(c) {
+			return gate, nil, nil
+		}
+	}
+	if p.runs(CheckValidate) {
+		c, err := p.validate(ctx, tf)
+		if err != nil {
+			return nil, nil, err
+		}
+		if add(c) {
+			return gate, nil, nil
+		}
+	}
+	sensitive := slices.Clone(p.sensitive)
+	var others []Gate
+	// clean is whether the secrets checks of the other plans pass, and
+	// held names those that don't.
+	clean := true
+	var held []string
+	if p.runs(CheckPlan) {
+		planned, values, err := p.plan()
+		if err != nil {
+			return nil, nil, err
+		}
+		sensitive = append(sensitive, values...)
+		for _, other := range p.others {
+			otherPlanned, otherValues, err := other.run()
+			if err != nil {
+				return nil, nil, err
+			}
+			secrets, err := scanSecrets(dir, append(slices.Clone(p.sensitive), otherValues...))
+			if err != nil {
+				return nil, nil, err
+			}
+			others = append(others, Gate{otherPlanned, secrets})
+			if !secrets.Passed {
+				clean = false
+				held = append(held, other.name)
+			}
+		}
+		if add(planned) {
+			return gate, others, nil
+		}
+	}
+	for _, name := range []string{CheckStandards, CheckMoves} {
+		if !p.runs(name) {
+			continue
+		}
+		c, err := p.judged(name, dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		if add(c) {
+			return gate, others, nil
+		}
+	}
+	// Secrets first, wherever the scanners run: external scanners are
+	// other people's code, and some send what they scan elsewhere, so they
+	// never see a directory that holds a secret value.
+	if p.runs(CheckSecrets) || p.runs(CheckScanners) {
+		secrets, err := p.secrets(dir, sensitive)
+		if err != nil {
+			return nil, nil, err
+		}
+		if p.runs(CheckScanners) {
+			scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
+			if secrets.Passed {
+				scanners.Details = append(scanners.Details, held...)
+				if p.withheld != nil {
+					clean = clean && p.withheld.Passed
+					scanners.Details = append(scanners.Details, p.withheld.Details...)
+				}
+				if clean {
+					scanners = runScanners(ctx, dir, p.scanners)
+				}
+			}
+			if add(scanners) {
+				return gate, others, nil
+			}
+		}
+		if p.withheld != nil && !p.withheld.Passed {
+			secrets.Passed = false
+			secrets.Details = append(secrets.Details, p.withheld.Details...)
+		}
+		if p.runs(CheckSecrets) && add(secrets) {
+			return gate, others, nil
+		}
+	}
+	if p.runs(CheckDeterminism) {
+		c, err := scanNondeterminism(dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		add(c)
+	}
+	return gate, others, nil
+}
+
+// format runs the format check. Where the gate blames edited files, only
+// those fail it.
+func (p gatePolicy) format(ctx context.Context, tf Terraform) (Check, error) {
+	formatted, files, err := tf.FormatCheck(ctx)
+	if err != nil {
+		return Check{}, fmt.Errorf("terraform fmt: %w", err)
+	}
+	if !p.diff {
+		return Check{Name: CheckFormat, Passed: formatted, Details: files}, nil
+	}
+	c := Check{Name: CheckFormat, Passed: true}
+	for _, f := range files {
+		if slices.Contains(p.edited, filepath.Base(f)) {
+			c.files = append(c.files, filepath.Base(f))
+		}
+	}
+	if len(c.files) > 0 {
+		c.Passed = false
+		c.Details = []string{strings.Join(c.files, ", ") + " isn't formatted"}
+	}
+	return c, nil
+}
+
+// validate runs the validate check, blaming the edited files an error is
+// in.
+func (p gatePolicy) validate(ctx context.Context, tf Terraform) (Check, error) {
+	validation, err := tf.Validate(ctx)
+	if err != nil {
+		return Check{}, fmt.Errorf("terraform validate: %w", err)
+	}
+	c := Check{Name: CheckValidate, Passed: validation.Valid}
+	for _, d := range errorDiagnostics(validation.Diagnostics) {
+		c.Details = append(c.Details, formatDiagnostic(d))
+		if d.Range == nil {
+			continue
+		}
+		for _, name := range p.edited {
+			if name == filepath.ToSlash(d.Range.Filename) || name == filepath.Base(d.Range.Filename) {
+				c.files = append(c.files, name)
+			}
+		}
+	}
+	return c, nil
+}
+
+// judged runs the standards or the moves check, named name, as diff mode
+// judges it where the baseline has it: with only the findings it adds,
+// failing if there are any, and blaming the edited files they name.
+func (p gatePolicy) judged(name, dir string) (Check, error) {
+	var c Check
+	var err error
+	if name == CheckStandards {
+		c, err = checkStandards(dir, p.omit, p.own)
+	} else {
+		c, err = checkMoves(dir)
+	}
+	if err != nil {
+		return Check{}, err
+	}
+	i := slices.IndexFunc(p.baseline, func(b Check) bool { return b.Name == name })
+	if i < 0 {
+		return c, nil
+	}
+	c.Details = addedDetails(p.baseline[i], c)
+	c.Passed = len(c.Details) == 0
+	c.files = filesNamed(c.Details, p.edited)
+	return c, nil
+}
+
+// secrets runs the secrets check, of the values sensitive has: on the
+// files of dir, or, where the gate blames edited files, on what an edit
+// adds to each.
+func (p gatePolicy) secrets(dir string, sensitive []string) (Check, error) {
+	if !p.diff {
+		return scanSecrets(dir, sensitive)
+	}
+	values := newValueMatcher(sensitive)
+	for _, name := range p.edited {
+		var before, after Check
+		scanFile(&before, values, name, string(p.before[name]))
+		scanFile(&after, values, name, string(p.after[name]))
+		if len(addedDetails(before, after)) > 0 {
+			// What it found is a secret's whereabouts, not for a report.
+			return Check{Name: CheckSecrets, Details: []string{name + " would hold a secret"}, files: []string{name}}, nil
+		}
+	}
+	return Check{Name: CheckSecrets, Passed: true}, nil
+}
+
+// addedDetails returns the details of after that before doesn't have.
+func addedDetails(before, after Check) []string {
+	had := map[string]int{}
+	for _, d := range before.Details {
+		had[d]++
+	}
+	var added []string
+	for _, d := range after.Details {
+		if had[d] > 0 {
+			had[d]--
+			continue
+		}
+		added = append(added, d)
+	}
+	return added
+}
+
+// filesNamed returns the files of names that details, a check's
+// findings, name, such as main.tf in "main.tf:3: moved block has no to".
+func filesNamed(details, names []string) []string {
+	var files []string
+	for _, name := range names {
+		if slices.ContainsFunc(details, func(d string) bool {
+			return slices.ContainsFunc(strings.Fields(d), func(field string) bool {
+				file, _, _ := strings.Cut(field, ":")
+				return file == name
+			})
+		}) {
+			files = append(files, name)
+		}
+	}
+	return files
 }
 
 // stateOnlyChange is what the plan check's details say of a resource that
@@ -627,9 +883,16 @@ func scanFile(check *Check, sensitive valueMatcher, rel, content string) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
 	}
-	// Parsed once for the checks below: parsing is most of what a scan
-	// costs.
-	parsed := &parsedFile{rel: rel, content: content}
+	// Parsed once for the checks below, and only a file they read:
+	// parsing is most of what a scan costs. A file that doesn't parse
+	// has nothing to scan, since validate (G2) reports it.
+	if !readsLiteralSecrets(rel) {
+		return
+	}
+	parsed, err := parseHCL(rel, []byte(content))
+	if err != nil {
+		return
+	}
 	for _, name := range providerCredentials(parsed) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
@@ -667,16 +930,12 @@ func checkReadme(dir string, result *Result, values []string) error {
 
 // providerCredentials returns the credential arguments the provider blocks
 // of a .tf file set to constants, sorted, as "provider.argument".
-func providerCredentials(f *parsedFile) []string {
-	if !strings.HasSuffix(f.rel, ".tf") {
-		return nil
-	}
-	body, ok := f.body()
-	if !ok {
+func providerCredentials(f *hclFile) []string {
+	if !strings.HasSuffix(f.path, ".tf") {
 		return nil
 	}
 	var names []string
-	for _, b := range body.Blocks {
+	for _, b := range f.syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 {
 			continue
 		}
@@ -691,34 +950,6 @@ func providerCredentials(f *parsedFile) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// parsedFile is a file of the output, rel, parsed the first time a check
-// asks for its body (see parseBody).
-type parsedFile struct {
-	rel, content string
-	parsed       bool
-	syntax       *hclsyntax.Body
-	ok           bool
-}
-
-func (f *parsedFile) body() (*hclsyntax.Body, bool) {
-	if !f.parsed {
-		f.parsed = true
-		f.syntax, f.ok = parseBody(f.rel, f.content)
-	}
-	return f.syntax, f.ok
-}
-
-// parseBody parses a .tf file's content; a file that doesn't parse has
-// nothing to scan, since validate (G2) reports it.
-func parseBody(rel, content string) (*hclsyntax.Body, bool) {
-	f, diags := hclsyntax.ParseConfig([]byte(content), rel, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, false
-	}
-	body, ok := f.Body.(*hclsyntax.Body)
-	return body, ok
 }
 
 // nondeterministic are functions whose results differ between runs.
@@ -746,12 +977,14 @@ func nondeterministicCalls(rel, content string) []string {
 	if !strings.HasSuffix(rel, ".tf") {
 		return nil
 	}
-	body, ok := parseBody(rel, content)
-	if !ok {
+	// A file that doesn't parse has nothing to scan, since validate (G2)
+	// reports it.
+	f, err := parseHCL(rel, []byte(content))
+	if err != nil {
 		return nil
 	}
 	calls := map[string]bool{}
-	_ = hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+	_ = hclsyntax.VisitAll(f.syntax, func(node hclsyntax.Node) hcl.Diagnostics {
 		if call, ok := node.(*hclsyntax.FunctionCallExpr); ok && nondeterministic[call.Name] {
 			calls[call.Name] = true
 		}
@@ -833,11 +1066,11 @@ func calledModules(dir string) ([]string, error) {
 			if err != nil {
 				return err
 			}
-			body, ok := parseBody(path, string(content))
-			if !ok {
+			f, err := parseHCL(path, content)
+			if err != nil {
 				continue
 			}
-			for _, b := range body.Blocks {
+			for _, b := range f.syntax.Blocks {
 				m := localModuleDir(d, b)
 				if m == "" || seen[m] {
 					continue

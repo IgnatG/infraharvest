@@ -283,7 +283,7 @@ func taggedResources(f *hclFile, dt DefaultTags, schemas *tfjson.ProviderSchemas
 		}
 		attr, ok := r.syntax.Body.Attributes[dt.Attribute]
 		if !ok {
-			if dt.Block != "" && receivesTags(schemas, resourceTypeOf(r.address), dt.Attribute) {
+			if dt.Block != "" && receivesTags(schemas, AddressType(r.address), dt.Attribute) {
 				list = append(list, taggedResource{address: r.address, tags: map[string]string{}})
 			}
 			continue
@@ -363,7 +363,7 @@ func loadProvider(dir, name string) (*hclFile, *hclwrite.Body, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, b := range providers.file.Body().Blocks() {
+	for _, b := range providers.edit().Body().Blocks() {
 		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == name && b.Body().GetAttribute("alias") == nil {
 			return providers, b.Body(), nil
 		}
@@ -484,7 +484,7 @@ func addAliasProvider(providers *hclFile, provider *hclwrite.Body, dt DefaultTag
 		}
 		body.AppendBlock(copied)
 	}
-	file := providers.file.Body()
+	file := providers.edit().Body()
 	file.AppendNewline()
 	file.AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# For the resources without the tags that %s applies to the others.\n", dt.Block))}})
 	file.AppendBlock(block)
@@ -572,7 +572,7 @@ func liftLiterals(dir string, taken Names) (bool, error) {
 			}
 		}
 	}
-	collect(generated.syntax, generated.file.Body())
+	collect(generated.syntax, generated.edit().Body())
 
 	locals, err := readLocals(dir)
 	if err != nil {

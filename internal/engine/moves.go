@@ -619,7 +619,7 @@ func writeMoves(dir string, moved []Move, removed []Removal, retyped []Retype) e
 		fmt.Fprintf(&b, "removed {\n  from = %s\n\n  lifecycle {\n    destroy = false\n  }\n}\n", from)
 	}
 	content := hclwrite.Format([]byte(b.String()))
-	if _, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos); diags.HasErrors() {
+	if _, diags := parseFile(path, content); diags.HasErrors() {
 		return fmt.Errorf("%s: %w", MovesFileName, diags)
 	}
 	return os.WriteFile(path, content, 0o644)

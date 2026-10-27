@@ -21,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -67,6 +68,9 @@ type Run struct {
 	vacating []*handovers
 	// shared is what the run and its children work out once.
 	shared *shared
+	// tools are what the run's Import calls, and its merge phase, reach
+	// outside the process through; nil uses the real ones (see callTools).
+	tools *callTools
 	// OpenPicker opens the picker on the selection file discover writes,
 	// when run in a terminal (see pick).
 	OpenPicker bool
@@ -180,7 +184,7 @@ func (r *Run) recordFailure(options Options, err error) {
 		r.options = options
 	}
 	r.failures = append(r.failures, err)
-	r.report.Failures = append(r.report.Failures, err.Error())
+	r.report.AddFailure(err)
 }
 
 // finish writes the run's report, prints it for --format json, and returns
@@ -220,16 +224,16 @@ func (r *Run) finish(err error) error {
 		return checkFailures(r.failures, r.options.AllowPartial)
 	}
 	for typ, n := range r.skipped {
-		r.report.Skipped = append(r.report.Skipped, report.Skipped{Type: typ, Count: n, Reason: "Terraform can't import this resource type"})
+		r.report.AddSkipped(typ, n)
 	}
 	if err != nil {
 		// What ended the run, such as an interrupt, is a failure too.
-		r.report.Failures = append(r.report.Failures, err.Error())
+		r.report.AddFailure(err)
 	}
 	r.report.Finish(r.discovered, r.failed, r.options.AllowPartial)
 	if err != nil {
 		// The report says what the process exits with.
-		r.report.ExitCode = ExitCode(err)
+		r.report.SetExitCode(ExitCode(err))
 	}
 	if writeErr := r.report.WriteFiles(r.options.Out); writeErr != nil {
 		return couldNotRun(err, writeErr)
@@ -265,11 +269,11 @@ func couldNotRun(err, writeErr error) error {
 
 // child returns a run for one of several accounts or projects of r's
 // command, imported alongside the others (see Run.ImportEach): it shares r's
-// selection file, state backend, lock file, modules and environments,
-// and keeps everything else to itself until r merges it.
+// selection file, state backend, lock file, modules, environments and
+// tools, and keeps everything else to itself until r merges it.
 func (r *Run) child() *Run {
 	c := NewRun()
-	c.selection, c.backend, c.lock, c.modules, c.shared = r.selection, r.backend, r.lock, r.modules, r.shared
+	c.selection, c.backend, c.lock, c.modules, c.shared, c.tools = r.selection, r.backend, r.lock, r.modules, r.shared, r.tools
 	c.environments = r.environments
 	return c
 }
@@ -306,8 +310,10 @@ func (r *Run) merge(child *Run) {
 
 // ApplyConfig applies the configuration file at path to the command's
 // flags, and keeps its backend, modules and environments for the run.
-func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string) error {
-	f, err := config.Load(path)
+// profiles are those of the providers the binary is built with (see
+// config.Load).
+func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, profiles []harvest.Profile) error {
+	f, err := config.Load(path, profiles)
 	if err != nil {
 		return err
 	}

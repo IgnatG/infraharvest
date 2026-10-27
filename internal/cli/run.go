@@ -28,7 +28,7 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 		ctx := context.Background()
 		if c != nil {
 			if f := c.Flag("config"); f != nil && f.Value.String() != "" {
-				if err := run.ApplyConfig(f.Value.String(), c.Flags(), c.Name()); err != nil {
+				if err := run.ApplyConfig(f.Value.String(), c.Flags(), c.Name(), providers.Profiles()); err != nil {
 					return err
 				}
 			}

@@ -3,49 +3,119 @@
 
 package engine
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 
-func TestSortResources(t *testing.T) {
+	"github.com/zclconf/go-cty/cty"
+)
+
+func TestParseHCLErrorsNameTheFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f := writeConfig(t, dir, GeneratedFileName, `# __generated__ by Terraform
-# Please review these resources.
-
-# __generated__ by Terraform from "b"
-resource "aws_vpc" "b" {
-  cidr_block = "10.1.0.0/16"
+	path := filepath.Join(dir, "main.tf")
+	if err := os.WriteFile(path, []byte("resource \"a\" \"b\" {\n  x = \n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Each diagnostic names the file and the position too, as Terraform
+	// does.
+	if _, err := parseHCL("main.tf", []byte("x = \n")); err == nil || !strings.HasPrefix(err.Error(), "parse main.tf: main.tf:1,") {
+		t.Errorf("parseHCL: got %v", err)
+	}
+	if _, err := loadHCL(path); err == nil || !strings.HasPrefix(err.Error(), "parse "+path+": "+path+":2,") {
+		t.Errorf("loadHCL: got %v", err)
+	}
+	if _, err := readVarFile(path); err == nil || !strings.HasPrefix(err.Error(), path+": "+path+":2,") {
+		t.Errorf("readVarFile: got %v", err)
+	}
 }
 
-# __generated__ by Terraform from "a"
-resource "aws_vpc" "a" {
+func TestReadVarFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if f, err := readVarFile(filepath.Join(dir, "terraform.tfvars")); f != nil || err != nil {
+		t.Errorf("no file: got %v, %v", f, err)
+	}
+	path := filepath.Join(dir, "terraform.tfvars")
+	if err := os.WriteFile(path, []byte("region = \"eu-west-2\"\ncount = 2\nname = var.other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := readVarFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only literals have a value.
+	got := f.values()
+	if len(got) != 2 || !got["region"].RawEquals(cty.StringVal("eu-west-2")) || !got["count"].RawEquals(cty.NumberIntVal(2)) {
+		t.Errorf("got %#v", got)
+	}
+}
+
+func TestParseExprRoundTrips(t *testing.T) {
+	t.Parallel()
+	for _, src := range []string{
+		`"a"`,
+		`var.region`,
+		`merge(local.tags, { Name = "x" })`,
+		`[for s in var.subnets : s.id if s.public]`,
+		`var.env == "prod" ? 3 : 1`,
+		"{\n  a = 1\n  b = [2, 3]\n}",
+	} {
+		// The tokens have the space the argument puts before its value.
+		if got := string(parseExpr(src).Bytes()); got != " "+src {
+			t.Errorf("got %q, want %q", got, src)
+		}
+	}
+	for _, src := range []string{`"a`, `a = 1`, ``} {
+		if tokens := parseExpr(src); tokens != nil {
+			t.Errorf("%q: got %q, want nil", src, tokens.Bytes())
+		}
+	}
+	if got, want := string(formatExpr([]byte("{\na=1\nlong_name=2\n}")).Bytes()), " {\n  a         = 1\n  long_name = 2\n}"; got != want {
+		t.Errorf("formatExpr: got %q, want %q", got, want)
+	}
+}
+
+func TestHCLFileSavesEdits(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f := writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "a" {
   cidr_block = "10.0.0.0/16"
 }
 
-resource "aws_subnet" "c" {
+resource "aws_vpc" "b" {
+  cidr_block = "10.1.0.0/16"
 }
 `)
-
-	changed, err := sortResources(f.path)
-	if err != nil || !changed {
-		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
+	resources := f.resources()
+	if len(resources) != 2 {
+		t.Fatalf("got %d resources", len(resources))
 	}
-
-	// Without Terraform's comments: imports.tf has the import IDs.
-	want := `resource "aws_subnet" "c" {
-}
-
-resource "aws_vpc" "a" {
-  cidr_block = "10.0.0.0/16"
-}
-
-resource "aws_vpc" "b" {
-  cidr_block = "10.1.0.0/16"
+	f.edit().Body().RemoveBlock(resources[0].write)
+	resources[1].write.Body().SetAttributeValue("enable_dns_hostnames", cty.True)
+	// The syntax tree describes the file as loaded.
+	if len(f.syntax.Blocks) != 2 {
+		t.Errorf("syntax: got %d blocks, want 2", len(f.syntax.Blocks))
+	}
+	if err := f.save(); err != nil {
+		t.Fatal(err)
+	}
+	want := `resource "aws_vpc" "b" {
+  cidr_block           = "10.1.0.0/16"
+  enable_dns_hostnames = true
 }
 `
 	if got := readFile(t, dir, GeneratedFileName); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
-	if changed, err := sortResources(f.path); err != nil || changed {
-		t.Errorf("sorting again: changed=%v err=%v", changed, err)
+	saved := newHCL(filepath.Join(dir, "locals.tf"))
+	saved.edit().Body().AppendNewBlock("locals", nil).Body().SetAttributeValue("env", cty.StringVal("prod"))
+	if err := saved.save(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readFile(t, dir, "locals.tf"), "locals {\n  env = \"prod\"\n}\n"; got != want {
+		t.Errorf("new file: got %q, want %q", got, want)
 	}
 }

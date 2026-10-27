@@ -55,7 +55,7 @@ func regenerating(out string, byDir map[string][]engine.Import) *listedCall {
 func excludedIDs(run *Run) []string {
 	var ids []string
 	for _, e := range run.report.Excluded {
-		if root, ok := strings.CutPrefix(e.Reason, InOtherRootReason+", "); ok {
+		if root, ok := strings.CutPrefix(e.Reason, whyText(report.InOtherRoot(""))); ok {
 			ids = append(ids, e.ID+" "+root)
 		}
 	}
@@ -381,7 +381,7 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 	// Generated again, the vacated roots keep their removed blocks while
 	// nothing goes from them, and the new root imports the same.
 	f = &fakeEngine{}
-	options.tools = f.tools()
+	options.engine = f
 	run = importPath(t, options)
 	if len(run.failures) != 0 || !slices.Equal(f.generated, []string{"all"}) {
 		t.Errorf("generated %v, failures %v", f.generated, run.failures)
@@ -587,13 +587,10 @@ func TestListCallRegenerateWarnsWhenTheRootAResourceLeavesFails(t *testing.T) {
 	}
 }
 
-// A move into a module call that the result has no address for is
-// reported with its resource's type, not the module call's.
-func TestRecordMovesIntoAModuleCall(t *testing.T) {
-	t.Parallel()
-	run := NewRun()
-	run.recordMoves("aws/eu-west-2", &engine.Result{Moves: []engine.Move{{From: "aws_s3_bucket.logs", To: `module.logs["a.b"].aws_s3_bucket.this`}}})
-	if len(run.report.Moved) != 1 || run.report.Moved[0].Type != "aws_s3_bucket" {
-		t.Errorf("moved: %+v", run.report.Moved)
-	}
+// whyText is what the report says of a resource an import left out for
+// why.
+func whyText(why report.Why) string {
+	var r report.Report
+	r.Exclude("", "", "", why)
+	return r.Excluded[0].Reason
 }

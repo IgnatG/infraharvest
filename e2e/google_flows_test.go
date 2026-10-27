@@ -18,7 +18,6 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -169,8 +168,8 @@ func TestGoogleIncremental(t *testing.T) {
 	checkAddedTo(t, out, filepath.Join(out, "google", googleProject, "global"), "google_pubsub_topic", "infraharvest-e2e-added", before, after)
 	coverage := coverageOf(t, out)
 	checkCoverage(t, "--incremental", coverage, nil)
-	if !slices.ContainsFunc(coverage.Excluded, func(x report.Excluded) bool { return x.Reason == importer.InRootReason }) {
-		t.Errorf("--incremental: nothing is reported %s: %+v", importer.InRootReason, coverage.Excluded)
+	if !slices.ContainsFunc(coverage.Excluded, func(x report.Excluded) bool { return x.Owner == report.OwnerTerraformRoot }) {
+		t.Errorf("--incremental: nothing is reported as in a root already: %+v", coverage.Excluded)
 	}
 	imported := map[string]int{}
 	for _, dir := range generatedDirs(t, out) {

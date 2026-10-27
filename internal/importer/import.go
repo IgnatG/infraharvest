@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -24,8 +23,6 @@ import (
 
 // Defaults of the flags every provider command shares.
 const (
-	// DefaultOut is the directory generated roots go into.
-	DefaultOut = "infraharvest-out"
 	// DefaultListTimeout is how long one service may list in one scope.
 	DefaultListTimeout = 30 * time.Minute
 	// DefaultListParallel is how many services of one scope list at once.
@@ -37,7 +34,9 @@ const (
 
 // Options is what one Import call imports, and how. The provider commands
 // fill it in from their flags; most fields are named after the flag that
-// sets them.
+// sets them. An Import call reads them as given: what it works out from
+// them, such as the catalogue, the services "*" stands for, or the
+// layout with its account and region in, is its own (see callContext).
 type Options struct {
 	// What to list.
 
@@ -171,18 +170,6 @@ type Options struct {
 	// every account and region, list or generate at once in all (see
 	// ImportCalls).
 	Parallel int
-
-	// cat is the catalogue of the import, the built-in one with the
-	// --catalogue overlay merged in, once importInto has loaded it; the
-	// provider of each service listed is given it (see listServices).
-	cat *catalogue.Catalogue
-	// unwanted are the types the import leaves out whatever is listed (see
-	// selection.Unwanted), whose listing the provider of each service
-	// listed may skip (see listServices).
-	unwanted []string
-	// tools are what the call reaches outside the process through; nil
-	// uses the real ones (see callTools).
-	tools *callTools
 }
 
 // checkEngine rejects an --engine other than EngineTerraform or
@@ -387,12 +374,11 @@ func checkFailures(failures []error, allowPartial bool) error {
 	return &ExitError{Code: report.ExitIncomplete, Err: fmt.Errorf("%w\noutput is incomplete; rerun with --allow-partial to accept partial output", err)}
 }
 
-// ResolveServices returns options with Services made concrete: "*"
-// becomes every service of provider (see Services), followed by the
-// services named beside it that it leaves out, such as opt-in ones, and
-// the services in Skip are taken out, keeping the order of the rest.
-// options itself is left as it is.
-func ResolveServices(provider harvest.Provider, options Options) Options {
+// ResolveServices returns the services options.Services names, made
+// concrete: "*" becomes every service of provider (see Services), followed
+// by the services named beside it that it leaves out, such as opt-in ones,
+// and the services in Skip are taken out, keeping the order of the rest.
+func ResolveServices(provider harvest.Provider, options Options) []string {
 	services := options.Services
 	if slices.Contains(services, "*") {
 		all := Services(provider)
@@ -412,53 +398,55 @@ func ResolveServices(provider harvest.Provider, options Options) Options {
 		}
 		kept = append(kept, service)
 	}
-	options.Services = kept
-	return options
+	return kept
 }
 
-// listServices lists the resources of every service in
-// options.Services into registry, each service with a provider of
+// listServices lists the resources of every service of the call c into
+// registry, parallel services at once, each service with a provider of
 // its own initialised with args. A service that fails to list, or that
-// takes longer than options.ListTimeout, is left out of the registry and
+// takes longer than --list-timeout, is left out of the registry and
 // returned among the failures; one that lists in part (see
 // harvest.Partial) keeps what it listed, and is among the failures too.
 // The error is for what stops the whole listing: a provider that can't be
 // initialised, a filter that doesn't parse, or an interrupt.
 //
 // The services that list from what the others listed (see
-// harvest.ProviderWithDependentServices) list once the others are done,
-// given what they listed.
-func listServices(ctx context.Context, registry *harvest.Registry, options Options, args []string) ([]error, error) {
+// harvest.Profile.DependentServices) list once the others are done, given
+// what they listed.
+func listServices(ctx context.Context, registry *harvest.Registry, c *callContext, parallel int, args []string) ([]error, error) {
+	options := c.options
 	filters, err := options.filters()
 	if err != nil {
 		return nil, err
 	}
-	discoverers := make([]discovery.Discoverer, 0, len(options.Services))
+	discoverers := make([]discovery.Discoverer, 0, len(c.services))
 	var dependent []discovery.Discoverer
-	var waiting []harvest.ProviderWithDependentServices
-	for _, service := range options.Services {
+	var waiting []harvest.ProviderWithListedByOthers
+	for _, service := range c.services {
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
 			return nil, err
 		}
 		// The service's provider is new, so it is given the catalogue the
 		// import's provider has, before it makes the service's lister.
-		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && options.cat != nil {
-			p.SetCatalogue(options.cat)
+		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && c.cat != nil {
+			p.SetCatalogue(c.cat)
 		}
-		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(options.unwanted) > 0 {
-			p.SetUnwantedTypes(options.unwanted)
+		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(c.unwanted) > 0 {
+			p.SetUnwantedTypes(c.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
-		if p, ok := serviceProvider.(harvest.ProviderWithDependentServices); ok && slices.Contains(p.DependentServices(), service) {
+		if slices.Contains(serviceProvider.Profile().DependentServices, service) {
 			dependent = append(dependent, d)
-			waiting = append(waiting, p)
+			if p, ok := serviceProvider.(harvest.ProviderWithListedByOthers); ok {
+				waiting = append(waiting, p)
+			}
 			continue
 		}
 		discoverers = append(discoverers, d)
 	}
 
-	listOptions := discovery.Options{Timeout: options.ListTimeout, Parallel: options.ListParallel}
+	listOptions := discovery.Options{Timeout: options.ListTimeout, Parallel: parallel}
 	results, err := discovery.List(ctx, discoverers, listOptions)
 	if err != nil {
 		return nil, fmt.Errorf("listing: %w", err)
@@ -500,13 +488,10 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 }
 
 // Services returns the names of provider's services, sorted, without its
-// opt-in services (see harvest.ProviderWithOptInServices): those are
-// imported only when named, never as part of "*".
+// opt-in services (see harvest.Profile.OptInServices): those are imported
+// only when named, never as part of "*".
 func Services(provider harvest.Provider) []string {
-	var optIn []string
-	if p, ok := provider.(harvest.ProviderWithOptInServices); ok {
-		optIn = p.OptInServices()
-	}
+	optIn := provider.Profile().OptInServices
 	services := make([]string, 0, len(provider.Services()))
 	for name := range provider.Services() {
 		if !slices.Contains(optIn, name) {

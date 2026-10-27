@@ -457,7 +457,7 @@ func TestMapClustersWritesStringsWithoutOutputs(t *testing.T) {
 	if err != nil || len(trials) != 2 || len(declined) != 0 {
 		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
 	}
-	if err := writeCalls(dir, trials, nil); err != nil {
+	if err := writeCalls(dir, trials, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, `policy = "eu-west-2"`) {
@@ -495,7 +495,7 @@ func TestSpliceTraversal(t *testing.T) {
 	for _, r := range f.resources() {
 		replaceReferences(r.write.Body(), []string{"google_compute_subnetwork", "app", "self_link"}, replacement)
 	}
-	got := string(hclwrite.Format(f.file.Bytes()))
+	got := string(hclwrite.Format(f.edit().Bytes()))
 	for _, want := range []string{
 		`subnetwork = module.net.subnets["us-central1/app"].self_link`,
 		`link = "${module.net.subnets["us-central1/app"].self_link}/x"`,
@@ -540,6 +540,118 @@ func TestSynthesizeConfiguresModuleProviders(t *testing.T) {
 	}
 	if got := readFile(t, dir, ProvidersFileName) + readFile(t, dir, VersionsFileName); strings.Contains(got, "google-beta") {
 		t.Errorf("a provider of no kept call:\n%s", got)
+	}
+}
+
+// Under google --beta, whose root configures google-beta, a kept call
+// whose module uses google gets a google block for the same project and
+// region, pinned, that applies the root's default labels as google-beta
+// does; google-beta's block stays as it was.
+func TestSynthesizeConfiguresTheRootsCounterpartUnderBeta(t *testing.T) {
+	t.Parallel()
+	withGoogle := testAdapter
+	withGoogle.Providers = []string{"google", "google-beta"}
+	config := map[string]interface{}{"project": "acme", "region": "europe-west1", "add_terraform_attribution_label": false}
+	moduleProviders := map[string]Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
+	labels := &DefaultTags{Provider: "google-beta", Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"}
+
+	dir, _ := moduleRoot(t, twoBuckets)
+	const rootProviders = "provider \"google-beta\" {\n  add_terraform_attribution_label = false\n  default_labels                  = local.labels\n  project                         = \"acme\"\n  region                          = \"europe-west1\"\n}\n"
+	writeConfig(t, dir, ProvidersFileName, rootProviders)
+	writeConfig(t, dir, VersionsFileName, "terraform {\n  required_providers {\n    google-beta = {\n      source  = \"hashicorp/google-beta\"\n      version = \"~> 7.2\"\n    }\n  }\n}\n")
+	writeConfig(t, dir, LockFileName, "provider \"registry.terraform.io/hashicorp/google\" {\n  version = \"7.2.0\"\n}\n")
+	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(bothCalls...)}}
+	if _, _, _, err := synthesize(context.Background(), tf, dir, generating(Options{Adapters: []adapters.Adapter{withGoogle}, ModuleProviders: moduleProviders, DefaultTags: labels}), nil, changeSummary{}, rootChanges(), nil); err != nil {
+		t.Fatal(err)
+	}
+	want := rootProviders + "\nprovider \"google\" {\n  add_terraform_attribution_label = false\n  project                         = \"acme\"\n  region                          = \"europe-west1\"\n  default_labels                  = local.labels\n}\n"
+	if got := readFile(t, dir, ProvidersFileName); got != want {
+		t.Errorf("providers.tf:\n%s\nwant:\n%s", got, want)
+	}
+	if got := squashed(readFile(t, dir, VersionsFileName)); !strings.Contains(got, squashed(`google = { source = "hashicorp/google" version = "~> 7.2" }`)) || !strings.Contains(got, squashed(`google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" }`)) {
+		t.Errorf("versions.tf:\n%s", got)
+	}
+}
+
+// Under google --beta, a call of the organisation's own module in a
+// directory gets a configured google block when the module requires
+// google, and none when it requires only google-beta, as the adapter
+// Generic reads from the module says (see adapters.Adapter.Providers).
+func TestSynthesizeConfiguresOwnModulesProvidersUnderBeta(t *testing.T) {
+	t.Parallel()
+	const generated = `resource "google_storage_bucket" "logs" {
+  provider = google-beta
+  location = "EU"
+  name     = "logs"
+}
+`
+	const bucket = `resource "google_storage_bucket" "this" {
+  location = var.location
+  name     = var.name
+}
+
+variable "location" {
+  type = string
+}
+
+variable "name" {
+  type = string
+}
+`
+	const rootProviders = "provider \"google-beta\" {\n  project = \"acme\"\n}\n"
+	config := map[string]interface{}{"project": "acme"}
+	moduleProviders := map[string]Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
+	changes := map[string]string{"google_storage_bucket.logs": changeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	for _, tc := range []struct {
+		requires   string
+		wantGoogle bool
+	}{
+		{requires: "google", wantGoogle: true},
+		{requires: "google-beta", wantGoogle: false},
+	} {
+		module := t.TempDir()
+		writeConfig(t, module, "main.tf", bucket+"\nterraform {\n  required_providers {\n    "+tc.requires+" = {\n      source = \"hashicorp/"+tc.requires+"\"\n    }\n  }\n}\n")
+		own, err := adapters.Generic(module, "", module)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dir := t.TempDir()
+		f := writeConfig(t, dir, GeneratedFileName, generated)
+		var imports []Import
+		for _, r := range f.resources() {
+			typ, name, _ := strings.Cut(r.address, ".")
+			imports = append(imports, Import{Type: typ, Name: name, ID: name, Provider: "google-beta"})
+		}
+		content, err := ImportsFile(imports)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeConfig(t, dir, ImportsFileName, string(content))
+		writeConfig(t, dir, ProvidersFileName, rootProviders)
+		writeConfig(t, dir, VersionsFileName, "terraform {\n  required_providers {\n    google-beta = {\n      source  = \"hashicorp/google-beta\"\n      version = \"~> 7.2\"\n    }\n  }\n}\n")
+		writeConfig(t, dir, LockFileName, "provider \"registry.terraform.io/hashicorp/google\" {\n  version = \"7.2.0\"\n}\n")
+		tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan("module.logs.google_storage_bucket.this")}}
+		calls, _, _, err := synthesize(context.Background(), tf, dir, generating(Options{Adapters: []adapters.Adapter{own}, ModuleProviders: moduleProviders}), nil, changeSummary{}, changes, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(readFile(t, dir, GeneratedFileName), `module "logs"`) {
+			t.Fatalf("requires %s: the call wasn't kept: %+v\n%s", tc.requires, calls, readFile(t, dir, GeneratedFileName))
+		}
+		providers, versions := readFile(t, dir, ProvidersFileName), squashed(readFile(t, dir, VersionsFileName))
+		if !tc.wantGoogle {
+			if providers != rootProviders || strings.Contains(versions, "hashicorp/google\"") {
+				t.Errorf("requires %s: providers.tf:\n%s\nversions.tf:\n%s", tc.requires, providers, versions)
+			}
+			continue
+		}
+		if want := rootProviders + "\nprovider \"google\" {\n  project = \"acme\"\n}\n"; providers != want {
+			t.Errorf("requires %s: providers.tf:\n%s\nwant:\n%s", tc.requires, providers, want)
+		}
+		if !strings.Contains(versions, squashed(`google = { source = "hashicorp/google" version = "~> 7.2" }`)) {
+			t.Errorf("requires %s: versions.tf:\n%s", tc.requires, versions)
+		}
 	}
 }
 

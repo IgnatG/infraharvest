@@ -6,6 +6,7 @@ package engine
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -29,7 +30,7 @@ type eachInstance struct {
 // instances checks the count or for_each of block, the resource c is of:
 // a count of at most one makes one instance, whose arguments are its own;
 // a for_each, the instance at c's key, whose own values are only those
-// each.value reads (see eachValue). It returns why the block's instances
+// each.value reads (see eachResolver). It returns why the block's instances
 // can't be told apart, or "".
 func (w *driftWalk) instances(block *hclsyntax.Block) string {
 	if attr, ok := block.Body.Attributes["count"]; ok && !atMostOne(attr.Expr) {
@@ -81,17 +82,18 @@ func forEachKey(address string) (string, bool) {
 	return k.key, ok && k.hasKey
 }
 
-// eachValue is the source of an attribute each.value.<field>, which x is,
-// sets from step i of the path, the argument at path or in it: the field
-// of the instance's key in the map the block's for_each is over, as the
-// person who wrote the map edits it. The map is a local's object literal,
-// or, in a root environments share, the value the environment's var file
-// gives a map variable, or, where the file doesn't set it, the variable's
-// default, which the edit then adds to the file with the key's field
-// changed. Where the block reads the field more than once, or anything
-// but the block and its import blocks refers to the map, an edit of it
-// would reach more than the instance: a hand edit.
-func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
+// eachResolver is each.value.<field> in a resource's block with for_each:
+// the field of the instance's key in the map the block's for_each is
+// over, as the person who wrote the map edits it. The map is a local's
+// object literal, or, in a root environments share, the value the
+// environment's var file gives a map variable, or, where the file doesn't
+// set it, the variable's default, which the edit then adds to the file
+// with the key's field changed. Where the block reads the field more than
+// once, or anything but the block and its import blocks refers to the
+// map, an edit of it would reach more than the instance: a hand edit.
+type eachResolver struct{}
+
+func (s eachResolver) resolve(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
 	ref := w.text(x.Range())
 	field := ""
 	if t := x.Traversal; len(t) == 3 {
@@ -118,52 +120,57 @@ func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 	if name != "" {
 		root = over.Traversal.RootName()
 	}
-	source := root + "." + name
 	switch root {
 	case "local":
-		def, ok := w.cfg.locals[name]
-		if !ok {
-			return w.manual(sourceLocal, x.Range(), source+" sets it, which the root doesn't define: edit it by hand")
-		}
-		if w.cfg.uses[name] > blockUses(w.each.block, root, name)+importUses(w.cfg, root, name, w.address) {
-			return w.manual(sourceSharedLocal, x.Range(), source+", which other blocks use too, sets it: edit it by hand")
-		}
-		inner := *w
-		inner.file, inner.f, inner.depth = def.file, def.f, w.depth+1
-		src := inner.entry(def.attr.Expr, source, field, path, i)
-		if src.Kind == sourceLiteral || src.Kind == sourceAbsent {
-			src.Kind = sourceLocal
-		}
-		return src
+		return s.overLocal(w, x, name, field, path, i)
 	case "var":
-		return w.eachVariable(x, name, field, path, i)
+		return s.overVariable(w, x, variableResolver{name: name, block: w.cfg.variables[name]}, field, path, i)
 	}
 	return w.manual(sourceExpression, x.Range(), "the block's for_each isn't a local or a variable: edit it by hand")
 }
 
-// eachVariable is eachValue for a for_each over var.name.
-func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field string, path []string, i int) codeSource {
-	source := "var." + name
-	v := w.cfg.variables[name]
+// overLocal is resolve for a for_each over local.name.
+func (eachResolver) overLocal(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, name, field string, path []string, i int) codeSource {
+	source := "local." + name
+	def, ok := w.cfg.locals[name]
+	if !ok {
+		return w.manual(sourceLocal, x.Range(), source+" sets it, which the root doesn't define: edit it by hand")
+	}
+	if w.cfg.uses[name] > blockUses(w.each.block, "local", name)+importUses(w.cfg, "local", name, w.address) {
+		return w.manual(sourceSharedLocal, x.Range(), source+", which other blocks use too, sets it: edit it by hand")
+	}
+	inner := *w
+	inner.file, inner.f, inner.depth = def.file, def.f, w.depth+1
+	src := inner.entry(def.attr.Expr, source, field, path, i)
+	if src.Kind == sourceLiteral || src.Kind == sourceAbsent {
+		src.Kind = sourceLocal
+	}
+	return src
+}
+
+// overVariable is resolve for a for_each over v, a variable, whose
+// reasons for a hand edit are the variable's own (see variableResolver).
+func (eachResolver) overVariable(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, v variableResolver, field string, path []string, i int) codeSource {
+	source := "var." + v.name
 	switch {
-	case v == nil:
-		return w.manual(sourceVariable, x.Range(), source+" sets it, which the root doesn't declare: edit it by hand")
-	case sensitiveVariable(v):
-		return w.manual(sourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which %s sets: update it in your secret store, or TF_VAR_%s", source, name))
+	case v.block == nil:
+		return v.undeclared(w, x)
+	case sensitiveVariable(v.block):
+		return v.secret(w, x)
 	case w.e.env == "":
-		return w.manual(sourceVariable, x.Range(), source+" sets it: change the value the root is given")
-	case w.cfg.varUses[name] > blockUses(w.each.block, "var", name)+importUses(w.cfg, "var", name, w.address):
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
+		return v.given(w, x)
+	case w.cfg.varUses[v.name] > blockUses(w.each.block, "var", v.name)+importUses(w.cfg, "var", v.name, w.address):
+		return v.hand(w, x, fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
 	}
 	file := w.e.envVars
-	f := w.cfg.files[file]
-	if f == nil {
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and the root has no %s: give it the value by hand", source, file))
+	vars := mergedVars(w.cfg.files)
+	if vars.own(w.e.env) == nil {
+		return v.noVarFile(w, x)
 	}
-	if attr, ok := f.syntax.Attributes[name]; ok {
+	if val, ok := w.envValue(v.name); ok {
 		inner := *w
-		inner.file, inner.f = file, f
-		src := inner.entry(attr.Expr, source+" in "+file, field, path, i)
+		inner.file, inner.f = val.file, val.f
+		src := inner.entry(val.attr.Expr, source+" in "+file, field, path, i)
 		if src.Edit != nil || src.Kind == sourceLiteral || src.Kind == sourceAbsent {
 			src.Kind = sourceVariable
 		}
@@ -171,10 +178,11 @@ func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field st
 	}
 	// The default holds the environment's value: the file gets it, with
 	// the key's field changed.
-	def, ok := v.Body.Attributes["default"]
-	vf := w.cfg.variableFile(v)
+	unset := v.hand(w, x, fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+	def, ok := v.block.Body.Attributes["default"]
+	vf := w.cfg.variableFile(v.block)
 	if !ok || vf == nil {
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+		return unset
 	}
 	inner := *w
 	inner.file, inner.f = vf.name, vf.f
@@ -186,14 +194,11 @@ func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field st
 	rng := def.Expr.Range()
 	edit := src.Edit
 	if len(src.Also) > 0 || edit.File != vf.name || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+		return unset
 	}
-	value := string(vf.f.src[rng.Start.Byte:edit.Start]) + string(edit.Text) + string(vf.f.src[edit.End:rng.End.Byte])
-	line := []byte(name + " = " + value + "\n")
-	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
-		line = append([]byte("\n"), line...)
-	}
-	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &codeEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+	value := slices.Concat(vf.f.src[rng.Start.Byte:edit.Start], edit.Text, vf.f.src[edit.End:rng.End.Byte])
+	set, _ := vars.set(w.e.env, v.name, value)
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &set}
 }
 
 // entry follows the path from step i into field of the item at the
@@ -270,24 +275,6 @@ func importUses(cfg *driftConfig, root, name, address string) int {
 	return n
 }
 
-// namedFile is a file of a driftConfig, with its name.
-type namedFile struct {
-	name string
-	f    *hclFile
-}
-
-// variableFile returns the file that declares v, or nil.
-func (cfg *driftConfig) variableFile(v *hclsyntax.Block) *namedFile {
-	for name, f := range cfg.files {
-		for _, b := range f.syntax.Blocks {
-			if b == v {
-				return &namedFile{name: name, f: f}
-			}
-		}
-	}
-	return nil
-}
-
 // ownBlock reports whether src's edits, of a root environments share,
 // are all in the block of c's resource, where only the environment
 // checked has it: its count is a bool variable's, count = var.<name> ? 1
@@ -329,10 +316,8 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource)
 
 // envOnlyFlags returns the bool variables, declared in files, of the root
 // environments share in dir that environment env alone sets true, such as
-// the deploy_ variables of the features, and residue, only it has: as the
-// var files of each environment's values set them (see mergedValues),
-// over their defaults. A variable whose value can't be told for an
-// environment isn't one.
+// the deploy_ variables of the features, and residue, only it has (see
+// mergedVars.ownFlags).
 func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 	envs, err := MergedEnvironments(dir)
 	if err != nil {
@@ -359,51 +344,11 @@ func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 			defaults[b.Labels[0]] = value
 		}
 	}
-	values := func(e string) (map[string]cty.Value, error) {
-		set, err := mergedValues(dir, e)
-		if err != nil {
-			return nil, err
-		}
-		out := map[string]cty.Value{}
-		for name, def := range defaults {
-			out[name] = def
-			if v, ok := set[name]; ok {
-				out[name] = v
-			}
-		}
-		return out, nil
-	}
-	isTrue := func(v cty.Value) bool {
-		return v.IsKnown() && !v.IsNull() && v.Type().Equals(cty.Bool) && v.True()
-	}
-	isFalse := func(v cty.Value) bool {
-		return v.IsKnown() && !v.IsNull() && v.Type().Equals(cty.Bool) && v.False()
-	}
-	mine, err := values(env)
+	vars, err := loadMergedVars(dir, append(envs, env))
 	if err != nil {
 		return nil, err
 	}
-	flags := map[string]bool{}
-	for name, v := range mine {
-		if isTrue(v) {
-			flags[name] = true
-		}
-	}
-	for _, other := range envs {
-		if other == env {
-			continue
-		}
-		theirs, err := values(other)
-		if err != nil {
-			return nil, err
-		}
-		for name := range flags {
-			if !isFalse(theirs[name]) {
-				delete(flags, name)
-			}
-		}
-	}
-	return flags, nil
+	return vars.ownFlags(env, defaults), nil
 }
 
 // variableUses returns why var.name, which other arguments use too,

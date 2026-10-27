@@ -67,23 +67,12 @@ type ProviderWithModuleProviders interface {
 	ModuleProviders() map[string]ModuleProvider
 }
 
-// ProviderWithOptInServices is a provider with services that the wildcard
-// --services=* leaves out, because they list another way what other
-// services already list, as Azure's do, or because the cloud's service has
-// reached end of support, as AWS's have. They are listed only when named.
-type ProviderWithOptInServices interface {
-	OptInServices() []string
-}
-
-// ProviderWithDependentServices is a provider with services that list from
-// what the import's other services listed, such as Azure's diagnostic
-// settings, which take a request for each listed resource that can have
-// them, rather than one for everything the cloud has. The importer lists
-// them once the others are done, and before they list gives each one's
-// provider, with SetListedByOthers, what the others listed: also what a
-// service that failed in part listed, and nothing of one that failed.
-type ProviderWithDependentServices interface {
-	DependentServices() []string
+// ProviderWithListedByOthers is a provider with dependent services (see
+// Profile.DependentServices). Before they list, the importer gives each
+// one's provider, with SetListedByOthers, what the import's other services
+// listed: also what a service that failed in part listed, and nothing of
+// one that failed.
+type ProviderWithListedByOthers interface {
 	SetListedByOthers(resources []Resource)
 }
 

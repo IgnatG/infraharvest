@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
@@ -99,6 +101,56 @@ func TestEveryProviderHasARegistrySource(t *testing.T) {
 		}
 		if strings.HasPrefix(source, "hashicorp/") || strings.Count(source, "/") != 1 || strings.HasSuffix(source, "/") {
 			t.Errorf("%s: Source is %q, want <namespace>/<type> outside hashicorp/", name, source)
+		}
+	}
+}
+
+// Every provider's profile says what its scopes are: what one is called,
+// how the user's confirmation of an import describes them, the key of
+// their IDs in the configuration file's environments, which the file's
+// format has under the provider's command, and its curated modules, if
+// any, with the name people call them by. Every family of curated
+// modules is a provider's. The flags a command needs one of are its own.
+func TestEveryProfileDescribesItsScope(t *testing.T) {
+	var families []string
+	for _, p := range Profiles() {
+		families = append(families, p.Modules)
+	}
+	for _, family := range adapters.Providers() {
+		if !slices.Contains(families, family) {
+			t.Errorf("curated modules of family %q, which no provider's profile names", family)
+		}
+	}
+	for i, p := range Profiles() {
+		name := Names()[i]
+		if p.Command != name || p.Scope.Noun == "" || p.Scope.Describe == nil {
+			t.Errorf("%s: command %q, noun %q: name the command, and what a scope is and how to describe it", name, p.Command, p.Scope.Noun)
+		}
+		if p.Modules != "" && len(adapters.For(p.Modules)) == 0 {
+			t.Errorf("%s: no curated modules of family %q", name, p.Modules)
+		}
+		if (p.Modules == "") != (p.ModulesName == "") {
+			t.Errorf("%s: curated modules of family %q, called %q: name both or neither", name, p.Modules, p.ModulesName)
+		}
+		cmd, _ := Command(name, importer.Options{})
+		for _, flag := range p.Scope.Needs {
+			if cmd.Flag(flag) == nil {
+				t.Errorf("%s: the command needs --%s, which it doesn't have", name, flag)
+			}
+		}
+		const id = "111111111111"
+		path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+		content := "version: 1\nenvironments:\n  dev: { " + name + ": { " + p.Scope.Field + ": [\"" + id + "\"] } }\n"
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f, err := config.Load(path, Profiles())
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if got := f.Environments.For(p, id); !slices.Equal(got, []string{"dev"}) {
+			t.Errorf("%s: the environment of %s %s is %v, want dev", name, p.Scope.Noun, id, got)
 		}
 	}
 }

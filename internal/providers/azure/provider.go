@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -29,12 +31,11 @@ import (
 // no longer matches its interface would otherwise be dropped in silence,
 // as the importer asserts them at run time.
 var (
-	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
-	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
-	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
-	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
-	_ harvest.ProviderWithScope             = (*Provider)(nil)
-	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
+	_ harvest.ProviderWithListedByOthers  = (*Provider)(nil)
+	_ harvest.ProviderWithModuleProviders = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
+	_ harvest.ProviderWithScope           = (*Provider)(nil)
+	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider the generated configuration uses,
@@ -54,7 +55,8 @@ const telemetryApplicationID = "infraharvest"
 var errNoSubscription = errors.New("no Azure subscription to import: set ARM_SUBSCRIPTION_ID, or name subscriptions with --subscriptions or --management-group")
 
 // services makes a new lister for each service the provider lists, by
-// --services name. OptInServices says which of them * leaves out.
+// --services name. Its profile's OptInServices says which of them *
+// leaves out.
 var services = map[string]func() harvest.Lister{
 	resourceGraphService:                   func() harvest.Lister { return &ResourceGraphLister{} },
 	diagnosticSettingService:               func() harvest.Lister { return &DiagnosticSettingLister{} },
@@ -317,17 +319,33 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 	return p.subscriptionID, region, nil
 }
 
-// Profile describes Azure: roots go under <out>/azure/, not azurerm; the
-// services of a subscription may list at once, as each has its own
-// lister and what they share, the credential and the subscription's
-// limiter, is safe to share; azurerm resources take their tags in the
-// tags attribute, with no provider block to apply them to all, and Azure
-// reserves the hidden- prefix for its own; Resource Graph's types go in
-// files by their family; and a root that environments share reads the
-// subscription from the provider.
+// Profile describes Azure: an import covers a subscription, whose ID is
+// a GUID, in either case; * leaves out the services that list what
+// resource_graph lists too (see resourceManagerServices), and
+// diagnostic_setting, which takes a request per resource (see
+// DiagnosticSettingLister) and lists after the others, asking only the
+// resources they found for their diagnostic settings; Azure Verified
+// Modules are its curated modules; roots go under <out>/azure/, not
+// azurerm; the services of a subscription may list at once, as each has
+// its own lister and what they share, the credential and the
+// subscription's limiter, is safe to share; azurerm resources take their
+// tags in the tags attribute, with no provider block to apply them to
+// all, and Azure reserves the hidden- prefix for its own; Resource
+// Graph's types go in files by their family; and a root that
+// environments share reads the subscription from the provider.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
-		Command:           commandName,
+		Command: commandName,
+		Scope: harvest.Scope{
+			Noun:     "subscription",
+			Field:    "subscriptions",
+			FoldCase: true,
+			Describe: describeScope,
+		},
+		Modules:           commandName,
+		ModulesName:       "Azure Verified Modules",
+		OptInServices:     append(slices.Clone(resourceManagerServices), diagnosticSettingService),
+		DependentServices: []string{diagnosticSettingService},
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},
 		Layout: harvest.Layout{
@@ -346,7 +364,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle: "Subscription",
 			ScopeData:  "azurerm_client_config.current",
 			ScopeLocal: "subscription_id",
 			ScopeExpr:  "data.azurerm_client_config.current.subscription_id",
@@ -354,16 +371,34 @@ func (*Provider) Profile() harvest.Profile {
 	}
 }
 
+// describeScope says what the azure command reads with flags: the
+// subscription of ARM_SUBSCRIPTION_ID, or those of --subscriptions and
+// under --management-group, the resource group of --resource-group in
+// them, and with --azapi what azurerm has no type for.
+func describeScope(flags map[string][]string) string {
+	var parts []string
+	if subscriptions := flags["subscriptions"]; len(subscriptions) > 0 {
+		parts = append(parts, "subscriptions "+strings.Join(subscriptions, ", "))
+	}
+	if group := flags["management-group"]; len(group) > 0 {
+		parts = append(parts, "every enabled subscription under management group "+group[0])
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "subscription of ARM_SUBSCRIPTION_ID")
+	}
+	text := "the azure " + strings.Join(parts, " and ")
+	if group := flags["resource-group"]; len(group) > 0 {
+		text = "resource group " + group[0] + " of " + text
+	}
+	if len(flags["azapi"]) > 0 {
+		text += ", what azurerm has no type for through azapi"
+	}
+	return text
+}
+
 // SetCatalogue sets the import's catalogue, which the services get.
 func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
 	p.catalogue = c
-}
-
-// DependentServices are the services that list from what the import's
-// other services listed, after them: diagnostic_setting, which asks only
-// the resources they found for their diagnostic settings.
-func (*Provider) DependentServices() []string {
-	return []string{diagnosticSettingService}
 }
 
 // SetListedByOthers sets what the import's other services listed, which

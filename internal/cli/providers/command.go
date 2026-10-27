@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // DocsURL is the address of the documentation site, which flag help points
@@ -207,14 +208,14 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.Float64Var(&options.RateLimit, "rate-limit", ratelimit.DefaultRate, "most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit)")
 
 	// Where the output goes, and how it is generated.
-	flags.StringVar(&options.Layout, "layout", importer.DefaultLayout, "directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags)")
-	flags.StringVarP(&options.Out, "out", "o", importer.DefaultOut, "directory to write the generated roots and the report to")
+	flags.StringVar(&options.Layout, "layout", importer.DefaultLayout, "directories of the generated roots, one root each, from {out}, {provider} ("+commandList()+"), {account}, {region}, {service} and {env} (see --env-tags)")
+	flags.StringVarP(&options.Out, "out", "o", report.DefaultOut, "directory to write the generated roots and the report to")
 	flags.StringVar(&options.Format, "format", importer.FormatText, "text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it)")
 	flags.StringSliceVar(&options.EnvTags, "env-tags", nil, "tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env)")
 	flags.StringVar(&options.DefaultEnv, "default-env", "", "environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/")
 	flags.BoolVar(&options.MergeEnvironments, "merge-environments", true, "with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see "+DocsURL+"configuration/#environments)")
 	flags.StringSliceVar(&options.ReportTags, "report-tags", nil, "tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary)")
-	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
+	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules"+moduleFamilies()+", at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	flags.StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see "+DocsURL+"catalogue/)")
 	flags.StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks")
 	flags.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
@@ -231,6 +232,36 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.BoolVar(&options.Incremental, "incremental", false, "add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have")
 	flags.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "import from the resources infraharvest discover listed into the same --out, instead of listing them again")
 	flags.BoolVar(&options.ForceUnlock, "force-unlock", false, "write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself")
+}
+
+// commandList names the provider commands compiled in, as a sentence
+// lists them: aws, azure or google.
+func commandList() string {
+	names := Names()
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
+// moduleFamilies names the families of curated public modules of the
+// providers compiled in, as their profiles call them, in parentheses:
+// (terraform-aws-modules, Azure Verified Modules and
+// terraform-google-modules); nothing when none has any.
+func moduleFamilies() string {
+	var names []string
+	for _, p := range Profiles() {
+		if p.ModulesName != "" {
+			names = append(names, p.ModulesName)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) == 1 {
+		return " (" + names[0] + ")"
+	}
+	return " (" + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + ")"
 }
 
 // ParallelFlag adds --parallel to cmd, bound to options.Parallel: how many

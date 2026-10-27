@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -31,24 +30,25 @@ type listedHere struct {
 	types map[string]bool
 }
 
-// listedInScope returns what the call's listing found (see listedHere),
-// from the resources of listed and those of more, such as the children of
-// what the selection keeps. It returns nil, with why, when the listing
-// can't tell what is gone: the provider can't name the account and region
-// it lists, or pattern, the call's --layout, doesn't give each of them
-// roots of their own, so a root may hold what another call lists; the
-// resources come from what discover saved, which may be older than the
+// listedInScope returns what the listing of the call c found (see
+// listedHere), from the resources of listed and those of more, such as
+// the children of what the selection keeps. It returns nil, with why, when
+// the listing can't tell what is gone: the provider can't name the account
+// and region it lists, or pattern, the call's --layout, doesn't give each
+// of them roots of their own, so a root may hold what another call lists;
+// the resources come from what discover saved, which may be older than the
 // roots; filters, or Resource Explorer's index, left some out; or the
 // listing failed in part. As when discover drops the entries of its
 // selection file (see Run.covers), what wasn't listed in full counts as
 // unknown, not as gone. Failures to read tags don't count: they leave out
 // no resource.
-func listedInScope(provider harvest.Provider, cat *catalogue.Catalogue, options Options, pattern, scope string, listed listing, failures []error, more map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool)) (*listedHere, string) {
+func listedInScope(provider harvest.Provider, c *callContext, pattern string, listed listing, failures []error, more map[string][]harvest.Resource) (*listedHere, string) {
+	options := c.options
 	if pattern == "" {
 		pattern = DefaultLayout
 	}
 	switch {
-	case scope == "":
+	case c.scope == "":
 		return nil, "the provider can't say which account and region it lists"
 	case !strings.Contains(pattern, "{account}") || !strings.Contains(pattern, "{region}"):
 		return nil, "--layout doesn't give each account and region roots of their own"
@@ -64,7 +64,7 @@ func listedInScope(provider harvest.Provider, cat *catalogue.Catalogue, options 
 			return nil, "the listing failed in part"
 		}
 	}
-	here := &listedHere{ids: map[string]bool{}, types: typesListedInFull(provider, cat, options)}
+	here := &listedHere{ids: map[string]bool{}, types: typesListedInFull(provider, c)}
 	for _, resources := range []map[string][]harvest.Resource{listed.resources, more} {
 		for _, list := range resources {
 			for _, r := range list {
@@ -72,7 +72,7 @@ func listedInScope(provider harvest.Provider, cat *catalogue.Catalogue, options 
 					continue
 				}
 				here.ids[strings.ToLower(r.Observed.ID)] = true
-				if id, ok := importID(r); ok {
+				if id, ok := c.importID(r); ok {
 					here.ids[strings.ToLower(id)] = true
 				}
 			}
@@ -82,8 +82,8 @@ func listedInScope(provider harvest.Provider, cat *catalogue.Catalogue, options 
 }
 
 // typesListedInFull returns the types whose every resource in its scope
-// a listing of options.Services finds: those the catalogue says one of
-// the services lists, and those of its inventory entries, which a service
+// a listing of the services of the call c finds: those the catalogue says
+// one of the services lists, and those of its inventory entries, which a service
 // that lists through an inventory API, such as Google's cloud_asset, maps
 // resources to. Left out are the types such a service has no inventory
 // entry for, which it maps to a type one resource at a time, as Azure's
@@ -93,7 +93,8 @@ func listedInScope(provider harvest.Provider, cat *catalogue.Catalogue, options 
 // types the import doesn't list (see selection.Unwanted) or can't import; and
 // the types the provider says it lists in part (see
 // harvest.ProviderWithPartialTypes).
-func typesListedInFull(provider harvest.Provider, cat *catalogue.Catalogue, options Options) map[string]bool {
+func typesListedInFull(provider harvest.Provider, c *callContext) map[string]bool {
+	cat := c.cat
 	types := map[string]bool{}
 	if cat == nil {
 		return types
@@ -110,16 +111,16 @@ func typesListedInFull(provider harvest.Provider, cat *catalogue.Catalogue, opti
 	if p, ok := provider.(harvest.ProviderWithPartialTypes); ok {
 		partial = p.PartialTypes()
 	}
-	inventory := slices.ContainsFunc(options.Services, func(s string) bool { return slices.Contains(inventoryServices, s) })
+	inventory := slices.ContainsFunc(c.services, func(s string) bool { return slices.Contains(inventoryServices, s) })
 	for _, typ := range cat.Types() {
 		e, ok := cat.Entry(typ)
-		if !ok || children[typ] || e.NotImportable != "" || slices.Contains(options.unwanted, typ) || slices.Contains(partial, typ) {
+		if !ok || children[typ] || e.NotImportable != "" || slices.Contains(c.unwanted, typ) || slices.Contains(partial, typ) {
 			continue
 		}
 		switch {
 		case e.Inventory != nil && inventory:
 			// The inventory service maps the resources it lists to it.
-		case e.Service == "" || !slices.Contains(options.Services, e.Service):
+		case e.Service == "" || !slices.Contains(c.services, e.Service):
 			continue
 		case slices.Contains(inventoryServices, e.Service):
 			// Its service maps it one resource at a time.
@@ -164,9 +165,6 @@ func (r *Run) recordNotInCloud(dir string, gone []engine.Import) {
 	if len(gone) == 0 {
 		return
 	}
-	path := relativePath(r.options.Out, dir)
-	for _, g := range gone {
-		r.report.NotInCloud = append(r.report.NotInCloud, report.NotInCloud{Path: path, Address: g.Type + "." + g.Name, ID: g.ID, Scope: r.scope})
-	}
+	r.report.AddNotInCloud(relativePath(r.options.Out, dir), r.scope, gone)
 	log.Printf("%s: no longer in the cloud: %d of the root's resources; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", dir, len(gone), filepath.Join(r.options.Out, report.Dir, "report.md"))
 }

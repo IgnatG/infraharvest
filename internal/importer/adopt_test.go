@@ -219,20 +219,6 @@ func TestMergeStackAdoptedWithoutAnEnvironment(t *testing.T) {
 	}
 }
 
-func TestBlockAddress(t *testing.T) {
-	t.Parallel()
-	for address, want := range map[string]string{
-		"aws_sqs_queue.orders":                  "aws_sqs_queue.orders",
-		`aws_sqs_queue.this["orders"]`:          "aws_sqs_queue.this",
-		"module.logs.aws_s3_bucket.this[0]":     "module.logs",
-		`module.queues["a"].aws_sqs_queue.this`: "module.queues",
-	} {
-		if got := blockAddress(address); got != want {
-			t.Errorf("blockAddress(%q) = %q, want %q", address, got, want)
-		}
-	}
-}
-
 // A module call is new since the merge only where none of its resources
 // was there.
 func TestNewSinceMerge(t *testing.T) {
