@@ -384,7 +384,8 @@ func TestAddIncompleteHandover(t *testing.T) {
 
 // The provider's version is what the lock file records for its source,
 // matched without regard to case, and none when the lock doesn't record it
-// or doesn't parse; the report shows it after the constraint.
+// or doesn't parse, even where a version was recorded before: the lock is
+// the source of truth. The report shows it after the constraint.
 func TestLockProvider(t *testing.T) {
 	t.Parallel()
 	const source = "registry.terraform.io/hashicorp/aws"

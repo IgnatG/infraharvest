@@ -96,7 +96,15 @@ func (r *Report) AddKeptRoots(kept []KeptRoot) {
 }
 
 // LockProvider records the version of the provider the dependency lock
-// file lock records.
+// file lock records. The lock is the source of truth: where it doesn't
+// record the provider, as where it is missing, doesn't parse or holds
+// other providers only, no version is recorded, and one recorded before
+// goes, rather than show a release no root's lock file pins, which
+// Terraform wouldn't install. That loses nothing a call found: a run's
+// lock is the first lock file it wrote, kept for the rest of it, so a
+// later call of the run records the same version again, and the report
+// of a call with a run of its own, merged into the run's, keeps the
+// first version either has (see Manifest.Add).
 func (r *Report) LockProvider(lock []byte) {
 	r.Provider.Version = engine.LockedVersion(lock, r.Provider.Source)
 }
