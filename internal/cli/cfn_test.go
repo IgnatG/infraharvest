@@ -43,6 +43,22 @@ func TestCfnConvert(t *testing.T) {
 		t.Errorf("err = %v, want exit %d", err, report.ExitCouldNotRun)
 	}
 
+	// Nor follows a link of that name out of the directory, dangling or
+	// not.
+	linked := t.TempDir()
+	escaped := filepath.Join(t.TempDir(), "escaped.tf")
+	if err := os.Symlink(escaped, filepath.Join(linked, "main.tf")); err != nil {
+		t.Logf("no symbolic links here: %v", err)
+	} else {
+		err = convertTemplate("-", linked, cfn.Options{}, false, strings.NewReader(template), &diags)
+		if !errors.As(err, &exit) || exit.Code != report.ExitCouldNotRun {
+			t.Errorf("through a dangling link: err = %v, want exit %d", err, report.ExitCouldNotRun)
+		}
+		if _, err := os.Lstat(escaped); err == nil {
+			t.Error("wrote the file a dangling link led to")
+		}
+	}
+
 	// What can't be converted exits 1, or 3 with --allow-partial.
 	custom := "Resources:\n  Hook:\n    Type: Custom::Hook\n"
 	for allow, want := range map[bool]int{false: report.ExitIncomplete, true: report.ExitPartial} {

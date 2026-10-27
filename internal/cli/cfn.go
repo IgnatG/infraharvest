@@ -94,8 +94,10 @@ func convertTemplate(path, out string, opts cfn.Options, allowPartial bool, stdi
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return couldNotRun(err)
 	}
+	// Lstat: a symbolic link there, dangling or not, is a file too, which
+	// the write would follow out of out.
 	for _, name := range res.FileNames() {
-		if _, err := os.Stat(filepath.Join(out, name)); err == nil {
+		if _, err := os.Lstat(filepath.Join(out, name)); err == nil {
 			return couldNotRun(fmt.Errorf("%s already exists; use an empty --out directory", filepath.Join(out, name)))
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return couldNotRun(err)

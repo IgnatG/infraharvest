@@ -35,10 +35,20 @@ func outputLockPath(out string) string {
 // staging directory, to a file of the user's that the run would
 // overwrite or remove. The .terraform directories of staged roots are
 // left out, where terraform init links providers from the plugin cache.
+// The rest of out, where the run writes roots, modules, the report and
+// the .gitignore, may hold the user's own files too, so there it refuses
+// only what would lead a write elsewhere (see fsutil.CheckContained),
+// such as a root, or report, linked to a directory of the user's, or a
+// file linked to one out of out that an incremental import would read
+// and write back into the root, for a commit of out to carry. out itself
+// may be a link the user chose.
 func lockOutput(out string, force bool) (*filelock.Lock, error) {
 	dir := filepath.Join(out, CheckpointDir)
 	if err := fsutil.CheckTree(dir, ".terraform"); err != nil {
 		return nil, fmt.Errorf("%w: refusing to write under %s, where a repository could commit one to lead a run's writes to a file elsewhere; remove it", err, dir)
+	}
+	if err := fsutil.CheckContained(out, CheckpointDir, ".terraform", ".git"); err != nil {
+		return nil, fmt.Errorf("%w: refusing to write under %s, where a repository could commit one to lead a run's writes elsewhere, or a file of the user's into what it writes; remove it", err, out)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err

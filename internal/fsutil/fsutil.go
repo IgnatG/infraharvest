@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // WriteFile writes data to the file at path, as os.WriteFile does, but
@@ -114,4 +115,74 @@ func CheckFile(path string) error {
 		return untrusted(path, info.Mode(), "a regular file")
 	}
 	return nil
+}
+
+// CheckContained checks that nothing under root, a directory a run writes
+// into, leads a write elsewhere, as CheckTree does, but for a directory
+// that may hold files of the user's as well as the run's, such as an
+// output directory a repository commits: every directory under it is
+// one, not a symbolic link to one or a junction; every symbolic link
+// leads to a regular file under root; everything else is a regular file.
+// A link to a directory there would have the run write, through it,
+// files of the user's elsewhere, a dangling one have it create one
+// elsewhere, and a link out of root have it read a file of the user's
+// into one it writes, which a commit of the directory then carries.
+// Root itself, and the directories it is in, may be links: they are the
+// user's choice. The contents of the directories named one of skip aren't
+// checked, only the directories themselves.
+func CheckContained(root string, skip ...string) error {
+	resolved, err := filepath.EvalSymlinks(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s isn't a directory", root)
+	}
+	return filepath.WalkDir(resolved, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// Named under root, as the user gave it.
+		rel, err := filepath.Rel(resolved, path)
+		if err != nil {
+			return err
+		}
+		name := filepath.Join(root, rel)
+		switch mode := d.Type(); {
+		case mode.IsDir():
+			if path != resolved && slices.Contains(skip, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		case mode.IsRegular():
+			return nil
+		case mode&fs.ModeSymlink == 0:
+			return untrusted(name, mode, "a directory or a regular file")
+		}
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("%s is a symbolic link that leads to nothing there is", name)
+		}
+		info, err := os.Stat(target)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return fmt.Errorf("%s is a symbolic link to a directory", name)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is a symbolic link to what isn't a regular file", name)
+		}
+		if r, err := filepath.Rel(resolved, target); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("%s is a symbolic link out of %s", name, root)
+		}
+		return nil
+	})
 }

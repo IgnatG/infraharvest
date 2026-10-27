@@ -87,7 +87,9 @@ func TestRunLocksTheOutput(t *testing.T) {
 // link, such as one a repository it checks commits in place of the lock,
 // CheckpointDir itself or a staging directory, to a file or directory of
 // the user's, --force-unlock or not, and leaves what it leads to as it
-// is. Links terraform init makes in a staged root's .terraform pass.
+// is, and likewise one elsewhere in the output directory that leads a
+// write out of it: a directory linked, or a file linked out of it. Links
+// terraform init makes in a staged root's .terraform pass.
 func TestLockOutputRefusesLinks(t *testing.T) {
 	t.Parallel()
 	outside := t.TempDir()
@@ -116,6 +118,11 @@ func TestLockOutputRefusesLinks(t *testing.T) {
 		{name: "an incremental staging directory's parent", link: func(out string) string {
 			return filepath.Dir(stagingDir(out, filepath.Join(out, "aws", "network")))
 		}, dir: true},
+		// Outside CheckpointDir, where the roots, modules and report go.
+		{name: "the report directory", link: func(out string) string { return filepath.Join(out, report.Dir) }, dir: true},
+		{name: "a root", link: func(out string) string { return filepath.Join(out, "aws", "1", "eu-west-2") }, dir: true},
+		{name: "a root's file", link: func(out string) string { return filepath.Join(out, "aws", "1", "eu-west-2", "imports.tf") }},
+		{name: "a module's file", link: func(out string) string { return filepath.Join(out, "modules", "bucket", "main.tf") }},
 		{name: "a provider terraform init linked", link: func(out string) string {
 			return filepath.Join(driftStagingDir(out, "aws/network"), ".terraform", "providers", "aws")
 		}, dir: true, pass: true},
@@ -160,5 +167,37 @@ func TestLockOutputRefusesLinks(t *testing.T) {
 				t.Errorf("written into the link's target: %v, %v", entries, err)
 			}
 		})
+	}
+}
+
+// An output directory the user linked to one elsewhere, and a file linked
+// to another in it, such as roots sharing a file, take the lock.
+func TestLockOutputTakesLinksThatStayInside(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	common := filepath.Join(real, "common", "providers.tf")
+	root := filepath.Join(real, "aws", "1", "eu-west-2")
+	for _, dir := range []string{filepath.Dir(common), root} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(common, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(base, "out")
+	if err := os.Symlink(real, out); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if err := os.Symlink(common, filepath.Join(root, "providers.tf")); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockOutput(out, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
 	}
 }

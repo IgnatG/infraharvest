@@ -284,3 +284,77 @@ func TestCheckUnreadable(t *testing.T) {
 		t.Errorf("CheckTree skipping it: %v", err)
 	}
 }
+
+// A tree of directories, regular files and links to regular files under
+// it passes, as does one that isn't there, and a root that is itself a
+// link; a link to a directory, out of the root or to nothing fails,
+// naming it under the root as given, except under a directory it skips.
+func TestCheckContained(t *testing.T) {
+	t.Parallel()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "id_ed25519")
+	if err := os.WriteFile(secret, []byte("private key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(t.TempDir(), "probe")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		// files and dirs to make under the base, and links to make there,
+		// to the target each names: "file" or "dir" outside, "missing",
+		// or a path under the base
+		files, dirs []string
+		links       map[string]string
+		// bad is the path, under the base, the error names; "" passes
+		bad string
+	}{
+		{name: "not there"},
+		{name: "plain", dirs: []string{"out/aws/1/eu-west-2", "out/report"}, files: []string{"out/.gitignore", "out/aws/1/eu-west-2/main.tf"}},
+		{name: "a link to a file under the root", dirs: []string{"out/aws/1", "out/common"}, files: []string{"out/common/providers.tf"}, links: map[string]string{"out/aws/1/providers.tf": "out/common/providers.tf"}},
+		{name: "the root a link", dirs: []string{"real/aws"}, files: []string{"real/aws/main.tf"}, links: map[string]string{"out": "real"}},
+		{name: "the root a file", files: []string{"out"}, bad: "out"},
+		{name: "a directory a link", dirs: []string{"out"}, links: map[string]string{"out/report": "dir"}, bad: "out/report"},
+		{name: "a deep directory a link", dirs: []string{"out/aws/1"}, links: map[string]string{"out/aws/1/eu-west-2": "dir"}, bad: "out/aws/1/eu-west-2"},
+		{name: "a directory a link under the root", dirs: []string{"out/aws/1"}, links: map[string]string{"out/aws/2": "out/aws/1"}, bad: "out/aws/2"},
+		{name: "a file a link out", dirs: []string{"out/aws"}, links: map[string]string{"out/aws/imports.tf": "file"}, bad: "out/aws/imports.tf"},
+		{name: "a dangling link", dirs: []string{"out/modules/x"}, links: map[string]string{"out/modules/x/main.tf": "missing"}, bad: "out/modules/x/main.tf"},
+		{name: "a link in a skipped directory", dirs: []string{"out/aws/.terraform/providers"}, links: map[string]string{"out/aws/.terraform/providers/aws": "dir"}},
+		{name: "a skipped directory a link", dirs: []string{"out/aws"}, links: map[string]string{"out/aws/.terraform": "dir"}, bad: "out/aws/.terraform"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			base := t.TempDir()
+			for _, dir := range tc.dirs {
+				if err := os.MkdirAll(filepath.Join(base, dir), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, file := range tc.files {
+				if err := os.WriteFile(filepath.Join(base, file), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for link, target := range tc.links {
+				to, ok := map[string]string{"file": secret, "dir": outside, "missing": filepath.Join(outside, "missing")}[target]
+				if !ok {
+					to = filepath.Join(base, target)
+				}
+				if err := os.Symlink(to, filepath.Join(base, link)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := CheckContained(filepath.Join(base, "out"), ".terraform")
+			if tc.bad == "" {
+				if err != nil {
+					t.Errorf("got %v, want it to pass", err)
+				}
+				return
+			}
+			if want := filepath.Join(base, tc.bad) + " "; err == nil || !strings.HasPrefix(err.Error(), want) {
+				t.Errorf("got %v, want %s named", err, want)
+			}
+		})
+	}
+}

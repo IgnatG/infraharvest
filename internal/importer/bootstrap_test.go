@@ -42,7 +42,7 @@ func TestWriteBootstrap(t *testing.T) {
 		{name: "no configuration file", want: "config.yaml"},
 		{name: "configuration that doesn't load", config: "version: 2\n", want: "version 2 isn't supported"},
 		{name: "no backend", config: "version: 1\n", want: "has no backend to bootstrap"},
-		{name: "output directory is a file", config: s3, outIsFile: true, want: "mkdir "}, // "not a directory", or on Windows "cannot find the path",
+		{name: "output directory is a file", config: s3, outIsFile: true, want: "isn't a directory"},
 		{name: "message can't be written", config: s3, failWrite: true, want: errStub.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,6 +108,51 @@ func TestWriteBootstrap(t *testing.T) {
 			}
 			if want := "Wrote " + bootstrap + ": apply it once"; !strings.HasPrefix(message.String(), want) {
 				t.Errorf("message %q, want it to start with %q", message.String(), want)
+			}
+		})
+	}
+}
+
+// WriteBootstrap refuses an output directory, such as a clone, whose
+// bootstrap directory, or a file in it, is a link out of it, and writes
+// nothing through the link.
+func TestWriteBootstrapRefusesLinks(t *testing.T) {
+	t.Parallel()
+	outside := t.TempDir()
+	bashrc := filepath.Join(outside, ".bashrc")
+	if err := os.WriteFile(bashrc, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(bashrc, filepath.Join(t.TempDir(), "probe")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	for name, link := range map[string]struct{ at, to string }{
+		"the directory": {at: config.BootstrapDir, to: outside},
+		"a file":        {at: filepath.Join(config.BootstrapDir, "main.tf"), to: bashrc},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			configFile := filepath.Join(dir, "config.yaml")
+			if err := os.WriteFile(configFile, []byte("version: 1\nbackend:\n  s3:\n    bucket: acme-state\n    region: eu-west-2\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(dir, "out")
+			at := filepath.Join(out, link.at)
+			if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(link.to, at); err != nil {
+				t.Fatal(err)
+			}
+			if err := WriteBootstrap(configFile, out, io.Discard, nil); err == nil || !strings.Contains(err.Error(), at+" is a symbolic link") {
+				t.Errorf("got %v, want %s refused", err, at)
+			}
+			if got, err := os.ReadFile(bashrc); err != nil || string(got) != "mine\n" {
+				t.Errorf("the link's target changed: %q, %v", got, err)
+			}
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 1 {
+				t.Errorf("written into the link's target: %v, %v", entries, err)
 			}
 		})
 	}
