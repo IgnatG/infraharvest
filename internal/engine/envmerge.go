@@ -369,6 +369,12 @@ type MergeProfile struct {
 	// the local that holds it, which also names the variable that sets
 	// the provider's, and RegionExpr the expression that reads it.
 	RegionData, RegionLocal, RegionExpr string
+	// EnvironmentData returns what an environment's credentials and
+	// region give the data sources that read its scope and region, for
+	// UnmergeEnv.Data, by data source type and attribute, for the scope
+	// ID and the region of an environment, "" where they aren't known;
+	// nil for a provider with none.
+	EnvironmentData func(scope, region string) map[string]map[string]string
 }
 
 // splitResidue splits each resource matched across environments whose

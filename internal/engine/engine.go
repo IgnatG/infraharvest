@@ -280,8 +280,12 @@ type Options struct {
 	// ARNs of types whose IDs aren't ARNs name their resources.
 	OtherRoots []RootResource
 	ARNs       map[string]ARN
-	// Scanners run in the verification gate (see runScanners).
-	Scanners []Scanner
+	// Scanners run in the verification gate (see runScanners), each in one
+	// of ScannerSlots: roots checked at the same time, such as those of one
+	// import, share them, so that the scanners of all of them together
+	// don't outnumber the CPUs. nil gives the run slots of its own.
+	Scanners     []Scanner
+	ScannerSlots *ScannerSlots `json:"-"`
 	// IncludeOwned keeps the resources whose tags say another tool
 	// manages them, which Generate leaves out otherwise (see OwnedBy).
 	IncludeOwned bool

@@ -30,7 +30,7 @@ func newVerifyCmd() *cobra.Command {
 			if len(args) == 1 {
 				options.Out = args[0]
 			}
-			ctx, stop := importer.InterruptContext(cmd.Context())
+			ctx, stop := interruptContext(cmd.Context())
 			defer stop()
 			return importer.Interrupted(ctx, importer.Verify(ctx, options, cmd.OutOrStdout()))
 		},

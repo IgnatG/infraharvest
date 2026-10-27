@@ -234,7 +234,7 @@ func TestConfigSettingsByTool(t *testing.T) {
 		"a provider's engine":   {"version: 1\nproviders:\n  aws:\n    engine: tofu\n", drifting, "it takes none there", nil},
 		"drift's settings list": {"version: 1\nsettings:\n  services: [vpc]\n", drifting, "which are engine, engine-timeout;", nil},
 		"the backend":           {"version: 1\nbackend:\n  s3: { bucket: states, region: eu-west-2 }\n", drifting, "backend: the drift", nil},
-		"the environments":      {"version: 1\nenvironments:\n  prod: { aws: { accounts: [\"111111111111\"] } }\n", drifting, "environments: the drift", nil},
+		"the environments":      {"version: 1\nenvironments:\n  prod: { aws: { accounts: [\"111111111111\"] } }\n", drifting, "environments: the drift", []string{"aws"}},
 		"root":                  {"version: 1\nsettings:\n  root: [aws/*]\n", all, "settings: root isn't a setting the", nil},
 		"environment":           {"version: 1\nsettings:\n  environment: [prod]\n", all, "settings: environment isn't a setting the", nil},
 		"parallel":              {"version: 1\nsettings:\n  parallel: 2\n", all, "settings: parallel isn't a setting the", nil},
@@ -386,21 +386,26 @@ func TestConfigEditedAfterConfirmation(t *testing.T) {
 func TestConfigText(t *testing.T) {
 	for _, tc := range []struct {
 		content, want string
+		// need is the provider whose section the file has.
+		need string
 	}{
 		{
 			"version: 1\nbackend:\n  s3: { bucket: states, region: eu-west-2, key_prefix: infra, kms_key_id: alias/state }\nenvironments:\n  prod:\n    aws: { accounts: [\"111111111111\"] }\n    tags: { Env: \"prod\\\" now\" }\n    tokens: [prd, live]\n",
-			`backend {s3: {bucket: "states", region: "eu-west-2", key_prefix: "infra", kms_key_id: "alias/state"}}; environments {"prod": {aws: {accounts: ["111111111111"]}, tags: {"Env": "prod\" now"}, tokens: ["prd", "live"]}}`,
+			`backend {s3: {bucket: "states", region: "eu-west-2", key_prefix: "infra", kms_key_id: "alias/state"}}; environments {"prod": {aws: {accounts: ["111111111111"]}, tags: {"Env": "prod\" now"}, tokens: ["prd", "live"]}}`, "aws",
 		},
 		{
 			"version: 1\nbackend:\n  azurerm: { resource_group_name: rg, storage_account_name: sa, container_name: c, key_prefix: p }\nenvironments:\n  dev: { azure: { subscriptions: [\"00000000-0000-0000-0000-000000000001\"] } }\n",
-			`backend {azurerm: {resource_group_name: "rg", storage_account_name: "sa", container_name: "c", key_prefix: "p"}}; environments {"dev": {azure: {subscriptions: ["00000000-0000-0000-0000-000000000001"]}}}`,
+			`backend {azurerm: {resource_group_name: "rg", storage_account_name: "sa", container_name: "c", key_prefix: "p"}}; environments {"dev": {azure: {subscriptions: ["00000000-0000-0000-0000-000000000001"]}}}`, "azure",
 		},
 		{
 			"version: 1\nsettings: { services: [iam, gcs], azapi: true }\nbackend:\n  gcs: { bucket: states, prefix: infra }\nenvironments:\n  dev: { google: { projects: [p-dev] } }\n",
-			`settings {"azapi": true, "services": ["iam", "gcs"]}; backend {gcs: {bucket: "states", prefix: "infra"}}; environments {"dev": {google: {projects: ["p-dev"]}}}`,
+			`settings {"azapi": true, "services": ["iam", "gcs"]}; backend {gcs: {bucket: "states", prefix: "infra"}}; environments {"dev": {google: {projects: ["p-dev"]}}}`, "google",
 		},
-		{"version: 1\n", "nothing"},
+		{"version: 1\n", "nothing", ""},
 	} {
+		if tc.need != "" && !builtIn(tc.need) {
+			continue
+		}
 		path := filepath.Join(t.TempDir(), "infraharvest.yaml")
 		if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
 			t.Fatal(err)

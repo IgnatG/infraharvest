@@ -244,12 +244,18 @@ func mergeProfile(profile harvest.Profile) engine.MergeProfile {
 	if noun != "" {
 		title = strings.ToUpper(noun[:1]) + noun[1:]
 	}
-	return engine.MergeProfile{
+	merge := engine.MergeProfile{
 		ScopeTitle: title,
 		ScopeData:  m.ScopeData, ScopeLocal: m.ScopeLocal, ScopeExpr: m.ScopeExpr,
 		RegionArgument: m.RegionArgument, RegionTitle: m.RegionTitle,
 		RegionData: m.RegionData, RegionLocal: m.RegionLocal, RegionExpr: m.RegionExpr,
 	}
+	if m.EnvironmentData != nil {
+		merge.EnvironmentData = func(scope, region string) map[string]map[string]string {
+			return m.EnvironmentData(scope, region)
+		}
+	}
+	return merge
 }
 
 // MergeEnvironments merges the roots of each stack of r's environments

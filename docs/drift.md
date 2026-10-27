@@ -227,7 +227,7 @@ Set the root's secret variables with `TF_VAR_` environment variables or an `.aut
 
 ## Backends
 
-S3, GCS and azurerm backends and local state are supported. HCP Terraform (a `cloud` block) and other remote backends, such as `remote`, are refused with an error: their plans run remotely, so drift can't plan a local copy.
+S3, GCS and azurerm backends and local state are supported; a build with only some providers (see [Install](install.md)) supports the backends of their clouds alone. HCP Terraform (a `cloud` block) and other remote backends, such as `remote`, are refused with an error: their plans run remotely, so drift can't plan a local copy.
 
 ## Roots environments share
 

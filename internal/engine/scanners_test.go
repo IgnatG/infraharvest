@@ -39,7 +39,7 @@ func TestRunScanners(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			check := runScanners(context.Background(), t.TempDir(), tc.scanners)
+			check := runScanners(context.Background(), t.TempDir(), tc.scanners, nil)
 			if check.Passed != tc.passed || !strings.Contains(strings.Join(check.Details, "\n"), tc.detail) {
 				t.Errorf("got passed=%v %v, want passed=%v with %q", check.Passed, check.Details, tc.passed, tc.detail)
 			}
@@ -69,7 +69,7 @@ func TestRunScannersAtTheSameTime(t *testing.T) {
 		return []Finding{{Rule: "AVD-AWS-0089", Severity: "HIGH"}}, nil
 	}}
 
-	check := runScanners(context.Background(), t.TempDir(), []Scanner{first, second})
+	check := runScanners(context.Background(), t.TempDir(), []Scanner{first, second}, nil)
 
 	if !check.Passed || len(check.Details) != 3 || check.Details[0] != "tflint: no findings" || !strings.HasPrefix(check.Details[1], "trivy: 1 findings") || check.Details[2] != "trivy: AVD-AWS-0089 (high)" {
 		t.Errorf("got passed=%v %q", check.Passed, check.Details)
@@ -94,6 +94,50 @@ func TestParseScannerOutput(t *testing.T) {
 		if err != nil || len(checkov) != 1 || checkov[0].String() != "CKV_AWS_18 generated.tf:1: Ensure access logging" {
 			t.Errorf("checkov: %v, %v", checkov, err)
 		}
+	}
+}
+
+// The scanner slots belong to the run that passes them: a gate whose
+// slots another root of its import holds waits for one, and a gate of
+// another run, with slots of its own or none given, doesn't, as a
+// long-running process such as the MCP server runs one import after
+// another and at the same time.
+func TestScannerSlotsBelongToTheRun(t *testing.T) {
+	t.Parallel()
+	taken := &ScannerSlots{}
+	for range cap(taken.channel()) {
+		taken.channel() <- struct{}{}
+	}
+	for name, tc := range map[string]struct {
+		slots *ScannerSlots
+		ran   bool
+	}{
+		"the import's, all taken": {taken, false},
+		"another run's":           {&ScannerSlots{}, true},
+		"none given":              {nil, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, "resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")
+			ran := false
+			policy := fullGate(Options{Scanners: []Scanner{{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+				ran = true
+				return nil, nil
+			}}}, ScannerSlots: tc.slots})
+			policy.checks = []string{CheckScanners}
+			// One that waits for a slot waits until the gate gives up.
+			wait := 30 * time.Second
+			if !tc.ran {
+				wait = 200 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), wait)
+			defer cancel()
+			gate, _, err := policy.run(ctx, &fakeTerraform{dir: dir}, dir)
+			if waited := errors.Is(err, context.DeadlineExceeded); ran != tc.ran || waited == tc.ran || (err != nil && !waited) {
+				t.Errorf("scanners ran: %t, want %t: %+v, %v", ran, tc.ran, gate, err)
+			}
+		})
 	}
 }
 

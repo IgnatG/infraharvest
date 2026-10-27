@@ -12,6 +12,12 @@ types:
     # terraform destroy does. An import sets it to its default, DELETE for
     # most types, which every resource then repeated.
     omit: [deletion_policy=DELETE]
+    # A Compute Engine resource's self link, on either host Google's APIs
+    # use, ends in its ID: projects/p/global/networks/n.
+    named_by:
+      - attribute: self_link
+        match: ['^https://(?:www|compute)\.googleapis\.com/compute/(?:v1|beta)/(?P<id>projects/[^/]+/.+)$']
+        id: "{id}"
   # Folders hold projects, whose IDs start with theirs; no service lists
   # them.
   google_folder:

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/sqladmin/v1"
 
@@ -24,6 +25,16 @@ const sqlDatabaseType = "google_sql_database"
 // cloudSQLService lists the databases of the project's Cloud SQL
 // instances.
 const cloudSQLService = "cloudsql"
+
+// sqlDatabaseListParallel is how many instances' databases are listed at
+// once.
+const sqlDatabaseListParallel = 8
+
+// sqlDatabaseList is the answer to the database list of one instance.
+type sqlDatabaseList struct {
+	list *sqladmin.DatabasesListResponse
+	err  error
+}
 
 // CloudSQLLister lists the databases of the project's Cloud SQL
 // instances, the cloudsql service. Cloud Asset Inventory has no asset type
@@ -82,11 +93,24 @@ func (g *CloudSQLLister) List() error {
 		}
 		return err
 	}
+	// Databases aren't paged: the response holds every one. Every
+	// instance is asked, whatever the others answer: each answer is kept
+	// in lists, and the group's own error is always nil.
+	lists := make([]sqlDatabaseList, len(instances))
+	var group errgroup.Group
+	group.SetLimit(sqlDatabaseListParallel)
+	for i, instance := range instances {
+		group.Go(func() error {
+			lists[i].list, lists[i].err = svc.Databases.List(project, instance.Name).Context(ctx).Do()
+			return nil
+		})
+	}
+	_ = group.Wait()
+	// In the instances' order, whichever answered first.
 	var resources []harvest.Resource
 	var unlisted []error
-	for _, instance := range instances {
-		// Databases aren't paged: the response holds every one.
-		list, err := svc.Databases.List(project, instance.Name).Context(ctx).Do()
+	for i, instance := range instances {
+		list, err := lists[i].list, lists[i].err
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

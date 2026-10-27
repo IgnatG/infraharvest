@@ -540,6 +540,21 @@ func TestMergedRootFiles(t *testing.T) {
 		}
 	})
 
+	t.Run("a root without the others' backend", func(t *testing.T) {
+		// Its backend.hcl has the settings the others' backend sets, to
+		// fill in.
+		roots := devProdRoots(t)
+		roots[0].backend = nil
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "# The dev root had no s3 backend: set these.\n# bucket = \"\"\n# key = \"\"\n# region = \"\"\n# encrypt = \"\"\n# use_lockfile = \"\"\n"
+		if got := string(files[backendConfigPath("dev")]); !strings.HasSuffix(got, want) {
+			t.Errorf("dev's backend.hcl:\n%s\nwant it to end in\n%s", got, want)
+		}
+	})
+
 	t.Run("different provider versions", func(t *testing.T) {
 		// The newest release line any root pins.
 		roots := devProdRoots(t)

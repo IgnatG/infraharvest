@@ -434,7 +434,7 @@ provider "aws" {
 		"an s3 backend's endpoints":         {map[string]string{root + "backend.tf": "terraform {\n  backend \"s3\" {\n    bucket = \"b\"\n    endpoints = { s3 = \"https://example.com\" }\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:4: the s3 backend sets what infraharvest doesn't generate it with`},
 		"an azurerm backend's msi_endpoint": {map[string]string{"azure/backend.tf": "terraform {\n  backend \"azurerm\" {\n    msi_endpoint = \"https://example.com\"\n  }\n}\n"}, `"msi_endpoint"`},
 		"a gcs backend's credentials":       {map[string]string{"gcp/backend.tf": "terraform {\n  backend \"gcs\" {\n    credentials = \"key.json\"\n  }\n}\n"}, `"credentials"`},
-		"another backend":                   {map[string]string{root + "backend.tf": "terraform {\n  backend \"http\" {\n    address = \"https://example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:2: the http backend, which infraharvest doesn't generate roots with (azurerm, gcs, s3)`},
+		"another backend":                   {map[string]string{root + "backend.tf": "terraform {\n  backend \"http\" {\n    address = \"https://example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:2: the http backend, which infraharvest doesn't generate roots with (`},
 		"a cloud block":                     {map[string]string{root + "backend.tf": "terraform {\n  cloud {\n    hostname = \"example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/backend.tf:2: a cloud block`},
 		"an environment's backend settings": {map[string]string{
 			"merged/providers.tf":          "terraform {\n  backend \"s3\" {}\n}\n",
@@ -442,8 +442,15 @@ provider "aws" {
 		}, `merged/vars/prod/backend.hcl:2: the s3 backend sets`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			// A root that declares another provider takes it built in.
+			// A root that declares another provider, or has its cloud's
+			// backend, takes it built in.
 			for _, content := range tc.files {
+				if strings.Contains(content, `backend "gcs"`) {
+					needProviders(t, "google")
+				}
+				if strings.Contains(content, `backend "azurerm"`) {
+					needProviders(t, "azure")
+				}
 				if strings.HasPrefix(content, google) {
 					needProviders(t, "google")
 				}
@@ -502,17 +509,26 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 			return checkSettings(body, providerSettings[providerAddress(source)], "the provider "+p.Name)
 		})
 	}
-	for _, b := range []config.Backend{
-		{S3: &config.S3{Bucket: "b", Region: "eu-west-2", KeyPrefix: "p", KMSKeyID: "k"}},
-		{AzureRM: &config.AzureRM{ResourceGroupName: "g", StorageAccountName: "a", ContainerName: "c", KeyPrefix: "p"}},
-		{GCS: &config.GCS{Bucket: "b", Prefix: "p"}},
+	// The backend of each cloud whose provider is built in.
+	backends := newDriftAllowed(compiled).backends
+	for provider, b := range map[string]config.Backend{
+		"aws":    {S3: &config.S3{Bucket: "b", Region: "eu-west-2", KeyPrefix: "p", KMSKeyID: "k"}},
+		"azure":  {AzureRM: &config.AzureRM{ResourceGroupName: "g", StorageAccountName: "a", ContainerName: "c", KeyPrefix: "p"}},
+		"google": {GCS: &config.GCS{Bucket: "b", Prefix: "p"}},
 	} {
+		if !builtIn(provider) {
+			continue
+		}
 		checkGenerated(t, b.File("aws/1/eu-west-2"), "terraform", nil, func(body hcl.Body) error {
 			content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "backend", LabelNames: []string{"type"}}}})
 			if diags.HasErrors() || len(content.Blocks) != 1 {
 				return fmt.Errorf("no backend: %v", diags)
 			}
-			return checkSettings(content.Blocks[0].Body, backendSettings[content.Blocks[0].Labels[0]], "the backend")
+			s, ok := backends[content.Blocks[0].Labels[0]]
+			if !ok {
+				return fmt.Errorf("%s's backend %s isn't allowed", provider, content.Blocks[0].Labels[0])
+			}
+			return checkSettings(content.Blocks[0].Body, s, "the backend")
 		})
 	}
 }
