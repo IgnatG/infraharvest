@@ -130,7 +130,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `network_security_group` (opt-in) | `azurerm_network_security_group`, `azurerm_network_security_rule` |
 | `public_ip` (opt-in) | `azurerm_public_ip`, `azurerm_public_ip_prefix` |
 | `resource_group` (opt-in) | `azurerm_resource_group` |
-| `subnet` (opt-in) | `azurerm_subnet`, `azurerm_subnet_service_endpoint_storage_policy` |
+| `subnet` (opt-in) | `azurerm_subnet`, `azurerm_subnet_nat_gateway_association`, `azurerm_subnet_network_security_group_association`, `azurerm_subnet_route_table_association`, `azurerm_subnet_service_endpoint_storage_policy` |
 | `virtual_network` (opt-in) | `azurerm_virtual_network` |
 
 ## Google Cloud
