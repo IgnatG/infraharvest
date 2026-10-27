@@ -41,3 +41,28 @@ func TestGoogleCheckNeedsAProjectFlag(t *testing.T) {
 		}
 	}
 }
+
+// A profile that needs no flag needs nothing set, and one that needs a
+// flag the command doesn't have counts it as unset: neither panics.
+func TestUnsetNeeds(t *testing.T) {
+	flags := pflag.NewFlagSet("google", pflag.ContinueOnError)
+	flags.StringSlice("projects", nil, "")
+	flags.String("organization", "", "")
+	if err := flags.Parse([]string{"--organization=123"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		needs []string
+		want  string
+	}{
+		{nil, ""},
+		{[]string{"missing"}, "--missing"},
+		{[]string{"projects"}, "--projects"},
+		{[]string{"projects", "missing"}, "--projects or --missing"},
+		{[]string{"missing", "organization"}, ""},
+	} {
+		if got := unsetNeeds(flags, tc.needs); got != tc.want {
+			t.Errorf("%v: got %q, want %q", tc.needs, got, tc.want)
+		}
+	}
+}
