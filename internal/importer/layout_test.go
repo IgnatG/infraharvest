@@ -69,3 +69,20 @@ func TestConfigFile(t *testing.T) {
 		}
 	}
 }
+
+// The services that list through an inventory API, and what starts the
+// names of their types without saying what they are, are the provider's
+// own (see harvest.Layout): another provider's inventory service is a
+// service like any other.
+func TestConfigFileInventoryOfTheProfile(t *testing.T) {
+	layout := harvest.Layout{InventoryServices: []string{"assets"}}
+	for service, want := range map[string]string{"assets": "compute_disk.tf", "cloud_asset": "cloud_asset.tf"} {
+		if got := configFile(layout, service, "google_compute_disk", nil); got != want {
+			t.Errorf("%s: %s, want %s", service, got, want)
+		}
+	}
+	layout.TypeNameTrim = "compute_"
+	if got := configFile(layout, "assets", "google_compute_disk", nil); got != "disk.tf" {
+		t.Errorf("with the trim: %s, want disk.tf", got)
+	}
+}

@@ -16,6 +16,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
+	googleprovider "github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -113,23 +115,23 @@ func TestTypesListedInFull(t *testing.T) {
 	if unwanted := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}, unwanted: func(typ string) bool { return typ == "aws_sqs_queue" }}); unwanted["aws_sqs_queue"] {
 		t.Error("aws: a type the import doesn't list is listed in full")
 	}
-	if partial := typesListedInFull(&partialProvider{partial: []string{"aws_sqs_queue"}}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}}); partial["aws_sqs_queue"] {
+	if partial := typesListedInFull(&partialProvider{Provider: &fakeProvider{}, partial: []string{"aws_sqs_queue"}}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}}); partial["aws_sqs_queue"] {
 		t.Error("aws: a type the provider lists in part is listed in full")
 	}
 
 	google := catalogue.MustBuiltin("google")
-	if got := typesListedInFull(&fakeProvider{}, &callContext{cat: google, services: []string{"cloud_asset"}}); !got["google_compute_subnetwork"] || !got["google_compute_network"] {
+	if got := typesListedInFull(&googleprovider.Provider{}, &callContext{cat: google, services: []string{"cloud_asset"}}); !got["google_compute_subnetwork"] || !got["google_compute_network"] {
 		t.Errorf("google: the inventory entries aren't listed in full: %v", got)
 	}
-	if got := typesListedInFull(&partialProvider{partial: []string{"google_compute_subnetwork"}}, &callContext{cat: google, services: []string{"cloud_asset"}}); got["google_compute_subnetwork"] || !got["google_compute_network"] {
+	if got := typesListedInFull(&partialProvider{Provider: &googleprovider.Provider{}, partial: []string{"google_compute_subnetwork"}}, &callContext{cat: google, services: []string{"cloud_asset"}}); got["google_compute_subnetwork"] || !got["google_compute_network"] {
 		t.Errorf("google: a region's import lists subnetworks in full: %v", got)
 	}
-	if got := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
+	if got := typesListedInFull(&azureprovider.Provider{}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
 		t.Error("azurerm: a type Resource Graph maps through Resource Manager is listed in full")
 	}
 	// Azure's provider lists custom roles in part (see its PartialTypes):
 	// one made assignable outside the run isn't listed, nor gone.
-	roles := typesListedInFull(&partialProvider{partial: []string{"azurerm_role_definition"}}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"role_assignment"}})
+	roles := typesListedInFull(&partialProvider{Provider: &azureprovider.Provider{}, partial: []string{"azurerm_role_definition"}}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"role_assignment"}})
 	if roles["azurerm_role_definition"] || !roles["azurerm_role_assignment"] {
 		t.Errorf("azurerm: role_assignment lists in full %v, want its assignments and not its custom roles", roles)
 	}

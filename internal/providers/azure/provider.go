@@ -393,6 +393,7 @@ func (*Provider) Profile() harvest.Profile {
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},
 		Layout: harvest.Layout{
+			InventoryServices: []string{"resource_graph"},
 			NetworkServices: []string{
 				"network_interface", "network_security_group", "public_ip", "subnet", "virtual_network",
 			},

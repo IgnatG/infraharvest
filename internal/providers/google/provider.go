@@ -262,6 +262,8 @@ func (*Provider) Profile() harvest.Profile {
 		EffectiveTags:      &harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"},
 		InheritedArguments: []string{"project", "region", "zone"},
 		Layout: harvest.Layout{
+			InventoryServices: []string{"cloud_asset"},
+			TypeNameTrim:      "compute_",
 			NetworkTypes: []string{
 				"address", "firewall", "global_address", "ha_vpn_gateway", "interconnect_attachment", "network",
 				"route", "router", "subnetwork", "vpn_gateway", "vpn_tunnel",

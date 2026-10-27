@@ -84,7 +84,8 @@ func listedInScope(provider harvest.Provider, c *callContext, pattern string, li
 // typesListedInFull returns the types whose every resource in its scope
 // a listing of the services of the call c finds: those the catalogue says
 // one of the services lists, and those of its inventory entries, which a service
-// that lists through an inventory API, such as Google's cloud_asset, maps
+// that lists through an inventory API (see
+// harvest.Layout.InventoryServices), such as Google's cloud_asset, maps
 // resources to. Left out are the types such a service has no inventory
 // entry for, which it maps to a type one resource at a time, as Azure's
 // resource_graph does through Resource Manager, where a lookup that fails
@@ -111,6 +112,7 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 	if p, ok := provider.(harvest.ProviderWithPartialTypes); ok {
 		partial = p.PartialTypes()
 	}
+	inventoryServices := provider.Profile().Layout.InventoryServices
 	inventory := slices.ContainsFunc(c.services, func(s string) bool { return slices.Contains(inventoryServices, s) })
 	for _, typ := range cat.Types() {
 		e, ok := cat.Entry(typ)
