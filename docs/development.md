@@ -6,22 +6,24 @@ The module is large: three cloud SDKs, so compiling all of it takes several GB o
 
 ## Layout
 
-Everything but `main.go` is under `internal/`: infraharvest has no Go API for others to import. `main.go` stays at the root so that `go install github.com/IgnatG/infraharvest@latest` keeps working, and only sets up logging and turns the outcome into the exit code.
+Everything but `main.go` and `pkg/cfn` is under `internal/`: infraharvest has no Go API for others to import, but the CloudFormation translator, which can be used on its own. `main.go` stays at the root so that `go install github.com/IgnatG/infraharvest@latest` keeps working, and only sets up logging and turns the outcome into the exit code.
 
 | Package | What belongs there |
 |---|---|
-| `internal/cli` | The Cobra commands and nothing else: flags, help text, wiring to `internal/importer`. |
-| `internal/cli/providers` | One file per provider command (`provider_cmd_<provider>.go`) with its own flags, the shared flags, and the registry of what is compiled in. |
-| `internal/importer` | The orchestration of an import, with no Cobra in it: `Options`, `Import`, `Run` with its `ImportEach`, `Verify`, the report and the exit codes. Anything a command does that can be tested without a command goes here. |
-| `internal/harvest` | The API listers implement and the importer drives: `Provider`, `Lister`, `ListerBase`, `Resource`, `Registry`, filters, tags and labels. |
+| `internal/cli` | The Cobra commands and nothing else: flags, help text, wiring to `internal/importer`, and `CheckRun`, which checks a provider command's run as its `--check` does, for the MCP server. |
+| `internal/cli/providers` | One file per provider command (`provider_cmd_<provider>.go`) with its own flags, the shared flags, and the registry of what is compiled in. Each describes its command with a `definition` (`command.go`): the provider's flags, the checker of what they say, and the planner that turns them into the scopes and calls to import. |
+| `internal/importer` | The orchestration of an import, with no Cobra in it: `Options`, `CheckOptions`, `Run` with its `ImportEach` and `MergeEnvironments`, `ImportCalls`, `Verify`, `Drift`, the report and the exit codes. Anything a command does that can be tested without a command goes here. |
+| `internal/harvest` | The API listers implement and the importer drives: `Provider` with its `Profile`, the optional capabilities (`capabilities.go`), `Lister`, `ListerBase`, `Resource`, `Registry`, filters, tags and labels. |
 | `internal/providers/aws`, `azure`, `google` | The listers: the only code that calls the clouds' APIs. |
 | `internal/catalogue` | What infraharvest knows about each Terraform resource type, as YAML under `data/`, its schema and its golden tests (see [Catalogue](catalogue.md)), and in `schemameta`, the defaults and argument constraints read out of the providers' code, with their generator (see [Schema metadata](catalogue.md#schema-metadata)). |
-| `internal/engine` | Runs Terraform or OpenTofu: import blocks, `plan -generate-config-out`, repairs, references, locals, modules, secrets, and the verification gate. It never writes state and never applies. |
+| `internal/engine` | Runs Terraform or OpenTofu: import blocks, `plan -generate-config-out`, repairs, references, locals, modules, secrets, and the verification gate, for a root of its own (`Generate`) or added to one (`Add`), and the root environments share (`MergeRoots`). It never writes state and never applies. |
 | `internal/adapters` | Curated module adapters (module, exact version, mapping), the snapshots of module interfaces they are checked against, and `cmd/adaptercheck`, which the nightly `adapters` workflow runs. |
 | `internal/discovery` | Runs the listing: one discoverer per service and scope (account and region, subscription, project), each with its deadline, a bounded number at a time. |
-| `internal/selection`, `report`, `managed`, `config` | The selection file and its default rules, the report, the resources state already manages (S3, GCS, Azure Blob, HCP Terraform), and the configuration file. |
+| `internal/selection`, `report`, `managed`, `config` | The selection file and the default selection (`Sources`, which decides each listed resource and why), the report, the resources state already manages (S3, GCS, Azure Blob, HCP Terraform), and the configuration file. |
+| `pkg/cfn`, `internal/cfnhcl`, `internal/stackintent` | The CloudFormation translator (`infraharvest cfn convert`), what it writes that the rest must write alike, and the stack intent: a stack's parameters, outputs and conditions carried into the root generated from its live resources (AWS `--cfn-stack`). |
 | `internal/mcpserver`, `picker` | The MCP server for AI agents and the terminal picker. |
-| `internal/ratelimit`, `fsutil`, `version` | Small shared helpers: request rates per cloud API, atomic file writes, and the version a build reports (set at link time by release builds). |
+| `internal/ratelimit`, `fsutil`, `filelock`, `logging`, `version` | Small shared helpers: request rates per cloud API, atomic file writes, locks on the output directory and the provider cache, the filter that drops client libraries' debug lines, and the version a build reports (set at link time by release builds). |
+| `internal/repocheck` | Tests of the repository's scripts and `.gitignore`, run against real Git repositories. |
 | `e2e/` | Round trips against cloud emulators, behind the `e2e` build tag ([e2e/README.md](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md)). |
 | `permissions/`, `action/`, `docs/` | Read-only IAM templates, the GitHub Action, and this site. |
 
@@ -31,6 +33,18 @@ Some rules about where code goes:
 - A lister lists. It records each resource's ID, name, Terraform type and the attributes filters and catalogue templates need; it doesn't build import IDs or decide what to skip.
 - Cobra stays in `internal/cli`. A command reads its flags into `importer.Options` and calls the importer, so the behaviour is tested without a command line (`internal/importer/*_test.go`).
 - A helper used by one package stays in that package. A new package under `internal/` is for something with its own job and its own tests, like `internal/fsutil`.
+- What sets a provider apart goes in its `Profile` (`internal/harvest/profile.go`), not in code that tells providers apart by name: its command's name, its registry source, the tag a block label is made from, how it applies tags, which file of a root a resource goes in, and what a root that environments share reads of its account and region. A behaviour only some providers have is an optional interface in `capabilities.go`, such as `ProviderWithScope`.
+
+### Inside an import
+
+An import goes through a few modules, each owning one decision. Change a decision in its module, not where it is used:
+
+- **Checks.** A provider command takes flags only (`cobra.NoArgs`). Before it plans anything, `importer.CheckOptions` rejects what no call could do, then the provider's own checker what its flags say (`definition.flags` in `internal/cli/providers/command.go`). `--check` stops there and exits, after the configuration file has applied (`withEngineRun` in `internal/cli/run.go`); `config.File.Apply` refuses `check` and `config` as settings. The MCP server checks an import the same way, through `cli.CheckRun`, before it asks the user to confirm it.
+- **Listing and selection.** `ImportCalls` lists every call of a scope (`listCall` in `internal/importer/import_engine.go`) before any generates, so that each root refers to the others. `selection.Sources` (`internal/selection/sources.go`) holds why the default selection leaves each listed resource out (the catalogue's skip rules, the provider's defaults, the tags, `--managed-state`, the import scope) and decides between them in one place, so that a resource is left out for the same reason whichever way it is asked about: `discover` writes each resource's `Reason` into the selection file, and `import` asks `Decide`, which weighs a selection file's entries and rules against it (`internal/importer/selection.go`).
+- **The root's lifecycle.** `decideRoot` (`internal/importer/rootlife.go`) decides once, from the run's mode and what earlier imports left on disk, whether a root is generated afresh or again, resumed from its checkpoint, added to, or refused with a reason; `applyRoot` then does it. The checkpoints in `<out>/.infraharvest` are read and written there too.
+- **The call's tools.** What a call reaches outside the process through goes through `callTools` (`internal/importer/call_tools.go`): the engine binary, the registry the root files pin the provider from, and every write the engine makes into a root: generating, adding to, vacating and merging roots, and their READMEs and moved blocks. Tests replace a field to fake that step; a nil field uses the real one.
+- **Generate and add.** `engine.Generate` and `engine.Add` run one pipeline; a `policy` (`internal/engine/engine.go`) is what tells them apart, such as the names an add leaves alone and whether it makes local modules. When an edit makes the pipeline plan `generated.tf` again, the log says which (`replanReason`).
+- **The merged root's layout.** Where a root that environments share keeps what differs between them (`vars/common.tfvars`, and `terraform.tfvars`, `imports.tfvars` and `backend.hcl` under `vars/<env>/`, the `deploy_<feature>` flags, the workspaces' state) is decided in `internal/engine/mergedlayout.go` alone: whatever writes, plans or reads such a root back takes its paths from there.
 
 ## Licence headers
 
@@ -139,7 +153,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
 A bug fix comes with a test that fails without it. New behaviour comes with tests of it.
 
 - **Table-driven**, with the inputs and expectations side by side and a failure message that names the call: `t.Errorf("Label(%q): got %q, want %q", name, got, want)` (`internal/engine/names_test.go`).
-- **Fakes, not mocks.** Depend on the small interface you use and fake it: `engine.Terraform` is the part of `tfexec` the engine calls, faked by `fakeTerraform` (`internal/engine/engine_test.go`); `mcpserver.Runner` by `fakeRunner`.
+- **Fakes, not mocks.** Depend on the small interface you use and fake it: `engine.Terraform` is the part of `tfexec` the engine calls, faked by `fakeTerraform` (`internal/engine/engine_test.go`); `mcpserver.Runner` by `fakeRunner`; the engine's writes into a root, behind the importer's `callTools`, by setting the field a test needs.
 - **AWS listers run against a fake API**: `useFakeAPI(t, handler)` (`internal/providers/aws/fakeapi_test.go`) sends the SDK's requests to a function that switches on the operation and returns the response body, including error bodies shaped like AWS's. Test the error paths, not only the happy one (`TestWafv2ReportsOtherAssociationErrors`). Azure and Google listers fake the transport or the pager the same way (`internal/providers/azure/network_listers_test.go`, `internal/providers/google/cloud_asset_test.go`).
 - Helpers call `t.Helper()`; tests restore what they change with `t.Cleanup`, and write files under `t.TempDir()`.
 - **Golden files** (`testdata/*.golden.*`) record output that is long or easier to review as a file: the catalogue's import blocks, the harvest core's behaviour, the command-line contract, the CloudFormation conversions of `pkg/cfn`, and the generated references (`docs/reference/cli.md`, `docs/reference/services.md`). Tests take `-update` to rewrite them. Don't edit a golden file by hand: run the `golden` task of the `remote` workflow (`make ci-golden PKG=<package>`), download what it rewrote (`make ci-download RUN=<id>`), and review the diff before committing it.

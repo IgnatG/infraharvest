@@ -8,8 +8,12 @@
 // confirms it, report reads an import's report or the drift report, drift
 // reports what changed in the cloud since the roots were applied, and
 // drift_accept takes the cloud's values into the code once a person
-// confirms it. Nothing is ever
-// applied, the state is never changed, and the cloud is only read.
+// confirms it. Each provider's parameters are declared on the tools'
+// inputs, with the flag each sets, and a parameter for another provider
+// is rejected. An import is checked as the command line's --check checks
+// it before the person is asked, so a run the command would refuse is
+// never put to them. Nothing is ever applied, the state is never changed,
+// and the cloud is only read.
 package mcpserver
 
 import (

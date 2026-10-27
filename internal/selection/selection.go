@@ -5,7 +5,9 @@
 // Terraform. infraharvest discover writes a selection file with every
 // resource it finds, each marked included or not by the default rules;
 // people review and edit it, and import --selection imports what it
-// includes.
+// includes. Sources hold why the default selection leaves a listed
+// resource out, and decide between those reasons, with or without a
+// selection file, in one place.
 package selection
 
 import (

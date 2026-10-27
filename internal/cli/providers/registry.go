@@ -7,6 +7,8 @@
 // command.go), registers it from init() and carries the build
 // constraint `!minimal || <name>`: a plain build includes every provider,
 // and `go build -tags minimal,aws,google` includes only those listed.
+// A command takes flags only, and checks them before it plans anything;
+// --check stops there.
 package providers
 
 import (
