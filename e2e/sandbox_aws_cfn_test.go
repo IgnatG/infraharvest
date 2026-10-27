@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -195,18 +196,39 @@ func checkSeedNotDeleted(ctx context.Context, t *testing.T, config aws.Config, f
 	t.Helper()
 	logs := cloudwatchlogs.NewFromConfig(config)
 	group := aws.String("/aws/lambda/" + function)
+	// FilterLogEvents searches a bounded part of the group per call and
+	// may return an empty page with a NextToken while matches lie further
+	// on, so a page without events says nothing until the token is gone.
 	seen := func(requestType string) bool {
-		out, err := logs.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{LogGroupName: group, FilterPattern: aws.String(`"seed: ` + requestType + `"`)})
-		if err != nil {
-			t.Logf("logs of %s: %v", function, err)
-			return false
+		input := &cloudwatchlogs.FilterLogEventsInput{LogGroupName: group, FilterPattern: aws.String(`"seed: ` + requestType + `"`)}
+		for page := cloudwatchlogs.NewFilterLogEventsPaginator(logs, input); page.HasMorePages(); {
+			out, err := page.NextPage(ctx)
+			if err != nil {
+				t.Logf("logs of %s: %v", function, err)
+				return false
+			}
+			if len(out.Events) > 0 {
+				return true
+			}
 		}
-		return len(out.Events) > 0
+		return false
+	}
+	// streams lists what the group holds, for the failure message.
+	streams := func() string {
+		out, err := logs.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{LogGroupName: group})
+		if err != nil {
+			return fmt.Sprintf("no streams listed: %v", err)
+		}
+		names := make([]string, 0, len(out.LogStreams))
+		for _, s := range out.LogStreams {
+			names = append(names, aws.ToString(s.LogStreamName))
+		}
+		return fmt.Sprintf("streams: %q", names)
 	}
 	deadline := time.Now().Add(cfnLogWait)
 	for !seen("Create") {
 		if time.Now().After(deadline) {
-			t.Fatalf("%s logged no Create in %s: can't tell whether it got a Delete", function, cfnLogWait)
+			t.Fatalf("%s logged no Create in %s (%s): can't tell whether it got a Delete", function, cfnLogWait, streams())
 		}
 		time.Sleep(10 * time.Second)
 	}
