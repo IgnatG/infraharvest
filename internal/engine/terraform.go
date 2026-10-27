@@ -311,7 +311,7 @@ func emptyState() (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return filepath.Join(empty, stagedStateFile), func() { _ = os.RemoveAll(empty) }, nil
+	return filepath.Join(empty, localStateFileName), func() { _ = os.RemoveAll(empty) }, nil
 }
 
 // withoutLocalState returns tf for dir, whose plans read no state: if dir
@@ -325,7 +325,7 @@ func emptyState() (string, func(), error) {
 // written, as a plan doesn't write state. The function it returns removes
 // the empty state's directory.
 func withoutLocalState(tf Terraform, dir string) (Terraform, func(), error) {
-	if _, err := os.Stat(filepath.Join(dir, stagedStateFile)); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(dir, localStateFileName)); errors.Is(err, fs.ErrNotExist) {
 		return tf, func() {}, nil
 	} else if err != nil {
 		return nil, nil, err

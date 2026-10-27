@@ -80,7 +80,7 @@ func isBackendConfig(name string) bool {
 // backend, keeps environment env's state: in the workspace named after
 // it, terraform.tfstate.d/<env>/terraform.tfstate.
 func workspaceStateFile(dir, env string) string {
-	return filepath.Join(dir, workspaceStateDir, env, "terraform.tfstate")
+	return filepath.Join(dir, workspaceStateDir, env, localStateFileName)
 }
 
 // featureFlagName returns the name of the variable that says whether an

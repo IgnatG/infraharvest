@@ -72,12 +72,18 @@ func checkStandards(dir string, omit map[string][]string, own []string) (Check, 
 	return check, nil
 }
 
+// localStateFileName is the file Terraform's local backend keeps a
+// workspace's state in: the default one's in the root, each other one's
+// under workspaceStateDir (see workspaceStateFile). Drift's staged copy
+// plans with its state there too.
+const localStateFileName = "terraform.tfstate"
+
 // LocalStateFile reports whether name is a file Terraform's local backend
 // keeps a root's state in, its backups and its lock, which the output's
 // .gitignore leaves out (see GitignoreFile); its workspaces' states are
-// in the directory terraform.tfstate.d.
+// in the directory workspaceStateDir.
 func LocalStateFile(name string) bool {
-	return strings.HasPrefix(name, stagedStateFile) || name == ".terraform.tfstate.lock.info"
+	return strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info"
 }
 
 // standardsIn checks the files of dir, a root or a module, naming them
