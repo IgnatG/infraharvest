@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -22,8 +20,6 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // mainFileName holds the resources whose roots name no file of their own
@@ -36,28 +32,6 @@ const mergedGitignore = `# The environments' var files hold no secret values (se
 # commit them.
 !` + varsDirName + `/**/*.tfvars
 `
-
-// writeMergedRoot writes m, the merge of a stack's roots (see mergeStack),
-// as one root in dir that every environment plans and applies with its
-// own var files, and returns the files it wrote, by path in dir with
-// forward slashes, sorted (see mergedRootFiles).
-func writeMergedRoot(dir string, m *stackMerge) ([]string, error) {
-	files, err := mergedRootFiles(m)
-	if err != nil {
-		return nil, err
-	}
-	names := slices.Sorted(maps.Keys(files))
-	for _, name := range names {
-		path := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, err
-		}
-		if err := fsutil.WriteFile(path, files[name], 0o644); err != nil {
-			return nil, err
-		}
-	}
-	return names, nil
-}
 
 // rootWriter writes the files of a merged root.
 type rootWriter struct {
@@ -89,8 +63,9 @@ type rootWriter struct {
 // readsEnv matches a reference to var.env.
 var readsEnv = regexp.MustCompile(`\bvar\.` + envVariableName + `\b`)
 
-// mergedRootFiles returns the files of m's merged root, by path with
-// forward slashes: providers.tf, with the terraform block and its partial
+// mergedRootFiles returns the files of m's merged root, the one root
+// that every environment plans and applies with its own var files, by
+// path with forward slashes: providers.tf, with the terraform block and its partial
 // backend; variables.tf; locals.tf and data.tf, where values read them;
 // the resources, split into the files their roots put them in; imports.tf,
 // whose IDs come from each environment's vars/<env>/imports.tfvars;

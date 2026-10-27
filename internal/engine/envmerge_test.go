@@ -15,6 +15,11 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// mergeStack is mergeStackWith without controls, as a stack first merges.
+func mergeStack(provider string, profile MergeProfile, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
+	return mergeStackWith(provider, profile, roots, schemas, nil)
+}
+
 // mergeProfiles are the merge profiles of the providers whose roots the
 // tests merge, as the importer fills them from the providers' profiles.
 var mergeProfiles = map[string]MergeProfile{

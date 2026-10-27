@@ -27,11 +27,12 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // postProcess improves the configuration once it plans, with the passes of
 // tidyPasses, in their order: the tags an import leaves out (see
 // fillEffectiveTags), arguments that only repeat a default (see
-// stripDefaults), references between resources (see addReferences), to
-// resources it doesn't manage (see addDataSources), to what other roots
-// manage (see addRootVariables) and to what the cloud or the provider
-// defines (see addLookups), shared tags (see applyTagLift) and repeated
-// identifiers (see liftLiterals). The steps between two passes that plan
+// stripDefaults), references between resources (see
+// addReferencesSkipping), to resources it doesn't manage (see
+// addDataSourcesSkipping), to what other roots manage (see
+// addRootVariables) and to what the cloud or the provider defines (see
+// addLookups), shared tags (see applyTagLift) and repeated identifiers
+// (see liftLiterals). The steps between two passes that plan
 // on their own are checked together by one plan, and only if it changes,
 // each against the plan before it, undone if the plan changes, the
 // references by resource (see verifySteps). Secret variables get their

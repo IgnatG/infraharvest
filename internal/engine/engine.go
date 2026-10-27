@@ -266,7 +266,7 @@ type Options struct {
 	ModuleProviders map[string]Provider
 	// External are resources the import listed but doesn't manage, which
 	// the configuration may refer to through the data sources in
-	// DataSources, by resource type (see addDataSources).
+	// DataSources, by resource type (see addDataSourcesSkipping).
 	External    []External
 	DataSources map[string]DataSource
 	// OtherRoots are the resources the import's other roots manage: what

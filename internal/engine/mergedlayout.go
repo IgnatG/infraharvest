@@ -18,7 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// The layout of a merged root (see writeMergedRoot), the one root several
+// The layout of a merged root (see mergedRootFiles), the one root several
 // environments share: its code at the top, and under varsDirName what
 // differs between them, the values every environment shares in
 // vars/common.tfvars, and in vars/<env> each environment's values, import
@@ -347,7 +347,7 @@ func backendConfigFile(dir, env string) (string, error) {
 }
 
 // MergedEnvironments returns the environments of the root in dir if
-// environments share it (see writeMergedRoot): the directories under its
+// environments share it (see mergedRootFiles): the directories under its
 // vars directory that hold a terraform.tfvars, sorted; none for another
 // root.
 func MergedEnvironments(dir string) ([]string, error) {
@@ -435,7 +435,7 @@ func MergedStateLocations(dir, env string) ([]string, error) {
 }
 
 // MergedRootFiles returns the files of the root environments share in
-// dir that a merge writes (see writeMergedRoot), by path in dir with
+// dir that a merge writes (see mergedRootFiles), by path in dir with
 // forward slashes, sorted: its .tf files, README.md, .gitignore, and the
 // var files and backend settings under vars/.
 func MergedRootFiles(dir string) ([]string, error) {

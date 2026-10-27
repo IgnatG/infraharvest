@@ -378,12 +378,13 @@ func TestGoldenMergedRoots(t *testing.T) {
 				}
 			}
 			dir := t.TempDir()
-			written, err := writeMergedRoot(dir, m)
-			if err != nil {
+			// As MergeRoots writes them.
+			g := &mergeGate{dir: dir}
+			if err := g.write(files); err != nil {
 				t.Fatal(err)
 			}
-			if want := slices.Sorted(maps.Keys(files)); !slices.Equal(written, want) {
-				t.Errorf("wrote %v, want %v", written, want)
+			if want := slices.Sorted(maps.Keys(files)); !slices.Equal(g.written, want) {
+				t.Errorf("wrote %v, want %v", g.written, want)
 			}
 			policy := fullGate(Options{})
 			policy.plan = func() (Check, []string, error) { return Check{Name: CheckPlan, Passed: true}, nil, nil }

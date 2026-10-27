@@ -237,18 +237,6 @@ func (v *envVariable) tfvars(env int) (hclwrite.Tokens, bool) {
 	return value, true
 }
 
-// mergeStack models how roots, the roots of one stack (see stackKey), one
-// per environment, of provider (aws, azurerm, google or google-beta),
-// which profile describes, merge into one root: it matches their resources (see matchResources),
-// leaves as residue each environment's part of those that can't merge
-// (see mergeBody), puts resources of some environments only as keys of a
-// compatible resource's for_each (see groupForEach) or in features counted
-// by a deploy_ variable (see features), and names the variables, with their defaults (see
-// envVariable.setDefault).
-func mergeStack(provider string, profile MergeProfile, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
-	return mergeStackWith(provider, profile, roots, schemas, nil)
-}
-
 // mergeKey is the key of an environment's resource in mergeControls: the
 // environment's index and the resource's address in its root.
 func mergeKey(env int, address string) string {
@@ -270,8 +258,15 @@ type mergeControls struct {
 	labels map[string]string
 }
 
-// mergeStackWith is mergeStack, with the resources controls name split
-// or kept apart.
+// mergeStackWith models how roots, the roots of one stack, one per
+// environment, of provider (aws, azurerm, google or google-beta), which
+// profile describes, merge into one root: it matches their resources (see
+// matchResourcesWith), leaves as residue each environment's part of those
+// that can't merge (see mergeBody), puts resources of some environments
+// only as keys of a compatible resource's for_each (see groupForEach) or
+// in features counted by a deploy_ variable (see features), and names the
+// variables, with their defaults (see envVariable.setDefault). Controls,
+// if set, name the resources to split or keep apart (see mergeControls).
 func mergeStackWith(provider string, profile MergeProfile, roots []envRoot, schemas *tfjson.ProviderSchemas, controls *mergeControls) *stackMerge {
 	if controls == nil {
 		controls = &mergeControls{}
