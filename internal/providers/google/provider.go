@@ -252,6 +252,7 @@ func (*Provider) Profile() harvest.Profile {
 			Noun:     "project",
 			Field:    "projects",
 			Needs:    []string{"projects", "organization", "folders"},
+			Flags:    []string{"regions", "projects", "organization", "folders"},
 			Describe: describeScope,
 		},
 		Modules:            providerName,

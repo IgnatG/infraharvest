@@ -6,6 +6,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,7 +137,7 @@ func TestCheckDriftRoots(t *testing.T) {
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			_, err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out, newDriftAllowed(compiled))
 
 			switch {
 			case tc.want == "" && err != nil:
@@ -151,7 +152,7 @@ func TestCheckDriftRoots(t *testing.T) {
 // An output directory that isn't there has nothing to check: drift says
 // it has no roots.
 func TestCheckDriftRootsOfNoOutput(t *testing.T) {
-	if _, err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
+	if _, err := checkDriftRoots(filepath.Join(t.TempDir(), "generated"), newDriftAllowed(compiled)); err != nil {
 		t.Errorf("got %v, want nothing to check", err)
 	}
 }
@@ -165,7 +166,7 @@ func TestCheckDriftRootsRefusesLinkedDirectories(t *testing.T) {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 
-	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
+	if _, err := checkDriftRoots(out, newDriftAllowed(compiled)); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
 		t.Errorf("got %v, want the link refused", err)
 	}
 }
@@ -173,15 +174,24 @@ func TestCheckDriftRootsRefusesLinkedDirectories(t *testing.T) {
 // The providers the drift tools take are those of the providers compiled
 // in and of their curated modules, never the external data source's.
 func TestDriftAllowed(t *testing.T) {
-	sources, modules := driftAllowed()
+	allowed := newDriftAllowed(compiled)
+	sources, modules := allowed.sources, allowed.modules
 	for _, name := range providers.Names() {
 		p := providers.New(name)
 		source := p.Profile().Source
 		if source == "" {
 			source = "hashicorp/" + p.Name()
 		}
-		if !sources[providerAddress(source)] {
-			t.Errorf("%s's provider %s isn't allowed: %v", name, source, sources)
+		want := []string{source}
+		if m, ok := p.(harvest.ProviderWithModuleProviders); ok {
+			for _, mp := range m.ModuleProviders() {
+				want = append(want, mp.Source)
+			}
+		}
+		for _, source := range want {
+			if !sources[providerAddress(source)] {
+				t.Errorf("%s's provider %s isn't allowed: %v", name, source, sources)
+			}
 		}
 	}
 	if sources[refusedProvider] {
@@ -189,6 +199,24 @@ func TestDriftAllowed(t *testing.T) {
 	}
 	if !modules["terraform-aws-modules/vpc/aws"] || modules["terraform-aws-modules/iam/aws//modules/iam-role"] {
 		t.Errorf("modules: %v, want each curated module by its address", modules)
+	}
+}
+
+// The drift tools take the providers and curated modules of the
+// providers the server is passed alone, those of the binary it runs.
+func TestDriftAllowedOfTheProvidersPassed(t *testing.T) {
+	aws, err := compiled.profile("aws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := newDriftAllowed(Providers{Profiles: []harvest.Profile{aws}, Sources: compiled.Sources, Check: compiled.Check})
+	if want := map[string]bool{"hashicorp/aws": true}; !maps.Equal(allowed.sources, want) {
+		t.Errorf("sources %v, want %v", allowed.sources, want)
+	}
+	for module := range allowed.modules {
+		if !strings.HasPrefix(module, "terraform-aws-modules/") {
+			t.Errorf("module %s, want only aws's curated modules", module)
+		}
 	}
 }
 
@@ -263,7 +291,7 @@ func TestCheckDriftRootsDigest(t *testing.T) {
 	out := t.TempDir()
 	writeTree(t, out, generatedRoot)
 
-	digest, err := checkDriftRoots(out)
+	digest, err := checkDriftRoots(out, newDriftAllowed(compiled))
 
 	if want, werr := driftpolicy.RootsDigest(out); err != nil || werr != nil || digest != want {
 		t.Errorf("got %q (%v), want drift's digest %q (%v)", digest, err, want, werr)
@@ -274,7 +302,7 @@ func TestCheckDriftRootsDigest(t *testing.T) {
 	if err := os.Symlink(filepath.Join(elsewhere, "x.tf"), filepath.Join(out, "aws", "1", "eu-west-2", "x.tf")); err != nil {
 		t.Skipf("no symbolic links here: %v", err)
 	}
-	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws/1/eu-west-2/x.tf is a symbolic link out of the output directory") {
+	if _, err := checkDriftRoots(out, newDriftAllowed(compiled)); err == nil || !strings.Contains(err.Error(), "aws/1/eu-west-2/x.tf is a symbolic link out of the output directory") {
 		t.Errorf("got %v, want the link refused", err)
 	}
 }
@@ -309,7 +337,7 @@ func TestCheckDriftRootsModuleDirectories(t *testing.T) {
 				want = "the module directory MODS/X can't be checked"
 			}
 
-			_, err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out, newDriftAllowed(compiled))
 
 			switch {
 			case want == "" && err != nil:
@@ -411,7 +439,7 @@ provider "aws" {
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			_, err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out, newDriftAllowed(compiled))
 
 			switch {
 			case tc.want == "" && err != nil:
@@ -427,7 +455,7 @@ provider "aws" {
 // configures it with, and the provider blocks and backends infraharvest
 // writes pass the check.
 func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
-	sources, _ := driftAllowed()
+	sources := newDriftAllowed(compiled).sources
 	for source := range sources {
 		if providerSettings[source] == nil {
 			t.Errorf("no settings for %s", source)
@@ -522,7 +550,7 @@ func TestCheckDriftRootsFileFunctions(t *testing.T) {
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			_, err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out, newDriftAllowed(compiled))
 
 			switch {
 			case tc.want == "" && err != nil:

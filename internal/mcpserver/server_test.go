@@ -63,7 +63,7 @@ func (f *fakeRunner) check(_ context.Context, args []string) error {
 
 // compiled are the providers compiled into the tests, as internal/cli passes
 // them to the server.
-var compiled = Providers{Profiles: providers.Profiles(), Check: providers.Check}
+var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
 
 // newTools returns the tools, whose files stay under root, running and
 // checking with runner.
@@ -531,15 +531,15 @@ func TestScopeTextOfAnotherProvider(t *testing.T) {
 	}
 }
 
-// What the user confirms names every field the provider takes, as Scope's
-// providers tags declare them: a field a provider takes that its case
+// What the user confirms names every field the provider takes, as its
+// profile declares them: a field a provider takes that its case
 // didn't say would import more than the user was shown.
 func TestScopeTextSaysEveryField(t *testing.T) {
 	scope := reflect.TypeFor[Scope]()
 	for _, provider := range providers.Names() {
 		for i := range scope.NumField() {
 			field := scope.Field(i)
-			if !slices.Contains(scopeProviders(field), provider) {
+			if !slices.Contains(compiled.scopeTakers(field), provider) {
 				continue
 			}
 			s := Scope{Provider: provider, Services: []string{"vpc"}}
@@ -773,6 +773,24 @@ func TestToolsDescribeTheProvidersPassed(t *testing.T) {
 		}
 		if !strings.Contains(string(schema), `the provider command: aws"`) {
 			t.Errorf("%s: the provider's description in %s doesn't name aws alone", tool.Name, schema)
+		}
+		// The parameters of the providers not passed are left out, and
+		// those aws shares name it alone.
+		var parsed struct {
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(schema, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		for _, other := range []string{"projects", "organization", "folders", "subscriptions", "management_group", "resource_group", "azapi"} {
+			if _, ok := parsed.Properties[other]; ok {
+				t.Errorf("%s: the schema has %s, which only providers not passed take", tool.Name, other)
+			}
+		}
+		if got := parsed.Properties["regions"].Description; !strings.HasPrefix(got, "aws only: ") {
+			t.Errorf("%s: regions' description %q, want it to name aws alone", tool.Name, got)
 		}
 		if want := "Where to list depends on the provider: aws takes "; !strings.Contains(tool.Description, want) || strings.Contains(tool.Description, "azure") || strings.Contains(tool.Description, "google") {
 			t.Errorf("%s: description %q, want it to say %q of aws alone", tool.Name, tool.Description, want)
@@ -1248,5 +1266,23 @@ func TestReportReadsTheDriftReport(t *testing.T) {
 	}
 	if _, err := read("verify"); err == nil || !strings.Contains(err.Error(), "kind must be") {
 		t.Errorf("kind verify: got %v, want it rejected", err)
+	}
+}
+
+// Each flag a provider's profile declares is a parameter of the tools: a
+// flag without one would be one the agent can't set.
+func TestScopeHasEveryDeclaredFlag(t *testing.T) {
+	scope := reflect.TypeFor[Scope]()
+	for _, profile := range compiled.Profiles {
+		for _, flag := range profile.Scope.Flags {
+			found := false
+			for i := range scope.NumField() {
+				field := scope.Field(i)
+				found = found || flagName(field) == flag && compiled.scopeTakers(field) != nil
+			}
+			if !found {
+				t.Errorf("%s declares --%s, which no field of Scope with a scope tag sets", profile.Command, flag)
+			}
+		}
 	}
 }

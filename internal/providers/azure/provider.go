@@ -383,6 +383,7 @@ func (*Provider) Profile() harvest.Profile {
 			Noun:     "subscription",
 			Field:    "subscriptions",
 			FoldCase: true,
+			Flags:    []string{"subscriptions", "management-group", "resource-group", "azapi"},
 			Describe: describeScope,
 		},
 		Modules:           commandName,

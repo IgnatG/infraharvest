@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -21,38 +20,35 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// driftAllowed returns what the drift tools run Terraform with: the
-// providers infraharvest generates roots with, by source address, such
-// as hashicorp/aws, each provider's own and those its curated modules
-// use (see harvest.ProviderWithModuleProviders); and the curated modules
-// a root may call, by registry address without a submodule, such as
-// terraform-aws-modules/vpc/aws. They are those of the providers
-// compiled in, as the binary the tools run generates no others.
-var driftAllowed = sync.OnceValues(func() (sources, modules map[string]bool) {
-	sources, modules = map[string]bool{}, map[string]bool{}
-	for _, name := range providers.Names() {
-		p := providers.New(name)
-		source := p.Profile().Source
-		if source == "" {
-			source = "hashicorp/" + p.Name()
+// driftAllowed is what the drift tools run Terraform with: the providers
+// infraharvest generates roots with, by source address as
+// providerAddress has it, such as hashicorp/aws, each provider's own and
+// those its curated modules use (see Providers.Sources); and the curated
+// modules a root may call, by registry address as moduleAddress has it,
+// such as terraform-aws-modules/vpc/aws. They are those of the providers
+// the server is passed, the binary's, as the binary the tools run
+// generates no others.
+type driftAllowed struct {
+	sources, modules map[string]bool
+}
+
+// newDriftAllowed returns what the drift tools run Terraform with, of
+// the providers compiled.
+func newDriftAllowed(compiled Providers) driftAllowed {
+	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}}
+	for _, profile := range compiled.Profiles {
+		for _, source := range compiled.Sources[profile.Command] {
+			a.sources[providerAddress(source)] = true
 		}
-		sources[providerAddress(source)] = true
-		if m, ok := p.(harvest.ProviderWithModuleProviders); ok {
-			for _, mp := range m.ModuleProviders() {
-				sources[providerAddress(mp.Source)] = true
-			}
-		}
-		for _, a := range adapters.For(p.Profile().Modules) {
-			modules[moduleAddress(a.Source)] = true
+		for _, m := range adapters.For(profile.Modules) {
+			a.modules[moduleAddress(m.Source)] = true
 		}
 	}
-	return sources, modules
-})
+	return a
+}
 
 // refusedProvider is a provider the drift tools never run, whichever
 // providers are compiled in: its external data source runs any program
@@ -83,7 +79,7 @@ func moduleAddress(source string) string {
 // checkDriftRoots refuses the configuration under out, the output
 // directory of a drift tool, unless every provider it uses is one
 // infraharvest generates roots with, and every module it calls is under
-// out or a curated module (see driftAllowed), and returns the digest of
+// out or a curated module, as allowed has them, and returns the digest of
 // the files it read (see driftpolicy.ReadRoots), which the user's
 // confirmation covers. drift runs Terraform's init and plan on the
 // roots, which install and run their providers and modules with the
@@ -103,7 +99,7 @@ func moduleAddress(source string) string {
 // providers from their registries alone. A terraform.d directory, a
 // filesystem mirror Terraform would install providers from, is refused
 // all the same, as is a module call into either.
-func checkDriftRoots(out string) (string, error) {
+func checkDriftRoots(out string, allowed driftAllowed) (string, error) {
 	parser := hclparse.NewParser()
 	// The configuration files of each directory, in the order found.
 	files := map[string][]*hcl.File{}
@@ -160,7 +156,7 @@ func checkDriftRoots(out string) (string, error) {
 			continue
 		}
 		checked[dir] = true
-		modules, err := checkModuleDir(out, dir, files[dir], backendConfigs[dir])
+		modules, err := checkModuleDir(out, dir, files[dir], backendConfigs[dir], allowed)
 		if err != nil {
 			return "", err
 		}
@@ -172,7 +168,7 @@ func checkDriftRoots(out string) (string, error) {
 // walkedDir returns dir, a module directory under out, as the walk of
 // checkDriftRoots named it, a key of files, the configuration files it
 // read by directory: a local module's directory is under out, outside
-// its .terraform and terraform.d directories (see moduleSource), so the
+// its .terraform and terraform.d directories (see driftAllowed.moduleSource), so the
 // walk read it, but a module call may name it otherwise, such as in
 // another case, where the file system ignores it. A directory that isn't
 // there, or that has configuration files the walk didn't read, is
@@ -333,10 +329,10 @@ var driftModuleSchema = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
 // provider has to be declared, so it is checked there. Its provider and
 // backend blocks, and the backend settings, may set only what
 // infraharvest generates them with (see checkSettings).
-func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File) ([]string, error) {
+func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File, allowed driftAllowed) ([]string, error) {
 	uses := &moduleUses{named: map[string]hcl.Range{}}
 	for _, f := range files {
-		if err := uses.read(out, dir, f.Body); err != nil {
+		if err := uses.read(out, dir, f.Body, allowed); err != nil {
 			return nil, err
 		}
 	}
@@ -344,7 +340,7 @@ func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File) ([]strin
 	// again: each declaration is checked.
 	declared := map[string][]string{}
 	for _, d := range uses.declared {
-		if err := allowedProvider(d.source, d.at, "declares the provider "+d.name+" as"); err != nil {
+		if err := allowed.provider(d.source, d.at, "declares the provider "+d.name+" as"); err != nil {
 			return nil, err
 		}
 		declared[d.name] = append(declared[d.name], d.source)
@@ -353,7 +349,7 @@ func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File) ([]strin
 		if declared[name] != nil {
 			continue
 		}
-		if err := allowedProvider("hashicorp/"+name, uses.named[name], "uses the provider"); err != nil {
+		if err := allowed.provider("hashicorp/"+name, uses.named[name], "uses the provider"); err != nil {
 			return nil, err
 		}
 	}
@@ -385,16 +381,14 @@ func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File) ([]strin
 	return uses.modules, nil
 }
 
-// allowedProvider returns an error, at where the configuration says
-// what, unless source is a provider driftAllowed has, and not
-// refusedProvider.
-func allowedProvider(source string, at hcl.Range, what string) error {
-	sources, _ := driftAllowed()
+// provider returns an error, at where the configuration says what,
+// unless source is a provider of a, and not refusedProvider.
+func (a driftAllowed) provider(source string, at hcl.Range, what string) error {
 	address := providerAddress(source)
-	if address != refusedProvider && sources[address] {
+	if address != refusedProvider && a.sources[address] {
 		return nil
 	}
-	return fmt.Errorf("%s: %s %s, which isn't a provider infraharvest generates roots with (%s)", where(at), what, source, strings.Join(slices.Sorted(maps.Keys(sources)), ", "))
+	return fmt.Errorf("%s: %s %s, which isn't a provider infraharvest generates roots with (%s)", where(at), what, source, strings.Join(slices.Sorted(maps.Keys(a.sources)), ", "))
 }
 
 // settings are the arguments, and the nested blocks with theirs, that
@@ -514,8 +508,8 @@ func bodies(files []*hcl.File) []hcl.Body {
 
 // read adds what body, of a configuration file of the module in dir,
 // declares and names to u, and checks the sources of the modules it
-// calls.
-func (u *moduleUses) read(out, dir string, body hcl.Body) error {
+// calls against allowed.
+func (u *moduleUses) read(out, dir string, body hcl.Body, allowed driftAllowed) error {
 	content, _, diags := body.PartialContent(driftModuleSchema)
 	if diags.HasErrors() {
 		return diags
@@ -531,7 +525,7 @@ func (u *moduleUses) read(out, dir string, body hcl.Body) error {
 		case "resource", "data", "ephemeral", "action":
 			err = u.readResource(b)
 		case "module":
-			err = u.readModule(out, dir, b)
+			err = u.readModule(out, dir, b, allowed)
 		case "check":
 			// Its scoped data sources.
 			nested, _, diags := b.Body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "data", LabelNames: []string{"type", "name"}}}})
@@ -641,9 +635,9 @@ func (u *moduleUses) readProviderArgument(body hcl.Body) error {
 	return nil
 }
 
-// readModule checks the source of a module call (see moduleSource) and
+// readModule checks the source of a module call (see driftAllowed.moduleSource) and
 // reads the providers its providers argument passes it.
-func (u *moduleUses) readModule(out, dir string, b *hcl.Block) error {
+func (u *moduleUses) readModule(out, dir string, b *hcl.Block, allowed driftAllowed) error {
 	content, _, diags := b.Body.PartialContent(&hcl.BodySchema{Attributes: []hcl.AttributeSchema{{Name: "source"}, {Name: "providers"}}})
 	if diags.HasErrors() {
 		return diags
@@ -659,7 +653,7 @@ func (u *moduleUses) readModule(out, dir string, b *hcl.Block) error {
 	if v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
 		return fmt.Errorf("%s: the module %s has a source that isn't a string", where(attr.Range), b.Labels[0])
 	}
-	local, err := moduleSource(out, dir, v.AsString())
+	local, err := allowed.moduleSource(out, dir, v.AsString())
 	if err != nil {
 		return fmt.Errorf("%s: the module %s's source %w", where(attr.Range), b.Labels[0], err)
 	}
@@ -687,11 +681,11 @@ func (u *moduleUses) readModule(out, dir string, b *hcl.Block) error {
 // moduleSource checks the source of a module the module in dir calls,
 // and returns its directory for a local one: a path to a directory under
 // out, but in a .terraform or terraform.d directory, which checkDriftRoots
-// checks in turn; or a curated module from the public registry, whose
+// checks in turn; or a curated module of a, from the public registry, whose
 // providers are infraharvest's. Any other source, such as git or a URL,
 // could bring providers of its own, which can't be checked before init
 // downloads it.
-func moduleSource(out, dir, source string) (string, error) {
+func (a driftAllowed) moduleSource(out, dir, source string) (string, error) {
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
 		local := filepath.Join(dir, filepath.FromSlash(source))
 		if checkWithin("module", out, local) != nil {
@@ -704,7 +698,7 @@ func moduleSource(out, dir, source string) (string, error) {
 		}
 		return local, nil
 	}
-	if _, modules := driftAllowed(); modules[moduleAddress(source)] {
+	if a.modules[moduleAddress(source)] {
 		return "", nil
 	}
 	return "", fmt.Errorf("is %s, which is neither under the output directory nor a curated module infraharvest calls, and could bring providers of its own", source)

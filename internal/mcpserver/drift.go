@@ -120,7 +120,7 @@ func (t *tools) driftArgs(tool string, in *DriftInput) ([]string, *toolConfig, [
 	// when the user was asked, by their digest, and roots changed since
 	// aren't run. drift checks the digest again once it has locked the
 	// output directory (see withRootsDigest).
-	digest, err := checkDriftRoots(in.Out)
+	digest, err := checkDriftRoots(in.Out, newDriftAllowed(t.providers))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("drift runs Terraform on the roots in %s, which runs their providers and modules with this server's credentials, so it checks only roots that use what infraharvest generates them with: %w. If you trust the roots, run infraharvest drift on them yourself from a terminal", in.Out, err)
 	}
