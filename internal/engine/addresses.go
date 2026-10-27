@@ -97,7 +97,7 @@ func InferredAddresses(result *Result) []Managed {
 func Readdressed(previous, now []Managed, moved []Move) []string {
 	at := map[External]string{}
 	for _, m := range now {
-		at[External{Type: m.Type, ID: m.ID}] = m.Address
+		at[ResourceKey(m.Type, m.ID)] = m.Address
 	}
 	follows := map[Move]bool{}
 	for _, m := range moved {
@@ -105,7 +105,7 @@ func Readdressed(previous, now []Managed, moved []Move) []string {
 	}
 	var changed []string
 	for _, p := range previous {
-		to, ok := at[External{Type: p.Type, ID: p.ID}]
+		to, ok := at[ResourceKey(p.Type, p.ID)]
 		if !ok || to == p.Address || follows[Move{From: p.Address, To: to}] {
 			continue
 		}
@@ -130,12 +130,12 @@ func Readdressed(previous, now []Managed, moved []Move) []string {
 func Retyped(previous, now []Managed) []string {
 	had := map[External]bool{}
 	for _, p := range previous {
-		had[External{Type: p.Type, ID: p.ID}] = true
+		had[ResourceKey(p.Type, p.ID)] = true
 	}
 	byID := map[string][]Managed{}
 	stays := map[External]bool{}
 	for _, m := range now {
-		key := External{Type: m.Type, ID: m.ID}
+		key := ResourceKey(m.Type, m.ID)
 		stays[key] = true
 		if !had[key] {
 			byID[m.ID] = append(byID[m.ID], m)
@@ -143,10 +143,10 @@ func Retyped(previous, now []Managed) []string {
 	}
 	var changed []string
 	for _, p := range previous {
-		if stays[External{Type: p.Type, ID: p.ID}] {
+		if stays[ResourceKey(p.Type, p.ID)] {
 			continue
 		}
-		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return SameType(m.Type, p.Type) }) {
+		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return sameType(m.Type, p.Type) }) {
 			continue
 		}
 		for _, m := range byID[p.ID] {

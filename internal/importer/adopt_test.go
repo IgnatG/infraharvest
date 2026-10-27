@@ -100,7 +100,7 @@ func TestExcludeManagedKeepsMergedRootsOwn(t *testing.T) {
 	sources := []string{filepath.Join(stack, "terraform.tfstate.d"), other}
 	check := func(name string, options Options, bucketManaged bool) {
 		t.Helper()
-		defaults, err := excludeManaged(t.Context(), NewRun(), options, listedForSelection, nil, importIDForSelection)
+		defaults, err := excludedManaged(t, NewRun(), options, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

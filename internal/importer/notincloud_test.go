@@ -127,6 +127,12 @@ func TestTypesListedInFull(t *testing.T) {
 	if got := typesListedInFull(&fakeProvider{}, catalogue.MustBuiltin("azurerm"), Options{Services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
 		t.Error("azurerm: a type Resource Graph maps through Resource Manager is listed in full")
 	}
+	// Azure's provider lists custom roles in part (see its PartialTypes):
+	// one made assignable outside the run isn't listed, nor gone.
+	roles := typesListedInFull(&partialProvider{partial: []string{"azurerm_role_definition"}}, catalogue.MustBuiltin("azurerm"), Options{Services: []string{"role_assignment"}})
+	if roles["azurerm_role_definition"] || !roles["azurerm_role_assignment"] {
+		t.Errorf("azurerm: role_assignment lists in full %v, want its assignments and not its custom roles", roles)
+	}
 }
 
 // What a root has with a resource block, of a type listed in full, that
@@ -174,7 +180,7 @@ func TestListedInScopeCountsWhatTheSelectionLeavesOut(t *testing.T) {
 		harvest.RecordBare("https://sqs.eu-west-2.amazonaws.com/123/jobs", "jobs", "aws_sqs_queue", "aws"),
 	}}}
 	r := &Run{discovered: map[string]int{}, options: Options{Selection: "selection.yaml"}}
-	selected, _ := r.selectResources(listed, map[string]string{"aws_sqs_queue https://sqs.eu-west-2.amazonaws.com/123/jobs": "excluded by default"}, nil, "aws/123/eu-west-2", importIDFunc(cat))
+	selected, _ := r.selectResources(listed, sourcesOf(t, listed, map[string]string{"aws_sqs_queue https://sqs.eu-west-2.amazonaws.com/123/jobs": "excluded by default"}), nil, "aws/123/eu-west-2", "", importIDFunc(cat))
 
 	here, why := listedInScope(&fakeProvider{}, cat, Options{Services: []string{"sqs"}}, "", "aws/123/eu-west-2", listed, nil, selected, importIDFunc(cat))
 	if here == nil {

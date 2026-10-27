@@ -13,8 +13,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
-	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -30,19 +28,19 @@ const driftExitHelp = "Exit code 0 means no drift is left, 4 that changes are le
 // DriftInput is the drift tool's input.
 type DriftInput struct {
 	Out    string `json:"out" jsonschema:"the output directory of an import, whose roots were applied"`
-	Engine string `json:"engine,omitempty" jsonschema:"terraform (the default) or tofu"`
+	Engine string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
 	// Roots are --root patterns.
-	Roots []string `json:"roots,omitempty" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
+	Roots []string `json:"roots,omitempty" flag:"root,each" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
 	// Parallel is --parallel, 0 for its default.
-	Parallel int `json:"parallel,omitempty" jsonschema:"how many roots to check at once (default 1); each runs its own Terraform"`
+	Parallel int `json:"parallel,omitempty" flag:"parallel" jsonschema:"how many roots to check at once (default 1); each runs its own Terraform"`
 	// Environments are --environment names.
-	Environments []string `json:"environments,omitempty" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with (default: every environment under its vars/)"`
+	Environments []string `json:"environments,omitempty" flag:"environment" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with (default: every environment under its vars/)"`
 	// Catalogue is --catalogue.
 	Catalogue string `json:"catalogue,omitempty" jsonschema:"the directory of catalogue files the import used, which add to or override the built-in catalogue: the arguments it says are kept only in state aren't drift"`
 	// EngineTimeout is --engine-timeout, "" for its default.
-	EngineTimeout string `json:"engine_timeout,omitempty" jsonschema:"the longest time one Terraform or OpenTofu command, such as the refresh of one root, may run, as a duration such as 30m or 2h (default 1h; 0 for no limit)"`
+	EngineTimeout string `json:"engine_timeout,omitempty" flag:"engine-timeout" jsonschema:"the longest time one Terraform or OpenTofu command, such as the refresh of one root, may run, as a duration such as 30m or 2h (default 1h; 0 for no limit)"`
 	// ForceUnlock is --force-unlock.
-	ForceUnlock bool `json:"force_unlock,omitempty" jsonschema:"check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock"`
+	ForceUnlock bool `json:"force_unlock,omitempty" flag:"force-unlock" jsonschema:"check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock"`
 }
 
 // DriftAcceptInput is the drift_accept tool's input.
@@ -50,12 +48,12 @@ type DriftAcceptInput struct {
 	DriftInput
 	// Accept and Keep are --accept and --keep rules: every Accept rule
 	// comes first, so that a Keep rule decides a change both match.
-	Accept []string `json:"accept,omitempty" jsonschema:"rules of the changes to accept into the code: all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as attribute=tags.*"`
-	Keep   []string `json:"keep,omitempty" jsonschema:"rules of the changes to keep the code's values of, which the next apply puts back, as accept takes them; they come after the accept rules, so that a keep rule decides a change both match"`
+	Accept []string `json:"accept,omitempty" flag:"accept,each" jsonschema:"rules of the changes to accept into the code: all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as attribute=tags.*"`
+	Keep   []string `json:"keep,omitempty" flag:"keep,each" jsonschema:"rules of the changes to keep the code's values of, which the next apply puts back, as accept takes them; they come after the accept rules, so that a keep rule decides a change both match"`
 	// Decisions is --decisions.
 	Decisions string `json:"decisions,omitempty" jsonschema:"a decisions file to decide the changes by, such as one write_decisions wrote and the user edited: each change's entry, else its rules and defaults; accept and keep decide after it"`
 	// WriteDecisions is --write-decisions.
-	WriteDecisions bool `json:"write_decisions,omitempty" jsonschema:"write the run's changes into the decisions file, decisions or drift.yaml in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped"`
+	WriteDecisions bool `json:"write_decisions,omitempty" flag:"write-decisions" jsonschema:"write the run's changes into the decisions file, decisions or drift.yaml in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped"`
 }
 
 // DriftResult is what a drift tool found and did.
@@ -92,9 +90,9 @@ const maxDriftChanges = 200
 // confirmation.
 const driftConfirmation = "confirm_drift"
 
-// driftArgs checks in and returns the arguments of drift without its
-// rules and decisions, nor the output directory, which goes last. in.Out
-// is set to the path to use.
+// driftArgs checks the paths of in and returns the arguments of drift
+// without the flags of a tool's input (see flagArgs), nor the output
+// directory, which goes last. in.Out is set to the path to use.
 func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 	if in.Out == "" {
 		return nil, errors.New("out is required")
@@ -109,17 +107,7 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 	if err := t.linksStayUnder("out", in.Out); err != nil {
 		return nil, err
 	}
-	engine := in.Engine
-	if engine == "" {
-		engine = "terraform"
-	}
-	if engine != "terraform" && engine != "tofu" {
-		return nil, fmt.Errorf("engine must be terraform or tofu, not %q", engine)
-	}
-	if in.Parallel < 0 {
-		return nil, errors.New("parallel can't be negative")
-	}
-	args := []string{"drift", "--engine=" + engine, "--format=json", "--detailed-exitcode"}
+	args := []string{"drift", "--format=json", "--detailed-exitcode"}
 	if in.Catalogue != "" {
 		catalogue, err := t.within("catalogue", in.Catalogue)
 		if err != nil {
@@ -131,34 +119,6 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 		}
 		args = append(args, "--catalogue="+catalogue)
 	}
-	if in.Parallel > 0 {
-		args = append(args, fmt.Sprintf("--parallel=%d", in.Parallel))
-	}
-	if in.EngineTimeout != "" {
-		timeout, err := time.ParseDuration(in.EngineTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("engine_timeout: %w", err)
-		}
-		if timeout < 0 {
-			return nil, errors.New("engine_timeout can't be negative")
-		}
-		args = append(args, "--engine-timeout="+timeout.String())
-	}
-	if in.ForceUnlock {
-		args = append(args, "--force-unlock")
-	}
-	for _, r := range in.Roots {
-		if r == "" || strings.ContainsFunc(r, unicode.IsControl) {
-			return nil, fmt.Errorf("root pattern %q is empty or has a control character", r)
-		}
-		args = append(args, "--root="+r)
-	}
-	for _, env := range in.Environments {
-		if env == "" || strings.ContainsFunc(env, func(r rune) bool { return r == ',' || unicode.IsControl(r) }) {
-			return nil, fmt.Errorf("environment %q is empty or has a comma or a control character", env)
-		}
-		args = append(args, "--environment="+env)
-	}
 	return args, nil
 }
 
@@ -167,6 +127,11 @@ func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput
 	if err != nil {
 		return nil, nil, err
 	}
+	flags, err := flagArgs(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, flags...)
 	d, code, failed, err := t.runDrift(ctx, append(args, "--", in.Out), "drift")
 	if err != nil || failed != nil {
 		return failed, nil, err
@@ -180,22 +145,25 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	if err != nil {
 		return nil, nil, err
 	}
+	// The flags of the check without the rules and the decisions file,
+	// whose changes the confirmation counts, and then with them.
+	detectFlags, err := flagArgs(in.DriftInput)
+	if err != nil {
+		return nil, nil, err
+	}
+	flags, err := flagArgs(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	detect := append(slices.Clone(args), detectFlags...)
+	args = append(args, flags...)
+	// Parsed here too, for the confirmation to count what they accept.
 	rules, err := parseDriftRules(in.Accept, in.Keep)
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(rules) == 0 && in.Decisions == "" && !in.WriteDecisions {
 		return nil, nil, errors.New("set accept, keep, decisions or write_decisions; to only check, call drift")
-	}
-	// The flags of the check without the rules and the decisions file,
-	// whose changes the confirmation counts.
-	detect := slices.Clone(args)
-	for _, r := range rules {
-		flag := "--keep="
-		if r.Accept {
-			flag = "--accept="
-		}
-		args = append(args, flag+r.String())
 	}
 	target := filepath.Join(in.Out, importer.DefaultDriftDecisionsFile)
 	var content []byte
@@ -218,7 +186,6 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 		if _, err := t.within("decisions", target); err != nil {
 			return nil, nil, err
 		}
-		args = append(args, "--write-decisions")
 	}
 	if !slices.ContainsFunc(rules, func(r importer.DriftRule) bool { return r.Accept }) && in.Decisions == "" {
 		// Only keep rules, or only the decisions file to write: no code is
@@ -270,7 +237,7 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 }
 
 // parseDriftRules parses the accept rules, then the keep rules, as
-// --accept and --keep take them.
+// --accept and --keep take them, with the parser drift has.
 func parseDriftRules(accept, keep []string) ([]importer.DriftRule, error) {
 	var rules []importer.DriftRule
 	for _, list := range []struct {
@@ -278,11 +245,6 @@ func parseDriftRules(accept, keep []string) ([]importer.DriftRule, error) {
 		accept bool
 	}{{accept, true}, {keep, false}} {
 		for _, s := range list.rules {
-			if strings.ContainsFunc(s, unicode.IsControl) {
-				// Such as a newline, which could make the confirmation the
-				// user is shown say something else.
-				return nil, fmt.Errorf("rule %q has a control character", s)
-			}
 			r, err := importer.ParseDriftRule(s, list.accept)
 			if err != nil {
 				return nil, err

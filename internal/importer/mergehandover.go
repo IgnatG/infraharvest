@@ -347,7 +347,7 @@ func mergedHandovers(out, stack string, members []mergeMember, now map[string]ma
 	for _, p := range plannedRemovals(stack, members) {
 		kept := ""
 		for _, d := range p.Resources {
-			if env, ok := held[engine.External{Type: d.Type, ID: d.ID}]; ok {
+			if env, ok := held[engine.ResourceKey(d.Type, d.ID)]; ok {
 				kept = env
 			}
 		}
@@ -586,7 +586,7 @@ func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []engine.R
 		}
 		return backup.restore()
 	}
-	left, check, err := engine.VacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
+	left, check, err := r.options.tools.vacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
 	if err != nil {
 		return err.Error(), restore()
 	}

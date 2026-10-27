@@ -10,6 +10,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // providerName is the provider's name, in the generated configuration and
@@ -36,6 +37,12 @@ type Provider struct {
 	// unwanted are the types the import leaves out whatever is listed (see
 	// SetUnwantedTypes).
 	unwanted map[string]bool
+	// stackScope, when set, scopes the import to the resources of
+	// CloudFormation stacks (see SetStackScope).
+	stackScope *StackScope
+	// scopedStacks are the stacks of stackScope as ImportScope last
+	// matched them with what is listed (see CloudFormationStacks).
+	scopedStacks []report.CloudFormationStack
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
@@ -59,11 +66,37 @@ func (*Provider) Name() string {
 	return providerName
 }
 
-// ConcurrentListing says the services of a region may list at once: each
-// has its own lister, and they share only the SDK configuration, which
-// is safe to share.
-func (*Provider) ConcurrentListing() bool {
-	return true
+// Profile describes AWS: a resource's block label comes from its Name
+// tag; the services of a region may list at once, as each has its own
+// lister and they share only the SDK configuration, which is safe to
+// share; default_tags applies tags to every resource, and keys starting
+// with aws: are AWS's own; the network's services share network.tf; and
+// a root that environments share reads the account and the region from
+// the provider, which plans each environment in its own.
+func (*Provider) Profile() harvest.Profile {
+	return harvest.Profile{
+		Command:           providerName,
+		NameTag:           "Name",
+		ConcurrentListing: true,
+		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", Block: "default_tags", ReservedPrefix: "aws:"},
+		Layout: harvest.Layout{
+			NetworkServices: []string{
+				"customer_gateway", "eip", "eni", "igw", "nacl", "nat", "route_table", "sg", "subnet",
+				"transit_gateway", "vpc", "vpc_endpoint", "vpc_peering", "vpn_connection", "vpn_gateway",
+			},
+		},
+		Merge: harvest.Merge{
+			ScopeTitle:     "Account",
+			ScopeData:      "aws_caller_identity.current",
+			ScopeLocal:     "aws_account_id",
+			ScopeExpr:      "data.aws_caller_identity.current.account_id",
+			RegionArgument: "region",
+			RegionTitle:    "AWS region",
+			RegionData:     "aws_region.current",
+			RegionLocal:    "aws_region",
+			RegionExpr:     "data.aws_region.current.region",
+		},
+	}
 }
 
 // ProviderBlock returns the provider "aws" block: the region, us-east-1

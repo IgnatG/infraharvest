@@ -224,7 +224,7 @@ func TestPostProcessAddsReferences(t *testing.T) {
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues)}
 
-	if _, err := postProcess(context.Background(), tf, dir, Options{}, nil, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, generating(Options{}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -245,7 +245,7 @@ func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 	changed := fakePlan{summary: changeSummary{Change: 1}}
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues), plans: []fakePlan{{}, changed, changed}}
 
-	if _, err := postProcess(context.Background(), tf, dir, Options{}, nil, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, generating(Options{}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

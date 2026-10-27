@@ -58,7 +58,7 @@ type Run struct {
 	// config.Environments).
 	environments config.Environments
 	// members are the roots the run generated of the configuration file's
-	// environments, which the merge phase merges (see MergeEnvironments).
+	// environments, which the merge phase merges (see Run.MergeEnvironments).
 	members []mergeMember
 	// vacating are the handovers of the run's scopes that plan to vacate
 	// merged roots, all of whose resources go to other roots now (see
@@ -94,7 +94,7 @@ type shared struct {
 	stated map[string][]engine.Managed
 
 	// scopes are the accounts, subscriptions or projects the command
-	// imports, where it names them (see ImportEach); none where it imports
+	// imports, where it names them (see Run.ImportEach); none where it imports
 	// the one its credentials reach. Set before any scope starts.
 	scopes []string
 
@@ -167,10 +167,6 @@ func (s *shared) managedState(ctx context.Context, sources []string, stores mana
 	return state, nil
 }
 
-// activeRun is the run of the provider command being executed, if any.
-// A process runs one command at a time.
-var activeRun *Run
-
 func NewRun() *Run {
 	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}, shared: &shared{}}
 }
@@ -239,6 +235,7 @@ func (r *Run) finish(err error) error {
 		return couldNotRun(err, writeErr)
 	}
 	log.Printf("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.Out, report.Dir, "report.md"))
+	logStacks(r.report.CloudFormationStacks)
 	if r.options.Format == FormatJSON {
 		if writeErr := r.report.WriteJSON(r.stdout()); writeErr != nil {
 			return couldNotRun(err, writeErr)
@@ -267,7 +264,7 @@ func couldNotRun(err, writeErr error) error {
 }
 
 // child returns a run for one of several accounts or projects of r's
-// command, imported alongside the others (see ImportEach): it shares r's
+// command, imported alongside the others (see Run.ImportEach): it shares r's
 // selection file, state backend, lock file, modules and environments,
 // and keeps everything else to itself until r merges it.
 func (r *Run) child() *Run {
@@ -326,12 +323,11 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string) err
 	return nil
 }
 
-// Do runs fn as this run: the Import calls fn makes add to the run, which
-// then finishes as a provider command does, with the report or the
-// selection file written and the exit code in the error.
+// Do runs fn, whose Import calls are into this run (see ImportCalls,
+// Run.ImportEach and Run.MergeEnvironments), which then finishes as a
+// provider command does, with the report or the selection file written
+// and the exit code in the error.
 func (r *Run) Do(fn func() error) error {
-	activeRun = r
-	defer func() { activeRun = nil }()
 	return r.finish(fn())
 }
 

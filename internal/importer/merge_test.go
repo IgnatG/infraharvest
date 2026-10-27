@@ -90,6 +90,77 @@ func TestMergeRefusalOfLocalState(t *testing.T) {
 	}
 }
 
+// With --cfn-stack, only the roots their stack's merge is to take are
+// marked merging, and take no stack template: not those of a stack with
+// one environment in the import, unless it merged before, nor those
+// mergeRefusal refuses.
+func TestMarkMerging(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	stack := filepath.Join(out, "aws", "eu-west-2")
+	devDir := filepath.Join(out, "envs", "dev", "aws", "eu-west-2")
+	prodDir := filepath.Join(out, "envs", "prod", "aws", "eu-west-2")
+	options := Options{Out: out, MergeEnvironments: true, CloudFormationStacks: []string{"app"}}
+	calls := func(envs ...string) []*listedCall {
+		c := &listedCall{places: map[string]memberPlace{}}
+		for _, env := range envs {
+			c.places[filepath.Join(out, "envs", env, "aws", "eu-west-2")] = memberPlace{env: env, stack: stack}
+		}
+		return []*listedCall{c, nil}
+	}
+
+	both := calls("dev", "prod")
+	if err := markMerging(options, both); err != nil {
+		t.Fatal(err)
+	}
+	if !both[0].merging[devDir] || !both[0].merging[prodDir] {
+		t.Errorf("dev and prod: merging = %v", both[0].merging)
+	}
+
+	// Only prod in scope: the stack doesn't merge, and its root keeps the
+	// template.
+	prod := calls("prod")
+	if err := markMerging(options, prod); err != nil {
+		t.Fatal(err)
+	}
+	if len(prod[0].merging) != 0 {
+		t.Errorf("prod alone: merging = %v", prod[0].merging)
+	}
+
+	// Without --cfn-stack, or --merge-environments, nothing asks.
+	for _, o := range []Options{{Out: out, MergeEnvironments: true}, {Out: out, CloudFormationStacks: []string{"app"}}} {
+		cs := calls("dev", "prod")
+		if err := markMerging(o, cs); err != nil {
+			t.Fatal(err)
+		}
+		if len(cs[0].merging) != 0 {
+			t.Errorf("%+v: merging = %v", o, cs[0].merging)
+		}
+	}
+
+	// A directory with configuration no merge wrote: refused.
+	writeRootFiles(t, stack, map[string]string{"main.tf": "# hand-written\n"})
+	refused := calls("dev", "prod")
+	if err := markMerging(options, refused); err != nil {
+		t.Fatal(err)
+	}
+	if len(refused[0].merging) != 0 {
+		t.Errorf("refused: merging = %v", refused[0].merging)
+	}
+
+	// Merged before with dev: prod alone merges again with it.
+	if err := writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: "x", Merge: report.Merge{Merged: true, Environments: []string{"dev", "prod"}}}); err != nil {
+		t.Fatal(err)
+	}
+	again := calls("prod")
+	if err := markMerging(options, again); err != nil {
+		t.Fatal(err)
+	}
+	if !again[0].merging[prodDir] {
+		t.Errorf("merged before: merging = %v", again[0].merging)
+	}
+}
+
 func TestCopyAndRemoveRoot(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()

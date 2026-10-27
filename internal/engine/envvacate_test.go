@@ -118,3 +118,53 @@ func TestVacateMergedStillMoving(t *testing.T) {
 		t.Errorf("sqs.tf: %v", err)
 	}
 }
+
+// What an environment plans the root with is kept while it is listed:
+// the backend settings of an environment whose values are gone, and the
+// shared values, cut down to what providers.tf reads, with no environment
+// left, whose README then names none.
+func TestVacateMergedGoneEnvironments(t *testing.T) {
+	removed := []Removal{{From: "aws_sqs_queue.orders"}}
+	for name, tc := range map[string]struct {
+		gone   []string
+		want   []string
+		readme string
+	}{
+		"backend of an environment without values": {
+			gone:   []string{"vars/prod/terraform.tfvars"},
+			want:   []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl"},
+			readme: "for dev.",
+		},
+		"shared values without environments": {
+			gone:   []string{"vars/dev/terraform.tfvars", "vars/prod/terraform.tfvars"},
+			want:   []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/prod/backend.hcl"},
+			readme: "terraform init -reconfigure -backend-config=vars/<env>/backend.hcl",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			files := vacatedFixture(t, dir)
+			if err := os.WriteFile(filepath.Join(dir, "vars", "common.tfvars"), []byte("aws_region     = \"us-east-1\"\norders_timeout = 60\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, gone := range tc.gone {
+				if err := os.Remove(filepath.Join(dir, filepath.FromSlash(gone))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			left, check, err := VacateMerged(dir, files, removed)
+			if err != nil || !check.Passed {
+				t.Fatalf("VacateMerged: %+v, %v", check, err)
+			}
+			if !slices.Equal(left, tc.want) {
+				t.Errorf("left %v, want %v", left, tc.want)
+			}
+			if common := readFile(t, dir, "vars/common.tfvars"); !strings.Contains(common, "aws_region") || strings.Contains(common, "orders_timeout") {
+				t.Errorf("vars/common.tfvars:\n%s", common)
+			}
+			if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, tc.readme) {
+				t.Errorf("README.md has no %q:\n%s", tc.readme, readme)
+			}
+		})
+	}
+}

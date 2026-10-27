@@ -106,13 +106,11 @@ func UnmergedBlocks(dir string, env UnmergeEnv, ids map[string]string) (map[stri
 			}
 		}
 	}
-	for _, path := range []string{filepath.Join(dir, varsDirName, commonVarsFileName), filepath.Join(dir, varsDirName, env.Name, envVarsFileName)} {
-		values, err := varFileValues(path)
-		if err != nil {
-			return nil, "", err
-		}
-		maps.Copy(vars, values)
+	values, err := mergedValues(dir, env.Name)
+	if err != nil {
+		return nil, "", err
 	}
+	maps.Copy(vars, values)
 	ctx := unmergeContext(vars, locals, unmergeData(data, env))
 	blocks := map[string]UnmergedBlock{}
 	for _, address := range slices.Sorted(maps.Keys(ids)) {

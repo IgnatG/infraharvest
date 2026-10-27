@@ -7,12 +7,16 @@
 # deletes the types that cost the most while they exist (EC2 instances, NAT
 # gateways and their Elastic IPs, RDS instances and clusters, Redshift
 # clusters, ElastiCache replication groups, EKS clusters, load balancers,
-# Kinesis streams, Lambda functions and S3 buckets), without final
-# snapshots, and warns about whatever is still tagged. It sweeps what
-# earlier runs left with their own run tag the same way: runs never overlap
+# Kinesis streams, Lambda functions and S3 buckets, and the CloudFormation
+# stacks, SQS queues and SNS topics the CloudFormation estate leaves when
+# its test stops part way, with the log group and role of its custom
+# resource handler, by their ih-sbx- names), without final snapshots, and
+# warns about whatever is still tagged. It sweeps what earlier runs left
+# with their own run tag the same way: runs never overlap
 # (the workflow's concurrency group), so another run's tag only remains on
 # what that run failed to delete, as when it was cancelled during its
-# destroy. It touches nothing without the tag. Deletes take a while, and
+# destroy. It touches nothing without the tag but those log groups, which
+# Lambda names after the ih-sbx- function. Deletes take a while, and
 # the Resource Groups Tagging API lists some deleted resources for a while
 # too, so what it warns about may already be going. It prints names and
 # ARNs only.
@@ -134,6 +138,20 @@ for region in "${regions[@]}"; do
           echo "deleting Kinesis stream ${resource#stream/}"
           try aws kinesis delete-stream --region "$region" --stream-name "${resource#stream/}" --enforce-consumer-deletion
           ;;
+        cloudformation:stack/*)
+          IFS=/ read -r _ name _ <<< "$resource"
+          echo "deleting CloudFormation stack $name"
+          try aws cloudformation delete-stack --region "$region" --stack-name "$arn"
+          ;;
+        sqs:*)
+          echo "deleting SQS queue $resource"
+          url=$(aws sqs get-queue-url --region "$region" --queue-name "$resource" --query QueueUrl --output text) &&
+            try aws sqs delete-queue --region "$region" --queue-url "$url"
+          ;;
+        sns:*)
+          echo "deleting SNS topic $resource"
+          try aws sns delete-topic --region "$region" --topic-arn "$arn"
+          ;;
         lambda:function:*)
           name=${resource#function:}
           echo "deleting Lambda function ${name%%:*}"
@@ -195,9 +213,40 @@ for region in "${regions[@]}"; do
       try aws ec2 release-address --region "$region" --allocation-id "$eip"
     done
 
+    # The log group Lambda makes for the CloudFormation estate's custom
+    # resource handler has no tags: it is told by its ih-sbx- name alone.
+    mapfile -t groups < <(words "$(aws logs describe-log-groups --region "$region" --log-group-name-prefix /aws/lambda/ih-sbx- \
+      --query "logGroups[?ends_with(logGroupName, '-cfn-seed')].logGroupName" --output text)")
+    for group in "${groups[@]}"; do
+      echo "deleting log group $group"
+      try aws logs delete-log-group --region "$region" --log-group-name "$group"
+    done
+
     left=$(tagged "$region" | tr '\n' ' ')
     if [ -n "$left" ]; then
       echo "::warning::Still tagged $key=$run in $region after the sweep (deletes may still be running, and the Tagging API lists deleted resources for a while): $left"
     fi
   done
+done
+
+# IAM is global, and the Tagging API doesn't list its roles: the role of
+# the CloudFormation estate's custom resource handler, which a stack the
+# test retained leaves, is told by its ih-sbx- name and the run's tag,
+# which the stack gives it.
+mapfile -t roles < <(words "$(aws iam list-roles --query "Roles[?starts_with(RoleName, 'ih-sbx-') && ends_with(RoleName, '-cfn-seed')].RoleName" --output text)")
+for role in "${roles[@]}"; do
+  tag=$(aws iam list-role-tags --role-name "$role" --query "Tags[?Key=='$key'].Value" --output text)
+  if [ -z "$tag" ] || [ "$tag" = None ]; then
+    continue
+  fi
+  echo "deleting IAM role $role, of run $tag"
+  mapfile -t policies < <(words "$(aws iam list-attached-role-policies --role-name "$role" --query 'AttachedPolicies[].PolicyArn' --output text)")
+  for policy in "${policies[@]}"; do
+    try aws iam detach-role-policy --role-name "$role" --policy-arn "$policy"
+  done
+  mapfile -t inline < <(words "$(aws iam list-role-policies --role-name "$role" --query 'PolicyNames[]' --output text)")
+  for policy in "${inline[@]}"; do
+    try aws iam delete-role-policy --role-name "$role" --policy-name "$policy"
+  done
+  try aws iam delete-role --role-name "$role"
 done

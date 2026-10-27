@@ -29,9 +29,9 @@ import (
 // and the provider of every listed resource.
 const providerName = "azurerm"
 
-// directoryName is the name of the provider's command, azure, which the
-// roots go under (see Directory), as AWS's and Google's go under theirs.
-const directoryName = "azure"
+// commandName is the name of the provider's command, azure, which the
+// roots go under (see Profile), as AWS's and Google's go under theirs.
+const commandName = "azure"
 
 // telemetryApplicationID is how infraharvest's requests introduce
 // themselves to Azure, in their User-Agent.
@@ -42,11 +42,12 @@ const telemetryApplicationID = "infraharvest"
 var errNoSubscription = errors.New("no Azure subscription to import: set ARM_SUBSCRIPTION_ID, or name subscriptions with --subscriptions or --management-group")
 
 // services makes a new lister for each service the provider lists, by
-// --services name. resourceManagerServices (see resource_graph.go) says
-// which of them * leaves out.
+// --services name. OptInServices says which of them * leaves out.
 var services = map[string]func() harvest.Lister{
 	resourceGraphService:                   func() harvest.Lister { return &ResourceGraphLister{} },
+	diagnosticSettingService:               func() harvest.Lister { return &DiagnosticSettingLister{} },
 	"management_lock":                      func() harvest.Lister { return &ManagementLockLister{} },
+	"role_assignment":                      func() harvest.Lister { return &RoleAssignmentLister{} },
 	"security_center_contact":              func() harvest.Lister { return &SecurityCenterContactLister{} },
 	"security_center_subscription_pricing": func() harvest.Lister { return &SecurityCenterSubscriptionPricingLister{} },
 	"managed_identity":                     func() harvest.Lister { return &ManagedIdentityLister{} },
@@ -79,11 +80,18 @@ type Provider struct {
 	// catalogue is the import's catalogue (see SetCatalogue), nil for the
 	// built-in one.
 	catalogue *catalogue.Catalogue
+	// listed is what the import's other services listed (see
+	// SetListedByOthers), for the services that list from it.
+	listed []harvest.Resource
+	// azapi is --azapi (Init's args[2]): resource_graph imports what
+	// azurerm has no type for as azapi_resource (see azapiCandidates).
+	azapi bool
 }
 
-// Init takes the resource group (args[0], "" for the whole subscription)
-// and, optionally, the subscription (args[1]), which otherwise comes from
-// ARM_SUBSCRIPTION_ID. It reads the ARM_* environment and builds the
+// Init takes the resource group (args[0], "" for the whole subscription),
+// optionally the subscription (args[1]), which otherwise comes from
+// ARM_SUBSCRIPTION_ID, and the provider type (args[2]): azapi for
+// --azapi, else "". It reads the ARM_* environment and builds the
 // credential; with no subscription it fails with errNoSubscription before
 // any request. A custom cloud's endpoints are read from its metadata host,
 // with ctx.
@@ -114,6 +122,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		p.resourceGroup = args[0]
 	}
+	p.azapi = len(args) > 2 && args[2] == azapiProviderType
 	return nil
 }
 
@@ -225,11 +234,6 @@ func (*Provider) Name() string {
 	return providerName
 }
 
-// Directory returns "azure": roots go under <out>/azure/, not azurerm.
-func (*Provider) Directory() string {
-	return directoryName
-}
-
 // ProviderBlock returns the provider "azurerm" block: the subscription and
 // the features block azurerm requires, empty. The roots pin azurerm's
 // newest major release, 5 or later (a module that holds it to an older
@@ -284,6 +288,8 @@ func (p *Provider) Select(name string, verbose bool) error {
 			credential:     p.credential,
 			clientOptions:  p.clientOptions,
 			catalogue:      p.catalogue,
+			listed:         p.listed,
+			azapi:          p.azapi,
 		}.args(),
 	})
 	return nil
@@ -299,17 +305,41 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 	return p.subscriptionID, region, nil
 }
 
-// ConcurrentListing says the services of a subscription may list at once:
-// each has its own lister, and what they share, the credential and the
-// subscription's limiter, is safe to share.
-func (*Provider) ConcurrentListing() bool {
-	return true
-}
-
-// DefaultTags says azurerm resources take their tags in the tags
-// attribute, and that Azure reserves the hidden- prefix for its own.
-func (*Provider) DefaultTags() (attribute, block, reservedPrefix string) {
-	return "tags", "", "hidden-"
+// Profile describes Azure: roots go under <out>/azure/, not azurerm; the
+// services of a subscription may list at once, as each has its own
+// lister and what they share, the credential and the subscription's
+// limiter, is safe to share; azurerm resources take their tags in the
+// tags attribute, with no provider block to apply them to all, and Azure
+// reserves the hidden- prefix for its own; Resource Graph's types go in
+// files by their family; and a root that environments share reads the
+// subscription from the provider.
+func (*Provider) Profile() harvest.Profile {
+	return harvest.Profile{
+		Command:           commandName,
+		ConcurrentListing: true,
+		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},
+		Layout: harvest.Layout{
+			NetworkServices: []string{
+				"network_interface", "network_security_group", "public_ip", "subnet", "virtual_network",
+			},
+			NetworkTypes: []string{
+				"application_security_group", "nat_gateway", "network", "private_dns", "private_endpoint",
+				"public_ip", "route", "subnet", "virtual_network",
+			},
+			TypeFamilies: map[string]string{
+				"cosmosdb": "cosmosdb", "dns": "dns", "key_vault": "key_vault", "kubernetes_cluster": "kubernetes_cluster",
+				"lb": "lb", "linux_virtual_machine": "virtual_machine", "log_analytics": "log_analytics", "monitor": "monitor",
+				"mssql": "mssql", "mysql": "mysql", "postgresql": "postgresql", "storage": "storage",
+				"virtual_machine": "virtual_machine", "windows_virtual_machine": "virtual_machine",
+			},
+		},
+		Merge: harvest.Merge{
+			ScopeTitle: "Subscription",
+			ScopeData:  "azurerm_client_config.current",
+			ScopeLocal: "subscription_id",
+			ScopeExpr:  "data.azurerm_client_config.current.subscription_id",
+		},
+	}
 }
 
 // SetCatalogue sets the import's catalogue, which the services get.
@@ -317,9 +347,23 @@ func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
 	p.catalogue = c
 }
 
-// ModuleProviders configures azapi, which curated modules may call, for the
+// DependentServices are the services that list from what the import's
+// other services listed, after them: diagnostic_setting, which asks only
+// the resources they found for their diagnostic settings.
+func (*Provider) DependentServices() []string {
+	return []string{diagnosticSettingService}
+}
+
+// SetListedByOthers sets what the import's other services listed, which
+// the services get.
+func (p *Provider) SetListedByOthers(resources []harvest.Resource) {
+	p.listed = resources
+}
+
+// ModuleProviders configures azapi, which curated modules may call, and
+// which the azapi_resource resources of --azapi come through, for the
 // same subscription and, for a custom cloud, its endpoints in place of the
-// public cloud's.
+// public cloud's. A root configures it only where one of them is in it.
 func (p *Provider) ModuleProviders() map[string]harvest.ModuleProvider {
 	config := map[string]interface{}{"subscription_id": p.subscriptionID}
 	if c := p.customCloud; c != nil {

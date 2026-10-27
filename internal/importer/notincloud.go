@@ -90,7 +90,7 @@ func listedInScope(provider harvest.Provider, cat *catalogue.Catalogue, options 
 // resource_graph does through Resource Manager, where a lookup that fails
 // leaves the resource out unseen; the children of other types, which only
 // the resources the selection keeps get (see withChildImports); the
-// types the import doesn't list (see unwantedTypes) or can't import; and
+// types the import doesn't list (see selection.Unwanted) or can't import; and
 // the types the provider says it lists in part (see
 // harvest.ProviderWithPartialTypes).
 func typesListedInFull(provider harvest.Provider, cat *catalogue.Catalogue, options Options) map[string]bool {

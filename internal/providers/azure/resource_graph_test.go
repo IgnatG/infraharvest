@@ -61,7 +61,7 @@ func TestGraphResourcesMapsTypes(t *testing.T) {
 		listed(t, vnet+"/subnets/web", nil),
 	}, catalogue.MustBuiltin("azurerm"), func(id string) ([]aztft.Type, []string, bool, error) {
 		return aztft.QueryTypeAndId(id, nil)
-	})
+	}, nil)
 
 	want := map[string]string{
 		"azurerm_resource_group":  rg,
@@ -98,15 +98,69 @@ func TestGraphResourcesLeavesOutUnmapped(t *testing.T) {
 			return []aztft.Type{{AzureId: rid, TFType: "azurerm_linux_web_app"}, {AzureId: rid, TFType: "azurerm_windows_web_app"}}, []string{id, id}, false, nil
 		},
 	} {
-		if got := graphResources([]azlist.AzureResource{listed(t, id, nil)}, catalogue.MustBuiltin("azurerm"), query); len(got) != 0 {
+		if got := graphResources([]azlist.AzureResource{listed(t, id, nil)}, catalogue.MustBuiltin("azurerm"), query, nil); len(got) != 0 {
 			t.Errorf("%s: got %+v", name, got)
 		}
+		// With --azapi, only what azurerm has no type for at all comes
+		// through azapi: not what aztft fails on or can't choose for.
+		viaAzapi := azapiCandidates([]azlist.AzureResource{listed(t, id, nil)})
+		got := graphResources([]azlist.AzureResource{listed(t, id, nil)}, catalogue.MustBuiltin("azurerm"), query, viaAzapi)
+		if want := map[string]int{"none": 1}[name]; len(got) != want {
+			t.Errorf("%s with --azapi: got %+v", name, got)
+		}
+	}
+}
+
+// With --azapi, what Resource Graph returned that azurerm has no type for
+// comes through azapi_resource, imported by its Azure ID, named and with
+// the attributes as any other; a child resource Resource Manager listed
+// under it is left out, as without --azapi, as is everything without it.
+func TestGraphResourcesThroughAzapi(t *testing.T) {
+	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1"
+	fleet := rg + "/providers/Microsoft.AzureFleet/fleets/batch"
+	rows := []azlist.AzureResource{
+		listed(t, rg, nil),
+		listed(t, fleet, map[string]interface{}{"tags": map[string]interface{}{"team": "batch"}}),
+	}
+	found := append(slices.Clone(rows), listed(t, fleet+"/virtualMachineScaleSets/pool", nil))
+	query := func(id string) ([]aztft.Type, []string, bool, error) {
+		return aztft.QueryTypeAndId(id, nil)
+	}
+
+	resources := graphResources(found, catalogue.MustBuiltin("azurerm"), query, azapiCandidates(rows))
+	byType := map[string]harvest.Resource{}
+	for _, r := range resources {
+		byType[r.Address.Type] = r
+	}
+	if len(resources) != 2 {
+		t.Fatalf("got %d resources, want the group and the fleet: %+v", len(resources), resources)
+	}
+	if _, ok := byType["azurerm_resource_group"]; !ok {
+		t.Errorf("no resource group: %+v", resources)
+	}
+	r, ok := byType[azapiType]
+	if !ok {
+		t.Fatalf("no %s: %+v", azapiType, resources)
+	}
+	if r.Observed.ID != fleet || r.RawName != "batch" || r.Provider != "azurerm" {
+		t.Errorf("fleet: ID %q, name %q, provider %q", r.Observed.ID, r.RawName, r.Provider)
+	}
+	if r.Observed.Attributes["tags.team"] != "batch" || r.Observed.Attributes["resource_group_name"] != "rg1" {
+		t.Errorf("fleet attributes: %v", r.Observed.Attributes)
+	}
+	if n := countType(resources, azapiType); n != 1 {
+		t.Errorf("countType: %d", n)
+	}
+
+	if got := graphResources(found, catalogue.MustBuiltin("azurerm"), query, nil); countType(got, azapiType) != 0 || len(got) != 1 {
+		t.Errorf("without --azapi: got %+v", got)
 	}
 }
 
 // * lists resource_graph and the services that list what Resource Graph
 // can't. The services that list again what resource_graph lists are
-// opt-in, so * never imports the same resource twice.
+// opt-in, so * never imports the same resource twice, and so is
+// diagnostic_setting, which takes a request per resource.
 func TestWildcardListsResourceGraph(t *testing.T) {
 	p := &Provider{}
 	services := p.Services()
@@ -123,7 +177,7 @@ func TestWildcardListsResourceGraph(t *testing.T) {
 		}
 	}
 	slices.Sort(wildcard)
-	want := []string{"management_lock", resourceGraphService, "security_center_contact", "security_center_subscription_pricing"}
+	want := []string{"management_lock", resourceGraphService, "role_assignment", "security_center_contact", "security_center_subscription_pricing"}
 	if !slices.Equal(wildcard, want) {
 		t.Errorf("* lists %v, want %v", wildcard, want)
 	}
@@ -167,7 +221,7 @@ func TestResourceGraphListsEmptyResourceGroups(t *testing.T) {
 	found := withResourceGroups([]azlist.AzureResource{listed(t, app, nil), listed(t, vnet, nil)}, groups)
 	resources := graphResources(found, catalogue.MustBuiltin("azurerm"), func(id string) ([]aztft.Type, []string, bool, error) {
 		return aztft.QueryTypeAndId(id, nil)
-	})
+	}, nil)
 	got := map[string]string{}
 	for _, r := range resources {
 		got[r.Observed.ID] = r.Address.Type
@@ -235,7 +289,7 @@ types:
 		asked = append(asked, id)
 		rid, _ := armid.ParseResourceId(id)
 		return []aztft.Type{{AzureId: rid, TFType: "azurerm_windows_web_app"}}, []string{id}, true, nil
-	})
+	}, nil)
 	got := map[string]string{}
 	for _, r := range resources {
 		got[r.Observed.ID] = r.Address.Type
@@ -270,7 +324,7 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 	cat := catalogue.MustBuiltin("azurerm")
 	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
 		return aztft.QueryTypeAndId(id, nil)
-	})
+	}, nil)
 	if len(resources) != len(listedResources) {
 		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(listedResources), resources)
 	}
@@ -373,7 +427,7 @@ func TestGraphResourcesKeepsAttachedDataDisks(t *testing.T) {
 			typ = "azurerm_linux_virtual_machine"
 		}
 		return []aztft.Type{{AzureId: rid, TFType: typ}}, []string{id}, true, nil
-	})
+	}, nil)
 	if len(resources) != len(listedResources) {
 		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(listedResources), resources)
 	}
@@ -420,7 +474,7 @@ func TestGraphResourcesSkipsPrivateEndpointInterfaces(t *testing.T) {
 	resources := graphResources(listedResources, cat, func(id string) ([]aztft.Type, []string, bool, error) {
 		rid, _ := armid.ParseResourceId(id)
 		return []aztft.Type{{AzureId: rid, TFType: "azurerm_network_interface"}}, []string{id}, true, nil
-	})
+	}, nil)
 	want := map[string]map[string]string{
 		network + "/networkInterfaces/pe-blob.nic.1": {"private_endpoint": endpoint},
 		network + "/networkInterfaces/pls-app.nic.1": {"private_link_service": service},
@@ -559,7 +613,7 @@ func TestGraphResourcesSkipsBuiltInWorkspaceTablesAndSearches(t *testing.T) {
 			typ = "azurerm_log_analytics_workspace_table_microsoft"
 		}
 		return []aztft.Type{{AzureId: rid, TFType: typ}}, []string{id}, true, nil
-	})
+	}, nil)
 	if len(resources) != len(listedResources) {
 		t.Fatalf("got %d resources, want %d: %+v", len(resources), len(listedResources), resources)
 	}

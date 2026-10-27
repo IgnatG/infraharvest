@@ -267,7 +267,7 @@ func newSinceMerge(result *engine.Result, ids map[string]string) []string {
 	seen := map[string]bool{}
 	for _, res := range resultResources(result) {
 		seen[res.Address] = true
-		if had[engine.External{Type: res.Type, ID: res.ID}] {
+		if had[engine.ResourceKey(res.Type, res.ID)] {
 			held[res.Address] = true
 		}
 	}
@@ -293,7 +293,7 @@ func goneFromMerged(m mergeMember, ids map[string]string) map[string]string {
 	}
 	held := map[engine.External]bool{}
 	for _, res := range resultResources(m.result) {
-		held[engine.External{Type: res.Type, ID: res.ID}] = true
+		held[engine.ResourceKey(res.Type, res.ID)] = true
 	}
 	gone := map[string]string{}
 	for address, id := range ids {
@@ -432,7 +432,7 @@ func movedApart(m mergeMember, before, now map[string]string, shared map[string]
 	}
 	more := map[string]string{}
 	for _, res := range resultResources(m.result) {
-		had, ok := moved[engine.External{Type: res.Type, ID: res.ID}]
+		had, ok := moved[engine.ResourceKey(res.Type, res.ID)]
 		if !ok || slices.Contains(m.isolated, res.Address) {
 			continue
 		}

@@ -4,12 +4,9 @@
 package importer
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -294,7 +291,7 @@ func planHandovers(out string, calls []*listedCall) error {
 		for _, dir := range sortedDirs(c.byDir) {
 			callOf[filepath.Clean(dir)] = c
 			for _, imp := range c.byDir[dir] {
-				key := engine.External{Type: imp.Type, ID: imp.ID}
+				key := engine.ResourceKey(imp.Type, imp.ID)
 				if _, ok := assigned[key]; !ok {
 					assigned[key] = filepath.Clean(dir)
 				}
@@ -407,7 +404,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 		}
 		var kept []engine.Import
 		for _, imp := range imports {
-			if root, ok := stays[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
+			if root, ok := stays[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope})
 				continue
 			}
@@ -592,32 +589,6 @@ func pendingMoves(out, dir string) ([]engine.Move, error) {
 		return c.PendingMoves, nil
 	}
 	return engine.ReadMoves(dir)
-}
-
-// checkpointDirs returns the directories of the roots the checkpoints
-// under out record, sorted.
-func checkpointDirs(out string) ([]string, error) {
-	base := filepath.Join(out, CheckpointDir, "checkpoints")
-	if _, err := os.Stat(base); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	var dirs []string
-	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || filepath.Ext(path) != ".json" {
-			return nil
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		dirs = append(dirs, filepath.Join(out, strings.TrimSuffix(rel, ".json")))
-		return nil
-	})
-	sort.Strings(dirs)
-	return dirs, err
 }
 
 // sortedDirs returns the keys of m, sorted.

@@ -142,7 +142,7 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 		}
 	}
 	if providerBlock != nil {
-		root.defaultTags = defaultTagsIn(providerBlock, values)
+		root.defaultTags, root.defaultLabels = defaultTagsIn(providerBlock, values)
 	}
 	if root.backend, err = os.ReadFile(filepath.Join(r.Dir, backendFileName)); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -348,33 +348,34 @@ func mergedObject(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 // defaultTagsIn returns the tags a provider block applies to every
 // resource: those of its default_tags block (AWS) or of its
 // default_labels argument (Google), where they are values once the
-// locals of values are put in; nil for none.
-func defaultTagsIn(b *hclsyntax.Block, values map[string]cty.Value) map[string]string {
+// locals of values are put in; nil for none. labels says they are the
+// argument's.
+func defaultTagsIn(b *hclsyntax.Block, values map[string]cty.Value) (tags map[string]string, labels bool) {
 	var expr hclsyntax.Expression
 	if attr, ok := b.Body.Attributes["default_labels"]; ok {
-		expr = attr.Expr
+		expr, labels = attr.Expr, true
 	}
 	for _, inner := range b.Body.Blocks {
 		if attr, ok := inner.Body.Attributes["tags"]; ok && inner.Type == "default_tags" {
-			expr = attr.Expr
+			expr, labels = attr.Expr, false
 		}
 	}
 	if expr == nil {
-		return nil
+		return nil, false
 	}
 	v, diags := expr.Value(&hcl.EvalContext{Variables: map[string]cty.Value{"local": cty.ObjectVal(values)}})
 	if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsMapType() && !v.Type().IsObjectType()) {
-		return nil
+		return nil, false
 	}
-	tags := map[string]string{}
+	tags = map[string]string{}
 	for it := v.ElementIterator(); it.Next(); {
 		k, value := it.Element()
 		if value.Type() != cty.String || value.IsNull() {
-			return nil
+			return nil, false
 		}
 		tags[k.AsString()] = value.AsString()
 	}
-	return tags
+	return tags, labels
 }
 
 // stackBlocks lists the resource blocks and module calls of f, as merging

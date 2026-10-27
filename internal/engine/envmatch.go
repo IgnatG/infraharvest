@@ -77,12 +77,14 @@ type envRoot struct {
 	// What the merged root's other files are written from (see
 	// writeMergedRoot): the root's provider, its configuration without
 	// credentials; its required_version; the tags its provider applies
-	// to every resource (default_tags), if any; the file each resource
+	// to every resource (default_tags), if any, and whether it applies
+	// them with an argument (default_labels); the file each resource
 	// goes in, by address (see Import.File); its backend.tf and its
 	// variables.tf, nil for none.
 	provider        Provider
 	requiredVersion string
 	defaultTags     map[string]string
+	defaultLabels   bool
 	files           map[string]string
 	backend         []byte
 	variables       *hclFile

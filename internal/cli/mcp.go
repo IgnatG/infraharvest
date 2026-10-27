@@ -57,7 +57,7 @@ func newMCPCmd() *cobra.Command {
 			fmt.Fprintf(cmd.ErrOrStderr(), "infraharvest mcp: the tools read and write files under %s\n", root)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return mcpserver.New(version.Version, root, execRunner(self)).Run(ctx, &mcp.StdioTransport{})
+			return mcpserver.New(version.Version, root, execRunner(self), CheckRun).Run(ctx, &mcp.StdioTransport{})
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories, reports and drift decisions files (default: the current directory, unless that is the root of a filesystem or the home directory)")

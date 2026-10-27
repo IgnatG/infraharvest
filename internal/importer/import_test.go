@@ -153,6 +153,7 @@ type fakeProvider struct {
 
 func (p *fakeProvider) Init(context.Context, []string) error { return nil }
 func (p *fakeProvider) Name() string                         { return "fake" }
+func (p *fakeProvider) Profile() harvest.Profile             { return harvest.Profile{} }
 func (p *fakeProvider) Selected() harvest.Lister {
 	return p.service
 }
@@ -193,6 +194,29 @@ func (*servicesProvider) Services() map[string]harvest.Lister {
 	return map[string]harvest.Lister{"vpc": nil, "s3": nil}
 }
 
+// optInProvider is servicesProvider with s3 opt-in.
+type optInProvider struct {
+	servicesProvider
+}
+
+func (*optInProvider) OptInServices() []string { return []string{"s3"} }
+
+// * leaves out the opt-in services, and an opt-in service named beside it
+// is listed too, once, as is one that * lists already.
+func TestResolveServicesKeepsWhatIsNamedBesideTheWildcard(t *testing.T) {
+	for _, tc := range []struct {
+		services, want []string
+	}{
+		{[]string{"*"}, []string{"vpc"}},
+		{[]string{"*", "s3"}, []string{"vpc", "s3"}},
+		{[]string{"s3", "*", "vpc", "s3"}, []string{"vpc", "s3"}},
+	} {
+		if got := ResolveServices(&optInProvider{}, Options{Services: tc.services}).Services; !slices.Equal(got, tc.want) {
+			t.Errorf("%v: got %v, want %v", tc.services, got, tc.want)
+		}
+	}
+}
+
 // What no Import call could do fails the command once, before any scope:
 // an unknown service or engine, an import that says neither --selection
 // nor --all, a selection file or catalogue that doesn't load, a
@@ -227,37 +251,39 @@ func TestCheckOptions(t *testing.T) {
 		{Options{Discover: true, Services: []string{"vpc"}, Skip: []string{"s3"}}, ""},
 		{Options{All: true, Services: []string{"vpc", "vcp"}}, "--services: fake has no service vcp"},
 		{Options{All: true, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
-		{Options{All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
+		{Options{Services: []string{"vpc"}, All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
+		{Options{All: true}, "--services is required"},
+		{Options{CloudFormationStacks: []string{"app"}}, ""},
 		{Options{Services: []string{"vpc"}}, "selection"},
-		{Options{Selection: goodSelection}, ""},
-		{Options{Selection: badSelection}, "--selection: " + badSelection + ": version 99"},
-		{Options{Selection: missing}, "--selection"},
-		{Options{Discover: true, Selection: missing}, ""},
-		{Options{All: true, Catalogue: filepath.Join(dir, "catalogue")}, "--catalogue"},
-		{Options{All: true, ManagedState: []string{state, filepath.Dir(state), "backend", "s3://bucket/prefix", "tfc://org/app-*"}}, ""},
-		{Options{All: true, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
-		{Options{All: true, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
-		{Options{All: true, ManagedState: []string{missing}}, "--managed-state: state " + missing},
-		{Options{All: true, Layout: "{out}/{provider}/{account}/{region}/{service}/{env}/"}, ""},
-		{Options{All: true, Layout: `{out}\{provider}\`}, ""},
-		{Options{All: true, Layout: "{out}"}, ""},
-		{Options{All: true, Layout: "{out}/{project}/"}, "unknown placeholder {project}"},
-		{Options{All: true, Layout: "{provider}/{account}/"}, "must start with {out}/"},
-		{Options{All: true, Layout: "/srv/roots/{provider}/"}, "must start with {out}/"},
-		{Options{All: true, Layout: "{out}-{provider}/"}, "must start with {out}/"},
-		{Options{All: true, Layout: "{out}/../{provider}/"}, "leads out of --out"},
-		{Options{All: true, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
-		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
-		{Options{All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
-		{Options{All: true, EnvTags: []string{"Environment"}, DefaultEnv: "dev"}, ""},
-		{Options{All: true, DefaultEnv: "dev", Layout: "{out}/{env}/{provider}/"}, ""},
-		{Options{All: true, DefaultEnv: "dev", Layout: DefaultLayout}, "use it with --env-tags"},
-		{Options{All: true, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
-		{Options{All: true, RateLimit: -1}, "--rate-limit can't be negative"},
-		{Options{All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
-		{Options{All: true, ListParallel: -1}, "--list-parallel can't be negative"},
-		{Options{All: true, Parallel: -2}, "--parallel can't be negative"},
-		{Options{All: true, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
+		{Options{Services: []string{"vpc"}, Selection: goodSelection}, ""},
+		{Options{Services: []string{"vpc"}, Selection: badSelection}, "--selection: " + badSelection + ": version 99"},
+		{Options{Services: []string{"vpc"}, Selection: missing}, "--selection"},
+		{Options{Services: []string{"vpc"}, Discover: true, Selection: missing}, ""},
+		{Options{Services: []string{"vpc"}, All: true, Catalogue: filepath.Join(dir, "catalogue")}, "--catalogue"},
+		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{state, filepath.Dir(state), "backend", "s3://bucket/prefix", "tfc://org/app-*"}}, ""},
+		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
+		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
+		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{missing}}, "--managed-state: state " + missing},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}/{provider}/{account}/{region}/{service}/{env}/"}, ""},
+		{Options{Services: []string{"vpc"}, All: true, Layout: `{out}\{provider}\`}, ""},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}"}, ""},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}/{project}/"}, "unknown placeholder {project}"},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "{provider}/{account}/"}, "must start with {out}/"},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "/srv/roots/{provider}/"}, "must start with {out}/"},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}-{provider}/"}, "must start with {out}/"},
+		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}/../{provider}/"}, "leads out of --out"},
+		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
+		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
+		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, DefaultEnv: "dev"}, ""},
+		{Options{Services: []string{"vpc"}, All: true, DefaultEnv: "dev", Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{Services: []string{"vpc"}, All: true, DefaultEnv: "dev", Layout: DefaultLayout}, "use it with --env-tags"},
+		{Options{Services: []string{"vpc"}, All: true, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
+		{Options{Services: []string{"vpc"}, All: true, RateLimit: -1}, "--rate-limit can't be negative"},
+		{Options{Services: []string{"vpc"}, All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
+		{Options{Services: []string{"vpc"}, All: true, ListParallel: -1}, "--list-parallel can't be negative"},
+		{Options{Services: []string{"vpc"}, All: true, Parallel: -2}, "--parallel can't be negative"},
+		{Options{Services: []string{"vpc"}, All: true, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
 	} {
 		err := CheckOptions(p, tc.options)
 		switch {
@@ -305,6 +331,71 @@ func TestListServicesGivesEachServiceTheCatalogue(t *testing.T) {
 		if got := provider.(*catalogueProvider).cat; got != cat {
 			t.Errorf("a service's provider has catalogue %p, want %p", got, cat)
 		}
+	}
+}
+
+// dependentProvider is fakeProvider with the service after, which lists
+// from what the other services listed: a resource for each of theirs.
+type dependentProvider struct {
+	fakeProvider
+	listed []harvest.Resource
+	after  *afterService
+}
+
+func (*dependentProvider) DependentServices() []string { return []string{"after"} }
+
+func (p *dependentProvider) SetListedByOthers(resources []harvest.Resource) { p.listed = resources }
+
+func (p *dependentProvider) Select(name string, verbose bool) error {
+	if name != "after" {
+		return p.fakeProvider.Select(name, verbose)
+	}
+	p.after = &afterService{listed: p.listed}
+	p.after.Configure(harvest.ListerConfig{Service: name})
+	return nil
+}
+
+func (p *dependentProvider) Selected() harvest.Lister {
+	if p.after != nil {
+		return p.after
+	}
+	return p.fakeProvider.Selected()
+}
+
+// afterService lists a fake_after for each resource its provider was
+// given when it was selected.
+type afterService struct {
+	harvest.ListerBase
+	listed []harvest.Resource
+}
+
+func (s *afterService) List() error {
+	for _, r := range s.listed {
+		s.Resources = append(s.Resources, harvest.RecordBare(r.Observed.ID+"/after", "after", "fake_after", "fake"))
+	}
+	return nil
+}
+
+// A dependent service lists once the others are done, wherever --services
+// names it, from what they listed: what a service that failed in part
+// listed too, and nothing of one that failed.
+func TestListServicesListsDependentServicesAfterTheOthers(t *testing.T) {
+	registry := harvest.NewRegistry(&dependentProvider{})
+
+	failures, err := listServices(t.Context(), registry, Options{Services: []string{"after", "good", "bad", "partial"}, ListParallel: 4}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(failures) != 2 {
+		t.Errorf("want the failures of bad and partial, got %v", failures)
+	}
+	var got []string
+	for _, r := range registry.ByService()["after"] {
+		got = append(got, r.Observed.ID)
+	}
+	if want := []string{"id-1/after", "id-2/after"}; !slices.Equal(got, want) {
+		t.Errorf("after listed %v, want %v", got, want)
 	}
 }
 

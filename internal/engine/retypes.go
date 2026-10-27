@@ -55,8 +55,8 @@ func AliasTypes(typ string) []string {
 	return slices.Compact(others)
 }
 
-// SameType reports whether a and b are one type or of one group (see
+// sameType reports whether a and b are one type or of one group (see
 // typeAliases).
-func SameType(a, b string) bool {
+func sameType(a, b string) bool {
 	return CanonicalType(a) == CanonicalType(b)
 }

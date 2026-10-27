@@ -345,8 +345,9 @@ jobs:
   # The same round trip with each engine: the output must work on both.
   # The tests that seed testdata/aws (TestAWSRoundTrip, TestAWSSelection,
   # TestAWSIncremental) take most of the time, so each runs on a runner of
-  # its own, with its own Floci, TestAWSSelection with the test of its
-  # rules (TestAWSSelectionRules). The options tests (TestAWSOptions*), which
+  # its own, with its own Floci, TestAWSSelection with the tests of its
+  # rules (TestAWSSelectionRules) and of --cfn-stack
+  # (TestAWSSelectionCloudFormation). The options tests (TestAWSOptions*), which
   # import testdata/aws-options in an account of their own many times
   # over, run on two more: those of the output (layout, modules, verify)
   # and those of what is imported (report, filters, exit codes). The drift
@@ -379,7 +380,7 @@ jobs:
           run: ^TestAWSRoundTrip$
           skip: ""
         - shard: selection
-          run: ^TestAWSSelection(Rules)?$
+          run: ^TestAWSSelection(Rules|CloudFormation)?$
           skip: ""
         - shard: incremental
           run: ^TestAWSIncremental$
@@ -404,7 +405,7 @@ jobs:
           skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection(Rules)?|Incremental|Options.*|Drift.*|MCP|Environments(Data)?|Regenerate.*)$
+          skip: ^TestAWS(RoundTrip|Selection(Rules|CloudFormation)?|Incremental|Options.*|Drift.*|MCP|Environments(Data)?|Regenerate.*)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -672,6 +673,7 @@ jobs:
         mkdir -p "$dir/root"
         printf '%s\n' 'terraform {' '  required_providers {' \
           '    aws     = { source = "hashicorp/aws" }' \
+          '    azapi   = { source = "Azure/azapi" }' \
           '    azurerm = { source = "hashicorp/azurerm" }' \
           '    google  = { source = "hashicorp/google" }' '  }' '}' > "$dir/root/main.tf"
         terraform -chdir="$dir/root" init -backend=false -input=false

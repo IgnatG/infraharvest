@@ -220,7 +220,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		if info, err := os.Stat(staging); err == nil {
 			stagedMode = info.Mode().Perm()
 		}
-		if info, err := os.Stat(filepath.Join(staging, stagedStateFile)); err == nil {
+		if info, err := os.Stat(filepath.Join(staging, localStateFileName)); err == nil {
 			stateMode = info.Mode().Perm()
 		}
 	}
@@ -268,7 +268,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	if _, ok := stagedFiles["backend.tf"]; ok {
 		t.Error("the staged copy has backend.tf")
 	}
-	if got := stagedFiles[stagedStateFile]; got != driftState {
+	if got := stagedFiles[localStateFileName]; got != driftState {
 		t.Errorf("staged state %q, want the pulled state", got)
 	}
 	if !strings.Contains(stagedFiles["main.tf"], `source = "../../modules/bucket"`) {
@@ -477,8 +477,8 @@ func TestStageDriftRemovesBackendBlocksAnywhere(t *testing.T) {
 	if strings.Contains(files["versions.tf"], "backend") || !strings.Contains(files["versions.tf"], "required_version") {
 		t.Errorf("staged versions.tf:\n%s", files["versions.tf"])
 	}
-	if files[stagedStateFile] != "{}" {
-		t.Errorf("staged state %q", files[stagedStateFile])
+	if files[localStateFileName] != "{}" {
+		t.Errorf("staged state %q", files[localStateFileName])
 	}
 	if _, ok := files["terraform.tfstate.bak"]; ok {
 		t.Error("staged an old state file")

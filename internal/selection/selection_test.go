@@ -313,9 +313,6 @@ func TestMergeRulesBeforeDefaults(t *testing.T) {
 	if r := f.Resources[0]; !r.Include || r.Reason != "" || !r.New {
 		t.Errorf("got %+v, want included by the rule", r)
 	}
-	if d, ok := f.ByRule("aws_subnet", "subnet-1", "", nil); ok || d.Include {
-		t.Errorf("no rule matches a subnet: %+v, %v", d, ok)
-	}
 }
 
 const byTag = `version: 1
@@ -421,31 +418,6 @@ func TestPatternsMatch(t *testing.T) {
 	}
 }
 
-// A file may include a type an entry of it includes, or a rule includes
-// by type or for every type; an excluding entry or rule includes nothing.
-func TestMayInclude(t *testing.T) {
-	t.Parallel()
-	f := &File{
-		Resources: []Resource{
-			{Type: "aws_iam_access_key", ID: "AKIA1", Include: false},
-			{Type: "aws_s3_bucket", ID: "logs", Include: true},
-		},
-		Rules: []Rule{
-			{Include: &Match{Type: Patterns{"aws_sqs_*"}}},
-			{Exclude: &Match{Type: Patterns{"aws_iam_*"}}},
-		},
-	}
-	for typ, want := range map[string]bool{"aws_iam_access_key": false, "aws_s3_bucket": true, "aws_sqs_queue": true, "aws_sns_topic": false} {
-		if got := f.MayInclude(typ); got != want {
-			t.Errorf("%s: got %v, want %v", typ, got, want)
-		}
-	}
-	every := &File{Rules: []Rule{{Include: &Match{Tags: map[string]Patterns{"team": {"data"}}}}}}
-	if !every.MayInclude("aws_iam_access_key") {
-		t.Error("a rule for every type doesn't include access keys")
-	}
-}
-
 // A rule doesn't include a new resource that another Terraform state or
 // tool manages: it stays excluded with its reason, unless its entry or
 // IncludeOwned includes it. What the cloud manages, such as a default
@@ -521,7 +493,7 @@ func TestOwned(t *testing.T) {
 		"shared by account 111122223333 through AWS RAM, which manages it": false,
 		"": false,
 	} {
-		if got := Owned(reason); got != want {
+		if got := owned(reason); got != want {
 			t.Errorf("%q: got %v, want %v", reason, got, want)
 		}
 	}
@@ -615,5 +587,41 @@ func TestMergeKeepsReasonsItDidNotWorkOut(t *testing.T) {
 				t.Errorf("%+v: %s changed: %+v", refresh, r.ID, r)
 			}
 		}
+	}
+}
+
+// A first file lists each resource once, nothing in it new, and includes
+// what the defaults don't exclude.
+func TestNewFile(t *testing.T) {
+	t.Parallel()
+	f := NewFile([]Resource{
+		{Type: "aws_vpc", ID: "vpc-1", Include: true},
+		{Type: "aws_vpc", ID: "vpc-1", Include: true},
+		{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"},
+	})
+	want := []Resource{{Type: "aws_vpc", ID: "vpc-1", Include: true}, {Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}}
+	if f.Version != Version || !f.Defaults.Include || !reflect.DeepEqual(f.Resources, want) {
+		t.Errorf("got %+v", f)
+	}
+}
+
+// The summary counts each entry as an import decides it, by type too, and
+// names the exclusions in the file's order with their reasons.
+func TestSummary(t *testing.T) {
+	t.Parallel()
+	f := &File{Version: Version, Resources: []Resource{
+		{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"},
+		{Type: "aws_s3_bucket", ID: "logs", Include: true},
+		{Type: "aws_vpc", ID: "vpc-1", Include: true},
+		{Type: "aws_s3_bucket", ID: "old"},
+	}}
+	want := Summary{
+		Included:   2,
+		Excluded:   2,
+		Types:      []TypeCount{{Type: "aws_s3_bucket", Included: 1, Excluded: 1}, {Type: "aws_vpc", Included: 1, Excluded: 1}},
+		Exclusions: []Exclusion{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}, {Type: "aws_s3_bucket", ID: "old", Reason: "excluded in the selection file"}},
+	}
+	if got := f.Summary(); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }

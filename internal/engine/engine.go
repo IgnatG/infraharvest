@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 )
 
 // Files the engine writes into each output directory.
@@ -210,6 +212,13 @@ type Options struct {
 	// bucket's storage_class=STANDARD: Generate leaves out the arguments
 	// set to them where the plan stays the same (see stripDefaults).
 	Defaults map[string][]string
+	// SchemaMetadata, if set, is what the provider's code says of its
+	// resource types' arguments (see schemameta): Generate leaves out the
+	// arguments set to their defaults and settles conflicting arguments
+	// without a plan or a validation to tell it, where it is of the release
+	// the root uses, and only tries more defaults where it isn't (see
+	// schemaHints). The verification gate checks the result either way.
+	SchemaMetadata *schemameta.File
 	// DefaultTags, if set, lets Generate move the tags every resource shares
 	// into local.tags, applied through the provider (see applyTagLift).
 	DefaultTags *DefaultTags
@@ -231,10 +240,10 @@ type Options struct {
 	// where they are set empty (see stripDefaults).
 	KeepEmpty map[string][]string
 	// Placeholders, per resource type, set what Terraform can't read back,
-	// such as where a function's code comes from (see SetPlaceholders).
+	// such as where a function's code comes from (see setPlaceholders).
 	Placeholders map[string]Placeholder
 	// Lifecycles, per resource type, are lifecycle settings every resource
-	// of the type gets, such as create_before_destroy (see SetLifecycles).
+	// of the type gets, such as create_before_destroy (see setLifecycles).
 	Lifecycles map[string]Lifecycle
 	// SplitFiles moves the configuration out of generated.tf, once it is
 	// done, into the files the imports name (see Import.File).
@@ -248,7 +257,9 @@ type Options struct {
 	// ModuleProviders configures, by local name, the providers modules may
 	// use besides the root's, such as google-beta: a call whose adapter names one
 	// (see adapters.Adapter.Providers) gets its provider block and source,
-	// consistent with the root's provider.
+	// consistent with the root's provider. So does a root that imports
+	// resources whose type one of them implies, such as azapi_resource
+	// (see resourceProviders).
 	ModuleProviders map[string]Provider
 	// External are resources the import listed but doesn't manage, which
 	// the configuration may refer to through the data sources in
@@ -263,9 +274,6 @@ type Options struct {
 	ARNs       map[string]ARN
 	// Scanners run in the verification gate (see runScanners).
 	Scanners []Scanner
-	// Taken are names Generate leaves alone, such as those of the root an
-	// incremental import adds to (see Add).
-	Taken Names
 	// IncludeOwned keeps the resources whose tags say another tool
 	// manages them, which Generate leaves out otherwise (see OwnedBy).
 	IncludeOwned bool
@@ -292,16 +300,88 @@ type Options struct {
 	// endpoint: a command still running then is stopped, and fails the
 	// root. 0 means no limit.
 	CommandTimeout time.Duration
-
-	// secretValues gives Generate's own plans the values of the secrets it
-	// found in the configuration (see literalSecretsToVariables).
-	secretValues *secretValues
-
-	// values are the imported values, by address, which postProcess sets
-	// for synthesize: references to what a module call takes and has no
-	// output for become the values again (see trial.literals).
-	values map[string]map[string]any
+	// Refine, if set, edits the root once Generate has written every file and
+	// the resources' addresses are final, and before the gate, which then
+	// checks what it changed as it checks the rest: an edit that changed a
+	// plan fails the plan check. It is given the root's directory, what
+	// the root imports and where (see ImportedAddresses), and the providers'
+	// schemas, and returns warnings for the result. The importer uses it to
+	// carry a CloudFormation stack's template into the root (AWS
+	// --cfn-stack).
+	Refine func(ctx context.Context, dir string, addresses []Managed, schemas *tfjson.ProviderSchemas) ([]string, error) `json:"-"`
+	// RefineKey identifies what Refine carries into the root, such as the
+	// templates and parameter values of its stacks, for the fingerprint
+	// --resume compares: a root whose Refine input changed is generated
+	// again.
+	RefineKey string `json:"-"`
 }
+
+// policy is what tells the two runs of the pipeline apart: Generate's, of a
+// root of its own (see generating), and Add's, of resources to add to a
+// root an earlier import generated (see adding). The passes and the gate
+// of the directory the run generates in read these settings from it, not
+// from Options, which stay as the caller gave them: Add checks the root it
+// adds to with the caller's own Options (see Add).
+type policy struct {
+	// config are the files to write besides imports.tf (see Options.Config).
+	config map[string][]byte
+	// taken are names the run leaves alone, such as those of the root an
+	// add adds to.
+	taken Names
+	// adapters map clusters of resources onto calls of curated modules
+	// (see Options.Adapters).
+	adapters []adapters.Adapter
+	// modulesDir, if set, is where local modules go (see
+	// Options.ModulesDir).
+	modulesDir string
+	// defaultTags, if set, lets the run move shared tags into local.tags
+	// (see Options.DefaultTags).
+	defaultTags *DefaultTags
+	// external are resources the configuration may refer to through data
+	// sources (see Options.External).
+	external []External
+	// splitFiles moves the configuration into the files the imports name
+	// (see Options.SplitFiles).
+	splitFiles bool
+}
+
+// run is one run of the pipeline: the caller's Options, the policy it runs
+// with, and what it finds on the way, which the passes receive with it.
+type run struct {
+	opts   Options
+	policy policy
+	// secrets gives the run's own plans the values of the secrets it found
+	// in the configuration (see literalSecretsToVariables), once it found
+	// any.
+	secrets *secretValues
+}
+
+// generating is Generate's run with opts: a root of its own, with the
+// settings opts gives.
+func generating(opts Options) *run {
+	return &run{opts: opts, policy: policy{
+		config:      opts.Config,
+		adapters:    opts.Adapters,
+		modulesDir:  opts.ModulesDir,
+		defaultTags: opts.DefaultTags,
+		external:    opts.External,
+		splitFiles:  opts.SplitFiles,
+	}}
+}
+
+// replanReason names an edit of generated.tf that makes Generate plan it
+// again before it reads the plan's errors: the edit moves the lines they
+// point at, or resolves some of them (see prepareGenerated).
+type replanReason string
+
+const (
+	replanSorted       replanReason = "resources sorted"
+	replanOmitted      replanReason = "arguments left out"
+	replanPlaceholders replanReason = "placeholders set"
+	replanLifecycles   replanReason = "lifecycles set"
+	replanConflicts    replanReason = "conflicting arguments settled"
+	replanSecrets      replanReason = "secrets moved into variables"
+)
 
 // Generate writes opts.Config and an import block per resource into dir,
 // then runs Terraform to generate the configuration of every imported
@@ -316,6 +396,12 @@ type Options struct {
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf or imports.tf.
 func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, opts Options) (*Result, error) {
+	return generate(ctx, tf, dir, imports, generating(opts))
+}
+
+// generate is Generate's pipeline, run as r's policy says.
+func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r *run) (*Result, error) {
+	opts, p := r.opts, r.policy
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -339,7 +425,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	defer removeEmptyState()
 	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
-	imports = relabelled(imports, opts.Taken, opts.TidyLabels, opts.Previous)
+	imports = relabelled(imports, p.taken, opts.TidyLabels, opts.Previous)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err
@@ -357,7 +443,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
-	for name, content := range opts.Config {
+	for name, content := range p.config {
 		files[name] = content
 	}
 	for name, content := range files {
@@ -365,15 +451,31 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			return nil, err
 		}
 	}
-	if dt := opts.DefaultTags; dt != nil && dt.Applied != nil {
+	if dt := p.defaultTags; dt != nil && dt.Applied != nil {
 		if err := applyDefaultTags(dir, *dt); err != nil {
 			return nil, err
 		}
 	}
+	// Resources whose type another provider of opts.ModuleProviders
+	// implies, such as azapi_resource, need it required and configured
+	// before init, which selects its newest release, pinned as the
+	// root's own provider is.
+	others := resourceProviders(imports, opts.ModuleProviders)
+	if err := requireProviders(dir, others, opts.ModuleProviders); err != nil {
+		return nil, err
+	}
 	if err := initTerraform(ctx, tf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
+	if len(others) > 0 {
+		if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
+			return nil, err
+		}
+	}
 	// Plan reports changes because every import is pending; only errors matter.
+	// The release the lock file records decides how far the provider's
+	// metadata goes (see schemaHints).
+	hints := schemaHintsFor(dir, opts.SchemaMetadata)
 	diags, _, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
@@ -388,24 +490,12 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	} else if err != nil {
 		return nil, err
 	}
-	// Terraform writes resources in the order its graph walk reaches them,
-	// which differs between runs: sort them, so the same estate always gives
-	// the same files. Sorting and leaving out what other resources manage
-	// move the lines the errors point at, and placeholders resolve some of
-	// them, so plan again.
-	sorted, err := sortResources(generated)
-	if err != nil {
+	// What Terraform rejected that has an import ID to fall back on is
+	// imported again by it, before anything reads the configuration.
+	if diags, err = retryFallbacks(ctx, tf, dir, imports, diags); err != nil {
 		return nil, err
 	}
-	omitted, err := OmitArguments(generated, withResourceOmissions(opts.Omit, imports))
-	if err != nil {
-		return nil, err
-	}
-	placed, err := SetPlaceholders(generated, opts.Placeholders)
-	if err != nil {
-		return nil, err
-	}
-	lifecycled, err := SetLifecycles(generated, opts.Lifecycles)
+	reasons, err := prepareGenerated(generated, imports, opts, hints)
 	if err != nil {
 		return nil, err
 	}
@@ -413,17 +503,18 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// generated.tf, secrets among them: move those into variables before
 	// anything else reads the file. Generate's own plans read their values
 	// from outside the output (see secretValues).
-	literal, warnings, err := literalSecretsToVariables(generated, opts.Taken)
+	literal, warnings, err := literalSecretsToVariables(generated, p.taken)
 	if err != nil {
 		return nil, err
 	}
 	if len(literal) > 0 {
+		reasons = append(reasons, replanSecrets)
 		redacting.hide(literal)
-		if opts.secretValues, err = newSecretValues(); err != nil {
+		if r.secrets, err = newSecretValues(); err != nil {
 			return nil, err
 		}
-		defer opts.secretValues.remove()
-		if err := opts.secretValues.write(literal); err != nil {
+		defer r.secrets.remove()
+		if err := r.secrets.write(literal); err != nil {
 			return nil, err
 		}
 		if err := writeVariables(dir, literal, nil); err != nil {
@@ -439,20 +530,27 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	var last *shownPlan
 	var planned map[string][]byte
 	replan := func() error {
-		p, summary, ds, err := showPlanWithSummary(ctx, tf, opts.secretValues.options())
+		shown, summary, ds, err := showPlanWithSummary(ctx, tf, r.secrets.options())
 		if err != nil {
 			return err
 		}
 		diags, last, planned = ds, nil, nil
-		if len(ds) == 0 && p != nil {
+		if len(ds) == 0 && shown != nil {
 			if planned, err = rootFileContents(dir); err != nil {
 				return err
 			}
-			last = &shownPlan{plan: p, summary: summary}
+			last = &shownPlan{plan: shown, summary: summary}
 		}
 		return nil
 	}
-	if sorted || omitted || placed || lifecycled || len(literal) > 0 {
+	// The plan the configuration was generated with no longer holds once
+	// an edit above changed it (see replanReason).
+	if len(reasons) > 0 {
+		why := make([]string, len(reasons))
+		for i, reason := range reasons {
+			why[i] = string(reason)
+		}
+		log.Printf("%s: planning %s again: %s", dir, GeneratedFileName, strings.Join(why, ", "))
 		if err := replan(); err != nil {
 			return nil, err
 		}
@@ -527,15 +625,15 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			kept = append(kept, s)
 		}
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, opts.Taken, kept, &result.Rejected, &rejected, opts.secretValues.options()); err != nil {
+	if result.Secrets, err = useVariables(ctx, tf, dir, p.taken, kept, &result.Rejected, &rejected, r.secrets.options()); err != nil {
 		return nil, err
 	}
-	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, opts); err != nil {
+	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, r.secrets); err != nil {
 		return nil, err
 	}
-	if opts.secretValues != nil {
+	if r.secrets != nil {
 		// Only the variables still declared: Terraform warns about others.
-		if err := opts.secretValues.write(result.Secrets); err != nil {
+		if err := r.secrets.write(result.Secrets); err != nil {
 			return nil, err
 		}
 	}
@@ -546,7 +644,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	// The last plan above is postProcess's first if nothing changed since:
 	// the same files, and no secret variables, whose values its plans get
 	// otherwise.
-	if last != nil && (opts.secretValues != nil || len(result.Secrets) > 0) {
+	if last != nil && (r.secrets != nil || len(result.Secrets) > 0) {
 		last = nil
 	}
 	if last != nil {
@@ -558,8 +656,13 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			last = nil
 		}
 	}
-	declined, err := postProcess(ctx, tf, dir, opts, result.Secrets, last)
+	declined, err := postProcess(ctx, tf, dir, r, result.Secrets, last)
 	if err != nil {
+		return nil, err
+	}
+	// Once the references are made: what is still a literal is no
+	// resource's.
+	if _, err := notePrincipals(generated); err != nil {
 		return nil, err
 	}
 	moved, err := movedAddresses(dir, before)
@@ -593,7 +696,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 			result.Imported = append(result.Imported, imp)
 		}
 	}
-	if opts.SplitFiles {
+	if p.splitFiles {
 		if result.Files, err = splitFiles(dir, result.Imported, result.Modules); err != nil {
 			return nil, err
 		}
@@ -618,7 +721,18 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	if err := requireMinimumVersion(dir); err != nil {
 		return nil, err
 	}
-	if result.Gate, err = runGate(ctx, tf, dir, result.Secrets, opts); err != nil {
+	var unrefined map[string][]byte
+	warned := len(result.Warnings)
+	if opts.Refine != nil {
+		if unrefined, err = refine(ctx, tf, dir, result, opts); err != nil {
+			return nil, err
+		}
+	}
+	// The gate checks the modules the run may call, which for Add's are
+	// fewer than the caller's (see adding).
+	gateOpts := opts
+	gateOpts.Adapters = p.adapters
+	if err := gateRefined(ctx, tf, dir, result, gateOpts, r.secrets, unrefined, warned); err != nil {
 		return nil, err
 	}
 	// The README shows the gate's details, which come from plans that had
@@ -628,6 +742,41 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 		return result, err
 	}
 	return result, checkReadme(dir, result, knownValues(literal))
+}
+
+// prepareGenerated makes the edits of generated.tf, at path, that come
+// before anything reads it, and returns why the file then needs another
+// plan, if any of them changed it. Terraform writes resources in the order
+// its graph walk reaches them, which differs between runs: they are
+// sorted, so the same estate always gives the same files. Then the
+// arguments other resources manage are left out (see opts.Omit), and
+// placeholders and lifecycles set. Last, arguments the provider says
+// conflict, which fail validation, are settled now, as repair would once a
+// plan reported them: after the omissions, so that of a pair the catalogue
+// leaves one out of, such as an event rule's is_enabled beside its state,
+// the other stays.
+func prepareGenerated(path string, imports []Import, opts Options, hints schemaHints) ([]replanReason, error) {
+	edits := []struct {
+		reason replanReason
+		edit   func() (bool, error)
+	}{
+		{replanSorted, func() (bool, error) { return sortResources(path) }},
+		{replanOmitted, func() (bool, error) { return OmitArguments(path, withResourceOmissions(opts.Omit, imports)) }},
+		{replanPlaceholders, func() (bool, error) { return setPlaceholders(path, opts.Placeholders) }},
+		{replanLifecycles, func() (bool, error) { return setLifecycles(path, opts.Lifecycles) }},
+		{replanConflicts, func() (bool, error) { return resolveConflicts(path, hints) }},
+	}
+	var reasons []replanReason
+	for _, e := range edits {
+		changed, err := e.edit()
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			reasons = append(reasons, e.reason)
+		}
+	}
+	return reasons, nil
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors

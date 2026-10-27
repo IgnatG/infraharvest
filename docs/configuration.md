@@ -1,6 +1,6 @@
 # Configuration
 
-`--config infraharvest.yaml` sets any flag the command line doesn't, and the state backend of the generated roots:
+`--config infraharvest.yaml` sets any flag the command line doesn't, but `--check` and `--config` itself, and the state backend of the generated roots:
 
 ```yaml
 version: 1
@@ -11,6 +11,8 @@ providers:               # flags of one provider command
     profile: prod
     regions: [eu-west-2, us-east-1]
     services: [vpc, subnet, sg, s3]
+  azure:
+    azapi: true          # what azurerm has no type for, as azapi_resource
 backend:                 # one of s3, azurerm, gcs
   s3:
     bucket: acme-terraform-state
@@ -25,7 +27,7 @@ environments:            # roots per environment (see Environments below)
     aws: { accounts: ["222222222222"] }
 ```
 
-A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one filter per item for `id`, `tag` and `where`, which the command line takes once per filter, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]`.
+A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. The keys under `providers` are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error. A list gives a flag several values: comma-separated for `regions` and `services`, and one value per item for `id`, `tag`, `where`, `cfn-stack` and `cfn-ignore`, which the command line takes once per value, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]` or, under `providers: { aws: ... }`, `cfn-stack: [app, network]`.
 
 Each root gets a `backend.tf` with its own state key, made of the prefix and the root's path under `--out` (`imported/aws/<account>/<region>/terraform.tfstate` above). The backends take:
 

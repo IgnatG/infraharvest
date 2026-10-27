@@ -7,16 +7,18 @@
 # ElastiCache replication group and an EKS cluster, which take longer and
 # cost more, so it runs only when asked for; so does data
 # (TestSandboxAWSData): an EC2 instance, a Lambda function, an RDS
-# database, a Redshift cluster and an S3 bucket, destroyed straight after.
+# database, a Redshift cluster and an S3 bucket, destroyed straight after;
+# and cfn (TestSandboxAWSCloudFormation): two CloudFormation stacks, which
+# the test moves to Terraform with --cfn-stack, deleting them as it goes.
 name: Sandbox (AWS)
 
 on:
   workflow_dispatch:
     inputs:
       estate:
-        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer)
+        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer; cfn is two CloudFormation stacks, moved to Terraform with --cfn-stack)
         type: choice
-        options: [main, clusters, data]
+        options: [main, clusters, data, cfn]
         default: main
       engine:
         description: Engine to import with
@@ -40,10 +42,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: sandbox
     # go test gets the test's own deadline plus the 30 minutes its cleanup
-    # destroy has, and a margin, so that it never stops a destroy halfway;
-    # the job, another half an hour for the destroy step below and one for
-    # the sweep.
-    timeout-minutes: ${{ inputs.estate == 'data' && 160 || 190 }}
+    # destroy has, and a margin, so that it never stops a destroy halfway
+    # (the cfn estate's test 90 minutes, then 30 for what its stacks
+    # retained and 30 for the destroy); the job, another half an hour for
+    # the destroy step below and one for the sweep.
+    timeout-minutes: ${{ inputs.estate == 'data' && 160 || inputs.estate == 'cfn' && 230 || 190 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -131,6 +134,7 @@ jobs:
           main) test=TestSandboxAWS timeout=120m ;;
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
           data) test=TestSandboxAWSData timeout=90m ;;
+          cfn) test=TestSandboxAWSCloudFormation timeout=160m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/

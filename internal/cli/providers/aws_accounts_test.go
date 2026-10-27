@@ -8,11 +8,14 @@ package providers
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -26,14 +29,14 @@ func TestAWSAccounts(t *testing.T) {
 	if accounts, err := awsAccounts(ctx, importer.Options{AssumeRole: DefaultAssumeRole}); err != nil || accounts != nil {
 		t.Errorf("one account: %v, %v", accounts, err)
 	}
-	if _, err := awsAccounts(ctx, importer.Options{Accounts: []string{"111122223333"}, Organization: true, AssumeRole: DefaultAssumeRole}); err == nil {
+	if err := checkAWS(importer.Options{Accounts: []string{"111122223333"}, Organization: true, AssumeRole: DefaultAssumeRole}); err == nil {
 		t.Error("both: want an error")
 	}
 	for name, options := range map[string]importer.Options{
 		"a role for one account":                     {Accounts: []string{"111122223333"}, AssumeRole: "arn:aws:iam::111122223333:role/x"},
 		"a role for one account of the organization": {Organization: true, AssumeRole: "arn:aws:iam::111122223333:role/x"},
 	} {
-		if _, err := awsAccounts(ctx, options); err == nil || !strings.Contains(err.Error(), "{account}") {
+		if err := checkAWS(options); err == nil || !strings.Contains(err.Error(), "{account}") {
 			t.Errorf("%s: want an error about {account}, got %v", name, err)
 		}
 	}
@@ -53,8 +56,9 @@ func TestImportAWSAccountsGoesOn(t *testing.T) {
 		return nil
 	}
 
-	err := importer.NewRun().Do(func() error {
-		return importAWSAccounts(ctx, options, []string{"111122223333", "444455556666"}, importAccount)
+	run := importer.NewRun()
+	err := run.Do(func() error {
+		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, importAccount)
 	})
 
 	want := []string{"arn:aws:iam::111122223333:role/infraharvest-readonly", "arn:aws:iam::444455556666:role/infraharvest-readonly"}
@@ -69,8 +73,9 @@ func TestImportAWSAccountsGoesOn(t *testing.T) {
 	}
 
 	roles = nil
-	err = importer.NewRun().Do(func() error {
-		return importAWSAccounts(ctx, options, []string{"111122223333", "444455556666"}, func(context.Context, importer.Options) error { return context.Canceled })
+	run = importer.NewRun()
+	err = run.Do(func() error {
+		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, func(context.Context, importer.Options) error { return context.Canceled })
 	})
 	if !errors.Is(err, context.Canceled) || len(roles) != 0 {
 		t.Errorf("interrupted: %v", err)
@@ -106,13 +111,13 @@ func TestGroupAWSResources(t *testing.T) {
 // importAWSAccounts imports accounts as the aws command plans them, with
 // importAccount in place of each Import call, in order, stopping at the
 // first that fails.
-func importAWSAccounts(ctx context.Context, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
+func importAWSAccounts(ctx context.Context, run *importer.Run, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
 	options.Accounts = accounts
 	p, err := planAWS(ctx, options)
 	if err != nil {
 		return err
 	}
-	return p.run(ctx, options, newAWSProvider, func(ctx context.Context, calls []importer.Call) error {
+	return p.run(ctx, run, options, newAWSProvider, func(ctx context.Context, _ *importer.Run, calls []importer.Call) error {
 		for _, c := range calls {
 			if c.Provider == nil {
 				return errors.New("a call without a provider")
@@ -220,5 +225,53 @@ func TestAWSSingleAccountRole(t *testing.T) {
 		if len(calls) != 1 || calls[0].options.RoleARN != want || calls[0].args[2] != want {
 			t.Errorf("%s: calls %+v, want one with role %q", role, calls, want)
 		}
+	}
+}
+
+// --cfn-stack reaches the one account the credentials reach, and a stack
+// name is looked for in one region: both are refused before any stack is
+// read.
+func TestCheckAWSStacksRefuses(t *testing.T) {
+	for name, c := range map[string]struct {
+		options importer.Options
+		want    string
+	}{
+		"with --accounts":           {importer.Options{CloudFormationStacks: []string{"app"}, Accounts: []string{"111122223333"}, AssumeRole: DefaultAssumeRole}, "without --accounts or --organization"},
+		"a name in several regions": {importer.Options{CloudFormationStacks: []string{"app"}, Regions: []string{"eu-west-1", "eu-west-2"}, AssumeRole: DefaultAssumeRole}, "--cfn-stack app: a stack name is looked for in one region"},
+	} {
+		if err := checkAWS(c.options); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want an error with %q", name, err, c.want)
+		}
+	}
+}
+
+// A configuration file sets --cfn-stack and --cfn-ignore, one value per
+// item of a list, as the command line takes them.
+func TestCloudFormationFlagsFromConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	if err := os.WriteFile(path, []byte("version: 1\nproviders:\n  aws:\n    cfn-stack: [app, \"arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1\"]\n    cfn-ignore: [app/Seed]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, _ := Command("aws", importer.Options{})
+	if err := f.Apply(cmd.PersistentFlags(), "aws"); err != nil {
+		t.Fatal(err)
+	}
+	stacks, _ := cmd.PersistentFlags().GetStringArray("cfn-stack")
+	ignore, _ := cmd.PersistentFlags().GetStringArray("cfn-ignore")
+	if !slices.Equal(stacks, []string{"app", "arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1"}) || !slices.Equal(ignore, []string{"app/Seed"}) {
+		t.Errorf("cfn-stack %q, cfn-ignore %q", stacks, ignore)
+	}
+}
+
+// --cfn-ignore acknowledges resources of the stacks --cfn-stack names, so
+// it needs it.
+func TestCloudFormationIgnoreNeedsStacks(t *testing.T) {
+	err := checkAWS(importer.Options{CloudFormationIgnore: []string{"Seed"}, AssumeRole: DefaultAssumeRole})
+	if err == nil || !strings.Contains(err.Error(), "give --cfn-stack too") {
+		t.Errorf("got %v", err)
 	}
 }

@@ -100,12 +100,102 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 	}
 }
 
+// An azapi_resource of an Azure import names no provider: the root
+// requires azapi, which Terraform infers from the type. Its other
+// resources, and google-beta's, keep what importsByDir gave them.
+func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
+	const rg = "/subscriptions/s/resourceGroups/rg"
+	resources := map[string][]harvest.Resource{
+		"resource_graph": {
+			harvest.RecordBare(rg, "rg", "azurerm_resource_group", "azurerm"),
+			harvest.RecordBare(rg+"/providers/Microsoft.AzureFleet/fleets/batch", "batch", "azapi_resource", "azurerm"),
+		},
+	}
+	options := Options{Layout: "{out}/{provider}/", Out: "out"}
+	byDir, _ := importsByDir("azurerm", resources, listerID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
+	withImpliedProviders(byDir, map[string]engine.Provider{"azapi": {Name: "azapi", Source: "Azure/azapi"}})
+	for _, imp := range byDir[filepath.Join("out", "azure")] {
+		if imp.Provider != "" {
+			t.Errorf("%s names provider %q", imp.Type, imp.Provider)
+		}
+	}
+
+	beta := map[string][]engine.Import{"out": {{Type: "google_compute_network", Name: "main", ID: "main", Provider: "google-beta"}}}
+	withImpliedProviders(beta, map[string]engine.Provider{"google-beta": {Name: "google-beta"}})
+	if beta["out"][0].Provider != "google-beta" {
+		t.Errorf("google-beta: got %+v", beta["out"][0])
+	}
+}
+
+// An azapi_resource imported with an API version falls back on its bare
+// ID; other imports get no fallback.
+func TestImportsFallBackOnTheBareID(t *testing.T) {
+	const id = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Easm/workspaces/w"
+	resources := map[string][]harvest.Resource{
+		"resource_graph": {
+			harvest.Record(id, "w", "azapi_resource", "azurerm", map[string]string{"api_version": "2024-10-01"}),
+			harvest.RecordBare("/subscriptions/s/resourceGroups/rg", "rg", "azurerm_resource_group", "azurerm"),
+		},
+	}
+	cat, err := providerCatalogue(withAzapi{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	importID := importIDFunc(cat)
+	options := Options{Layout: "{out}/{provider}/", Out: "out"}
+	byDir, _ := importsByDir("azurerm", resources, importID, layoutDirs(options.Layout, options.Out, "azure", noEnv), rawName, noFile)
+	withFallbackIDs(byDir, resources, cat, importID)
+	for _, imp := range byDir[filepath.Join("out", "azure")] {
+		switch imp.Type {
+		case "azapi_resource":
+			if imp.ID != id+"?api-version=2024-10-01" || imp.Fallback != id {
+				t.Errorf("azapi_resource: ID %q, fallback %q", imp.ID, imp.Fallback)
+			}
+		default:
+			if imp.Fallback != "" {
+				t.Errorf("%s: fallback %q", imp.Type, imp.Fallback)
+			}
+		}
+	}
+}
+
+// withAzapi is an Azure provider whose roots may configure azapi.
+type withAzapi struct{ directoryProvider }
+
+func (withAzapi) ModuleProviders() map[string]harvest.ModuleProvider {
+	return map[string]harvest.ModuleProvider{"azapi": {Source: "Azure/azapi"}}
+}
+
+// The catalogue of a provider whose roots may configure azapi has azapi's
+// entries too; one whose roots may not has azurerm's alone.
+func TestProviderCatalogueWithModuleProviders(t *testing.T) {
+	cat, err := providerCatalogue(withAzapi{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cat.Entry("azapi_resource"); !ok {
+		t.Error("no azapi_resource entry with azapi")
+	}
+	if _, ok := cat.Entry("azurerm_resource_group"); !ok {
+		t.Error("no azurerm_resource_group entry with azapi")
+	}
+	alone, err := providerCatalogue(directoryProvider{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := alone.Entry("azapi_resource"); ok {
+		t.Error("an azapi_resource entry without azapi")
+	}
+}
+
 // directoryProvider is a provider whose roots go into a directory not
 // named after its Terraform provider, as Azure's do.
 type directoryProvider struct{ scopedProvider }
 
-func (directoryProvider) Name() string      { return "azurerm" }
-func (directoryProvider) Directory() string { return "azure" }
+func (directoryProvider) Name() string { return "azurerm" }
+func (directoryProvider) Profile() harvest.Profile {
+	return harvest.Profile{Command: "azure"}
+}
 
 // The directory, not the Terraform provider, names the roots and the
 // selection file's scope; a provider without one uses its name.
@@ -170,8 +260,10 @@ type sourcedProvider struct {
 	data map[string]interface{}
 }
 
-func (p sourcedProvider) Name() string           { return "datadog" }
-func (p sourcedProvider) RegistrySource() string { return "DataDog/datadog" }
+func (p sourcedProvider) Name() string { return "datadog" }
+func (p sourcedProvider) Profile() harvest.Profile {
+	return harvest.Profile{Source: "DataDog/datadog"}
+}
 func (p sourcedProvider) ProviderBlock() map[string]interface{} {
 	return p.data
 }
@@ -213,7 +305,7 @@ func TestCheckImportOptions(t *testing.T) {
 }
 
 func TestImportRejectsUnknownEngine(t *testing.T) {
-	err := Import(context.Background(), &fakeProvider{}, Options{Engine: "tofu-ish"}, nil)
+	err := ImportCalls(context.Background(), nil, []Call{{Provider: &fakeProvider{}, Options: Options{Engine: "tofu-ish"}}})
 	if err == nil || !strings.Contains(err.Error(), `unknown --engine "tofu-ish"`) {
 		t.Errorf("want an unknown engine error, got %v", err)
 	}
@@ -316,22 +408,23 @@ func TestRootPathPattern(t *testing.T) {
 	}
 }
 
-// An AWS resource is named after its Name tag; one without, and resources
-// of other providers, keep the lister's name.
+// A resource is named after the provider's name tag, AWS's Name; one
+// without, and resources of a provider without a name tag, keep the
+// lister's name.
 func TestResourceName(t *testing.T) {
 	subnet := harvest.Resource{RawName: "subnet-0a1b2c3d"}
 	for _, tc := range []struct {
-		provider string
-		tags     map[string]string
-		want     string
+		nameTag string
+		tags    map[string]string
+		want    string
 	}{
-		{"aws", map[string]string{"Name": "shop-private-eu-west-2a"}, "shop-private-eu-west-2a"},
-		{"aws", map[string]string{"Name": " "}, "subnet-0a1b2c3d"},
-		{"aws", nil, "subnet-0a1b2c3d"},
-		{"azurerm", map[string]string{"Name": "shop"}, "subnet-0a1b2c3d"},
+		{"Name", map[string]string{"Name": "shop-private-eu-west-2a"}, "shop-private-eu-west-2a"},
+		{"Name", map[string]string{"Name": " "}, "subnet-0a1b2c3d"},
+		{"Name", nil, "subnet-0a1b2c3d"},
+		{"", map[string]string{"Name": "shop"}, "subnet-0a1b2c3d"},
 	} {
-		if got := resourceName(tc.provider, subnet, tc.tags); got != tc.want {
-			t.Errorf("resourceName(%s, %v) = %q, want %q", tc.provider, tc.tags, got, tc.want)
+		if got := resourceName(tc.nameTag, subnet, tc.tags); got != tc.want {
+			t.Errorf("resourceName(%q, %v) = %q, want %q", tc.nameTag, tc.tags, got, tc.want)
 		}
 	}
 }
@@ -355,7 +448,7 @@ func TestResourceNamesResolvesIDs(t *testing.T) {
 		},
 	}
 	// The NAT gateway is a child, listed only in resourcesByService.
-	nameOf := resourceNames("aws", listed, map[string][]harvest.Resource{"nat": {nat}})
+	nameOf := resourceNames("Name", listed, map[string][]harvest.Resource{"nat": {nat}})
 	for _, tc := range []struct {
 		r    harvest.Resource
 		want string
@@ -421,6 +514,23 @@ func TestModuleOptions(t *testing.T) {
 		}
 		if gotDir != tc.modulesDir {
 			t.Errorf("--modules %q: modules directory %q, want %q", tc.mode, gotDir, tc.modulesDir)
+		}
+	}
+}
+
+// An import scoped to CloudFormation stacks keeps every resource in the
+// root unless --modules was chosen: the stacks' templates are carried into
+// the resource blocks there, which a module call hides.
+func TestModulesMode(t *testing.T) {
+	for _, mode := range []string{"", ModulesRegistry, ModulesLatestUntested, ModulesLocal, ModulesNone} {
+		if got := modulesMode(Options{Modules: mode}); got != mode {
+			t.Errorf("--modules %q: mode %q", mode, got)
+		}
+		if got := modulesMode(Options{Modules: mode, CloudFormationStacks: []string{"app"}}); got != ModulesNone {
+			t.Errorf("--modules %q by default with --cfn-stack: mode %q, want %q", mode, got, ModulesNone)
+		}
+		if got := modulesMode(Options{Modules: mode, ModulesChosen: true, CloudFormationStacks: []string{"app"}}); got != mode {
+			t.Errorf("--modules %q chosen with --cfn-stack: mode %q", mode, got)
 		}
 	}
 }

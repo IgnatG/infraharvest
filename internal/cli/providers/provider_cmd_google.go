@@ -46,14 +46,32 @@ type googleScopes struct {
 }
 
 // googleFlags adds the Google command's own flags.
-func googleFlags(flags *pflag.FlagSet, options *importer.Options) planner {
+func googleFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner) {
 	scopes := &googleScopes{}
 	flags.StringSliceVar(&options.Regions, "regions", []string{"global"}, "regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region")
 	flags.StringSliceVar(&options.Projects, "projects", nil, "projects to import")
 	flags.StringVar(&scopes.organization, "organization", "", "import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants)")
 	flags.StringSliceVar(&scopes.folders, "folders", nil, "import every active project of these folder IDs, in their subfolders too")
 	flags.BoolVar(&scopes.beta, "beta", false, "generate configuration for the google-beta provider instead of google, for resources and arguments only it has")
-	return scopes.plan
+	return scopes.check, scopes.plan
+}
+
+// check rejects a run that names no projects to import.
+func (s *googleScopes) check(options importer.Options) error {
+	if len(options.Projects) == 0 && s.organization == "" && len(s.folders) == 0 {
+		return errors.New("say which projects to import: --projects, --organization or --folders")
+	}
+	return checkProjectsApart(options.Layout, options.Projects)
+}
+
+// checkProjectsApart fails when several projects would share roots. A
+// pattern with {provider}/{service} gets the project put in (see plan),
+// which keeps projects apart as {account} does.
+func checkProjectsApart(pattern string, projects []string) error {
+	if len(projects) > 1 && !strings.Contains(pattern, "{provider}/{service}") {
+		return checkScopesApart(pattern, "project")
+	}
+	return nil
 }
 
 // plan imports each project of --projects, --organization and --folders,
@@ -72,15 +90,9 @@ func (s *googleScopes) plan(ctx context.Context, options importer.Options) (plan
 		projects = appendMissing(projects, found)
 	}
 
-	if len(projects) == 0 {
-		return plan{}, errors.New("say which projects to import: --projects, --organization or --folders")
-	}
-	// A pattern with {provider}/{service} gets the project put in (see
-	// below), which keeps projects apart as {account} does.
-	if len(projects) > 1 && !strings.Contains(options.Layout, "{provider}/{service}") {
-		if err := checkScopesApart(options.Layout, "project"); err != nil {
-			return plan{}, err
-		}
+	// The projects of --organization and --folders too.
+	if err := checkProjectsApart(options.Layout, projects); err != nil {
+		return plan{}, err
 	}
 	return plan{kind: "project", scopes: projects, calls: func(scopeOptions importer.Options, project string) []call {
 		calls := make([]call, 0, len(scopeOptions.Regions))

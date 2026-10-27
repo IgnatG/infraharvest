@@ -1,0 +1,117 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Schema metadata
+
+# Every week, generates the schema metadata (internal/catalogue/schemameta)
+# for the providers' newest releases, and where it differs from main's,
+# opens a pull request with it, or updates the one already open, on the
+# branch schema-metadata/update. The pull request's body is the summary of
+# what changed (.github/scripts/schema-metadata-summary.sh).
+#
+# It opens the pull request with github.token, which needs the
+# repository's "Allow GitHub Actions to create and approve pull requests"
+# setting on, as the action-test workflow's pull-request job does. GitHub
+# starts no workflow for what github.token pushes or opens, so the job
+# then starts the checks the main branch's ruleset requires itself: the
+# tests workflow (test, test-windows, e2e, checks, licences and names),
+# megalinter (MegaLinter) and docs (docs), dispatched on the branch, report
+# on its head commit, where the pull request shows them. The ruleset also
+# requires CodeQL's code scanning results, which GitHub's default setup
+# makes only for a pull_request event that no dispatch can start: the
+# pull request's body asks a maintainer to close and reopen it, which
+# starts every pull_request workflow, CodeQL's among them. A GitHub App's
+# token, which the repository doesn't have, would make both unneeded.
+#
+# It runs on GitHub only, and not in forks: the generator builds each
+# provider, which takes a runner's disk and memory (see
+# schema-metadata-generate.yml).
+on:
+  schedule:
+    - cron: "23 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-metadata
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    # Not in a fork, whatever the repository is called.
+    if: github.event.repository.fork != true
+    uses: ./.github/workflows/schema-metadata-generate.yml
+
+  pull-request:
+    needs: generate
+    if: needs.generate.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      BRANCH: schema-metadata/update
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the metadata
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: schema-metadata
+          path: ${{ runner.temp }}/schema-metadata
+      - name: Commit it
+        run: |
+          new="$RUNNER_TEMP/schema-metadata/internal/catalogue/schemameta"
+          status=0
+          .github/scripts/schema-metadata-summary.sh internal/catalogue/schemameta "$new" > "$RUNNER_TEMP/summary.md" || status=$?
+          if [ "$status" -gt 1 ]; then
+            exit "$status"
+          fi
+          cp "$new"/*.json.gz internal/catalogue/schemameta/
+          cp "$RUNNER_TEMP/schema-metadata/NOTICE" NOTICE
+          releases=$(for f in internal/catalogue/schemameta/*.json.gz; do
+            p=$(basename "$f" .json.gz)
+            printf '%s %s, ' "$p" "$(gzip -dc "$f" | sed -n '1s/.*"version":"\([^"]*\)".*/\1/p')"
+          done)
+          releases=${releases%, }
+          title="chore(catalogue): regenerate the schema metadata for $releases"
+          echo "TITLE=$title" >> "$GITHUB_ENV"
+          {
+            echo "The weekly schema-metadata workflow regenerated the providers' schema metadata ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)). What changed:"
+            echo
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "To read a file's lines locally: \`gzip -dc internal/catalogue/schemameta/aws.json.gz\`."
+            echo
+            echo "The workflow started the required checks by dispatch, as GitHub starts none for a pull request a workflow opens. CodeQL can't be dispatched: close and reopen this pull request to start it."
+          } > "$RUNNER_TEMP/body.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add internal/catalogue/schemameta/*.json.gz NOTICE
+          git commit -m "$title"
+      - name: Push it and open the pull request
+        run: |
+          git push --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          fi
+      - name: Start its checks
+        # What github.token pushes starts no workflow (see above).
+        run: |
+          for workflow in test.yml megalinter.yml docs.yml; do
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          done

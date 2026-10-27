@@ -25,11 +25,11 @@ import (
 var (
 	_ harvest.Provider                      = (*Provider)(nil)
 	_ harvest.ProviderWithScope             = (*Provider)(nil)
-	_ harvest.ProviderWithConcurrentListing = (*Provider)(nil)
-	_ harvest.ProviderWithDefaultTags       = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
+	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
 )
 
 // The importer's defaults apply where Provider has no capability of
@@ -38,11 +38,9 @@ var (
 func TestCapabilitiesNotImplemented(t *testing.T) {
 	var p harvest.Provider = &Provider{}
 	for name, has := range map[string]bool{
-		"ChildImports":        implements[harvest.ProviderWithChildImports](p),
-		"ExcludedByDefault":   implements[harvest.ProviderWithSelectionDefaults](p),
-		"TerraformEnv":        implements[harvest.ProviderWithTerraformEnv](p),
-		"RegistrySource":      implements[harvest.ProviderWithRegistrySource](p),
-		"DefaultTagsArgument": implements[harvest.ProviderWithDefaultTagsArgument](p),
+		"ChildImports":      implements[harvest.ProviderWithChildImports](p),
+		"ExcludedByDefault": implements[harvest.ProviderWithSelectionDefaults](p),
+		"TerraformEnv":      implements[harvest.ProviderWithTerraformEnv](p),
 		// The listers record the tags themselves, from their answers.
 		"Tags": implements[harvest.ProviderWithTags](p),
 	} {
@@ -82,18 +80,21 @@ func TestInitTakesTheScope(t *testing.T) {
 	for _, tc := range []struct {
 		args                        []string
 		subscription, resourceGroup string
+		azapi                       bool
 	}{
-		{[]string{""}, "env-sub", ""},
-		{[]string{"rg1"}, "env-sub", "rg1"},
-		{[]string{"rg1", ""}, "env-sub", "rg1"},
-		{[]string{"", "sub-2"}, "sub-2", ""},
+		{[]string{""}, "env-sub", "", false},
+		{[]string{"rg1"}, "env-sub", "rg1", false},
+		{[]string{"rg1", ""}, "env-sub", "rg1", false},
+		{[]string{"", "sub-2"}, "sub-2", "", false},
+		{[]string{"", "", "azapi"}, "env-sub", "", true},
+		{[]string{"rg1", "sub-2", ""}, "sub-2", "rg1", false},
 	} {
 		p := &Provider{}
 		if err := p.Init(t.Context(), tc.args); err != nil {
 			t.Fatalf("%q: %v", tc.args, err)
 		}
-		if p.subscriptionID != tc.subscription || p.resourceGroup != tc.resourceGroup {
-			t.Errorf("%q: subscription %q, resource group %q", tc.args, p.subscriptionID, p.resourceGroup)
+		if p.subscriptionID != tc.subscription || p.resourceGroup != tc.resourceGroup || p.azapi != tc.azapi {
+			t.Errorf("%q: subscription %q, resource group %q, azapi %v", tc.args, p.subscriptionID, p.resourceGroup, p.azapi)
 		}
 		if p.credential == nil || p.clientOptions == nil {
 			t.Errorf("%q: credential %v, client options %v", tc.args, p.credential, p.clientOptions)
@@ -229,7 +230,7 @@ func TestProviderBlock(t *testing.T) {
 		t.Errorf("name %q", got)
 	}
 	// The roots go under the command's name; the provider stays azurerm.
-	if got := p.Directory(); got != "azure" {
+	if got := p.Profile().Command; got != "azure" {
 		t.Errorf("directory %q", got)
 	}
 }
@@ -239,7 +240,7 @@ func TestProviderBlock(t *testing.T) {
 func TestServicesAreFresh(t *testing.T) {
 	p := &Provider{}
 	first, second := p.Services(), p.Services()
-	if len(first) != 11 {
+	if len(first) != 13 {
 		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
 	}
 	for name, g := range first {
@@ -257,6 +258,8 @@ func TestSelect(t *testing.T) {
 	options := &arm.ClientOptions{}
 	p := &Provider{subscriptionID: "sub", resourceGroup: "rg1", credential: credential, clientOptions: options}
 	p.SetCatalogue(cat)
+	listed := []harvest.Resource{harvest.RecordBare("/subscriptions/sub/resourceGroups/rg1", "rg1", "azurerm_resource_group", "azurerm")}
+	p.SetListedByOthers(listed)
 
 	if err := p.Select("virtual_network", true); err != nil {
 		t.Fatal(err)
@@ -274,6 +277,8 @@ func TestSelect(t *testing.T) {
 		"client_options":  options,
 		"resource_group":  "rg1",
 		"catalogue":       cat,
+		"listed":          listed,
+		"azapi":           false,
 	}
 	if got := s.Settings(); !reflect.DeepEqual(got, want) {
 		t.Errorf("args %#v, want %#v", got, want)
@@ -303,11 +308,11 @@ func TestScope(t *testing.T) {
 }
 
 func TestDefaultTagsAndConcurrency(t *testing.T) {
-	p := &Provider{}
-	if attribute, block, reserved := p.DefaultTags(); attribute != "tags" || block != "" || reserved != "hidden-" {
-		t.Errorf("default tags %q, %q, %q", attribute, block, reserved)
+	profile := (&Provider{}).Profile()
+	if got, want := profile.DefaultTags, (&harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("default tags %+v, want %+v", got, want)
 	}
-	if !p.ConcurrentListing() {
+	if !profile.ConcurrentListing {
 		t.Error("services list one at a time")
 	}
 }

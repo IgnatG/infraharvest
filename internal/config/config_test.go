@@ -78,6 +78,31 @@ func TestApplyRejectsUnknownSettings(t *testing.T) {
 	}
 }
 
+// check and config are flags of the command line alone: check in a file
+// would make every run that reads it import nothing.
+func TestApplyRejectsCommandLineFlags(t *testing.T) {
+	t.Parallel()
+	for _, content := range []string{
+		"version: 1\nsettings:\n  check: true\n",
+		"version: 1\nproviders:\n  aws:\n    check: true\n",
+		"version: 1\nsettings:\n  config: other.yaml\n",
+	} {
+		f, err := Load(write(t, content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fs, _, _, _, _ := flags()
+		fs.Bool("check", false, "")
+		fs.String("config", "", "")
+		if err := f.Apply(fs, "aws"); err == nil || !strings.Contains(err.Error(), "for the command line") {
+			t.Errorf("%q: got %v, want it rejected", content, err)
+		}
+		if fs.Changed("check") || fs.Changed("config") {
+			t.Errorf("%q: set a flag of the command line", content)
+		}
+	}
+}
+
 // A flag given once per value, such as --id, takes each item of a list as
 // one value, commas and all.
 func TestApplyRepeatedFlags(t *testing.T) {

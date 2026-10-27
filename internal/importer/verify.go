@@ -38,8 +38,8 @@ type verifiedRoot struct {
 
 func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	out, engineName, terraformPath, format, catalogueDir := options.Out, options.Engine, options.TerraformPath, options.Format, options.Catalogue
-	if engineName != EngineTerraform && engineName != EngineTofu {
-		return fmt.Errorf("--engine must be %s or %s, not %q", EngineTerraform, EngineTofu, engineName)
+	if err := checkEngine(engineName); err != nil {
+		return err
 	}
 	if format != FormatText && format != FormatJSON {
 		return fmt.Errorf("--format must be %s or %s, not %q", FormatText, FormatJSON, format)

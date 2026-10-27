@@ -105,12 +105,12 @@ type goldenProvider struct{ ProviderBase }
 func (*goldenProvider) Init(context.Context, []string) error  { return nil }
 func (*goldenProvider) Select(string, bool) error             { return nil }
 func (*goldenProvider) Name() string                          { return "golden" }
+func (*goldenProvider) Profile() Profile                      { return Profile{} }
 func (*goldenProvider) Services() map[string]Lister           { return nil }
 func (*goldenProvider) ProviderBlock() map[string]interface{} { return nil }
 
 type goldenOptional struct{}
 
-func (goldenOptional) RegistrySource() string { return "" }
 func (goldenOptional) ChildImports(context.Context, Resource) ([]Resource, error) {
 	return nil, nil
 }
@@ -123,33 +123,24 @@ func (goldenOptional) OptInServices() []string                    { return nil }
 func (goldenOptional) Tags(context.Context, []Resource) (map[string]map[string]string, error) {
 	return nil, nil
 }
-func (goldenOptional) Directory() string { return "" }
 func (goldenOptional) Scope(context.Context) (account, region string, err error) {
 	return "", "", nil
 }
-func (goldenOptional) DefaultTags() (attribute, block, reservedPrefix string) { return "", "", "" }
-func (goldenOptional) DefaultTagsArgument() bool                              { return false }
-func (goldenOptional) ConcurrentListing() bool                                { return false }
 func (goldenOptional) TerraformEnv(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
 var (
-	_ Lister                          = (*goldenLister)(nil)
-	_ Provider                        = (*goldenProvider)(nil)
-	_ ProviderWithRegistrySource      = goldenOptional{}
-	_ ProviderWithChildImports        = goldenOptional{}
-	_ ProviderWithSelectionDefaults   = goldenOptional{}
-	_ ProviderWithCatalogue           = goldenOptional{}
-	_ ProviderWithModuleProviders     = goldenOptional{}
-	_ ProviderWithOptInServices       = goldenOptional{}
-	_ ProviderWithTags                = goldenOptional{}
-	_ ProviderWithDirectory           = goldenOptional{}
-	_ ProviderWithScope               = goldenOptional{}
-	_ ProviderWithDefaultTags         = goldenOptional{}
-	_ ProviderWithDefaultTagsArgument = goldenOptional{}
-	_ ProviderWithConcurrentListing   = goldenOptional{}
-	_ ProviderWithTerraformEnv        = goldenOptional{}
+	_ Lister                        = (*goldenLister)(nil)
+	_ Provider                      = (*goldenProvider)(nil)
+	_ ProviderWithChildImports      = goldenOptional{}
+	_ ProviderWithSelectionDefaults = goldenOptional{}
+	_ ProviderWithCatalogue         = goldenOptional{}
+	_ ProviderWithModuleProviders   = goldenOptional{}
+	_ ProviderWithOptInServices     = goldenOptional{}
+	_ ProviderWithTags              = goldenOptional{}
+	_ ProviderWithScope             = goldenOptional{}
+	_ ProviderWithTerraformEnv      = goldenOptional{}
 
 	_ = ModuleProvider{Source: "", Config: map[string]interface{}{}}
 	_ = Resource{Address: &Address{Type: ""}, Observed: &Observation{ID: "", Attributes: map[string]string{}}, RawName: "", Provider: ""}

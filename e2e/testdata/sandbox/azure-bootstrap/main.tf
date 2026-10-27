@@ -6,7 +6,9 @@
 # - infraharvest-ci-fixture, a user-assigned managed identity that creates
 #   and destroys the estate. It is Contributor on the estate's resource
 #   group alone, and may manage the group's management locks, which
-#   Contributor can't: it can't change anything else in the subscription.
+#   Contributor can't, and is User Access Administrator on it, for the
+#   estate's role assignments and custom role: it can't change anything
+#   else in the subscription.
 # - infraharvest-ci-readonly, a user-assigned managed identity that
 #   imports the estate. permissions/azure, the template users apply,
 #   grants it what it grants users: Reader on the whole subscription.
@@ -124,6 +126,20 @@ resource "azurerm_role_assignment" "fixture_locks" {
   principal_id       = azurerm_user_assigned_identity.fixture.principal_id
   principal_type     = "ServicePrincipal"
   description        = "infraharvest sandbox: create and delete the estate's management lock."
+}
+
+# The estate assigns roles to its identity, one of them a custom role it
+# defines, which Contributor can't (Microsoft.Authorization/*/Write is
+# among its NotActions). Role Based Access Control Administrator can
+# assign roles but not define them (Microsoft.Authorization/roleDefinitions/write),
+# so the fixture is User Access Administrator, on the estate's resource
+# group alone: what it grants and defines is limited to that group.
+resource "azurerm_role_assignment" "fixture_access" {
+  scope                = azurerm_resource_group.estate.id
+  role_definition_name = "User Access Administrator"
+  principal_id         = azurerm_user_assigned_identity.fixture.principal_id
+  principal_type       = "ServicePrincipal"
+  description          = "infraharvest sandbox: assign roles in the estate, and define the custom role it assigns."
 }
 
 # The template users apply, as they apply it: the sandbox validates it.

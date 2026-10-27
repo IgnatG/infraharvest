@@ -81,13 +81,16 @@ type Options struct {
 	DefaultEnv string
 	// MergeEnvironments merges the roots of a stack's environments, which
 	// the configuration file's environments name, into one root they share
-	// (see MergeEnvironments).
+	// (see Run.MergeEnvironments).
 	MergeEnvironments bool
 	// ReportTags are the tag keys the report counts resources by.
 	ReportTags []string
 	// Modules says which modules hold clusters of resources (see
 	// ModulesRegistry and the other Modules values).
 	Modules string
+	// ModulesChosen says Modules was set, by --modules or a configuration
+	// file, rather than left at its default.
+	ModulesChosen bool
 	// Catalogue is a directory of catalogue files that extend the
 	// built-in catalogue.
 	Catalogue string
@@ -155,46 +158,50 @@ type Options struct {
 	// ResourceExplorer skips the AWS services Resource Explorer shows are
 	// empty in a region.
 	ResourceExplorer bool
+	// CloudFormationStacks are the AWS CloudFormation stacks, by name or
+	// stack ID, whose resources, and their nested stacks', are all the
+	// import takes.
+	CloudFormationStacks []string
+	// CloudFormationIgnore are the resources of those stacks, by logical
+	// ID or as <stack>/<logical ID>, that Terraform can't import, such as
+	// custom resources, which the stacks may be deleted without.
+	CloudFormationIgnore []string
 	// Parallel is how many accounts, subscriptions or projects import at
-	// once (see ImportEach), and how many Import calls of the command, in
+	// once (see Run.ImportEach), and how many Import calls of the command, in
 	// every account and region, list or generate at once in all (see
 	// ImportCalls).
 	Parallel int
 
-	// run is the run this call records into, when it isn't the command's
-	// own: one of several scopes imported at once has a run of its own
-	// (see ImportEach).
-	run *Run
 	// cat is the catalogue of the import, the built-in one with the
 	// --catalogue overlay merged in, once importInto has loaded it; the
 	// provider of each service listed is given it (see listServices).
 	cat *catalogue.Catalogue
 	// unwanted are the types the import leaves out whatever is listed (see
-	// unwantedTypes), whose listing the provider of each service listed may
-	// skip (see listServices).
+	// selection.Unwanted), whose listing the provider of each service
+	// listed may skip (see listServices).
 	unwanted []string
 	// tools are what the call reaches outside the process through; nil
 	// uses the real ones (see callTools).
 	tools *callTools
 }
 
-// Import lists the resources of provider's services in options.Services,
-// for the scope args name (provider.Init reads them), and generates their
-// Terraform configuration with the engine options.Engine names.
-func Import(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
-	switch options.Engine {
+// checkEngine rejects an --engine other than EngineTerraform or
+// EngineTofu; "" stands for EngineTerraform. import, drift and verify all
+// check it here, so that each says the same.
+func checkEngine(name string) error {
+	switch name {
 	case "", EngineTerraform, EngineTofu:
-		return importWithEngine(ctx, provider, options, args)
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+		return nil
 	}
+	return fmt.Errorf("unknown --engine %q: use %s or %s", name, EngineTerraform, EngineTofu)
 }
 
 // CheckOptions rejects what a provider command was told that no Import
-// call could do, before any account, region or project is planned: an
-// unknown --engine, --format or --modules, a filter that doesn't parse,
-// an import that says neither --selection nor --all, --services or --skip
-// names provider has no service of, a --layout checkLayout rejects,
+// call could do, before any account, region or project is planned: no
+// --services where no --cfn-stack says which to list, an unknown
+// --engine, --format or --modules, a filter that doesn't parse, an import
+// that says neither --selection nor --all, --services or --skip naming
+// services provider has no service of, a --layout checkLayout rejects,
 // --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
@@ -204,10 +211,14 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // it covers, instead of failing each scope and reading as a partial
 // import.
 func CheckOptions(provider harvest.Provider, options Options) error {
-	switch options.Engine {
-	case "", EngineTerraform, EngineTofu:
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	// Checked first, once the configuration file has had its chance to set
+	// --services. A command scoped to CloudFormation stacks needs none: the
+	// types of the stacks' resources say which services to list.
+	if len(options.Services) == 0 && len(options.CloudFormationStacks) == 0 {
+		return errNoServices
+	}
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
 	if err := checkImportOptions(options); err != nil {
 		return err
@@ -265,6 +276,10 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	}
 	return checkSources(options)
 }
+
+// errNoServices is the error for a provider command that says no
+// services to list.
+var errNoServices = errors.New("--services is required (flag or config file)")
 
 // errDefaultEnvWithoutSplit is the error for --default-env where no
 // environment tag splits the roots.
@@ -373,14 +388,21 @@ func checkFailures(failures []error, allowPartial bool) error {
 }
 
 // ResolveServices returns options with Services made concrete: "*"
-// becomes every service of provider (see Services), and the services in
-// Skip are taken out, keeping the order of the rest. options itself is
-// left as it is.
+// becomes every service of provider (see Services), followed by the
+// services named beside it that it leaves out, such as opt-in ones, and
+// the services in Skip are taken out, keeping the order of the rest.
+// options itself is left as it is.
 func ResolveServices(provider harvest.Provider, options Options) Options {
 	services := options.Services
 	if slices.Contains(services, "*") {
-		services = Services(provider)
-		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(services))
+		all := Services(provider)
+		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(all))
+		for _, service := range services {
+			if service != "*" && !slices.Contains(all, service) {
+				all = append(all, service)
+			}
+		}
+		services = all
 	}
 	kept := make([]string, 0, len(services))
 	for _, service := range services {
@@ -402,12 +424,18 @@ func ResolveServices(provider harvest.Provider, options Options) Options {
 // harvest.Partial) keeps what it listed, and is among the failures too.
 // The error is for what stops the whole listing: a provider that can't be
 // initialised, a filter that doesn't parse, or an interrupt.
+//
+// The services that list from what the others listed (see
+// harvest.ProviderWithDependentServices) list once the others are done,
+// given what they listed.
 func listServices(ctx context.Context, registry *harvest.Registry, options Options, args []string) ([]error, error) {
 	filters, err := options.filters()
 	if err != nil {
 		return nil, err
 	}
 	discoverers := make([]discovery.Discoverer, 0, len(options.Services))
+	var dependent []discovery.Discoverer
+	var waiting []harvest.ProviderWithDependentServices
 	for _, service := range options.Services {
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
@@ -418,15 +446,36 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && options.cat != nil {
 			p.SetCatalogue(options.cat)
 		}
-		if p, ok := serviceProvider.(unwantedTypesSetter); ok && len(options.unwanted) > 0 {
+		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(options.unwanted) > 0 {
 			p.SetUnwantedTypes(options.unwanted)
 		}
-		discoverers = append(discoverers, discovery.Service(service, serviceProvider, options.Verbose, filters))
+		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
+		if p, ok := serviceProvider.(harvest.ProviderWithDependentServices); ok && slices.Contains(p.DependentServices(), service) {
+			dependent = append(dependent, d)
+			waiting = append(waiting, p)
+			continue
+		}
+		discoverers = append(discoverers, d)
 	}
 
-	results, err := discovery.List(ctx, discoverers, discovery.Options{Timeout: options.ListTimeout, Parallel: options.ListParallel})
+	listOptions := discovery.Options{Timeout: options.ListTimeout, Parallel: options.ListParallel}
+	results, err := discovery.List(ctx, discoverers, listOptions)
 	if err != nil {
 		return nil, fmt.Errorf("listing: %w", err)
+	}
+	if len(dependent) > 0 {
+		var listed []harvest.Resource
+		for _, result := range results {
+			listed = append(listed, result.Resources...)
+		}
+		for _, p := range waiting {
+			p.SetListedByOthers(listed)
+		}
+		more, err := discovery.List(ctx, dependent, listOptions)
+		if err != nil {
+			return nil, fmt.Errorf("listing: %w", err)
+		}
+		results = append(results, more...)
 	}
 
 	var failures []error

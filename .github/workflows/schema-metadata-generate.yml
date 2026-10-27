@@ -1,0 +1,163 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Schema metadata (generate)
+
+# Reads the defaults and the constraints between arguments out of the aws,
+# azurerm and google providers' code, at the releases versions names
+# (name=release, space-separated) or else at each one's newest, which
+# generated roots pin: it checks out each provider, runs
+# internal/catalogue/schemameta/gen in it, gzips what it writes, and
+# uploads the files as the artifact schema-metadata, at their paths under
+# internal/catalogue/schemameta, with the NOTICE that names their
+# releases (.github/scripts/schema-metadata-notice.sh). The job summary
+# says how they differ from the committed ones
+# (.github/scripts/schema-metadata-summary.sh), as a diff of gzipped files
+# can't. The remote workflow's schema-metadata task and the weekly
+# schema-metadata workflow call it; it never runs on its own.
+on:
+  workflow_call:
+    inputs:
+      versions:
+        description: Provider releases as name=release, such as aws=6.70.0 (default each provider's newest)
+        type: string
+        required: false
+        default: ""
+    outputs:
+      changed:
+        description: Whether the files differ from the committed ones in more than their gzip bytes
+        value: ${{ jobs.summary.outputs.changed }}
+
+permissions:
+  contents: read
+
+jobs:
+  # One job per provider: building one takes most of a runner's disk and
+  # memory, the AWS provider most of all.
+  generate:
+    name: generate (${{ matrix.provider }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [aws, azurerm, google]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh start
+      - name: Choose the release
+        # The release versions names, or else the provider's newest, as the
+        # registry reports it: the one generated roots pin.
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          release=
+          for pair in $VERSIONS; do
+            if [ "${pair%%=*}" = "$PROVIDER" ]; then
+              release=${pair#*=}
+            fi
+          done
+          if [ -z "$release" ]; then
+            release=$(curl -sSf --retry 3 "https://registry.terraform.io/v1/providers/hashicorp/$PROVIDER" | jq -r .version)
+          fi
+          if ! [[ "$release" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release '$release' of $PROVIDER isn't a version such as 6.70.0"
+            exit 1
+          fi
+          echo "$PROVIDER $release"
+          echo "RELEASE=$release" >> "$GITHUB_ENV"
+      - name: Check out the provider
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: git clone --quiet --depth 1 --branch "v$RELEASE" "https://github.com/hashicorp/terraform-provider-$PROVIDER.git" "$RUNNER_TEMP/provider"
+      - name: Add the generator to it
+        # The generator's files carry the ignore build constraint, which
+        # keeps them out of infraharvest's module: drop it here.
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: |
+          mkdir "$RUNNER_TEMP/provider/ihschemameta"
+          for file in main.go "provider_$PROVIDER.go"; do
+            grep -vx '//go:build ignore' "internal/catalogue/schemameta/gen/$file" > "$RUNNER_TEMP/provider/ihschemameta/$file"
+          done
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ runner.temp }}/provider/go.mod
+          cache: false
+      - name: Wait for free disk space
+        run: .github/scripts/free-disk-space.sh wait
+      - name: Generate
+        working-directory: ${{ runner.temp }}/provider
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          OUT: ${{ github.workspace }}/schema-metadata/internal/catalogue/schemameta
+        # gzip -n leaves out the name and time, so that the same JSON
+        # always gives the same bytes.
+        run: |
+          mkdir -p "$OUT"
+          go run ./ihschemameta -version "$RELEASE" -out "$RUNNER_TEMP/$PROVIDER.json"
+          gzip -n -9 -c "$RUNNER_TEMP/$PROVIDER.json" > "$OUT/$PROVIDER.json.gz"
+          ls -l "$RUNNER_TEMP/$PROVIDER.json" "$OUT"
+      - name: Upload the provider's file
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: schema-metadata-${{ matrix.provider }}
+          path: schema-metadata/
+          retention-days: 1
+
+  # The three files as one artifact, at their paths in the repository, and
+  # what changed in them.
+  summary:
+    needs: generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.summary.outputs.changed }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the providers' files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: schema-metadata-*
+          path: schema-metadata
+          merge-multiple: true
+      - name: Summarise the changes
+        id: summary
+        run: |
+          status=0
+          .github/scripts/schema-metadata-summary.sh internal/catalogue/schemameta schema-metadata/internal/catalogue/schemameta > "$RUNNER_TEMP/summary.md" || status=$?
+          if [ "$status" -gt 1 ]; then
+            exit "$status"
+          fi
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::the metadata is the same as the committed files'"
+          fi
+      - name: Write the NOTICE
+        # It names the releases the files are of (see
+        # .github/scripts/schema-metadata-notice.sh).
+        run: .github/scripts/schema-metadata-notice.sh schema-metadata/internal/catalogue/schemameta > schema-metadata/NOTICE
+      - name: Upload them
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: schema-metadata
+          path: schema-metadata/
+          retention-days: 7

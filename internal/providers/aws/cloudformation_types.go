@@ -198,6 +198,10 @@ var cloudFormationTypes = map[string][]string{
 	"AWS::WAFv2::WebACL":                            {"aws_wafv2_web_acl"},
 	"AWS::WAFv2::WebACLAssociation":                 {"aws_wafv2_web_acl_association"},
 	"AWS::XRay::SamplingRule":                       {"aws_xray_sampling_rule"},
+
+	// The CDK's eks.Cluster creates its cluster through a custom resource,
+	// whose physical ID is the cluster's name.
+	"Custom::AWSCDK-EKS-Cluster": {"aws_eks_cluster"},
 }
 
 // stackResource is a resource a CloudFormation stack manages: the stack's
@@ -229,12 +233,20 @@ func stackTypes(cat *catalogue.Catalogue) map[string][]string {
 // that types doesn't know.
 func managingStack(managed []stackResource, cat *catalogue.Catalogue, types map[string][]string, typ string) (string, bool) {
 	for _, m := range managed {
-		terraform, known := types[m.cloudFormationType]
-		if !known || slices.ContainsFunc(terraform, func(t string) bool { return coversType(cat, t, typ) }) {
+		if covers, known := stackTypeCovers(cat, types, m.cloudFormationType, typ); !known || covers {
 			return m.stack, true
 		}
 	}
 	return "", false
+}
+
+// stackTypeCovers reports whether a stack's resource of the CloudFormation
+// type cfnType can be listed as the Terraform type typ, by types (see
+// stackTypes): as one of its types, or as one that shares their ID (see
+// coversType); and whether types knows cfnType at all.
+func stackTypeCovers(cat *catalogue.Catalogue, types map[string][]string, cfnType, typ string) (covers, known bool) {
+	terraform, known := types[cfnType]
+	return known && slices.ContainsFunc(terraform, func(t string) bool { return coversType(cat, t, typ) }), known
 }
 
 // coversType reports whether a resource of the Terraform type parent may

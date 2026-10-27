@@ -16,7 +16,7 @@ import (
 )
 
 // Call is one of the Import calls that cover a scope (see ImportCalls):
-// what Import is passed, with what the log says about it.
+// the provider, options and args of one, with what the log says about it.
 type Call struct {
 	Provider harvest.Provider
 	Options  Options
@@ -31,7 +31,8 @@ type Call struct {
 }
 
 // ImportCalls makes the Import calls that cover one scope, an account,
-// subscription or project, into the command's run: it lists every call
+// subscription or project, into run, the command's, or a run of their own
+// they finish where it is nil: it lists every call
 // first, then generates each call's roots, so that each root refers to the
 // roots of every other call of the scope (see scopeRoots), as a regional
 // root of an AWS account to its global root's IAM roles, and the global
@@ -48,19 +49,17 @@ type Call struct {
 // when it starts and finishes listing, and generating its roots. The first
 // call that fails stops the others, and its error is the scope's; nothing
 // is generated after a call fails to list.
-func ImportCalls(ctx context.Context, calls []Call) error {
+func ImportCalls(ctx context.Context, run *Run, calls []Call) error {
 	if len(calls) == 0 {
 		return nil
 	}
 	options := calls[0].Options
-	switch options.Engine {
-	case "", EngineTerraform, EngineTofu:
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
 	if len(calls) == 1 {
 		calls[0].logWhere()
-		return importWithEngine(ctx, calls[0].Provider, options, calls[0].Args)
+		return importWithEngine(ctx, run, calls[0].Provider, options, calls[0].Args)
 	}
 	if err := checkImportOptions(options); err != nil {
 		return err
@@ -78,10 +77,6 @@ func ImportCalls(ctx context.Context, calls []Call) error {
 	}
 	// As importWithEngine does: a command's calls share its run, and calls
 	// on their own finish their own.
-	run := options.run
-	if run == nil {
-		run = activeRun
-	}
 	if run == nil {
 		run = NewRun()
 		ctx, stop := InterruptContext(ctx)
@@ -174,6 +169,9 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 	if err := planHandovers(options.Out, listed); err != nil {
 		return err
 	}
+	if err := markMerging(options, listed); err != nil {
+		return err
+	}
 
 	byDirs := make([]map[string][]engine.Import, len(calls))
 	for i, c := range listed {
@@ -242,7 +240,7 @@ func eachCall(ctx context.Context, slots chan struct{}, n, lead, parallel int, n
 			return
 		}
 		defer func() { <-slots }()
-		err := importSafely(func(Options, string) error { return do(callCtx, i) }, Options{}, name(i))
+		err := importSafely(func(*Run, Options, string) error { return do(callCtx, i) }, nil, Options{}, name(i))
 		if err != nil {
 			fail(fmt.Errorf("%s: %w", name(i), err))
 		}

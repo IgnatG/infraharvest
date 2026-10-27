@@ -54,8 +54,8 @@ func TestEveryProviderHasCommandAndConstructor(t *testing.T) {
 		t.Errorf("%d constructors for %d providers: names must be unique", len(constructors), len(registry))
 	}
 	for _, name := range Names() {
-		if Command(name, importer.Options{}) == nil {
-			t.Errorf("%s: every registered provider needs an import command", name)
+		if cmd, runE := Command(name, importer.Options{}); cmd == nil || runE == nil {
+			t.Errorf("%s: every registered provider needs an import command, and what runs it", name)
 		}
 	}
 	if New("no-such-provider") != nil {
@@ -92,13 +92,13 @@ func TestEveryProviderHasARegistrySource(t *testing.T) {
 		if slices.Contains(hashicorpProviders, name) {
 			continue
 		}
-		withSource, ok := newProvider().(harvest.ProviderWithRegistrySource)
-		if !ok {
-			t.Errorf("%s: not a HashiCorp provider, so it needs RegistrySource", name)
+		source := newProvider().Profile().Source
+		if source == "" {
+			t.Errorf("%s: not a HashiCorp provider, so its profile needs a Source", name)
 			continue
 		}
-		if source := withSource.RegistrySource(); strings.HasPrefix(source, "hashicorp/") || strings.Count(source, "/") != 1 || strings.HasSuffix(source, "/") {
-			t.Errorf("%s: RegistrySource is %q, want <namespace>/<type> outside hashicorp/", name, source)
+		if strings.HasPrefix(source, "hashicorp/") || strings.Count(source, "/") != 1 || strings.HasSuffix(source, "/") {
+			t.Errorf("%s: Source is %q, want <namespace>/<type> outside hashicorp/", name, source)
 		}
 	}
 }

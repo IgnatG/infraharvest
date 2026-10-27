@@ -16,15 +16,17 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // InRootReason is why an incremental import leaves out a resource: the
 // root has it.
 const InRootReason = "already in the root"
 
-// addToRoot adds to dir, a root an earlier import generated, the resources
-// of imports it doesn't have yet (see engine.Existing and engine.Add),
-// generating them in a staging directory under the output's checkpoints.
+// addToRoot adds to dir, a root an earlier import generated in full (see
+// listedCall.decideRoot), the resources of imports it doesn't have yet
+// (see engine.Existing and engine.Add), generating them in a staging
+// directory under the output's checkpoints.
 // It records the others as excluded, and what the root has that is no
 // longer in the cloud (see listedHere.notInCloud), and returns the
 // resources it added, the result, and what the root then holds for its
@@ -34,15 +36,6 @@ const InRootReason = "already in the root"
 // are new.
 func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import, opts engine.Options, tr terraformRun) ([]engine.Import, *engine.Result, *engine.Result, error) {
 	out := r.options.Out
-	// A root whose import didn't finish isn't one to add to: what it
-	// has was never checked, and may be only part of it.
-	unfinished, err := unfinishedRoot(out, dir)
-	if err != nil {
-		return imports, nil, nil, err
-	}
-	if unfinished {
-		return imports, nil, nil, fmt.Errorf("the import that generated %s didn't finish: generate the root again with --resume, then add to it with --incremental", dir)
-	}
 	previous, err := checkpointResult(out, dir)
 	if err != nil {
 		return imports, nil, nil, err
@@ -61,13 +54,13 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	owned := previouslyOwned(previous, opts)
 	var added []engine.Import
 	for _, imp := range imports {
-		key := engine.External{Type: imp.Type, ID: imp.ID}
+		key := engine.ResourceKey(imp.Type, imp.ID)
 		if _, ok := existing[key]; ok {
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope})
 			continue
 		}
 		if owner, ok := owned[key]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: ownedReason(owner), Scope: r.scope})
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: selection.OwnedReason(owner), Scope: r.scope})
 			continue
 		}
 		added = append(added, imp)
@@ -96,7 +89,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if err != nil {
 		return added, nil, nil, err
 	}
-	result, err := engine.Add(ctx, tf, rootTF, staging, dir, added, opts, existing)
+	result, err := r.options.tools.add(ctx, tf, rootTF, staging, dir, added, opts, existing)
 	if err != nil {
 		return added, nil, nil, err
 	}
@@ -107,7 +100,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if previous != nil {
 		// Without the earlier result, the root's README stays as it is.
 		holds.NotInCloud = gone
-		if err := engine.WriteReadme(dir, holds); err != nil {
+		if err := r.options.tools.writeReadme(dir, holds); err != nil {
 			return added, nil, nil, err
 		}
 	}
@@ -152,16 +145,6 @@ func stagingDir(out, dir string) string {
 	}
 	sum := sha256.Sum256([]byte(filepath.ToSlash(filepath.Clean(dir))))
 	return filepath.Join(base, hex.EncodeToString(sum[:])[:16])
-}
-
-// checkpointResult returns the result the checkpoint of dir records, from
-// whichever run; nil if there is none.
-func checkpointResult(out, dir string) (*engine.Result, error) {
-	c, err := readCheckpoint(out, dir)
-	if err != nil || c == nil {
-		return nil, err
-	}
-	return c.Result, nil
 }
 
 // InOtherRootReason is why an incremental import leaves out a resource
@@ -213,7 +196,7 @@ func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.Ext
 		}
 		root := relativePath(out, dir)
 		for _, m := range addresses {
-			key := engine.External{Type: m.Type, ID: m.ID}
+			key := engine.ResourceKey(m.Type, m.ID)
 			if _, ok := held[key]; !ok {
 				held[key] = root
 			}
@@ -248,7 +231,7 @@ func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.Ext
 	for _, dir := range dirs {
 		var kept []engine.Import
 		for _, imp := range byDir[dir] {
-			if root, ok := held[engine.External{Type: imp.Type, ID: imp.ID}]; ok {
+			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: r.scope})
 				continue
 			}

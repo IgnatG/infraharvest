@@ -94,6 +94,13 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftOptions(options); err != nil {
 		return err
 	}
+	// Terraform runs in each root, so a path it's given, such as the
+	// staged state's, must not be relative to where drift runs.
+	out, err := filepath.Abs(options.Out)
+	if err != nil {
+		return err
+	}
+	options.Out = out
 	if err := checkDriftCatalogue(options); err != nil {
 		return err
 	}
@@ -214,8 +221,8 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 }
 
 func checkDriftOptions(options DriftOptions) error {
-	if options.Engine != EngineTerraform && options.Engine != EngineTofu {
-		return fmt.Errorf("--engine must be %s or %s, not %q", EngineTerraform, EngineTofu, options.Engine)
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
 	if options.Format != FormatText && options.Format != FormatJSON {
 		return fmt.Errorf("--format must be %s or %s, not %q", FormatText, FormatJSON, options.Format)

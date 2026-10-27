@@ -104,6 +104,24 @@ func TestMergedMoves(t *testing.T) {
 	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil, nil); err != nil || !strings.Contains(why, "other addresses") {
 		t.Errorf("without --regenerate: %q, %v", why, err)
 	}
+
+	// With it, the moved blocks go into the merged root's moves.tf.
+	f := &fakeEngine{}
+	r.options = Options{Regenerate: true, tools: f.tools()}
+	stack := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(stack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result := &engine.MergeResult{}
+	if why, err := r.moveMerged(stack, result, before, now, kept, nil); why != "" || err != nil {
+		t.Fatalf("with --regenerate: %q, %v", why, err)
+	}
+	if got := f.mergedMoves["app"]; !slices.Equal(got, want) {
+		t.Errorf("moved blocks written %+v, want %+v", got, want)
+	}
+	if !slices.Equal(result.Files, []string{engine.MovesFileName}) {
+		t.Errorf("files %v, want %s", result.Files, engine.MovesFileName)
+	}
 }
 
 func TestKeptAsMerged(t *testing.T) {
@@ -349,5 +367,110 @@ func TestKeepMergedJoining(t *testing.T) {
 	checkApart(t, run, out, staging, "why")
 	if len(run.report.Failures) != 1 {
 		t.Errorf("failures: %v", run.report.Failures)
+	}
+}
+
+// stackMembers writes the roots of envs, one each, under out/<env>/app,
+// for the merged root out/app, and returns them, with a run into out
+// through f.
+func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*Run, string, []mergeMember) {
+	t.Helper()
+	stack := filepath.Join(out, "app")
+	var members []mergeMember
+	for _, env := range envs {
+		dir := filepath.Join(out, env, "app")
+		writeRootFiles(t, dir, map[string]string{engine.VersionsFileName: "terraform {}\n", engine.GeneratedFileName: "resource \"fake_thing\" \"" + env + "\" {}\n"})
+		members = append(members, mergeMember{dir: dir, stack: stack, env: env, fingerprint: "fp-" + env, result: &engine.Result{}})
+	}
+	run := NewRun()
+	run.options = Options{Out: out, tools: f.tools()}
+	return run, stack, members
+}
+
+// A stack's roots merge into the root their environments share, from
+// copies set aside under the checkpoints, which the merge checkpoint
+// records; the roots themselves go.
+func TestMergeStack(t *testing.T) {
+	out := t.TempDir()
+	f := &fakeEngine{}
+	run, stack, members := stackMembers(t, out, f, "dev", "prod")
+	run.report.NotInCloud = []report.NotInCloud{{Path: "dev/app", Address: "fake_thing.gone", ID: "id-gone"}}
+	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.merged) != 1 {
+		t.Fatalf("merged %d times, want once", len(f.merged))
+	}
+	if gone := f.notInCloud["app"]["dev"]; len(gone) != 1 || gone[0].ID != "id-gone" {
+		t.Errorf("listed as no longer in the cloud %+v, want dev's id-gone", f.notInCloud)
+	}
+	for i, r := range f.merged[0] {
+		if r.Env != members[i].env || r.Origin != members[i].dir || r.Dir != premergeDir(out, members[i].dir) {
+			t.Errorf("merged root %d: %+v", i, r)
+		}
+		if _, err := os.Stat(filepath.Join(r.Dir, engine.GeneratedFileName)); err != nil {
+			t.Errorf("%s isn't set aside: %v", r.Env, err)
+		}
+		if _, err := os.Stat(members[i].dir); !os.IsNotExist(err) {
+			t.Errorf("%s's root is still there: %v", r.Env, err)
+		}
+	}
+	if m := run.report.Merges; len(m) != 1 || !m[0].Merged || m[0].Path != "app" || !slices.Equal(m[0].Environments, []string{"dev", "prod"}) {
+		t.Errorf("merges %+v", m)
+	}
+	c, err := readMergeCheckpoint(out, stack)
+	if err != nil || c == nil || !c.Merge.Merged || !slices.Equal(c.Files, []string{"main.tf"}) || len(c.Members) != 2 {
+		t.Errorf("merge checkpoint %+v, %v", c, err)
+	}
+
+	// Its roots as they were when it merged, as with --resume, keep the
+	// merged root without merging again.
+	for i := range members {
+		members[i].premerged = true
+	}
+	run.report.Merges = nil
+	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.merged) != 1 {
+		t.Errorf("merged %d times, want the merged root kept", len(f.merged))
+	}
+	if m := run.report.Merges; len(m) != 1 || !m[0].Merged || !m[0].Unchanged {
+		t.Errorf("merges %+v, want the merged root unchanged", m)
+	}
+}
+
+// A stack whose roots don't merge keeps them where they are, with
+// nothing set aside, and the report says why.
+func TestMergeStackKeepsTheRootsWhereTheyDontMerge(t *testing.T) {
+	out := t.TempDir()
+	f := &fakeEngine{mergeReason: "the plans differ"}
+	run, stack, members := stackMembers(t, out, f, "dev", "prod")
+	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if _, err := os.Stat(filepath.Join(m.dir, engine.GeneratedFileName)); err != nil {
+			t.Errorf("%s's root is gone: %v", m.env, err)
+		}
+		if _, err := os.Stat(premergeDir(out, m.dir)); !os.IsNotExist(err) {
+			t.Errorf("%s is still set aside: %v", m.env, err)
+		}
+	}
+	if m := run.report.Merges; len(m) != 1 || m[0].Merged || m[0].Reason != "the plans differ" {
+		t.Errorf("merges %+v", m)
+	}
+}
+
+// A stack of one environment isn't merged.
+func TestMergeStackOfOneEnvironment(t *testing.T) {
+	out := t.TempDir()
+	f := &fakeEngine{}
+	run, stack, members := stackMembers(t, out, f, "dev")
+	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.merged) != 0 || len(run.report.Merges) != 0 {
+		t.Errorf("merged %d times, merges %+v", len(f.merged), run.report.Merges)
 	}
 }

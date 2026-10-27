@@ -87,7 +87,7 @@ The labels all resources of a root share move to the provider's `default_labels`
 
 ## The google-beta provider
 
-`--beta` generates configuration for the `google-beta` provider instead, for resources and arguments only it has. Some curated modules create resources through `google-beta` either way, such as the network module's network; a root that calls one configures `google-beta` like its own provider (see [Modules](modules.md)).
+`--beta` generates configuration for the `google-beta` provider instead, for resources and arguments only it has. The roots are laid out as without it: under `<out>/google/`, with the network's resources in `network.tf` and each family of types in its file, such as `gcs.tf` and `iam.tf` (see [Output](output.md)). Some curated modules create resources through `google-beta` either way, such as the network module's network; a root that calls one configures `google-beta` like its own provider (see [Modules](modules.md)).
 
 ## Filtering
 

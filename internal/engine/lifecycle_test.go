@@ -34,7 +34,7 @@ func TestSetLifecycles(t *testing.T) {
 	if err := os.WriteFile(path, []byte(deploymentsGenerated), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := SetLifecycles(path, map[string]Lifecycle{"aws_api_gateway_deployment": {CreateBeforeDestroy: true, Reason: "a stage refers to it"}})
+	changed, err := setLifecycles(path, map[string]Lifecycle{"aws_api_gateway_deployment": {CreateBeforeDestroy: true, Reason: "a stage refers to it"}})
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}

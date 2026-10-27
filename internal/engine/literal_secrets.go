@@ -921,11 +921,11 @@ func redactBytes(b []byte, secrets []Secret) []byte {
 
 // literalSecrets returns, for a .tf or .hcl file, a finding for each
 // secret value secretsInBody finds in any of its blocks; and for a merged
-// root's var file (see isVarFile), in its arguments too, the values it
+// root's var file (see isMergedVarFile), in its arguments too, the values it
 // sets, as secretsInBody judges a provider's arguments.
 func literalSecrets(f *parsedFile) []string {
 	rel := f.rel
-	varFile := isVarFile(rel)
+	varFile := isMergedVarFile(rel)
 	if !strings.HasSuffix(rel, ".tf") && !strings.HasSuffix(rel, ".hcl") && !varFile {
 		return nil
 	}
@@ -956,14 +956,6 @@ func literalSecrets(f *parsedFile) []string {
 		}
 	}
 	return findings
-}
-
-// isVarFile reports whether rel, a file of a root by its path in it with
-// forward slashes, is one of the var files a merged root keeps under vars
-// (see writeMergedRoot), such as vars/prod/terraform.tfvars, whose
-// arguments set variables.
-func isVarFile(rel string) bool {
-	return strings.HasPrefix(rel, varsDirName+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
 }
 
 // withoutRejected returns the secrets of resources rejections doesn't

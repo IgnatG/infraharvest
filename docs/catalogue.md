@@ -11,7 +11,7 @@ The catalogue is what infraharvest knows about each Terraform resource type, kep
 - for AWS, where a type's ARNs name its resources (to find their tags), and the CloudFormation type of the types listed through Cloud Control;
 - the type a cloud's inventory API lists a resource type as: Azure Resource Graph, Google Cloud Asset Inventory.
 
-It is YAML, one file per provider and service under [`internal/catalogue/data/`](https://github.com/IgnatG/infraharvest/tree/main/internal/catalogue/data), built into the binary. A type the catalogue doesn't mention imports with the ID its lister found, and nothing else changes.
+It is YAML, one file per provider and service under [`internal/catalogue/data/`](https://github.com/IgnatG/infraharvest/tree/main/internal/catalogue/data), built into the binary. A type the catalogue doesn't mention imports with the ID its lister found, and nothing else changes. The `azapi` catalogue is for the `azapi_resource` an Azure import with `--azapi` brings in for what azurerm has no type for (see [Azure](azure.md#resources-azurerm-has-no-type-for)): its entries join the azurerm catalogue's, whose entry for every type, `"*"`, covers those resources too.
 
 ## Format
 
@@ -101,6 +101,62 @@ An import applies the entries whose constraint accepts the provider version it p
 
 Defaults of optional arguments that the provider doesn't compute need no entry: infraharvest finds them by plan (see [Tidying](output.md#tidying)). What needs a `defaults` entry is a default the cloud sets for an argument the provider computes, which a plan can't tell from a setting. The entry for every type, `"*"`, takes no `defaults`.
 
+## Schema metadata
+
+`terraform providers schema -json` says which arguments are optional or computed, but not what an argument defaults to, nor which arguments exclude or need each other. The providers' code says both: each Plugin SDK argument's `Default`, `ConflictsWith`, `ExactlyOneOf`, `AtLeastOneOf` and `RequiredWith`. `internal/catalogue/schemameta` holds them, one gzipped JSON file per provider (`aws.json.gz`, `azurerm.json.gz`, `google.json.gz`), each with the provider release it was read from, built into the binary and decompressed the first time an import needs that provider's. A file lists only the arguments that have metadata, by their path through nested blocks without indexes (`root_block_device.volume_type`), one resource type to a line; a Plugin Framework resource, as newer AWS ones are, is marked `framework` and has only its defaults, since its constraints are validators the provider doesn't expose.
+
+The engine uses them to need fewer plans and validations (see [Tidying](output.md#tidying)), as far as the release the root's lock file records (Terraform's or OpenTofu's) allows, which it logs once per provider and release:
+
+| The root uses | Defaults | Other values | Conflicting arguments |
+|---|---|---|---|
+| The file's release | Proven: left out without a validation, and where the plan can't settle the rest, still left out once validation agrees | Kept without trying to leave them out | Settled after the generating plan, before the repair would validate, the same one of each pair going |
+| Another release of its major version | Proven, as above, but where the plan can't settle the rest, kept | Tried, as without metadata | Left for validation and the repair, as without metadata |
+| Another major version, or a release the lock file doesn't record | Candidates the plan checks, as without metadata | Tried | Left for validation and the repair |
+
+A proven default the plan shows changing a resource, as a wrong default or one another release changed would, goes back as any other candidate does, so the plan corrects the metadata. Conflicting arguments are settled between a resource's own arguments only, not in its nested blocks, where the provider checks a pair in the first block alone.
+
+### Overrides
+
+`internal/catalogue/schemameta/overrides.json` holds infraharvest's own corrections and additions, by provider and resource type, merged over the generated files when they load: for what the generator can't read, such as a Plugin Framework resource's constraints, or reads wrong. Each argument replaces the generated one whole, `null` removes an argument, and a type set to `null` is removed, so that the engine falls back to plans for it:
+
+```json
+{
+  "aws": {
+    "aws_example": {
+      "framework": false,
+      "arguments": {
+        "mode": {"default": "auto"},
+        "wrong": null,
+        "a": {"conflicts_with": ["b"]}
+      }
+    },
+    "aws_unreliable": null
+  }
+}
+```
+
+The file starts empty (`{}`). Its fields are those of the generated files: `default` (a bool, a number or a string), `suppress`, `exactly_one_of`, `conflicts_with`, `at_least_one_of` and `required_with`.
+
+### Licences
+
+The generated files are read out of the HashiCorp providers' code (`hashicorp/terraform-provider-aws`, `-azurerm` and `-google`, at the release each file records), which is MPL-2.0, and so are they: `REUSE.toml` marks them so, with the licence in `LICENSES/MPL-2.0.txt`. The generator (`gen/`), the overrides and the code that reads them are infraharvest's own, AGPL-3.0-only.
+
+The binary embeds both, and MPL-2.0 lets it be distributed as a larger work under AGPL-3.0-only (its section 3.3) on condition that the MPL-2.0 files stay under MPL-2.0 and that recipients are told so, and where their source is (its section 3.2). `NOTICE`, at the repository's root, says that: which files are MPL-2.0, which provider release each was read from, with its address, and that the files are in infraharvest's source at the same release. Every release archive and image carries `NOTICE`, `LICENSE` and `LICENSES/MPL-2.0.txt` (the image in `/usr/share/doc/infraharvest/`, its licence label `AGPL-3.0-only AND MPL-2.0`). The schema-metadata workflows write `NOTICE` with the files (`.github/scripts/schema-metadata-notice.sh`), and a test of the package fails if it names another release than a file records.
+
+### Regenerating
+
+The files are generated, never edited by hand: corrections go into the overrides. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release, the one generated roots pin, or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, gzips what it writes, and uploads the files, with the `NOTICE` that names their releases, as the artifact `schema-metadata`. Its job summary says, per provider, the release before and after and the resource types added, removed and changed, as a diff of gzipped files can't:
+
+```sh
+make ci-schema-metadata                      # or VERSIONS="aws=6.70.0"
+make ci-download RUN=<id> NAME=schema-metadata
+git status internal/catalogue/schemameta     # the summary says what changed; commit
+```
+
+To read the changes yourself, `gzip -dc` a file, or let `git diff` decompress them for you: `git config diff.gzip.textconv "gzip -dc"`, with `*.json.gz diff=gzip` in `.git/info/attributes`.
+
+The `schema-metadata` workflow does the same every week for the providers' newest releases, and opens a pull request with the files where they changed, or updates the one already open, with the summary as its body. It opens it with the workflow's own token, so GitHub starts none of the pull request's checks: the workflow starts the ones the main branch requires by dispatch (the tests, megalinter and docs workflows), and a maintainer closes and reopens the pull request to start CodeQL's, which no dispatch can. A file of an older release costs plans, never correctness.
+
 ## Inventory types
 
 The services that list a whole subscription or project through the cloud's inventory API, `resource_graph` for Azure and `cloud_asset` for Google, map what it lists to Terraform types through `inventory` entries:
@@ -124,7 +180,7 @@ For Google, the catalogue is the whole mapping: what has no entry isn't imported
 
 ## Overriding entries
 
-`--catalogue <directory>` on `import`, `discover`, `verify` and `drift` reads the `.yaml` and `.yml` files in the directory on top of the built-in catalogue. An entry for a type the catalogue already has replaces only the fields it sets, so `skip: []` drops the built-in skip rules and `import_id` replaces the templates. Fields that aren't lists, `data_source`, `arn`, `cloud_control`, `inventory`, `placeholder` and `lifecycle`, can't be cleared that way: list them under `remove`, such as `remove: [placeholder]` to drop the built-in Lambda code placeholder. Entries for new types add to it. On AWS, the overlay's `arn`, `import_id` and `children` entries also reach what the provider matches resources by, such as their tags and the CloudFormation stacks that manage them; a `cloud_control` entry tells which Terraform type a stack's resource of its CloudFormation type is, and lists its type through the Cloud Control API, under the entry's `service`, which `--services` can name and `*` includes. Files for the other providers (`aws`, `azurerm` and `google`) are ignored; a file with any other `provider:`, or a directory without catalogue files, is an error. Use this to fix an import ID or add a skip rule without waiting for a release; please also open an issue or a pull request, so everyone gets the fix.
+`--catalogue <directory>` on `import`, `discover`, `verify` and `drift` reads the `.yaml` and `.yml` files in the directory on top of the built-in catalogue. An entry for a type the catalogue already has replaces only the fields it sets, so `skip: []` drops the built-in skip rules and `import_id` replaces the templates. Fields that aren't lists, `data_source`, `arn`, `cloud_control`, `inventory`, `placeholder` and `lifecycle`, can't be cleared that way: list them under `remove`, such as `remove: [placeholder]` to drop the built-in Lambda code placeholder. Entries for new types add to it. On AWS, the overlay's `arn`, `import_id` and `children` entries also reach what the provider matches resources by, such as their tags and the CloudFormation stacks that manage them; a `cloud_control` entry tells which Terraform type a stack's resource of its CloudFormation type is, and lists its type through the Cloud Control API, under the entry's `service`, which `--services` can name and `*` includes. Files for the other providers (`aws`, `azapi`, `azurerm` and `google`) are ignored, but for an Azure import, which reads the `azapi` files too; a file with any other `provider:`, or a directory without catalogue files, is an error. Use this to fix an import ID or add a skip rule without waiting for a release; please also open an issue or a pull request, so everyone gets the fix.
 
 ```yaml
 # my-catalogue/aws.yaml
@@ -152,7 +208,7 @@ go test ./internal/catalogue -run TestGolden -update
 
 Without a local Go toolchain, push the branch as `golden/<anything>` (or run `gh workflow run remote.yml --ref <branch> -f task=golden`) and download what the run rewrote, from the repository's root, with `gh run download <run-id> -n golden`.
 
-The golden tests render what the catalogue says, so they can't tell a mistyped or renamed argument from a real one. The tests workflow's `catalogue-schemas` job does: it dumps the schemas of the newest aws, azurerm and google releases with `terraform providers schema -json` and checks that every type, child type and data source the built-in catalogue names exists, that every `omit`, `defaults`, `state_only`, `keep_empty` and placeholder path is an argument or nested block in it (`provider_versions` lists only where their constraint accepts that release), and that each default converts to its attribute's type. To run it locally, put the two files it reads in a directory and name it:
+The golden tests render what the catalogue says, so they can't tell a mistyped or renamed argument from a real one. The tests workflow's `catalogue-schemas` job does: it dumps the schemas of the newest aws, azapi, azurerm and google releases with `terraform providers schema -json` and checks that every type, child type and data source the built-in catalogue names exists, that every `omit`, `defaults`, `state_only`, `keep_empty` and placeholder path is an argument or nested block in it (`provider_versions` lists only where their constraint accepts that release), and that each default converts to its attribute's type. To run it locally, put the two files it reads in a directory and name it:
 
 ```sh
 INFRAHARVEST_PROVIDER_SCHEMAS=<dir> go test ./internal/catalogue -run TestCatalogueMatchesProviderSchemas

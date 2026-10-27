@@ -26,29 +26,16 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// The files of a merged root (see writeMergedRoot) besides those any root
-// has: under varsDirName, the values every environment shares, and in
-// vars/<env>, each environment's values, import IDs and backend settings.
-const (
-	commonVarsFileName    = "common.tfvars"
-	envVarsFileName       = "terraform.tfvars"
-	importVarsFileName    = "imports.tfvars"
-	backendConfigFileName = "backend.hcl"
-	// mainFileName holds the resources whose roots name no file of their
-	// own for them.
-	mainFileName = "main.tf"
-)
+// mainFileName holds the resources whose roots name no file of their own
+// for them.
+const mainFileName = "main.tf"
 
 // mergedGitignore keeps the merged root's var files in version control,
 // which the output directory's .gitignore leaves out as .tfvars files.
 const mergedGitignore = `# The environments' var files hold no secret values (see README.md):
 # commit them.
-!vars/**/*.tfvars
+!` + varsDirName + `/**/*.tfvars
 `
-
-// regionVariableName is the variable that sets an AWS merged root's
-// provider's region.
-const regionVariableName = "aws_region"
 
 // writeMergedRoot writes m, the merge of a stack's roots (see mergeStack),
 // as one root in dir that every environment plans and applies with its
@@ -182,13 +169,12 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 		return nil, nil, err
 	}
 	files[ProvidersFileName] = formatHCL(string(terraform) + string(providers))
-	files[varsDirName+"/"+commonVarsFileName] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in vars/<env>/terraform.tfvars.\n")
+	files[commonVarsPath] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in " + envVarsPath("<env>") + ".\n")
 	for e, env := range m.envs {
-		dir := varsDirName + "/" + env + "/"
-		files[dir+envVarsFileName] = w.tfvarsFile(e)
-		files[dir+importVarsFileName] = w.importVarsFile(e)
+		files[envVarsPath(env)] = w.tfvarsFile(e)
+		files[importVarsPath(env)] = w.importVarsFile(e)
 		if backend := w.backendConfig(e); backend != nil {
-			files[dir+backendConfigFileName] = backend
+			files[backendConfigPath(env)] = backend
 		}
 	}
 	files[ReadmeFileName] = w.readme()
@@ -652,7 +638,7 @@ func (w *rootWriter) importsFileWithout(skip map[*stackResource]bool) ([]byte, e
 	}
 	sort.Slice(blocks, func(i, j int) bool { return blocks[i].address < blocks[j].address })
 	var b strings.Builder
-	b.WriteString("# Each environment imports its resources on its first apply, with their IDs\n# from vars/<env>/imports.tfvars. Delete this file, and those, after it.\n")
+	b.WriteString("# Each environment imports its resources on its first apply, with their IDs\n# from " + importVarsPath("<env>") + ". Delete this file, and those, after it.\n")
 	for _, blk := range blocks {
 		b.WriteString("\n" + blk.text)
 	}
@@ -661,8 +647,9 @@ func (w *rootWriter) importsFileWithout(skip map[*stackResource]bool) ([]byte, e
 
 // providerBlocks writes the provider block and returns it: the arguments
 // the roots' providers share as they are, those that differ as variables
-// (see extra), an AWS root's region as var.aws_region, and default_tags
-// (see defaultTagsText); and a second configuration of the provider for
+// (see extra), the region where the provider sets it (see
+// MergeProfile.RegionArgument) as a variable, such as var.aws_region, and
+// the default tags as the roots apply them (see defaultTagsText); and a second configuration of the provider for
 // each alias the resources use, such as aws.without_default_tags, with
 // the same arguments and no tags. The role a root's provider assumes is
 // left out: each environment plans with its own credentials.
@@ -670,16 +657,16 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 	configs := make([]map[string]interface{}, len(w.m.roots))
 	keys := map[string]bool{}
 	for e, root := range w.m.roots {
-		configs[e], _ = WithoutCredentials(root.provider.Config)
+		configs[e], _ = withoutCredentials(root.provider.Config)
 		for k := range configs[e] {
 			keys[k] = true
 		}
 	}
 	var args strings.Builder
-	if w.p.Name == "aws" {
+	if argument := w.m.profile.RegionArgument; argument != "" {
 		region := ""
 		for _, root := range w.m.roots {
-			if r, ok := root.provider.Config["region"].(string); ok && r != "" {
+			if r, ok := root.provider.Config[argument].(string); ok && r != "" {
 				region = r
 			} else if root.region != "" {
 				region = root.region
@@ -689,13 +676,13 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 			}
 		}
 		if region != "" {
-			w.region = &envVariable{name: uniqueEnvName(w.used, regionVariableName, ""), what: "AWS region of the stack", ty: cty.String, values: map[int]hclwrite.Tokens{}, hasDefault: true, defaultValue: hclwrite.TokensForValue(cty.StringVal(region))}
+			w.region = &envVariable{name: uniqueEnvName(w.used, w.m.profile.RegionLocal, ""), what: w.m.profile.RegionTitle + " of the stack", ty: cty.String, values: map[int]hclwrite.Tokens{}, hasDefault: true, defaultValue: hclwrite.TokensForValue(cty.StringVal(region))}
 			for e := range w.m.envs {
 				w.region.values[e] = w.region.defaultValue
 			}
-			fmt.Fprintf(&args, "region = var.%s\n", w.region.name)
+			fmt.Fprintf(&args, "%s = var.%s\n", argument, w.region.name)
 		}
-		delete(keys, "region")
+		delete(keys, argument)
 	}
 	for _, k := range []string{"assume_role", "default_tags", "default_labels", "alias"} {
 		delete(keys, k)
@@ -753,11 +740,12 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 	fmt.Fprintf(&out, "\nprovider %q {\n%s%s", w.p.Name, args.String(), blocks.String())
 	switch {
 	case tags == "":
-	case w.p.Name == "aws":
-		out.WriteString("\ndefault_tags {\ntags = " + tags + "\n}\n")
-	default:
-		// Google applies its labels to every resource with an argument.
+	case slices.ContainsFunc(w.m.roots, func(r envRoot) bool { return r.defaultLabels }):
+		// As the roots apply them, with an argument, as Google does its
+		// labels.
 		out.WriteString("default_labels = " + tags + "\n")
+	default:
+		out.WriteString("\ndefault_tags {\ntags = " + tags + "\n}\n")
 	}
 	out.WriteString("}\n")
 	for _, alias := range w.aliases() {
@@ -889,11 +877,10 @@ func (w *rootWriter) sameTemplate(normal []string) bool {
 	for _, l := range w.m.locals {
 		locals[l.name] = true
 	}
-	_, scope, _ := scopeData(w.m.provider)
 	switch {
-	case strings.Contains(normal[0], accountPlaceholder) && !locals[scope]:
+	case strings.Contains(normal[0], accountPlaceholder) && !locals[w.m.profile.ScopeLocal]:
 		return false
-	case strings.Contains(normal[0], regionPlaceholder) && !locals[regionLocal]:
+	case strings.Contains(normal[0], regionPlaceholder) && !locals[w.m.profile.RegionLocal]:
 		return false
 	case strings.Contains(normal[0], resourceGroupPlaceholder):
 		return false
@@ -1010,7 +997,7 @@ func (w *rootWriter) backendConfig(env int) []byte {
 		return nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# The %s backend's settings for the %s environment: terraform init\n# -backend-config=vars/%s/%s.\n", want, w.m.envs[env], w.m.envs[env], backendConfigFileName)
+	fmt.Fprintf(&b, "# The %s backend's settings for the %s environment: terraform init\n# -backend-config=%s.\n", want, w.m.envs[env], backendConfigPath(w.m.envs[env]))
 	typ, names, values := w.rootBackend(env)
 	if typ != want {
 		fmt.Fprintf(&b, "# The %s root had no %s backend: set these.\n", w.m.envs[env], want)
@@ -1114,7 +1101,7 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 	}
 	body.AppendNewline()
 	imports := body.AppendNewBlock("variable", []string{importIDsVariableName}).Body()
-	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: vars/<env>/imports.tfvars sets it for imports.tf."))
+	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
 	imports.SetAttributeRaw("type", exprTokens("map(string)"))
 	imports.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
 	return formatHCL(string(f.Bytes())), nil
@@ -1143,7 +1130,7 @@ func (w *rootWriter) tfvarsFile(env int) []byte {
 	for _, section := range order {
 		vars := sections[section]
 		sort.SliceStable(vars, func(i, j int) bool {
-			di, dj := strings.HasPrefix(vars[i].name, "deploy_"), strings.HasPrefix(vars[j].name, "deploy_")
+			di, dj := isFeatureFlag(vars[i].name), isFeatureFlag(vars[j].name)
 			if di != dj {
 				return di
 			}
@@ -1203,25 +1190,14 @@ func formatHCL(src string) []byte {
 	return collapseEmptyBlocks(hclwrite.Format([]byte(src)))
 }
 
-// scopeTitle is what provider's roots are scoped by, for the README.
-func scopeTitle(provider string) string {
-	switch provider {
-	case "azurerm":
-		return "Subscription"
-	case "google", "google-beta":
-		return "Project"
-	}
-	return "Account"
-}
-
 // readme writes the merged root's README.md: its environments, and how to
 // plan and apply each.
 func (w *rootWriter) readme() []byte {
 	var b strings.Builder
 	b.WriteString("# " + w.title() + "\n\n")
-	fmt.Fprintf(&b, "Generated by infraharvest: one root whose code every environment shares (%s). What differs between them is in `vars/<env>/`: `terraform.tfvars` holds the values that differ from the defaults in `variables.tf`, `imports.tfvars` the IDs `imports.tf` imports, and `backend.hcl` where the state is kept.\n\n", strings.Join(w.m.envs, ", "))
+	fmt.Fprintf(&b, "Generated by infraharvest: one root whose code every environment shares (%s). What differs between them is in `%s/<env>/`: `%s` holds the values that differ from the defaults in `variables.tf`, `%s` the IDs `imports.tf` imports, and `%s` where the state is kept.\n\n", strings.Join(w.m.envs, ", "), varsDirName, envVarsFileName, importVarsFileName, backendConfigFileName)
 	regions := slices.ContainsFunc(w.m.roots, func(r envRoot) bool { return r.region != "" })
-	header := "| Environment | `env` | " + scopeTitle(w.m.provider) + " |"
+	header := "| Environment | `env` | " + w.m.profile.ScopeTitle + " |"
 	rule := "|---|---|---|"
 	if regions {
 		header += " Region |"
@@ -1239,11 +1215,11 @@ func (w *rootWriter) readme() []byte {
 	env := w.m.envs[0]
 	fmt.Fprintf(&b, "Run each environment with its own credentials: the provider block sets no role of its own. For %s, and likewise for the others:\n\n```sh\n", env)
 	if w.backendType() != "" {
-		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=vars/%s/%s\n", env, backendConfigFileName)
+		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=%s\n", backendConfigPath(env))
 	} else {
 		fmt.Fprintf(&b, "terraform init\nterraform workspace select -or-create %s\n", env)
 	}
-	varFiles := fmt.Sprintf("-var-file=%s/%s -var-file=%s/%s/%s -var-file=%s/%s/%s", varsDirName, commonVarsFileName, varsDirName, env, envVarsFileName, varsDirName, env, importVarsFileName)
+	varFiles := varFileArgs(env, true)
 	fmt.Fprintf(&b, "terraform plan %s\nterraform apply %s\n```\n\n", varFiles, varFiles)
 	if w.backendType() != "" {
 		b.WriteString("`-reconfigure` switches the working directory to the environment's state.")
@@ -1251,7 +1227,7 @@ func (w *rootWriter) readme() []byte {
 		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", workspaceStateDir)
 	}
 	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
-	b.WriteString("## After the first apply\n\nOnce every environment has been applied, delete `imports.tf` and each `vars/<env>/imports.tfvars`, and leave `-var-file=vars/<env>/imports.tfvars` out of the commands.\n")
+	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", ImportsFileName, importVarsPath("<env>"), importVarsPath("<env>"))
 	b.WriteString(w.arrivals())
 	var secrets []string
 	for _, v := range w.variables() {

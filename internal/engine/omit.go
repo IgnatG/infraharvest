@@ -25,7 +25,9 @@ import (
 // address (type.name) for that resource alone, whether written as
 // attributes or as blocks (see omission for the entries' form). Whether
 // an entry applies is decided on the resource as generated, before
-// anything is removed. It reports whether it removed anything.
+// anything is removed. It reports whether it removed anything. Only the
+// catalogue's golden test calls it outside the engine, which is why it is
+// exported.
 func OmitArguments(path string, omit map[string][]string) (bool, error) {
 	if len(omit) == 0 {
 		return false, nil
