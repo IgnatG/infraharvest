@@ -299,7 +299,7 @@ func TestCheckFlag(t *testing.T) {
 		{[]string{"discover", "aws", "--services=vpc", "--accounts=111122223333", "--organization", "--out=" + out}, "either --accounts or --organization"},
 		{[]string{"import", "aws", "--services=vpc", "--all", "--engine=pulumi", "--out=" + out}, `unknown --engine "pulumi"`},
 	} {
-		err := CheckRun(t.Context(), tc.args)
+		err := checkRun(t.Context(), tc.args)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%v: %v", tc.args, err)
@@ -330,7 +330,7 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		return nil, nil, 2, nil
 	}
 	asked := false
-	session := connectMCP(t, dir, run, CheckRun, func() { asked = true })
+	session := connectMCP(t, dir, run, checkRun, func() { asked = true })
 	for _, tc := range []struct {
 		args map[string]any
 		want string
