@@ -29,10 +29,22 @@ const scanTimeout = 10 * time.Minute
 // maxReportedFindings bounds the findings a check lists per scanner.
 const maxReportedFindings = 20
 
-// scannerSlots bounds the scanner processes running at once, those of
-// every directory the gate checks at the same time, as with --parallel,
-// together.
-var scannerSlots = make(chan struct{}, max(2, runtime.NumCPU()))
+// ScannerSlots bound the scanner processes running at once, as many as the
+// machine has CPUs, and at least two, over every directory the gate checks
+// at the same time: the roots of one import, which --parallel checks
+// together, share one (see Options.ScannerSlots). They belong to whoever
+// runs those roots, so another run in the process, such as another MCP
+// call, has slots of its own. The zero value is ready to use.
+type ScannerSlots struct {
+	once  sync.Once
+	slots chan struct{}
+}
+
+// channel returns the slots, made on first use.
+func (s *ScannerSlots) channel() chan struct{} {
+	s.once.Do(func() { s.slots = make(chan struct{}, max(2, runtime.NumCPU())) })
+	return s.slots
+}
 
 // Finding is one thing a scanner reports.
 type Finding struct {
@@ -174,10 +186,11 @@ func scannerEnv(environ []string) []string {
 }
 
 // runScanners runs scanners on dir, at the same time, as they only read
-// it (see scannerSlots), and reports them in their order. Blocking
-// scanners' findings at warning level or above fail the check; the
-// others' are listed. With no scanner installed, the check is skipped.
-func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
+// it, each in one of slots (nil gives the call slots of its own), and
+// reports them in their order. Blocking scanners' findings at warning
+// level or above fail the check; the others' are listed. With no scanner
+// installed, the check is skipped.
+func runScanners(ctx context.Context, dir string, scanners []Scanner, slots *ScannerSlots) Check {
 	check := Check{Name: CheckScanners, Passed: true}
 	if len(scanners) == 0 {
 		check.Skipped = true
@@ -194,13 +207,17 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner) Check {
 		findings []Finding
 		err      error
 	}
+	if slots == nil {
+		slots = &ScannerSlots{}
+	}
+	bound := slots.channel()
 	results := make([]result, len(scanners))
 	var wg sync.WaitGroup
 	for i, s := range scanners {
 		wg.Go(func() {
 			select {
-			case scannerSlots <- struct{}{}:
-				defer func() { <-scannerSlots }()
+			case bound <- struct{}{}:
+				defer func() { <-bound }()
 			case <-ctx.Done():
 				results[i].err = ctx.Err()
 				return

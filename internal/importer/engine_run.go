@@ -156,6 +156,10 @@ type shared struct {
 	// modules counts the roots of the command that call each generated
 	// module, which they share (see engine.Options.Modules).
 	modules engine.ModuleRefs
+
+	// scanners are the slots the scanners of the command's roots run in,
+	// which they share (see engine.Options.ScannerSlots).
+	scanners engine.ScannerSlots
 }
 
 // rateLimiter returns the command's limiter, of perSecond requests a

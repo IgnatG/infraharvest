@@ -333,7 +333,7 @@ func (s *stackMerge) mergeRoots(ctx context.Context) error {
 	// A restored member has no engine options or profile of its own.
 	imported := s.members[slices.IndexFunc(s.members, func(m mergeMember) bool { return !m.restored })]
 	opts := imported.opts
-	mergeOptions := engine.MergeOptions{Profile: imported.profile, Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
+	mergeOptions := engine.MergeOptions{Profile: imported.profile, Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, ScannerSlots: opts.ScannerSlots, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
 	result, err := r.tools.mergeRoots(ctx, s.stack, roots, mergeOptions)
 	// What the merged root matched across environments isn't kept apart:
 	// it would get another address all the same.
