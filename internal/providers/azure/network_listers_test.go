@@ -12,6 +12,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -514,5 +515,53 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	}
 	if got := listedResources(s.Resources); !reflect.DeepEqual(got, wantSubnets) {
 		t.Errorf("subnets: got %+v\nwant %+v", got, wantSubnets)
+	}
+}
+
+// In a custom cloud (ARM_ENVIRONMENT=stack, as floci-az runs) an empty list
+// of rules or subnets is asked again, as such emulators answer one for
+// children created on their own; in Azure's own clouds it isn't (above).
+func TestNetworkListersAskAgainForEmptyChildrenInACustomCloud(t *testing.T) {
+	const (
+		rg      = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/"
+		group   = rg + "networkSecurityGroups/empty"
+		network = rg + "virtualNetworks/net1"
+		subnet  = network + "/subnets/db"
+	)
+	custom := func(transport *routedTransport) map[string]interface{} {
+		args := routedArgs(transport, "rg1")
+		options := args["client_options"].(*arm.ClientOptions)
+		options.Cloud = cloud.Configuration{
+			ActiveDirectoryAuthorityHost: "https://login.floci.test/",
+			Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
+				cloud.ResourceManager: {Endpoint: "https://management.floci.test", Audience: "https://management.floci.test"},
+			},
+		}
+		return args
+	}
+	groups := &routedTransport{bodies: map[string]string{
+		rg + "networkSecurityGroups": armList(armItem(group, "empty", `{"securityRules":[]}`)),
+		group + "/securityRules":     armList(armItem(group+"/securityRules/ssh", "ssh", "")),
+	}}
+	g := &NetworkSecurityGroupLister{}
+	g.Configure(harvest.ListerConfig{Settings: custom(groups)})
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{rg + "networkSecurityGroups", group + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
+		t.Errorf("security groups: requested %v, want %v", groups.paths, want)
+	}
+	networks := &routedTransport{bodies: map[string]string{
+		rg + "virtualNetworks":         armList(armItem(network, "net1", `{"subnets":[]}`)),
+		network + "/subnets":           armList(armItem(subnet, "db", "")),
+		rg + "serviceEndpointPolicies": armList(),
+	}}
+	s := &SubnetLister{}
+	s.Configure(harvest.ListerConfig{Settings: custom(networks)})
+	if err := s.List(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := listedResources(s.Resources), []listedResource{{Type: "azurerm_subnet", ID: subnet, Name: "db"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("subnets: got %+v, want %+v", got, want)
 	}
 }

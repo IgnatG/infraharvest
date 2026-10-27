@@ -18,7 +18,7 @@ type NetworkSecurityGroupLister struct {
 
 // List lists the security groups and their rules. The rules come from
 // the group list, which carries them; only a group that came back without
-// the field, as some emulators answer, has its rules listed on their own. Any
+// them, as some emulators answer, has its rules listed on their own. Any
 // listing that fails fails the service.
 func (az *NetworkSecurityGroupLister) List() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
@@ -67,10 +67,11 @@ func (az *NetworkSecurityGroupLister) List() error {
 // Resource Manager list returns in full. Only when group came back without
 // them are they listed with rulesClient, under the group's own resource
 // group, which is not --resource-group when the whole subscription is
-// listed. The SDK decodes an empty list as an empty slice and a missing
-// field as nil, so a group Azure lists with no rules costs no request.
+// listed. In a custom cloud an empty list is asked again too, as some
+// emulators answer one; Azure's own clouds list every rule with its group,
+// so there a group without rules costs no request.
 func (az *NetworkSecurityGroupLister) rulesOf(rulesClient *armnetwork.SecurityRulesClient, group *armnetwork.SecurityGroup) ([]*armnetwork.SecurityRule, error) {
-	if group.Properties != nil && group.Properties.SecurityRules != nil {
+	if group.Properties != nil && listedInFull(group.Properties.SecurityRules, az.customCloud()) {
 		return group.Properties.SecurityRules, nil
 	}
 	groupResourceGroup, err := resourceGroupOf(*group.ID)
