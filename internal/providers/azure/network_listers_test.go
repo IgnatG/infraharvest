@@ -18,18 +18,23 @@ import (
 )
 
 // routedTransport answers each request with the body registered for its
-// path, or with a Resource Manager 404 for a path nobody registered, and
-// records the paths asked for in order.
+// path, with a Resource Manager 403 for a path in refused, or with a 404
+// for a path nobody registered, and records the paths asked for in order.
 type routedTransport struct {
-	bodies map[string]string
-	paths  []string
+	bodies  map[string]string
+	refused map[string]bool
+	paths   []string
 }
 
 func (f *routedTransport) Do(r *http.Request) (*http.Response, error) {
 	f.paths = append(f.paths, r.URL.Path)
 	status := http.StatusOK
 	body, ok := f.bodies[r.URL.Path]
-	if !ok {
+	switch {
+	case f.refused[r.URL.Path]:
+		status = http.StatusForbidden
+		body = `{"error":{"code":"AuthorizationFailed","message":"no access to ` + r.URL.Path + `"}}`
+	case !ok:
 		status = http.StatusNotFound
 		body = `{"error":{"code":"NotFound","message":"nothing at ` + r.URL.Path + `"}}`
 	}
@@ -273,6 +278,38 @@ func TestResourceGroupThatIsMissingIsAnError(t *testing.T) {
 
 	if err := g.List(); err == nil {
 		t.Errorf("listed %v, want an error", g.Resources)
+	}
+}
+
+// A page of the subscription's resource groups that fails keeps the groups
+// listed before it and fails the listing in part, so that the groups it
+// left out aren't taken for deleted; a first page that fails lists nothing
+// and fails the listing in full.
+func TestResourceGroupPageThatFailsIsPartial(t *testing.T) {
+	const (
+		groups = "/subscriptions/sub/resourcegroups"
+		next   = groups + "/next"
+	)
+	transport := &routedTransport{
+		bodies:  map[string]string{groups: `{"value":[` + armItem("/subscriptions/sub/resourceGroups/rg1", "rg1", "") + `],"nextLink":"https://management.azure.com` + next + `"}`},
+		refused: map[string]bool{next: true},
+	}
+	g := &ResourceGroupLister{}
+	g.Configure(harvest.ListerConfig{Settings: routedArgs(transport, "")})
+	err := g.List()
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "AuthorizationFailed") {
+		t.Errorf("a later page failing: got %v, want the refusal as a partial error", err)
+	}
+	want := []listedResource{{Type: "azurerm_resource_group", ID: "/subscriptions/sub/resourceGroups/rg1", Name: "rg1"}}
+	if got := listedResources(g.Listed()); !reflect.DeepEqual(got, want) {
+		t.Errorf("a later page failing: listed %+v, want %+v", got, want)
+	}
+
+	transport = &routedTransport{refused: map[string]bool{groups: true}}
+	g = &ResourceGroupLister{}
+	g.Configure(harvest.ListerConfig{Settings: routedArgs(transport, "")})
+	if err := g.List(); err == nil || harvest.IsPartial(err) || len(g.Listed()) != 0 {
+		t.Errorf("the first page failing: got %v, listed %v, want a full failure", err, g.Listed())
 	}
 }
 

@@ -103,6 +103,8 @@ infraharvest discover azure --services=resource_group,virtual_network,subnet,net
 
 `subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one that comes back without them or with none, as some emulators answer, are they listed on their own.
 
+A page of `resource_group`'s list of the subscription that fails after the first fails the service in part: the resource groups listed before it are imported, and the failure is reported, so that the groups it left out aren't taken for deleted.
+
 ## Diagnostic settings
 
 `diagnostic_setting` imports diagnostic settings, which send a resource's logs and metrics to a Log Analytics workspace, a storage account, an event hub or a partner solution, as `azurerm_monitor_diagnostic_setting`, imported by `<target resource ID>|<name>`. Resource Graph doesn't index them, so each resource takes a request of its own: the service is opt-in, and `--services='*'` leaves it out. Name it with the services whose resources' settings you want:

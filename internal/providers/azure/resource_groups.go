@@ -4,7 +4,11 @@
 package azure
 
 import (
+	"fmt"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v4"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // ResourceGroupLister lists resource groups as azurerm_resource_group:
@@ -17,8 +21,10 @@ type ResourceGroupLister struct {
 
 // List lists the resource groups. A named group that can't be read
 // (it doesn't exist, say) is an error, since the user asked for it. When
-// listing the whole subscription only a failure on the first page is an
-// error; a later page that fails is logged and the groups read so far kept.
+// listing the whole subscription a page that fails before any group is
+// listed is an error; one that fails later keeps the groups listed before
+// it, and the listing fails in part (see harvest.Partial), so that the
+// groups it left out aren't taken for deleted.
 func (az *ResourceGroupLister) List() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, credential, options)
@@ -35,11 +41,11 @@ func (az *ResourceGroupLister) List() error {
 		}
 		groups = []*armresources.ResourceGroup{&got.ResourceGroup}
 	} else {
-		groups, err = listAllLenient(ctx, client.NewListPager(nil),
+		groups, err = listAll(ctx, client.NewListPager(nil),
 			func(p armresources.ResourceGroupsClientListResponse) []*armresources.ResourceGroup {
 				return p.Value
 			})
-		if err != nil {
+		if err != nil && len(groups) == 0 {
 			return err
 		}
 	}
@@ -48,6 +54,9 @@ func (az *ResourceGroupLister) List() error {
 			continue
 		}
 		az.recordTagged(*group.ID, *group.Name, "azurerm_resource_group", group.Tags)
+	}
+	if err != nil {
+		return harvest.Partial(fmt.Errorf("azurerm: resource_group: listed %d resource groups before a page of the list failed: %w", len(groups), err))
 	}
 	return nil
 }
