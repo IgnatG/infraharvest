@@ -8,6 +8,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // nondeterministic are functions whose results differ between runs.
@@ -37,12 +39,12 @@ func nondeterministicCalls(rel, content string) []string {
 	}
 	// A file that doesn't parse has nothing to scan, since validate (G2)
 	// reports it.
-	f, err := parseHCL(rel, []byte(content))
+	f, err := hclfile.Parse(rel, []byte(content))
 	if err != nil {
 		return nil
 	}
 	calls := map[string]bool{}
-	_ = hclsyntax.VisitAll(f.syntax, func(node hclsyntax.Node) hcl.Diagnostics {
+	_ = hclsyntax.VisitAll(f.Syntax, func(node hclsyntax.Node) hcl.Diagnostics {
 		if call, ok := node.(*hclsyntax.FunctionCallExpr); ok && nondeterministic[call.Name] {
 			calls[call.Name] = true
 		}

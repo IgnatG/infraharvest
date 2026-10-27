@@ -264,7 +264,7 @@ func setVar(t *testing.T, vars mergedVars, env, name, text string) string {
 	if want := envVarsPath(env); edit.File != want {
 		t.Fatalf("%s: edits %s, want %s", env, edit.File, want)
 	}
-	src := vars.own(env).src
+	src := vars.own(env).Src
 	return string(slices.Concat(src[:edit.Start], edit.Text, src[edit.End:]))
 }
 

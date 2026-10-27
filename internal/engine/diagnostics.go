@@ -17,6 +17,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // changeSummary counts the changes a plan has, and its imports: an edit
@@ -139,8 +141,8 @@ func formatDiagnostic(d tfjson.Diagnostic) string {
 // names. It returns the diagnostics it can't assign to exactly one resource
 // separately: they concern the whole directory, such as the provider
 // configuration.
-func byResource(diags []tfjson.Diagnostic, generated, imports *hclFile) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic) {
-	addresses := imports.importAddresses()
+func byResource(diags []tfjson.Diagnostic, generated, imports *hclfile.File) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic) {
+	addresses := imports.ImportAddresses()
 	assigned := map[string][]tfjson.Diagnostic{}
 	var unassigned []tfjson.Diagnostic
 	for _, d := range diags {
@@ -149,9 +151,9 @@ func byResource(diags []tfjson.Diagnostic, generated, imports *hclFile) (map[str
 		case d.Address != "":
 			addr = trimInstanceKey(d.Address)
 		case d.Range != nil && filepath.Base(d.Range.Filename) == GeneratedFileName:
-			addr = generated.resourceAt(d.Range.Start.Line)
+			addr = generated.ResourceAt(d.Range.Start.Line)
 		case d.Range != nil && filepath.Base(d.Range.Filename) == ImportsFileName:
-			addr = imports.importAt(d.Range.Start.Line)
+			addr = imports.ImportAt(d.Range.Start.Line)
 		default:
 			addr = onlyMentioned(d.Summary+" "+d.Detail, addresses)
 		}

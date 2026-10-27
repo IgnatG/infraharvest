@@ -36,11 +36,11 @@ func (m *stackMerge) mergeData() string {
 	byAddress := map[string][]*envResource{}
 	for e, root := range m.roots {
 		for _, b := range dataBlocksOf(root.data) {
-			if byAddress[b.address] == nil {
-				byAddress[b.address] = make([]*envResource, len(m.roots))
+			if byAddress[b.Address] == nil {
+				byAddress[b.Address] = make([]*envResource, len(m.roots))
 			}
-			typ, _, _ := strings.Cut(b.address, ".")
-			byAddress[b.address][e] = &envResource{env: e, block: b, resourceType: typ}
+			typ, _, _ := strings.Cut(b.Address, ".")
+			byAddress[b.Address][e] = &envResource{env: e, block: b, resourceType: typ}
 		}
 	}
 	gates := m.dataGates(byAddress)
@@ -72,7 +72,7 @@ func (m *stackMerge) dataGates(byAddress map[string][]*envResource) map[string]*
 			if member == nil {
 				continue
 			}
-			for _, address := range dataReferences(member.block.syntax.Body) {
+			for _, address := range dataReferences(member.block.Syntax.Body) {
 				resources[address] = append(resources[address], r)
 			}
 		}
@@ -82,9 +82,9 @@ func (m *stackMerge) dataGates(byAddress map[string][]*envResource) map[string]*
 			if member == nil {
 				continue
 			}
-			for _, address := range dataReferences(member.block.syntax.Body) {
-				if address != member.block.address {
-					data[address] = append(data[address], member.block.address)
+			for _, address := range dataReferences(member.block.Syntax.Body) {
+				if address != member.block.Address {
+					data[address] = append(data[address], member.block.Address)
 				}
 			}
 		}

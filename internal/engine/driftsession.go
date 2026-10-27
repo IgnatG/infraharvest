@@ -12,6 +12,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // driftSession is one check of a root for drift: the root in dir, the
@@ -27,7 +29,7 @@ type driftSession struct {
 	opts DriftOptions
 	// files are the root's configuration files, and backend the type of
 	// its backend (see rootBackend).
-	files   []*hclFile
+	files   []*hclfile.File
 	backend string
 	// imports are env's import IDs, by address (see MergedImportIDs).
 	imports map[string]string

@@ -12,12 +12,14 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // driftConfig is a root's configuration files, parsed, as resolve reads
 // them.
 type driftConfig struct {
-	files     map[string]*hclFile // by name, relative to the root
+	files     map[string]*hclfile.File // by name, relative to the root
 	blocks    map[string]driftBlock
 	locals    map[string]driftLocal
 	uses      map[string]int // how often each local is referred to
@@ -32,20 +34,20 @@ type driftConfig struct {
 
 type driftBlock struct {
 	file string
-	f    *hclFile
+	f    *hclfile.File
 	b    *hclsyntax.Block
 }
 
 type driftLocal struct {
 	file string
-	f    *hclFile
+	f    *hclfile.File
 	attr *hclsyntax.Attribute
 }
 
 // namedFile is a file of a driftConfig, with its name.
 type namedFile struct {
 	name string
-	f    *hclFile
+	f    *hclfile.File
 }
 
 // tfContents returns the contents of the .tf files of dir, by name,
@@ -93,7 +95,7 @@ func reparseDriftConfig(prev *driftConfig, contents map[string][]byte) (*driftCo
 			continue
 		}
 		if prev != nil {
-			if file, ok := prev.parsed[name]; ok && bytes.Equal(file.files[name].src, contents[name]) {
+			if file, ok := prev.parsed[name]; ok && bytes.Equal(file.files[name].Src, contents[name]) {
 				parsed[name] = file
 				continue
 			}
@@ -119,18 +121,18 @@ func reparseDriftConfig(prev *driftConfig, contents map[string][]byte) (*driftCo
 }
 
 func newDriftConfig() *driftConfig {
-	return &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
+	return &driftConfig{files: map[string]*hclfile.File{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
 }
 
 // parseDriftFile parses the root's file name, of content, alone.
 func parseDriftFile(name string, content []byte) (*driftConfig, error) {
-	f, err := parseHCL(name, content)
+	f, err := hclfile.Parse(name, content)
 	if err != nil {
 		return nil, err
 	}
 	cfg := newDriftConfig()
 	cfg.files[name] = f
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		switch {
 		case b.Type == "resource" && len(b.Labels) == 2:
 			cfg.blocks[b.Labels[0]+"."+b.Labels[1]] = driftBlock{file: name, f: f, b: b}
@@ -144,7 +146,7 @@ func parseDriftFile(name string, content []byte) (*driftConfig, error) {
 			cfg.calls[b.Labels[0]] = driftBlock{file: name, f: f, b: b}
 		}
 	}
-	for _, t := range allTraversals(f.syntax) {
+	for _, t := range allTraversals(f.Syntax) {
 		if t.RootName() != "local" || len(t) < 2 {
 			continue
 		}
@@ -152,7 +154,7 @@ func parseDriftFile(name string, content []byte) (*driftConfig, error) {
 			cfg.uses[step.Name]++
 		}
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		if b.Type == "variable" || b.Type == "output" {
 			continue
 		}
@@ -186,7 +188,7 @@ func (cfg *driftConfig) add(other *driftConfig) {
 // variableFile returns the file that declares v, or nil.
 func (cfg *driftConfig) variableFile(v *hclsyntax.Block) *namedFile {
 	for name, f := range cfg.files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b == v {
 				return &namedFile{name: name, f: f}
 			}

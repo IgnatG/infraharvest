@@ -17,6 +17,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // UnmergedBlock is a resource of a root environments share as a root of
@@ -88,12 +90,12 @@ func UnmergedBlocks(dir string, env UnmergeEnv, ids map[string]string) (map[stri
 	locals := map[string]hclsyntax.Expression{}
 	type found struct {
 		block *hclsyntax.Block
-		file  *hclFile
+		file  *hclfile.File
 	}
 	resources := map[string]found{}
 	var data []*hclsyntax.Block
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			switch {
 			case b.Type == "variable" && len(b.Labels) == 1:
 				if d, ok := b.Body.Attributes["default"]; ok {
@@ -149,13 +151,13 @@ func UnmergedBlocks(dir string, env UnmergeEnv, ids map[string]string) (map[stri
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "resource %q %q {\n", traversal.RootName(), label.Name)
-		if why := unmergedBody(&b, r.block.Body, r.file.src, ctx, locals, true); why != "" {
+		if why := unmergedBody(&b, r.block.Body, r.file.Src, ctx, locals, true); why != "" {
 			return nil, address + ": " + why, nil
 		}
 		b.WriteString("}\n")
 		blocks[address] = UnmergedBlock{
 			Address: block,
-			File:    filepath.Base(r.file.path),
+			File:    filepath.Base(r.file.Path),
 			Text:    string(hclwrite.Format([]byte(b.String()))),
 			Import:  string(hclwrite.Format([]byte(fmt.Sprintf("import {\nto = %s\nid = %s\n}\n", block, strconv.Quote(ids[address]))))),
 		}

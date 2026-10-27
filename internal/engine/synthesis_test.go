@@ -17,6 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // testAdapter maps a bucket and its versioning onto a made-up module, and
@@ -241,12 +242,12 @@ func callsTerraform(t *testing.T, dir string, planFor func(calls map[string]bool
 	t.Helper()
 	tf := &fakeTerraform{dir: dir}
 	tf.onPlan = func() {
-		f, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+		f, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 		if err != nil {
 			t.Fatal(err)
 		}
 		calls := map[string]bool{}
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "module" && len(b.Labels) == 1 {
 				calls[b.Labels[0]] = true
 			}
@@ -488,14 +489,14 @@ func TestSpliceTraversal(t *testing.T) {
   }
 }
 `)
-	f, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	f, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range f.resources() {
-		replaceReferences(r.write.Body(), []string{"google_compute_subnetwork", "app", "self_link"}, replacement)
+	for _, r := range f.Resources() {
+		replaceReferences(r.Write.Body(), []string{"google_compute_subnetwork", "app", "self_link"}, replacement)
 	}
-	got := string(hclwrite.Format(f.edit().Bytes()))
+	got := string(hclwrite.Format(f.Edit().Bytes()))
 	for _, want := range []string{
 		`subnetwork = module.net.subnets["us-central1/app"].self_link`,
 		`link = "${module.net.subnets["us-central1/app"].self_link}/x"`,
@@ -619,8 +620,8 @@ variable "name" {
 		dir := t.TempDir()
 		f := writeConfig(t, dir, GeneratedFileName, generated)
 		var imports []Import
-		for _, r := range f.resources() {
-			typ, name, _ := strings.Cut(r.address, ".")
+		for _, r := range f.Resources() {
+			typ, name, _ := strings.Cut(r.Address, ".")
 			imports = append(imports, Import{Type: typ, Name: name, ID: name, Provider: "google-beta"})
 		}
 		content, err := ImportsFile(imports)
@@ -946,7 +947,7 @@ resource "aws_s3_bucket_versioning" "other" {
   provider = aws.other
 }
 `)
-	r := f.resources()
+	r := f.Resources()
 	bucket, versioning := resourceOf(r[0]), resourceOf(r[1])
 	c := adapters.Cluster{Anchor: bucket, Members: []adapters.Resource{versioning}}
 	provider, setting := sharedProvider(c)
@@ -996,12 +997,12 @@ resource "aws_s3_bucket_policy" "logs" {
   policy = aws_s3_bucket_versioning.logs.id
 }
 `)
-	resources := f.resources()
+	resources := f.Resources()
 	refs := indexReferences(resources)
 
 	var referring []string
 	for _, r := range refs.referrers("aws_s3_bucket.logs", resources) {
-		referring = append(referring, r.address)
+		referring = append(referring, r.Address)
 	}
 	if got, want := strings.Join(referring, ","), "aws_s3_bucket_versioning.logs,aws_s3_bucket_policy.logs"; got != want {
 		t.Errorf("referrers: got %s, want %s", got, want)

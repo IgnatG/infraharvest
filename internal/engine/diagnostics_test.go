@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 func TestParseUIDiagnostics(t *testing.T) {
@@ -51,13 +53,13 @@ func TestFormatDiagnostic(t *testing.T) {
 	}
 }
 
-func writeConfig(t *testing.T, dir, name, content string) *hclFile {
+func writeConfig(t *testing.T, dir, name, content string) *hclfile.File {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := loadHCL(path)
+	f, err := hclfile.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}

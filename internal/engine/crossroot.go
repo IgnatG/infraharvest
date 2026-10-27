@@ -16,6 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // RootResource is a resource another root of the same import manages.
@@ -209,12 +210,12 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		return a.Type+"\x00"+a.Name+"\x00"+a.ID < b.Type+"\x00"+b.Name+"\x00"+b.ID
 	})
 	values := newRootValues(others, arns)
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
 	path := filepath.Join(dir, VariablesFileName)
-	variables, err := loadOptionalHCL(path)
+	variables, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +226,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		}
 	}
 	if variables != nil {
-		for _, b := range variables.syntax.Blocks {
+		for _, b := range variables.Syntax.Blocks {
 			if b.Type == "variable" && len(b.Labels) == 1 {
 				used[b.Labels[0]] = true
 			}
@@ -267,8 +268,8 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		return nil, err
 	}
 	edited := map[string]bool{}
-	for _, r := range generated.resources() {
-		level := skip[r.address]
+	for _, r := range generated.Resources() {
+		level := skip[r.Address]
 		if level >= 2 {
 			continue
 		}
@@ -283,14 +284,14 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 			}
 			return hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: variable(v, value)}}), true
 		}
-		if eachLiteral(r.syntax.Body, r.write.Body(), "", generated.src, replace) {
-			edited[r.address] = true
+		if eachLiteral(r.Syntax.Body, r.Write.Body(), "", generated.Src, replace) {
+			edited[r.Address] = true
 		}
 	}
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
 	if err := data.write(); err != nil {

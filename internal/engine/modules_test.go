@@ -12,6 +12,8 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 const twoBuckets = `resource "aws_iam_policy" "read" {
@@ -68,8 +70,8 @@ func moduleRoot(t *testing.T, generated string) (string, string) {
 	}
 	f := writeConfig(t, dir, GeneratedFileName, generated)
 	var imports []Import
-	for _, r := range f.resources() {
-		typ, name, _ := strings.Cut(r.address, ".")
+	for _, r := range f.Resources() {
+		typ, name, _ := strings.Cut(r.Address, ".")
 		imports = append(imports, Import{Type: typ, Name: name, ID: name})
 	}
 	content, err := ImportsFile(imports)
@@ -235,11 +237,11 @@ resource "aws_security_group_rule" "ab" {
 
 	for i := 0; i < 20; i++ {
 		clusters := findClusters(f)
-		if len(clusters) != 1 || clusters[0].members[0].address != "aws_security_group.a" || len(clusters[0].members) != 2 {
+		if len(clusters) != 1 || clusters[0].members[0].Address != "aws_security_group.a" || len(clusters[0].members) != 2 {
 			t.Fatalf("want the rule clustered with aws_security_group.a, got %+v", clusters)
 		}
 	}
-	if got := referencedAddresses(f.resources()[2].syntax.Body); strings.Join(got, ",") != "aws_security_group.a,aws_security_group.b" {
+	if got := referencedAddresses(f.Resources()[2].Syntax.Body); strings.Join(got, ",") != "aws_security_group.a,aws_security_group.b" {
 		t.Errorf("referencedAddresses: got %v", got)
 	}
 }
@@ -411,7 +413,7 @@ func TestModularizeLaysOutTheModule(t *testing.T) {
 	}
 
 	main := readFile(t, created[0], "main.tf")
-	if out, ok := layout([]byte(main)); !ok || string(out) != main {
+	if out, ok := hclfile.Layout([]byte(main)); !ok || string(out) != main {
 		t.Errorf("main.tf isn't laid out:\n%s", main)
 	}
 }

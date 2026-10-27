@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Rejection is a resource Generate left out because Terraform couldn't
@@ -28,23 +30,23 @@ type Rejection struct {
 // reject moves the resources errs names out of imports.tf and generated.tf,
 // and appends them, with their errors, to out.
 func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) ([]Rejection, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
 	resources := map[string]*hclwrite.Block{}
-	for _, r := range generated.resources() {
-		resources[r.address] = r.write
+	for _, r := range generated.Resources() {
+		resources[r.Address] = r.Write
 	}
 	importBlocks := map[string]*hclwrite.Block{}
 	ids := map[string]string{}
-	for _, imp := range imports.imports() {
-		importBlocks[imp.to] = imp.write
-		ids[imp.to] = imp.id
+	for _, imp := range imports.Imports() {
+		importBlocks[imp.To] = imp.Write
+		ids[imp.To] = imp.ID
 	}
 
 	addresses := make([]string, 0, len(errs))
@@ -74,7 +76,7 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 			fmt.Fprintf(out, "# Before moving it back, declare the sensitive variables it reads in %s: %s.\n", VariablesFileName, strings.Join(vars, ", "))
 		}
 		for _, moved := range []struct {
-			file  *hclFile
+			file  *hclfile.File
 			block *hclwrite.Block
 		}{{imports, importBlocks[addr]}, {generated, resources[addr]}} {
 			if moved.block == nil {
@@ -83,13 +85,13 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 			out.WriteString("\n")
 			out.Write(bytes.TrimSpace(hclwrite.Format(moved.block.BuildTokens(nil).Bytes())))
 			out.WriteString("\n")
-			moved.file.edit().Body().RemoveBlock(moved.block)
+			moved.file.Edit().Body().RemoveBlock(moved.block)
 		}
 	}
-	if err := imports.save(); err != nil {
+	if err := imports.Save(); err != nil {
 		return nil, err
 	}
-	return rejections, generated.save()
+	return rejections, generated.Save()
 }
 
 // diagnosticMessage renders d as "summary: detail" on one line.
@@ -103,22 +105,22 @@ func diagnosticMessage(d tfjson.Diagnostic) string {
 // unconfigured returns, as errors by address, the import blocks in dir
 // that import into a resource generated.tf has no block for.
 func unconfigured(dir string) (map[string][]tfjson.Diagnostic, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
 	configured := map[string]bool{}
-	for _, r := range generated.resources() {
-		configured[r.address] = true
+	for _, r := range generated.Resources() {
+		configured[r.Address] = true
 	}
 	missing := map[string][]tfjson.Diagnostic{}
-	for _, imp := range imports.imports() {
-		if !configured[imp.to] {
-			missing[imp.to] = []tfjson.Diagnostic{{
+	for _, imp := range imports.Imports() {
+		if !configured[imp.To] {
+			missing[imp.To] = []tfjson.Diagnostic{{
 				Severity: tfjson.DiagnosticSeverityError,
 				Summary:  "Terraform generated no configuration",
 				Detail:   "its import found no such resource: it may have been deleted, or be being deleted",

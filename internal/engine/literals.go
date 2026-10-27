@@ -14,6 +14,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // typeLiterals writes the literal values of the .tf files of dir as the
@@ -34,13 +36,13 @@ func typeLiterals(dir string, schemas *tfjson.ProviderSchemas) error {
 		return err
 	}
 	for _, path := range paths {
-		f, err := loadHCL(path)
+		f, err := hclfile.Load(path)
 		if err != nil {
 			return err
 		}
 		changed := false
-		blocks := f.edit().Body().Blocks()
-		for i, b := range f.syntax.Blocks {
+		blocks := f.Edit().Body().Blocks()
+		for i, b := range f.Syntax.Blocks {
 			if i >= len(blocks) {
 				continue
 			}
@@ -64,7 +66,7 @@ func typeLiterals(dir string, schemas *tfjson.ProviderSchemas) error {
 			}
 		}
 		if changed {
-			if err := f.save(); err != nil {
+			if err := f.Save(); err != nil {
 				return err
 			}
 		}
@@ -186,7 +188,7 @@ func moduleVariableTypes(dir string) (map[string]map[string]cty.Type, error) {
 		}
 		variables := map[string]cty.Type{}
 		for _, f := range files {
-			for _, b := range f.syntax.Blocks {
+			for _, b := range f.Syntax.Blocks {
 				attr, ok := b.Body.Attributes["type"]
 				if b.Type != "variable" || len(b.Labels) != 1 || !ok {
 					continue
@@ -210,7 +212,7 @@ func typeLiteralsOf(ctx context.Context, tf Terraform, dir string) error {
 	}
 	literals := false
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if (b.Type == "resource" || b.Type == "data" || b.Type == "module") && hasConstants(b.Body) {
 				literals = true
 			}

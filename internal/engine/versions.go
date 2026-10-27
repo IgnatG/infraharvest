@@ -20,6 +20,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // registryTimeout bounds one registry request; registryBodyLimit bounds
@@ -299,11 +301,11 @@ func fetchVersions(ctx context.Context, client *http.Client, url string) (conten
 // (host/namespace/type) that a dependency lock file records, or "" if it
 // records none.
 func LockedVersion(lock []byte, source string) string {
-	f, err := parseHCL(LockFileName, lock)
+	f, err := hclfile.Parse(LockFileName, lock)
 	if err != nil {
 		return ""
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 || !strings.EqualFold(b.Labels[0], source) {
 			continue
 		}
@@ -323,12 +325,12 @@ func LockedVersion(lock []byte, source string) string {
 // meet. Requirements that aren't literal, and providers lock doesn't
 // record, stay as they are.
 func pinnedToLock(versions, lock []byte) ([]byte, error) {
-	f, diags := parseFile(VersionsFileName, versions)
+	f, diags := hclfile.ParseDiagnostics(VersionsFileName, versions)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 	changed := false
-	for _, tb := range f.edit().Body().Blocks() {
+	for _, tb := range f.Edit().Body().Blocks() {
 		if tb.Type() != "terraform" {
 			continue
 		}
@@ -363,7 +365,7 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 	if !changed {
 		return versions, nil
 	}
-	return hclwrite.Format(f.edit().Bytes()), nil
+	return hclwrite.Format(f.Edit().Bytes()), nil
 }
 
 // lockedVersionOf is LockedVersion for a provider source as

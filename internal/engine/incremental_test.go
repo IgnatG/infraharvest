@@ -13,8 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // existingRoot writes a root an earlier import generated, and applied: its
@@ -904,8 +906,8 @@ data "aws_ami" "f" {
 }
 `)
 	keys := map[string]string{}
-	for _, b := range f.syntax.Blocks {
-		keys[b.Labels[len(b.Labels)-1]] = declarationKey(b, f.src)
+	for _, b := range f.Syntax.Blocks {
+		keys[b.Labels[len(b.Labels)-1]] = declarationKey(b, f.Src)
 	}
 	if keys["a"] != keys["b"] || keys["a"] == "" {
 		t.Errorf("the same lookup, in another order: %q, %q", keys["a"], keys["b"])
@@ -985,7 +987,7 @@ removed {
 }
 `)
 	want := Names{"aws_s3_bucket.logs": true, "aws_subnet.a": true, "module.old": true}
-	if got := rootNames([]*hclFile{f}); !reflect.DeepEqual(got, want) {
+	if got := rootNames([]*hclfile.File{f}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

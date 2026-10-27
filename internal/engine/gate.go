@@ -104,7 +104,7 @@ func countImportBlocks(dir string) (int, error) {
 	}
 	n := 0
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "import" {
 				n++
 			}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // The subscription of the role assignment tests, and its custom role.
@@ -141,7 +143,7 @@ resource "azurerm_key_vault_access_policy" "other" {
 		t.Fatalf("want notes, got %v, %v", noted, err)
 	}
 	got := readFile(t, dir, GeneratedFileName)
-	if _, err := loadHCL(path); err != nil {
+	if _, err := hclfile.Load(path); err != nil {
 		t.Fatalf("the noted file doesn't parse: %v\n%s", err, got)
 	}
 	for _, want := range []string{

@@ -546,7 +546,7 @@ func (g *mergeGate) addresses(m *stackMerge, env int) map[string]string {
 	out := map[string]string{}
 	for _, r := range m.resources {
 		if member := r.members[env]; member != nil {
-			out[member.block.address] = addressText(r.instance())
+			out[member.block.Address] = addressText(r.instance())
 		}
 	}
 	return out
@@ -596,7 +596,7 @@ func (g *mergeGate) residueFor(m *stackMerge, envs []MergedEnvironment) (map[str
 				reason := fmt.Sprintf("the merged root's plan in %s would %s it", env.Env, strings.Join(change.Actions, " and "))
 				for e, member := range r.members {
 					if member != nil {
-						split[mergeKey(e, member.block.address)] = reason
+						split[mergeKey(e, member.block.Address)] = reason
 					}
 				}
 			}
@@ -623,7 +623,7 @@ func (g *mergeGate) result(m *stackMerge, w *rootWriter, files map[string][]byte
 		case r.residue != "":
 			for e, member := range r.members {
 				if member != nil {
-					result.Residue = append(result.Residue, MergeResidue{Env: m.envs[e], Address: member.block.address, MergedAddress: addressText(r.instance()), Reason: r.residue})
+					result.Residue = append(result.Residue, MergeResidue{Env: m.envs[e], Address: member.block.Address, MergedAddress: addressText(r.instance()), Reason: r.residue})
 				}
 			}
 		case r.coverage() > 1:

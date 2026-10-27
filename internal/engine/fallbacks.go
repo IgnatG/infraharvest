@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -61,28 +62,28 @@ func retryFallbacks(ctx context.Context, tf Terraform, dir string, imports []Imp
 	}
 	slices.Sort(retried)
 	generatedPath := filepath.Join(dir, GeneratedFileName)
-	generated, err := loadHCL(generatedPath)
+	generated, err := hclfile.Load(generatedPath)
 	if err != nil {
 		return nil, err
 	}
-	importsFile, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	importsFile, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range generated.resources() {
-		if slices.Contains(retried, r.address) {
-			generated.edit().Body().RemoveBlock(r.write)
+	for _, r := range generated.Resources() {
+		if slices.Contains(retried, r.Address) {
+			generated.Edit().Body().RemoveBlock(r.Write)
 		}
 	}
-	for _, imp := range importsFile.imports() {
-		if i, ok := byAddress[imp.to]; ok && slices.Contains(retried, imp.to) {
-			imp.write.Body().SetAttributeValue("id", cty.StringVal(imports[i].Fallback))
+	for _, imp := range importsFile.Imports() {
+		if i, ok := byAddress[imp.To]; ok && slices.Contains(retried, imp.To) {
+			imp.Write.Body().SetAttributeValue("id", cty.StringVal(imports[i].Fallback))
 		}
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
-	if err := importsFile.save(); err != nil {
+	if err := importsFile.Save(); err != nil {
 		return nil, err
 	}
 	for _, address := range retried {

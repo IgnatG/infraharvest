@@ -18,6 +18,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // MergeRoot is one environment's finished root of a stack, which
@@ -90,9 +92,9 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 	var blocks, data strings.Builder
 	var providerBlock *hclsyntax.Block
 	for _, f := range files {
-		name := filepath.Base(f.path)
-		for _, b := range f.syntax.Blocks {
-			text := string(b.Range().SliceBytes(f.src)) + "\n\n"
+		name := filepath.Base(f.Path)
+		for _, b := range f.Syntax.Blocks {
+			text := string(b.Range().SliceBytes(f.Src)) + "\n\n"
 			switch b.Type {
 			case "resource", "module":
 				address := strings.Join(append([]string{b.Type}, b.Labels...), ".")
@@ -150,7 +152,7 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 		}
 		root.backend = nil
 	}
-	if root.variables, err = loadOptionalHCL(filepath.Join(r.Dir, VariablesFileName)); err != nil {
+	if root.variables, err = hclfile.LoadOptional(filepath.Join(r.Dir, VariablesFileName)); err != nil {
 		return root, "", err
 	}
 	return root, "", nil
@@ -227,12 +229,12 @@ func localValues(locals map[string]hclsyntax.Expression) map[string]cty.Value {
 // local of values made its value, a merge of objects that leaves made
 // the object it gives (see mergedObject), and the sources of local
 // module calls made relative to target.
-func inlinedFile(name, src string, values map[string]cty.Value, r MergeRoot, target string) (*hclFile, error) {
-	parsed, diags := parseFile(name, []byte(src))
+func inlinedFile(name, src string, values map[string]cty.Value, r MergeRoot, target string) (*hclfile.File, error) {
+	parsed, diags := hclfile.ParseDiagnostics(name, []byte(src))
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("%s: %s: %w", r.Dir, name, diags)
 	}
-	f := parsed.edit()
+	f := parsed.Edit()
 	var inline func(body *hclwrite.Body)
 	inline = func(body *hclwrite.Body) {
 		for attrName, attr := range body.Attributes() {
@@ -277,7 +279,7 @@ func inlinedFile(name, src string, values map[string]cty.Value, r MergeRoot, tar
 		}
 		b.Body().SetAttributeValue("source", cty.StringVal(rel))
 	}
-	return parseHCL(name, hclwrite.Format(f.Bytes()))
+	return hclfile.Parse(name, hclwrite.Format(f.Bytes()))
 }
 
 // isLocalSource reports whether a module source is a directory's.
@@ -381,18 +383,18 @@ func defaultTagsIn(b *hclsyntax.Block, values map[string]cty.Value) (tags map[st
 
 // stackBlocks lists the resource blocks and module calls of f, as merging
 // matches them: a module call's address is module.<name>.
-func stackBlocks(f *hclFile) []resourceBlock {
-	var out []resourceBlock
-	blocks := f.edit().Body().Blocks()
-	for i, b := range f.syntax.Blocks {
+func stackBlocks(f *hclfile.File) []hclfile.Resource {
+	var out []hclfile.Resource
+	blocks := f.Edit().Body().Blocks()
+	for i, b := range f.Syntax.Blocks {
 		if i >= len(blocks) {
 			break
 		}
 		switch {
 		case b.Type == "resource" && len(b.Labels) == 2:
-			out = append(out, resourceBlock{address: b.Labels[0] + "." + b.Labels[1], write: blocks[i], syntax: b})
+			out = append(out, hclfile.Resource{Address: b.Labels[0] + "." + b.Labels[1], Write: blocks[i], Syntax: b})
 		case b.Type == "module" && len(b.Labels) == 1:
-			out = append(out, resourceBlock{address: "module." + b.Labels[0], write: blocks[i], syntax: b})
+			out = append(out, hclfile.Resource{Address: "module." + b.Labels[0], Write: blocks[i], Syntax: b})
 		}
 	}
 	return out
@@ -400,17 +402,17 @@ func stackBlocks(f *hclFile) []resourceBlock {
 
 // dataBlocksOf lists the data blocks of f, each with its address,
 // type.name.
-func dataBlocksOf(f *hclFile) []resourceBlock {
+func dataBlocksOf(f *hclfile.File) []hclfile.Resource {
 	if f == nil {
 		return nil
 	}
-	var out []resourceBlock
-	blocks := f.edit().Body().Blocks()
-	for i, b := range f.syntax.Blocks {
+	var out []hclfile.Resource
+	blocks := f.Edit().Body().Blocks()
+	for i, b := range f.Syntax.Blocks {
 		if i < len(blocks) && b.Type == "data" && len(b.Labels) == 2 {
-			out = append(out, resourceBlock{address: b.Labels[0] + "." + b.Labels[1], write: blocks[i], syntax: b})
+			out = append(out, hclfile.Resource{Address: b.Labels[0] + "." + b.Labels[1], Write: blocks[i], Syntax: b})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].address < out[j].address })
+	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
 	return out
 }

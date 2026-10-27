@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Accepting a change to a credential, whatever key it goes by and whether
@@ -41,7 +43,7 @@ func FuzzDriftNeverWritesSecrets(f *testing.F) {
   }
 }
 `
-			if _, err := parseHCL("main.tf", []byte(src)); err != nil {
+			if _, err := hclfile.Parse("main.tf", []byte(src)); err != nil {
 				t.Skipf("%q doesn't make valid HCL: %v", key, err)
 			}
 			for _, c := range []*DriftChange{

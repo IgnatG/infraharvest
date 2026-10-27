@@ -21,6 +21,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // writeRootDir writes the files of a finished AWS root of environment
@@ -205,10 +207,10 @@ func TestReadEnvRoot(t *testing.T) {
 		t.Errorf("default tags: %v", root.defaultTags)
 	}
 	// The local is put in: merging compares values.
-	if got := string(root.file.edit().Bytes()); !strings.Contains(got, `name                       = "shop-prd-orders"`) {
+	if got := string(root.file.Edit().Bytes()); !strings.Contains(got, `name                       = "shop-prd-orders"`) {
 		t.Errorf("the queue's name isn't the local's value:\n%s", got)
 	}
-	if blocks := dataBlocksOf(root.data); len(blocks) != 1 || blocks[0].address != "aws_vpc.shared" {
+	if blocks := dataBlocksOf(root.data); len(blocks) != 1 || blocks[0].Address != "aws_vpc.shared" {
 		t.Errorf("data sources: %+v", blocks)
 	}
 	if string(root.backend) != "" {
@@ -248,7 +250,7 @@ func TestReadEnvRootModuleSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(root.file.edit().Bytes()); !strings.Contains(got, `"../../modules/sqs_queue_0123abcd"`) {
+	if got := string(root.file.Edit().Bytes()); !strings.Contains(got, `"../../modules/sqs_queue_0123abcd"`) {
 		t.Errorf("the module's source isn't relative to the merged root:\n%s", got)
 	}
 }
@@ -571,7 +573,7 @@ func TestMergeRootsRefusesDataOfOneEnvironment(t *testing.T) {
 
 func TestReplaceLocals(t *testing.T) {
 	t.Parallel()
-	tokens := parseExpr(`merge(local.tags, { Name = local.name }, local.other)`)
+	tokens := hclfile.ParseExpr(`merge(local.tags, { Name = local.name }, local.other)`)
 	got := string(replaceLocals(tokens, map[string]cty.Value{"tags": cty.MapVal(map[string]cty.Value{"a": cty.StringVal("b")}), "name": cty.StringVal("x")}).Bytes())
 	if !strings.Contains(got, `"x"`) || !strings.Contains(got, "local.other") || strings.Contains(got, "local.tags") {
 		t.Errorf("got %s", got)
@@ -582,7 +584,7 @@ func TestReplaceLocals(t *testing.T) {
 // literal's source, does.
 func sameLiteral(tokens hclwrite.Tokens, want string) bool {
 	got, ok := literalValue(tokens)
-	value, wantOK := literalValue(parseExpr(want))
+	value, wantOK := literalValue(hclfile.ParseExpr(want))
 	return ok && wantOK && got.Equals(value).True()
 }
 
@@ -597,7 +599,7 @@ func TestMergedObject(t *testing.T) {
 		{`concat(["a"], ["b"])`, ""},
 		{`{ env = "dev" }`, ""},
 	} {
-		got, ok := mergedObject(parseExpr(tc.in))
+		got, ok := mergedObject(hclfile.ParseExpr(tc.in))
 		switch {
 		case tc.want == "" && ok:
 			t.Errorf("%s: folded into %s", tc.in, flatExpr(got))
@@ -714,7 +716,7 @@ func TestMergeStackIsolated(t *testing.T) {
 	for _, r := range m.resources {
 		for e, member := range r.members {
 			if member != nil {
-				addresses[m.envs[e]+" "+member.block.address] = r.address() + " " + r.residue
+				addresses[m.envs[e]+" "+member.block.Address] = r.address() + " " + r.residue
 			}
 		}
 	}
@@ -730,7 +732,7 @@ func TestMergeStackIsolated(t *testing.T) {
 	// Kept apart with the label an earlier merge gave it, it keeps it.
 	m = mergeStackWith("aws", mergeProfiles["aws"], []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}, labels: map[string]string{mergeKey(1, "aws_sqs_queue.audit"): "shop_audit"}})
 	for _, r := range m.resources {
-		if r.members[1] != nil && r.members[1].block.address == "aws_sqs_queue.audit" && r.label != "shop_audit" {
+		if r.members[1] != nil && r.members[1].block.Address == "aws_sqs_queue.audit" && r.label != "shop_audit" {
 			t.Errorf("prod's new queue, labelled: %s", r.address())
 		}
 	}

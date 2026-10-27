@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // walkOutput calls visit with each file Generate wrote into dir, by path
@@ -86,11 +88,11 @@ func calledModules(dir string) ([]string, error) {
 			if err != nil {
 				return err
 			}
-			f, err := parseHCL(path, content)
+			f, err := hclfile.Parse(path, content)
 			if err != nil {
 				continue
 			}
-			for _, b := range f.syntax.Blocks {
+			for _, b := range f.Syntax.Blocks {
 				m := localModuleDir(d, b)
 				if m == "" || seen[m] {
 					continue

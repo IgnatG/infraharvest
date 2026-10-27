@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // NewRunner returns a Terraform runner for a directory, such as the
@@ -90,12 +92,12 @@ func verifyCopy(dir string) (string, func(), error) {
 // formatted, which it stays. It returns src as it is where it has none,
 // or doesn't parse.
 func dropBackend(src []byte) []byte {
-	f, err := parseHCL("", src)
+	f, err := hclfile.Parse("", src)
 	if err != nil {
 		return src
 	}
 	var cuts [][2]int
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		if b.Type != "terraform" {
 			continue
 		}
@@ -105,7 +107,7 @@ func dropBackend(src []byte) []byte {
 			}
 			rng := inner.Range()
 			start, end := rng.Start.Byte, rng.End.Byte
-			if ls, le := lineStart(src, start), lineEnd(src, end); len(bytes.TrimSpace(src[ls:start])) == 0 && len(bytes.TrimSpace(src[end:le])) == 0 {
+			if ls, le := hclfile.LineStart(src, start), hclfile.LineEnd(src, end); len(bytes.TrimSpace(src[ls:start])) == 0 && len(bytes.TrimSpace(src[end:le])) == 0 {
 				start, end = ls, le
 			}
 			cuts = append(cuts, [2]int{start, end})

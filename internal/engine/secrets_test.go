@@ -82,10 +82,10 @@ func TestSecretsToVariables(t *testing.T) {
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("got %q, want %q", names, want)
 	}
-	if err := f.save(); err != nil {
+	if err := f.Save(); err != nil {
 		t.Fatal(err)
 	}
-	got := readFile(t, filepath.Dir(f.path), GeneratedFileName)
+	got := readFile(t, filepath.Dir(f.Path), GeneratedFileName)
 	for _, line := range []string{
 		"password   = var.aws_db_instance_app_main_password # sensitive",
 		"secret = var.aws_db_instance_app_main_replica_1_secret # sensitive",

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // omitInherited leaves out of the resources in generated.tf the arguments
@@ -26,18 +28,18 @@ func omitInherited(ctx context.Context, tf Terraform, dir string, names []string
 	if err != nil || len(defaults) == 0 {
 		return false, err
 	}
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
 	type candidate struct {
-		r    resourceBlock
+		r    hclfile.Resource
 		name string
 	}
 	var candidates []candidate
-	for _, r := range generated.resources() {
+	for _, r := range generated.Resources() {
 		for name, value := range defaults[resourceProvider(r)] {
-			if attr, ok := r.syntax.Body.Attributes[name]; ok {
+			if attr, ok := r.Syntax.Body.Attributes[name]; ok {
 				if v, ok := constantString(attr.Expr); ok && v == value {
 					candidates = append(candidates, candidate{r, name})
 				}
@@ -53,24 +55,24 @@ func omitInherited(ctx context.Context, tf Terraform, dir string, names []string
 	}
 	changed := false
 	for _, c := range candidates {
-		s := schemaAttribute(schemas, AddressType(c.r.address), []string{c.name})
+		s := schemaAttribute(schemas, AddressType(c.r.Address), []string{c.name})
 		if s == nil || !s.Optional || !s.Computed || s.Required {
 			continue
 		}
-		c.r.write.Body().RemoveAttribute(c.name)
+		c.r.Write.Body().RemoveAttribute(c.name)
 		changed = true
 	}
 	if !changed {
 		return false, nil
 	}
-	return true, generated.save()
+	return true, generated.Save()
 }
 
 // providerValues returns, by provider name, the arguments of names that
 // the provider blocks in providers.tf set to a string, but for aliased
 // blocks.
 func providerValues(dir string, names []string) (map[string]map[string]string, error) {
-	providers, err := loadHCL(filepath.Join(dir, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(dir, ProvidersFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -78,7 +80,7 @@ func providerValues(dir string, names []string) (map[string]map[string]string, e
 		return nil, err
 	}
 	values := map[string]map[string]string{}
-	for _, b := range providers.syntax.Blocks {
+	for _, b := range providers.Syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 {
 			continue
 		}
@@ -104,14 +106,14 @@ func providerValues(dir string, names []string) (map[string]map[string]string, e
 // resourceProvider returns the name of the provider block that configures
 // r: the one its provider argument names, or the one its type starts with,
 // as Terraform finds it; "" for an aliased one.
-func resourceProvider(r resourceBlock) string {
-	if attr, ok := r.syntax.Body.Attributes["provider"]; ok {
+func resourceProvider(r hclfile.Resource) string {
+	if attr, ok := r.Syntax.Body.Attributes["provider"]; ok {
 		traversal, diags := hcl.AbsTraversalForExpr(attr.Expr)
 		if diags.HasErrors() || len(traversal) != 1 {
 			return ""
 		}
 		return traversal.RootName()
 	}
-	provider, _, _ := strings.Cut(AddressType(r.address), "_")
+	provider, _, _ := strings.Cut(AddressType(r.Address), "_")
 	return provider
 }

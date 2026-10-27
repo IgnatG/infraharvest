@@ -21,6 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
@@ -346,10 +347,10 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 // rootBackend returns the type of the backend the configuration files
 // configure, local if none, or an UnsupportedBackendError for one other
 // than local and backends.
-func rootBackend(files []*hclFile, backends []string) (string, error) {
+func rootBackend(files []*hclfile.File, backends []string) (string, error) {
 	backend := "local"
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "terraform" {
 				continue
 			}
@@ -438,13 +439,13 @@ func stageDrift(dir, staging string, state []byte) error {
 // blocks, and with local module sources relative to staging, or calling
 // copies in it of the generated modules (see stageModule).
 func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
-	f, err := parseHCL(path, content)
+	f, err := hclfile.Parse(path, content)
 	if err != nil {
 		return nil, err
 	}
-	blocks := f.edit().Body().Blocks()
+	blocks := f.Edit().Body().Blocks()
 	changed := false
-	for i, b := range f.syntax.Blocks {
+	for i, b := range f.Syntax.Blocks {
 		if i >= len(blocks) {
 			break
 		}
@@ -489,7 +490,7 @@ func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 	if !changed {
 		return content, nil
 	}
-	return f.edit().Bytes(), nil
+	return f.Edit().Bytes(), nil
 }
 
 // stateAddresses returns the addresses of the managed resources in state.
@@ -519,10 +520,10 @@ func stateAddresses(state *tfjson.State) map[string]bool {
 // notApplied returns the addresses the import blocks of files import
 // into that inState doesn't have, sorted; those with for_each are left
 // out, as their addresses are known only once planned.
-func notApplied(files []*hclFile, inState map[string]bool) []string {
+func notApplied(files []*hclfile.File, inState map[string]bool) []string {
 	var targets []string
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "import" {
 				continue
 			}
@@ -534,7 +535,7 @@ func notApplied(files []*hclFile, inState map[string]bool) []string {
 				continue
 			}
 			rng := to.Expr.Range()
-			address := strings.Join(strings.Fields(string(f.src[rng.Start.Byte:rng.End.Byte])), "")
+			address := strings.Join(strings.Fields(string(f.Src[rng.Start.Byte:rng.End.Byte])), "")
 			if !inState[address] {
 				targets = append(targets, address)
 			}
@@ -549,12 +550,12 @@ func notApplied(files []*hclFile, inState map[string]bool) []string {
 // variable or a value in a tfvars file of dir that Terraform reads by
 // itself, or in varFiles, the other var files the plans read, and their
 // names, sorted: a plan with -input=false fails without them.
-func variablePlaceholders(dir string, files []*hclFile, varFiles ...string) ([]tfexec.PlanOption, []string) {
+func variablePlaceholders(dir string, files []*hclfile.File, varFiles ...string) ([]tfexec.PlanOption, []string) {
 	set := tfvarsNames(dir, varFiles...)
 	var names []string
 	types := map[string]string{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "variable" || len(b.Labels) != 1 {
 				continue
 			}
@@ -568,7 +569,7 @@ func variablePlaceholders(dir string, files []*hclFile, varFiles ...string) ([]t
 			names = append(names, name)
 			if t, ok := b.Body.Attributes["type"]; ok {
 				rng := t.Expr.Range()
-				types[name] = strings.TrimSpace(string(f.src[rng.Start.Byte:rng.End.Byte]))
+				types[name] = strings.TrimSpace(string(f.Src[rng.Start.Byte:rng.End.Byte]))
 			}
 		}
 	}
@@ -605,11 +606,11 @@ func tfvarsNames(dir string, more ...string) map[string]bool {
 	paths = append(paths, filepath.Join(dir, "terraform.tfvars"))
 	paths = append(paths, more...)
 	for _, path := range paths {
-		f, err := readVarFile(path)
+		f, err := hclfile.ReadVarFile(path)
 		if err != nil || f == nil {
 			continue
 		}
-		for name := range f.syntax.Attributes {
+		for name := range f.Syntax.Attributes {
 			names[name] = true
 		}
 	}

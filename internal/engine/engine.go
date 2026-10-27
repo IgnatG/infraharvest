@@ -28,6 +28,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -829,7 +830,7 @@ func (g *generation) finish(ctx context.Context) error {
 	if err := typeLiteralsOf(ctx, g.tf, dir); err != nil {
 		return err
 	}
-	if err := layoutDir(dir); err != nil {
+	if err := hclfile.LayoutDir(dir); err != nil {
 		return err
 	}
 	if result.Addresses, err = ImportedAddresses(dir); err != nil {
@@ -878,7 +879,7 @@ func prepareGenerated(path string, imports []Import, opts Options, hints schemaH
 		reason replanReason
 		edit   func() (bool, error)
 	}{
-		{replanSorted, func() (bool, error) { return sortResources(path) }},
+		{replanSorted, func() (bool, error) { return hclfile.SortResources(path) }},
 		{replanOmitted, func() (bool, error) { return OmitArguments(path, withResourceOmissions(opts.Omit, imports)) }},
 		{replanPlaceholders, func() (bool, error) { return setPlaceholders(path, opts.Placeholders) }},
 		{replanLifecycles, func() (bool, error) { return setLifecycles(path, opts.Lifecycles) }},
@@ -904,11 +905,11 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 	if len(diags) == 0 {
 		return nil, nil
 	}
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -943,7 +944,7 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // the configuration instead (see withoutUnset); vars are the options the
 // plan that tells them apart needs.
 func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]Secret, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -961,7 +962,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, li
 			return nil, err
 		}
 		if unset {
-			if err := generated.save(); err != nil {
+			if err := generated.Save(); err != nil {
 				return nil, err
 			}
 		}
@@ -974,7 +975,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, li
 	for i := len(literal); i < len(secrets); i++ {
 		secrets[i].ty = attributeType(schemas, strings.SplitN(secrets[i].Address, ".", 2)[0], secrets[i].schemaPath)
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
 	if err := writeVariables(dir, secrets, schemas); err != nil {

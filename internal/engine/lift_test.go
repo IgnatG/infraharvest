@@ -14,6 +14,8 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 const networkGenerated = `resource "aws_subnet" "a" {
@@ -252,7 +254,7 @@ func TestOmitArgumentsForEveryType(t *testing.T) {
   region   = "us-east-1"
   tags_all = {}
 }
-`).path
+`).Path
 
 	changed, err := OmitArguments(path, map[string][]string{"*": {"region", "tags_all"}})
 	if err != nil || !changed {
@@ -307,9 +309,9 @@ resource "google_storage_bucket" "b" {
 	}
 
 	// An incremental import reads them back.
-	files := []*hclFile{}
+	files := []*hclfile.File{}
 	for _, name := range []string{ProvidersFileName, LocalsFileName} {
-		f, err := loadHCL(filepath.Join(dir, name))
+		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -504,9 +506,9 @@ resource "aws_subnet" "c" {
 	}
 
 	// An incremental import reads the default configuration's tags.
-	files := []*hclFile{}
+	files := []*hclfile.File{}
 	for _, name := range []string{ProvidersFileName, LocalsFileName} {
-		f, err := loadHCL(filepath.Join(dir, name))
+		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -162,7 +162,7 @@ func TestRemoveDefaultsKeepsTags(t *testing.T) {
 	if len(removed) != 1 || removed[0].key() != "google_pubsub_topic.events\x00kms_key_name" {
 		t.Errorf("removed %v, want only kms_key_name", removed)
 	}
-	if got := squashed(string(f.edit().Bytes())); !strings.Contains(got, `labels = { env = "prod" }`) {
+	if got := squashed(string(f.Edit().Bytes())); !strings.Contains(got, `labels = { env = "prod" }`) {
 		t.Errorf("the labels are left out:\n%s", got)
 	}
 }

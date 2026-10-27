@@ -22,6 +22,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 func TestImportsFile(t *testing.T) {
@@ -249,11 +251,11 @@ func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.
 			content := f.generated
 			if content == "" {
 				// As Terraform does: a block for each import, already as
-				// sortResources leaves them, so that nothing plans again.
+				// hclfile.SortResources leaves them, so that nothing plans again.
 				var blocks []string
-				if imports, err := loadHCL(filepath.Join(f.dir, ImportsFileName)); err == nil {
-					for _, imp := range imports.imports() {
-						typ, name, _ := strings.Cut(imp.to, ".")
+				if imports, err := hclfile.Load(filepath.Join(f.dir, ImportsFileName)); err == nil {
+					for _, imp := range imports.Imports() {
+						typ, name, _ := strings.Cut(imp.To, ".")
 						blocks = append(blocks, fmt.Sprintf("resource %q %q {\n}\n", typ, name))
 					}
 				}
@@ -341,9 +343,9 @@ func (f *fakeTerraform) withImports(p *tfjson.Plan) (*tfjson.Plan, error) {
 	}
 	var addresses []string
 	for _, file := range files {
-		for _, b := range file.syntax.Blocks {
+		for _, b := range file.Syntax.Blocks {
 			if to, ok := b.Body.Attributes["to"]; b.Type == "import" && ok {
-				addresses = append(addresses, string(to.Expr.Range().SliceBytes(file.src)))
+				addresses = append(addresses, string(to.Expr.Range().SliceBytes(file.Src)))
 			}
 		}
 	}

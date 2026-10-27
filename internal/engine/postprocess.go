@@ -15,6 +15,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // placeholderString stands in for secret values in the plans post-processing
@@ -552,21 +554,21 @@ func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSu
 // dataReaders returns the resources of generated that refer to the data
 // source at address, such as data.aws_kms_alias.ebs, or none if address
 // isn't a data source's.
-func dataReaders(generated *hclFile, address string) []string {
+func dataReaders(generated *hclfile.File, address string) []string {
 	parts := strings.Split(address, ".")
 	if len(parts) != 3 || parts[0] != "data" {
 		return nil
 	}
 	var readers []string
-	for _, r := range generated.resources() {
-		for _, t := range allTraversals(r.syntax.Body) {
+	for _, r := range generated.Resources() {
+		for _, t := range allTraversals(r.Syntax.Body) {
 			if len(t) < 3 || t.RootName() != "data" {
 				continue
 			}
 			typ, ok1 := t[1].(hcl.TraverseAttr)
 			name, ok2 := t[2].(hcl.TraverseAttr)
 			if ok1 && ok2 && typ.Name == parts[1] && name.Name == parts[2] {
-				readers = append(readers, r.address)
+				readers = append(readers, r.Address)
 				break
 			}
 		}
@@ -580,11 +582,11 @@ func dataReaders(generated *hclFile, address string) []string {
 func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[string]string) (map[string]bool, error) {
 	blamed := map[string]bool{}
 	if len(diags) > 0 {
-		generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+		generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 		if err != nil {
 			return nil, err
 		}
-		imports, err := loadOptionalHCL(filepath.Join(dir, ImportsFileName))
+		imports, err := hclfile.LoadOptional(filepath.Join(dir, ImportsFileName))
 		if err != nil || imports == nil {
 			return nil, err
 		}

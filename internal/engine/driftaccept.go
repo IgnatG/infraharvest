@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -437,16 +438,16 @@ func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src codeSource, contents 
 	if d.Range == nil || src.Edit == nil || filepath.Base(d.Range.Filename) != src.Edit.File {
 		return false
 	}
-	f, err := parseHCL(src.Edit.File, contents[src.Edit.File])
+	f, err := hclfile.Parse(src.Edit.File, contents[src.Edit.File])
 	if err != nil {
 		return true
 	}
-	if address := f.resourceAt(d.Range.Start.Line); address != "" {
+	if address := f.ResourceAt(d.Range.Start.Line); address != "" {
 		return address == trimInstanceKey(c.Address)
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		switch {
-		case !spans(b.Range(), d.Range.Start.Line):
+		case !hclfile.Spans(b.Range(), d.Range.Start.Line):
 		case b.Type == "locals":
 			return src.Kind == sourceLocal
 		case b.Type == "module" && len(b.Labels) == 1 && src.Module != "":
@@ -522,7 +523,7 @@ func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, fil
 		if src.Edit == nil {
 			continue
 		}
-		for _, edit := range append([]codeEdit{*src.Edit}, src.Also...) {
+		for _, edit := range append([]hclfile.Edit{*src.Edit}, src.Also...) {
 			if slices.Contains(files, edit.File) {
 				blamed = append(blamed, c)
 				break

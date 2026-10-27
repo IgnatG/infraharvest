@@ -16,6 +16,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // maxRepairRounds bounds the validate-and-repair loop. Most configurations
@@ -54,14 +56,14 @@ func repair(ctx context.Context, tf Terraform, path string) (bool, error) {
 // edit reports a change. edit gets the file both as an editable tree and as
 // a syntax tree with source positions; their blocks are in the same order.
 func rewrite(path string, edit func(f *hclwrite.File, syntax *hclsyntax.Body) bool) (bool, error) {
-	f, err := loadHCL(path)
+	f, err := hclfile.Load(path)
 	if err != nil {
 		return false, err
 	}
-	if !edit(f.edit(), f.syntax) {
+	if !edit(f.Edit(), f.Syntax) {
 		return false, nil
 	}
-	return true, f.save()
+	return true, f.Save()
 }
 
 // attribute is an attribute of the generated configuration, in both trees.
@@ -190,7 +192,7 @@ func rejectedIn(attrs []*attribute, rng *hcl.Range, message string) []*attribute
 	names := attributeName.FindAllStringSubmatch(message, -1)
 	var found []*attribute
 	for _, a := range attrs {
-		if !spans(*rng, a.rng.Start.Line) {
+		if !hclfile.Spans(*rng, a.rng.Start.Line) {
 			continue
 		}
 		for _, p := range paths {
@@ -214,7 +216,7 @@ func rejectedIn(attrs []*attribute, rng *hcl.Range, message string) []*attribute
 // line.
 func resourceRange(syntax *hclsyntax.Body, line int) *hcl.Range {
 	for _, b := range syntax.Blocks {
-		if rng := b.Range(); spans(rng, line) {
+		if rng := b.Range(); hclfile.Spans(rng, line) {
 			return &rng
 		}
 	}
@@ -313,14 +315,14 @@ func blockByPath(syntax *hclsyntax.Body, body *hclwrite.Body, line int, path str
 	// stickiness block: the error points at the block that lacks it.
 	if len(segments) == 1 {
 		for i, top := range syntax.Blocks {
-			if i < len(writeBlocks) && spans(top.Range(), line) {
+			if i < len(writeBlocks) && hclfile.Spans(top.Range(), line) {
 				return innermostBlockAt(top.Body, writeBlocks[i].Body(), line)
 			}
 		}
 		return nil
 	}
 	for i, top := range syntax.Blocks {
-		if i >= len(writeBlocks) || !spans(top.Range(), line) {
+		if i >= len(writeBlocks) || !hclfile.Spans(top.Range(), line) {
 			continue
 		}
 		var found *nestedBlock
@@ -363,7 +365,7 @@ func blockByPath(syntax *hclsyntax.Body, body *hclwrite.Body, line int, path str
 func innermostBlockAt(syntax *hclsyntax.Body, body *hclwrite.Body, line int) *nestedBlock {
 	inner := body.Blocks()
 	for j, b := range syntax.Blocks {
-		if j >= len(inner) || !spans(b.Range(), line) {
+		if j >= len(inner) || !hclfile.Spans(b.Range(), line) {
 			continue
 		}
 		if deeper := innermostBlockAt(b.Body, inner[j].Body(), line); deeper != nil {
