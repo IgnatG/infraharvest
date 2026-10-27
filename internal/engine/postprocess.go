@@ -41,10 +41,10 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // even so, only the literal lift is made, checked by validation. Last,
 // clusters of resources move into modules: curated ones first (see
 // synthesize), whose list outputs then replace the lists of all their
-// elements (see collapseOutputLists) and whose calls refer to the project
-// the root manages (see referToProjects), then, once the resources left
-// in the root no longer repeat what the provider sets (see omitInherited),
-// generated local ones (see liftModules). It returns the clusters it
+// elements (see collapseOutputLists) and whose calls refer to what the
+// root manages, such as its project (see referModulesToResources), then,
+// once the resources left in the root no longer repeat what the provider
+// sets (see omitInherited), generated local ones (see liftModules). It returns the clusters it
 // didn't move into a curated module, with why. planned, if set, is a plan
 // of the configuration as it is, with the same variables, which it starts
 // from instead of planning.
@@ -210,7 +210,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.Adapters) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return referToProjects(dir) }}, nil
+			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return referModulesToResources(dir) }}, nil
 		}},
 		// After the curated modules, whose calls take the project from the
 		// resources.

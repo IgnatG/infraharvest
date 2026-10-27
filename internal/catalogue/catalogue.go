@@ -126,6 +126,9 @@ type Entry struct {
 	// Principal, of the fields the engine reads, is an argument that names
 	// an object of the cloud's directory.
 	Principal *Principal `yaml:"principal,omitempty"`
+	// ModuleReferences, of the fields the engine reads, are the arguments
+	// of module calls that name a resource of the type.
+	ModuleReferences *ModuleReferences `yaml:"module_references,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

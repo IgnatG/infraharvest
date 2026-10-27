@@ -194,6 +194,16 @@
             "argument": { "$ref": "#/$defs/name" }
           }
         },
+        "module_references": {
+          "description": "Built-in files only: the arguments of module calls that name a resource of the type by its attribute, alone or in a list, such as the curated modules' project_id and projects for a Google project's project_id: where the root manages the resource, the call refers to it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attribute", "arguments"],
+          "properties": {
+            "attribute": { "$ref": "#/$defs/name" },
+            "arguments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/name" }, "uniqueItems": true }
+          }
+        },
         "principal": {
           "description": "Built-in files only: an argument that names an object of the cloud's directory, such as an Azure role assignment's principal_id; where no resource of the root is that object, it is noted as \"# <directory> <kind>: <note>\", with the kind kinds gives the value of kind_argument, else object.",
           "type": "object",

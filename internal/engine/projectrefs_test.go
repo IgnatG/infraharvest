@@ -40,7 +40,7 @@ module "logs" {
 }
 `)
 
-	changed, err := referToProjects(dir)
+	changed, err := referModulesToResources(dir)
 	if err != nil || !changed {
 		t.Fatalf("want the calls changed, got %v, %v", changed, err)
 	}
@@ -69,7 +69,7 @@ func TestReferToProjectsWithoutAProject(t *testing.T) {
 }
 `
 	writeConfig(t, dir, GeneratedFileName, content)
-	changed, err := referToProjects(dir)
+	changed, err := referModulesToResources(dir)
 	if err != nil || changed {
 		t.Fatalf("want nothing changed, got %v, %v", changed, err)
 	}

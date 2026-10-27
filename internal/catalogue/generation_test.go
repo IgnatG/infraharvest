@@ -29,9 +29,10 @@ func TestForType(t *testing.T) {
 func TestOverlaysCantSetBuiltinOnlyFields(t *testing.T) {
 	t.Parallel()
 	for field, entry := range map[string]string{
-		"secret_when":    "secret_when: { argument: value, when: type, in: [SecureString] }",
-		"blocks_as_list": "blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }",
-		"principal":      "principal: { argument: principal_id, directory: Entra ID, note: n }",
+		"secret_when":       "secret_when: { argument: value, when: type, in: [SecureString] }",
+		"blocks_as_list":    "blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }",
+		"principal":         "principal: { argument: principal_id, directory: Entra ID, note: n }",
+		"module_references": "module_references: { attribute: project_id, arguments: [project_id] }",
 	} {
 		for _, typ := range []string{"aws_ssm_parameter", "aws_widget"} {
 			dir := t.TempDir()
@@ -47,13 +48,14 @@ func TestOverlaysCantSetBuiltinOnlyFields(t *testing.T) {
 func TestCheckRejectsGeneration(t *testing.T) {
 	t.Parallel()
 	for name, file := range map[string]string{
-		"secret_when without in":   "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: value, when: type }\n",
-		"secret_when argument":     "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: Value, when: type, in: [x] }\n",
-		"every type's secret_when": "provider: aws\ntypes:\n  \"*\":\n    secret_when: { argument: value, when: type, in: [x] }\n",
-		"blocks_as_list argument":  "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
-		"every type's blocks":      "provider: aws\ntypes:\n  \"*\":\n    blocks_as_list: { block: a, attribute: b, argument: c }\n",
-		"principal note":           "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, directory: Entra ID }\n",
-		"principal kinds":          "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
+		"secret_when without in":      "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: value, when: type }\n",
+		"secret_when argument":        "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: Value, when: type, in: [x] }\n",
+		"every type's secret_when":    "provider: aws\ntypes:\n  \"*\":\n    secret_when: { argument: value, when: type, in: [x] }\n",
+		"blocks_as_list argument":     "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
+		"every type's blocks":         "provider: aws\ntypes:\n  \"*\":\n    blocks_as_list: { block: a, attribute: b, argument: c }\n",
+		"principal note":              "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, directory: Entra ID }\n",
+		"principal kinds":             "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
+		"module_references arguments": "provider: google\ntypes:\n  google_x:\n    module_references: { attribute: project_id, arguments: [] }\n",
 	} {
 		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
 			t.Errorf("%s: want an error for\n%s", name, file)
@@ -66,9 +68,10 @@ func TestSchemaRejectsGeneration(t *testing.T) {
 	t.Parallel()
 	schema := loadSchema(t)
 	for name, file := range map[string]string{
-		"secret_when without in":  "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: value, when: type }\n",
-		"principal kinds":         "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
-		"blocks_as_list argument": "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
+		"secret_when without in":      "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: value, when: type }\n",
+		"principal kinds":             "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
+		"blocks_as_list argument":     "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
+		"module_references arguments": "provider: google\ntypes:\n  google_x:\n    module_references: { attribute: project_id, arguments: [] }\n",
 	} {
 		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
 			t.Errorf("%s: the schema accepts\n%s", name, file)
@@ -117,5 +120,14 @@ func TestPrincipal(t *testing.T) {
 	got.Kinds["User"] = "nobody"
 	if again, _ := ForType("azurerm_role_assignment").Principal("azurerm_role_assignment"); again.Kinds["User"] != "user" {
 		t.Error("changing what one caller got changed the built-in catalogue")
+	}
+}
+
+// Module calls name a Google project by its project ID.
+func TestModuleReferences(t *testing.T) {
+	t.Parallel()
+	got, ok := ForType("google_project").ModuleReferences("google_project")
+	if !ok || got.Attribute != "project_id" || !reflect.DeepEqual(got.Arguments, []string{"project", "project_id", "projects"}) {
+		t.Errorf("google_project: got %+v, %v", got, ok)
 	}
 }

@@ -31,9 +31,10 @@ func ForType(typ string) *Catalogue {
 // built-in catalogue alone (see ForType), so one an overlay set would
 // change nothing.
 var builtinOnly = map[string]func(*Entry) bool{
-	"blocks_as_list": func(e *Entry) bool { return e.BlocksAsList != nil },
-	"principal":      func(e *Entry) bool { return e.Principal != nil },
-	"secret_when":    func(e *Entry) bool { return e.SecretWhen != nil },
+	"blocks_as_list":    func(e *Entry) bool { return e.BlocksAsList != nil },
+	"module_references": func(e *Entry) bool { return e.ModuleReferences != nil },
+	"principal":         func(e *Entry) bool { return e.Principal != nil },
+	"secret_when":       func(e *Entry) bool { return e.SecretWhen != nil },
 }
 
 // everyType are the fields of builtinOnly that the entry for every type
@@ -100,6 +101,9 @@ func checkGeneration(typ string, e *Entry) []error {
 			fail("principal: want kind_argument and kinds together")
 		}
 	}
+	if m := e.ModuleReferences; m != nil && (!identifier.MatchString(m.Attribute) || len(m.Arguments) == 0 || slices.ContainsFunc(m.Arguments, func(a string) bool { return !identifier.MatchString(a) })) {
+		fail("module_references: want an attribute and the module arguments that name the resource by it")
+	}
 	return errs
 }
 
@@ -107,6 +111,9 @@ func checkGeneration(typ string, e *Entry) []error {
 // engine reads, sharing nothing with e.
 func copyGeneration(copied, e *Entry) {
 	copied.BlocksAsList = clonePointer(e.BlocksAsList)
+	if e.ModuleReferences != nil {
+		copied.ModuleReferences = &ModuleReferences{Attribute: e.ModuleReferences.Attribute, Arguments: slices.Clone(e.ModuleReferences.Arguments)}
+	}
 	if e.Principal != nil {
 		p := *e.Principal
 		p.Kinds = maps.Clone(p.Kinds)
@@ -165,4 +172,24 @@ func (c *Catalogue) Principal(typ string) (Principal, bool) {
 	p := *e.Principal
 	p.Kinds = maps.Clone(p.Kinds)
 	return p, true
+}
+
+// ModuleReferences are the arguments of module calls that name a
+// resource of a type by one of its attributes, alone or in a list, such
+// as the curated modules' project_id and projects, which name a Google
+// project by its project_id: where the root manages the resource, the
+// call refers to it, as a resource would, rather than repeat its value.
+type ModuleReferences struct {
+	Attribute string   `yaml:"attribute"`
+	Arguments []string `yaml:"arguments"`
+}
+
+// ModuleReferences returns the module arguments that name a resource of
+// the type, if any do.
+func (c *Catalogue) ModuleReferences(typ string) (ModuleReferences, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.ModuleReferences == nil {
+		return ModuleReferences{}, false
+	}
+	return ModuleReferences{Attribute: e.ModuleReferences.Attribute, Arguments: slices.Clone(e.ModuleReferences.Arguments)}, true
 }
