@@ -48,6 +48,8 @@ type Provider struct {
 }
 
 // ImportsFile renders one import block per resource, sorted by address.
+// Only the catalogue's golden test calls it outside the engine, which is
+// why it is exported.
 func ImportsFile(imports []Import) ([]byte, error) {
 	sorted := append([]Import(nil), imports...)
 	sort.Slice(sorted, func(i, j int) bool {
