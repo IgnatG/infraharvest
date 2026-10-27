@@ -146,7 +146,7 @@ func Retyped(previous, now []Managed) []string {
 		if stays[ResourceKey(p.Type, p.ID)] {
 			continue
 		}
-		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return SameType(m.Type, p.Type) }) {
+		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return sameType(m.Type, p.Type) }) {
 			continue
 		}
 		for _, m := range byID[p.ID] {

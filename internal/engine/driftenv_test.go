@@ -4,6 +4,9 @@
 package engine
 
 import (
+	"context"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -191,5 +194,23 @@ func TestDriftRejectsAVarFileEditThePlanDoesntTake(t *testing.T) {
 	}
 	if got := readFile(t, dir, filepath.Join("vars", "dev", "terraform.tfvars")); got != devVars {
 		t.Errorf("dev's terraform.tfvars changed:\n%s", got)
+	}
+}
+
+// An environment whose backend.hcl isn't there has no state to pull: it
+// says so, and initialises nothing.
+func TestPullDriftStateWithoutBackendSettings(t *testing.T) {
+	t.Parallel()
+	dir := mergedRootDir(t, map[string]string{"vars/prod/backend.hcl": "bucket = \"acme-state\"\n"})
+	var calls []string
+	tf := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
+
+	_, err := pullDriftState(context.Background(), tf, dir, "s3", "dev")
+
+	if err == nil || !strings.Contains(err.Error(), "the s3 backend's settings for dev") || !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("got %v, want dev's missing backend settings", err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("calls: %v, want none", calls)
 	}
 }

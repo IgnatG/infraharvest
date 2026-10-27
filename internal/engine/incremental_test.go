@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
 )
 
 // existingRoot writes a root an earlier import generated, and applied: its
@@ -382,6 +384,39 @@ func TestAdd(t *testing.T) {
 	}
 	if _, err := os.Stat(staging); !os.IsNotExist(err) {
 		t.Errorf("staging left behind: %v", err)
+	}
+}
+
+// The root's gate leaves the organisation's own modules the root calls to
+// their owners, as Generate's and Verify's do, although staging, which
+// isn't the root, calls none of them.
+func TestAddGatesTheRootWithItsOwnModules(t *testing.T) {
+	t.Parallel()
+	root := existingRoot(t)
+	own := t.TempDir()
+	writeConfig(t, own, "main.tf", "resource \"aws_sqs_queue\" \"this\" {}\n")
+	source, err := filepath.Rel(root, own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, root, "own.tf", "module \"own\" {\n  source = \""+filepath.ToSlash(source)+"\"\n}\n")
+	staging := filepath.Join(t.TempDir(), "staging")
+	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
+	rootTF := &fakeTerraform{dir: root}
+	opts := addOptions
+	opts.Adapters = []adapters.Adapter{{Source: own}}
+
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range result.Gate {
+		for _, d := range c.Details {
+			if strings.Contains(d, "module-structure") {
+				t.Errorf("%s: %s", c.Name, d)
+			}
+		}
 	}
 }
 
@@ -913,5 +948,69 @@ removed {
 	want := Names{"aws_s3_bucket.logs": true, "aws_subnet.a": true, "module.old": true}
 	if got := rootNames([]*hclFile{f}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// An add's policy pins the providers to staging's lock, if it has one,
+// calls only the curated modules staging can call by the same source,
+// makes no local modules and keeps generated.tf, and takes the root's
+// resources as external, once each; the caller's Options stay as they
+// were.
+func TestAdding(t *testing.T) {
+	t.Parallel()
+	versions := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
+	lock := []byte(`provider "registry.terraform.io/hashicorp/aws" {
+  version     = "6.30.1"
+  constraints = "~> 6.30"
+}
+`)
+	pinned := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.30"})
+	local := adapters.Adapter{Source: "../modules/queue"}
+	absolute := adapters.Adapter{Source: filepath.Join(t.TempDir(), "queue")}
+	vpc := External{Type: "aws_vpc", ID: "vpc-0abc1234"}
+	subnet := External{Type: "aws_subnet", ID: "subnet-0abc1234"}
+	existing := map[External]string{vpc: "aws_vpc.main", subnet: "aws_subnet.a"}
+	for name, tc := range map[string]struct {
+		lock     []byte
+		versions []byte
+	}{
+		"with a lock":    {lock: lock, versions: pinned},
+		"without a lock": {versions: versions},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			opts := Options{
+				Config:     map[string][]byte{VersionsFileName: versions},
+				Adapters:   []adapters.Adapter{local, absolute},
+				ModulesDir: "modules",
+				SplitFiles: true,
+				External:   []External{vpc},
+			}
+
+			r, err := adding(opts, tc.lock, nil, existing)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			p := r.policy
+			if got := string(p.config[VersionsFileName]); got != string(tc.versions) {
+				t.Errorf("versions.tf: got\n%s\nwant\n%s", got, tc.versions)
+			}
+			if !reflect.DeepEqual(p.adapters, []adapters.Adapter{local}) {
+				t.Errorf("adapters: got %+v, want only %+v", p.adapters, local)
+			}
+			if p.modulesDir != "" || p.splitFiles {
+				t.Errorf("modulesDir %q, splitFiles %v: want neither", p.modulesDir, p.splitFiles)
+			}
+			if want := []External{vpc, subnet}; !reflect.DeepEqual(p.external, want) {
+				t.Errorf("external: got %+v, want %+v", p.external, want)
+			}
+			if string(opts.Config[VersionsFileName]) != string(versions) || !reflect.DeepEqual(opts.Adapters, []adapters.Adapter{local, absolute}) || !reflect.DeepEqual(opts.External, []External{vpc}) {
+				t.Errorf("the caller's options changed: %+v", opts)
+			}
+			if !reflect.DeepEqual(r.opts, opts) {
+				t.Errorf("the run's options: got %+v, want the caller's", r.opts)
+			}
+		})
 	}
 }

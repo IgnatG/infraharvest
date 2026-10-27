@@ -26,8 +26,8 @@ func TestAliasTypes(t *testing.T) {
 			t.Errorf("%s: got %q, want %q", tt.typ, got, tt.want)
 		}
 	}
-	if !SameType("aws_alb_listener", "aws_lb_listener") || !SameType("aws_sqs_queue", "aws_sqs_queue") || SameType("aws_alb", "aws_lb_listener") {
-		t.Error("SameType doesn't match the groups")
+	if !sameType("aws_alb_listener", "aws_lb_listener") || !sameType("aws_sqs_queue", "aws_sqs_queue") || sameType("aws_alb", "aws_lb_listener") {
+		t.Error("sameType doesn't match the groups")
 	}
 	if got := CanonicalType("google_compute_instance_from_template"); got != "google_compute_instance" {
 		t.Errorf("CanonicalType: got %s", got)

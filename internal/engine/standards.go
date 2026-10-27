@@ -72,12 +72,18 @@ func checkStandards(dir string, omit map[string][]string, own []string) (Check, 
 	return check, nil
 }
 
+// localStateFileName is the file Terraform's local backend keeps a
+// workspace's state in: the default one's in the root, each other one's
+// under workspaceStateDir (see workspaceStateFile). Drift's staged copy
+// plans with its state there too.
+const localStateFileName = "terraform.tfstate"
+
 // LocalStateFile reports whether name is a file Terraform's local backend
 // keeps a root's state in, its backups and its lock, which the output's
 // .gitignore leaves out (see GitignoreFile); its workspaces' states are
-// in the directory terraform.tfstate.d.
+// in the directory workspaceStateDir.
 func LocalStateFile(name string) bool {
-	return strings.HasPrefix(name, stagedStateFile) || name == ".terraform.tfstate.lock.info"
+	return strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info"
 }
 
 // standardsIn checks the files of dir, a root or a module, naming them
@@ -219,10 +225,6 @@ func isNull(expr hclsyntax.Expression) bool {
 	return !diags.HasErrors() && v.IsNull()
 }
 
-// varsDirName is the directory of a merged root's var files (see
-// writeMergedRoot).
-const varsDirName = "vars"
-
 // checkVarFiles checks the vars directory of dir, where a merged root
 // keeps the values each environment sets (see writeMergedRoot): only
 // .tfvars and .hcl files, each of which parses, and none that sets a
@@ -241,7 +243,7 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 			return err
 		}
 		name := rel(dir, path)
-		if !strings.HasSuffix(name, ".tfvars") && !strings.HasSuffix(name, ".hcl") {
+		if !isMergedVarFile(name) {
 			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, varsDirName)
 			return nil
 		}
