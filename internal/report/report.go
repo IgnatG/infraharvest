@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 // SchemaVersion is the version of the JSON documents. It changes only
@@ -198,7 +199,7 @@ type Coverage struct {
 	// CloudFormationStacks are the CloudFormation stacks the import is
 	// scoped to, and those nested in them, with what became of their
 	// resources and whether each is safe to delete (AWS --cfn-stack).
-	CloudFormationStacks []CloudFormationStack `json:"cloudformation_stacks,omitempty"`
+	CloudFormationStacks cfn.Stacks `json:"cloudformation_stacks,omitempty"`
 }
 
 // TagCount counts the resources with one value of a tag key.
@@ -542,7 +543,7 @@ func (r *Report) Merge(other *Report) {
 	r.IncompleteHandovers = append(r.IncompleteHandovers, other.IncompleteHandovers...)
 	r.KeptRoots = append(r.KeptRoots, other.KeptRoots...)
 	r.Merges = append(r.Merges, other.Merges...)
-	r.AddCloudFormationStacks(other.CloudFormationStacks)
+	r.CloudFormationStacks.Add(other.CloudFormationStacks)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.Warnings = append(r.Warnings, other.Warnings...)
@@ -668,7 +669,9 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	}
 	sort.Slice(r.Scopes, func(i, j int) bool { return r.Scopes[i].Scope < r.Scopes[j].Scope })
 	r.Tags = r.countByTag()
-	r.finishStacks()
+	if len(r.CloudFormationStacks) > 0 {
+		r.CloudFormationStacks.Finish(r.results())
+	}
 
 	switch {
 	case !r.incomplete():
@@ -802,7 +805,7 @@ func (r *Report) SkippedChecks() []string {
 
 // WriteFiles writes coverage.json, manifest.json and report.md into the
 // report directory under outputDir, and the templates of the CloudFormation
-// stacks the import is scoped to under TemplatesDir.
+// stacks the import is scoped to under cfn.TemplatesDir.
 func (r *Report) WriteFiles(outputDir string) error {
 	dir := filepath.Join(outputDir, Dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -832,7 +835,7 @@ func (r *Report) WriteFiles(outputDir string) error {
 			return err
 		}
 	}
-	return r.writeTemplates(outputDir)
+	return r.CloudFormationStacks.WriteTemplates(outputDir)
 }
 
 // WriteJSON writes the whole report as one JSON document.
@@ -1012,7 +1015,7 @@ func (r *Report) Markdown() string {
 	section("Environments merged", "The environments of each of these stacks share one root, with their own values in `vars/<env>/`: each environment's plan of it, with its own credentials, imports what its own root did and changes nothing else. The roots they had are kept under `.infraharvest/premerge/`. Each merged root's README says how to plan and apply an environment.", mergedLines)
 	section("Environments kept apart", "The environments of each of these stacks keep a root each, as they were generated: merging them into one root wouldn't have planned the same.", apartLines)
 	section("Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", incompleteLines)
-	r.stacksMarkdown(&b)
+	r.CloudFormationStacks.Markdown(&b)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string

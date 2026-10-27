@@ -6,11 +6,9 @@ package importer
 import (
 	"context"
 	"fmt"
-	"log"
-	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -20,7 +18,7 @@ import (
 // listed resources they are. The importer declares it, as the report is
 // the importer's and harvest knows nothing of it.
 type stackScoped interface {
-	CloudFormationStacks() []report.CloudFormationStack
+	CloudFormationStacks() []cfn.Stack
 }
 
 // applyImportScope applies the scope of provider, if it has one (see
@@ -62,24 +60,6 @@ func (r *Run) applyImportScope(ctx context.Context, provider harvest.Provider, l
 			}
 		}
 	}
-	r.report.AddCloudFormationStacks(stacks)
+	r.report.CloudFormationStacks.Add(stacks)
 	return nil
-}
-
-// logStacks logs, for each CloudFormation stack the import is scoped to,
-// whether it is safe to delete, and what keeps it from being so.
-func logStacks(stacks []report.CloudFormationStack) {
-	for _, s := range stacks {
-		switch {
-		case s.Deleted:
-			log.Printf("CloudFormation stack %s: deleted already; what it retained is imported", s.Name)
-		case s.SafeToDelete:
-			log.Printf("CloudFormation stack %s: safe to delete once the roots are applied: every resource is imported, left out by the selection file or acknowledged, the plans change nothing, and every resource is retained", s.Name)
-		default:
-			log.Printf("CloudFormation stack %s: not safe to delete yet:\n- %s", s.Name, strings.Join(s.Blockers, "\n- "))
-			if s.RetainTemplate != "" {
-				log.Printf("CloudFormation stack %s: a copy of its template with Retain added where it lacks it is in %s: update the stack with it before deleting it", s.Name, s.RetainTemplate)
-			}
-		}
-	}
 }

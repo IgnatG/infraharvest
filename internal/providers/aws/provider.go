@@ -11,7 +11,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 // The capabilities Provider has, checked when it builds: one whose method
@@ -59,7 +59,7 @@ type Provider struct {
 	stackScope *StackScope
 	// scopedStacks are the stacks of stackScope as ImportScope last
 	// matched them with what is listed (see CloudFormationStacks).
-	scopedStacks []report.CloudFormationStack
+	scopedStacks []cfn.Stack
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,

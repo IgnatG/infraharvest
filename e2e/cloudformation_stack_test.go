@@ -22,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 	"github.com/IgnatG/infraharvest/internal/selection"
 	"github.com/IgnatG/infraharvest/internal/stackintent"
 )
@@ -78,7 +79,7 @@ func TestAWSSelectionCloudFormation(t *testing.T) {
 		t.Fatalf("stacks %+v", r.CloudFormationStacks)
 	}
 	s := r.CloudFormationStacks[0]
-	if s.Name != "infraharvest-e2e-app" || len(s.Resources) != 1 || s.Resources[0].Outcome != report.StackImported {
+	if s.Name != "infraharvest-e2e-app" || len(s.Resources) != 1 || s.Resources[0].Outcome != cfn.StackImported {
 		t.Errorf("stack %+v", s)
 	}
 	if s.SafeToDelete || len(s.Resources[0].Retain) == 0 {
@@ -195,7 +196,7 @@ func TestAWSSelectionCloudFormationMCP(t *testing.T) {
 		t.Fatalf("stacks %+v", r.CloudFormationStacks)
 	}
 	s := r.CloudFormationStacks[0]
-	if s.Name != "infraharvest-e2e-app" || len(s.Resources) != 1 || s.Resources[0].Outcome != report.StackImported || s.SafeToDelete {
+	if s.Name != "infraharvest-e2e-app" || len(s.Resources) != 1 || s.Resources[0].Outcome != cfn.StackImported || s.SafeToDelete {
 		t.Errorf("stack %+v, want its bucket imported, and it not safe to delete", s)
 	}
 }

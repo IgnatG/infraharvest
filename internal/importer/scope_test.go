@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -35,9 +36,9 @@ func (*stackScopedProvider) ImportScope(_ context.Context, resources []harvest.R
 	return s, nil
 }
 
-func (*stackScopedProvider) CloudFormationStacks() []report.CloudFormationStack {
-	return []report.CloudFormationStack{{Name: "app", ID: "stack/app", Resources: []report.CloudFormationResource{
-		{LogicalID: "Assets", Type: "AWS::S3::Bucket", Matches: []report.CloudFormationMatch{{Type: "aws_s3_bucket", ID: "app-assets"}}},
+func (*stackScopedProvider) CloudFormationStacks() []cfn.Stack {
+	return []cfn.Stack{{Name: "app", ID: "stack/app", Resources: []cfn.Resource{
+		{LogicalID: "Assets", Type: "AWS::S3::Bucket", Matches: []cfn.Match{{Type: "aws_s3_bucket", ID: "app-assets"}}},
 	}}}
 }
 
@@ -94,10 +95,10 @@ func (*stackOnlyProvider) ImportScope(context.Context, []harvest.Resource) (*har
 	return &harvest.ImportScope{Inside: map[string]bool{}, Outside: map[string]string{}}, nil
 }
 
-func (*stackOnlyProvider) CloudFormationStacks() []report.CloudFormationStack {
-	return []report.CloudFormationStack{{
+func (*stackOnlyProvider) CloudFormationStacks() []cfn.Stack {
+	return []cfn.Stack{{
 		Name: "seeds", ID: "stack/seeds", Region: "eu-west-2", Status: "CREATE_COMPLETE",
-		Resources: []report.CloudFormationResource{{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Retain: []string{"DeletionPolicy is Delete, the default"}}},
+		Resources: []cfn.Resource{{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Retain: []string{"DeletionPolicy is Delete, the default"}}},
 	}}
 }
 

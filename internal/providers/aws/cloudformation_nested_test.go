@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 const (
@@ -191,11 +192,11 @@ func TestResolveStacksUnreadableNested(t *testing.T) {
 	}
 
 	r := &report.Report{}
-	var stacks []report.CloudFormationStack
+	var stacks []cfn.Stack
 	for _, s := range scope.stacks {
 		stacks = append(stacks, s.report(nil))
 	}
-	r.AddCloudFormationStacks(stacks)
+	r.CloudFormationStacks.Add(stacks)
 	r.Finish(nil, nil, false)
 	for _, s := range r.CloudFormationStacks {
 		blockers := strings.Join(s.Blockers, "\n")
