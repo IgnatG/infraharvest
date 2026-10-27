@@ -141,6 +141,10 @@ type Entry struct {
 	// the type's import IDs that changes while the resource stays the
 	// same, such as azapi's ?api-version=.
 	UnstableIDSuffix string `yaml:"unstable_id_suffix,omitempty"`
+	// Lookups, of the fields the engine reads, are the data sources that
+	// read values of the type's arguments that the cloud or the provider
+	// defines; under the type "*", for every type.
+	Lookups []Lookup `yaml:"lookups,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

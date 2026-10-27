@@ -236,6 +236,33 @@
           "type": "string",
           "minLength": 1
         },
+        "lookups": {
+          "description": "Built-in files only: data sources that read values of the type's arguments, or of their nested blocks, that the cloud or the provider defines, such as the tenant Azure signs in to or the CloudFront policies AWS manages: the values match matches, or the keys of names, each with its name, which {name} stands for in the data source's label and arguments. Generated configuration refers to the data source instead. Under the type \"*\", for every type.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["arguments", "data_source"],
+            "oneOf": [{ "required": ["match"] }, { "required": ["names"] }],
+            "properties": {
+              "arguments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/name" }, "uniqueItems": true },
+              "match": { "type": "string", "minLength": 1 },
+              "names": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
+              "data_source": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type", "label", "attribute"],
+                "properties": {
+                  "type": { "$ref": "#/$defs/name" },
+                  "label": { "type": "string", "minLength": 1 },
+                  "arguments": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "type": "string", "minLength": 1 } },
+                  "attribute": { "$ref": "#/$defs/name" }
+                }
+              }
+            }
+          }
+        },
         "secret_when": {
           "description": "Built-in files only: a sensitive argument that is a secret only where the argument when is one of in, such as an SSM parameter's value, a SecureString's; elsewhere it is written as it is.",
           "type": "object",

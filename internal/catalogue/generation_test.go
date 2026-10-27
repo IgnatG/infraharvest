@@ -36,6 +36,7 @@ func TestOverlaysCantSetBuiltinOnlyFields(t *testing.T) {
 		"container":          "container: { location: true }",
 		"derived_identity":   "derived_identity: \"{family}:{revision}\"",
 		"unstable_id_suffix": "unstable_id_suffix: \"?api-version=\"",
+		"lookups":            "lookups: [{ arguments: [kms_key_id], match: x, data_source: { type: aws_kms_alias, label: ebs, attribute: target_key_arn } }]",
 	} {
 		for _, typ := range []string{"aws_ssm_parameter", "aws_widget"} {
 			dir := t.TempDir()
@@ -62,6 +63,13 @@ func TestCheckRejectsGeneration(t *testing.T) {
 		"derived_identity filter":     "provider: aws\ntypes:\n  aws_x:\n    derived_identity: \"{family|trim_prefix:x}\"\n",
 		"derived_identity fields":     "provider: aws\ntypes:\n  aws_x:\n    derived_identity: \"family\"\n",
 		"every type's container":      "provider: aws\ntypes:\n  \"*\":\n    container: {}\n",
+		"lookups match and names":     "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], match: x, names: { x: y }, data_source: { type: aws_y, label: l, attribute: id } }]\n",
+		"lookups neither":             "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], data_source: { type: aws_y, label: l, attribute: id } }]\n",
+		"lookups arguments":           "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [], match: x, data_source: { type: aws_y, label: l, attribute: id } }]\n",
+		"lookups attribute":           "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], match: x, data_source: { type: aws_y, label: l } }]\n",
+		"lookups {name} of a match":   "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], match: x, data_source: { type: aws_y, label: \"{name}\", attribute: id } }]\n",
+		"lookups other field":         "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], names: { x: y }, data_source: { type: aws_y, label: \"{id}\", attribute: id } }]\n",
+		"lookups pattern":             "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], match: \"(\", data_source: { type: aws_y, label: l, attribute: id } }]\n",
 	} {
 		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
 			t.Errorf("%s: want an error for\n%s", name, file)
@@ -79,6 +87,8 @@ func TestSchemaRejectsGeneration(t *testing.T) {
 		"principal kinds":             "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
 		"blocks_as_list argument":     "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
 		"module_references arguments": "provider: google\ntypes:\n  google_x:\n    module_references: { attribute: project_id, arguments: [] }\n",
+		"lookups match and names":     "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], match: x, names: { x: y }, data_source: { type: aws_y, label: l, attribute: id } }]\n",
+		"lookups attribute":           "provider: aws\ntypes:\n  aws_x:\n    lookups: [{ arguments: [a], match: x, data_source: { type: aws_y, label: l } }]\n",
 	} {
 		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
 			t.Errorf("%s: the schema accepts\n%s", name, file)
@@ -170,6 +180,37 @@ func TestUnstableIDSuffix(t *testing.T) {
 	for typ, want := range map[string]string{"azapi_resource": "?api-version=", "azapi_update_resource": "?api-version=", "azurerm_resource_group": "", "aws_s3_bucket": ""} {
 		if got := ForType(typ).UnstableIDSuffix(typ); got != want {
 			t.Errorf("%s: got %q, want %q", typ, got, want)
+		}
+	}
+}
+
+// The data sources of what AWS and Azure define: a CloudFront policy AWS
+// manages, by its name, the AWS-managed key of EBS encryption, and, for
+// every azurerm type, the tenant and the subscription the provider signs
+// in to; other values stay.
+func TestLookup(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		typ, argument, value string
+		want                 DataLookup
+	}{
+		{"aws_cloudfront_distribution", "cache_policy_id", "4135ea2d-6df8-44a3-9df3-4b5a84be39ad", DataLookup{Type: "aws_cloudfront_cache_policy", Label: "CachingDisabled", Attribute: "id", Arguments: [][2]string{{"name", "Managed-CachingDisabled"}}}},
+		{"aws_ebs_volume", "kms_key_id", "arn:aws:kms:eu-west-2:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab", DataLookup{Type: "aws_kms_alias", Label: "ebs", Attribute: "target_key_arn", Arguments: [][2]string{{"name", "alias/aws/ebs"}}}},
+		{"azurerm_key_vault", "tenant_id", "11111111-2222-3333-4444-555555555555", DataLookup{Type: "azurerm_client_config", Label: "current", Attribute: "tenant_id"}},
+		{"azurerm_role_definition", "assignable_scopes", "/subscriptions/11111111-2222-3333-4444-555555555555", DataLookup{Type: "azurerm_subscription", Label: "current", Attribute: "id"}},
+	} {
+		if got, ok := ForType(c.typ).Lookup(c.typ, c.argument, c.value); !ok || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s.%s = %s: got %+v, %v, want %+v", c.typ, c.argument, c.value, got, ok, c.want)
+		}
+	}
+	for _, c := range [][3]string{
+		{"aws_cloudfront_distribution", "cache_policy_id", "00000000-0000-0000-0000-000000000000"},
+		{"aws_rds_cluster", "kms_key_id", "arn:aws:kms:eu-west-2:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"},
+		{"aws_instance", "tenant_id", "11111111-2222-3333-4444-555555555555"},
+		{"azurerm_role_assignment", "scope", "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/app"},
+	} {
+		if got, ok := ForType(c[0]).Lookup(c[0], c[1], c[2]); ok {
+			t.Errorf("%s.%s = %s: got %+v, want none", c[0], c[1], c[2], got)
 		}
 	}
 }
