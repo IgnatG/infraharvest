@@ -228,10 +228,11 @@ func localValues(locals map[string]hclsyntax.Expression) map[string]cty.Value {
 // the object it gives (see mergedObject), and the sources of local
 // module calls made relative to target.
 func inlinedFile(name, src string, values map[string]cty.Value, r MergeRoot, target string) (*hclFile, error) {
-	f, diags := hclwrite.ParseConfig([]byte(src), name, hcl.InitialPos)
+	parsed, diags := parseFile(name, []byte(src))
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("%s: %s: %w", r.Dir, name, diags)
 	}
+	f := parsed.edit()
 	var inline func(body *hclwrite.Body)
 	inline = func(body *hclwrite.Body) {
 		for attrName, attr := range body.Attributes() {
@@ -382,7 +383,7 @@ func defaultTagsIn(b *hclsyntax.Block, values map[string]cty.Value) (tags map[st
 // matches them: a module call's address is module.<name>.
 func stackBlocks(f *hclFile) []resourceBlock {
 	var out []resourceBlock
-	blocks := f.file.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	for i, b := range f.syntax.Blocks {
 		if i >= len(blocks) {
 			break
@@ -404,7 +405,7 @@ func dataBlocksOf(f *hclFile) []resourceBlock {
 		return nil
 	}
 	var out []resourceBlock
-	blocks := f.file.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	for i, b := range f.syntax.Blocks {
 		if i < len(blocks) && b.Type == "data" && len(b.Labels) == 2 {
 			out = append(out, resourceBlock{address: b.Labels[0] + "." + b.Labels[1], write: blocks[i], syntax: b})

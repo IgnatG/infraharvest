@@ -780,11 +780,11 @@ func (w *driftWalk) isDefault(path []string, text []byte) bool {
 		if w.mod.adapter == nil || len(path) != 1 {
 			return false
 		}
-		f, diags := hclwrite.ParseConfig(slices.Concat([]byte("x = "), text, []byte("\n")), "", hcl.InitialPos)
-		if diags.HasErrors() || f.Body().GetAttribute("x") == nil {
+		tokens := parseExpr(string(text))
+		if tokens == nil {
 			return false
 		}
-		return w.mod.adapter.IsDefault(path[0], f.Body().GetAttribute("x").Expr().BuildTokens(nil))
+		return w.mod.adapter.IsDefault(path[0], tokens)
 	}
 	want, ok := defaultValues(w.e.defaults[w.c.Type])[strings.Join(path, ".")]
 	if !ok {
@@ -1246,13 +1246,17 @@ func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte,
 			content = layoutResource(content, address)
 		}
 		content = hclwrite.Format(content)
-		if _, diags := hclsyntax.ParseConfig(content, name, hcl.InitialPos); diags.HasErrors() {
+		edited, err := parseHCL(name, content)
+		if err != nil {
 			return nil, "the edit wouldn't parse: edit it by hand", false
 		}
 		// The findings, not their count: an edit may remove one secret and
 		// add another.
-		had := Check{Details: literalSecrets(&parsedFile{rel: name, content: string(old)})}
-		if len(addedDetails(had, Check{Details: literalSecrets(&parsedFile{rel: name, content: string(content)})})) > 0 {
+		var had Check
+		if f, err := parseHCL(name, old); err == nil {
+			had.Details = literalSecrets(f)
+		}
+		if len(addedDetails(had, Check{Details: literalSecrets(edited)})) > 0 {
 			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
 		}
 		next[name] = content
@@ -1263,11 +1267,11 @@ func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte,
 // layoutResource lays out the block of the resource at address in src
 // (see layoutBody), and only that block.
 func layoutResource(src []byte, address string) []byte {
-	file, diags := hclsyntax.ParseConfig(src, "", hcl.InitialPos)
-	if diags.HasErrors() {
+	f, err := parseHCL("", src)
+	if err != nil {
 		return src
 	}
-	for _, b := range file.Body.(*hclsyntax.Body).Blocks {
+	for _, b := range f.syntax.Blocks {
 		if b.Type != "resource" || len(b.Labels) != 2 || b.Labels[0]+"."+b.Labels[1] != address || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 			continue
 		}

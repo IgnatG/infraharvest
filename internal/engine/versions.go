@@ -299,11 +299,11 @@ func fetchVersions(ctx context.Context, client *http.Client, url string) (conten
 // (host/namespace/type) that a dependency lock file records, or "" if it
 // records none.
 func LockedVersion(lock []byte, source string) string {
-	file, diags := hclsyntax.ParseConfig(lock, LockFileName, hcl.InitialPos)
-	if diags.HasErrors() {
+	f, err := parseHCL(LockFileName, lock)
+	if err != nil {
 		return ""
 	}
-	for _, b := range file.Body.(*hclsyntax.Body).Blocks {
+	for _, b := range f.syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 || !strings.EqualFold(b.Labels[0], source) {
 			continue
 		}
@@ -323,12 +323,12 @@ func LockedVersion(lock []byte, source string) string {
 // meet. Requirements that aren't literal, and providers lock doesn't
 // record, stay as they are.
 func pinnedToLock(versions, lock []byte) ([]byte, error) {
-	f, diags := hclwrite.ParseConfig(versions, VersionsFileName, hcl.InitialPos)
+	f, diags := parseFile(VersionsFileName, versions)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 	changed := false
-	for _, tb := range f.Body().Blocks() {
+	for _, tb := range f.edit().Body().Blocks() {
 		if tb.Type() != "terraform" {
 			continue
 		}
@@ -363,7 +363,7 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 	if !changed {
 		return versions, nil
 	}
-	return hclwrite.Format(f.Bytes()), nil
+	return hclwrite.Format(f.edit().Bytes()), nil
 }
 
 // lockedVersionOf is LockedVersion for a provider source as

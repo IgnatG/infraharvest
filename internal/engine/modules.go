@@ -491,10 +491,11 @@ func copyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
 		}
 		src = rest
 	}
-	f, diags := hclwrite.ParseConfig(src, "", hcl.InitialPos)
+	parsed, diags := parseFile("", src)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("copy a block: %w", diags)
 	}
+	f := parsed.edit()
 	if len(f.Body().Blocks()) != 1 {
 		return nil, errors.New("copy a block: not one block")
 	}
@@ -684,7 +685,7 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 	if err != nil {
 		return err
 	}
-	body := generated.file.Body()
+	body := generated.edit().Body()
 	resources := generated.resources()
 	movedBlocks := map[*hclwrite.Block]bool{}
 	importTo := map[string][]string{}

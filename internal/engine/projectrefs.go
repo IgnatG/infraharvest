@@ -55,7 +55,7 @@ func referToProjects(dir string) (bool, error) {
 		return hcl.Traversal{hcl.TraverseRoot{Name: "google_project"}, hcl.TraverseAttr{Name: names[0]}, hcl.TraverseAttr{Name: "project_id"}}, true
 	}
 	changed := false
-	blocks := generated.file.Body().Blocks()
+	blocks := generated.edit().Body().Blocks()
 	for i, b := range generated.syntax.Blocks {
 		if b.Type != "module" || len(b.Labels) != 1 || i >= len(blocks) {
 			continue

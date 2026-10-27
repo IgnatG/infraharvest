@@ -53,12 +53,12 @@ func layoutFile(path string) (bool, error) {
 // layout returns src with its resource and data blocks laid out (see
 // layoutBody), formatted. It reports false if src doesn't parse.
 func layout(src []byte) ([]byte, bool) {
-	file, diags := hclsyntax.ParseConfig(src, "", hcl.InitialPos)
-	if diags.HasErrors() {
+	f, err := parseHCL("", src)
+	if err != nil {
 		return nil, false
 	}
 	out := slices.Clone(src)
-	blocks := file.Body.(*hclsyntax.Body).Blocks
+	blocks := f.syntax.Blocks
 	// From the last block, so that the offsets of the others hold.
 	for i := len(blocks) - 1; i >= 0; i-- {
 		b := blocks[i]
@@ -72,7 +72,7 @@ func layout(src []byte) ([]byte, bool) {
 		out = slices.Concat(out[:b.OpenBraceRange.End.Byte], []byte("\n"), inner, out[b.CloseBraceRange.Start.Byte:])
 	}
 	formatted := collapseEmptyBlocks(hclwrite.Format(out))
-	if _, diags := hclsyntax.ParseConfig(formatted, "", hcl.InitialPos); diags.HasErrors() {
+	if _, err := parseHCL("", formatted); err != nil {
 		return nil, false
 	}
 	return formatted, true

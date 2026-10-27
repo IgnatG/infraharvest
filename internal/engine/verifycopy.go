@@ -11,8 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
@@ -92,12 +90,12 @@ func verifyCopy(dir string) (string, func(), error) {
 // formatted, which it stays. It returns src as it is where it has none,
 // or doesn't parse.
 func dropBackend(src []byte) []byte {
-	f, diags := hclsyntax.ParseConfig(src, "", hcl.InitialPos)
-	if diags.HasErrors() {
+	f, err := parseHCL("", src)
+	if err != nil {
 		return src
 	}
 	var cuts [][2]int
-	for _, b := range f.Body.(*hclsyntax.Body).Blocks {
+	for _, b := range f.syntax.Blocks {
 		if b.Type != "terraform" {
 			continue
 		}
