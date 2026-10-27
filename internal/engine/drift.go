@@ -259,125 +259,56 @@ func (e *UnsupportedBackendError) Error() string {
 // say the edits take them and change nothing else (see acceptDrift); the
 // others are kept. For a root environments share, checked as
 // opts.Environment, only that environment's var file, staged with the
-// copy, is edited, for a value a variable sets (see variableResolver.env). Each
-// change's Outcome says what became of it.
+// copy, is edited, for a value a variable sets (see
+// variableResolver.env). Each change's Outcome says what became of it.
 //
 // A root with an unsupported backend fails with an
 // UnsupportedBackendError before Terraform runs.
 func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged func(dir string) (DriftTerraform, error), opts DriftOptions) (*RootDrift, error) {
-	files, err := configFiles(dir)
+	s, err := openDriftSession(dir, staging, opts)
 	if err != nil {
 		return nil, err
 	}
-	backend, err := rootBackend(files)
+	defer s.close()
+	result := &RootDrift{Backend: s.backend}
+	applied, err := s.stage(ctx, driftWithTimeout(tf, opts.CommandTimeout))
 	if err != nil {
 		return nil, err
 	}
-	result := &RootDrift{Backend: backend}
-	tf = driftWithTimeout(tf, opts.CommandTimeout)
-	var envImports map[string]string
-	if opts.Environment != "" {
-		if envImports, err = MergedImportIDs(dir, opts.Environment); err != nil {
-			return nil, err
-		}
-	}
-	// Checks of the root's other environments wait until its directory is
-	// initialised for this one, its state pulled and its files staged.
-	unlock := func() {}
-	if opts.RootLock != nil {
-		opts.RootLock.Lock()
-		unlock = sync.OnceFunc(opts.RootLock.Unlock)
-		defer unlock()
-	}
-	state, err := pullDriftState(ctx, tf, dir, backend, opts.Environment)
-	if err != nil {
-		return nil, err
-	}
-	if !stateHasResources(state) {
-		result.NotApplied = notApplied(files, nil)
-		if opts.Environment != "" {
-			result.NotApplied = notImported(envImports, nil)
-		}
+	if !applied {
+		result.NotApplied = s.notApplied(nil)
 		return result, nil
 	}
-	defer os.RemoveAll(staging)
-	err = stageDrift(dir, staging, []byte(state))
-	unlock()
+	if err := s.open(ctx, staged); err != nil {
+		return nil, err
+	}
+	inState, err := s.inState(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// The plans read the environment's var files from the staged copy,
-	// where an accepted change is edited first.
-	var envVars []tfexec.PlanOption
-	var envVarPaths []string
-	if opts.Environment != "" {
-		if err := stageVarFiles(dir, staging, opts.Environment); err != nil {
-			return nil, err
-		}
-		if envVars, envVarPaths, err = mergedVarFiles(staging, opts.Environment); err != nil {
-			return nil, err
-		}
-	}
-	stf, err := staged(staging)
-	if err != nil {
+	result.Resources, result.NotApplied = len(inState), s.notApplied(inState)
+	if result.Placeholders, err = s.placeholders(); err != nil {
 		return nil, err
 	}
-	stf = driftWithTimeout(stf, opts.CommandTimeout)
-	if err := initTerraform(ctx, stf); err != nil {
-		return nil, fmt.Errorf("terraform init: %w", err)
-	}
-	shown, err := stf.ShowStateFile(ctx, filepath.Join(staging, localStateFileName))
-	if err != nil {
-		return nil, fmt.Errorf("terraform show: %w", err)
-	}
-	inState := stateAddresses(shown)
-	result.Resources = len(inState)
-	result.NotApplied = notApplied(files, inState)
-	if opts.Environment != "" {
-		result.NotApplied = notImported(envImports, inState)
-	}
-
-	stagedFiles, err := configFiles(staging)
+	refresh, err := s.refresh(ctx)
 	if err != nil {
 		return nil, err
-	}
-	vars, placeholdered := variablePlaceholders(staging, stagedFiles, envVarPaths...)
-	vars = append(envVars, vars...)
-	result.Placeholders = placeholdered
-
-	refreshPlan := filepath.Join(staging, "refresh.tfplan")
-	refresh, err := savedPlan(ctx, stf, refreshPlan, append(slices.Clone(vars), tfexec.RefreshOnly(true), tfexec.Lock(false))...)
-	if err != nil {
-		return nil, fmt.Errorf("terraform plan -refresh-only: %w", err)
 	}
 	if !hasDrift(refresh) {
 		return result, nil
 	}
-	// A saved plan applies without refreshing again; this one only
-	// writes the copy's local state.
-	if err := stf.Apply(ctx, tfexec.DirOrPlan(refreshPlan), tfexec.Lock(false)); err != nil {
-		return nil, fmt.Errorf("terraform apply of the refresh-only plan to the staged state: %w", err)
-	}
-	code, err := savedPlan(ctx, stf, filepath.Join(staging, "code.tfplan"), append(slices.Clone(vars), tfexec.Refresh(false), tfexec.Lock(false))...)
-	if err != nil {
-		return nil, fmt.Errorf("terraform plan -refresh=false: %w", err)
-	}
-	result.Changes = classifyDrift(refresh, code, opts.StateOnly, len(placeholdered) > 0)
-	root, err := driftContents(dir, opts.Environment)
+	code, err := s.refreshed(ctx)
 	if err != nil {
 		return nil, err
 	}
-	editor := newDriftEditor(refresh, code, opts.Defaults)
-	editor.modules = loadDriftModules(dir)
-	if err := addModuleFiles(root, dir, editor.modules); err != nil {
+	result.Changes = classifyDrift(refresh, code, opts.StateOnly, len(result.Placeholders) > 0)
+	root, err := s.contents()
+	if err != nil {
 		return nil, err
 	}
-	editor.syncModules(root)
-	if opts.Environment != "" {
-		editor.env, editor.envVars = opts.Environment, envVarsPath(opts.Environment)
-		if editor.ownFlags, err = envOnlyFlags(dir, opts.Environment, files); err != nil {
-			return nil, err
-		}
+	editor, err := s.editor(refresh, code, root)
+	if err != nil {
+		return nil, err
 	}
 	if result.Changes, err = shareTags(result.Changes, root, refresh, code, editor); err != nil {
 		return nil, err
@@ -386,11 +317,8 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	if err != nil {
 		return nil, err
 	}
-	accepted := decideDrift(result.Changes, sources, opts.Accept)
-	if len(accepted) > 0 {
-		if err := acceptDrift(ctx, stf, dir, staging, root, accepted, code, vars, editor, opts); err != nil {
-			return nil, err
-		}
+	if err := s.accept(ctx, root, decideDrift(result.Changes, sources, opts.Accept), code, editor); err != nil {
+		return nil, err
 	}
 	result.Changes = unsharedChanges(result.Changes)
 	return result, nil
