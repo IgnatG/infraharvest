@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
 // SharedEnvironment is the environment of what no environment's tags
@@ -202,7 +203,7 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 		case name == AllEnvironments:
 			return fmt.Errorf("%q: the name stands for every environment, as in drift --environment %s", name, AllEnvironments)
 		case !e.hasScopes() && len(e.Tags) == 0:
-			return fmt.Errorf("%s: name its %s, or its tags", name, sentenceJoin(fields))
+			return fmt.Errorf("%s: name its %s, or its tags", name, sentence.List(fields, "or"))
 		}
 		for _, p := range profiles {
 			for _, scope := range e.Scopes(p.Command) {
@@ -258,18 +259,9 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 		}
 	}
 	if err := envs.apart(tagsOnly); err != nil {
-		return fmt.Errorf("the environments that name no %s: %w", sentenceJoin(nouns), err)
+		return fmt.Errorf("the environments that name no %s: %w", sentence.List(nouns, "or"), err)
 	}
 	return nil
-}
-
-// sentenceJoin joins words as a sentence lists them, with or before the
-// last: a, b or c.
-func sentenceJoin(words []string) string {
-	if len(words) < 2 {
-		return strings.Join(words, "")
-	}
-	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
 }
 
 // apart returns why the environments names, found in the same place,
