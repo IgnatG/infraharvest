@@ -43,7 +43,10 @@ type Map []Field
 
 // Field is a key of a Map and its value.
 type Field struct {
-	Key   string
+	// Key is the key as written.
+	Key string
+	// Value is the key's value. Parse writes an explicit null as Null; a
+	// nil in a Map built by hand is taken as null too.
 	Value Node
 }
 
@@ -59,8 +62,10 @@ type Field struct {
 // YAML tag !Condition; elsewhere, such as in an IAM policy statement, it is
 // an ordinary Map, so the parser leaves it one.
 type Func struct {
+	// Name is the function's long-form name, such as "Fn::Sub".
 	Name string
-	Arg  Node
+	// Arg is the function's argument as written.
+	Arg Node
 }
 
 func (Null) node()   {}
