@@ -383,6 +383,27 @@ jobs:
           test "$OUTCOME" = failure
           test -z "$EXIT_CODE"
           test ! -e "$RUNNER_TEMP/bare"
+      # A boolean input that is neither true nor false: the action refuses
+      # it before anything runs, rather than take it as false.
+      - name: Run the action with allow-partial yes
+        id: boolean
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: ${{ runner.temp }}/boolean
+          allow-partial: "yes"
+      - name: Check the action refused allow-partial yes
+        env:
+          OUTCOME: ${{ steps.boolean.outcome }}
+          EXIT_CODE: ${{ steps.boolean.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          test -z "$EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/boolean"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
