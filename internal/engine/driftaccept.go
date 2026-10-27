@@ -170,18 +170,17 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 			if err != nil {
 				return nil, err
 			}
-			failure := &verdict[*DriftChange, driftRejection]{blamed: map[*DriftChange]driftRejection{}}
 			if rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.forms); len(rejected) > 0 {
-				for c, reason := range rejected {
-					failure.blamed[c] = driftRejection{DriftRejectedByPlan, reason}
-				}
-				return failure, nil
+				return planRejection(rejected), nil
 			}
 			failedCheck, files, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
 			if err != nil || failedCheck == "" {
 				return nil, err
 			}
-			failure.why = driftRejection{DriftRejectedByCheck, "the edited code fails " + failedCheck}
+			failure := &verdict[*DriftChange, driftRejection]{
+				blamed: map[*DriftChange]driftRejection{},
+				why:    driftRejection{DriftRejectedByCheck, "the edited code fails " + failedCheck},
+			}
 			for _, c := range checkBlame(pending, applied, files) {
 				failure.blamed[c] = failure.why
 			}
@@ -537,6 +536,21 @@ func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, fil
 // change: the outcome it ends with, and the reason.
 type driftRejection struct {
 	outcome, reason string
+}
+
+// planRejection is the verdict of a plan of edited code that rejects the
+// changes of rejected, each for its reason (see judgeDrift). A verifier
+// that blames all of a round's edits where none of them is blamed rejects
+// them by the plan too.
+func planRejection(rejected map[*DriftChange]string) *verdict[*DriftChange, driftRejection] {
+	failure := &verdict[*DriftChange, driftRejection]{
+		blamed: map[*DriftChange]driftRejection{},
+		why:    driftRejection{DriftRejectedByPlan, "the plan of the edited code doesn't take the edits"},
+	}
+	for c, reason := range rejected {
+		failure.blamed[c] = driftRejection{DriftRejectedByPlan, reason}
+	}
+	return failure
 }
 
 // mergedTagAttributes are, by a resource's own tags or labels, the
