@@ -60,10 +60,18 @@ func (v *Value) HasErrors() bool {
 // condition, a mapping or a stand-in variable it would need is an Error
 // diagnostic. path is where the value is in the template, for the
 // diagnostics, such as "Outputs.VpcId.Value". It returns an error only for
-// a nil template, or a value that expands past the converter's budget.
+// a nil template, a value that expands past the converter's budget, or,
+// as Convert does, a nil entry in one of t's sections or a value n that
+// contains itself or nests or repeats values past the converter's limits.
 func ConvertValue(t *Template, n Node, path string, opts Options) (*Value, error) {
 	if t == nil {
 		return nil, errors.New("cfn: no template to convert")
+	}
+	if err := checkEntries(t); err != nil {
+		return nil, err
+	}
+	if err := checkValue(n, path); err != nil {
+		return nil, err
 	}
 	c := newConverter(t, opts)
 	c.single = true

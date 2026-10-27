@@ -100,11 +100,17 @@ func (r *Result) HasErrors() bool {
 // whose values expand to more than 64 MiB of expressions (which takes
 // values built to repeat one another, such as nested Fn::Sub variables),
 // or if the HCL it writes doesn't parse, which would be a bug in the
-// converter. The
-// same template and options give the same output, byte for byte.
+// converter; and for what only a Template built by hand, rather than by
+// Parse, can hold: a nil entry in a section, or a value that contains
+// itself, nests more than 1026 deep, or holds more than 16M values,
+// counting each repeat. The same template and options give the same
+// output, byte for byte.
 func Convert(t *Template, opts Options) (*Result, error) {
 	if t == nil {
 		return nil, errors.New("cfn: no template to convert")
+	}
+	if err := checkTemplate(t); err != nil {
+		return nil, err
 	}
 	c := newConverter(t, opts)
 	var mainW, varsW, localsW, outputsW, dataW hclWriter

@@ -6,6 +6,7 @@ package cfn
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -117,33 +118,30 @@ func (n Number) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(n))
 }
 
-// MarshalJSON writes the map's fields in order.
+// MarshalJSON writes the map's fields in order. It fails, rather than
+// recurse without end, on a map that contains itself or nests values past
+// the converter's limit, which only a map built by hand can.
 func (m Map) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte('{')
-	for i, f := range m {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		key, err := marshal(f.Key)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(key)
-		b.WriteByte(':')
-		value, err := marshal(f.Value)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(value)
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
+	return nodeJSON(m)
 }
 
 // MarshalJSON writes the function in its JSON long form, {"Fn::Sub": ...}.
+// Like Map's, it fails on an argument that contains itself or nests
+// values past the converter's limit.
 func (f Func) MarshalJSON() ([]byte, error) {
-	return Map{{Key: f.Name, Value: f.Arg}}.MarshalJSON()
+	return nodeJSON(f)
+}
+
+// nodeJSON returns n as JSON once checkValue has found that writing it
+// ends. It writes the whole value itself, so that the check covers it once
+// rather than again for each nested Map and Func.
+func nodeJSON(n Node) ([]byte, error) {
+	if err := checkValue(n, ""); err != nil {
+		return nil, err
+	}
+	w := &limitedBuilder{limit: math.MaxInt}
+	writeNodeJSON(w, n)
+	return []byte(w.b.String()), nil
 }
 
 // marshal encodes v as JSON without escaping <, > and &, which the

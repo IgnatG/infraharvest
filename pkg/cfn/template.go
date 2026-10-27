@@ -97,20 +97,22 @@ type Output struct {
 	Condition string
 }
 
-// Parameter returns the parameter called name, or nil.
+// Parameter returns the parameter called name, or nil. It skips nil
+// entries, which only a Template built by hand can have.
 func (t *Template) Parameter(name string) *Parameter {
 	for _, p := range t.Parameters {
-		if p.Name == name {
+		if p != nil && p.Name == name {
 			return p
 		}
 	}
 	return nil
 }
 
-// Resource returns the resource with the logical ID id, or nil.
+// Resource returns the resource with the logical ID id, or nil. Like
+// Parameter, it skips nil entries.
 func (t *Template) Resource(id string) *Resource {
 	for _, r := range t.Resources {
-		if r.LogicalID == id {
+		if r != nil && r.LogicalID == id {
 			return r
 		}
 	}
