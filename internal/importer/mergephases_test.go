@@ -5,6 +5,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -276,6 +277,26 @@ func TestHandOver(t *testing.T) {
 				t.Errorf("what the merge wrote, cleared %v: %v", tc.cleared, err)
 			}
 		})
+	}
+}
+
+// A stack merged before whose moved blocks can't be written keeps its
+// merged root as it was, without what the merge wrote.
+func TestMergeStackRestoresTheMergedRootWhereMovesFail(t *testing.T) {
+	out := t.TempDir()
+	f := &fakeEngine{}
+	run, stack, members := remergeStack(t, out, f, "audit")
+	run.options.Regenerate = true
+	run.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
+	run.tools.mergedMoves = func(string, []engine.Move, []engine.Removal) (engine.Check, error) {
+		return engine.Check{}, errors.New("disk full")
+	}
+	if err := run.mergeStack(t.Context(), stack, members); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("merging again: %v, want the moved blocks' error", err)
+	}
+	checkMergedRootKept(t, stack)
+	if _, err := os.Stat(filepath.Join(stack, engine.MovesFileName)); !os.IsNotExist(err) {
+		t.Errorf("%s is in the merged root: %v", engine.MovesFileName, err)
 	}
 }
 
