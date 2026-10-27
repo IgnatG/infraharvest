@@ -4,6 +4,7 @@
 package google
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"math/bits"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 func TestAssetID(t *testing.T) {
@@ -185,16 +187,17 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 	return listAssetsIn(t, cat, region)
 }
 
-// forgetSearches drops the searches and the rejected asset types the process
-// has kept, now and when the test ends, so that a test's search doesn't reach another's, which
-// a server on the same port would otherwise give it.
+// forgetSearches drops the searches and the rejected asset types the
+// tests' run has kept (see testCaches), now and when the test ends, so
+// that a test's search doesn't reach another's.
 func forgetSearches(t *testing.T) {
 	t.Helper()
 	forget := func() {
-		searches.forget()
-		rejectedTypes.Lock()
-		rejectedTypes.byKey = map[string]bool{}
-		rejectedTypes.Unlock()
+		caches := testCaches()
+		caches.searches.forget()
+		caches.mu.Lock()
+		caches.rejectedTypes = map[string]bool{}
+		caches.mu.Unlock()
 	}
 	forget()
 	t.Cleanup(forget)
@@ -389,7 +392,7 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	if failures != 1 || len(search.requests) != 0 {
 		t.Errorf("after a failure: %d failed and %d other searches, want the failed one only", failures, len(search.requests))
 	}
-	searches.forget()
+	testCaches().searches.forget()
 	if got := listAssetsIn(t, nil, ""); len(got) != 7 || len(search.requests) != 1 {
 		t.Errorf("searching afresh: got %d resources from %d searches", len(got), len(search.requests))
 	}
@@ -419,7 +422,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
 	}
 
-	searches.forget()
+	testCaches().searches.forget()
 	before := len(search.requests)
 	if got := listAssetsIn(t, cat, ""); len(got) != 7 {
 		t.Errorf("searching again: got %v", byID(got))
@@ -554,9 +557,8 @@ func TestGlobalNamesTheOtherRegions(t *testing.T) {
 
 // A region's import lists the subnetworks in part, as the import of
 // global takes them wherever they are, and any import lists in part the
-// types of the asset types the search rejected where it went.
+// types of the asset types its run's search rejected.
 func TestCloudAssetPartialTypes(t *testing.T) {
-	t.Setenv(EndpointEnv, "http://127.0.0.1:1")
 	forgetSearches(t)
 	cat := catalogue.MustBuiltin("google")
 	global := &Provider{catalogue: cat}
@@ -569,11 +571,68 @@ func TestCloudAssetPartialTypes(t *testing.T) {
 		t.Errorf("a region: got %v, want %v", got, want)
 	}
 
-	rejectedTypes.Lock()
-	rejectedTypes.byKey[rejectedKey("pubsub.googleapis.com/Topic")] = true
-	rejectedTypes.byKey["http://elsewhere\x00compute.googleapis.com/Network"] = true
-	rejectedTypes.Unlock()
+	caches := testCaches()
+	caches.mu.Lock()
+	caches.rejectedTypes["pubsub.googleapis.com/Topic"] = true
+	caches.mu.Unlock()
+	// Another run's rejections aren't this one's.
+	other := cachesOf(ratelimit.NewContext(t.Context(), ratelimit.New(1)))
+	other.mu.Lock()
+	other.rejectedTypes["compute.googleapis.com/Network"] = true
+	other.mu.Unlock()
 	if got, want := global.PartialTypes(), []string{"google_pubsub_topic"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("global, with a rejected asset type: got %v, want %v", got, want)
+	}
+}
+
+// A run searches a project once for every import of it, and leaves out
+// the asset types its search rejected; another run in the process, such
+// as a server's next, searches afresh, the rejected types too, and names
+// none of the first run's partial types.
+func TestCloudAssetSearchesOncePerRun(t *testing.T) {
+	const rejected = "pubsub.googleapis.com/Topic"
+	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: []string{rejected}}
+	server := httptest.NewServer(search)
+	t.Cleanup(server.Close)
+	t.Setenv(EndpointEnv, server.URL)
+	first := ratelimit.NewContext(t.Context(), ratelimit.New(0))
+	second := ratelimit.NewContext(t.Context(), ratelimit.New(0))
+	list := func(ctx context.Context, region string) {
+		t.Helper()
+		g := assetLister(t, nil, region)
+		g.SetContext(ctx)
+		if err := g.List(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requests := func() int {
+		search.mu.Lock()
+		defer search.mu.Unlock()
+		return len(search.requests)
+	}
+
+	list(first, "")
+	searched := requests()
+	list(first, "us-central1")
+	if requests() != searched {
+		t.Errorf("the run's second import searched again: %d requests, want %d", requests(), searched)
+	}
+	list(second, "")
+	if got := requests(); got != 2*searched {
+		t.Errorf("another run made %d requests, want %d", got-searched, searched)
+	}
+	if again := search.requests[searched]; !slices.Contains(again, rejected) {
+		t.Errorf("another run's search left out %s, which the first run's rejected: %v", rejected, again)
+	}
+
+	cat := catalogue.MustBuiltin("google")
+	partial := func(ctx context.Context) bool {
+		return slices.Contains((&Provider{catalogue: cat, caches: cachesOf(ctx)}).PartialTypes(), "google_pubsub_topic")
+	}
+	if !partial(first) {
+		t.Error("the run's search rejected pubsub topics, which it doesn't list in part")
+	}
+	if partial(ratelimit.NewContext(t.Context(), ratelimit.New(0))) {
+		t.Error("a run that searched nothing lists pubsub topics in part")
 	}
 }

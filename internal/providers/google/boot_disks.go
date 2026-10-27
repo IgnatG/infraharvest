@@ -121,19 +121,15 @@ type instanceList struct {
 	createdByGroup map[string]bool
 }
 
-// instanceLists are the instances the process has listed, by project: one
-// list has every zone's instances, and one command imports a project
-// region by region, so it is listed once for all of them rather than
-// once for each, as searchOnce searches.
-var instanceLists projectLists[instanceList]
-
-// instancesOnce lists the project's instances, only the first time the
-// process asks (see projectLists). The list is the project's instances in
-// every zone, page by page, with no more of each than instanceFields. A
-// zone that can't be reached fails the list: its instances would be
-// missing from it.
+// instancesOnce lists the project's instances, only the first time ctx's
+// run asks (see runCaches.instances): one list has every zone's
+// instances, and one command imports a project region by region, so it
+// is listed once for all of them rather than once for each, as searchOnce
+// searches. The list is the project's instances in every zone, page by
+// page, with no more of each than instanceFields. A zone that can't be
+// reached fails the list: its instances would be missing from it.
 func instancesOnce(ctx context.Context, project string) (instanceList, error) {
-	return instanceLists.once(project, func() (instanceList, error) {
+	return cachesOf(ctx).instances.once(project, func() (instanceList, error) {
 		svc, err := compute.NewService(ctx, clientOptions(ctx)...)
 		if err != nil {
 			return instanceList{}, err

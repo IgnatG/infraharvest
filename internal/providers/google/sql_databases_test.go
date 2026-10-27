@@ -76,12 +76,12 @@ func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
 	return cloudSQLLister(t, region)
 }
 
-// forgetSQLInstances drops the instance lists the process has kept, now
-// and when the test ends.
+// forgetSQLInstances drops the instance lists the tests' run has kept
+// (see testCaches), now and when the test ends.
 func forgetSQLInstances(t *testing.T) {
 	t.Helper()
-	sqlInstanceLists.forget()
-	t.Cleanup(sqlInstanceLists.forget)
+	testCaches().sqlInstances.forget()
+	t.Cleanup(testCaches().sqlInstances.forget)
 }
 
 // cloudSQLLister is a lister of region of the project acme, with the
@@ -347,8 +347,8 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 			t.Setenv(EndpointEnv, server.URL)
 			// An earlier listing of the import that found otherwise
 			// doesn't count: this one's outcome replaces it.
-			setSQLDatabasesUnlisted("acme", "us-central1", !tt.partialType)
-			t.Cleanup(func() { setSQLDatabasesUnlisted("acme", "us-central1", false) })
+			testCaches().setSQLDatabasesUnlisted("acme", "us-central1", !tt.partialType)
+			t.Cleanup(func() { testCaches().setSQLDatabasesUnlisted("acme", "us-central1", false) })
 
 			g := newCloudSQL(t, "us-central1")
 			err := g.List()

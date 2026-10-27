@@ -99,19 +99,16 @@ func clusterKey(id string) string {
 	return segments[n-3] + "/" + segments[n-1]
 }
 
-// autopilotClusterLists are the Autopilot clusters the process has listed,
-// by project: one list has every location's clusters, and one command
-// imports a project region by region, so it is listed once for all of
-// them rather than once for each, as searchOnce searches.
-var autopilotClusterLists projectLists[map[string]bool]
-
 // autopilotClustersOnce returns the project's Autopilot clusters, by
-// clusterKey, listing them only the first time the process asks (see
-// projectLists). The list is the project's clusters in every location,
-// in one response, with no more of each than autopilotFields. A zone that
-// can't be listed fails the list: its clusters would be missing from it.
+// clusterKey, listing them only the first time ctx's run asks (see
+// runCaches.autopilotClusters): one list has every location's clusters,
+// and one command imports a project region by region, so it is listed
+// once for all of them rather than once for each, as searchOnce searches.
+// The list is the project's clusters in every location, in one response,
+// with no more of each than autopilotFields. A zone that can't be listed
+// fails the list: its clusters would be missing from it.
 func autopilotClustersOnce(ctx context.Context, project string) (map[string]bool, error) {
-	return autopilotClusterLists.once(project, func() (map[string]bool, error) {
+	return cachesOf(ctx).autopilotClusters.once(project, func() (map[string]bool, error) {
 		svc, err := container.NewService(ctx, clientOptions(ctx)...)
 		if err != nil {
 			return nil, err
