@@ -385,9 +385,9 @@ func TestGoldenMergedRoots(t *testing.T) {
 			if want := slices.Sorted(maps.Keys(files)); !slices.Equal(written, want) {
 				t.Errorf("wrote %v, want %v", written, want)
 			}
-			gate, err := gateWith(context.Background(), &fakeTerraform{dir: dir}, dir, Options{}, func() (Check, []string, error) {
-				return Check{Name: CheckPlan, Passed: true}, nil, nil
-			}, nil)
+			policy := fullGate(Options{})
+			policy.plan = func() (Check, []string, error) { return Check{Name: CheckPlan, Passed: true}, nil, nil }
+			gate, _, err := policy.run(context.Background(), &fakeTerraform{dir: dir}, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
