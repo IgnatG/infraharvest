@@ -103,9 +103,9 @@ func engineBinary(name string) engine.Binary {
 }
 
 // importWithEngine lists resources with the provider's listers, then lets
-// Terraform or OpenTofu generate their configuration from import blocks.
-// No state is written.
-func importWithEngine(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
+// Terraform or OpenTofu generate their configuration from import blocks,
+// into run; nil makes and finishes a run of its own. No state is written.
+func importWithEngine(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
 	if err := checkImportOptions(options); err != nil {
 		return err
 	}
@@ -114,10 +114,9 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 	}
 	// Commands share one run across their Import calls (see Run.Do),
 	// and an account imported alongside others has its own (see
-	// ImportEach); a call on its own finishes its own.
-	run := options.run
-	if run == nil {
-		run = activeRun
+	// Run.ImportEach); a call on its own finishes its own.
+	if options.run != nil {
+		run = options.run
 	}
 	if run == nil {
 		run = NewRun()

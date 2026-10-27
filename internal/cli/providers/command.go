@@ -90,14 +90,15 @@ type call struct {
 
 // importFunc is the signature of importer.ImportCalls, which tests
 // replace.
-type importFunc func(ctx context.Context, calls []importer.Call) error
+type importFunc func(ctx context.Context, run *importer.Run, calls []importer.Call) error
 
-// run makes the calls of each of p's scopes with importCalls, each call
-// with a new provider from p.newProvider, or else from newProvider: those
-// of one scope together, which stop at the first that fails (see
-// importer.ImportCalls), and several scopes through importer.ImportEach,
-// which records a scope that fails and goes on to the next.
-func (p plan) run(ctx context.Context, options importer.Options, newProvider func() harvest.Provider, importCalls importFunc) error {
+// run makes the calls of each of p's scopes into run with importCalls,
+// each call with a new provider from p.newProvider, or else from
+// newProvider: those of one scope together, which stop at the first that
+// fails (see importer.ImportCalls), and several scopes through
+// importer.Run.ImportEach, which records a scope that fails and goes on
+// to the next.
+func (p plan) run(ctx context.Context, run *importer.Run, options importer.Options, newProvider func() harvest.Provider, importCalls importFunc) error {
 	if p.newProvider != nil {
 		newProvider = p.newProvider
 	}
@@ -107,20 +108,20 @@ func (p plan) run(ctx context.Context, options importer.Options, newProvider fun
 		for i, c := range planned {
 			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where, First: c.first}
 		}
-		return importCalls(ctx, calls)
+		return importCalls(ctx, run, calls)
 	}
 	var err error
 	if p.scopes == nil {
 		err = importScope(options, "")
 	} else {
-		err = importer.ImportEach(options, p.kind, p.scopes, importScope)
+		err = run.ImportEach(options, p.kind, p.scopes, importScope)
 	}
 	if err != nil {
 		return err
 	}
 	// Once every scope is imported: the environments of a stack may be in
 	// different accounts, subscriptions or projects.
-	return importer.MergeEnvironments(ctx)
+	return run.MergeEnvironments(ctx)
 }
 
 // define registers the provider d describes.
@@ -128,9 +129,14 @@ func define(d definition) {
 	register(d.name, d.command, d.newProvider)
 }
 
+// RunFunc runs a provider command, called with c and args, into run, which
+// the caller finishes (see importer.Run.Do).
+type RunFunc func(c *cobra.Command, args []string, run *importer.Run) error
+
 // command returns d's command, whose flags write into its own copy of
-// options: import passes zero options, discover options with Discover set.
-func (d definition) command(options importer.Options) *cobra.Command {
+// options, and what runs it: import passes zero options, discover options
+// with Discover set.
+func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) {
 	cmd := &cobra.Command{
 		Use:   d.name,
 		Short: d.short,
@@ -139,7 +145,7 @@ func (d definition) command(options importer.Options) *cobra.Command {
 	BaseFlags(cmd.PersistentFlags(), &options, d.sampleServices, d.sampleIDs)
 	ParallelFlag(cmd, &options, d.parallelScopes)
 	planScopes := d.flags(cmd.PersistentFlags(), &options)
-	cmd.RunE = func(c *cobra.Command, _ []string) error {
+	runE := func(c *cobra.Command, _ []string, run *importer.Run) error {
 		// The command's context reaches every Import call, so that an
 		// interrupt stops the import.
 		ctx := c.Context()
@@ -157,9 +163,9 @@ func (d definition) command(options importer.Options) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return p.run(ctx, options, d.newProvider, importer.ImportCalls)
+		return p.run(ctx, run, options, d.newProvider, importer.ImportCalls)
 	}
-	return cmd
+	return cmd, runE
 }
 
 // BaseFlags adds the flags every provider command has to flags, bound to

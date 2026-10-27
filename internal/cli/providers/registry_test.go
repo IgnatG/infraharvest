@@ -54,8 +54,8 @@ func TestEveryProviderHasCommandAndConstructor(t *testing.T) {
 		t.Errorf("%d constructors for %d providers: names must be unique", len(constructors), len(registry))
 	}
 	for _, name := range Names() {
-		if Command(name, importer.Options{}) == nil {
-			t.Errorf("%s: every registered provider needs an import command", name)
+		if cmd, runE := Command(name, importer.Options{}); cmd == nil || runE == nil {
+			t.Errorf("%s: every registered provider needs an import command, and what runs it", name)
 		}
 	}
 	if New("no-such-provider") != nil {

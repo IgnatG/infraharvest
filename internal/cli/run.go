@@ -9,14 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
-// withEngineRun wraps a provider command's RunE in a run of the importer:
-// the configuration file applies to the command's flags first, the run
-// collects what every import the command makes did, and finishes with the
-// report, the selection file and the exit code.
-func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
+// withEngineRun makes runE a provider command's RunE, in a run of the
+// importer it is passed: the configuration file applies to the command's
+// flags first, the run collects what every import the command makes did,
+// and finishes with the report, the selection file and the exit code.
+func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		run := importer.NewRun()
 		// Without a command, nothing catches signals.
@@ -47,7 +48,7 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 			c.SetContext(ctx)
 		}
 		// An interrupted run exits with the signal's code, in the report too.
-		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args)) })
+		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args, run)) })
 	}
 }
 

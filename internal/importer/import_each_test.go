@@ -26,9 +26,8 @@ func recordScope(o Options, scope string) {
 }
 
 func TestImportEachInParallel(t *testing.T) {
-	activeRun = NewRun()
-	defer func() { activeRun = nil }()
-	activeRun.selection = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
+	run := NewRun()
+	run.selection = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
 	options := Options{Out: t.TempDir(), Parallel: 3}
 	scopes := []string{"111111111111", "222222222222", "333333333333", "444444444444", "555555555555"}
 
@@ -46,10 +45,10 @@ func TestImportEachInParallel(t *testing.T) {
 				break
 			}
 		}
-		if o.run == nil || o.run == activeRun {
+		if o.run == nil || o.run == run {
 			t.Errorf("%s: imported into the command's run", scope)
 		}
-		if o.run.selection != activeRun.selection {
+		if o.run.selection != run.selection {
 			t.Errorf("%s: doesn't share the selection file", scope)
 		}
 		switch scope {
@@ -72,43 +71,42 @@ func TestImportEachInParallel(t *testing.T) {
 		return nil
 	}
 
-	if err := ImportEach(options, "account", scopes, importOne); err != nil {
+	if err := run.ImportEach(options, "account", scopes, importOne); err != nil {
 		t.Fatalf("the run must go on: %v", err)
 	}
 	if most.Load() != 3 {
 		t.Errorf("at most %d at once, want 3", most.Load())
 	}
-	if activeRun.discovered["aws_vpc"] != 4 {
-		t.Errorf("discovered %v", activeRun.discovered)
+	if run.discovered["aws_vpc"] != 4 {
+		t.Errorf("discovered %v", run.discovered)
 	}
 	// In the order of scopes, whichever finished first.
 	var paths []string
-	for _, d := range activeRun.report.Directories {
+	for _, d := range run.report.Directories {
 		paths = append(paths, strings.Split(d.Path, "/")[1])
 	}
 	if want := []string{scopes[0], scopes[1], scopes[3], scopes[4]}; strings.Join(paths, ",") != strings.Join(want, ",") {
 		t.Errorf("directories %v, want %v", paths, want)
 	}
-	if len(activeRun.report.Scopes) != 4 {
-		t.Errorf("scopes %+v", activeRun.report.Scopes)
+	if len(run.report.Scopes) != 4 {
+		t.Errorf("scopes %+v", run.report.Scopes)
 	}
-	if len(activeRun.failures) != 1 || !strings.Contains(activeRun.failures[0].Error(), "account 333333333333: AccessDenied") {
-		t.Errorf("failures %v", activeRun.failures)
+	if len(run.failures) != 1 || !strings.Contains(run.failures[0].Error(), "account 333333333333: AccessDenied") {
+		t.Errorf("failures %v", run.failures)
 	}
-	if string(activeRun.lock) != "lock" || !activeRun.used {
-		t.Errorf("lock %q, used %v", activeRun.lock, activeRun.used)
+	if string(run.lock) != "lock" || !run.used {
+		t.Errorf("lock %q, used %v", run.lock, run.used)
 	}
 }
 
 // An interrupt in the first scope starts no others; one later keeps what
 // finished.
 func TestImportEachInterrupted(t *testing.T) {
-	activeRun = NewRun()
-	defer func() { activeRun = nil }()
+	run := NewRun()
 	options := Options{Out: t.TempDir(), Parallel: 2}
 
 	var calls atomic.Int32
-	err := ImportEach(options, "project", []string{"a", "b", "c"}, func(Options, string) error {
+	err := run.ImportEach(options, "project", []string{"a", "b", "c"}, func(Options, string) error {
 		calls.Add(1)
 		return context.Canceled
 	})
@@ -116,8 +114,8 @@ func TestImportEachInterrupted(t *testing.T) {
 		t.Errorf("interrupted first: %v after %d calls", err, calls.Load())
 	}
 
-	activeRun = NewRun()
-	err = ImportEach(options, "project", []string{"a", "b"}, func(o Options, scope string) error {
+	run = NewRun()
+	err = run.ImportEach(options, "project", []string{"a", "b"}, func(o Options, scope string) error {
 		if scope == "b" {
 			return context.Canceled
 		}
@@ -127,8 +125,8 @@ func TestImportEachInterrupted(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("interrupted later: %v", err)
 	}
-	if len(activeRun.report.Directories) != 1 || len(activeRun.failures) != 0 {
-		t.Errorf("directories %v, failures %v", activeRun.report.Directories, activeRun.failures)
+	if len(run.report.Directories) != 1 || len(run.failures) != 0 {
+		t.Errorf("directories %v, failures %v", run.report.Directories, run.failures)
 	}
 }
 
@@ -151,14 +149,14 @@ func waitOrFail(t *testing.T, wg *sync.WaitGroup) {
 // parallel.
 func TestImportEachRecoversAPanic(t *testing.T) {
 	for _, parallel := range []int{1, 2} {
-		activeRun = NewRun()
+		run := NewRun()
 		options := Options{Out: t.TempDir(), Parallel: parallel}
-		err := ImportEach(options, "account", []string{"a", "b", "c"}, func(o Options, scope string) error {
+		err := run.ImportEach(options, "account", []string{"a", "b", "c"}, func(o Options, scope string) error {
 			if scope == "b" {
 				panic("unexpected response")
 			}
 			if o.run == nil {
-				o.run = activeRun
+				o.run = run
 			}
 			recordScope(o, scope)
 			return nil
@@ -166,12 +164,11 @@ func TestImportEachRecoversAPanic(t *testing.T) {
 		if err != nil {
 			t.Errorf("parallel %d: %v", parallel, err)
 		}
-		if len(activeRun.failures) != 1 || !strings.Contains(activeRun.failures[0].Error(), "account b: panic: unexpected response") {
-			t.Errorf("parallel %d: failures %v", parallel, activeRun.failures)
+		if len(run.failures) != 1 || !strings.Contains(run.failures[0].Error(), "account b: panic: unexpected response") {
+			t.Errorf("parallel %d: failures %v", parallel, run.failures)
 		}
-		if activeRun.discovered["aws_vpc"] != 2 {
-			t.Errorf("parallel %d: discovered %v", parallel, activeRun.discovered)
+		if run.discovered["aws_vpc"] != 2 {
+			t.Errorf("parallel %d: discovered %v", parallel, run.discovered)
 		}
 	}
-	activeRun = nil
 }

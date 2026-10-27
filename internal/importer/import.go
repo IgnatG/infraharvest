@@ -81,7 +81,7 @@ type Options struct {
 	DefaultEnv string
 	// MergeEnvironments merges the roots of a stack's environments, which
 	// the configuration file's environments name, into one root they share
-	// (see MergeEnvironments).
+	// (see Run.MergeEnvironments).
 	MergeEnvironments bool
 	// ReportTags are the tag keys the report counts resources by.
 	ReportTags []string
@@ -167,14 +167,14 @@ type Options struct {
 	// custom resources, which the stacks may be deleted without.
 	CloudFormationIgnore []string
 	// Parallel is how many accounts, subscriptions or projects import at
-	// once (see ImportEach), and how many Import calls of the command, in
+	// once (see Run.ImportEach), and how many Import calls of the command, in
 	// every account and region, list or generate at once in all (see
 	// ImportCalls).
 	Parallel int
 
 	// run is the run this call records into, when it isn't the command's
 	// own: one of several scopes imported at once has a run of its own
-	// (see ImportEach).
+	// (see Run.ImportEach).
 	run *Run
 	// cat is the catalogue of the import, the built-in one with the
 	// --catalogue overlay merged in, once importInto has loaded it; the
@@ -195,7 +195,7 @@ type Options struct {
 func Import(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
 	switch options.Engine {
 	case "", EngineTerraform, EngineTofu:
-		return importWithEngine(ctx, provider, options, args)
+		return importWithEngine(ctx, options.run, provider, options, args)
 	default:
 		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
 	}
