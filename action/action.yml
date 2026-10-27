@@ -37,8 +37,8 @@ inputs:
     description: Selection file saying which resources to import (from infraharvest discover). Without one, the default selection is imported (--all).
     required: false
   engine:
-    description: terraform or tofu.
-    default: terraform
+    description: terraform or tofu. Unset, the import uses what the configuration file sets, or terraform, and drift uses terraform.
+    default: ""
   out:
     description: Directory to write the configuration and the report to.
     default: infraharvest-out
@@ -257,8 +257,10 @@ runs:
           echo "::error::provider: $err (set import to false to only check drift)"
           exit 1
         fi
-        args=(import "$PROVIDER" "--engine=$ENGINE" "--out=$OUT" --format=json)
-        # Empty, --services would still be set, over the config file's.
+        args=(import "$PROVIDER" "--out=$OUT" --format=json)
+        # Empty, --engine and --services would still be set, over the
+        # config file's.
+        [[ -n "$ENGINE" ]] && args+=("--engine=$ENGINE")
         [[ -n "$SERVICES" ]] && args+=("--services=$SERVICES")
         [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
         [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
@@ -329,7 +331,8 @@ runs:
         # Without --decisions, --write-decisions writes drift-decisions, or
         # drift.yaml in the out directory, without applying it, so drift
         # report never edits the code.
-        args=(drift "$OUT" "--engine=$ENGINE" --format=json --detailed-exitcode)
+        args=(drift "$OUT" --format=json --detailed-exitcode)
+        if [[ -n "$ENGINE" ]]; then args+=("--engine=$ENGINE"); fi
         if [[ "$DRIFT" == report && -n "$DRIFT_DECISIONS" ]]; then
           args+=("--write-decisions=$DRIFT_DECISIONS")
         else

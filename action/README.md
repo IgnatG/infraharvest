@@ -313,7 +313,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `services` | | Services to import, comma-separated. Required when importing, unless the `config` file sets them or `--cfn-stack` in `args` leaves them to the stacks |
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
-| `engine` | `terraform` | `terraform` or `tofu` |
+| `engine` | | `terraform` or `tofu`. Unset, the import uses what the configuration file sets, or `terraform`, and drift uses `terraform` |
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
 | `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
