@@ -47,6 +47,7 @@ type MergeOptions struct {
 	Profile         MergeProfile
 	Omit, StateOnly map[string][]string
 	Scanners        []Scanner
+	ScannerSlots    *ScannerSlots
 	Adapters        []adapters.Adapter
 	CommandTimeout  time.Duration
 }
@@ -406,7 +407,7 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 			envs[e].Gate = Gate{{Name: CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
 		}
 	}
-	policy := fullGate(Options{Omit: g.opts.Omit, Scanners: g.opts.Scanners, Adapters: g.opts.Adapters})
+	policy := fullGate(Options{Omit: g.opts.Omit, Scanners: g.opts.Scanners, ScannerSlots: g.opts.ScannerSlots, Adapters: g.opts.Adapters})
 	policy.plan = func() (Check, []string, error) { return g.plan(ctx, tf, m, w, first) }
 	// planned are the other environments the gate plans, in the order of
 	// their gates.

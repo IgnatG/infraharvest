@@ -76,6 +76,9 @@ type DriftOptions struct {
 	// (see rootProvider).
 	Provider func(name string) harvest.Provider
 	Names    []string
+	// Backends are the types of the backends drift reads state from,
+	// besides local state (see engine.DriftOptions.Backends).
+	Backends []string
 	// Modules are the organisation's own modules, as the import's
 	// configuration file lists them: the checks of an accepted change's
 	// edited code leave those in directories to their owners, as the
@@ -479,7 +482,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 		// whose adapters trace changes into their calls.
 		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
 	}
-	opts.CommandTimeout, opts.Environment, opts.Adapters, opts.OutDir = options.EngineTimeout, env, own, options.Out
+	opts.CommandTimeout, opts.Environment, opts.Adapters, opts.Backends, opts.OutDir = options.EngineTimeout, env, own, options.Backends, options.Out
 	if target.lock != nil {
 		opts.WithRootLock = target.withRootLock
 	}

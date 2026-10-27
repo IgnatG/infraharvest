@@ -156,10 +156,12 @@ type gatePolicy struct {
 	edited        []string
 	before, after map[string][]byte
 	// omit and own are the output standard's (see checkStandards), and
-	// scanners are the external scanners to run (see runScanners).
+	// scanners are the external scanners to run, in slots (see
+	// runScanners).
 	omit     map[string][]string
 	own      []string
 	scanners []Scanner
+	slots    *ScannerSlots
 }
 
 // gatePlan is one more plan of the directory a gate checks (see
@@ -172,10 +174,10 @@ type gatePlan struct {
 }
 
 // fullGate returns the policy that runs every check of the gate, to the
-// output standard and with the scanners of opts; its plan is still to be
-// set.
+// output standard and with the scanners and scanner slots of opts; its
+// plan is still to be set.
 func fullGate(opts Options) gatePolicy {
-	return gatePolicy{omit: opts.Omit, own: ownModuleDirs(opts.Adapters), scanners: opts.Scanners}
+	return gatePolicy{omit: opts.Omit, own: ownModuleDirs(opts.Adapters), scanners: opts.Scanners, slots: opts.ScannerSlots}
 }
 
 // runs reports whether the gate runs the check named name.
@@ -287,7 +289,7 @@ func (p gatePolicy) runChecks(ctx context.Context, tf Terraform, dir string) (Ga
 					scanners.Details = append(scanners.Details, p.withheld.Details...)
 				}
 				if clean {
-					scanners = runScanners(ctx, dir, p.scanners)
+					scanners = runScanners(ctx, dir, p.scanners, p.slots)
 				}
 			}
 			if add(scanners) {

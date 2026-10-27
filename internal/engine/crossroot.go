@@ -5,8 +5,8 @@ package engine
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // RootResource is a resource another root of the same import manages.
@@ -42,12 +44,14 @@ func (v rootValue) address() string {
 	return v.resource.Type + "." + v.resource.Name
 }
 
-// rootValues find the resources of other roots that literals are the ID,
-// ARN or DNS name of.
+// rootValues find the resources of other roots that literals name: by
+// their IDs, their ARNs or other values (see byNaming).
 type rootValues struct {
 	byID   map[string][]RootResource
 	byType map[string][]RootResource
 	arns   map[string]ARN
+	// types are the keys of byType, sorted.
+	types []string
 }
 
 func newRootValues(others []RootResource, arns map[string]ARN) rootValues {
@@ -56,22 +60,16 @@ func newRootValues(others []RootResource, arns map[string]ARN) rootValues {
 		v.byID[r.ID] = append(v.byID[r.ID], r)
 		v.byType[r.Type] = append(v.byType[r.Type], r)
 	}
+	v.types = slices.Sorted(maps.Keys(v.byType))
 	return v
 }
 
-// lbDNSName matches the DNS names of Application and Classic Load
-// Balancers, with the balancer's name and region: web-1234567890.eu-west-2.elb.amazonaws.com.
-var lbDNSName = regexp.MustCompile(`^(?:internal-)?([A-Za-z0-9-]+)-[0-9]+\.([a-z0-9-]+)\.elb\.amazonaws\.com$`)
-
-// nlbDNSName matches the DNS names of Network Load Balancers:
-// web-0123456789abcdef.elb.eu-west-2.amazonaws.com.
-var nlbDNSName = regexp.MustCompile(`^(?:internal-)?([A-Za-z0-9-]+)-[0-9a-f]+\.elb\.([a-z0-9-]+)\.amazonaws\.com$`)
-
 // match returns the attribute of a resource of another root that value,
 // of argument, is: its ID, where the value identifies it on its own (see
-// referenceable) or the argument names its type; its ARN; or a load
-// balancer's DNS name. A value of several resources is none of them,
-// unless one is the others' parent.
+// referenceable) or the argument names its type; its ARN; or another
+// value that names it, such as a load balancer's DNS name (see
+// byNaming). A value of several resources is none of them, unless one is
+// the others' parent.
 func (v rootValues) match(argument, value string) (rootValue, bool) {
 	var found []rootValue
 	for _, r := range v.byID[value] {
@@ -90,50 +88,44 @@ func (v rootValues) match(argument, value string) (rootValue, bool) {
 		found = v.byARN(value)
 	}
 	if len(found) == 0 {
-		found = v.byDNSName(value)
-	}
-	if len(found) == 0 {
-		found = v.bySelfLink(value)
+		found = v.byNaming(value)
 	}
 	return onlyValue(found)
 }
 
-// googleSelfLink matches a Google Compute Engine self link, on either host
-// Google's APIs use, with the resource's ID: projects/p/global/networks/n.
-var googleSelfLink = regexp.MustCompile(`^https://(?:www|compute)\.googleapis\.com/compute/(?:v1|beta)/(projects/[^/]+/.+)$`)
-
-// bySelfLink returns the Google resources whose self link value is.
-func (v rootValues) bySelfLink(value string) []rootValue {
-	m := googleSelfLink.FindStringSubmatch(value)
-	if m == nil {
-		return nil
-	}
+// byNaming returns the resources value names other than by their IDs, as
+// the built-in catalogue of each type's provider says (see
+// catalogue.NamedBy), such as a load balancer by its DNS name, a bucket
+// by its regional domain name or a Google resource by its self link.
+func (v rootValues) byNaming(value string) []rootValue {
 	var found []rootValue
-	for _, r := range v.byID[m[1]] {
-		found = append(found, rootValue{resource: r, attribute: "self_link"})
+	for _, typ := range v.types {
+		for _, n := range catalogue.ForType(typ).NamedBy(typ, value) {
+			for _, r := range v.byType[typ] {
+				if n.Names(r.ID) {
+					found = append(found, rootValue{resource: r, attribute: n.Attribute})
+				}
+			}
+		}
 	}
 	return found
 }
 
-// globalNetwork matches a Google network's ID, with its project and name.
-var globalNetwork = regexp.MustCompile(`^projects/([^/]+)/global/networks/([^/]+)$`)
-
 // rootLookup returns the data source that reads v wherever the root is,
-// if one does: a Google network, which is global, by its project and
-// name, as the regional roots' subnetworks and routers name it.
+// if one does, as the built-in catalogue of its type's provider says (see
+// catalogue.RootLookup), such as a Google network, which is global, by
+// its project and name, as the regional roots' subnetworks and routers
+// name it.
 func rootLookup(v rootValue) (lookup, bool) {
-	if v.resource.Type != "google_compute_network" || v.attribute != "self_link" {
-		return lookup{}, false
-	}
-	m := globalNetwork.FindStringSubmatch(v.resource.ID)
-	if m == nil {
+	found, ok := catalogue.ForType(v.resource.Type).RootLookup(v.resource.Type, v.attribute, v.resource.ID)
+	if !ok {
 		return lookup{}, false
 	}
 	name := v.resource.Name
 	if name == "" {
-		name = m[2]
+		name = found.Label
 	}
-	return lookup{typ: "google_compute_network", name: Label(name), args: [][2]string{{"name", m[2]}, {"project", m[1]}}, attribute: "self_link"}, true
+	return lookup{typ: found.Type, name: Label(name), args: found.Arguments, attribute: found.Attribute}, true
 }
 
 // byARN returns the resources whose ARN value is: by the catalogue's ARN
@@ -164,51 +156,6 @@ func (v rootValues) byARN(value string) []rootValue {
 			if r.ID == rest || r.ID == last {
 				found = append(found, rootValue{resource: r, attribute: "arn"})
 			}
-		}
-	}
-	return found
-}
-
-// s3DomainName matches a bucket's regional domain name, as CloudFront
-// origins name buckets: assets.s3.eu-west-2.amazonaws.com.
-var s3DomainName = regexp.MustCompile(`^([a-z0-9][a-z0-9.-]*)\.s3\.[a-z0-9-]+\.amazonaws\.com$`)
-
-// byDNSName returns the load balancers whose DNS name value is, by the
-// name and region their ARNs have, or the bucket whose regional domain
-// name it is.
-func (v rootValues) byDNSName(value string) []rootValue {
-	if m := s3DomainName.FindStringSubmatch(value); m != nil {
-		var found []rootValue
-		for _, r := range v.byType["aws_s3_bucket"] {
-			if r.ID == m[1] {
-				found = append(found, rootValue{resource: r, attribute: "bucket_regional_domain_name"})
-			}
-		}
-		return found
-	}
-	m := lbDNSName.FindStringSubmatch(value)
-	if m == nil {
-		if m = nlbDNSName.FindStringSubmatch(value); m == nil {
-			return nil
-		}
-	}
-	name, region := m[1], m[2]
-	var found []rootValue
-	for _, typ := range []string{"aws_lb", "aws_alb", "aws_elb"} {
-		for _, r := range v.byType[typ] {
-			// arn:aws:elasticloadbalancing:<region>:<account>:loadbalancer/app/<name>/<id>,
-			// or a Classic Load Balancer's name.
-			parts := strings.SplitN(r.ID, ":", 6)
-			switch {
-			case len(parts) == 6:
-				segments := strings.Split(parts[5], "/")
-				if parts[3] != region || len(segments) != 4 || segments[2] != name {
-					continue
-				}
-			case r.ID != name:
-				continue
-			}
-			found = append(found, rootValue{resource: r, attribute: "dns_name"})
 		}
 	}
 	return found

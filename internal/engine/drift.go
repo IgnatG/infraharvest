@@ -21,6 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
 // DriftTerraform is a Terraform that can also read a root's state and
@@ -87,10 +88,6 @@ const (
 	DriftKeep = "keep"
 )
 
-// driftBackends are the backends Drift reads state from: the others, and
-// HCP Terraform, run plans remotely.
-var driftBackends = []string{"s3", "gcs", "azurerm", "local"}
-
 // backendFileName is the file of a generated root that configures its
 // backend; the staged copy leaves it out.
 const backendFileName = "backend.tf"
@@ -151,6 +148,12 @@ type DriftOptions struct {
 	// module is in it too (see addModuleFiles). "" takes the directory the
 	// module's modules directory is in for it.
 	OutDir string
+	// Backends are the types of the backends Drift reads state from,
+	// besides local state: those the clouds keep state in whose
+	// providers infraharvest is built with (see harvest.Profile.Backend).
+	// A root with another backend, such as one whose plans run remotely,
+	// or HCP Terraform, fails with an UnsupportedBackendError.
+	Backends []string
 
 	// writeFile writes an edited file into the root; nil is
 	// fsutil.WriteFile. For tests.
@@ -243,10 +246,19 @@ type DriftSource struct {
 // doesn't read state from.
 type UnsupportedBackendError struct {
 	Backend string // the backend's type, or "cloud" for HCP Terraform
+	// Supported are the backends Drift reads state from, besides local
+	// state (see DriftOptions.Backends).
+	Supported []string
 }
 
 func (e *UnsupportedBackendError) Error() string {
-	supported := "drift supports the s3, gcs and azurerm backends and local state"
+	supported := "drift supports local state"
+	switch {
+	case len(e.Supported) == 1:
+		supported = "drift supports the " + e.Supported[0] + " backend and local state"
+	case len(e.Supported) > 1:
+		supported = "drift supports the " + sentence.List(e.Supported, "and") + " backends and local state"
+	}
 	if e.Backend == "cloud" {
 		return "HCP Terraform (the cloud block) isn't supported, as its plans run remotely: " + supported
 	}
@@ -337,8 +349,9 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 }
 
 // rootBackend returns the type of the backend the configuration files
-// configure, local if none, or an UnsupportedBackendError.
-func rootBackend(files []*hclFile) (string, error) {
+// configure, local if none, or an UnsupportedBackendError for one other
+// than local and backends.
+func rootBackend(files []*hclFile, backends []string) (string, error) {
 	backend := "local"
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
@@ -348,15 +361,15 @@ func rootBackend(files []*hclFile) (string, error) {
 			for _, inner := range b.Body.Blocks {
 				switch {
 				case inner.Type == "cloud":
-					return "", &UnsupportedBackendError{Backend: "cloud"}
+					return "", &UnsupportedBackendError{Backend: "cloud", Supported: backends}
 				case inner.Type == "backend" && len(inner.Labels) == 1:
 					backend = inner.Labels[0]
 				}
 			}
 		}
 	}
-	if !slices.Contains(driftBackends, backend) {
-		return "", &UnsupportedBackendError{Backend: backend}
+	if backend != "local" && !slices.Contains(backends, backend) {
+		return "", &UnsupportedBackendError{Backend: backend, Supported: backends}
 	}
 	return backend, nil
 }

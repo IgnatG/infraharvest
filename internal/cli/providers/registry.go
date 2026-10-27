@@ -62,6 +62,20 @@ func Profiles() []harvest.Profile {
 	return profiles
 }
 
+// Backends returns the types of the backends the clouds of the providers
+// compiled in keep state in (see harvest.Profile.Backend), in the order
+// of the providers' commands: those drift reads state from, besides
+// local state.
+func Backends() []string {
+	var backends []string
+	for _, p := range Profiles() {
+		if p.Backend != nil {
+			backends = append(backends, p.Backend.Type)
+		}
+	}
+	return backends
+}
+
 // Sources returns, by the names of their commands, the source addresses
 // of the Terraform providers the roots of each provider compiled in use:
 // its own, such as hashicorp/azurerm, then those its curated modules use,

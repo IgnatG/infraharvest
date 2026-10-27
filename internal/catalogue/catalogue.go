@@ -141,6 +141,18 @@ type Entry struct {
 	// the type's import IDs that changes while the resource stays the
 	// same, such as azapi's ?api-version=.
 	UnstableIDSuffix string `yaml:"unstable_id_suffix,omitempty"`
+	// Lookups, of the fields the engine reads, are the data sources that
+	// read values of the type's arguments that the cloud or the provider
+	// defines; under the type "*", for every type.
+	Lookups []Lookup `yaml:"lookups,omitempty"`
+	// NamedBy, of the fields the engine reads, are the values other than
+	// its ID that name a resource of the type, such as a load balancer's
+	// DNS name; under the type "*", for every type.
+	NamedBy []NamedBy `yaml:"named_by,omitempty"`
+	// RootLookup, of the fields the engine reads, is how a root reads an
+	// attribute of a resource of the type that another root manages,
+	// wherever the root is.
+	RootLookup *RootLookup `yaml:"root_lookup,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

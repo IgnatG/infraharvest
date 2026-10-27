@@ -31,11 +31,17 @@ type UnmergedBlock struct {
 	Text, Import string
 }
 
-// UnmergeEnv is the environment UnmergedBlocks gives blocks for: its
-// name, its account, subscription or project ID, and its AWS region, ""
-// where they aren't known.
+// UnmergeEnv is the environment UnmergedBlocks gives blocks for.
 type UnmergeEnv struct {
-	Name, Account, Region string
+	// Name is the environment's name.
+	Name string
+	// Data has, by data source type, the values of the attributes, by
+	// name, of the data sources that read the environment's account,
+	// subscription or project and its region, as its credentials give
+	// them (see MergeProfile.EnvironmentData), such as AWS's
+	// aws_caller_identity's account_id; an attribute that isn't known
+	// isn't there.
+	Data map[string]map[string]string
 }
 
 // unmergeFunctions are the functions the expressions of a merged root
@@ -160,7 +166,7 @@ func UnmergedBlocks(dir string, env UnmergeEnv, ids map[string]string) (map[stri
 // unmergeData returns, as the value of data in an expression, the data
 // sources of blocks, a merged root's, whose values UnmergedBlocks tells
 // for env: those that read the account, subscription or project and the
-// AWS region the environment plans in (see unmergedAttributes), with no
+// region the environment plans in (see unmergedAttributes), with no
 // arguments of their own but a count, and so no provider configuration
 // of another region; a counted one is its one instance, as the resource
 // that reads it, which env has, says the environment counts it. Another
@@ -193,50 +199,16 @@ func unmergeData(blocks []*hclsyntax.Block, env UnmergeEnv) cty.Value {
 }
 
 // unmergedAttributes returns the attributes of a data source of type typ
-// that env gives, by name: the ID of its account, subscription or
-// project, its AWS region, and the AWS partition and DNS suffix the
-// region is in. A plan of the merged root as env reads the same, with
-// env's credentials.
+// that env gives (see UnmergeEnv.Data), by name, such as the ID of its
+// account, subscription or project, its AWS region, and the AWS
+// partition and DNS suffix the region is in. A plan of the merged root
+// as env reads the same, with env's credentials.
 func unmergedAttributes(typ string, env UnmergeEnv) map[string]cty.Value {
 	attributes := map[string]cty.Value{}
-	set := func(value string, names ...string) {
-		if value == "" {
-			return
-		}
-		for _, name := range names {
-			attributes[name] = cty.StringVal(value)
-		}
-	}
-	switch typ {
-	case "aws_caller_identity":
-		set(env.Account, "account_id", "id")
-	case "aws_region":
-		set(env.Region, "region", "name", "id")
-	case "aws_partition":
-		partition, suffix := awsPartition(env.Region)
-		set(partition, "partition", "id")
-		set(suffix, "dns_suffix")
-	case "azurerm_client_config":
-		set(env.Account, "subscription_id")
-	case "google_client_config":
-		set(env.Account, "project")
+	for name, value := range env.Data[typ] {
+		attributes[name] = cty.StringVal(value)
 	}
 	return attributes
-}
-
-// awsPartition returns the AWS partition region is in, and its DNS
-// suffix; "" for none, or a partition other than the commercial one,
-// China's and GovCloud's.
-func awsPartition(region string) (partition, dnsSuffix string) {
-	switch {
-	case region == "", strings.Contains(region, "-iso"):
-		return "", ""
-	case strings.HasPrefix(region, "cn-"):
-		return "aws-cn", "amazonaws.com.cn"
-	case strings.HasPrefix(region, "us-gov-"):
-		return "aws-us-gov", "amazonaws.com"
-	}
-	return "aws", "amazonaws.com"
 }
 
 // unmergeContext returns the evaluation context of UnmergedBlocks: vars,

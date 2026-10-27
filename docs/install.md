@@ -89,7 +89,7 @@ go build -tags minimal,aws -o infraharvest .          # AWS only
 go build -tags minimal,aws,google -o infraharvest .   # AWS and Google Cloud
 ```
 
-The other providers' commands are then missing from `import` and `discover`, and so is the way to read their clouds' state: `--managed-state` names the build tag a source needs, such as `-tags minimal,aws` for `s3://`. HCP Terraform's state (`tfc://`) is read in every build.
+The other providers' commands are then missing from `import` and `discover`, and so is the way to read their clouds' state: `--managed-state` names the build tag a source needs, such as `-tags minimal,aws` for `s3://`. A configuration file's section of theirs, under `providers` or in an environment, is an error that names the build tag too, rather than going unread. HCP Terraform's state (`tfc://`) is read in every build. `drift` refuses roots whose backends are the other clouds'.
 
 ## In GitHub Actions
 

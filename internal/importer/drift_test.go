@@ -94,7 +94,7 @@ func TestDriftReportsEachRoot(t *testing.T) {
 	out := driftOutput(t, "aws/1/eu-west-1", "aws/1/eu-west-2", "aws/1/global")
 	f := &fakeDriftCheck{out: out,
 		results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting},
-		errs:    map[string]error{"aws/1/global": &engine.UnsupportedBackendError{Backend: "remote"}},
+		errs:    map[string]error{"aws/1/global": &engine.UnsupportedBackendError{Backend: "remote", Supported: []string{"s3", "gcs", "azurerm"}}},
 	}
 	var stdout bytes.Buffer
 	err := Drift(context.Background(), driftOptions(out, f), &stdout)

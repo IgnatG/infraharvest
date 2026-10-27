@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,17 +31,17 @@ const AllEnvironments = "all"
 // prod: the name is the directory of the environment's roots.
 type Environments map[string]Environment
 
-// Environment is where one environment is: the AWS accounts, Azure
-// subscriptions and Google Cloud projects that hold it and, where one of
-// them holds several environments, or for an environment that names
-// none, the tags that tell its resources apart. Each provider command has
-// a section, a pointer to a struct with one field, the IDs, which is all
-// it takes for the file to name its scopes (see providerCommands and
-// Scopes); what the IDs are like is the provider's (see harvest.Scope).
+// Environment is where one environment is: the accounts, subscriptions or
+// projects of the provider commands that hold it and, where one of them
+// holds several environments, or for an environment that names none, the
+// tags that tell its resources apart.
 type Environment struct {
-	AWS    *AWSScopes    `yaml:"aws,omitempty"`
-	Azure  *AzureScopes  `yaml:"azure,omitempty"`
-	Google *GoogleScopes `yaml:"google,omitempty"`
+	// Sections are the provider commands' sections, by the command's
+	// name, such as aws: { accounts: [...] }. What a section holds is the
+	// provider's to say, in its profile (see harvest.Scope), so the format
+	// has none of its own: Load checks each against the profile of the
+	// command it names, and fails on one the binary isn't built with.
+	Sections map[string]Section `yaml:",inline"`
 	// Tags are tag keys and values (labels on Google Cloud) a resource of
 	// the environment has, all of them, compared as --env-tags compares
 	// environments: in lower case, with anything but letters, digits,
@@ -53,57 +52,34 @@ type Environment struct {
 	Tokens []string `yaml:"tokens,omitempty"`
 }
 
-// AWSScopes are the AWS accounts of an environment, by ID.
-type AWSScopes struct {
-	Accounts []string `yaml:"accounts"`
-}
-
-// AzureScopes are the Azure subscriptions of an environment, by ID.
-type AzureScopes struct {
-	Subscriptions []string `yaml:"subscriptions"`
-}
-
-// GoogleScopes are the Google Cloud projects of an environment, by ID.
-type GoogleScopes struct {
-	Projects []string `yaml:"projects"`
-}
+// Section is an environment's section for one provider command: the IDs
+// of its accounts, subscriptions or projects, under the one key its
+// profile names (harvest.Scope.Field), such as accounts.
+type Section map[string][]string
 
 // environmentName matches an environment's name, which names a directory.
 // The GitHub Action checks its environment input with the same pattern.
 var environmentName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// providerCommands returns the provider commands the file has sections
-// for, aws, azure and google, in the order Environment declares them:
-// whichever of them the binary is built with, providers: holds settings
-// for them too.
-func providerCommands() []string {
-	var commands []string
-	for _, field := range reflect.VisibleFields(reflect.TypeFor[Environment]()) {
-		if field.Type.Kind() == reflect.Pointer {
-			name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
-			commands = append(commands, name)
-		}
-	}
-	return commands
-}
-
 // Scopes returns the accounts, subscriptions or projects of e for the
 // provider command provider, such as aws: the IDs of its section.
 func (e Environment) Scopes(provider string) []string {
-	v := reflect.ValueOf(e)
-	for _, field := range reflect.VisibleFields(v.Type()) {
-		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
-		section := v.FieldByIndex(field.Index)
-		if name == provider && field.Type.Kind() == reflect.Pointer && !section.IsNil() {
-			return section.Elem().Field(0).Interface().([]string)
-		}
+	section := e.Sections[provider]
+	var ids []string
+	for _, field := range slices.Sorted(maps.Keys(section)) {
+		ids = append(ids, section[field]...)
 	}
-	return nil
+	return ids
 }
 
 // hasScopes reports whether e names any account, subscription or project.
 func (e Environment) hasScopes() bool {
-	return slices.ContainsFunc(providerCommands(), func(p string) bool { return len(e.Scopes(p)) > 0 })
+	for provider := range e.Sections {
+		if len(e.Scopes(provider)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // EnvironmentTokens returns the words that stand for the environment name
@@ -182,9 +158,9 @@ func scopeKey(s harvest.Scope, id string) string {
 // that isn't 12 digits, a token two environments use, or an account,
 // subscription or project several environments name, or several
 // environments that name none, whose tags don't tell them apart (see
-// apart). profiles say what the IDs of the provider commands the binary
-// is built with are like; those of the others go unchecked, as the
-// binary never reads them.
+// apart), or a section that isn't one of a provider command the binary is
+// built with, whose profile, of profiles, says what it holds (see
+// checkSections).
 func (envs Environments) check(profiles []harvest.Profile) error {
 	profiles = slices.SortedFunc(slices.Values(profiles), func(a, b harvest.Profile) int { return cmp.Compare(a.Command, b.Command) })
 	var fields, nouns []string
@@ -202,18 +178,12 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 			return fmt.Errorf("%q: the name is taken by what no environment's tags place", name)
 		case name == AllEnvironments:
 			return fmt.Errorf("%q: the name stands for every environment, as in drift --environment %s", name, AllEnvironments)
-		case !e.hasScopes() && len(e.Tags) == 0:
-			return fmt.Errorf("%s: name its %s, or its tags", name, sentence.List(fields, "or"))
 		}
-		for _, p := range profiles {
-			for _, scope := range e.Scopes(p.Command) {
-				switch {
-				case strings.TrimSpace(scope) == "":
-					return fmt.Errorf("%s: %s: an empty ID", name, p.Command)
-				case p.Scope.ID != nil && !p.Scope.ID.MatchString(scope):
-					return fmt.Errorf("%s: %s: %q isn't %s", name, p.Command, scope, p.Scope.IDFormat)
-				}
-			}
+		if err := e.checkSections(profiles); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if !e.hasScopes() && len(e.Tags) == 0 {
+			return fmt.Errorf("%s: name its %s, or its tags", name, sentence.List(fields, "or"))
 		}
 		for key, value := range e.Tags {
 			if strings.TrimSpace(key) == "" || TagValue(value) == "" {
@@ -262,6 +232,51 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 		return fmt.Errorf("the environments that name no %s: %w", sentence.List(nouns, "or"), err)
 	}
 	return nil
+}
+
+// checkSections returns why a section of e isn't one of the provider
+// commands whose profiles are profiles: the section of a command none of
+// them has, a key other than the IDs' of its profile, such as account
+// for accounts, or an ID that is empty or isn't one by its profile, such
+// as an AWS account that isn't 12 digits.
+func (e Environment) checkSections(profiles []harvest.Profile) error {
+	for _, command := range slices.Sorted(maps.Keys(e.Sections)) {
+		i := slices.IndexFunc(profiles, func(p harvest.Profile) bool { return p.Command == command })
+		if i < 0 {
+			return unknownProvider(command, profiles)
+		}
+		p := profiles[i]
+		for _, field := range slices.Sorted(maps.Keys(e.Sections[command])) {
+			if field != p.Scope.Field {
+				return fmt.Errorf("%s: unknown key %q: use %s", command, field, p.Scope.Field)
+			}
+		}
+		for _, scope := range e.Scopes(command) {
+			switch {
+			case strings.TrimSpace(scope) == "":
+				return fmt.Errorf("%s: an empty ID", command)
+			case p.Scope.ID != nil && !p.Scope.ID.MatchString(scope):
+				return fmt.Errorf("%s: %q isn't %s", command, scope, p.Scope.IDFormat)
+			}
+		}
+	}
+	return nil
+}
+
+// unknownProvider is the error of a section, of an environment or of
+// providers:, for the provider command name, which none of the provider
+// commands the binary is built with, whose profiles are profiles, is. It
+// may be a provider the build left out, as -tags minimal,aws leaves out
+// the others: that fails, naming the build tag that adds it, as reading
+// a managed-state backend whose store isn't built in does, rather than
+// go unread.
+func unknownProvider(name string, profiles []harvest.Profile) error {
+	commands := make([]string, 0, len(profiles))
+	for _, p := range profiles {
+		commands = append(commands, p.Command)
+	}
+	slices.Sort(commands)
+	return fmt.Errorf("unknown provider %q: use %s; for a provider this infraharvest was built without, build it with -tags minimal,%s, or without minimal", name, strings.Join(commands, ", "), name)
 }
 
 // apart returns why the environments names, found in the same place,
