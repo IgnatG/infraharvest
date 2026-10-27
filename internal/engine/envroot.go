@@ -26,18 +26,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// The files of a merged root (see writeMergedRoot) besides those any root
-// has: under varsDirName, the values every environment shares, and in
-// vars/<env>, each environment's values, import IDs and backend settings.
-const (
-	commonVarsFileName    = "common.tfvars"
-	envVarsFileName       = "terraform.tfvars"
-	importVarsFileName    = "imports.tfvars"
-	backendConfigFileName = "backend.hcl"
-	// mainFileName holds the resources whose roots name no file of their
-	// own for them.
-	mainFileName = "main.tf"
-)
+// mainFileName holds the resources whose roots name no file of their own
+// for them.
+const mainFileName = "main.tf"
 
 // mergedGitignore keeps the merged root's var files in version control,
 // which the output directory's .gitignore leaves out as .tfvars files.
@@ -182,13 +173,12 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 		return nil, nil, err
 	}
 	files[ProvidersFileName] = formatHCL(string(terraform) + string(providers))
-	files[varsDirName+"/"+commonVarsFileName] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in vars/<env>/terraform.tfvars.\n")
+	files[commonVarsPath] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in vars/<env>/terraform.tfvars.\n")
 	for e, env := range m.envs {
-		dir := varsDirName + "/" + env + "/"
-		files[dir+envVarsFileName] = w.tfvarsFile(e)
-		files[dir+importVarsFileName] = w.importVarsFile(e)
+		files[envVarsPath(env)] = w.tfvarsFile(e)
+		files[importVarsPath(env)] = w.importVarsFile(e)
 		if backend := w.backendConfig(e); backend != nil {
-			files[dir+backendConfigFileName] = backend
+			files[backendConfigPath(env)] = backend
 		}
 	}
 	files[ReadmeFileName] = w.readme()
@@ -1143,7 +1133,7 @@ func (w *rootWriter) tfvarsFile(env int) []byte {
 	for _, section := range order {
 		vars := sections[section]
 		sort.SliceStable(vars, func(i, j int) bool {
-			di, dj := strings.HasPrefix(vars[i].name, "deploy_"), strings.HasPrefix(vars[j].name, "deploy_")
+			di, dj := isFeatureFlag(vars[i].name), isFeatureFlag(vars[j].name)
 			if di != dj {
 				return di
 			}
@@ -1239,11 +1229,11 @@ func (w *rootWriter) readme() []byte {
 	env := w.m.envs[0]
 	fmt.Fprintf(&b, "Run each environment with its own credentials: the provider block sets no role of its own. For %s, and likewise for the others:\n\n```sh\n", env)
 	if w.backendType() != "" {
-		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=vars/%s/%s\n", env, backendConfigFileName)
+		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=%s\n", backendConfigPath(env))
 	} else {
 		fmt.Fprintf(&b, "terraform init\nterraform workspace select -or-create %s\n", env)
 	}
-	varFiles := fmt.Sprintf("-var-file=%s/%s -var-file=%s/%s/%s -var-file=%s/%s/%s", varsDirName, commonVarsFileName, varsDirName, env, envVarsFileName, varsDirName, env, importVarsFileName)
+	varFiles := varFileArgs(env, true)
 	fmt.Fprintf(&b, "terraform plan %s\nterraform apply %s\n```\n\n", varFiles, varFiles)
 	if w.backendType() != "" {
 		b.WriteString("`-reconfigure` switches the working directory to the environment's state.")
@@ -1251,7 +1241,7 @@ func (w *rootWriter) readme() []byte {
 		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", workspaceStateDir)
 	}
 	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
-	b.WriteString("## After the first apply\n\nOnce every environment has been applied, delete `imports.tf` and each `vars/<env>/imports.tfvars`, and leave `-var-file=vars/<env>/imports.tfvars` out of the commands.\n")
+	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", ImportsFileName, importVarsPath("<env>"), importVarsPath("<env>"))
 	b.WriteString(w.arrivals())
 	var secrets []string
 	for _, v := range w.variables() {

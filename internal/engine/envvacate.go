@@ -61,18 +61,28 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 	for _, m := range variableReference.FindAllSubmatch(providers, -1) {
 		reads[string(m[1])] = true
 	}
+	// What each environment plans the root with is kept: its backend
+	// settings, and the var files of its values, but not those of its
+	// import IDs, as the root imports nothing now.
+	backends, values := map[string]bool{}, map[string]bool{}
+	for _, env := range envs {
+		backends[backendConfigPath(env)] = true
+		for _, name := range varFiles(env, false) {
+			values[name] = true
+		}
+	}
 	var left []string
 	for _, name := range files {
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		keep := false
 		switch {
-		case name == ProvidersFileName, name == ".gitignore", name == LockFileName, strings.HasPrefix(name, varsDirName+"/") && strings.HasSuffix(name, "/"+backendConfigFileName):
+		case name == ProvidersFileName, name == ".gitignore", name == LockFileName, backends[name]:
 			keep = true
 		case name == VariablesFileName:
 			if keep, err = keepVariables(path, reads); err != nil {
 				return nil, Check{}, err
 			}
-		case strings.HasPrefix(name, varsDirName+"/") && !strings.HasSuffix(name, "/"+importVarsFileName):
+		case values[name]:
 			if err := keepValues(path, reads); err != nil {
 				return nil, Check{}, err
 			}
@@ -96,7 +106,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 	if err != nil {
 		return nil, Check{}, err
 	}
-	backend := slices.ContainsFunc(left, func(name string) bool { return strings.HasSuffix(name, "/"+backendConfigFileName) })
+	backend := slices.ContainsFunc(left, func(name string) bool { return backends[name] })
 	if err := fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), vacatedMergedReadme(envs, backend, removed, check), 0o644); err != nil {
 		return nil, Check{}, err
 	}
@@ -173,11 +183,11 @@ func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check C
 	}
 	fmt.Fprintf(&b, "1. Plan each environment with its own credentials. For %s, and likewise for the others:\n\n   ```sh\n", env)
 	if backend {
-		fmt.Fprintf(&b, "   terraform init -reconfigure -backend-config=%s/%s/%s\n", varsDirName, env, backendConfigFileName)
+		fmt.Fprintf(&b, "   terraform init -reconfigure -backend-config=%s\n", backendConfigPath(env))
 	} else {
 		fmt.Fprintf(&b, "   terraform init\n   terraform workspace select %s\n", env)
 	}
-	varFiles := fmt.Sprintf("-var-file=%s/%s -var-file=%s/%s/%s", varsDirName, commonVarsFileName, varsDirName, env, envVarsFileName)
+	varFiles := varFileArgs(env, false)
 	fmt.Fprintf(&b, "   terraform plan %s\n   ```\n\n   Every resource the removed blocks in `%s` remove should be planned as forgotten, not destroyed, with no other changes.\n", varFiles, MovesFileName)
 	fmt.Fprintf(&b, "2. Run `terraform apply %s` as each environment, before applying the roots the resources go to. It removes them from the environment's state, and changes nothing in the cloud.\n", varFiles)
 	fmt.Fprintf(&b, "3. Delete `%s` once every environment has been applied: the removed blocks have done their job, and the root manages nothing.\n", MovesFileName)

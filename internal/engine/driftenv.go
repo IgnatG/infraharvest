@@ -15,19 +15,16 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
-// workspaceStateDir holds the local state of each workspace but the
-// default one, in terraform.tfstate.d/<workspace>/terraform.tfstate.
-const workspaceStateDir = "terraform.tfstate.d"
-
 // pullDriftState returns the state of the root in dir, whose backend is
 // backend (see rootBackend), pulled through tf once initialised with its
 // backend. For environment env of a root environments share, the backend
-// is initialised with env's settings, vars/<env>/backend.hcl; a root
+// is initialised with env's settings (see backendConfigFile); a root
 // without a backend keeps each environment's state in the workspace named
-// after it, which is read as it is: "" where env has none yet.
+// after it (see workspaceStateFile), which is read as it is: "" where env
+// has none yet.
 func pullDriftState(ctx context.Context, tf DriftTerraform, dir, backend, env string) (string, error) {
 	if env != "" && backend == "local" {
-		content, err := os.ReadFile(filepath.Join(dir, workspaceStateDir, env, stagedStateFile))
+		content, err := os.ReadFile(workspaceStateFile(dir, env))
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", nil
 		}
@@ -35,11 +32,8 @@ func pullDriftState(ctx context.Context, tf DriftTerraform, dir, backend, env st
 	}
 	opts := []tfexec.InitOption{tfexec.Backend(true), tfexec.Reconfigure(true)}
 	if env != "" {
-		settings, err := filepath.Abs(filepath.Join(dir, varsDirName, env, backendConfigFileName))
+		settings, err := backendConfigFile(dir, env)
 		if err != nil {
-			return "", err
-		}
-		if _, err := os.Stat(settings); err != nil {
 			return "", fmt.Errorf("the %s backend's settings for %s: %w", backend, env, err)
 		}
 		opts = append(opts, tfexec.BackendConfig(settings))
@@ -52,13 +46,6 @@ func pullDriftState(ctx context.Context, tf DriftTerraform, dir, backend, env st
 		return "", fmt.Errorf("terraform state pull: %w", err)
 	}
 	return state, nil
-}
-
-// envVarsPath returns the var file of environment env of a root
-// environments share, relative to the root, as drift's edits and reports
-// name it: vars/<env>/terraform.tfvars.
-func envVarsPath(env string) string {
-	return varsDirName + "/" + env + "/" + envVarsFileName
 }
 
 // driftContents returns the contents of the .tf files of dir, by name

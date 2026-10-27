@@ -219,10 +219,6 @@ func isNull(expr hclsyntax.Expression) bool {
 	return !diags.HasErrors() && v.IsNull()
 }
 
-// varsDirName is the directory of a merged root's var files (see
-// writeMergedRoot).
-const varsDirName = "vars"
-
 // checkVarFiles checks the vars directory of dir, where a merged root
 // keeps the values each environment sets (see writeMergedRoot): only
 // .tfvars and .hcl files, each of which parses, and none that sets a

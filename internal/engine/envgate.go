@@ -438,15 +438,9 @@ func (g *mergeGate) plan(ctx context.Context, tf Terraform, m *stackMerge, w *ro
 		return Check{}, nil, err
 	}
 	defer func() { _ = g.removeOverride() }()
-	abs, err := filepath.Abs(g.dir)
+	vars, _, err := mergedVarFiles(g.dir, m.envs[env])
 	if err != nil {
 		return Check{}, nil, err
-	}
-	envDir := filepath.Join(abs, varsDirName, m.envs[env])
-	vars := []tfexec.PlanOption{
-		tfexec.VarFile(filepath.Join(abs, varsDirName, commonVarsFileName)),
-		tfexec.VarFile(filepath.Join(envDir, envVarsFileName)),
-		tfexec.VarFile(filepath.Join(envDir, importVarsFileName)),
 	}
 	secrets := w.sensitiveIn(env, g.roots[env].Secrets)
 	gone, restore, err := g.leaveOutGone(m, w, env)

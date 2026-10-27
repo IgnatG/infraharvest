@@ -557,7 +557,7 @@ func (m *stackMerge) features() {
 			addresses[i] = r.resourceType + "." + r.label
 		}
 		v := &envVariable{
-			name:         "deploy_" + name,
+			name:         featureFlagName(name),
 			resourceType: resourceType,
 			what:         "whether the environment has " + strings.Join(addresses, ", "),
 			ty:           cty.Bool,

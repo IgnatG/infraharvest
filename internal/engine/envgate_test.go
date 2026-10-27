@@ -130,7 +130,7 @@ func (f *mergeFake) ProvidersSchema(context.Context) (*tfjson.ProviderSchemas, e
 }
 
 func (f *mergeFake) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.Plan, error) {
-	path := filepath.Join(f.dir, varsDirName, f.env, importVarsFileName)
+	path := filepath.Join(f.dir, filepath.FromSlash(importVarsPath(f.env)))
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -736,97 +736,10 @@ func TestMergeStackIsolated(t *testing.T) {
 	}
 }
 
-func TestMergedImportIDs(t *testing.T) {
+func TestAddressType(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	if envs, err := MergedEnvironments(dir); err != nil || len(envs) != 0 {
-		t.Errorf("a root of its own: %v %v", envs, err)
-	}
-	for _, env := range []string{"dev", "prod"} {
-		if err := os.MkdirAll(filepath.Join(dir, varsDirName, env), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, varsDirName, env, envVarsFileName), []byte("env = \""+env+"\"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, varsDirName, "prod", importVarsFileName), []byte(`import_ids = {
-  "aws_sqs_queue.orders"            = "https://sqs.eu-west-2.amazonaws.com/2/shop-prd-orders"
-  "aws_sqs_queue.this[\"refunds\"]" = "https://sqs.eu-west-2.amazonaws.com/2/shop-prd-refunds"
-}
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	envs, err := MergedEnvironments(dir)
-	if err != nil || strings.Join(envs, ",") != "dev,prod" {
-		t.Fatalf("environments: %v %v", envs, err)
-	}
-	ids, err := MergedImportIDs(dir, "prod")
-	if err != nil || len(ids) != 2 || ids[`aws_sqs_queue.this["refunds"]`] != "https://sqs.eu-west-2.amazonaws.com/2/shop-prd-refunds" {
-		t.Errorf("prod's import IDs: %v %v", ids, err)
-	}
-	if ids, err := MergedImportIDs(dir, "dev"); err != nil || ids != nil {
-		t.Errorf("dev, without imports.tfvars: %v %v", ids, err)
-	}
 	if got := AddressType(`module.logs.aws_s3_bucket.this[0]`); got != "aws_s3_bucket" {
 		t.Errorf("AddressType: %q", got)
-	}
-}
-
-// An environment's state is its workspace's, and the state its
-// backend.hcl names, of any backend type a merged root writes.
-func TestMergedStateLocations(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	workspace := filepath.Join(dir, "terraform.tfstate.d", "prod", "terraform.tfstate")
-	for backend, want := range map[string]string{
-		"": "",
-		"bucket = \"acme-state\"\nkey = \"envs/prod/aws/2/eu-west-2/terraform.tfstate\"\nregion = \"eu-west-2\"\n":                                        "s3://acme-state/envs/prod/aws/2/eu-west-2/terraform.tfstate",
-		"bucket = \"acme-state\"\nprefix = \"envs/prod/google/p/europe-west2\"\n":                                                                         "gs://acme-state/envs/prod/google/p/europe-west2/default.tfstate",
-		"resource_group_name = \"state\"\nstorage_account_name = \"acme\"\ncontainer_name = \"tfstate\"\nkey = \"envs/prod/azure/s/terraform.tfstate\"\n": "https://acme.blob.core.windows.net/tfstate/envs/prod/azure/s/terraform.tfstate",
-		"# The prod root had no s3 backend: set these.\n# bucket = \"\"\n":                                                                                "",
-	} {
-		path := filepath.Join(dir, varsDirName, "prod", backendConfigFileName)
-		if err := os.RemoveAll(path); err != nil {
-			t.Fatal(err)
-		}
-		if backend != "" {
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(path, []byte(backend), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		locations, err := MergedStateLocations(dir, "prod")
-		wanted := []string{workspace}
-		if want != "" {
-			wanted = append(wanted, want)
-		}
-		if err != nil || strings.Join(locations, " ") != strings.Join(wanted, " ") {
-			t.Errorf("%q: got %v, %v, want %v", backend, locations, err, wanted)
-		}
-	}
-}
-
-// MergedRootFiles returns the files a merge writes: the root's .tf files,
-// README.md and its var files, not those of Terraform or of others.
-func TestMergedRootFilesOnDisk(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	for _, name := range []string{"providers.tf", "sqs.tf", ReadmeFileName, ".gitignore", LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
-		path := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	files, err := MergedRootFiles(dir)
-	want := []string{".gitignore", ReadmeFileName, "providers.tf", "sqs.tf", "vars/common.tfvars", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
-	if err != nil || strings.Join(files, ",") != strings.Join(want, ",") {
-		t.Errorf("got %v, %v, want %v", files, err, want)
 	}
 }
 
@@ -1082,7 +995,7 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, `backend "s3"`) {
 		t.Errorf("providers.tf has no backend once merged:\n%s", got)
 	}
-	if got := readFile(t, dir, filepath.Join(varsDirName, "prod", backendConfigFileName)); !strings.Contains(got, "222222222222") {
+	if got := readFile(t, dir, filepath.FromSlash(backendConfigPath("prod"))); !strings.Contains(got, "222222222222") {
 		t.Errorf("prod's backend.hcl:\n%s", got)
 	}
 }
