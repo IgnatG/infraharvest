@@ -8,7 +8,7 @@ infraharvest only reads: it lists resources and lets Terraform import their conf
 
 Creates the `infraharvest-readonly` role:
 
-- **Trust:** the IAM principals you list may assume it, and so may the GitHub Actions workflows you list (see [GitHub Actions](#github-actions)).
+- **Trust:** the IAM roles and users you list may assume it (an account's root, `arn:aws:iam::<account>:root`, is refused, as it would trust every principal in the account allowed to assume roles), and so may the GitHub Actions workflows you list (see [GitHub Actions](#github-actions)).
 - **`ReadOnlyAccess`:** the AWS-managed policy, which reads every service's configuration.
 - **[`deny-data-reads.json`](https://github.com/IgnatG/infraharvest/blob/main/permissions/aws/deny-data-reads.json):** an explicit deny on the data reads `ReadOnlyAccess` grants. That covers object contents (S3, including Object Lambda, S3 Express sessions and S3 Tables, Glacier job output and MediaStore), DynamoDB, DAX, SimpleDB and QLDB items, OpenSearch documents, Kinesis records and video, SQS messages, Chime messages, IoT shadows and retained messages, IoT SiteWise and IoT Analytics data, Secrets Manager values, KMS decryption, CloudWatch Logs events, queries and live tails, RDS and Lightsail database logs, Elastic Beanstalk instance logs, Run Command output, CloudTrail event history and Lake results, X-Ray traces, Step Functions execution input and output, Athena results, EC2 consoles and Windows passwords, GameLift instance credentials, ECR image layers, CodeArtifact packages, CodeCommit file contents, HealthLake and HealthOmics records, Amazon Connect contact attributes, Kendra queries and Cognito Sync records. It leaves out the reads that listing and importing need, such as `lambda:GetFunction`, `ssm:GetParameter` and `cassandra:Select` (Amazon Keyspaces lists tables through its system tables).
 
@@ -28,7 +28,7 @@ Without Terraform, attach `ReadOnlyAccess` and `deny-data-reads.json` (as an inl
 
 ### GitHub Actions
 
-For the [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md), let the workflow assume the role with its OIDC token instead of storing keys. `github_oidc_subjects` lists the workflows by the token's `sub` claim, which must match one exactly: `repo:<owner>/<repository>:ref:refs/heads/main` for runs on `main`, `ref:refs/tags/<tag>` for a tag, `environment:<name>` for jobs in a GitHub environment, or `pull_request`. The owner and repository are always spelled out, and `*` or `?` anywhere else is refused, as a pattern there could let other repositories or branches assume the role. The one pattern allowed is `repo:<owner>/<repository>:*`, any run of that repository on any branch, which it matches in a statement of its own. The role then trusts `sts:AssumeRoleWithWebIdentity` from the account's `token.actions.githubusercontent.com` OIDC provider, for the `sts.amazonaws.com` audience `aws-actions/configure-aws-credentials` asks for. Either list, `trusted_principal_arns` or `github_oidc_subjects`, may be empty, but not both.
+For the [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md), let the workflow assume the role with its OIDC token instead of storing keys. `github_oidc_subjects` lists the workflows by the token's `sub` claim, which must match one exactly: `repo:<owner>/<repository>:ref:refs/heads/main` for runs on `main`, `ref:refs/tags/<tag>` for a tag, `environment:<name>` for jobs in a GitHub environment, or `pull_request`. A repository with GitHub's [immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc) (every repository created since 15 July 2026, and those that opt in) names its owner and itself by ID too, and so must its subjects, as they match the token exactly: `repo:<owner>@<owner ID>/<repository>@<repository ID>:ref:refs/heads/main`. Unlike a name, which another account or repository can take after a rename, an ID stays with its owner and repository. The owner and repository are always spelled out, and `*` or `?` anywhere else is refused, as a pattern there could let other repositories or branches assume the role. The one pattern allowed is `repo:<owner>/<repository>:*`, any run of that repository on any branch, which it matches in a statement of its own. The role then trusts `sts:AssumeRoleWithWebIdentity` from the account's `token.actions.githubusercontent.com` OIDC provider, for the `sts.amazonaws.com` audience `aws-actions/configure-aws-credentials` asks for. Either list, `trusted_principal_arns` or `github_oidc_subjects`, may be empty, but not both.
 
 An account has one GitHub OIDC provider, which the role trusts. If the account has none yet, set `create_github_oidc_provider=true` to create it, in one configuration only: applying `permissions/aws` with it and `permissions/aws-drift` without, apply `permissions/aws` first, so that the drift role finds it.
 
@@ -84,11 +84,11 @@ terraform apply -var project_id=<project> -var member=serviceAccount:<email>
 
 For a folder or organisation, grant the same three roles there with `google_folder_iam_member` or `google_organization_iam_member`.
 
-The template grants the roles to a member you bring, and leaves how it signs in to you. For GitHub Actions, use a workload identity pool with a provider for `https://token.actions.githubusercontent.com` whose attribute condition limits it to your repositories (such as `assertion.repository_owner == 'acme'`), and either grant the roles to the repository's identities in the pool directly:
+The template grants the roles to a member you bring, and leaves how it signs in to you. For GitHub Actions, use a workload identity pool with a provider for `https://token.actions.githubusercontent.com` that maps the repository's and its owner's immutable IDs (`attribute.repository_id = assertion.repository_id`, `attribute.repository_owner_id = assertion.repository_owner_id`) and whose attribute condition limits it to your repositories by them (such as `assertion.repository_owner_id == '123456'`). Match on the IDs, not the names: after a rename, another account or repository can take the old name, but never the ID. `gh api repos/acme/infra --jq '.id, .owner.id'` prints them. Then either grant the roles to the repository's identities in the pool directly:
 
 ```sh
 terraform apply -var project_id=<project> \
-  -var member=principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.repository/acme/infra
+  -var member=principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.repository_id/456789
 ```
 
 or grant them to a service account (`member=serviceAccount:<email>`) that those identities may impersonate (`roles/iam.workloadIdentityUser`). The workflow signs in with `google-github-actions/auth`, which writes the credentials file Application Default Credentials read (see [Google Cloud](google.md)).
@@ -98,11 +98,13 @@ or grant them to a service account (`member=serviceAccount:<email>`) that those 
 
 `infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and the Google Cloud member is denied `storage.objects.get`. The drift templates grant it on the state alone, with the read-only access above. Drift never takes the state's lock, so none of them grants write access for it. Applying the saved refresh plan to drift's private copy configures the provider again: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission, and with Azure and Google Cloud signs in again, so the credentials must still be valid after the refresh (see the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift)).
 
+The state holds secrets, so for GitHub Actions trust only the branch, tag or environment drift runs on, never a pull request's workflow: it runs the code the pull request proposes, which could then read the state. `permissions/aws-drift` refuses `pull_request` subjects, and `repo:<owner>/<repository>:*`, which they match. With Azure, give the federated credential such a subject, and with Google Cloud, pass the subject's own principal as the member, `principal://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/subject/<subject>` (with `google.subject = assertion.sub`), rather than the repository's principal set.
+
 ### AWS: `permissions/aws-drift`
 
 Creates the `infraharvest-drift` role, for the S3 backend:
 
-- **Trust** and **`ReadOnlyAccess`:** as the read-only role, with the same `trusted_principal_arns`, `github_oidc_subjects` and `create_github_oidc_provider` (see [GitHub Actions](#github-actions)).
+- **Trust** and **`ReadOnlyAccess`:** as the read-only role, with the same `trusted_principal_arns`, `github_oidc_subjects` and `create_github_oidc_provider` (see [GitHub Actions](#github-actions)), but `github_oidc_subjects` refuses `pull_request` and `repo:<owner>/<repository>:*` (see above).
 - **`read-state`:** `s3:ListBucket` on the state's bucket and `s3:GetObject` on the roots' state keys, `<key_prefix>/<root path>/terraform.tfstate`, and `kms:Decrypt` on the state's key when the backend sets `kms_key_id`.
 - **`deny-data-reads`:** the read-only role's [`deny-data-reads.json`](https://github.com/IgnatG/infraharvest/blob/main/permissions/aws/deny-data-reads.json), read from `permissions/aws`, with the object reads (and `kms:Decrypt`, with a state key) denied everywhere but the state instead.
 
@@ -136,14 +138,14 @@ terraform apply -var subscription_id=<subscription-guid> -var principal_id=<obje
 
 ### Google Cloud: `permissions/google-drift`
 
-Grants the three roles `permissions/google` grants on the project, and **Storage Object Viewer** on the state's bucket only: `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces.
+Grants the three roles `permissions/google` grants on the project, and **Storage Object Viewer** on the state's bucket only: `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. With `state_prefix` (the backend's `prefix`, see [Configuration](configuration.md)), an IAM condition limits the reads to the objects under it, `<prefix>/`, as `permissions/aws-drift` limits `s3:GetObject` to `<key_prefix>/`. Listing is checked on the bucket, which no condition on object names can narrow, so the condition allows the bucket's checks too: the member still lists every object's name in the bucket, as `s3:ListBucket` does on AWS, but reads only the state. Conditions take [uniform bucket-level access](https://cloud.google.com/storage/docs/uniform-bucket-level-access) on the bucket.
 
 It attaches a deny policy of its own, `infraharvest-drift-deny-data-reads`, which denies the member the data reads `permissions/google` denies, all but the Cloud Storage objects. A deny policy can't spare one bucket, as its conditions match resource tags alone, so denying objects would deny the state too. Leave it out with `-var deny_data_reads=false`, as for `permissions/google`. If the member also has the read-only roles from `permissions/google`, that template's deny policy denies it the state: give drift a member of its own, or apply `permissions/google` with `-var deny_data_reads=false` and let this deny policy cover the member.
 
 ```sh
 cd permissions/google-drift
 terraform init
-terraform apply -var project_id=<project> -var member=serviceAccount:<email> -var state_bucket=acme-terraform-state
+terraform apply -var project_id=<project> -var member=serviceAccount:<email> -var state_bucket=acme-terraform-state -var state_prefix=imported
 # when permissions/google grants the member the read-only roles already,
 # applied with -var deny_data_reads=false:
 #   -var grant_read_only=false

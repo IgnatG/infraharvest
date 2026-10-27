@@ -21,13 +21,36 @@ resource "google_project_iam_member" "readonly" {
 # provider again, which signs in again: nothing here grants that, but the
 # member's credentials must still be valid then.
 
+locals {
+  # The roots' state objects, <prefix>/<root path>/default.tfstate.
+  state_prefix  = trim(var.state_prefix, "/")
+  state_objects = local.state_prefix == "" ? "gs://${var.state_bucket}" : "gs://${var.state_bucket}/${local.state_prefix}/"
+}
+
 # Reads the roots' state objects (storage.objects.get) and finds their
 # workspaces (storage.objects.list), on the state's bucket alone. Drift
 # plans with -lock=false, so it never creates the lock object.
+#
+# With a state_prefix, a condition limits the reads to the objects under
+# it. Listing is checked on the bucket, whose name no object prefix
+# matches, so the condition allows the bucket's checks too: the member
+# lists every object's name in the bucket, as s3:ListBucket does in
+# permissions/aws-drift, but reads only the state's. Conditions take
+# uniform bucket-level access on the bucket.
 resource "google_storage_bucket_iam_member" "state" {
   bucket = var.state_bucket
   role   = "roles/storage.objectViewer"
   member = var.member
+
+  dynamic "condition" {
+    for_each = local.state_prefix == "" ? [] : [local.state_prefix]
+
+    content {
+      title       = "infraharvest-drift-state"
+      description = "infraharvest drift: the roots' state under ${condition.value}/ alone."
+      expression  = "resource.type == \"storage.googleapis.com/Bucket\" || resource.name.startsWith(\"projects/_/buckets/${var.state_bucket}/objects/${condition.value}/\")"
+    }
+  }
 }
 
 locals {

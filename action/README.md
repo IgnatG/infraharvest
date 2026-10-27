@@ -43,7 +43,7 @@ The role only needs read access: [permissions/aws](../permissions/aws) creates i
 terraform apply -var 'github_oidc_subjects=["repo:acme/infra:ref:refs/heads/main"]'
 ```
 
-A scheduled or manually dispatched run on the default branch has the subject `repo:<owner>/<repository>:ref:refs/heads/<branch>`; a job with a GitHub `environment` has `repo:<owner>/<repository>:environment:<name>` instead. `permissions/aws-drift` takes the same variables, and Azure and Google Cloud trust the workflow through a federated credential or a workload identity pool instead: see [Permissions](../docs/permissions.md).
+A scheduled or manually dispatched run on the default branch has the subject `repo:<owner>/<repository>:ref:refs/heads/<branch>`; a job with a GitHub `environment` has `repo:<owner>/<repository>:environment:<name>` instead. A repository with immutable subject claims has `repo:<owner>@<owner ID>/<repository>@<repository ID>:` in place of `repo:<owner>/<repository>:`. `permissions/aws-drift` takes the same variables, but refuses `pull_request` and `repo:<owner>/<repository>:*` subjects, as it reads the state; and Azure and Google Cloud trust the workflow through a federated credential or a workload identity pool instead: see [Permissions](../docs/permissions.md).
 
 ## Run it on code you trust
 
@@ -312,7 +312,7 @@ gcloud storage buckets add-iam-policy-binding gs://acme-terraform-state \
   --role=roles/storage.objectViewer
 ```
 
-It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. The backend's lock, a `default.tflock` object, needs `storage.objects.create`, which drift doesn't take.
+It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. The backend's lock, a `default.tflock` object, needs `storage.objects.create`, which drift doesn't take. `permissions/google-drift` with `state_prefix` limits the reads to the objects under the prefix, through an IAM condition (see [Permissions](../docs/permissions.md#google-cloud-permissionsgoogle-drift)).
 
 ## Inputs
 
