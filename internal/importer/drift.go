@@ -479,7 +479,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 		// whose adapters trace changes into their calls.
 		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
 	}
-	opts.CommandTimeout, opts.Environment, opts.Adapters = options.EngineTimeout, env, own
+	opts.CommandTimeout, opts.Environment, opts.Adapters, opts.OutDir = options.EngineTimeout, env, own, options.Out
 	if target.lock != nil {
 		opts.WithRootLock = target.withRootLock
 	}

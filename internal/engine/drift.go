@@ -146,6 +146,11 @@ type DriftOptions struct {
 	// working files, the TF_DATA_DIR it runs with, which Drift reads the
 	// modules its init installed from; "" for .terraform in the root.
 	DataDir string
+	// OutDir is the output directory the root is in: an accepted change
+	// is written into a generated module the root calls only if the
+	// module is in it too (see addModuleFiles). "" takes the directory the
+	// module's modules directory is in for it.
+	OutDir string
 
 	// writeFile writes an edited file into the root; nil is
 	// fsutil.WriteFile. For tests.
