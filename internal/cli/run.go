@@ -61,9 +61,11 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 // options are built from args and the configuration file as for the run,
 // and checked as the run checks them, without listing anything. The MCP
 // server checks an import here before the user is asked to confirm it.
+// args start with the command and the provider; --check goes right after
+// them, where a -- among the flags can't make it an argument.
 func checkRun(ctx context.Context, args []string) error {
 	cmd := NewCmdRoot()
-	cmd.SetArgs(append(slices.Clone(args), "--"+providers.CheckFlag))
+	cmd.SetArgs(slices.Insert(slices.Clone(args), 2, "--"+providers.CheckFlag))
 	// Nothing to print: the MCP server's standard output is the protocol's.
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)

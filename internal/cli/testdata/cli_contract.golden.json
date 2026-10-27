@@ -110,7 +110,7 @@
     "use": "aws",
     "run_e": true,
     "run": false,
-    "args": "unset",
+    "args": "0",
     "silence_usage": false,
     "silence_errors": false,
     "flags": [
@@ -383,7 +383,7 @@
     "use": "azure",
     "run_e": true,
     "run": false,
-    "args": "unset",
+    "args": "0",
     "silence_usage": false,
     "silence_errors": false,
     "flags": [
@@ -632,7 +632,7 @@
     "use": "google",
     "run_e": true,
     "run": false,
-    "args": "unset",
+    "args": "0",
     "silence_usage": false,
     "silence_errors": false,
     "flags": [
@@ -1001,7 +1001,7 @@
     "use": "aws",
     "run_e": true,
     "run": false,
-    "args": "unset",
+    "args": "0",
     "silence_usage": false,
     "silence_errors": false,
     "flags": [
@@ -1274,7 +1274,7 @@
     "use": "azure",
     "run_e": true,
     "run": false,
-    "args": "unset",
+    "args": "0",
     "silence_usage": false,
     "silence_errors": false,
     "flags": [
@@ -1523,7 +1523,7 @@
     "use": "google",
     "run_e": true,
     "run": false,
-    "args": "unset",
+    "args": "0",
     "silence_usage": false,
     "silence_errors": false,
     "flags": [

@@ -268,13 +268,19 @@ runs:
           line="${line#"${line%%[![:space:]]*}"}"
           line="${line%"${line##*[![:space:]]}"}"
           [[ -z "$line" ]] && continue
+          if [[ "$line" == -- ]]; then
+            echo "::error::args: a bare -- would make the flags after it arguments; give one --flag a line"
+            exit 1
+          fi
           if [[ "$line" != --* ]]; then
             echo "::error::args: '$line' isn't a flag; give one --flag a line"
             exit 1
           fi
           args+=("$line")
         done <<< "$ARGS"
-        if ! err=$("$bin" "${args[@]}" --check 2>&1 > /dev/null); then
+        # --check right after the provider, where no flag after it can
+        # make it an argument.
+        if ! err=$("$bin" "${args[@]:0:2}" --check "${args[@]:2}" 2>&1 > /dev/null); then
           echo "::error::import: $err"
           exit 1
         fi

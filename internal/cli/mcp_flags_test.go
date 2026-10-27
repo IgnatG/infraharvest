@@ -298,6 +298,10 @@ func TestCheckFlag(t *testing.T) {
 		{[]string{"import", "azure", "--services=resource_graph", "--all", "--regions=westeurope", "--out=" + out}, "unknown flag: --regions"},
 		{[]string{"discover", "aws", "--services=vpc", "--accounts=111122223333", "--organization", "--out=" + out}, "either --accounts or --organization"},
 		{[]string{"import", "aws", "--services=vpc", "--all", "--engine=pulumi", "--out=" + out}, `unknown --engine "pulumi"`},
+		// After a --, every flag is an argument, --check too were it
+		// last: the command takes none, so nothing is imported.
+		{[]string{"import", "aws", "--services=vpc", "--all", "--out=" + out, "--"}, ""},
+		{[]string{"import", "aws", "--services=vpc", "--all", "--", "--out=" + out}, "unknown command"},
 	} {
 		err := checkRun(t.Context(), tc.args)
 		switch {

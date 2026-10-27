@@ -148,6 +148,9 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		Use:   d.name,
 		Short: d.short,
 		Long:  d.long,
+		// Everything it takes is a flag: an argument, such as --check
+		// after a --, is a mistake.
+		Args: cobra.NoArgs,
 	}
 	BaseFlags(cmd.PersistentFlags(), &options, d.sampleServices, d.sampleIDs)
 	ParallelFlag(cmd, &options, d.parallelScopes)
