@@ -41,7 +41,7 @@ func NewCmdRoot() *cobra.Command {
 		newReportCmd(),
 		newBootstrapCmd(),
 		newCfnCmd(),
-		versionCmd,
+		newVersionCmd(),
 	)
 	return cmd
 }
