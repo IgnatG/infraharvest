@@ -18,6 +18,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // maxDefaultRounds bounds how often stripDefaults plans, and
@@ -105,7 +107,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			return false, nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
 	}
-	restore := func() error { return os.WriteFile(path, original, 0o644) }
+	restore := func() error { return fsutil.WriteFile(path, original, 0o644) }
 	// keep holds the candidates to put back, by key.
 	keep := map[string]bool{}
 	// What the plan can't settle keeps its constants; nulls still go, as

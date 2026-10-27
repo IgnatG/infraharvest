@@ -5,7 +5,6 @@ package engine
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -15,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // DataFileName holds the data sources of resources the configuration
@@ -161,5 +162,5 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 		block := f.Body().AppendNewBlock("data", []string{typ, name})
 		block.Body().SetAttributeValue(sources[e.Type].Argument, cty.StringVal(e.ID))
 	}
-	return edited, os.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
+	return edited, fsutil.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
 }
