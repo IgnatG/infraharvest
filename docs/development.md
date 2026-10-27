@@ -181,8 +181,8 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 ## Formatting and lint
 
 - `gofmt -s`, and imports in three groups: the standard library, third-party modules, then this module's packages (`internal/engine/engine.go`). The pre-commit hook checks the grouping with `goimports -local github.com/IgnatG/infraharvest`. CI doesn't check the third group yet: `.golangci.json` gives the `goimports` formatter no `local-prefixes`.
-- golangci-lint runs with `.golangci.json` (`depguard`, which holds the [dependency directions](#dependency-directions), `gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
-- [MegaLinter](https://megalinter.io) runs every linter CI runs, in the `megalinter` workflow, and reports in one comment on the pull request and in the run's summary. `.mega-linter.yml` lists the linters and says why the others are off: golangci-lint, actionlint and zizmor (workflows), shellcheck, markdownlint, lychee (links), hadolint, editorconfig-checker, yamllint, v8r (schemas), jsonlint, checkov, osv-scanner, betterleaks and trufflehog. `make ci-lint` runs it on a branch; `npx mega-linter-runner --flavor go -e GOTOOLCHAIN=auto` runs it locally, with Docker.
+- golangci-lint runs with `.golangci.json` (`depguard`, which holds the [dependency directions](#dependency-directions), `gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request and after each merge to `main`, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
+- [MegaLinter](https://megalinter.io) runs every linter CI runs, in the `megalinter` workflow, and reports in one comment on the pull request and in the run's summary (only the summary after a merge). `.mega-linter.yml` lists the linters and says why the others are off: golangci-lint, actionlint and zizmor (workflows), shellcheck, markdownlint, lychee (links), hadolint, editorconfig-checker, yamllint, v8r (schemas), jsonlint, checkov, osv-scanner, betterleaks and trufflehog. `make ci-lint` runs it on a branch; `npx mega-linter-runner --flavor go -e GOTOOLCHAIN=auto` runs it locally, with Docker.
 - Fix findings rather than silencing them. New code has no `//nolint`; the few there are mark legacy types due to be rewritten.
 
 ## Dependencies
@@ -230,7 +230,7 @@ The `release` workflow publishes a release from `main`: it runs the tests in a j
 | Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee on links within the repository), `links` (external links, not required), `docs` (strict MkDocs build) |
 | YAML, JSON, Dockerfile, Terraform, secrets, vulnerable dependencies | none | `megalinter` |
 | Commit message | `commit-msg` hook | the pull request title, at review |
-| golangci-lint | `make lint` (compiles) | `megalinter` on every pull request; `make ci-lint` on a branch |
+| golangci-lint | `make lint` (compiles) | `megalinter` on every pull request and merge to `main`; `make ci-lint` on a branch |
 | `go vet`, `go test` | `make vet`, `make test` (compile) | `tests` on every pull request; `make ci-check PKG=...` on a branch |
 | Golden files | `make golden` (compiles) | `make ci-golden PKG=...` |
 | `go mod tidy` | none | `make ci-tidy`; `tests` checks it |
