@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/config"
 )
 
 // readConfig records the content of the configuration file args pass.
@@ -110,7 +113,7 @@ func TestConfig(t *testing.T) {
 			if !want.asked {
 				return
 			}
-			for _, s := range []string{`The configuration file "` + config + `" applies`, `engine="tofu"`, `aws settings regions="[eu-west-2]"`, `s3 bucket "states"`, "environments prod"} {
+			for _, s := range []string{`The configuration file "` + config + `" applies, setting settings {"engine": "tofu"}; providers {"aws": {"regions": ["eu-west-2"]}}; backend {s3: {bucket: "states", region: "eu-west-2"}}; environments {"prod": {aws: {accounts: ["111111111111"]}}}.`} {
 				if !strings.Contains(asked, s) {
 					t.Errorf("confirmation %q misses %q", asked, s)
 				}
@@ -122,7 +125,9 @@ func TestConfig(t *testing.T) {
 // A configuration file is refused before anything runs when it is outside
 // the root, or sets what the tools don't take: a binary to run, such as
 // terraform-path, which the read-only drift would run too, a directory,
-// such as a catalogue outside the root, or the organisation's modules.
+// such as a catalogue outside the root, or the organisation's modules;
+// or a mode, such as regenerate, which only the tool's inputs set, as the
+// confirmation describes the run from them.
 func TestConfigRefused(t *testing.T) {
 	outside := t.TempDir()
 	for name, tc := range map[string]struct {
@@ -134,6 +139,9 @@ func TestConfigRefused(t *testing.T) {
 		"a catalogue outside":      {"version: 1\nsettings:\n  catalogue: " + outside + "\n", "settings: catalogue isn't a setting the tools take"},
 		"the organisation modules": {"version: 1\nmodules:\n  - source: " + outside + "\n", "modules"},
 		"outside the root":         {"", "must be under"},
+		"regenerate":               {"version: 1\nsettings:\n  regenerate: true\n", "settings: regenerate isn't a setting the tools take"},
+		"incremental":              {"version: 1\nproviders:\n  aws:\n    incremental: true\n", "providers: aws: incremental isn't a setting the tools take"},
+		"force-unlock":             {"version: 1\nsettings:\n  force-unlock: true\n", "settings: force-unlock isn't a setting the tools take"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, tools := configFixture(t, tc.content)
@@ -186,5 +194,40 @@ func TestConfigEditedAfterConfirmation(t *testing.T) {
 				t.Errorf("the runs read %q, want the confirmed content", runner.configs)
 			}
 		})
+	}
+}
+
+// The confirmation shows all that a configuration file sets, every value
+// quoted: each field of every kind of state backend, and each
+// environment's scopes, tags and tokens.
+func TestConfigText(t *testing.T) {
+	for _, tc := range []struct {
+		content, want string
+	}{
+		{
+			"version: 1\nbackend:\n  s3: { bucket: states, region: eu-west-2, key_prefix: infra, kms_key_id: alias/state }\nenvironments:\n  prod:\n    aws: { accounts: [\"111111111111\"] }\n    tags: { Env: \"prod\\\" now\" }\n    tokens: [prd, live]\n",
+			`backend {s3: {bucket: "states", region: "eu-west-2", key_prefix: "infra", kms_key_id: "alias/state"}}; environments {"prod": {aws: {accounts: ["111111111111"]}, tags: {"Env": "prod\" now"}, tokens: ["prd", "live"]}}`,
+		},
+		{
+			"version: 1\nbackend:\n  azurerm: { resource_group_name: rg, storage_account_name: sa, container_name: c, key_prefix: p }\nenvironments:\n  dev: { azure: { subscriptions: [\"00000000-0000-0000-0000-000000000001\"] } }\n",
+			`backend {azurerm: {resource_group_name: "rg", storage_account_name: "sa", container_name: "c", key_prefix: "p"}}; environments {"dev": {azure: {subscriptions: ["00000000-0000-0000-0000-000000000001"]}}}`,
+		},
+		{
+			"version: 1\nsettings: { services: [iam, gcs], azapi: true }\nbackend:\n  gcs: { bucket: states, prefix: infra }\nenvironments:\n  dev: { google: { projects: [p-dev] } }\n",
+			`settings {"azapi": true, "services": ["iam", "gcs"]}; backend {gcs: {bucket: "states", prefix: "infra"}}; environments {"dev": {google: {projects: ["p-dev"]}}}`,
+		},
+		{"version: 1\n", "nothing"},
+	} {
+		path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+		if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f, err := config.Load(path, providers.Profiles())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := configText(f); got != tc.want {
+			t.Errorf("got  %s\nwant %s", got, tc.want)
+		}
 	}
 }
