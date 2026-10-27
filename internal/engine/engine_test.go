@@ -23,7 +23,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func TestRenderImports(t *testing.T) {
+func TestImportsFile(t *testing.T) {
 	t.Parallel()
 	got, err := ImportsFile([]Import{
 		{Type: "aws_sqs_queue", Name: "r--orders", ID: "https://sqs.eu-west-1.amazonaws.com/123/orders"},
@@ -48,7 +48,7 @@ import {
 	}
 }
 
-func TestRenderImportsRejectsInvalidAddress(t *testing.T) {
+func TestImportsFileRejectsInvalidAddress(t *testing.T) {
 	t.Parallel()
 	if _, err := ImportsFile([]Import{{Type: "aws_sqs_queue", Name: "has space", ID: "x"}}); err == nil {
 		t.Error("want an error for an invalid resource name")
@@ -57,7 +57,7 @@ func TestRenderImportsRejectsInvalidAddress(t *testing.T) {
 
 // A resource imported with a provider other than the one its type implies
 // says so, or Terraform would use the implied one.
-func TestRenderImportsNamesTheProvider(t *testing.T) {
+func TestImportsFileNamesTheProvider(t *testing.T) {
 	t.Parallel()
 	got, err := ImportsFile([]Import{{Type: "google_compute_network", Name: "main", ID: "projects/p/global/networks/main", Provider: "google-beta"}})
 	if err != nil {
@@ -665,6 +665,9 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	want := []Rejection{{Address: "aws_sqs_queue.a", ID: "gone", Errors: []string{"Cannot import non-existent remote object", "Configuration for import target does not exist"}}}
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
+	}
+	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan validate plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
