@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package importer
+package cli
 
 import (
 	"os"
@@ -12,11 +12,11 @@ import (
 func TestProfiles(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{
-		CPUProfileEnv:           filepath.Join(dir, "cpu.pprof"),
-		MemProfileEnv:           filepath.Join(dir, "mem.pprof"),
-		GoroutineLeakProfileEnv: filepath.Join(dir, "leak.pprof"),
+		cpuProfileEnv:           filepath.Join(dir, "cpu.pprof"),
+		memProfileEnv:           filepath.Join(dir, "mem.pprof"),
+		goroutineLeakProfileEnv: filepath.Join(dir, "leak.pprof"),
 	}
-	stop, err := StartProfiles(func(k string) string { return env[k] })
+	stop, err := startProfiles(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestProfiles(t *testing.T) {
 	}
 
 	// Without the variables, nothing is written.
-	stop, err = StartProfiles(func(string) string { return "" })
+	stop, err = startProfiles(func(string) string { return "" })
 	if err != nil || stop() != nil {
 		t.Errorf("without profiles: %v", err)
 	}
