@@ -317,8 +317,10 @@ type Options struct {
 
 // policy is what tells the two runs of the pipeline apart: Generate's, of a
 // root of its own (see generating), and Add's, of resources to add to a
-// root an earlier import generated (see adding). The passes read these
-// settings from it, not from Options, which stay as the caller gave them.
+// root an earlier import generated (see adding). The passes and the gate
+// of the directory the run generates in read these settings from it, not
+// from Options, which stay as the caller gave them: Add checks the root it
+// adds to with the caller's own Options (see Add).
 type policy struct {
 	// config are the files to write besides imports.tf (see Options.Config).
 	config map[string][]byte
@@ -720,7 +722,11 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 			return nil, err
 		}
 	}
-	if err := gateRefined(ctx, tf, dir, result, opts, r.secrets, unrefined, warned); err != nil {
+	// The gate checks the modules the run may call, which for Add's are
+	// fewer than the caller's (see adding).
+	gateOpts := opts
+	gateOpts.Adapters = p.adapters
+	if err := gateRefined(ctx, tf, dir, result, gateOpts, r.secrets, unrefined, warned); err != nil {
 		return nil, err
 	}
 	// The README shows the gate's details, which come from plans that had
