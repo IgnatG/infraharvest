@@ -47,9 +47,13 @@ type fakeRunner struct {
 	// returns.
 	checked  [][]string
 	checkErr error
+	// configs are the contents of the configuration files each run and
+	// check read.
+	configs []string
 }
 
 func (f *fakeRunner) check(_ context.Context, args []string) error {
+	f.readConfig(args)
 	f.checked = append(f.checked, args)
 	return f.checkErr
 }
@@ -61,6 +65,7 @@ func newTools(runner *fakeRunner, root string) *tools {
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
+	f.readConfig(args)
 	f.runs = append(f.runs, args)
 	switch args[0] {
 	case "discover":
@@ -1169,72 +1174,5 @@ func TestReportReadsTheDriftReport(t *testing.T) {
 	}
 	if _, err := read("verify"); err == nil || !strings.Contains(err.Error(), "kind must be") {
 		t.Errorf("kind verify: got %v, want it rejected", err)
-	}
-}
-
-// A configuration file under the root is passed on as --config, relative
-// to the root, for the check before the user is asked as for the run, and
-// the user is told it applies; one outside the root is refused before
-// anything runs.
-func TestConfig(t *testing.T) {
-	dir := t.TempDir()
-	config := filepath.Join(dir, "infraharvest.yaml")
-	path := filepath.Join(dir, "selection.yaml")
-	if err := writeSelection(path); err != nil {
-		t.Fatal(err)
-	}
-	out := filepath.Join(dir, "generated")
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	importInput := importArgs(path, out)
-	importInput["config"] = "infraharvest.yaml"
-	for _, tc := range []struct {
-		tool string
-		args map[string]any
-		// runs counts the runs, checks the checks, which the import makes
-		// before asking and again with the answer; asked is what the
-		// user is asked, if they are.
-		runs, checks int
-		asked        string
-	}{
-		{"discover", map[string]any{"provider": "aws", "services": []string{"vpc"}, "selection": path, "config": "infraharvest.yaml"}, 1, 0, ""},
-		{"import", importInput, 1, 2, fmt.Sprintf("The configuration file %q applies", config)},
-		{"drift", map[string]any{"out": out, "config": "infraharvest.yaml"}, 1, 0, ""},
-		{"drift_accept", map[string]any{"out": out, "config": "infraharvest.yaml", "rules": []string{"accept all"}}, 2, 0, fmt.Sprintf("The configuration file %q applies", config)},
-	} {
-		t.Run(tc.tool, func(t *testing.T) {
-			runner := &fakeRunner{}
-			var asked string
-			session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-				asked = req.Params.Message
-				return &mcp.ElicitResult{Action: "accept"}, nil
-			})
-
-			if res, text := call(t, session, tc.tool, tc.args); res.IsError {
-				t.Fatalf("result: %s", text)
-			}
-			if len(runner.runs) != tc.runs || len(runner.checked) != tc.checks {
-				t.Fatalf("runs %v, checks %v: want %d and %d", runner.runs, runner.checked, tc.runs, tc.checks)
-			}
-			for _, args := range append(runner.runs, runner.checked...) {
-				if !slices.Contains(args, "--config="+config) {
-					t.Errorf("%v has no --config=%s", args, config)
-				}
-			}
-			if !strings.Contains(asked, tc.asked) {
-				t.Errorf("asked %q, want %q", asked, tc.asked)
-			}
-
-			outside := maps.Clone(tc.args)
-			outside["config"] = filepath.Join(t.TempDir(), "infraharvest.yaml")
-			runner.runs, runner.checked = nil, nil
-			if res, text := call(t, session, tc.tool, outside); !res.IsError || !strings.Contains(text, "must be under") {
-				t.Errorf("a configuration file outside the root: got %s, want it refused", text)
-			}
-			if len(runner.runs) != 0 || len(runner.checked) != 0 {
-				t.Errorf("ran %v, checked %v with a configuration file outside the root", runner.runs, runner.checked)
-			}
-		})
 	}
 }

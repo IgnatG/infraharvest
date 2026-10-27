@@ -305,9 +305,12 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	if args, err = t.configArg(args, &in.Config); err != nil {
+	config, err := t.loadConfig(&in.Config)
+	if err != nil {
 		return nil, nil, err
 	}
+	defer config.remove()
+	args = append(args, config.flag()...)
 	// discover saves what it lists under the output directory: the default
 	// one, but under the root rather than where the server runs.
 	out, err := t.within("out", importer.DefaultOut)
@@ -319,7 +322,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	}
 	// Never the picker: the client talks to this process over stdio.
 	args = append(args, "--pick=false", "--out="+out, "--selection="+in.Selection)
-	_, stderr, code, err := t.run(ctx, args)
+	_, stderr, code, err := t.run(ctx, config.run(args))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -432,12 +435,15 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err := t.linksStayUnder("out", in.Out); err != nil {
 		return nil, nil, err
 	}
-	// The checks below read it as the run does.
-	if args, err = t.configArg(args, &in.Config); err != nil {
+	// The check reads the private copy of it that the run reads.
+	config, err := t.loadConfig(&in.Config)
+	if err != nil {
 		return nil, nil, err
 	}
+	defer config.remove()
+	args = append(args, config.flag()...)
 	args = append(args, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
-	if err := t.check(ctx, args); err != nil {
+	if err := t.check(ctx, config.run(args)); err != nil {
 		return nil, nil, err
 	}
 	// The selection file is read once: the user confirms these bytes, and the
@@ -476,10 +482,8 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
 			in.Out, summary.Included, in.Selection, summary.Excluded, reads)
 	}
-	if in.Config != "" {
-		message += fmt.Sprintf(" The configuration file %q applies: it sets what isn't given here, such as the services, the regions and the roots' state backend.", in.Config)
-	}
-	state := confirmationState(args, content)
+	message += config.message()
+	state := confirmationState(args, content, config.sum())
 	if len(req.Params.InputResponses) == 0 {
 		if !canAsk(req.Session) {
 			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", shellJoin(args))), nil, nil
@@ -499,7 +503,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return errorResult("The user didn't confirm the import, so nothing was imported."), nil, nil
 	}
 
-	childArgs := slices.Clone(args)
+	childArgs := config.run(args)
 	for i, a := range childArgs {
 		if a == "--selection="+in.Selection {
 			childArgs[i] = "--selection=" + snapshot.path
@@ -583,17 +587,23 @@ func stopped(code int) bool {
 // confirmation names the import tool's request for the user's confirmation.
 const confirmation = "confirm_import"
 
-// confirmationState identifies an import the user is asked to confirm:
-// its arguments and the whole content of its selection file, so an agent
-// can't change what is imported once the user has confirmed, even keeping
-// the counts the user was shown.
-func confirmationState(args []string, content []byte) string {
+// confirmationState identifies a run the user is asked to confirm: its
+// arguments and the whole content of the files it reads, such as its
+// selection or decisions file and its configuration file, so an agent
+// can't change what runs once the user has confirmed, even keeping the
+// counts the user was shown.
+func confirmationState(args []string, contents ...[]byte) string {
 	sum := sha256.New()
 	for _, a := range args {
 		fmt.Fprintf(sum, "%q\n", a)
 	}
-	selectionSum := sha256.Sum256(content)
-	fmt.Fprintf(sum, "selection %x\n", selectionSum)
+	// nil is a file the run doesn't read.
+	for _, content := range contents {
+		if content == nil {
+			continue
+		}
+		fmt.Fprintf(sum, "file %x\n", sha256.Sum256(content))
+	}
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
@@ -747,21 +757,6 @@ func cutAt(b []byte, limit int) int {
 		cut = i + 1
 	}
 	return cut
-}
-
-// configArg returns args with --config, when *config, a configuration
-// file the agent chose, is set: it has to be under the root, as the other
-// files do, and *config is set to the path to use.
-func (t *tools) configArg(args []string, config *string) ([]string, error) {
-	if *config == "" {
-		return args, nil
-	}
-	path, err := t.within("config", *config)
-	if err != nil {
-		return nil, err
-	}
-	*config = path
-	return append(args, "--config="+path), nil
 }
 
 // linksStayUnder checks that no symbolic link under dir, which an import

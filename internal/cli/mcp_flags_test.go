@@ -86,6 +86,9 @@ func TestMCPToolFlagsExist(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "catalogue"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "infraharvest.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	runner := &parsingRunner{}
 	// The runs parse the arguments; what the command's checks make of
 	// these values, such as services named x, is beside the point here.
@@ -103,6 +106,7 @@ func TestMCPToolFlagsExist(t *testing.T) {
 		"engine":         importer.EngineTofu,
 		"engine_timeout": "30m",
 		"catalogue":      "catalogue",
+		"config":         "infraharvest.yaml",
 		"decisions":      decisions,
 		"rules":          []string{"accept all", "keep type=x"},
 	}
