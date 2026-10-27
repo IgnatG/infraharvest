@@ -37,13 +37,13 @@ inputs:
     description: Selection file saying which resources to import (from infraharvest discover). Without one, the default selection is imported (--all).
     required: false
   engine:
-    description: terraform or tofu. Unset, the import uses what the configuration file sets, or terraform, and drift uses terraform.
+    description: terraform or tofu. Unset, the import and drift use what the configuration file sets, or terraform.
     default: ""
   out:
     description: Directory to write the configuration and the report to.
     default: infraharvest-out
   config:
-    description: infraharvest configuration file (--config), for example with the state backend.
+    description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout and catalogue.
     required: false
   incremental:
     description: Add what is new to the roots already in the out directory (--incremental), after the blocks of the file of their type, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
@@ -299,6 +299,7 @@ runs:
         BINARY: ${{ inputs.binary }}
         ENGINE: ${{ inputs.engine }}
         OUT: ${{ inputs.out }}
+        CONFIG: ${{ inputs.config }}
         DRIFT: ${{ inputs.drift }}
         DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
         DRIFT_ACCEPT: ${{ inputs.drift-accept }}
@@ -320,6 +321,9 @@ runs:
         # report never edits the code.
         args=(drift "$OUT" --format=json --detailed-exitcode)
         if [[ -n "$ENGINE" ]]; then args+=("--engine=$ENGINE"); fi
+        # The settings drift has, such as the engine and the catalogue, as
+        # the import takes them.
+        if [[ -n "$CONFIG" ]]; then args+=("--config=$CONFIG"); fi
         if [[ "$DRIFT" == report && -n "$DRIFT_DECISIONS" ]]; then
           args+=("--write-decisions=$DRIFT_DECISIONS")
         else

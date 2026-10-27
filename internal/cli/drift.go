@@ -5,17 +5,26 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
+// driftSettings are the settings of a configuration file drift takes, of
+// those the import takes, as they mean the same for it: how Terraform runs,
+// and the catalogue the import used. It leaves the import's others, such
+// as the services and the selection, to the import.
+var driftSettings = []string{"engine", "terraform-path", "engine-timeout", "catalogue"}
+
 func newDriftCmd() *cobra.Command {
 	options := importer.DriftOptions{Provider: providers.New, Names: providers.Names()}
+	var configFile string
 	cmd := &cobra.Command{
 		Use:   "drift [output-directory]",
 		Short: "Find what changed in the cloud since the generated roots were applied",
@@ -38,6 +47,9 @@ func newDriftCmd() *cobra.Command {
 			"plan of the edited copy, without refreshing again, shows each accepted\n" +
 			"resource taking them and nothing else changing; the others are kept, and the\n" +
 			"next apply puts them back. Secrets are never written.\n\n" +
+			"--config takes the import's configuration file: its settings drift has, engine,\n" +
+			"terraform-path, engine-timeout and catalogue, apply where the command line\n" +
+			"doesn't give them, and the rest are left to the import.\n\n" +
 			"--write-decisions writes a decisions file, drift.yaml in the output directory,\n" +
 			"the --decisions file, or the file --write-decisions=<file> names, with an entry\n" +
 			"per change to accept or keep; edit it, and apply it with --decisions. A file\n" +
@@ -50,6 +62,15 @@ func newDriftCmd() *cobra.Command {
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if configFile != "" {
+				f, err := config.Load(configFile)
+				if err != nil {
+					return err
+				}
+				if err := f.ApplyShared(cmd.Flags(), cmd.Name(), driftSettings); err != nil {
+					return fmt.Errorf("%s: %w", configFile, err)
+				}
+			}
 			options.Out = importer.DefaultOut
 			if len(args) == 1 {
 				options.Out = args[0]
@@ -59,6 +80,7 @@ func newDriftCmd() *cobra.Command {
 			return importer.Interrupted(ctx, importer.Drift(ctx, options, cmd.OutOrStdout()))
 		},
 	}
+	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line")
 	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
 	cmd.Flags().StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH, else installed as for import)")
 	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit)")

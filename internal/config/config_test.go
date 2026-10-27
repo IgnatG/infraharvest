@@ -306,3 +306,35 @@ func TestModuleProviderAndImmutable(t *testing.T) {
 		}
 	}
 }
+
+// ApplyShared sets the shared settings it is given, as the command line
+// didn't, and leaves the file's other settings, such as the import's
+// selection, to the provider commands; a provider's setting of one of
+// them is an error, as a command such as drift runs for no one provider.
+func TestApplyShared(t *testing.T) {
+	t.Parallel()
+	f, err := Load(write(t, "version: 1\nsettings:\n  engine: tofu\n  catalogue: overlay\n  selection: selection.yaml\nproviders:\n  aws:\n    profile: prod\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := pflag.NewFlagSet("drift", pflag.ContinueOnError)
+	engine := fs.String("engine", "terraform", "")
+	catalogue := fs.String("catalogue", "", "")
+	if err := fs.Parse([]string{"--catalogue=mine"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ApplyShared(fs, "drift", []string{"engine", "catalogue", "terraform-path"}); err != nil {
+		t.Fatal(err)
+	}
+	if *engine != "tofu" || *catalogue != "mine" {
+		t.Errorf("got engine=%s catalogue=%s, want tofu and the command line's", *engine, *catalogue)
+	}
+
+	f, err = Load(write(t, "version: 1\nproviders:\n  aws:\n    engine: tofu\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ApplyShared(fs, "drift", []string{"engine"}); err == nil || !strings.Contains(err.Error(), "providers: aws: engine") || !strings.Contains(err.Error(), "under settings") {
+		t.Errorf("a provider's engine: %v, want an error saying to set it under settings", err)
+	}
+}
