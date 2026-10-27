@@ -1,11 +1,18 @@
 variable "trusted_principal_arns" {
-  description = "IAM principals allowed to assume the role, e.g. [\"arn:aws:iam::123456789012:role/platform-ci\"]. List these, github_oidc_subjects, or both."
+  description = "IAM principals allowed to assume the role, e.g. [\"arn:aws:iam::123456789012:role/platform-ci\"]. Name roles or users: an account's root (arn:aws:iam::<account>:root) is refused. List these, github_oidc_subjects, or both."
   type        = list(string)
   default     = []
 
   validation {
     condition     = alltrue([for arn in var.trusted_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:", arn))])
     error_message = "Use IAM principal ARNs."
+  }
+
+  # An account's root trusts every principal in the account whose own
+  # policies let it assume the role, not the account's root user alone.
+  validation {
+    condition     = alltrue([for arn in var.trusted_principal_arns : !endswith(arn, ":root")])
+    error_message = "Name the roles or users that may assume the role, such as arn:aws:iam::123456789012:role/platform-ci, not an account's root, which trusts every principal in the account allowed to assume roles."
   }
 }
 
