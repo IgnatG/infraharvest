@@ -491,3 +491,45 @@ func checkGenerated(t *testing.T, content []byte, typ string, labels []string, c
 		}
 	}
 }
+
+// No expression in the roots may call a function that reads a local
+// file: plan would show its content, such as credentials, to the agent
+// as drift.
+func TestCheckDriftRootsFileFunctions(t *testing.T) {
+	const root = "aws/1/eu-west-2/"
+	for name, tc := range map[string]struct {
+		files map[string]string
+		// want is in the error, "" for roots that pass.
+		want string
+	}{
+		"native syntax":                       {map[string]string{root + "x.tf": "resource \"aws_s3_bucket\" \"x\" {\n  bucket = file(\"~/.aws/credentials\")\n}\n"}, `aws/1/eu-west-2/x.tf:2: calls file, which reads a local file`},
+		"in a template":                       {map[string]string{root + "x.tf": "resource \"aws_s3_bucket\" \"x\" {\n  bucket = \"logs-${filebase64(\"/etc/passwd\")}\"\n}\n"}, `x.tf:2: calls filebase64`},
+		"in default_tags":                     {map[string]string{root + "providers.tf": "provider \"aws\" {\n  region = \"eu-west-2\"\n  default_tags {\n    tags = {\n      Owner = trimspace(templatefile(\"t.tpl\", {}))\n    }\n  }\n}\n"}, `providers.tf:5: calls templatefile`},
+		"in a locals block":                   {map[string]string{root + "locals.tf": "locals {\n  keys = [for f in fileset(path.module, \"*\") : filesha256(f)]\n}\n"}, `locals.tf:2: calls fileset`},
+		"namespaced":                          {map[string]string{root + "x.tf": "locals {\n  key = core::file(\"~/.ssh/id_rsa\")\n}\n"}, `x.tf:2: calls core::file`},
+		"templatestring":                      {map[string]string{root + "x.tf": "locals {\n  t = templatestring(\"$${file(\\\"x\\\")}\", {})\n}\n"}, `calls templatestring`},
+		"JSON":                                {map[string]string{root + "x.tf.json": "{\n  \"resource\": {\"aws_s3_bucket\": {\"x\": {\n    \"bucket\": \"${file(\\\"~/.aws/credentials\\\")}\"\n  }}}\n}\n"}, `aws/1/eu-west-2/x.tf.json:3: calls file`},
+		"JSON in default_tags":                {map[string]string{root + "x.tf.json": "{\"provider\": {\"aws\": {\"default_tags\": {\"tags\": {\"Owner\": \"${core::filesha512(\\\"k\\\")}\"}}}}}"}, `x.tf.json:1: calls core::filesha512`},
+		"JSON escaped":                        {map[string]string{root + "x.tf.json": `{"locals": {"k": "${file(\"k\")}"}}`}, `x.tf.json:1: calls file`},
+		"a JSON key":                          {map[string]string{root + "x.tf.json": `{"locals": {"k": {"${fileexists(\"k\")}": 1}}}`}, `calls fileexists`},
+		"a JSON string that isn't a template": {map[string]string{root + "x.tf.json": `{"locals": {"k": "${"}}`}, `x.tf.json:1: a string that isn't a template`},
+		"a JSON literal":                      {map[string]string{root + "x.tf.json": `{"locals": {"k": "file(\"k\") and $${file(\"k\")}"}}`}, ""},
+		"other functions":                     {map[string]string{root + "x.tf": "locals {\n  k = upper(format(\"%s\", provider::aws::arn_parse(\"x\").region))\n}\n"}, ""},
+		"a var file, which can't":             {map[string]string{root + "terraform.tfvars": "k = file(\"k\")\n"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			writeTree(t, out, generatedRoot)
+			writeTree(t, out, tc.files)
+
+			_, err := checkDriftRoots(out)
+
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("got %v, want the roots to pass", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("got %v, want an error with %q", err, tc.want)
+			}
+		})
+	}
+}

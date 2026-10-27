@@ -4,7 +4,10 @@
 package mcpserver
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
@@ -91,6 +95,9 @@ func moduleAddress(source string) string {
 // too, as Terraform and OpenTofu read them, once: the digest is of the
 // bytes checked, never of a second read a file could have changed by.
 //
+// No expression may call a function that reads a local file (see
+// checkFileFunctions).
+//
 // The roots' .terraform directories aren't read: the tools run drift
 // with --untrusted-roots, so Terraform ignores them, and installs
 // providers from their registries alone. A terraform.d directory, a
@@ -119,13 +126,18 @@ func checkDriftRoots(out string) (string, error) {
 		}
 		var f *hcl.File
 		var diags hcl.Diagnostics
+		var jsonContent []byte
 		if strings.HasSuffix(name, ".json") {
 			f, diags = parser.ParseJSON(content, relativeTo(out, path))
+			jsonContent = content
 		} else {
 			f, diags = parser.ParseHCL(content, relativeTo(out, path))
 		}
 		if diags.HasErrors() {
 			return diags
+		}
+		if err := checkFileFunctions(f, jsonContent); err != nil {
+			return err
 		}
 		dir := filepath.Dir(path)
 		if _, ok := files[dir]; !ok {
@@ -200,6 +212,81 @@ func configFile(name string) bool {
 		}
 	}
 	return false
+}
+
+// fileFunctions are Terraform's functions that read a local file, and
+// templatestring, which renders a template from a string, whose own
+// function calls a check of the configuration can't see. infraharvest
+// generates roots with none of them.
+var fileFunctions = map[string]bool{
+	"file": true, "filebase64": true, "fileexists": true, "fileset": true,
+	"filemd5": true, "filesha1": true, "filesha256": true, "filesha512": true,
+	"filebase64sha256": true, "filebase64sha512": true,
+	"templatefile": true, "templatestring": true,
+}
+
+// checkFileFunctions refuses f, a configuration file the drift tools
+// parsed, if any expression in it calls one of fileFunctions, with or
+// without the core:: namespace: the call could put a local file, such
+// as ~/.aws/credentials, into an argument, which plan would show as
+// drift, to the agent. jsonContent is the content of a JSON
+// file, whose string values, and keys, Terraform takes as templates; nil
+// for native syntax. An expression that doesn't parse is refused, as
+// what it calls can't be checked. A var file or backend settings file
+// isn't checked: Terraform evaluates its values without functions.
+func checkFileFunctions(f *hcl.File, jsonContent []byte) error {
+	if jsonContent != nil {
+		return checkJSONFileFunctions(f.Body.MissingItemRange().Filename, jsonContent)
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	if !ok {
+		return fmt.Errorf("%s: the file's expressions can't be checked", f.Body.MissingItemRange().Filename)
+	}
+	return fileFunctionCalls(body)
+}
+
+// checkJSONFileFunctions checks each string, value or key, of content,
+// the JSON file filename, as a template (see checkFileFunctions).
+func checkJSONFileFunctions(filename string, content []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(content))
+	dec.UseNumber()
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", filename, err)
+		}
+		s, ok := tok.(string)
+		if !ok {
+			continue
+		}
+		// A JSON string has no newline of its own: the line its end is
+		// on is the line it is on.
+		line := 1 + bytes.Count(content[:dec.InputOffset()], []byte("\n"))
+		expr, diags := hclsyntax.ParseTemplate([]byte(s), filename, hcl.Pos{Line: line, Column: 1})
+		if diags.HasErrors() {
+			return fmt.Errorf("%s:%d: a string that isn't a template whose function calls can be checked: %w", filename, line, diags)
+		}
+		if err := fileFunctionCalls(expr); err != nil {
+			return err
+		}
+	}
+}
+
+// fileFunctionCalls refuses node if it, or anything in it, calls one of
+// fileFunctions.
+func fileFunctionCalls(node hclsyntax.Node) error {
+	var err error
+	_ = hclsyntax.VisitAll(node, func(n hclsyntax.Node) hcl.Diagnostics {
+		call, ok := n.(*hclsyntax.FunctionCallExpr)
+		if ok && err == nil && fileFunctions[strings.TrimPrefix(call.Name, "core::")] {
+			err = fmt.Errorf("%s: calls %s, which reads a local file, or renders a template that could: plan could show the agent the file's content as drift", where(call.NameRange), call.Name)
+		}
+		return nil
+	})
+	return err
 }
 
 // moduleUses is what the configuration files of one module directory,
