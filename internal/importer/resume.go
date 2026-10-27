@@ -96,21 +96,22 @@ func (c *claim) previousRoot() *engine.Previous {
 	return &engine.Previous{Addresses: c.previous, Labels: c.labels, Moved: c.moved, Removed: c.removed}
 }
 
-// claimRoot gets dir ready for generating a root from fp, from what
-// earlier imports left of it, which doesn't refuse it (see
-// rootOnDisk.refusal). A root no import generated gets a checkpoint.
-// Generating a root an earlier import generated again first records
-// where its resources were (see previousAddresses, and
-// shared.previousAddressesOf for what s has of its own state) in its
+// claimRoot gets dir ready for generating a root from fp, as d, a
+// decision to generate it afresh or again, says (see
+// rootDecision.generated). A fresh root gets a checkpoint. Generating a
+// root an earlier import generated again, from what d found of it on
+// disk, first records where its resources were (see previousAddresses,
+// and shared.previousAddressesOf for what s has of its own state) in its
 // checkpoint, then removes what the import generated (see
 // clearGenerated). The checkpoint then has no result: it records that
 // the root's generation started, so that a later run knows the files are
 // infraharvest's even if this one fails, and that the root isn't
 // complete (see unfinishedRoot).
-func claimRoot(out, dir, fp string, onDisk rootOnDisk, s *shared) (*claim, error) {
-	if !onDisk.checkpointed {
+func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
+	if d.mode == rootFresh {
 		return &claim{}, saveCheckpoint(out, dir, fp, nil)
 	}
+	onDisk := d.onDisk
 	c := onDisk.c
 	var err error
 	claimed := &claim{}

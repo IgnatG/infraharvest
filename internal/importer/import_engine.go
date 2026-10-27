@@ -547,7 +547,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 		result = d.result
 	case rootIncremental:
 		return c.addTo(ctx, dir, fp, d, dirOpts)
-	default:
+	case rootFresh, rootRegenerated:
 		var fatal error
 		if result, err, fatal = c.generateRoot(ctx, dir, fp, d, dirOpts, roots, untemplated); fatal != nil {
 			return fatal
@@ -626,7 +626,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	if err != nil {
 		return nil, nil, err
 	}
-	claimed, err := claimRoot(options.Out, dir, fp, d.onDisk, run.shared)
+	claimed, err := claimRoot(options.Out, dir, fp, d, run.shared)
 	if err != nil {
 		return nil, err, nil
 	}

@@ -137,9 +137,8 @@ func TestPreviouslyOwned(t *testing.T) {
 
 // A root whose import didn't finish isn't added to: its generation
 // started and has no result, or, without a checkpoint, it has Terraform's
-// generated.tf but no README. Every import fails, so the root is reported.
-func TestAddToRootRefusesAnUnfinishedRoot(t *testing.T) {
-	imports := []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}
+// generated.tf but no README. It is refused, so the root is reported.
+func TestDecideRootRefusesAnUnfinishedRoot(t *testing.T) {
 	write := func(dir string, names ...string) {
 		t.Helper()
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -162,14 +161,11 @@ func TestAddToRootRefusesAnUnfinishedRoot(t *testing.T) {
 	raw := filepath.Join(out, "aws", "222")
 	write(raw, engine.ImportsFileName, engine.GeneratedFileName)
 
-	r := &Run{options: Options{Out: out}}
+	c := &listedCall{options: Options{Out: out, Incremental: true}}
 	for _, dir := range []string{started, raw} {
-		failed, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
-		if err == nil || !strings.Contains(err.Error(), "didn't finish") || result != nil || holds != nil {
-			t.Errorf("%s: want an unfinished root's error, got result=%v holds=%v err=%v", dir, result, holds, err)
-		}
-		if !reflect.DeepEqual(failed, imports) {
-			t.Errorf("%s: failed: got %v, want every import", dir, failed)
+		d, err := c.decideRoot(dir, "fp")
+		if err != nil || d.mode != rootRefused || d.reason == nil || !strings.Contains(d.reason.Error(), "didn't finish") {
+			t.Errorf("%s: want an unfinished root refused, got mode %d, reason %v, err %v", dir, d.mode, d.reason, err)
 		}
 	}
 

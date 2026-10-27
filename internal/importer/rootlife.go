@@ -26,7 +26,8 @@ const (
 	rootFresh rootMode = iota
 	// rootRegenerated is a root an earlier import generated, generated
 	// again from scratch: with --regenerate, with --resume if that import
-	// didn't finish, or with --incremental if it has no resources.
+	// didn't finish, or with --incremental if it has no resources (see
+	// claimRoot).
 	rootRegenerated
 	// rootResumed is as its checkpoint records, unchanged since it was
 	// generated (--resume).
@@ -50,8 +51,8 @@ type rootDecision struct {
 	// first, to add to it as it was, then sets it aside again, for the
 	// merge phase to merge its stack again (see Run.MergeEnvironments).
 	premerged, restore bool
-	// onDisk is what an earlier import left of a root generated afresh or
-	// again, for claimRoot.
+	// onDisk is what an earlier import left of a root generated again,
+	// for claimRoot.
 	onDisk rootOnDisk
 }
 
@@ -66,13 +67,14 @@ func (d rootDecision) refused(reason error) rootDecision {
 // disk. A root the call's handovers leave as it was is refused (see
 // handovers.refusal); with --resume, one unchanged since its checkpoint
 // is resumed (see resumed); with --incremental, one with resources is
-// added to, unless, with --resume, its import didn't finish. Any other is
-// generated, afresh or again, but for one that would hand over what roots
-// generated before it didn't import (see handovers.refuseUnreceived),
-// one its stack's merge set aside, which may be in use, without
-// --regenerate or --resume, and one an earlier import's files or
-// checkpoint refuse (see rootOnDisk.refusal). It returns an error only if
-// the call can't go on.
+// added to, unless its import didn't finish: with --resume, it is
+// generated again, and without, refused, as what it has was never
+// checked, and may be only part of it. Any other is generated, afresh or
+// again, but for one that would hand over what roots generated before it
+// didn't import (see handovers.refuseUnreceived), one its stack's merge
+// set aside, which may be in use, without --regenerate or --resume, and
+// one an earlier import's files or checkpoint refuse (see
+// rootOnDisk.refusal). It returns an error only if the call can't go on.
 func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 	out, options := c.options.Out, c.options
 	if err := c.handovers.refusal(dir); err != nil {
@@ -102,18 +104,26 @@ func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 		if err != nil {
 			return rootDecision{}, err
 		}
-		if has && options.Resume {
-			// With --resume, a root whose import didn't finish is
-			// generated again rather than added to (see addToRoot).
+		if has {
+			// A root whose import didn't finish isn't one to add to: what
+			// it has was never checked, and may be only part of it. With
+			// --resume, it is generated again; without, it is left as it
+			// was, set aside still, as is one it can't tell of.
 			unfinished, err := unfinishedRoot(out, dir)
+			if err == nil && !unfinished {
+				d.mode = rootIncremental
+				return d, nil
+			}
+			if !options.Resume {
+				d.restore = false
+				if err == nil {
+					err = fmt.Errorf("the import that generated %s didn't finish: generate the root again with --resume, then add to it with --incremental", dir)
+				}
+				return d.refused(err), nil
+			}
 			if err != nil {
 				return rootDecision{}, err
 			}
-			has = !unfinished
-		}
-		if has {
-			d.mode = rootIncremental
-			return d, nil
 		}
 	}
 	// A root an earlier import generated is generated again, from
@@ -129,18 +139,28 @@ func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 	if set && !options.Regenerate && !options.Resume {
 		return d.refused(fmt.Errorf("%s was merged into the root its stack's environments share, which may be in use: pass --regenerate to generate both again, or --incremental to add what is new", dir)), nil
 	}
+	return d.generated(out, dir, files, options.Resume, options.Regenerate || options.Incremental), nil
+}
+
+// generated returns d, deciding how the root in dir, under out, whose
+// files are in files, is generated from what earlier imports left of it
+// (see inspectRoot): refused, if that refuses it (see
+// rootOnDisk.refusal, with resume and regenerate); else afresh, or again
+// if an earlier import generated it.
+func (d rootDecision) generated(out, dir, files string, resume, regenerate bool) rootDecision {
 	onDisk, err := inspectRoot(out, dir, files)
 	if err == nil {
-		err = onDisk.refusal(dir, options.Resume, options.Regenerate || options.Incremental)
+		err = onDisk.refusal(dir, resume, regenerate)
 	}
 	if err != nil {
-		return d.refused(err), nil
+		return d.refused(err)
 	}
-	d.mode, d.onDisk = rootFresh, onDisk
-	if onDisk.checkpointed {
-		d.mode = rootRegenerated
+	if !onDisk.checkpointed {
+		d.mode = rootFresh
+		return d
 	}
-	return d, nil
+	d.mode, d.onDisk = rootRegenerated, onDisk
+	return d
 }
 
 // rootOnDisk is what earlier imports left of a root a run generates: the

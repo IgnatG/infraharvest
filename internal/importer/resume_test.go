@@ -15,16 +15,13 @@ import (
 
 // claimFor claims the root in dir, under out, for generating it from fp,
 // as a run with resume and regenerate does: refused, as earlier imports
-// left it (see rootOnDisk.refusal), or got ready (see claimRoot).
+// left it (see rootDecision.generated), or got ready (see claimRoot).
 func claimFor(out, dir, fp string, resume, regenerate bool) (*claim, error) {
-	onDisk, err := inspectRoot(out, dir, dir)
-	if err != nil {
-		return nil, err
+	d := rootDecision{}.generated(out, dir, dir, resume, regenerate)
+	if d.mode == rootRefused {
+		return nil, d.reason
 	}
-	if err := onDisk.refusal(dir, resume, regenerate); err != nil {
-		return nil, err
-	}
-	return claimRoot(out, dir, fp, onDisk, nil)
+	return claimRoot(out, dir, fp, d, nil)
 }
 
 func TestCheckpoints(t *testing.T) {

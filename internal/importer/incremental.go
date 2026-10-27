@@ -23,9 +23,10 @@ import (
 // root has it.
 const InRootReason = "already in the root"
 
-// addToRoot adds to dir, a root an earlier import generated, the resources
-// of imports it doesn't have yet (see engine.Existing and engine.Add),
-// generating them in a staging directory under the output's checkpoints.
+// addToRoot adds to dir, a root an earlier import generated in full (see
+// listedCall.decideRoot), the resources of imports it doesn't have yet
+// (see engine.Existing and engine.Add), generating them in a staging
+// directory under the output's checkpoints.
 // It records the others as excluded, and what the root has that is no
 // longer in the cloud (see listedHere.notInCloud), and returns the
 // resources it added, the result, and what the root then holds for its
@@ -35,15 +36,6 @@ const InRootReason = "already in the root"
 // are new.
 func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import, opts engine.Options, tr terraformRun) ([]engine.Import, *engine.Result, *engine.Result, error) {
 	out := r.options.Out
-	// A root whose import didn't finish isn't one to add to: what it
-	// has was never checked, and may be only part of it.
-	unfinished, err := unfinishedRoot(out, dir)
-	if err != nil {
-		return imports, nil, nil, err
-	}
-	if unfinished {
-		return imports, nil, nil, fmt.Errorf("the import that generated %s didn't finish: generate the root again with --resume, then add to it with --incremental", dir)
-	}
 	previous, err := checkpointResult(out, dir)
 	if err != nil {
 		return imports, nil, nil, err
