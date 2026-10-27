@@ -63,13 +63,12 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 	}
 	// What each environment plans the root with is kept: its backend
 	// settings, even those of an environment whose values are gone, and
-	// the var files of its values, but not those of its import IDs, as
-	// the root imports nothing now.
-	values := map[string]bool{}
+	// the var files of its values, the shared ones even with no
+	// environment left, but not those of its import IDs, as the root
+	// imports nothing now.
+	values := map[string]bool{commonVarsPath: true}
 	for _, env := range envs {
-		for _, name := range varFiles(env, false) {
-			values[name] = true
-		}
+		values[envVarsPath(env)] = true
 	}
 	var left []string
 	for _, name := range files {
