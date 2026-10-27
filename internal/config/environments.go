@@ -68,6 +68,7 @@ type GoogleScopes struct {
 }
 
 // environmentName matches an environment's name, which names a directory.
+// The GitHub Action checks its environment input with the same pattern.
 var environmentName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // providerCommands returns the provider commands the file has sections

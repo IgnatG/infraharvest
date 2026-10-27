@@ -529,6 +529,27 @@ jobs:
           # infraharvest refused it before checking anything.
           test "$DRIFT_EXIT_CODE" = 2
           test ! -e "$RUNNER_TEMP/out/report/drift.json"
+      # An environment name the configuration file couldn't have, such as
+      # one starting with a dot: the action refuses it before anything
+      # runs.
+      - name: Check drift with environment .dev
+        id: badname
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          import: "false"
+          out: ${{ runner.temp }}/out
+          drift: report
+          environment: dev,.dev
+      - name: Check the action refused environment .dev
+        env:
+          OUTCOME: ${{ steps.badname.outcome }}
+          DRIFT_EXIT_CODE: ${{ steps.badname.outputs.drift-exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          test -z "$DRIFT_EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/out/report/drift.json"
       - name: Check drift as dev
         id: dev
         uses: ./action
