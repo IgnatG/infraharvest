@@ -207,7 +207,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.Float64Var(&options.RateLimit, "rate-limit", ratelimit.DefaultRate, "most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit)")
 
 	// Where the output goes, and how it is generated.
-	flags.StringVar(&options.Layout, "layout", importer.DefaultLayout, "directories of the generated roots, one root each, from {out}, {provider} (aws, azure or google), {account}, {region}, {service} and {env} (see --env-tags)")
+	flags.StringVar(&options.Layout, "layout", importer.DefaultLayout, "directories of the generated roots, one root each, from {out}, {provider} ("+commandList()+"), {account}, {region}, {service} and {env} (see --env-tags)")
 	flags.StringVarP(&options.Out, "out", "o", importer.DefaultOut, "directory to write the generated roots and the report to")
 	flags.StringVar(&options.Format, "format", importer.FormatText, "text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it)")
 	flags.StringSliceVar(&options.EnvTags, "env-tags", nil, "tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env)")
@@ -231,6 +231,16 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.BoolVar(&options.Incremental, "incremental", false, "add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have")
 	flags.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "import from the resources infraharvest discover listed into the same --out, instead of listing them again")
 	flags.BoolVar(&options.ForceUnlock, "force-unlock", false, "write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself")
+}
+
+// commandList names the provider commands compiled in, as a sentence
+// lists them: aws, azure or google.
+func commandList() string {
+	names := Names()
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
 }
 
 // ParallelFlag adds --parallel to cmd, bound to options.Parallel: how many

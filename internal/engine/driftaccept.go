@@ -458,82 +458,25 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 // check that fails, with what it found, and the edited files it fails
 // on, none where it can't tell; or "".
 func driftChecks(ctx context.Context, stf DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, []string, error) {
-	formatted, files, err := stf.FormatCheck(ctx)
-	if err != nil {
-		return "", nil, fmt.Errorf("terraform fmt: %w", err)
-	}
-	if !formatted {
-		var unformatted []string
-		for _, f := range files {
-			if slices.Contains(names, filepath.Base(f)) {
-				unformatted = append(unformatted, filepath.Base(f))
-			}
-		}
-		if len(unformatted) > 0 {
-			return CheckFormat + ": " + strings.Join(unformatted, ", ") + " isn't formatted", unformatted, nil
-		}
-	}
-	validation, err := stf.Validate(ctx)
-	if err != nil {
-		return "", nil, fmt.Errorf("terraform validate: %w", err)
-	}
-	if !validation.Valid {
-		var details, invalid []string
-		for _, d := range errorDiagnostics(validation.Diagnostics) {
-			details = append(details, formatDiagnostic(d))
-			if d.Range == nil {
-				continue
-			}
-			for _, name := range names {
-				if name == filepath.ToSlash(d.Range.Filename) || name == filepath.Base(d.Range.Filename) {
-					invalid = append(invalid, name)
-				}
-			}
-		}
-		return CheckValidate + ": " + strings.Join(details, "; "), invalid, nil
-	}
-	nowStandards, err := checkStandards(staging, opts.Omit, ownModuleDirs(opts.Adapters))
+	gate, _, err := gatePolicy{
+		checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
+		sensitive: append(sensitiveValues(p), sensitive...),
+		baseline:  Gate{standards, moves},
+		edited:    names,
+		before:    original,
+		after:     edited,
+		omit:      opts.Omit,
+		own:       ownModuleDirs(opts.Adapters),
+	}.run(ctx, stf, staging)
 	if err != nil {
 		return "", nil, err
 	}
-	if added := addedDetails(standards, nowStandards); len(added) > 0 {
-		return CheckStandards + ": " + strings.Join(added, "; "), filesNamed(added, names), nil
-	}
-	nowMoves, err := checkMoves(staging)
-	if err != nil {
-		return "", nil, err
-	}
-	if added := addedDetails(moves, nowMoves); len(added) > 0 {
-		return CheckMoves + ": " + strings.Join(added, "; "), filesNamed(added, names), nil
-	}
-	values := newValueMatcher(append(sensitiveValues(p), sensitive...))
-	for _, name := range names {
-		var before, after Check
-		scanFile(&before, values, name, string(original[name]))
-		scanFile(&after, values, name, string(edited[name]))
-		if len(addedDetails(before, after)) > 0 {
-			// What it found is a secret's whereabouts, not for a report.
-			return CheckSecrets + ": " + name + " would hold a secret", []string{name}, nil
+	for _, c := range gate {
+		if !c.Passed {
+			return c.Name + ": " + strings.Join(c.Details, "; "), c.files, nil
 		}
 	}
 	return "", nil, nil
-}
-
-// filesNamed returns the files of names that details, a check's
-// findings, name, such as main.tf in "main.tf:3: moved block has no to".
-func filesNamed(details, names []string) []string {
-	var files []string
-	for _, name := range names {
-		if slices.ContainsFunc(details, func(d string) bool {
-			return slices.ContainsFunc(strings.Fields(d), func(field string) bool {
-				file, _, _ := strings.Cut(field, ":")
-				return file == name
-			})
-		}) {
-			files = append(files, name)
-		}
-	}
-	return files
 }
 
 // checkBlame returns the changes of pending whose edits, made as sources
@@ -560,23 +503,6 @@ func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, fil
 		}
 	}
 	return rejected
-}
-
-// addedDetails returns the details of after that before doesn't have.
-func addedDetails(before, after Check) []string {
-	had := map[string]int{}
-	for _, d := range before.Details {
-		had[d]++
-	}
-	var added []string
-	for _, d := range after.Details {
-		if had[d] > 0 {
-			had[d]--
-			continue
-		}
-		added = append(added, d)
-	}
-	return added
 }
 
 // mergedTagAttributes are, by a resource's own tags or labels, the

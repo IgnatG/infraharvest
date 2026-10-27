@@ -119,7 +119,6 @@ func (goldenOptional) ExcludedByDefault(context.Context, []Resource) (map[string
 }
 func (goldenOptional) SetCatalogue(*catalogue.Catalogue)          {}
 func (goldenOptional) ModuleProviders() map[string]ModuleProvider { return nil }
-func (goldenOptional) OptInServices() []string                    { return nil }
 func (goldenOptional) Tags(context.Context, []Resource) (map[string]map[string]string, error) {
 	return nil, nil
 }
@@ -137,7 +136,6 @@ var (
 	_ ProviderWithSelectionDefaults = goldenOptional{}
 	_ ProviderWithCatalogue         = goldenOptional{}
 	_ ProviderWithModuleProviders   = goldenOptional{}
-	_ ProviderWithOptInServices     = goldenOptional{}
 	_ ProviderWithTags              = goldenOptional{}
 	_ ProviderWithScope             = goldenOptional{}
 	_ ProviderWithTerraformEnv      = goldenOptional{}

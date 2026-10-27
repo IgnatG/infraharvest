@@ -6,6 +6,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
@@ -22,7 +23,7 @@ func newBootstrapCmd() *cobra.Command {
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return importer.WriteBootstrap(configFile, out, cmd.OutOrStdout())
+			return importer.WriteBootstrap(configFile, out, cmd.OutOrStdout(), providers.Profiles())
 		},
 	}
 	cmd.Flags().StringVar(&configFile, "config", "", "configuration file with the backend (required)")
