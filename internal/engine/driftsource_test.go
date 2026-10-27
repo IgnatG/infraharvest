@@ -691,3 +691,21 @@ func TestForcesReplacement(t *testing.T) {
 		t.Error("a replacement without its paths isn't taken for the attribute's")
 	}
 }
+
+// An edit that removes one literal secret and adds another is refused,
+// though the file holds as many secrets as before.
+func TestEditFilesRefusesASecretInPlaceOfAnother(t *testing.T) {
+	t.Parallel()
+	token := `"ghp_` + strings.Repeat("a1", 18) + `"`
+	file := func(a, b string) string {
+		return "resource \"aws_vpc\" \"a\" {\n  tags = {\n    token = " + a + "\n  }\n}\n\nresource \"aws_vpc\" \"b\" {\n  tags = {\n    token = " + b + "\n  }\n}\n"
+	}
+	old := file(token, `"none"`)
+	edited := file(`"none"`, token)
+
+	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []SourceEdit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}})
+
+	if !secret || reason == "" {
+		t.Errorf("wrote a secret in place of another: %q, secret %v", reason, secret)
+	}
+}

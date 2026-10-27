@@ -1249,7 +1249,10 @@ func editFiles(contents map[string][]byte, edits []SourceEdit) (map[string][]byt
 		if _, diags := hclsyntax.ParseConfig(content, name, hcl.InitialPos); diags.HasErrors() {
 			return nil, "the edit wouldn't parse: edit it by hand", false
 		}
-		if len(literalSecrets(&parsedFile{rel: name, content: string(content)})) > len(literalSecrets(&parsedFile{rel: name, content: string(old)})) {
+		// The findings, not their count: an edit may remove one secret and
+		// add another.
+		had := Check{Details: literalSecrets(&parsedFile{rel: name, content: string(old)})}
+		if len(addedDetails(had, Check{Details: literalSecrets(&parsedFile{rel: name, content: string(content)})})) > 0 {
 			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
 		}
 		next[name] = content
