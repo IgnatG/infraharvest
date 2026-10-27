@@ -385,9 +385,15 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	return generate(ctx, tf, dir, imports, generating(opts))
 }
 
-// generate is Generate's pipeline, run with r's options.
+// generate is Generate's pipeline, run with r's options. It runs in
+// stages, each a method of generation: it writes the root and has
+// Terraform generate its configuration (write, planGenerated), moves the
+// secrets that holds into variables (hideSecrets), plans until what it
+// keeps is valid (planUntilValid), leaves out what the root doesn't
+// import (leaveOut), makes the secret attributes read from variables
+// (secretVariables), tidies the configuration (tidy, finish) and gates it
+// (gate). Last, it writes the README.
 func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r *run) (*Result, error) {
-	opts := r.opts
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -409,10 +415,102 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 		return nil, err
 	}
 	defer removeEmptyState()
-	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
-	tf = &schemaCache{Terraform: redacting}
-	imports = relabelled(imports, r.taken, opts.TidyLabels, opts.Previous)
-	importsHCL, err := ImportsFile(imports)
+	redacting := &redactingTerraform{Terraform: withTimeout(tf, r.opts.CommandTimeout)}
+	g := &generation{
+		tf:        &schemaCache{Terraform: redacting},
+		redacting: redacting,
+		dir:       dir,
+		generated: generated,
+		imports:   relabelled(imports, r.taken, r.opts.TidyLabels, r.opts.Previous),
+		r:         r,
+		opts:      r.opts,
+		result:    &Result{},
+		leftOut:   map[string]bool{},
+	}
+	restoreAccess, err := g.write(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reasons, err := g.planGenerated(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The values of the secrets hideSecrets moves, which the run's plans
+	// read, go with the run.
+	defer func() { r.secrets.remove() }()
+	if err := g.hideSecrets(); err != nil {
+		return nil, err
+	}
+	if len(g.literal) > 0 {
+		reasons = append(reasons, replanSecrets)
+	}
+	if err := restoreAccess(); err != nil {
+		return nil, err
+	}
+	if err := g.planUntilValid(ctx, reasons); err != nil {
+		return nil, err
+	}
+	if err := g.leaveOut(); err != nil {
+		return nil, err
+	}
+	if err := g.secretVariables(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.tidy(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.finish(ctx); err != nil {
+		return nil, err
+	}
+	if err := g.gate(ctx); err != nil {
+		return nil, err
+	}
+	// The README shows the gate's details, which come from plans that had
+	// the secret values: the gate couldn't scan it, so it is scanned here.
+	redactResult(g.result, g.literal)
+	if err := WriteReadme(dir, g.result); err != nil {
+		return g.result, err
+	}
+	return g.result, checkReadme(dir, g.result, knownValues(g.literal))
+}
+
+// generation is the state generate's stages share as they generate a
+// root in dir.
+type generation struct {
+	// tf runs Terraform in dir, without showing the secret values hidden
+	// with redacting.
+	tf        Terraform
+	redacting *redactingTerraform
+	dir       string
+	// generated is the path of generated.tf.
+	generated string
+	imports   []Import
+	r         *run
+	opts      Options
+	// literal are the secrets found in the configuration Terraform
+	// generated (see hideSecrets).
+	literal []Secret
+	// diags are the errors of the last plan.
+	diags []tfjson.Diagnostic
+	// last is the last of the plans planUntilValid makes, if it had no
+	// errors, and planned the files it read: tidy starts from it if they
+	// are still the same then.
+	last    *shownPlan
+	planned map[string][]byte
+	result  *Result
+	// rejected is the configuration of the resources left out, for
+	// rejected.tf.
+	rejected bytes.Buffer
+	// leftOut are the addresses of the resources the root doesn't import.
+	leftOut map[string]bool
+}
+
+// write writes the root's files and initialises it. It makes dir private
+// first and returns what makes it public again, once the secrets are out
+// of generated.tf.
+func (g *generation) write(ctx context.Context) (restoreAccess func() error, err error) {
+	opts, dir := g.opts, g.dir
+	importsHCL, err := ImportsFile(g.imports)
 	if err != nil {
 		return nil, err
 	}
@@ -422,10 +520,10 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	// Terraform writes every value the provider doesn't mark sensitive
 	// into generated.tf, secrets among them, and with the mode it chooses.
 	// The directory stays private until those secrets are moved out of
-	// the file below; should Generate fail before that, it stays so. On
-	// Windows, where a mode restricts nothing, its access list does it.
-	restoreAccess, err := makePrivate(dir)
-	if err != nil {
+	// the file (see hideSecrets); should Generate fail before that, it
+	// stays so. On Windows, where a mode restricts nothing, its access
+	// list does it.
+	if restoreAccess, err = makePrivate(dir); err != nil {
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
@@ -446,11 +544,11 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	// implies, such as azapi_resource, need it required and configured
 	// before init, which selects its newest release, pinned as the
 	// root's own provider is.
-	others := resourceProviders(imports, opts.ModuleProviders)
+	others := resourceProviders(g.imports, opts.ModuleProviders)
 	if err := requireProviders(dir, others, opts.ModuleProviders); err != nil {
 		return nil, err
 	}
-	if err := initTerraform(ctx, tf); err != nil {
+	if err := initTerraform(ctx, g.tf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	if len(others) > 0 {
@@ -458,15 +556,23 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 			return nil, err
 		}
 	}
+	return restoreAccess, nil
+}
+
+// planGenerated has Terraform generate generated.tf, imports again what
+// it rejected that has an import ID to fall back on, and makes the edits
+// that come before anything reads the file (see prepareGenerated). It
+// returns why the file then needs another plan, if it does.
+func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) {
 	// Plan reports changes because every import is pending; only errors matter.
 	// The release the lock file records decides how far the provider's
 	// metadata goes (see schemaHints).
-	hints := schemaHintsFor(dir, opts.SchemaMetadata)
-	diags, _, err := plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
+	hints := schemaHintsFor(g.dir, g.opts.SchemaMetadata)
+	diags, _, err := plan(ctx, g.tf, tfexec.GenerateConfigOut(GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
 	}
-	if _, err := os.Stat(generated); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(g.generated); errors.Is(err, fs.ErrNotExist) {
 		// Terraform stopped before generating anything, for example on the
 		// provider configuration.
 		if len(diags) == 0 {
@@ -478,81 +584,80 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	}
 	// What Terraform rejected that has an import ID to fall back on is
 	// imported again by it, before anything reads the configuration.
-	if diags, err = retryFallbacks(ctx, tf, dir, imports, diags); err != nil {
+	if g.diags, err = retryFallbacks(ctx, g.tf, g.dir, g.imports, diags); err != nil {
 		return nil, err
 	}
-	reasons, err := prepareGenerated(generated, imports, opts, hints)
+	return prepareGenerated(g.generated, g.imports, g.opts, hints)
+}
+
+// hideSecrets moves the secrets in generated.tf into variables.
+// Terraform wrote every value the provider doesn't mark sensitive into the
+// file, secrets among them: they move before anything else reads it.
+// Generate's own plans read their values from outside the output (see
+// secretValues), which the run's secrets hold once there are any.
+func (g *generation) hideSecrets() error {
+	literal, warnings, err := literalSecretsToVariables(g.generated, g.r.taken)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// Terraform wrote every value the provider doesn't mark sensitive into
-	// generated.tf, secrets among them: move those into variables before
-	// anything else reads the file. Generate's own plans read their values
-	// from outside the output (see secretValues).
-	literal, warnings, err := literalSecretsToVariables(generated, r.taken)
-	if err != nil {
-		return nil, err
-	}
-	if len(literal) > 0 {
-		reasons = append(reasons, replanSecrets)
-		redacting.hide(literal)
-		if r.secrets, err = newSecretValues(); err != nil {
-			return nil, err
-		}
-		defer r.secrets.remove()
-		if err := r.secrets.write(literal); err != nil {
-			return nil, err
-		}
-		if err := writeVariables(dir, literal, nil); err != nil {
-			return nil, err
-		}
-	}
-	if err := restoreAccess(); err != nil {
-		return nil, err
-	}
-	// last is the last of the plans below, if it had no errors, and planned
-	// the files it read: postProcess starts from it if they are still the
-	// same then.
-	var last *shownPlan
-	var planned map[string][]byte
-	replan := func() error {
-		shown, summary, ds, err := showPlanWithSummary(ctx, tf, r.secrets.options())
-		if err != nil {
-			return err
-		}
-		diags, last, planned = ds, nil, nil
-		if len(ds) == 0 && shown != nil {
-			if planned, err = rootFileContents(dir); err != nil {
-				return err
-			}
-			last = &shownPlan{plan: shown, summary: summary}
-		}
+	g.literal, g.result.Warnings = literal, warnings
+	if len(literal) == 0 {
 		return nil
 	}
-	// The plan the configuration was generated with no longer holds once
-	// an edit above changed it (see replanReason).
+	g.redacting.hide(literal)
+	if g.r.secrets, err = newSecretValues(); err != nil {
+		return err
+	}
+	if err := g.r.secrets.write(literal); err != nil {
+		return err
+	}
+	return writeVariables(g.dir, literal, nil)
+}
+
+// replan plans the root again, for its errors and, if it has none, its
+// plan (see generation.last).
+func (g *generation) replan(ctx context.Context) error {
+	shown, summary, ds, err := showPlanWithSummary(ctx, g.tf, g.r.secrets.options())
+	if err != nil {
+		return err
+	}
+	g.diags, g.last, g.planned = ds, nil, nil
+	if len(ds) == 0 && shown != nil {
+		if g.planned, err = rootFileContents(g.dir); err != nil {
+			return err
+		}
+		g.last = &shownPlan{plan: shown, summary: summary}
+	}
+	return nil
+}
+
+// planUntilValid plans the root until it has no errors: the plan the
+// configuration was generated with no longer holds once an edit changed
+// it, for reasons. Terraform writes generated.tf even when the
+// configuration it generated is invalid: it is repaired once (see
+// repair), and the resources that still have errors then are left out
+// (see Rejection). It fails on errors it can't attribute to a resource,
+// and once maxPlanRounds plans still had errors.
+func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason) error {
 	if len(reasons) > 0 {
 		why := make([]string, len(reasons))
 		for i, reason := range reasons {
 			why[i] = string(reason)
 		}
-		log.Printf("%s: planning %s again: %s", dir, GeneratedFileName, strings.Join(why, ", "))
-		if err := replan(); err != nil {
-			return nil, err
+		log.Printf("%s: planning %s again: %s", g.dir, GeneratedFileName, strings.Join(why, ", "))
+		if err := g.replan(ctx); err != nil {
+			return err
 		}
 	}
-
-	result := &Result{Warnings: warnings}
-	var rejected bytes.Buffer
 	repaired := false
 	for round := 0; ; round++ {
-		errs, err := unresolved("terraform plan", dir, diags)
+		errs, err := unresolved("terraform plan", g.dir, g.diags)
 		if err != nil {
 			// Errors can quote the values they reject, as below.
-			return nil, errors.New(redact(err.Error(), literal))
+			return errors.New(redact(err.Error(), g.literal))
 		}
 		if len(errs) == 0 {
-			break
+			return nil
 		}
 		if round == maxPlanRounds {
 			var all []tfjson.Diagnostic
@@ -560,141 +665,171 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 				all = append(all, ds...)
 			}
 			// Errors can quote the values they reject, as below.
-			return nil, fmt.Errorf("terraform plan: %s", redact(diagnosticsError(all).Error(), literal))
+			return fmt.Errorf("terraform plan: %s", redact(diagnosticsError(all).Error(), g.literal))
 		}
-		// Terraform writes generated.tf even when the configuration it
-		// generated is invalid. Repair it once; leave out what is left.
+		// Repair once; leave out what is left.
 		changed := false
 		if !repaired {
 			repaired = true
-			if changed, err = repair(ctx, tf, generated); err != nil {
-				return nil, err
+			if changed, err = repair(ctx, g.tf, g.generated); err != nil {
+				return err
 			}
 		}
 		if !changed {
-			rejections, err := reject(dir, errs, &rejected)
+			rejections, err := reject(g.dir, errs, &g.rejected)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			result.Rejected = append(result.Rejected, rejections...)
+			g.result.Rejected = append(g.result.Rejected, rejections...)
 		}
-		if err := replan(); err != nil {
-			return nil, err
+		if err := g.replan(ctx); err != nil {
+			return err
 		}
 	}
+}
+
+// leaveOut leaves out the resources the root doesn't import though their
+// configuration is valid: those Terraform generated nothing for, and,
+// unless opts.IncludeOwned, those another resource owns.
+func (g *generation) leaveOut() error {
 	// Terraform generates nothing for a resource its import finds gone, such
 	// as a KMS key scheduled for deletion, and only a plan without
 	// -generate-config-out says so: leave those out too.
-	missing, err := unconfigured(dir)
+	missing, err := unconfigured(g.dir)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(missing) > 0 {
-		rejections, err := reject(dir, missing, &rejected)
+		rejections, err := reject(g.dir, missing, &g.rejected)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		result.Rejected = append(result.Rejected, rejections...)
+		g.result.Rejected = append(g.result.Rejected, rejections...)
 	}
-	leftOut := map[string]bool{}
-	if !opts.IncludeOwned {
-		if result.Owned, err = leaveOutOwned(dir, opts.KeepOwned); err != nil {
-			return nil, err
+	if !g.opts.IncludeOwned {
+		if g.result.Owned, err = leaveOutOwned(g.dir, g.opts.KeepOwned); err != nil {
+			return err
 		}
-		for _, o := range result.Owned {
-			leftOut[o.Address] = true
+		for _, o := range g.result.Owned {
+			g.leftOut[o.Address] = true
 		}
 	}
+	return nil
+}
+
+// secretVariables makes the secret attributes of the resources the root
+// keeps read from variables (see useVariables), and those whose values
+// aren't secret after all literals again (see publicSecretsToLiterals).
+func (g *generation) secretVariables(ctx context.Context) error {
 	var kept []Secret
-	for _, s := range withoutRejected(literal, result.Rejected) {
-		if !leftOut[s.Address] {
+	for _, s := range withoutRejected(g.literal, g.result.Rejected) {
+		if !g.leftOut[s.Address] {
 			kept = append(kept, s)
 		}
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, r.taken, kept, &result.Rejected, &rejected, r.secrets.options()); err != nil {
-		return nil, err
+	var err error
+	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, g.r.secrets.options()); err != nil {
+		return err
 	}
-	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, r.secrets); err != nil {
-		return nil, err
+	if g.result.Secrets, err = publicSecretsToLiterals(ctx, g.tf, g.dir, g.result.Secrets, g.r.secrets); err != nil {
+		return err
 	}
-	if r.secrets != nil {
+	if g.r.secrets != nil {
 		// Only the variables still declared: Terraform warns about others.
-		if err := r.secrets.write(result.Secrets); err != nil {
-			return nil, err
+		if err := g.r.secrets.write(g.result.Secrets); err != nil {
+			return err
 		}
 	}
-	before, err := importTargets(dir)
+	return nil
+}
+
+// tidy post-processes the configuration (see postProcess), then groups
+// what it moved into modules into the root's module calls, and gives the
+// secrets the addresses their resources moved to.
+func (g *generation) tidy(ctx context.Context) error {
+	before, err := importTargets(g.dir)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// The last plan above is postProcess's first if nothing changed since:
-	// the same files, and no secret variables, whose values its plans get
-	// otherwise.
-	if last != nil && (r.secrets != nil || len(result.Secrets) > 0) {
+	// The last plan of planUntilValid is postProcess's first if nothing
+	// changed since: the same files, and no secret variables, whose values
+	// its plans get otherwise.
+	last := g.last
+	if last != nil && (g.r.secrets != nil || len(g.result.Secrets) > 0) {
 		last = nil
 	}
 	if last != nil {
-		same, err := sameFiles(dir, planned)
+		same, err := sameFiles(g.dir, g.planned)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !same {
 			last = nil
 		}
 	}
-	declined, err := postProcess(ctx, tf, dir, r, result.Secrets, last)
+	declined, err := postProcess(ctx, g.tf, g.dir, g.r, g.result.Secrets, last)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// Once the references are made: what is still a literal is no
 	// resource's.
-	if _, err := notePrincipals(generated); err != nil {
-		return nil, err
+	if _, err := notePrincipals(g.generated); err != nil {
+		return err
 	}
-	moved, err := movedAddresses(dir, before)
+	moved, err := movedAddresses(g.dir, before)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if result.Modules, err = moduleCalls(dir, moved, declined); err != nil {
-		return nil, err
+	if g.result.Modules, err = moduleCalls(g.dir, moved, declined); err != nil {
+		return err
 	}
-	for i, s := range result.Secrets {
+	for i, s := range g.result.Secrets {
 		if to, ok := moved[s.Address]; ok {
-			result.Secrets[i].Address = to
+			g.result.Secrets[i].Address = to
 		}
 	}
+	return nil
+}
+
+// finish writes rejected.tf, settles what the root imports, and lays out
+// its files: split by concern if opts.SplitFiles, with the moved and
+// removed blocks the addresses the root had before call for, and the
+// Terraform release they need.
+func (g *generation) finish(ctx context.Context) error {
+	opts, dir, result := g.opts, g.dir, g.result
 	// Errors can quote the values they reject.
 	for i := range result.Rejected {
 		for j, e := range result.Rejected[i].Errors {
-			result.Rejected[i].Errors[j] = redact(e, literal)
+			result.Rejected[i].Errors[j] = redact(e, g.literal)
 		}
 	}
-	if rejected.Len() > 0 {
-		if err := fsutil.WriteFile(filepath.Join(dir, RejectedFileName), redactBytes(rejected.Bytes(), literal), 0o644); err != nil {
-			return nil, err
+	if g.rejected.Len() > 0 {
+		if err := fsutil.WriteFile(filepath.Join(dir, RejectedFileName), redactBytes(g.rejected.Bytes(), g.literal), 0o644); err != nil {
+			return err
 		}
 	}
 	for _, r := range result.Rejected {
-		leftOut[r.Address] = true
+		g.leftOut[r.Address] = true
 	}
-	for _, imp := range imports {
-		if !leftOut[imp.Type+"."+imp.Name] {
+	for _, imp := range g.imports {
+		if !g.leftOut[imp.Type+"."+imp.Name] {
 			result.Imported = append(result.Imported, imp)
 		}
 	}
+	var err error
 	if opts.SplitFiles {
 		if result.Files, err = splitFiles(dir, result.Imported, result.Modules); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	if err := typeLiteralsOf(ctx, tf, dir); err != nil {
-		return nil, err
+	if err := typeLiteralsOf(ctx, g.tf, dir); err != nil {
+		return err
 	}
 	if err := layoutDir(dir); err != nil {
-		return nil, err
+		return err
 	}
 	if result.Addresses, err = ImportedAddresses(dir); err != nil {
-		return nil, err
+		return err
 	}
 	// Last, once the addresses are final: the gate's plans read the moved
 	// and removed blocks too, and they may need a later release.
@@ -702,30 +837,25 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	result.Removed = removals(opts.Previous, result.Addresses)
 	result.Arrived = arrived(opts.Arrivals, result.Addresses)
 	if err := writeMoves(dir, result.Moves, result.Removed, result.Retyped); err != nil {
-		return nil, err
+		return err
 	}
-	if err := requireMinimumVersion(dir); err != nil {
-		return nil, err
-	}
+	return requireMinimumVersion(dir)
+}
+
+// gate refines the finished root if opts.Refine is set, then gates it
+// (see gateRefined).
+func (g *generation) gate(ctx context.Context) error {
 	var unrefined map[string][]byte
-	warned := len(result.Warnings)
-	if opts.Refine != nil {
-		if unrefined, err = refine(ctx, tf, dir, result, opts); err != nil {
-			return nil, err
+	warned := len(g.result.Warnings)
+	if g.opts.Refine != nil {
+		var err error
+		if unrefined, err = refine(ctx, g.tf, g.dir, g.result, g.opts); err != nil {
+			return err
 		}
 	}
 	// The gate checks the modules the run may call, which for Add's are
 	// fewer than the caller's (see adding).
-	if err := gateRefined(ctx, tf, dir, result, opts, r.secrets, unrefined, warned); err != nil {
-		return nil, err
-	}
-	// The README shows the gate's details, which come from plans that had
-	// the secret values: the gate couldn't scan it, so it is scanned here.
-	redactResult(result, literal)
-	if err := WriteReadme(dir, result); err != nil {
-		return result, err
-	}
-	return result, checkReadme(dir, result, knownValues(literal))
+	return gateRefined(ctx, g.tf, g.dir, g.result, g.opts, g.r.secrets, unrefined, warned)
 }
 
 // prepareGenerated makes the edits of generated.tf, at path, that come
