@@ -22,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
+	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -276,21 +277,39 @@ func firstError(errs []error) error {
 	return nil
 }
 
-// --check checks a provider command's flags as the run would, and exits
-// without listing anything: a run that would list exits 0 with nothing
-// written, and one the run would refuse fails with the run's error.
+// --check checks a provider command's flags, and the settings of the
+// configuration file, as the run would, and exits without listing
+// anything: a run that would list exits 0 with nothing written, and one
+// the run would refuse exits 2 with the run's error.
 func TestCheckFlag(t *testing.T) {
 	for _, p := range referenceProviders {
 		if providers.New(p) == nil {
 			t.Skipf("built without %s", p)
 		}
 	}
-	out := filepath.Join(t.TempDir(), "out")
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out")
+	// What a configuration file sets is checked as the flags are.
+	config := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("version: 1\n"+content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return "--config=" + path
+	}
+	services := config("services.yaml", "providers:\n  aws:\n    services: [vpc]\n")
+	unknownService := config("unknown-service.yaml", "providers:\n  aws:\n    services: [nothing]\n")
+	check := config("check.yaml", "settings:\n  check: true\n")
+	projects := config("projects.yaml", "settings:\n  layout: \"{out}/{region}\"\nproviders:\n  google:\n    projects: [one, two]\n")
 	for _, tc := range []struct {
 		args []string
 		want string
 	}{
 		{[]string{"import", "aws", "--services=vpc", "--all", "--out=" + out}, ""},
+		{[]string{"import", "aws", "--all", services, "--out=" + out}, ""},
+		{[]string{"import", "aws", "--all", unknownService, "--out=" + out}, "aws has no service nothing"},
+		{[]string{"import", "aws", "--services=vpc", "--all", check, "--out=" + out}, `"check" is for the command line`},
+		{[]string{"import", "google", "--services=iam", "--all", projects, "--out=" + out}, "needs {account} to keep several projects apart"},
 		{[]string{"discover", "google", "--services=iam", "--projects=p", "--out=" + out}, ""},
 		{[]string{"import", "aws", "--all", "--out=" + out}, "--services is required"},
 		// Before the other checks, as the command line always said it.
@@ -314,6 +333,9 @@ func TestCheckFlag(t *testing.T) {
 			t.Errorf("%v: %v", tc.args, err)
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%v: got %v, want %q", tc.args, err, tc.want)
+		case tc.want != "" && importer.ExitCode(err) != report.ExitCouldNotRun:
+			// As the usage guide says, for a pipeline to tell.
+			t.Errorf("%v: exit code %d, want %d", tc.args, importer.ExitCode(err), report.ExitCouldNotRun)
 		}
 	}
 	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
