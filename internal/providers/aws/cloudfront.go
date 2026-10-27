@@ -73,17 +73,16 @@ func distributionName(distribution types.DistributionSummary) string {
 // listCachePolicies lists the cache policies the account made. The managed
 // policies AWS provides to every account are left out by asking for custom
 // ones only. The SDK has no paginator for ListCachePolicies, so the pages
-// are followed by their marker until a page returns none.
+// are followed by their marker with paginateByMarker.
 func (g *CloudFrontLister) listCachePolicies(svc *cloudfront.Client) error {
-	input := &cloudfront.ListCachePoliciesInput{Type: types.CachePolicyTypeCustom}
-	for {
-		output, err := svc.ListCachePolicies(g.Context(), input)
+	return paginateByMarker(func(marker *string) (*string, error) {
+		output, err := svc.ListCachePolicies(g.Context(), &cloudfront.ListCachePoliciesInput{Type: types.CachePolicyTypeCustom, Marker: marker})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		list := output.CachePolicyList
 		if list == nil {
-			return nil
+			return nil, nil
 		}
 		for _, summary := range list.Items {
 			if summary.CachePolicy == nil {
@@ -92,9 +91,6 @@ func (g *CloudFrontLister) listCachePolicies(svc *cloudfront.Client) error {
 			id := aws.ToString(summary.CachePolicy.Id)
 			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_cloudfront_cache_policy", "aws"))
 		}
-		if aws.ToString(list.NextMarker) == "" {
-			return nil
-		}
-		input.Marker = list.NextMarker
-	}
+		return list.NextMarker, nil
+	})
 }

@@ -15,6 +15,12 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
+// newCloudControlLister returns a lister of the built-in catalogue's
+// Cloud Control service.
+func newCloudControlLister(service string) *CloudControlLister {
+	return &CloudControlLister{types: cloudControlServices()[service]}
+}
+
 func TestCloudControlLister(t *testing.T) {
 	var listed []string
 	useFakeAPI(t, func(call apiCall) string {

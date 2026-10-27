@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -31,7 +32,8 @@ type S3Lister struct {
 // or the environment. A listing error fails the service; a bucket whose
 // location can't be read is left out, and one whose policy can't be read is
 // listed without it, and those failures are returned together as a partial
-// error (see partFailures).
+// error (see partFailures). The buckets of a page are read resourceParallel
+// at a time, and recorded in the page's order.
 func (g *S3Lister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -52,40 +54,58 @@ func (g *S3Lister) List() error {
 		if err != nil {
 			return errors.Join(err, g.parts.err())
 		}
-		for _, bucket := range page.Buckets {
-			bucketRegion := aws.ToString(bucket.BucketRegion)
-			if bucketRegion == "" {
-				location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
-				if err != nil {
-					g.parts.add("location of bucket "+aws.ToString(bucket.Name), err)
-					continue
-				}
-				bucketRegion = s3BucketRegion(string(location.LocationConstraint))
-			}
-			if bucketRegion != region {
-				continue
-			}
-			g.addBucket(svc, aws.ToString(bucket.Name))
+		reads := make([]s3BucketRead, len(page.Buckets))
+		inParallel(len(page.Buckets), resourceParallel, func(i int) {
+			g.readBucket(svc, page.Buckets[i], region, &reads[i])
+		})
+		for _, read := range reads {
+			g.Resources = append(g.Resources, read.resources...)
+			g.parts.errs = append(g.parts.errs, read.parts.errs...)
 		}
 	}
 	return g.parts.err()
 }
 
-// addBucket records the bucket name and, first, its policy when it has one
-// that can be read. A bucket without a policy answers NoSuchBucketPolicy;
-// any other error, AccessDenied included, is gathered and leaves the policy
-// out.
-func (g *S3Lister) addBucket(svc *s3.Client, name string) {
+// s3BucketRead is what reading one bucket found: its resources, and the
+// parts of it that failed.
+type s3BucketRead struct {
+	resources []harvest.Resource
+	parts     partFailures
+}
+
+// readBucket reads into out the bucket if it is in region, asking for its
+// location only when the listing didn't give it (see addBucket).
+func (g *S3Lister) readBucket(svc *s3.Client, bucket s3types.Bucket, region string, out *s3BucketRead) {
+	bucketRegion := aws.ToString(bucket.BucketRegion)
+	if bucketRegion == "" {
+		location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
+		if err != nil {
+			out.parts.add("location of bucket "+aws.ToString(bucket.Name), err)
+			return
+		}
+		bucketRegion = s3BucketRegion(string(location.LocationConstraint))
+	}
+	if bucketRegion != region {
+		return
+	}
+	g.addBucket(svc, aws.ToString(bucket.Name), out)
+}
+
+// addBucket records in out the bucket name and, first, its policy when it
+// has one that can be read. A bucket without a policy answers
+// NoSuchBucketPolicy; any other error, AccessDenied included, is gathered
+// and leaves the policy out.
+func (g *S3Lister) addBucket(svc *s3.Client, name string, out *s3BucketRead) {
 	attributes := map[string]string{"force_destroy": "false", "acl": "private"}
 	policy, err := svc.GetBucketPolicy(g.Context(), &s3.GetBucketPolicyInput{Bucket: aws.String(name)})
 	switch {
 	case err == nil && policy.Policy != nil:
 		attributes["policy"] = *policy.Policy
-		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_s3_bucket_policy", "aws"))
+		out.resources = append(out.resources, harvest.RecordBare(name, name, "aws_s3_bucket_policy", "aws"))
 	case err != nil && apiErrorCode(err) != "NoSuchBucketPolicy":
-		g.parts.add("policy of bucket "+name, err)
+		out.parts.add("policy of bucket "+name, err)
 	}
-	g.Resources = append(g.Resources, harvest.Record(name, name, "aws_s3_bucket", "aws", attributes))
+	out.resources = append(out.resources, harvest.Record(name, name, "aws_s3_bucket", "aws", attributes))
 }
 
 // s3BucketRegion returns the region of a bucket whose location constraint

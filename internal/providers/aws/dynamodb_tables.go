@@ -32,9 +32,10 @@ type DynamoDbLister struct {
 // it, as a global table (version 2019.11.21) has, and records them as
 // replica.#, and replica.N.region_name in the order of their names, so
 // that the default selection imports the global table once (see
-// excludeGlobalTableReplicas). A listing error fails the service; a table
-// that can't be described is recorded without its replicas, and fails it
-// in part.
+// excludeGlobalTableReplicas). The tables of a page are described
+// resourceParallel at a time, and recorded in the page's order. A listing
+// error fails the service; a table that can't be described is recorded
+// without its replicas, and fails it in part.
 func (g *DynamoDbLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -48,23 +49,38 @@ func (g *DynamoDbLister) List() error {
 		if err != nil {
 			return err
 		}
-		for _, name := range page.TableNames {
-			out, err := svc.DescribeTable(g.Context(), &dynamodb.DescribeTableInput{TableName: aws.String(name)})
-			var gone *types.ResourceNotFoundException
-			if errors.As(err, &gone) {
-				// Deleted since it was listed.
-				continue
+		tables := make([]*harvest.Resource, len(page.TableNames))
+		tableErrs := make([]error, len(page.TableNames))
+		inParallel(len(page.TableNames), resourceParallel, func(i int) {
+			tables[i], tableErrs[i] = g.table(svc, page.TableNames[i])
+		})
+		for i, table := range tables {
+			if table != nil {
+				g.Resources = append(g.Resources, *table)
 			}
-			r := harvest.RecordBare(name, name, "aws_dynamodb_table", "aws")
-			if err != nil {
-				errs = append(errs, fmt.Errorf("table %s: %w", name, err))
-			} else {
-				replicaAttributes(out.Table, r.Observed.Attributes)
-			}
-			g.Resources = append(g.Resources, r)
+			errs = append(errs, tableErrs[i])
 		}
 	}
 	return harvest.Partial(errors.Join(errs...))
+}
+
+// table returns the table name, with the regions of its replicas (see
+// replicaAttributes), or nil when it was deleted since it was listed. A
+// table that can't be described is returned without its replicas, with
+// the error.
+func (g *DynamoDbLister) table(svc *dynamodb.Client, name string) (*harvest.Resource, error) {
+	out, err := svc.DescribeTable(g.Context(), &dynamodb.DescribeTableInput{TableName: aws.String(name)})
+	var gone *types.ResourceNotFoundException
+	if errors.As(err, &gone) {
+		// Deleted since it was listed.
+		return nil, nil
+	}
+	r := harvest.RecordBare(name, name, "aws_dynamodb_table", "aws")
+	if err != nil {
+		return &r, fmt.Errorf("table %s: %w", name, err)
+	}
+	replicaAttributes(out.Table, r.Observed.Attributes)
+	return &r, nil
 }
 
 // replicaAttributes adds to attributes the regions of the replicas of

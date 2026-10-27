@@ -46,3 +46,49 @@ func TestCloudFrontListsDistributionsAndCustomPolicies(t *testing.T) {
 		t.Errorf("distributions named %s", got)
 	}
 }
+
+// The cache policies are followed across pages by their marker, and a page
+// that returns the marker it was asked with fails the listing rather than
+// being asked for again forever.
+func TestCloudFrontCachePolicyPages(t *testing.T) {
+	for _, repeat := range []bool{false, true} {
+		calls := 0
+		useFakeAPI(t, func(call apiCall) string {
+			switch {
+			case strings.HasSuffix(call.Path, "/distribution"):
+				return `<DistributionList><IsTruncated>false</IsTruncated></DistributionList>`
+			case strings.HasSuffix(call.Path, "/cache-policy"):
+				if calls++; calls > 3 {
+					t.Fatal("the cache policy pages are asked for forever")
+				}
+				policy := func(id string) string {
+					return `<CachePolicySummary><Type>custom</Type><CachePolicy><Id>` + id + `</Id></CachePolicy></CachePolicySummary>`
+				}
+				switch marker := call.Query.Get("Marker"); {
+				case marker == "":
+					return `<CachePolicyList><NextMarker>m1</NextMarker><Items>` + policy("p1") + `</Items></CachePolicyList>`
+				case marker == "m1" && repeat:
+					return `<CachePolicyList><NextMarker>m1</NextMarker><Items>` + policy("p2") + `</Items></CachePolicyList>`
+				case marker == "m1":
+					return `<CachePolicyList><Items>` + policy("p2") + `</Items></CachePolicyList>`
+				}
+			}
+			t.Errorf("unexpected call %s?%s", call.Path, call.Query.Encode())
+			return `<Error><Code>NotFound</Code></Error>`
+		})
+		g := &CloudFrontLister{}
+
+		err := g.List()
+
+		if repeat {
+			if err == nil || !strings.Contains(err.Error(), "did not advance") {
+				t.Errorf("a repeated marker: got %v, want the listing to fail", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertIDs(t, g.Resources, "aws_cloudfront_cache_policy", "p1", "p2")
+	}
+}
