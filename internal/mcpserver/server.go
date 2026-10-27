@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -349,6 +350,52 @@ func (t *tools) checkOpened(what, path string, f *os.File) error {
 		return fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
 	}
 	return nil
+}
+
+// writeWithin writes data to the file at path under the root, as
+// fsutil.WriteFile does, through a temporary file in the same directory
+// renamed over path once complete, but through the root opened as an
+// os.Root: a symbolic link swapped in for path or a directory on the way
+// to it, after path was checked, can't lead the write out of the root.
+func (t *tools) writeWithin(path string, data []byte, perm fs.FileMode) (err error) {
+	root, err := filepath.Abs(t.root)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	temp := filepath.Join(filepath.Dir(rel), fmt.Sprintf(".%s.%d.tmp", filepath.Base(rel), rand.Uint64()))
+	f, err := r.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = r.Remove(temp)
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	// After closing: Windows can't change an open file's mode.
+	if err = r.Chmod(temp, perm); err != nil {
+		return err
+	}
+	return r.Rename(temp, rel)
 }
 
 // Scope is what to list: a provider command, its services, and where to
