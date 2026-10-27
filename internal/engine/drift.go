@@ -139,6 +139,10 @@ type DriftOptions struct {
 	// directory, and a pull between another's init and its own would read
 	// that environment's state. nil locks nothing.
 	RootLock *sync.Mutex
+	// DataDir is where the Terraform Drift is given for the root keeps its
+	// working files, the TF_DATA_DIR it runs with, which Drift reads the
+	// modules its init installed from; "" for .terraform in the root.
+	DataDir string
 
 	// writeFile writes an edited file into the root; nil is
 	// fsutil.WriteFile. For tests.

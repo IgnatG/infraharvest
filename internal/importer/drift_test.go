@@ -559,3 +559,22 @@ func TestDriftPassesTheOrganisationsModules(t *testing.T) {
 		t.Errorf("adapters %+v, want the bucket module's alone", got)
 	}
 }
+
+// Terraform runs on roots that may come from someone else with a CLI
+// configuration of the run's own, which installs providers from their
+// registries alone: no filesystem mirror, such as a terraform.d directory
+// the roots carry.
+func TestUntrustedTerraform(t *testing.T) {
+	private := t.TempDir()
+
+	env, err := untrustedTerraform(private)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := env["TF_CLI_CONFIG_FILE"]
+	content, err := os.ReadFile(config)
+	if err != nil || filepath.Dir(config) != private || string(content) != "provider_installation {\n  direct {}\n}\n" {
+		t.Errorf("TF_CLI_CONFIG_FILE %s has %q (%v), want direct installation alone, in %s", config, content, err, private)
+	}
+}

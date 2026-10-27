@@ -983,6 +983,13 @@
         "persistent": false
       },
       {
+        "name": "untrusted-roots",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
         "name": "write-decisions",
         "type": "file",
         "default": "false",

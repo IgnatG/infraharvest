@@ -4,7 +4,7 @@
 package mcpserver
 
 import (
-	"encoding/json"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -87,20 +87,32 @@ func moduleAddress(source string) string {
 // external data source runs any, so roots from a cloned repository could
 // run code of an agent's choosing. A module from anywhere else, such as
 // git, could bring providers of its own, which can't be checked before
-// init downloads it. The modules Terraform already installed for a root,
-// as its .terraform/modules/modules.json lists them, are checked too, as
-// init uses them as they are. Each .tf, .tf.json, .tofu and .tofu.json
-// file is read, override files too, as Terraform and OpenTofu read them.
-func checkDriftRoots(out string) error {
-	dirs := map[string]bool{}
+// init downloads it. Each .tf, .tf.json, .tofu and .tofu.json file is
+// read, override files too, as Terraform and OpenTofu read them, and each
+// directory a local module call leads to, the walk aside.
+//
+// The roots' .terraform directories aren't read: the tools run drift
+// with --untrusted-roots, so Terraform ignores them, and installs
+// providers from their registries alone. A terraform.d directory, a
+// filesystem mirror Terraform would install providers from, is refused
+// all the same, as is a module call into either.
+//
+// It returns a digest of the files Terraform reads under out (see
+// driftDigest), for the user's confirmation to cover exactly the roots
+// checked.
+func checkDriftRoots(out string) (string, error) {
+	var dirs []string
+	digest := driftDigest{}
 	err := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".terraform" {
-				// Its modules are checked as the manifest lists them.
+			switch d.Name() {
+			case ".terraform":
 				return filepath.SkipDir
+			case "terraform.d":
+				return fmt.Errorf("%s is a terraform.d directory, which Terraform installs providers from", relativeTo(out, path))
 			}
 			return nil
 		}
@@ -110,33 +122,33 @@ func checkDriftRoots(out string) error {
 				return fmt.Errorf("%s is a symbolic link to a directory, which this check doesn't follow", relativeTo(out, path))
 			}
 		}
-		if configFile(d.Name()) {
-			dirs[filepath.Dir(path)] = true
+		if configFile(d.Name()) && !slices.Contains(dirs, filepath.Dir(path)) {
+			dirs = append(dirs, filepath.Dir(path))
 		}
-		return nil
+		return digest.add(out, path)
 	})
 	if errors.Is(err, fs.ErrNotExist) {
 		// No roots: drift says so.
-		return nil
+		return digest.sum(), nil
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	for _, dir := range slices.Sorted(maps.Keys(dirs)) {
-		if err := checkModuleDir(out, dir); err != nil {
-			return err
+	checked := map[string]bool{}
+	for len(dirs) > 0 {
+		dir := dirs[0]
+		dirs = dirs[1:]
+		if checked[dir] {
+			continue
 		}
-		installed, err := installedModuleDirs(out, dir)
+		checked[dir] = true
+		modules, err := checkModuleDir(out, dir)
 		if err != nil {
-			return err
+			return "", err
 		}
-		for _, m := range installed {
-			if err := checkModuleDir(out, m); err != nil {
-				return err
-			}
-		}
+		dirs = append(dirs, modules...)
 	}
-	return nil
+	return digest.sum(), nil
 }
 
 // configFile reports whether name is a file Terraform or OpenTofu reads
@@ -150,49 +162,43 @@ func configFile(name string) bool {
 	return false
 }
 
-// installedModuleDirs returns the directories of the modules Terraform
-// installed for the root in dir, as its modules.json lists them, each of
-// which has to be under out.
-func installedModuleDirs(out, dir string) ([]string, error) {
-	path := filepath.Join(dir, ".terraform", "modules", "modules.json")
+// driftDigest hashes the files Terraform reads under an output directory,
+// each by its path and a hash of its content: the configuration files,
+// the var files, the backend settings and the dependency lock files.
+type driftDigest []string
+
+// add adds the file at path, under out, if it is one Terraform reads.
+func (d *driftDigest) add(out, path string) error {
+	name := filepath.Base(path)
+	read := configFile(name)
+	for _, ext := range []string{".tfvars", ".tfvars.json", ".hcl", ".tfbackend"} {
+		read = read || strings.HasSuffix(name, ext)
+	}
+	if !read {
+		return nil
+	}
 	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var manifest struct {
-		Modules []struct {
-			Key string `json:"Key"`
-			Dir string `json:"Dir"`
-		} `json:"Modules"`
-	}
-	if err := json.Unmarshal(content, &manifest); err != nil {
-		return nil, fmt.Errorf("%s: %w", relativeTo(out, path), err)
-	}
-	var dirs []string
-	for _, m := range manifest.Modules {
-		// The root itself has no key.
-		if m.Key == "" {
-			continue
-		}
-		installed := filepath.Join(dir, filepath.FromSlash(m.Dir))
-		if checkWithin("module", out, installed) != nil {
-			return nil, fmt.Errorf("%s installs the module %s in %s, outside the output directory", relativeTo(out, path), m.Key, m.Dir)
-		}
-		dirs = append(dirs, installed)
-	}
-	return dirs, nil
+	*d = append(*d, fmt.Sprintf("%q %x", relativeTo(out, path), sha256.Sum256(content)))
+	return nil
+}
+
+// sum returns the digest of the files added, in the walk's order.
+func (d driftDigest) sum() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(d, "\n"))))
 }
 
 // moduleUses is what the configuration files of one module directory,
 // a root or a module it calls, use: the providers their
-// required_providers declare, each with where, and the local names their
-// blocks name, each with where.
+// required_providers declare, each with where, the local names their
+// blocks name, each with where, and the local modules they call.
 type moduleUses struct {
 	declared []declaredProvider
 	named    map[string]hcl.Range
+	// modules are the directories of the local modules it calls.
+	modules []string
 }
 
 // declaredProvider is a provider required_providers declares: its local
@@ -216,14 +222,15 @@ var driftModuleSchema = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
 }}
 
 // checkModuleDir checks the configuration files of the module in dir,
-// under out (see checkDriftRoots). A provider a block names without
+// under out (see checkDriftRoots), and returns the directories of the
+// local modules it calls. A provider a block names without
 // required_providers declaring it is hashicorp/<name>, as Terraform takes
 // it. A provider-defined function's provider has to be declared, so it is
 // checked there.
-func checkModuleDir(out, dir string) error {
+func checkModuleDir(out, dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	uses := &moduleUses{named: map[string]hcl.Range{}}
 	parser := hclparse.NewParser()
@@ -234,7 +241,7 @@ func checkModuleDir(out, dir string) error {
 		path := filepath.Join(dir, e.Name())
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var f *hcl.File
 		var diags hcl.Diagnostics
@@ -244,10 +251,10 @@ func checkModuleDir(out, dir string) error {
 			f, diags = parser.ParseHCL(content, relativeTo(out, path))
 		}
 		if diags.HasErrors() {
-			return diags
+			return nil, diags
 		}
 		if err := uses.read(out, dir, f.Body); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	// Another file, such as an override file, may declare a provider
@@ -255,7 +262,7 @@ func checkModuleDir(out, dir string) error {
 	declared := map[string]bool{}
 	for _, d := range uses.declared {
 		if err := allowedProvider(d.source, d.at, "declares the provider "+d.name+" as"); err != nil {
-			return err
+			return nil, err
 		}
 		declared[d.name] = true
 	}
@@ -264,10 +271,10 @@ func checkModuleDir(out, dir string) error {
 			continue
 		}
 		if err := allowedProvider("hashicorp/"+name, uses.named[name], "uses the provider"); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return uses.modules, nil
 }
 
 // allowedProvider returns an error, at where the configuration says
@@ -415,8 +422,12 @@ func (u *moduleUses) readModule(out, dir string, b *hcl.Block) error {
 	if v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
 		return fmt.Errorf("%s: the module %s has a source that isn't a string", where(attr.Range), b.Labels[0])
 	}
-	if err := moduleSource(out, dir, v.AsString()); err != nil {
+	local, err := moduleSource(out, dir, v.AsString())
+	if err != nil {
 		return fmt.Errorf("%s: the module %s's source %w", where(attr.Range), b.Labels[0], err)
+	}
+	if local != "" {
+		u.modules = append(u.modules, local)
 	}
 	providersAttr, ok := content.Attributes["providers"]
 	if !ok {
@@ -436,22 +447,30 @@ func (u *moduleUses) readModule(out, dir string, b *hcl.Block) error {
 	return nil
 }
 
-// moduleSource checks the source of a module the module in dir calls: a
-// local path to a directory under out, which checkDriftRoots checks in
-// turn, or a curated module from the public registry, whose providers
-// are infraharvest's. Any other source, such as git or a URL, could bring
-// providers of its own, which can't be checked before init downloads it.
-func moduleSource(out, dir, source string) error {
+// moduleSource checks the source of a module the module in dir calls,
+// and returns its directory for a local one: a path to a directory under
+// out, but in a .terraform or terraform.d directory, which checkDriftRoots
+// checks in turn; or a curated module from the public registry, whose
+// providers are infraharvest's. Any other source, such as git or a URL,
+// could bring providers of its own, which can't be checked before init
+// downloads it.
+func moduleSource(out, dir, source string) (string, error) {
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
-		if checkWithin("module", out, filepath.Join(dir, filepath.FromSlash(source))) != nil {
-			return fmt.Errorf("is %s, outside the output directory", source)
+		local := filepath.Join(dir, filepath.FromSlash(source))
+		if checkWithin("module", out, local) != nil {
+			return "", fmt.Errorf("is %s, outside the output directory", source)
 		}
-		return nil
+		for _, part := range strings.Split(relativeTo(out, local), "/") {
+			if part == ".terraform" || part == "terraform.d" {
+				return "", fmt.Errorf("is %s, in a %s directory, which drift doesn't check", source, part)
+			}
+		}
+		return local, nil
 	}
 	if _, modules := driftAllowed(); modules[moduleAddress(source)] {
-		return nil
+		return "", nil
 	}
-	return fmt.Errorf("is %s, which is neither under the output directory nor a curated module infraharvest calls, and could bring providers of its own", source)
+	return "", fmt.Errorf("is %s, which is neither under the output directory nor a curated module infraharvest calls, and could bring providers of its own", source)
 }
 
 // relativeTo returns path relative to out, for a message, or path if it

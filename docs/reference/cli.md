@@ -233,6 +233,7 @@ infraharvest drift [output-directory] [flags]
 | `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |
 | `--rules` |  | accept and keep rules from this file, one a line: accept or keep, then a rule as --accept takes it, such as keep type=aws_security_group; a rule alone is accepted, and blank lines and lines starting with # are skipped (repeatable; the rules join those of --accept and --keep in the order given) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
+| `--untrusted-roots` |  | Terraform ignores the roots' .terraform directories and any filesystem mirror, such as a terraform.d directory, and installs providers from their registries alone, as the MCP server runs drift; the roots' providers and modules still run, so check what they use first |
 | `--write-decisions` |  | write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else drift.yaml in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped |
 
 ## infraharvest import

@@ -107,27 +107,29 @@ func TestCheckDriftRoots(t *testing.T) {
 			root + "x.tf": "module \"m\" {\n  source = \"../../../../elsewhere\"\n}\n",
 		}, "the module m's source is ../../../../elsewhere, outside the output directory"},
 		"a module source of a variable": {map[string]string{root + "x.tf": "module \"m\" {\n  source = var.m\n}\n"}, "Variables not allowed"},
-		"an installed module": {map[string]string{
-			root + ".terraform/modules/modules.json":   `{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"vpc","Source":"registry.terraform.io/terraform-aws-modules/vpc/aws","Version":"6.0.0","Dir":".terraform/modules/vpc"}]}`,
-			root + ".terraform/modules/vpc/main.tf":    "resource \"aws_vpc\" \"this\" {}\n",
+		// drift runs with --untrusted-roots, so Terraform ignores them.
+		"what a .terraform directory has": {map[string]string{
+			root + ".terraform/modules/modules.json":   `{"Modules":[{"Key":"vpc","Dir":"../../../../elsewhere"}]}`,
 			root + ".terraform/modules/vpc/planted.tf": "data \"external\" \"x\" {}\n",
-		}, "aws/1/eu-west-2/.terraform/modules/vpc/planted.tf:1: uses the provider hashicorp/external"},
-		"an installed module out of the output directory": {map[string]string{
-			root + ".terraform/modules/modules.json": `{"Modules":[{"Key":"vpc","Dir":"../../../../elsewhere"}]}`,
-		}, "installs the module vpc in ../../../../elsewhere, outside the output directory"},
-		"what Terraform downloaded beside the modules it uses": {map[string]string{
-			root + ".terraform/modules/modules.json":            `{"Modules":[{"Key":"vpc","Dir":".terraform/modules/vpc"}]}`,
-			root + ".terraform/modules/vpc/main.tf":             "resource \"aws_vpc\" \"this\" {}\n",
-			root + ".terraform/modules/vpc/examples/x/main.tf":  "resource \"random_pet\" \"x\" {}\n",
-			root + ".terraform/providers/registry/x/README.txt": "",
+			root + ".terraform/providers/registry.terraform.io/hashicorp/aws/6.0.0/linux_amd64/terraform-provider-aws": "#!/bin/sh\n",
 		}, ""},
+		"a terraform.d directory": {map[string]string{
+			root + "terraform.d/plugins/registry.terraform.io/hashicorp/aws/6.0.0/linux_amd64/terraform-provider-aws": "#!/bin/sh\n",
+		}, "aws/1/eu-west-2/terraform.d is a terraform.d directory, which Terraform installs providers from"},
+		"a module in a .terraform directory": {map[string]string{
+			root + "x.tf":                         "module \"m\" {\n  source = \"./.terraform/modules/m\"\n}\n",
+			root + ".terraform/modules/m/main.tf": "data \"external\" \"x\" {}\n",
+		}, "the module m's source is ./.terraform/modules/m, in a .terraform directory"},
+		"a module in a terraform.d directory": {map[string]string{
+			root + "x.tf": "module \"m\" {\n  source = \"../../../terraform.d/m\"\n}\n",
+		}, "the module m's source is ../../../terraform.d/m, in a terraform.d directory"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := t.TempDir()
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out)
 
 			switch {
 			case tc.want == "" && err != nil:
@@ -139,10 +141,38 @@ func TestCheckDriftRoots(t *testing.T) {
 	}
 }
 
+// The digest changes with any file Terraform reads under the output
+// directory, and with nothing else.
+func TestCheckDriftRootsDigest(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, generatedRoot)
+	digest := func() string {
+		t.Helper()
+		d, err := checkDriftRoots(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	before := digest()
+	writeTree(t, out, map[string]string{"report/drift.md": "# Drift\n", "aws/1/eu-west-2/terraform.tfstate": "{}"})
+	if digest() != before {
+		t.Errorf("the digest changed with files Terraform doesn't read as configuration")
+	}
+	for _, name := range []string{"aws/1/eu-west-2/s3.tf", "aws/1/eu-west-2/vars/prod/terraform.tfvars", "aws/1/eu-west-2/.terraform.lock.hcl", "aws/1/eu-west-2/vars/prod/backend.hcl", "modules/queue_a1b2c3/main.tf"} {
+		writeTree(t, out, map[string]string{name: "# changed\n"})
+		if after := digest(); after == before {
+			t.Errorf("the digest didn't change with %s", name)
+		} else {
+			before = after
+		}
+	}
+}
+
 // An output directory that isn't there has nothing to check: drift says
 // it has no roots.
 func TestCheckDriftRootsOfNoOutput(t *testing.T) {
-	if err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
+	if _, err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
 		t.Errorf("got %v, want nothing to check", err)
 	}
 }
@@ -156,7 +186,7 @@ func TestCheckDriftRootsRefusesLinkedDirectories(t *testing.T) {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 
-	if err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
+	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
 		t.Errorf("got %v, want the link refused", err)
 	}
 }
@@ -180,6 +210,40 @@ func TestDriftAllowed(t *testing.T) {
 	}
 	if !modules["terraform-aws-modules/vpc/aws"] || modules["terraform-aws-modules/iam/aws//modules/iam-role"] {
 		t.Errorf("modules: %v, want each curated module by its address", modules)
+	}
+}
+
+// A confirmation covers the roots as they were checked: roots changed
+// after the user was asked aren't run, nor checked again only, for both
+// tools.
+func TestDriftToolsRunTheConfirmedRoots(t *testing.T) {
+	for tool, args := range map[string]map[string]any{
+		"drift":        {"out": "generated"},
+		"drift_accept": {"out": "generated", "rules": []string{"accept all"}},
+	} {
+		for name, edit := range map[string]string{
+			"an allowed change":        "resource \"aws_s3_bucket\" \"logs\" {\n  bucket = \"other\"\n}\n",
+			"the external data source": "data \"external\" \"x\" {\n  program = [\"id\"]\n}\n",
+		} {
+			t.Run(tool+", "+name, func(t *testing.T) {
+				dir := t.TempDir()
+				writeTree(t, filepath.Join(dir, "generated"), generatedRoot)
+				runner := &fakeRunner{}
+				session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+					writeTree(t, filepath.Join(dir, "generated"), map[string]string{"aws/1/eu-west-2/s3.tf": edit})
+					return &mcp.ElicitResult{Action: "accept"}, nil
+				})
+
+				res, text := call(t, session, tool, args)
+
+				if !res.IsError || !strings.Contains(text, "didn't confirm") && !strings.Contains(text, "hashicorp/external") {
+					t.Errorf("got %s, want the run refused", text)
+				}
+				if len(runner.runs) != 0 {
+					t.Errorf("ran %v, roots the user didn't confirm", runner.runs)
+				}
+			})
+		}
 	}
 }
 

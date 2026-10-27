@@ -99,47 +99,52 @@ const driftConfirmation = "confirm_drift"
 // drift without the flags of a tool's input (see flagArgs), nor the
 // output directory, which goes last, with the configuration file in, if
 // any, which the caller removes (see loadConfig), checked for tool, the
-// drift tool calling it. in.Out is set to the path to use.
-func (t *tools) driftArgs(tool string, in *DriftInput) ([]string, *toolConfig, error) {
+// drift tool calling it, and the digest of the roots checked, which the
+// user's confirmation covers. in.Out is set to the path to use.
+func (t *tools) driftArgs(tool string, in *DriftInput) ([]string, *toolConfig, []byte, error) {
 	if in.Out == "" {
-		return nil, nil, errors.New("out is required")
+		return nil, nil, nil, errors.New("out is required")
 	}
 	out, err := t.within("out", in.Out)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	in.Out = out
 	// drift initialises the roots, stages copies of them, and writes the
 	// report and edits there.
 	if err := t.linksStayUnder("out", in.Out); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Checked on each call, so again on the call with the user's answer,
-	// just before Terraform runs.
-	if err := checkDriftRoots(in.Out); err != nil {
-		return nil, nil, fmt.Errorf("drift runs Terraform on the roots in %s, which runs their providers and modules with this server's credentials, so it checks only roots that use what infraharvest generates them with: %w. If you trust the roots, run infraharvest drift on them yourself from a terminal", in.Out, err)
+	// just before Terraform runs: a confirmation covers the files checked
+	// when the user was asked, and roots changed since aren't run.
+	digest, err := checkDriftRoots(in.Out)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("drift runs Terraform on the roots in %s, which runs their providers and modules with this server's credentials, so it checks only roots that use what infraharvest generates them with: %w. If you trust the roots, run infraharvest drift on them yourself from a terminal", in.Out, err)
 	}
-	args := []string{"drift", "--format=json", "--detailed-exitcode"}
+	// Terraform ignores the roots' .terraform directories, which the check
+	// doesn't read, and installs providers from their registries alone.
+	args := []string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots"}
 	if in.Catalogue != "" {
 		catalogue, err := t.within("catalogue", in.Catalogue)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		// drift reads every file under it.
 		if err := t.linksStayUnder("catalogue", catalogue); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		args = append(args, "--catalogue="+catalogue)
 	}
 	config, err := t.loadConfig(&in.Config, configUse{tool: tool})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return append(args, config.flag()...), config, nil
+	return append(args, config.flag()...), config, []byte(digest), nil
 }
 
 func (t *tools) drift(ctx context.Context, req *mcp.CallToolRequest, in DriftInput) (*mcp.CallToolResult, *DriftResult, error) {
-	args, config, err := t.driftArgs("drift", &in)
+	args, config, roots, err := t.driftArgs("drift", &in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -152,11 +157,11 @@ func (t *tools) drift(ctx context.Context, req *mcp.CallToolRequest, in DriftInp
 	// A person confirms running Terraform on the roots, as for an import.
 	if asked := t.confirm(req, userConfirmation{
 		name:      driftConfirmation,
-		state:     confirmationState(args, config.sum()),
+		state:     confirmationState(args, roots, config.sum()),
 		message:   driftCheckQuestion(in) + "?" + driftRunsTerraform(config),
 		command:   args,
 		cannotAsk: "The user has to confirm running Terraform on the roots",
-		declined:  "The user didn't confirm running Terraform on the roots, so drift didn't run.",
+		declined:  "The user didn't confirm running Terraform on the roots as they are now, so drift didn't run.",
 	}); asked != nil {
 		return asked, nil, nil
 	}
@@ -169,7 +174,7 @@ func (t *tools) drift(ctx context.Context, req *mcp.CallToolRequest, in DriftInp
 }
 
 func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in DriftAcceptInput) (*mcp.CallToolResult, *DriftResult, error) {
-	args, config, err := t.driftArgs("drift_accept", &in.DriftInput)
+	args, config, roots, err := t.driftArgs("drift_accept", &in.DriftInput)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -222,11 +227,11 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	}
 	if asked := t.confirm(req, userConfirmation{
 		name:      driftConfirmation,
-		state:     confirmationState(shown, content, config.sum()),
+		state:     confirmationState(shown, roots, content, config.sum()),
 		message:   driftAcceptMessage(in, target, config, accepts),
 		command:   shown,
 		cannotAsk: cannotAsk,
-		declined:  "The user didn't confirm the run, so Terraform didn't run and the code wasn't changed.",
+		declined:  "The user didn't confirm the run on the roots as they are now, so Terraform didn't run and the code wasn't changed.",
 	}); asked != nil {
 		return asked, nil, nil
 	}

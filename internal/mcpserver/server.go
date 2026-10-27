@@ -641,7 +641,8 @@ const confirmation = "confirm_import"
 
 // confirmationState identifies a run the user is asked to confirm: its
 // arguments and the whole content of the files it reads, such as its
-// selection or decisions file and its configuration file, so an agent
+// selection or decisions file and its configuration file, or a digest of
+// them, as of the roots drift runs (see checkDriftRoots), so an agent
 // can't change what runs once the user has confirmed, even keeping the
 // counts the user was shown.
 func confirmationState(args []string, contents ...[]byte) string {

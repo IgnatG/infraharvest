@@ -143,7 +143,7 @@ func TestDrift(t *testing.T) {
 			t.Errorf("confirmation %q misses %q", asked[0], want)
 		}
 	}
-	want := []string{"drift", "--format=json", "--detailed-exitcode", "--root=aws/*", "--parallel=2", "--environment=prod,dev", "--", out}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--root=aws/*", "--parallel=2", "--environment=prod,dev", "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -211,7 +211,7 @@ func TestDriftAcceptAfterTheUserConfirms(t *testing.T) {
 					t.Errorf("confirmation %q misses %q", asked, want)
 				}
 			}
-			want := [][]string{append(append([]string{"drift", "--format=json", "--detailed-exitcode"}, tc.flags...), "--", out)}
+			want := [][]string{append(append([]string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots"}, tc.flags...), "--", out)}
 			if !slices.EqualFunc(runner.runs, want, slices.Equal) {
 				t.Errorf("runs: %v, want %v", runner.runs, want)
 			}
@@ -236,7 +236,7 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 		want   string
 	}{
 		"declined":                {decline, "didn't confirm"},
-		"a client that can't ask": {nil, "infraharvest drift --format=json --detailed-exitcode --accept=all --"},
+		"a client that can't ask": {nil, "infraharvest drift --format=json --detailed-exitcode --untrusted-roots --accept=all --"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{}
@@ -509,7 +509,7 @@ func TestDriftCatalogue(t *testing.T) {
 	if res, text := call(t, session, "drift", map[string]any{"out": out, "catalogue": catalogue}); res.IsError {
 		t.Fatalf("result: %s", text)
 	}
-	want := []string{"drift", "--format=json", "--detailed-exitcode", "--catalogue=" + catalogue, "--", out}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--catalogue=" + catalogue, "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -540,8 +540,8 @@ func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
 		t.Fatalf("result: %s", text)
 	}
 	want := [][]string{
-		{"drift", "--format=json", "--detailed-exitcode", "--engine-timeout=90m", "--force-unlock", "--", out},
-		{"drift", "--format=json", "--detailed-exitcode", "--engine-timeout=0", "--keep=all", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--engine-timeout=90m", "--force-unlock", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--engine-timeout=0", "--keep=all", "--", out},
 	}
 	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
