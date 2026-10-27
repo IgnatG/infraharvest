@@ -414,18 +414,12 @@ func (c *Catalogue) Source(typ string) string {
 	return c.sources[typ]
 }
 
-// Omit returns the arguments to leave out of generated configuration
-// whatever the provider's version, per type and under AllTypes for every
+// Omit returns the arguments to leave out of configuration generated
+// with version v of the provider, per type and under AllTypes for every
 // type: the entries whose conditions don't depend on what a lister
-// recorded (see ResourceOmit).
-func (c *Catalogue) Omit() map[string][]string {
-	return c.omitFor(nil)
-}
-
-// omitFor returns the arguments to leave out of configuration generated
-// with version v of the provider: Omit, and what the entries'
-// provider_versions add for v. A nil v adds nothing.
-func (c *Catalogue) omitFor(v *version.Version) map[string][]string {
+// recorded (see ResourceOmit), and what the entries' provider_versions
+// add for v. A nil v adds nothing: what holds whatever the version.
+func (c *Catalogue) Omit(v *version.Version) map[string][]string {
 	return c.lists(v, func(e *Entry) []string { return withoutListerConditions(e.Omit) }, func(x *Versioned) []string { return withoutListerConditions(x.Omit) })
 }
 
@@ -493,28 +487,19 @@ func listerConditionHolds(condition string, attributes map[string]string) bool {
 	return holds != negate
 }
 
-// Defaults returns the values optional arguments default to whatever the
-// provider's version, as path=value, per type.
-func (c *Catalogue) Defaults() map[string][]string {
-	return c.defaultsFor(nil)
-}
-
-// defaultsFor returns the values optional arguments default to with
-// version v of the provider: Defaults, and what the entries'
-// provider_versions add for v, such as a default a major release changed.
-func (c *Catalogue) defaultsFor(v *version.Version) map[string][]string {
+// Defaults returns the values optional arguments default to with version
+// v of the provider, as path=value, per type: what holds whatever the
+// version, and what the entries' provider_versions add for v, such as a
+// default a major release changed. A nil v adds nothing.
+func (c *Catalogue) Defaults(v *version.Version) map[string][]string {
 	return c.lists(v, func(e *Entry) []string { return e.Defaults }, func(x *Versioned) []string { return x.Defaults })
 }
 
-// StateOnly returns the arguments the provider keeps only in state,
-// whatever its version, per type and under AllTypes for every type.
-func (c *Catalogue) StateOnly() map[string][]string {
-	return c.stateOnlyFor(nil)
-}
-
-// stateOnlyFor returns the arguments version v of the provider keeps only
-// in state: StateOnly, and what the entries' provider_versions add for v.
-func (c *Catalogue) stateOnlyFor(v *version.Version) map[string][]string {
+// StateOnly returns the arguments version v of the provider keeps only in
+// state, per type and under AllTypes for every type: what holds whatever
+// the version, and what the entries' provider_versions add for v. A nil v
+// adds nothing.
+func (c *Catalogue) StateOnly(v *version.Version) map[string][]string {
 	return c.lists(v, func(e *Entry) []string { return e.StateOnly }, func(x *Versioned) []string { return x.StateOnly })
 }
 

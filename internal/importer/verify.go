@@ -81,7 +81,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return err
 			}
-			opts = cat.VerifyOptions(lockedProviderVersion(dir, binary.Registry, provider))
+			opts = catalogueVerifyOptions(cat, lockedProviderVersion(dir, binary.Registry, provider))
 		}
 		opts.Scanners, opts.CommandTimeout = scanners, options.EngineTimeout
 		// Each check runs in a private copy of the root (see engine.Verify).
