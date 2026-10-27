@@ -228,7 +228,7 @@ func TestMCPDiscoverCloudFormationStack(t *testing.T) {
 		return nil, nil, runRoot(ctx, args...), nil
 	}
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.New("test", root, run, checkRun).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := mcpserver.New("test", root, run, CheckRun).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil).Connect(t.Context(), clientTransport, nil)
