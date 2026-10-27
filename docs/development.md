@@ -60,6 +60,8 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/driftpolicy` | `importer`, `cli`, `mcpserver` | The importer, the commands and the MCP server use it; it reads changes as the report has them. |
 | `internal/config` | `internal/providers/*`, `cli`, `mcpserver` | `config.Load` takes the providers' profiles from its caller. |
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
+| `internal/discovery` | anything of infraharvest's but `harvest` | It reads listed resources through `harvest`; the importer drives it. |
+| `internal/fsutil`, `filelock`, `ratelimit`, `logging`, `version`, `catalogue/schemameta`, `cfnhcl` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
 | `pkg/cfn` | anything of infraharvest's but `internal/cfnhcl`, which imports nothing of infraharvest's | The two can move to a module of their own (`TestNoInternalImports`). |
 
 Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files golangci-lint compiles: the default build's, test files included, and the `integration`, `e2e` and `sandbox` ones (see [Build tags](#build-tags)). To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
