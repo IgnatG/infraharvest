@@ -153,7 +153,7 @@ func (r *driftRuleFiles) Set(file string) error {
 	if err != nil {
 		return err
 	}
-	rules, err := parseDriftRuleLines(string(content))
+	rules, err := driftpolicy.ParseRuleLines(strings.Split(string(content), "\n"))
 	if err != nil {
 		return fmt.Errorf("%s: %w", file, err)
 	}
@@ -165,24 +165,6 @@ func (r *driftRuleFiles) Set(file string) error {
 func (r *driftRuleFiles) String() string { return strings.Join(r.files, ",") }
 
 func (r *driftRuleFiles) Type() string { return "file" }
-
-// parseDriftRuleLines parses rules, one a line, in order: blank lines and
-// lines starting with # are skipped.
-func parseDriftRuleLines(content string) ([]driftpolicy.Rule, error) {
-	var rules []driftpolicy.Rule
-	for i, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		rule, err := driftpolicy.ParseRuleLine(line)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", i+1, err)
-		}
-		rules = append(rules, rule)
-	}
-	return rules, nil
-}
 
 // writeDecisions is the value of --write-decisions: true or false, as a
 // boolean flag takes them, or the decisions file to write, which sets it

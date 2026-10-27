@@ -77,6 +77,26 @@ func ParseRuleLine(s string) (Rule, error) {
 	return r, nil
 }
 
+// ParseRuleLines parses lines, each a rule as ParseRuleLine takes it, in
+// order, as drift's --rules file and the MCP server's drift_accept rules
+// have them: blank lines and lines starting with # are skipped. An error
+// says which line, counting from 1.
+func ParseRuleLines(lines []string) ([]Rule, error) {
+	var rules []Rule
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rule, err := ParseRuleLine(line)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
 // String is the rule as --accept and --keep take it.
 func (r Rule) String() string {
 	if r.Field == "" {
